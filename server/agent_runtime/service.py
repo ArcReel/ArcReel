@@ -32,6 +32,7 @@ from fastapi.sse import ServerSentEvent
 
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
+from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE, get_locale
 from lib.profile_frontmatter import FrontmatterError, parse_profile_metadata
 from lib.profile_manifest import VALID_CONTENT_MODES
@@ -82,20 +83,22 @@ class InterruptSettleTimeoutError(MessageRewriteError):
 
 
 class AssistantService:
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path, *, user_id: str = DEFAULT_USER_ID):
         self.project_root = Path(project_root)
         self.projects_root = app_data_dir()
+        self.user_id = user_id
 
         self.pm = ProjectManager(self.projects_root)
-        self.meta_store = SessionMetaStore()
+        self.meta_store = SessionMetaStore(user_id=user_id)
         # 会话事件日志：UI 时间线唯一读源。store 与 SessionManager 共享同一实例，
         # live 写入点（entry pipeline）与读取端（REST / SSE / 懒生成）落同一张表。
-        self.event_log_store = EventLogStore()
+        self.event_log_store = EventLogStore(user_id=user_id)
         self.session_manager = SessionManager(
             project_root=self.project_root,
             meta_store=self.meta_store,
             projects_root=self.projects_root,
             event_log_store=self.event_log_store,
+            user_id=user_id,
         )
         # Shared with SessionManager (lazy-cached there) so reads via the
         # adapter and writes via SDK options use the same per-user namespace.

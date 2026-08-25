@@ -2673,7 +2673,7 @@ class TestGetVideoCapabilities:
             resolver_instance.video_capabilities = AsyncMock(side_effect=side_effect)
         else:
             resolver_instance.video_capabilities = AsyncMock(return_value=return_value)
-        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory, **_kwargs: resolver_instance)
         return resolver_instance
 
     @pytest.mark.unit
@@ -2708,7 +2708,7 @@ class TestGetVideoCapabilities:
         resolver_instance = MagicMock()
         resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
         resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
-        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory, **_kwargs: resolver_instance)
 
         client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
@@ -2729,7 +2729,7 @@ class TestGetVideoCapabilities:
         resolver_instance = MagicMock()
         resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
         resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
-        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory, **_kwargs: resolver_instance)
 
         client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
@@ -2753,7 +2753,7 @@ class TestGetVideoCapabilities:
 
         resolver_instance = MagicMock()
         resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
-        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory, **_kwargs: resolver_instance)
 
         client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
@@ -2783,7 +2783,7 @@ class TestGetVideoCapabilities:
 
         resolver_instance = MagicMock()
         resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
-        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory, **_kwargs: resolver_instance)
 
         client = _client(monkeypatch, _FakePM(tmp_path))
         with client:

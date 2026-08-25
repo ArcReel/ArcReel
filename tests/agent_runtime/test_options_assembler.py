@@ -41,6 +41,7 @@ def _make_assembler(
     policy: AgentAccessPolicy | None = None,
     max_turns: int | None = None,
     provider_env_loader=None,
+    user_id: str = "default",
 ) -> OptionsAssembler:
     projects_root = (tmp_path / "projects").resolve()
     projects_root.mkdir(parents=True, exist_ok=True)
@@ -54,6 +55,7 @@ def _make_assembler(
         max_turns_provider=lambda: max_turns,
         resolve_project_cwd=lambda name: projects_root / name,
         provider_env_loader=provider_env_loader,
+        user_id_provider=lambda: user_id,
     )
 
 
@@ -79,6 +81,21 @@ async def test_load_provider_env_overrides_injects_anthropic_and_empties() -> No
     assert env["GEMINI_API_KEY"] == ""
     assert env["VIDU_API_KEY"] == ""
     assert env["GOOGLE_APPLICATION_CREDENTIALS"] == ""
+
+
+@pytest.mark.asyncio
+async def test_load_provider_env_overrides_reads_exact_authenticated_user() -> None:
+    seen: list[str] = []
+
+    async def fake_build(_session, *, user_id: str):
+        seen.append(user_id)
+        return {"ANTHROPIC_API_KEY": "user-secret"}
+
+    with patch("lib.config.service.build_anthropic_env_dict", side_effect=fake_build):
+        env = await load_provider_env_overrides(user_id="center-user")
+
+    assert seen == ["center-user"]
+    assert env["ANTHROPIC_API_KEY"] == "user-secret"
 
 
 @pytest.mark.asyncio
@@ -114,6 +131,25 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     assert options.sandbox.get("enabled") is True
     # 用户消息回放开关：缺失则 SDK 不回放副本，身份映射无从建立
     assert options.extra_args == {"replay-user-messages": None}
+
+
+@pytest.mark.asyncio
+async def test_build_binds_mcp_tools_to_exact_authenticated_user(tmp_path: Path, monkeypatch) -> None:
+    from server.agent_runtime import options_assembler as module
+
+    seen: list[str] = []
+    real_build = module.build_arcreel_mcp_server
+
+    def capture(**kwargs):
+        seen.append(kwargs["user_id"])
+        return real_build(**kwargs)
+
+    monkeypatch.setattr(module, "build_arcreel_mcp_server", capture)
+    assembler = _make_assembler(tmp_path, user_id="center-user")
+
+    await assembler.build("demo")
+
+    assert seen == ["center-user"]
 
 
 @pytest.mark.asyncio

@@ -216,6 +216,7 @@ async def _derive_execution_model_for_enqueue(
     task_type: str,
     media_type: str,
     resource_id: str | None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> tuple[ProviderModel, VideoCapability | None] | None:
     """入队时按 project + payload 派生任务的 advisory provider 与视频桶。
 
@@ -237,7 +238,7 @@ async def _derive_execution_model_for_enqueue(
         if project_name:
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
 
-        resolver = ConfigResolver(async_session_factory)
+        resolver = ConfigResolver(async_session_factory, user_id=user_id)
         if is_video:
             resolved, video_capability = await resolve_video_execution_for_queued_task(
                 resolver=resolver,
@@ -314,7 +315,7 @@ class GenerationQueue:
         self._worker_cancel_callback = callback
 
     @asynccontextmanager
-    async def _task_repo(self) -> AsyncIterator[TaskRepository]:
+    async def _task_repo(self, *, user_id: str | None = None) -> AsyncIterator[TaskRepository]:
         """打开一条 TaskRepository 会话，退出时把落地的任务终态发上项目事件总线。
 
         发布放在会话退出之后而非 repo 内部：repo 内直接发会让前端读到尚未提交的状态。
@@ -324,7 +325,7 @@ class GenerationQueue:
         新增写终态的方法自动获得发布，不会漏。
         """
         async with self._session_factory() as session:
-            repo = TaskRepository(session)
+            repo = TaskRepository(session, user_id=user_id)
             yield repo
         emit_task_terminal_events(repo.terminal_events)
 
@@ -363,6 +364,7 @@ class GenerationQueue:
                 task_type=task_type,
                 media_type=media_type,
                 resource_id=resource_id,
+                user_id=user_id,
             )
             if derived is not None:
                 execution_model, _video_capability = derived
@@ -429,8 +431,9 @@ class GenerationQueue:
         resource_ids: list[str],
         script_file: str | None = None,
         resource_type: str | None = None,
+        user_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        async with self._task_repo() as repo:
+        async with self._task_repo(user_id=user_id) as repo:
             return await repo.get_active_tasks_for_resources(
                 project_name=project_name,
                 task_type=task_type,
@@ -446,8 +449,9 @@ class GenerationQueue:
         task_type: str,
         resource_id: str,
         statuses: tuple[str, ...] | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any] | None:
-        async with self._task_repo() as repo:
+        async with self._task_repo(user_id=user_id) as repo:
             return await repo.get_latest_task_for_resource(
                 project_name=project_name,
                 task_type=task_type,
@@ -556,8 +560,8 @@ class GenerationQueue:
 
         return int(result.get("rows", 0))
 
-    async def cancel_task(self, task_id: str) -> dict[str, Any]:
-        async with self._task_repo() as repo:
+    async def cancel_task(self, task_id: str, *, user_id: str | None = None) -> dict[str, Any]:
+        async with self._task_repo(user_id=user_id) as repo:
             result = await repo.cancel_task(task_id)
 
         # Repository 返回 cancelling 意图列表 → GenerationQueue 同步分发 in-process 信号。
@@ -585,24 +589,24 @@ class GenerationQueue:
             )
         return result
 
-    async def get_cancel_preview(self, task_id: str) -> dict[str, Any]:
-        async with self._task_repo() as repo:
+    async def get_cancel_preview(self, task_id: str, *, user_id: str | None = None) -> dict[str, Any]:
+        async with self._task_repo(user_id=user_id) as repo:
             return await repo.get_cancel_preview(task_id)
 
-    async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
-        async with self._task_repo() as repo:
+    async def cancel_all_queued(self, project_name: str, *, user_id: str | None = None) -> dict[str, Any]:
+        async with self._task_repo(user_id=user_id) as repo:
             result = await repo.cancel_all_queued(project_name)
         if result["cancelled_count"] > 0:
             logger.info("批量取消 project=%s 共取消 %d 个", project_name, result["cancelled_count"])
         return result
 
-    async def get_cancel_all_preview(self, project_name: str) -> int:
-        async with self._task_repo() as repo:
+    async def get_cancel_all_preview(self, project_name: str, *, user_id: str | None = None) -> int:
+        async with self._task_repo(user_id=user_id) as repo:
             return await repo.get_cancel_all_preview(project_name)
 
-    async def get_task(self, task_id: str) -> dict[str, Any] | None:
+    async def get_task(self, task_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
 
-        async with self._task_repo() as repo:
+        async with self._task_repo(user_id=user_id) as repo:
             return await repo.get(task_id)
 
     async def list_tasks(
@@ -614,9 +618,10 @@ class GenerationQueue:
         source: str | None = None,
         page: int = 1,
         page_size: int = 50,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
 
-        async with self._task_repo() as repo:
+        async with self._task_repo(user_id=user_id) as repo:
             return await repo.list_tasks(
                 project_name=project_name,
                 status=status,
@@ -626,9 +631,14 @@ class GenerationQueue:
                 page_size=page_size,
             )
 
-    async def get_task_stats(self, project_name: str | None = None) -> dict[str, int]:
+    async def get_task_stats(
+        self,
+        project_name: str | None = None,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, int]:
 
-        async with self._task_repo() as repo:
+        async with self._task_repo(user_id=user_id) as repo:
             return await repo.get_stats(project_name=project_name)
 
     async def acquire_or_renew_worker_lease(

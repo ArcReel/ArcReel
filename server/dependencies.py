@@ -10,14 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.project_migration_guard import assert_project_migration_ok
+from server.auth import CurrentUser
 
 _READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 def get_config_service(
+    user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
 ) -> ConfigService:
-    return ConfigService(session)
+    return ConfigService(session, user_id=user.id)
 
 
 async def require_project_migration_ok(request: Request) -> None:

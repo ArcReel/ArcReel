@@ -66,6 +66,7 @@ def generate_character_voice_references_tool(ctx: ToolContext):
                         skip_existing_voice=True,
                         reuse_candidate=True,
                         manager=ctx.pm,
+                        user_id=ctx.user_id,
                     )
                     return {"name": name, **result}
                 except Exception as exc:
@@ -97,7 +98,12 @@ def confirm_character_voice_reference_tool(ctx: ToolContext):
             name = args["name"]
             task_id = args.get("task_id")
             if not isinstance(task_id, str) or not task_id:
-                candidate = await latest_character_voice_candidate(ctx.project_name, name, manager=ctx.pm)
+                candidate = await latest_character_voice_candidate(
+                    ctx.project_name,
+                    name,
+                    manager=ctx.pm,
+                    user_id=ctx.user_id,
+                )
                 if candidate is None or candidate.get("status") != "succeeded":
                     return _response({"error": "no succeeded voice candidate", "name": name}, is_error=True)
                 task_id = candidate["task_id"]
@@ -107,6 +113,7 @@ def confirm_character_voice_reference_tool(ctx: ToolContext):
                 task_id,
                 source="worker",
                 manager=ctx.pm,
+                user_id=ctx.user_id,
             )
             return _response({"name": name, "task_id": task_id, **saved})
         except Exception as exc:  # noqa: BLE001

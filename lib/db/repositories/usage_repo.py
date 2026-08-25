@@ -124,6 +124,15 @@ def _row_to_dict(row: ApiCall) -> dict[str, Any]:
 
 
 class UsageRepository(BaseRepository):
+    def __init__(self, session, *, user_id: str | None = None):
+        super().__init__(session)
+        self.user_id = user_id
+
+    def _scope_query(self, stmt, model):
+        if model is ApiCall and self.user_id is not None:
+            return stmt.where(ApiCall.user_id == self.user_id)
+        return stmt
+
     async def start_call(
         self,
         *,
@@ -136,7 +145,7 @@ class UsageRepository(BaseRepository):
         aspect_ratio: str | None = None,
         generate_audio: bool = True,
         provider: str = PROVIDER_GEMINI,
-        user_id: str = DEFAULT_USER_ID,
+        user_id: str | None = None,
         segment_id: str | None = None,
     ) -> int:
         now = utc_now()
@@ -154,7 +163,7 @@ class UsageRepository(BaseRepository):
             status="pending",
             started_at=now,
             provider=provider,
-            user_id=user_id,
+            user_id=user_id or self.user_id or DEFAULT_USER_ID,
             segment_id=segment_id,
         )
         self.session.add(row)

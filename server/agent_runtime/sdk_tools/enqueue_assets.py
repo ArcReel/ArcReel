@@ -264,6 +264,7 @@ def generate_assets_tool(ctx: ToolContext):
                 successes, failures = await batch_enqueue_and_wait(
                     project_name=ctx.project_name,
                     specs=task_specs,
+                    user_id=ctx.user_id,
                 )
                 record_batch_outcomes(
                     builder,

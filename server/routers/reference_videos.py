@@ -856,6 +856,7 @@ async def preview_script(
     project_name: str,
     episode: int,
     req: ScriptPreviewRequest,
+    user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     """视频单元正文的读时派生预览：utterances + 降级可见性 warning。
@@ -865,7 +866,7 @@ async def preview_script(
     开关，与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
     """
     project, script, _sf = _load_episode_script(project_name, episode, _t)
-    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示")
+    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示", user_id=user.id)
     unit = _find_unit(script, req.unit_id, _t) if req.unit_id else None
     preview = build_script_preview(
         req.prompt,

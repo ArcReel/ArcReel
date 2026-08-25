@@ -1,13 +1,31 @@
 import { create } from "zustand";
-import { getToken, setToken as saveToken, clearToken } from "@/utils/auth";
+import {
+  clearToken,
+  getStoredUser,
+  getToken,
+  setStoredUser,
+  setToken as saveToken,
+} from "@/utils/auth";
 
 interface AuthState {
   token: string | null;
   username: string | null;
+  userId: string | null;
+  role: string | null;
+  displayName: string | null;
+  identitySource: string | null;
+  accountCenterEnabled: boolean;
   isAuthenticated: boolean;
   isLoading: boolean;
   initialize: () => void;
-  login: (token: string, username: string) => void;
+  login: (
+    token: string,
+    username: string,
+    role?: string,
+    userId?: string,
+    displayName?: string | null,
+    identitySource?: string,
+  ) => void;
   logout: () => void;
   setLoading: (loading: boolean) => void;
 }
@@ -15,13 +33,28 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   username: null,
+  userId: null,
+  role: null,
+  displayName: null,
+  identitySource: null,
+  accountCenterEnabled: false,
   isAuthenticated: false,
   isLoading: true,
 
   initialize: () => {
     const token = getToken();
     if (token) {
-      set({ token, isAuthenticated: true, isLoading: false });
+      const user = getStoredUser();
+      set({
+        token,
+        username: user?.username ?? null,
+        userId: user?.id ?? "default",
+        role: user?.role ?? "admin",
+        displayName: user?.displayName ?? null,
+        identitySource: user?.identitySource ?? "internal",
+        isAuthenticated: true,
+        isLoading: false,
+      });
       return;
     }
     // 无 token 时先问后端是否启用了鉴权。`AUTH_ENABLED=false` 时后端全链路
@@ -40,7 +73,11 @@ export const useAuthStore = create<AuthState>((set) => ({
         ) {
           throw new Error("invalid /auth/status payload");
         }
-        const { enabled } = payload as { enabled: boolean };
+        const { enabled, account_center_enabled: accountCenterEnabled } = payload as {
+          enabled: boolean;
+          account_center_enabled?: boolean;
+        };
+        set({ accountCenterEnabled: Boolean(accountCenterEnabled) });
         if (!enabled) {
           set({ isAuthenticated: true });
         }
@@ -54,14 +91,32 @@ export const useAuthStore = create<AuthState>((set) => ({
       });
   },
 
-  login: (token, username) => {
+  login: (token, username, role = "admin", userId = "default", displayName = null, identitySource = "internal") => {
     saveToken(token);
-    set({ token, username, isAuthenticated: true, isLoading: false });
+    setStoredUser({ id: userId, username, role, displayName, identitySource });
+    set({
+      token,
+      username,
+      userId,
+      role,
+      displayName,
+      identitySource,
+      isAuthenticated: true,
+      isLoading: false,
+    });
   },
 
   logout: () => {
     clearToken();
-    set({ token: null, username: null, isAuthenticated: false });
+    set({
+      token: null,
+      username: null,
+      userId: null,
+      role: null,
+      displayName: null,
+      identitySource: null,
+      isAuthenticated: false,
+    });
   },
 
   setLoading: (isLoading) => set({ isLoading }),

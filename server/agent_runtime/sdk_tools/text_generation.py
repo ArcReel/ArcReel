@@ -27,6 +27,7 @@ from lib.asset_types import BUCKET_KEY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
+from lib.db.base import DEFAULT_USER_ID
 from lib.draft_quarantine import (
     PROMOTE_TOOL_NAME,
     QUARANTINE_KIND_DRAMA_STEP1,
@@ -91,6 +92,7 @@ from server.agent_runtime.sdk_tools._context import (
     reference_unit_duration_tiers,
     resolve_video_caps,
     tool_error,
+    user_scope_kwargs,
 )
 from server.services.reference_storyboard_sheet_tasks import reference_storyboard_sheet_task_specs
 
@@ -115,7 +117,11 @@ async def _enqueue_auto_storyboard_sheets(ctx: ToolContext, result_path: Path) -
     specs = reference_storyboard_sheet_task_specs(script, script_file, missing_only=True)
     if not specs:
         return ""
-    enqueued, failures = await batch_enqueue_only(project_name=ctx.project_name, specs=specs)
+    enqueued, failures = await batch_enqueue_only(
+        project_name=ctx.project_name,
+        specs=specs,
+        user_id=ctx.user_id,
+    )
     message = f"；已自动提交 {len(enqueued)} 个 Video Unit Storyboard Sheet 任务（使用项目默认图片模型）"
     if failures:
         message += f"，另有 {len(failures)} 个任务未能入队"
@@ -214,12 +220,21 @@ def _load_step1_source_with_basis(
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_video_capabilities(project_name: str) -> dict[str, Any]:
-    resolver = ConfigResolver(async_session_factory)
+async def _resolve_video_capabilities(
+    project_name: str,
+    *,
+    user_id: str = DEFAULT_USER_ID,
+) -> dict[str, Any]:
+    resolver = ConfigResolver(async_session_factory, **user_scope_kwargs(user_id))
     return await resolver.video_capabilities(project_name)
 
 
-async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
+async def _annotate_reference_unit_tiers(
+    payload: dict[str, Any],
+    project: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+) -> None:
     """就地补上参考视频路径逐 unit 的两套生效档位（非该路径的项目不补）。
 
     ``supported_durations`` 是型号声明的全集，不含「分辨率↔时长」「参考图↔时长」两条联动约束。
@@ -234,7 +249,12 @@ async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations:
         return
-    with_refs, without_refs = await reference_unit_duration_tiers(project, payload, durations)
+    with_refs, without_refs = await reference_unit_duration_tiers(
+        project,
+        payload,
+        durations,
+        **user_scope_kwargs(user_id),
+    )
     payload["reference_unit_durations"] = {
         "with_references": with_refs,
         "without_references": without_refs,
@@ -251,8 +271,15 @@ def get_video_capabilities_tool(ctx: ToolContext):
     )
     async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
         try:
-            payload = await _resolve_video_capabilities(ctx.project_name)
-            await _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
+            payload = await _resolve_video_capabilities(
+                ctx.project_name,
+                **user_scope_kwargs(ctx.user_id),
+            )
+            await _annotate_reference_unit_tiers(
+                payload,
+                ctx.pm.load_project(ctx.project_name),
+                **user_scope_kwargs(ctx.user_id),
+            )
             return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
         except FileNotFoundError as exc:
             return {
@@ -484,7 +511,12 @@ def confirm_script_review_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_caps_with_fallback(project: dict[str, Any], episode: int) -> tuple[int | None, list[int]]:
+async def _fetch_caps_with_fallback(
+    project: dict[str, Any],
+    episode: int,
+    *,
+    user_id: str = DEFAULT_USER_ID,
+) -> tuple[int | None, list[int]]:
     """Script normalization is best-effort: prompt生成 不该被能力查询失败堵住。
 
     Soft-fallbacks to ``duration_presets.DEFAULT_FALLBACK`` so the LLM still
@@ -501,7 +533,11 @@ async def _fetch_caps_with_fallback(project: dict[str, Any], episode: int) -> tu
     越界默认时长」变成整个工具的硬失败。与 ``_fetch_reference_caps_with_fallback`` 同口径。
     """
     try:
-        default_int, durations = await fetch_video_caps(project, generation_mode=None)
+        default_int, durations = await fetch_video_caps(
+            project,
+            generation_mode=None,
+            **user_scope_kwargs(user_id),
+        )
     except (FileNotFoundError, ValueError) as exc:
         logger.info("video_capabilities 不可解析，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
@@ -559,7 +595,11 @@ def normalize_drama_script_tool(ctx: ToolContext):
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-            default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+            default_duration, supported_durations = await _fetch_caps_with_fallback(
+                project,
+                episode,
+                **user_scope_kwargs(ctx.user_id),
+            )
             prompt = build_normalize_prompt(
                 novel_text=novel_text,
                 project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),
@@ -678,7 +718,12 @@ class ReferenceSplitCaps(NamedTuple):
         return self.reference_durations if has_references else self.text_durations
 
 
-async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: int) -> ReferenceSplitCaps:
+async def _fetch_reference_caps_with_fallback(
+    project: dict[str, Any],
+    episode: int,
+    *,
+    user_id: str = DEFAULT_USER_ID,
+) -> ReferenceSplitCaps:
     """解析 rv 拆分所需的视频能力（见 ``ReferenceSplitCaps``）。
 
     与 ``_fetch_caps_with_fallback`` 同口径 best-effort：resolver 故障时回退
@@ -692,14 +737,14 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     但新契约要求每个 unit 至少一个关键帧，所以 prompt、默认值、最大时长与最终准入都按带图档位。
     """
     try:
-        caps = await resolve_video_caps(project)
+        caps = await resolve_video_caps(project, **user_scope_kwargs(user_id))
     except Exception as exc:  # noqa: BLE001
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
         # requested_generate_audio 不依赖能力接口（见 generation_context.py 同名字段注释），
         # 能力解析失败也不能连带丢失，否则本该报的 WARN_SILENT_EPISODE 会静默消失。
         try:
-            resolver = ConfigResolver(async_session_factory)
+            resolver = ConfigResolver(async_session_factory, **user_scope_kwargs(user_id))
             caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
         except Exception as inner_exc:  # noqa: BLE001
             # 与其余能力字段的「不明时不额外收紧」相反：这里不明时收紧到 False——静默丢掉
@@ -709,7 +754,12 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)
-    with_refs, without_refs = await reference_unit_duration_tiers(project, caps, durations)
+    with_refs, without_refs = await reference_unit_duration_tiers(
+        project,
+        caps,
+        durations,
+        **user_scope_kwargs(user_id),
+    )
     unit_durations = sorted(set(with_refs) | set(without_refs))
     max_duration = max(with_refs)
     raw_refs = caps.get("max_reference_images")
@@ -1191,7 +1241,11 @@ async def _promote_drama_step1(ctx: ToolContext, episode: int, draft: Quarantine
     except ValueError as exc:
         return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-    _, supported_durations = await _fetch_caps_with_fallback(project, episode)
+    _, supported_durations = await _fetch_caps_with_fallback(
+        project,
+        episode,
+        **user_scope_kwargs(ctx.user_id),
+    )
     schema = build_drama_normalized_script_model(supported_durations)
     try:
         content = schema.model_validate(draft.content).model_dump()
@@ -1564,7 +1618,11 @@ def split_reference_video_units_tool(ctx: ToolContext):
             scenes = cast(dict[str, Any], prompt_inputs["scenes"])
             props = cast(dict[str, Any], prompt_inputs["props"])
 
-            split_caps = await _fetch_reference_caps_with_fallback(project, episode)
+            split_caps = await _fetch_reference_caps_with_fallback(
+                project,
+                episode,
+                **user_scope_kwargs(ctx.user_id),
+            )
             prompt = build_reference_units_split_prompt(
                 novel_text=novel_text,
                 project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),
@@ -1909,7 +1967,11 @@ def split_narration_segments_tool(ctx: ToolContext):
 
             # narration 仅需 (default_duration, supported_durations)：无 unit 总时长 / 参考图概念，
             # 复用与 drama normalize 同口径的 best-effort 能力查询（resolver 故障软回退 [4,6,8]）。
-            default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+            default_duration, supported_durations = await _fetch_caps_with_fallback(
+                project,
+                episode,
+                **user_scope_kwargs(ctx.user_id),
+            )
             prompt = build_narration_split_prompt(
                 novel_text=novel_text,
                 project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),

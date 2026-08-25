@@ -83,6 +83,7 @@ async def wait_for_task(
     timeout_seconds: float | None = None,
     lease_name: str = "default",
     worker_offline_grace_seconds: float | None = None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> dict[str, Any]:
     queue = get_generation_queue()
     interval = poll_interval if poll_interval is not None else read_queue_poll_interval()
@@ -98,7 +99,7 @@ async def wait_for_task(
     offline_since: float | None = None
 
     while True:
-        task = await queue.get_task(task_id)
+        task = await queue.get_task(task_id, user_id=user_id)
         if not task:
             raise RuntimeError(f"task not found: {task_id}")
 
@@ -158,6 +159,7 @@ async def enqueue_and_wait(
         timeout_seconds=wait_timeout_seconds,
         lease_name=lease_name,
         worker_offline_grace_seconds=worker_offline_grace_seconds,
+        user_id=user_id,
     )
     if task.get("status") == "failed":
         message = task.get("error_message") or "task failed"
@@ -224,6 +226,7 @@ async def get_active_tasks_for_resources(
     task_type: str,
     resource_ids: list[str],
     script_file: str | None = None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> list[dict[str, Any]]:
     """查询命中入队去重键、当前处于活动态（queued/running/cancelling）的任务。
 
@@ -237,6 +240,7 @@ async def get_active_tasks_for_resources(
         task_type=task_type,
         resource_ids=resource_ids,
         script_file=script_file,
+        user_id=user_id,
     )
 
 
@@ -622,6 +626,7 @@ async def batch_enqueue_and_wait(
     on_success: Callable[[BatchTaskResult], None] | None = None,
     on_failure: Callable[[BatchTaskResult], None] | None = None,
     stop_on_failure: bool = False,
+    user_id: str = DEFAULT_USER_ID,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Async: enqueue sequentially, then gather-wait all tasks.
 
@@ -641,6 +646,7 @@ async def batch_enqueue_and_wait(
         project_name=project_name,
         specs=specs,
         stop_on_failure=stop_on_failure,
+        user_id=user_id,
     )
     task_ids = {item.resource_id: item.task_id for item in enqueued}
 
@@ -651,7 +657,7 @@ async def batch_enqueue_and_wait(
     async def _wait_one(spec: TaskSpec) -> BatchTaskResult:
         tid = task_ids[spec.resource_id]
         try:
-            task = await wait_for_task(tid)
+            task = await wait_for_task(tid, user_id=user_id)
             return _task_result_from_finished(task, spec.resource_id, tid)
         except (TaskWaitTimeoutError, WorkerOfflineError) as exc:
             # wait_for_task 抛出前刚确认过 task 仍非终态（未 succeeded/failed/cancelled）——

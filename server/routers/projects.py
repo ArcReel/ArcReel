@@ -687,6 +687,7 @@ async def create_project(
 @router.get("/projects/{name}/video-capabilities")
 async def get_video_capabilities(
     name: str,
+    user: CurrentUser,
     _t: Translator,
     video_backend: Annotated[str | None, Query()] = None,
 ):
@@ -703,7 +704,7 @@ async def get_video_capabilities(
 
     能力按项目生成路线定轴、全项目同一口径，故无需集号：路线创建即定、之后不可更改。
     """
-    resolver = ConfigResolver(async_session_factory)
+    resolver = ConfigResolver(async_session_factory, user_id=user.id)
     try:
         if video_backend:
             provider_id, sep, model_id = video_backend.partition("/")

@@ -21,6 +21,7 @@ from lib.artifact_activation import (
 from lib.artifact_manifest import ArtifactManifestError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
+from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue_client import TaskSpec, batch_enqueue_and_wait
 from lib.generation_result import (
     GenerationAction,
@@ -36,6 +37,7 @@ from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     generation_result_response,
     tool_error,
+    user_scope_kwargs,
     validate_script_filename,
 )
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
@@ -58,13 +60,22 @@ _LABEL_ZH: dict[str, str] = {
 }
 
 
-async def _i2i_provider_available(project: dict[str, Any], payload: dict[str, str] | None = None) -> bool:
+async def _i2i_provider_available(
+    project: dict[str, Any],
+    payload: dict[str, str] | None = None,
+    *,
+    user_id: str = DEFAULT_USER_ID,
+) -> bool:
     """项目 i2i 槽解析不出可用供应商时返回 False——与 HTTP 端点入队前 fail-fast 同一判断点
     （见 ``server/routers/generate.py::_require_i2i_image_provider_configured``），批量编辑
     只需要一次「是否可用」的项目级判断，不像端点那样需要拿到 provider_id 传给入队。
     """
     try:
-        await ConfigResolver(async_session_factory).resolve_image_backend(project, payload or {}, capability="i2i")
+        await ConfigResolver(async_session_factory, **user_scope_kwargs(user_id)).resolve_image_backend(
+            project,
+            payload or {},
+            capability="i2i",
+        )
     except ValueError:
         return False
     return True
@@ -288,9 +299,9 @@ def edit_images_tool(ctx: ToolContext):
 
             image_override = image_override_from_args(args)
             provider_available = (
-                await _i2i_provider_available(project, image_override)
+                await _i2i_provider_available(project, image_override, **user_scope_kwargs(ctx.user_id))
                 if image_override
-                else await _i2i_provider_available(project)
+                else await _i2i_provider_available(project, **user_scope_kwargs(ctx.user_id))
             )
             if not provider_available:
                 # 拦截在入队前：不是某个 ID 的产物问题，是整批共享的前置条件不满足，
@@ -339,6 +350,7 @@ def edit_images_tool(ctx: ToolContext):
                 successes, failures = await batch_enqueue_and_wait(
                     project_name=ctx.project_name,
                     specs=specs,
+                    user_id=ctx.user_id,
                 )
                 # 编辑产物不写回 Manifest（编辑意图不可推导，见模块顶部说明），
                 # 因此这里不带 resolver：产物时效轴如实留空而不是假装已知。states 只

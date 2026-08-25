@@ -156,6 +156,13 @@ export interface AssetRenameResult {
 export interface LoginResponse {
   access_token: string;
   token_type: string;
+  user?: {
+    id: string;
+    username: string;
+    role: string;
+    display_name?: string | null;
+    identity_source?: string;
+  };
 }
 
 /** Standard error response body from backend (mirrors FastAPI HTTPException detail). */

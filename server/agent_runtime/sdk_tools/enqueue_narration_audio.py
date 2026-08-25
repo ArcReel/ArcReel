@@ -205,6 +205,7 @@ def generate_narration_audio_tool(ctx: ToolContext):
                 successes, failures = await batch_enqueue_and_wait(
                     project_name=ctx.project_name,
                     specs=specs,
+                    user_id=ctx.user_id,
                 )
                 record_batch_outcomes(
                     builder,

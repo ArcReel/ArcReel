@@ -217,6 +217,7 @@ def generate_storyboards_tool(ctx: ToolContext):
                 successes, failures = await batch_enqueue_and_wait(
                     project_name=ctx.project_name,
                     specs=specs,
+                    user_id=ctx.user_id,
                 )
                 # narration → segment_id / drama → scene_id：``id_field`` 是脚本里
                 # 的规范字段名，``"segment"`` / ``"scene"`` 是对应的资源类型。

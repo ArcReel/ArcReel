@@ -36,7 +36,7 @@ from claude_agent_sdk.types import HookMatcher, SystemPromptPreset
 SDK_AVAILABLE = True
 
 
-async def load_provider_env_overrides() -> dict[str, str]:
+async def load_provider_env_overrides(*, user_id: str = DEFAULT_USER_ID) -> dict[str, str]:
     """构造 options.env 注入字典。
 
     - ANTHROPIC_* 从 DB active credential 取真值
@@ -50,7 +50,7 @@ async def load_provider_env_overrides() -> dict[str, str]:
     from lib.db import async_session_factory
 
     async with async_session_factory() as session:
-        anthropic_env = await build_anthropic_env_dict(session)
+        anthropic_env = await build_anthropic_env_dict(session, user_id=user_id)
 
     result = dict(anthropic_env)
     for key in OTHER_PROVIDER_ENV_KEYS:
@@ -116,8 +116,9 @@ class OptionsAssembler:
     async def build_provider_env_overrides(self) -> dict[str, str]:
         """DB 凭证注入入口。默认走模块级 ``load_provider_env_overrides``（现取 module
         global 以便测试 patch）；构造时注入 ``provider_env_loader`` 则改用注入源。"""
-        loader = self._provider_env_loader or load_provider_env_overrides
-        return await loader()
+        if self._provider_env_loader is not None:
+            return await self._provider_env_loader()
+        return await load_provider_env_overrides(user_id=self._user_id_provider())
 
     def _build_append_prompt(self, project_name: str, locale: str = DEFAULT_LOCALE) -> str:
         """Build the append portion for SystemPromptPreset.
@@ -273,6 +274,7 @@ class OptionsAssembler:
         arcreel_server = build_arcreel_mcp_server(
             project_name=project_name,
             projects_root=self.projects_root,
+            user_id=self._user_id_provider(),
         )
 
         return ClaudeAgentOptions(

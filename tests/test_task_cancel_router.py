@@ -45,20 +45,20 @@ class _FakeQueue:
         self._cancel_task_result.setdefault("cancelling", [])
         self._cancel_task_result.setdefault("skipped_terminal", [])
 
-    async def get_cancel_preview(self, task_id: str):
+    async def get_cancel_preview(self, task_id: str, **_kwargs):
         if self._cancel_preview_error:
             raise ValueError(self._cancel_preview_error)
         return self._cancel_preview_result
 
-    async def cancel_task(self, task_id: str):
+    async def cancel_task(self, task_id: str, **_kwargs):
         if self._cancel_task_error:
             raise ValueError(self._cancel_task_error)
         return self._cancel_task_result
 
-    async def get_cancel_all_preview(self, project_name: str) -> int:
+    async def get_cancel_all_preview(self, project_name: str, **_kwargs) -> int:
         return self._cancel_all_preview_count
 
-    async def cancel_all_queued(self, project_name: str):
+    async def cancel_all_queued(self, project_name: str, **_kwargs):
         return self._cancel_all_result
 
 

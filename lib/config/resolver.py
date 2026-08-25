@@ -40,6 +40,7 @@ from lib.config.service import (
     ConfigService,
 )
 from lib.custom_provider import is_custom_provider, parse_provider_id
+from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import get_project_manager
@@ -682,9 +683,11 @@ class ConfigResolver:
         session_factory: async_sessionmaker,
         *,
         _bound_session: AsyncSession | None = None,
+        user_id: str = DEFAULT_USER_ID,
     ) -> None:
         self._session_factory = session_factory
         self._bound_session = _bound_session
+        self._user_id = user_id
 
     # ── Session 管理 ──
 
@@ -695,16 +698,16 @@ class ConfigResolver:
             yield self
         else:
             async with self._session_factory() as sess:
-                yield ConfigResolver(self._session_factory, _bound_session=sess)
+                yield ConfigResolver(self._session_factory, _bound_session=sess, user_id=self._user_id)
 
     @asynccontextmanager
     async def _open_session(self) -> AsyncIterator[tuple[AsyncSession, ConfigService]]:
         """获取 (session, ConfigService)，优先复用 bound session。"""
         if self._bound_session is not None:
-            yield self._bound_session, ConfigService(self._bound_session)
+            yield self._bound_session, ConfigService(self._bound_session, user_id=self._user_id)
         else:
             async with self._session_factory() as session:
-                yield session, ConfigService(session)
+                yield session, ConfigService(session, user_id=self._user_id)
 
     # ── 公开 API ──
 
@@ -1509,7 +1512,7 @@ class ConfigResolver:
         provider_id: str,
     ) -> dict[str, str]:
         config = await svc.get_provider_config(provider_id)
-        cred_repo = CredentialRepository(session)
+        cred_repo = CredentialRepository(session, getattr(self, "_user_id", DEFAULT_USER_ID))
         active = await cred_repo.get_active(provider_id)
         if active:
             active.overlay_config(config)
@@ -1536,7 +1539,7 @@ class ConfigResolver:
         session: AsyncSession,
     ) -> dict[str, dict[str, str]]:
         configs = await svc.get_all_provider_configs()
-        cred_repo = CredentialRepository(session)
+        cred_repo = CredentialRepository(session, getattr(self, "_user_id", DEFAULT_USER_ID))
         active_creds = await cred_repo.get_active_credentials_bulk()
         for provider_id, cred in active_creds.items():
             cfg = configs.setdefault(provider_id, {})

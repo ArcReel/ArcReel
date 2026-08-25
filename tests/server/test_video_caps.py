@@ -36,7 +36,7 @@ async def test_project_video_caps_preserves_silent_intent_on_capability_failure(
     """能力解析失败时，独立解析出的 requested_generate_audio 仍随项目覆盖走，不回退成 True。"""
 
     class _FakeResolver:
-        def __init__(self, _session_factory):
+        def __init__(self, _session_factory, **_kwargs):
             pass
 
         async def video_capabilities_for_project(self, _project, *, capability=None):
@@ -55,7 +55,7 @@ async def test_project_video_caps_degrades_silent_on_double_failure(monkeypatch:
     """独立解析也失败（双重故障）时收紧到 False，同 text_generation.py 的同款兜底口径。"""
 
     class _FakeResolver:
-        def __init__(self, _session_factory):
+        def __init__(self, _session_factory, **_kwargs):
             pass
 
         async def video_capabilities_for_project(self, _project, *, capability=None):

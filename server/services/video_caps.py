@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.config.registry import PROVIDER_REGISTRY, model_audio_always_on
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoCapability
 from lib.db import async_session_factory
+from lib.db.base import DEFAULT_USER_ID
 from lib.reference_video.voice_settings import VoiceRenderSettings
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ async def project_video_caps(
     *,
     degraded_to: str,
     capability: VideoCapability | None = None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> dict:
     """项目视频后端的 model 粒度能力；解析失败返回部分 dict（可能仅含 ``requested_generate_audio``），
     由调用方各自降级。
@@ -34,7 +36,7 @@ async def project_video_caps(
     按 i2v 桶取档 / 计价的读侧）。
     ``requested_generate_audio`` 独立于能力接口解析（见下方实现注释），双重失败时该键为 ``False``。
     """
-    resolver = ConfigResolver(async_session_factory)
+    resolver = ConfigResolver(async_session_factory, user_id=user_id)
     try:
         return await resolver.video_capabilities_for_project(project, capability=capability)
     except (ValueError, SQLAlchemyError) as exc:
@@ -50,7 +52,12 @@ async def project_video_caps(
         return caps
 
 
-async def resolve_audio_switch_conflict(project: dict, capability: VideoCapability) -> tuple[str, str] | None:
+async def resolve_audio_switch_conflict(
+    project: dict,
+    capability: VideoCapability,
+    *,
+    user_id: str = DEFAULT_USER_ID,
+) -> tuple[str, str] | None:
     """项目的「关闭音频」意图是否落在一个收不到音轨开关的模型上；冲突时返回 ``(provider, model)``。
 
     成片恒有声（``model_audio_always_on``）的模型请求里没有音轨开关可下发，关闭意图无法抵达
@@ -64,7 +71,7 @@ async def resolve_audio_switch_conflict(project: dict, capability: VideoCapabili
     # 模块级绑定在导入时就固化了 factory；这里延迟到调用时从 lib.db 取，测试才能替换它。
     from lib.db import async_session_factory
 
-    resolver = ConfigResolver(async_session_factory)
+    resolver = ConfigResolver(async_session_factory, user_id=user_id)
     try:
         selected = await resolver.resolve_video_backend(project, None, capability=capability)
         provider_meta = PROVIDER_REGISTRY.get(selected.provider_id)

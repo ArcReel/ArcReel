@@ -26,6 +26,7 @@ def client():
     with patch.dict(
         os.environ,
         {
+            "ARCREEL_CLOUD_ENABLED": "false",
             "AUTH_USERNAME": "testuser",
             "AUTH_PASSWORD": "testpass",
             "AUTH_TOKEN_SECRET": "test-router-secret-key-at-least-32-bytes-long",

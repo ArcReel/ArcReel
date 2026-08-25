@@ -73,6 +73,19 @@ class TestCredentialRepository:
         active = await repo.get_active("gemini-aistudio")
         assert active is None
 
+    async def test_credentials_are_strictly_scoped_by_user(self, session: AsyncSession):
+        first = CredentialRepository(session, "center-user-a")
+        second = CredentialRepository(session, "center-user-b")
+        await first.create(provider="gemini-aistudio", name="A", api_key="key-a")
+        await second.create(provider="gemini-aistudio", name="B", api_key="key-b")
+        await session.flush()
+
+        first_active = await first.get_active("gemini-aistudio")
+        second_active = await second.get_active("gemini-aistudio")
+        assert first_active is not None and first_active.api_key == "key-a"
+        assert second_active is not None and second_active.api_key == "key-b"
+        assert await first.get_by_id(second_active.id) is None
+
     async def test_get_by_id(self, session: AsyncSession):
         repo = CredentialRepository(session)
         c = await repo.create(provider="gemini-aistudio", name="Key1", api_key="AIza-1")

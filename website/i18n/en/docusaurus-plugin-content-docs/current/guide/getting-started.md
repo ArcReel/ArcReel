@@ -103,22 +103,10 @@ SQLite is the default and is suitable for local development, personal creation, 
 ```bash
 uv sync
 cd frontend && pnpm install && cd ..
-cp .env.example .env
 ```
 
-Edit `.env`:
-
-```dotenv
-AUTH_USERNAME=admin
-AUTH_PASSWORD=set a strong password
-AUTH_TOKEN_SECRET=set a long-lived random secret
-```
-
-You can generate `AUTH_TOKEN_SECRET` with this command:
-
-```bash
-openssl rand -hex 32
-```
+The production cloud account service is bundled, so ordinary users do not need to create or edit `.env`.
+An administrator must first create an ArcReel account and assign provider API keys in the data middle platform.
 
 Start the backend and frontend development servers:
 
@@ -138,7 +126,7 @@ After the health check succeeds, open this address in your browser:
 http://localhost:5173
 ```
 
-> When `AUTH_PASSWORD` is empty, ArcReel automatically generates a password on first startup and writes it back to `.env`. For regular use, you should still set and securely store a strong password yourself.
+> Sign in with the ArcReel username and password assigned in the data middle platform. ArcReel automatically retrieves the provider API keys assigned to that account after login.
 
 ### 2.3 Optional PostgreSQL {#deploy-with-postgresql}
 

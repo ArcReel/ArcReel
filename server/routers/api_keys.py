@@ -90,12 +90,13 @@ async def create_api_key(
     try:
         async with async_session_factory() as session:
             async with session.begin():
-                repo = ApiKeyRepository(session)
+                repo = ApiKeyRepository(session, user_id=user.id)
                 row = await repo.create(
                     name=body.name,
                     key_hash=key_hash,
                     key_prefix=key_prefix,
                     expires_at=expires_at,
+                    user_id=user.id,
                 )
     except IntegrityError:
         raise HTTPException(status_code=409, detail=_t("api_key_name_exists", name=body.name))
@@ -119,7 +120,7 @@ async def list_api_keys(
     _require_jwt_auth(user, _t)
     async with async_session_factory() as session:
         async with session.begin():
-            repo = ApiKeyRepository(session)
+            repo = ApiKeyRepository(session, user_id=user.id)
             rows = await repo.list_all()
 
     return [ApiKeyInfo(**row) for row in rows]
@@ -135,7 +136,7 @@ async def delete_api_key(
     _require_jwt_auth(user, _t)
     async with async_session_factory() as session:
         async with session.begin():
-            repo = ApiKeyRepository(session)
+            repo = ApiKeyRepository(session, user_id=user.id)
             row = await repo.get_by_id(key_id)
             if row is None:
                 raise HTTPException(status_code=404, detail=_t("api_key_not_found", key_id=key_id))

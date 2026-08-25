@@ -74,13 +74,12 @@ git clone https://github.com/ArcReel/ArcReel.git
 cd ArcReel
 uv sync
 cd frontend && pnpm install && cd ..
-cp .env.example .env
 ./scripts/dev.sh
 ```
 
-访问 <http://localhost:5173>。默认用户名为 `admin`；`AUTH_PASSWORD` 留空时，首次启动会自动生成密码并回写到根目录 `.env`。
+访问 <http://localhost:5173>，直接使用管理员在数据中台分配的 ArcReel 账号和密码登录。正式云端账号服务已内置，无需创建或修改 `.env`。
 
-登录后进入 **设置** 页面，配置 ArcReel Agent 以及文本、图像、视频等生成能力，再创建项目开始制作。
+登录后会自动获取管理员为该账号分配的供应商 API Key，然后即可创建项目开始制作。
 
 完整的首次使用流程见 [完整入门教程](https://docs.arc-reel.com/guide/getting-started)。
 

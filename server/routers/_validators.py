@@ -5,9 +5,15 @@ from __future__ import annotations
 from lib.api_errors import BadRequestError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoCapability
+from lib.db.base import DEFAULT_USER_ID
 
 
-async def require_video_bucket_capability(project: dict, capability: VideoCapability) -> None:
+async def require_video_bucket_capability(
+    project: dict,
+    capability: VideoCapability,
+    *,
+    user_id: str = DEFAULT_USER_ID,
+) -> None:
     """视频生成入口预检：按能力桶解析全局 + 项目配置并过解析闸（``docs/adr/0054``）。
 
     解析出的模型缺该桶所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
@@ -18,7 +24,11 @@ async def require_video_bucket_capability(project: dict, capability: VideoCapabi
     from lib.db import async_session_factory
 
     try:
-        await ConfigResolver(async_session_factory).resolve_video_backend(project, None, capability=capability)
+        await ConfigResolver(async_session_factory, user_id=user_id).resolve_video_backend(
+            project,
+            None,
+            capability=capability,
+        )
     except VideoBucketCapabilityError as exc:
         raise BadRequestError(exc.code, **exc.params) from exc
     except ValueError:
@@ -27,7 +37,12 @@ async def require_video_bucket_capability(project: dict, capability: VideoCapabi
         return
 
 
-async def require_audio_switch_supported(project: dict, capability: VideoCapability) -> None:
+async def require_audio_switch_supported(
+    project: dict,
+    capability: VideoCapability,
+    *,
+    user_id: str = DEFAULT_USER_ID,
+) -> None:
     """视频生成入口预检：成片恒有声的模型不接受「关闭音频」的配置。
 
     这类模型的请求里没有音轨开关可下发（``model_audio_always_on``），关闭意图无法抵达供应商，
@@ -41,7 +56,7 @@ async def require_audio_switch_supported(project: dict, capability: VideoCapabil
     """
     from server.services.video_caps import resolve_audio_switch_conflict
 
-    conflict = await resolve_audio_switch_conflict(project, capability)
+    conflict = await resolve_audio_switch_conflict(project, capability, user_id=user_id)
     if conflict is None:
         return
     provider_id, model_id = conflict

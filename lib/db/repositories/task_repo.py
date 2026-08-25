@@ -122,12 +122,23 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
 
 
 class TaskRepository(BaseRepository):
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, *, user_id: str | None = None):
         super().__init__(session)
+        # ``None`` is reserved for trusted worker/maintenance paths that must see
+        # the whole queue. HTTP callers always bind the authenticated user.
+        self.user_id = user_id
         # 该 session 内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
         # 在此收集而非各终态方法各自记账：所有终态迁移（含级联失败/级联取消、批量取消
         # 队列）都经 _record_terminal_event 收口，一处挂钩即全覆盖。
         self.terminal_events: list[dict[str, Any]] = []
+
+    def _scope_query(self, stmt, model):
+        if self.user_id is not None and model is Task:
+            return stmt.where(Task.user_id == self.user_id)
+        return stmt
+
+    def _ownership_filters(self) -> tuple[ColumnElement[bool], ...]:
+        return (Task.user_id == self.user_id,) if self.user_id is not None else ()
 
     def _record_terminal_event(
         self,
@@ -248,9 +259,11 @@ class TaskRepository(BaseRepository):
         """
         if not resource_ids:
             return []
+        ownership = self._ownership_filters()
         result = await self.session.execute(
             select(Task)
             .where(
+                *ownership,
                 *_active_dedupe_clauses(
                     project_name=project_name,
                     task_type=task_type,
@@ -285,6 +298,7 @@ class TaskRepository(BaseRepository):
         ]
         if statuses is not None:
             clauses.append(Task.status.in_(statuses))
+        clauses.extend(self._ownership_filters())
         result = await self.session.execute(
             select(Task).where(*clauses).order_by(Task.queued_at.desc(), Task.task_id.desc()).limit(1)
         )
@@ -520,7 +534,8 @@ class TaskRepository(BaseRepository):
         以避免吓人：running / cancelling 下游运行期数量不稳定，由 cancel 操作实际触发后再
         通过 SSE 反映。终态 task 调用方应在前端避免触发。
         """
-        result = await self.session.execute(select(Task).where(Task.task_id == task_id))
+        stmt = select(Task).where(Task.task_id == task_id)
+        result = await self.session.execute(self._scope_query(stmt, Task))
         task = result.scalar_one_or_none()
         if not task:
             raise ValueError(f"任务 '{task_id}' 不存在")
@@ -542,6 +557,7 @@ class TaskRepository(BaseRepository):
             .where(
                 Task.dependency_task_id == task_id,
                 Task.status == "queued",
+                *self._ownership_filters(),
             )
             .order_by(Task.queued_at.asc())
         )
@@ -566,7 +582,8 @@ class TaskRepository(BaseRepository):
         Repository 只更新 DB，不持有 worker callback。``cancelling`` 列表交由
         上层（GenerationQueue）拿到后同步分发 in-process cancel 信号。
         """
-        result = await self.session.execute(select(Task).where(Task.task_id == task_id))
+        stmt = select(Task).where(Task.task_id == task_id)
+        result = await self.session.execute(self._scope_query(stmt, Task))
         task = result.scalar_one_or_none()
         if not task:
             raise ValueError(f"任务 '{task_id}' 不存在")
@@ -738,7 +755,9 @@ class TaskRepository(BaseRepository):
         其 worker finally 走 ``finalize_cancelled`` 时仍会触发对它自己下游的级联。
         """
         result = await self.session.execute(
-            select(Task).where(Task.dependency_task_id == task_id).order_by(Task.queued_at.asc())
+            select(Task)
+            .where(Task.dependency_task_id == task_id, *self._ownership_filters())
+            .order_by(Task.queued_at.asc())
         )
         for dep_task in result.scalars().all():
             await self._dispatch_cancel(
@@ -909,21 +928,31 @@ class TaskRepository(BaseRepository):
     async def get_cancel_all_preview(self, project_name: str) -> int:
         """返回项目中当前 queued 状态的任务数量。"""
         result = await self.session.execute(
-            select(func.count()).select_from(Task).where(Task.project_name == project_name, Task.status == "queued")
+            select(func.count())
+            .select_from(Task)
+            .where(Task.project_name == project_name, Task.status == "queued", *self._ownership_filters())
         )
         return result.scalar_one()
 
     async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
         """取消项目中所有 queued 任务。"""
         queued_result = await self.session.execute(
-            select(Task).where(Task.project_name == project_name, Task.status == "queued")
+            select(Task).where(
+                Task.project_name == project_name,
+                Task.status == "queued",
+                *self._ownership_filters(),
+            )
         )
         queued_tasks = list(queued_result.scalars().all())
 
         now = utc_now()
         stmt = (
             update(Task)
-            .where(Task.project_name == project_name, Task.status == "queued")
+            .where(
+                Task.project_name == project_name,
+                Task.status == "queued",
+                *self._ownership_filters(),
+            )
             .values(
                 status="cancelled",
                 cancelled_by="user",
@@ -938,7 +967,11 @@ class TaskRepository(BaseRepository):
             await self.session.flush()
             task_ids = [t.task_id for t in queued_tasks]
             refreshed = await self.session.execute(
-                select(Task).where(Task.task_id.in_(task_ids), Task.status == "cancelled")
+                select(Task).where(
+                    Task.task_id.in_(task_ids),
+                    Task.status == "cancelled",
+                    *self._ownership_filters(),
+                )
             )
             for updated_task in refreshed.scalars().all():
                 self._record_terminal_event(

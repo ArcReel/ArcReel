@@ -147,6 +147,7 @@ def complete_asset_inventory_tool(ctx: ToolContext):
                         skip_existing_voice=True,
                         reuse_candidate=True,
                         manager=ctx.pm,
+                        user_id=ctx.user_id,
                     )
                     return {"name": name, **result}
                 except Exception as exc:  # voice availability must not roll back the committed inventory

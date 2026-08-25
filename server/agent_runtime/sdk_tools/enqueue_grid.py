@@ -51,6 +51,7 @@ from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     generation_result_response,
     tool_error,
+    user_scope_kwargs,
     validate_script_filename,
 )
 from server.services.grid_resolution import resolve_large_grid_allowed
@@ -396,6 +397,7 @@ def generate_grid_tool(ctx: ToolContext):
                             },
                             script_file=script_filename,
                             source="skill",
+                            **user_scope_kwargs(ctx.user_id),
                         )
                     except Exception as exc:  # noqa: BLE001
                         gm.delete(grid.id)
@@ -420,7 +422,7 @@ def generate_grid_tool(ctx: ToolContext):
                 # Wait for all queued grids concurrently — image worker channel can run
                 # multiple in parallel, so serial wait_for_task would mask that throughput.
                 results = await asyncio.gather(
-                    *(wait_for_task(task_id) for _, task_id, _ in pending),
+                    *(wait_for_task(task_id, **user_scope_kwargs(ctx.user_id)) for _, task_id, _ in pending),
                     return_exceptions=True,
                 )
                 for (grid, task_id, report_ids), result in zip(pending, results, strict=True):

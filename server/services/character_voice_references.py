@@ -76,6 +76,7 @@ async def latest_character_voice_candidate(
     *,
     manager=None,
     queue=None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> dict[str, Any] | None:
     pm = manager or get_project_manager()
     task_queue = queue or get_generation_queue()
@@ -86,6 +87,7 @@ async def latest_character_voice_candidate(
         task_type="voice_sample",
         resource_id=character_name,
         statuses=VOICE_SAMPLE_CANDIDATE_STATUSES,
+        user_id=user_id,
     )
     if task is None:
         return None
@@ -126,6 +128,7 @@ async def enqueue_character_voice_reference(
             character_name,
             manager=pm,
             queue=task_queue,
+            user_id=user_id,
         )
         if existing is not None:
             return {
@@ -184,7 +187,7 @@ async def enqueue_character_voice_reference(
         if not selected_voice:
             raise BadRequestError("voice_sample_voice_required")
         try:
-            resolved = await ConfigResolver(async_session_factory).resolve_audio_backend(project, None)
+            resolved = await ConfigResolver(async_session_factory, user_id=user_id).resolve_audio_backend(project, None)
         except ValueError:
             raise BadRequestError("audio_provider_not_configured")
         spec = TaskSpec.from_request(
@@ -220,6 +223,7 @@ async def confirm_character_voice_reference(
     source: ProjectChangeSource = "webui",
     manager=None,
     queue=None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> dict[str, str]:
     """Promote one succeeded preview task to the character reference audio."""
     try:
@@ -227,7 +231,7 @@ async def confirm_character_voice_reference(
     except ValueError:
         raise BadRequestError("asset_invalid_name", name=name)
     task_queue = queue or get_generation_queue()
-    task = await task_queue.get_task(task_id)
+    task = await task_queue.get_task(task_id, user_id=user_id)
     if (
         task is None
         or task.get("project_name") != project_name

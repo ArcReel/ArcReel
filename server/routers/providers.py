@@ -32,6 +32,7 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
 from lib.i18n import Translator
 from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
+from server.auth import CurrentUser
 from server.dependencies import get_config_service
 
 if TYPE_CHECKING:
@@ -413,6 +414,7 @@ async def list_providers(
 @router.get("/{provider_id}/config", response_model=ProviderConfigResponse)
 async def get_provider_config(
     provider_id: str,
+    user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderConfigResponse:
@@ -420,11 +422,11 @@ async def get_provider_config(
     _validate_provider(provider_id, _t)
 
     meta = PROVIDER_REGISTRY[provider_id]
-    svc = ConfigService(session)
+    svc = ConfigService(session, user_id=user.id)
     db_values = await svc.get_provider_config_masked(provider_id)
 
     # 计算状态：基于凭证表是否有活跃凭证
-    cred_repo = CredentialRepository(session)
+    cred_repo = CredentialRepository(session, user.id)
     has_active = await cred_repo.has_active_credential(provider_id)
     status = "ready" if has_active else "unconfigured"
 
@@ -508,11 +510,12 @@ async def patch_provider_config(
 @router.get("/{provider_id}/credentials", response_model=CredentialListResponse)
 async def list_credentials(
     provider_id: str,
+    user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialListResponse:
     _validate_provider(provider_id, _t)
-    repo = CredentialRepository(session)
+    repo = CredentialRepository(session, user.id)
     creds = await repo.list_by_provider(provider_id)
     return CredentialListResponse(credentials=[_cred_to_response(c) for c in creds])
 
@@ -522,13 +525,14 @@ async def create_credential(
     provider_id: str,
     body: CreateCredentialRequest,
     request: Request,
+    user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     _validate_provider(provider_id, _t)
     # 创建是全新行，无可清空——仅复用横跨多组的歧义校验拒绝矛盾提交（新行不落盘）。
     _resolve_credential_group_switch(provider_id, _submitted_secret_values(provider_id, body), None, _t)
-    repo = CredentialRepository(session)
+    repo = CredentialRepository(session, user.id)
     cred = await repo.create(
         provider=provider_id,
         name=body.name,
@@ -548,11 +552,12 @@ async def update_credential(
     cred_id: int,
     body: UpdateCredentialRequest,
     request: Request,
+    user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     _validate_provider(provider_id, _t)
-    repo = CredentialRepository(session)
+    repo = CredentialRepository(session, user.id)
     # 先确认凭证存在（404 优先于后续切组歧义的 422），再用库内原值参与「切入」判定。
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
     submitted = _submitted_secret_values(provider_id, body)
@@ -590,11 +595,12 @@ async def delete_credential(
     provider_id: str,
     cred_id: int,
     request: Request,
+    user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     _validate_provider(provider_id, _t)
-    repo = CredentialRepository(session)
+    repo = CredentialRepository(session, user.id)
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
     cred_path = cred.credentials_path  # 在 delete 前保存，避免 ORM 对象过期后无法访问
     await repo.delete(cred_id)
@@ -617,11 +623,12 @@ async def activate_credential(
     provider_id: str,
     cred_id: int,
     request: Request,
+    user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     _validate_provider(provider_id, _t)
-    repo = CredentialRepository(session)
+    repo = CredentialRepository(session, user.id)
     await _get_credential_or_404(repo, provider_id, cred_id, _t)
     await repo.activate(cred_id, provider_id)
     await session.commit()
@@ -632,6 +639,7 @@ async def activate_credential(
 @router.post("/gemini-vertex/credentials/upload", status_code=201, response_model=CredentialResponse)
 async def upload_vertex_credential(
     request: Request,
+    user: CurrentUser,
     _t: Translator,
     name: str = "Vertex Credentials",
     session: AsyncSession = Depends(get_async_session),
@@ -654,7 +662,7 @@ async def upload_vertex_credential(
     if not isinstance(payload, dict) or not payload.get("project_id"):
         raise HTTPException(status_code=400, detail=_t("vertex_json_missing_project_id"))
 
-    repo = CredentialRepository(session)
+    repo = CredentialRepository(session, user.id)
     cred = await repo.create(provider="gemini-vertex", name=name)
 
     dest = app_data_dir().parent / "vertex_keys" / f"vertex_cred_{cred.id}.json"
@@ -951,6 +959,7 @@ _TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse
 @router.post("/{provider_id}/test", response_model=ConnectionTestResponse)
 async def test_provider_connection(
     provider_id: str,
+    user: CurrentUser,
     _t: Translator,
     credential_id: int | None = None,
     session: AsyncSession = Depends(get_async_session),
@@ -958,7 +967,7 @@ async def test_provider_connection(
     """调用供应商 API 验证连通性。可指定 credential_id 测试特定凭证。"""
     _validate_provider(provider_id, _t)
 
-    repo = CredentialRepository(session)
+    repo = CredentialRepository(session, user.id)
     if credential_id is not None:
         cred = await _get_credential_or_404(repo, provider_id, credential_id, _t)
     else:
@@ -971,7 +980,7 @@ async def test_provider_connection(
             message=_t("missing_credentials"),
         )
 
-    svc = ConfigService(session)
+    svc = ConfigService(session, user_id=user.id)
     config = await svc.get_provider_config(provider_id)
     cred.overlay_config(config)
 

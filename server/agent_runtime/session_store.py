@@ -7,6 +7,7 @@ Wraps SessionRepository with a convenience class.
 from __future__ import annotations
 
 from lib.db import safe_session_factory
+from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.session_repo import SessionRepository
 from server.agent_runtime.models import SessionMeta, SessionStatus
 
@@ -29,8 +30,12 @@ def _dict_to_session(d: dict) -> SessionMeta:
 class SessionMetaStore:
     """Async session metadata store wrapping SessionRepository."""
 
-    def __init__(self, *, session_factory=None):
+    def __init__(self, *, session_factory=None, user_id: str = DEFAULT_USER_ID):
         self._session_factory = session_factory or safe_session_factory
+        self._user_id = user_id
+
+    def _repo(self, session) -> SessionRepository:
+        return SessionRepository(session, user_id=self._user_id)
 
     async def create(
         self,
@@ -42,19 +47,20 @@ class SessionMetaStore:
     ) -> SessionMeta:
 
         async with self._session_factory() as session:
-            repo = SessionRepository(session)
+            repo = self._repo(session)
             d = await repo.create(
                 project_name=project_name,
                 sdk_session_id=sdk_session_id,
                 fork_parent_session_id=fork_parent_session_id,
                 fork_anchor_uuid=fork_anchor_uuid,
+                user_id=self._user_id,
             )
         return _dict_to_session(d)
 
     async def get(self, session_id: str) -> SessionMeta | None:
 
         async with self._session_factory() as session:
-            repo = SessionRepository(session)
+            repo = self._repo(session)
             d = await repo.get(session_id)
         if d is None:
             return None
@@ -69,7 +75,7 @@ class SessionMetaStore:
     ) -> list[SessionMeta]:
 
         async with self._session_factory() as session:
-            repo = SessionRepository(session)
+            repo = self._repo(session)
             result = await repo.list(
                 project_name=project_name,
                 status=status,
@@ -81,29 +87,29 @@ class SessionMetaStore:
     async def update_status(self, session_id: str, status: SessionStatus) -> bool:
 
         async with self._session_factory() as session:
-            repo = SessionRepository(session)
+            repo = self._repo(session)
             return await repo.update_status(session_id, status)
 
     async def mark_superseded(self, session_id: str, superseded_by: str) -> bool:
 
         async with self._session_factory() as session:
-            repo = SessionRepository(session)
+            repo = self._repo(session)
             return await repo.mark_superseded(session_id, superseded_by)
 
     async def clear_superseded(self, session_id: str, superseded_by: str) -> bool:
 
         async with self._session_factory() as session:
-            repo = SessionRepository(session)
+            repo = self._repo(session)
             return await repo.clear_superseded(session_id, superseded_by)
 
     async def interrupt_running_sessions(self) -> int:
 
         async with self._session_factory() as session:
-            repo = SessionRepository(session)
+            repo = self._repo(session)
             return await repo.interrupt_running()
 
     async def delete(self, session_id: str) -> bool:
 
         async with self._session_factory() as session:
-            repo = SessionRepository(session)
+            repo = self._repo(session)
             return await repo.delete(session_id)

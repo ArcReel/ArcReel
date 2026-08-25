@@ -518,6 +518,12 @@ def test_build_arcreel_mcp_server_contains_all_tools(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_tool_context_keeps_authenticated_user_identity(tmp_path: Path) -> None:
+    ctx = ToolContext(project_name="demo", projects_root=tmp_path, user_id="center-user")
+    assert ctx.user_id == "center-user"
+
+
+@pytest.mark.unit
 def test_generate_narration_audio_registered() -> None:
     """旁白配音工具必须同时进 MCP 工具 id 集（前端 chip 三语校验依赖它）。"""
     from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
@@ -685,6 +691,24 @@ async def test_list_pending_assets_error(fake_ctx: ToolContext, monkeypatch) -> 
     tool_obj = list_pending_assets_tool(fake_ctx)
     out = await _call(tool_obj, {"type": "character"})
     assert out.get("is_error") is True
+
+
+@pytest.mark.unit
+async def test_generate_assets_queues_as_authenticated_user(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_assets as mod
+
+    fake_ctx.user_id = "center-user"
+    seen: list[str] = []
+
+    async def capture(*, user_id: str, **_kwargs):
+        seen.append(user_id)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", capture)
+
+    await _call(generate_assets_tool(fake_ctx), {"type": "character"})
+
+    assert seen == ["center-user"]
 
 
 @pytest.mark.unit

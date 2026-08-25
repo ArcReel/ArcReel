@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Loader2 } from "lucide-react";
+import { Building2, Loader2 } from "lucide-react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
 import { errMsg, voidPromise } from "@/utils/async";
 import { useLocation, useSearch } from "wouter";
@@ -23,13 +23,15 @@ const AMBIENT_GLOW_STYLE = ambientGlowStyle();
 
 export function LoginPage() {
   const { t, i18n } = useTranslation(["common", "auth"]);
+  const search = useSearch();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const params = new URLSearchParams(search);
+  const [error, setError] = useState(params.get("message") || "");
   const [loading, setLoading] = useState(false);
   const [, setLocation] = useLocation();
-  const search = useSearch();
   const login = useAuthStore((s) => s.login);
+  const accountCenterEnabled = useAuthStore((s) => s.accountCenterEnabled);
   const usernameRef = useAutoFocus<HTMLInputElement>();
 
   const handleSubmit = async (e: FormEvent) => {
@@ -54,11 +56,23 @@ export function LoginPage() {
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({})) as Partial<ErrorResponse>;
         const detail = data.detail;
-        throw new Error(typeof detail === "string" ? detail : t("auth:login_failed"));
+        const message = typeof detail === "string"
+          ? detail
+          : detail && typeof detail === "object" && !Array.isArray(detail) && "message" in detail
+            ? String(detail.message || t("auth:login_failed"))
+            : t("auth:login_failed");
+        throw new Error(message);
       }
 
       const data = await resp.json() as LoginResponse;
-      login(data.access_token, username);
+      login(
+        data.access_token,
+        data.user?.username ?? username,
+        data.user?.role ?? "admin",
+        data.user?.id ?? "default",
+        data.user?.display_name ?? null,
+        data.user?.identity_source ?? "internal",
+      );
       // 登录成功后回跳到进入登录页前的原始地址（由 AuthGuard / 401 拦截以 ?from 传入），
       // 经 safeReturnPath 校验为站内安全路径；非法或缺失时回退到项目列表。
       const returnTo = safeReturnPath(new URLSearchParams(search).get("from"));
@@ -141,6 +155,24 @@ export function LoginPage() {
             {loading ? t("auth:logging_in") : t("auth:login")}
           </button>
         </form>
+
+        {accountCenterEnabled ? (
+          <>
+            <div className="my-5 flex items-center gap-3 text-[11px] text-text-4">
+              <span className="h-px flex-1 bg-hairline" />
+              <span>{t("auth:or")}</span>
+              <span className="h-px flex-1 bg-hairline" />
+            </div>
+            <button
+              type="button"
+              onClick={() => window.location.assign("/api/v1/auth/account-center/portal")}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-hairline bg-bg-grad-a/60 px-4 py-2.5 text-sm text-text-2 transition-colors hover:border-accent/45 hover:text-text"
+            >
+              <Building2 className="h-4 w-4" />
+              {t("auth:go_to_account_center")}
+            </button>
+          </>
+        ) : null}
       </div>
     </div>
   );

@@ -12,7 +12,7 @@ from server.agent_runtime.session_manager import SessionManager
 pytestmark = pytest.mark.unit
 
 
-async def _fake_provider_env():
+async def _fake_provider_env(**_kwargs):
     """Stub: 跳过 DB 访问，返回空 dict（不影响 session_store/flush 字段断言）。"""
     return {}
 

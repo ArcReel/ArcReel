@@ -12,7 +12,7 @@ from lib.db.models.session import AgentSession
 from lib.db.models.session_event import AgentSessionEventLogEntry
 from lib.db.models.session_message_link import AgentSessionUserMessageLink
 from lib.db.models.task import Task, WorkerLease
-from lib.db.models.user import User
+from lib.db.models.user import AccountCenterConnection, AccountCenterLoginTicket, ArcReelCloudSession, User
 
 __all__ = [
     "Task",
@@ -25,6 +25,9 @@ __all__ = [
     "ProviderConfig",
     "SystemSetting",
     "User",
+    "AccountCenterLoginTicket",
+    "AccountCenterConnection",
+    "ArcReelCloudSession",
     "ProviderCredential",
     "CustomProvider",
     "CustomProviderModel",

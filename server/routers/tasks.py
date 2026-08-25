@@ -14,6 +14,7 @@ from lib.asset_types import localize_asset_type
 from lib.generation_queue import get_generation_queue
 from lib.i18n import Translator
 from lib.task_failure import parse_failure, render_failure
+from server.auth import CurrentUser
 
 router = APIRouter()
 
@@ -112,14 +113,15 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
 
 
 @router.get("/tasks/stats")
-async def get_task_stats(project_name: str | None = None):
+async def get_task_stats(user: CurrentUser, project_name: str | None = None):
     queue = get_task_queue()
-    stats = await queue.get_task_stats(project_name=project_name)
+    stats = await queue.get_task_stats(project_name=project_name, user_id=user.id)
     return {"stats": stats}
 
 
 @router.get("/tasks")
 async def list_tasks(
+    user: CurrentUser,
     _t: Translator,
     project_name: str | None = None,
     status: str | None = None,
@@ -136,6 +138,7 @@ async def list_tasks(
         source=source,
         page=page,
         page_size=page_size,
+        user_id=user.id,
     )
     result["items"] = [_localize_task(task, _t) for task in result.get("items", [])]
     return result
@@ -144,6 +147,7 @@ async def list_tasks(
 @router.get("/projects/{project_name}/tasks")
 async def list_project_tasks(
     project_name: str,
+    user: CurrentUser,
     _t: Translator,
     status: str | None = None,
     task_type: str | None = None,
@@ -159,26 +163,27 @@ async def list_project_tasks(
         source=source,
         page=page,
         page_size=page_size,
+        user_id=user.id,
     )
     result["items"] = [_localize_task(task, _t) for task in result.get("items", [])]
     return result
 
 
 @router.get("/tasks/{task_id}/cancel-preview")
-async def cancel_preview(task_id: str):
+async def cancel_preview(task_id: str, user: CurrentUser):
     queue = get_task_queue()
     try:
-        preview = await queue.get_cancel_preview(task_id)
+        preview = await queue.get_cancel_preview(task_id, user_id=user.id)
     except ValueError as e:
         raise BadRequestError("task_not_found", id=task_id) from e
     return preview
 
 
 @router.post("/tasks/{task_id}/cancel")
-async def cancel_task(task_id: str, _t: Translator):
+async def cancel_task(task_id: str, user: CurrentUser, _t: Translator):
     queue = get_task_queue()
     try:
-        result = await queue.cancel_task(task_id)
+        result = await queue.cancel_task(task_id, user_id=user.id)
     except ValueError as e:
         raise BadRequestError("task_not_found", id=task_id) from e
     # 终态任务（含已失败的）原样回给调用方，其 error_message 与列表/详情/SSE 同源，
@@ -189,26 +194,27 @@ async def cancel_task(task_id: str, _t: Translator):
 
 
 @router.get("/projects/{project_name}/tasks/cancel-all-preview")
-async def cancel_all_preview(project_name: str):
+async def cancel_all_preview(project_name: str, user: CurrentUser):
     queue = get_task_queue()
-    queued_count = await queue.get_cancel_all_preview(project_name)
+    queued_count = await queue.get_cancel_all_preview(project_name, user_id=user.id)
     return {"queued_count": queued_count}
 
 
 @router.post("/projects/{project_name}/tasks/cancel-all")
-async def cancel_all_queued(project_name: str):
+async def cancel_all_queued(project_name: str, user: CurrentUser):
     queue = get_task_queue()
-    result = await queue.cancel_all_queued(project_name)
+    result = await queue.cancel_all_queued(project_name, user_id=user.id)
     return result
 
 
 @router.get("/tasks/{task_id}")
 async def get_task(
     task_id: str,
+    user: CurrentUser,
     _t: Translator,
 ):
     queue = get_task_queue()
-    task = await queue.get_task(task_id)
+    task = await queue.get_task(task_id, user_id=user.id)
     if not task:
         raise NotFoundError("task_not_found", id=task_id)
     return {"task": _localize_task(task, _t)}

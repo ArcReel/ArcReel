@@ -91,7 +91,7 @@ class TestResolutionFailurePassesThrough:
 
     def _install_resolver(self, monkeypatch, *, backend_exc=None, audio_exc=None):
         class _FakeResolver:
-            def __init__(self, _factory):
+            def __init__(self, _factory, **_kwargs):
                 pass
 
             async def resolve_video_backend(self, _project, _model, *, capability):

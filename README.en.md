@@ -74,13 +74,12 @@ git clone https://github.com/ArcReel/ArcReel.git
 cd ArcReel
 uv sync
 cd frontend && pnpm install && cd ..
-cp .env.example .env
 ./scripts/dev.sh
 ```
 
-Open <http://localhost:5173>. The default username is `admin`. If `AUTH_PASSWORD` is empty, ArcReel generates a password on first startup and writes it back to the root `.env` file.
+Open <http://localhost:5173> and sign in with the ArcReel username and password assigned by an administrator in the data middle platform. The production cloud account service is bundled, so no `.env` setup is required.
 
-After signing in, open **Settings**, configure the ArcReel AI assistant and the required text, image, and video generation capabilities, then create a project.
+After signing in, ArcReel automatically retrieves the provider API keys assigned to that account, and the user can start creating projects.
 
 For the complete first-run workflow, see [Getting Started](https://docs.arc-reel.com/en/guide/getting-started).
 

@@ -29,12 +29,24 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
 
 
 class SessionRepository(BaseRepository):
+    def __init__(self, session, *, user_id: str = DEFAULT_USER_ID):
+        super().__init__(session)
+        self.user_id = user_id
+
+    def _scope_query(self, stmt, model):
+        if model is AgentSession:
+            return stmt.where(AgentSession.user_id == self.user_id)
+        return stmt
+
+    def _ownership_filters(self) -> tuple:
+        return (AgentSession.user_id == self.user_id,)
+
     async def create(
         self,
         project_name: str,
         sdk_session_id: str,
         title: str = "",
-        user_id: str = DEFAULT_USER_ID,
+        user_id: str | None = None,
         *,
         fork_parent_session_id: str | None = None,
         fork_anchor_uuid: str | None = None,
@@ -50,7 +62,7 @@ class SessionRepository(BaseRepository):
             fork_anchor_uuid=fork_anchor_uuid,
             created_at=now,
             updated_at=now,
-            user_id=user_id,
+            user_id=user_id or self.user_id,
         )
         self.session.add(row)
         await self.session.commit()
@@ -88,7 +100,9 @@ class SessionRepository(BaseRepository):
     async def update_status(self, session_id: str, status: str) -> bool:
         now = utc_now()
         result = await self.session.execute(
-            update(AgentSession).where(AgentSession.sdk_session_id == session_id).values(status=status, updated_at=now)
+            update(AgentSession)
+            .where(AgentSession.sdk_session_id == session_id, *self._ownership_filters())
+            .values(status=status, updated_at=now)
         )
         await self.session.commit()
         return rowcount(result) > 0
@@ -98,7 +112,11 @@ class SessionRepository(BaseRepository):
         now = utc_now()
         result = await self.session.execute(
             update(AgentSession)
-            .where(AgentSession.sdk_session_id == session_id, AgentSession.superseded_by.is_(None))
+            .where(
+                AgentSession.sdk_session_id == session_id,
+                AgentSession.superseded_by.is_(None),
+                *self._ownership_filters(),
+            )
             .values(superseded_by=superseded_by, updated_at=now)
         )
         await self.session.commit()
@@ -109,7 +127,11 @@ class SessionRepository(BaseRepository):
         now = utc_now()
         result = await self.session.execute(
             update(AgentSession)
-            .where(AgentSession.sdk_session_id == session_id, AgentSession.superseded_by == superseded_by)
+            .where(
+                AgentSession.sdk_session_id == session_id,
+                AgentSession.superseded_by == superseded_by,
+                *self._ownership_filters(),
+            )
             .values(superseded_by=None, updated_at=now)
         )
         await self.session.commit()
@@ -120,21 +142,39 @@ class SessionRepository(BaseRepository):
         # 活着的末端，删的是链尾时后继为空、前身随之回到会话列表。不接手则前身会
         # 带着一个指向不存在会话的指针，永久留在列表之外。
         successor = await self.session.scalar(
-            select(AgentSession.superseded_by).where(AgentSession.sdk_session_id == session_id)
+            select(AgentSession.superseded_by).where(
+                AgentSession.sdk_session_id == session_id,
+                *self._ownership_filters(),
+            )
         )
+        owned = await self.session.scalar(
+            select(AgentSession.id).where(
+                AgentSession.sdk_session_id == session_id,
+                *self._ownership_filters(),
+            )
+        )
+        if owned is None:
+            return False
         await self.session.execute(
             update(AgentSession)
-            .where(AgentSession.superseded_by == session_id)
+            .where(AgentSession.superseded_by == session_id, *self._ownership_filters())
             .values(superseded_by=successor, updated_at=utc_now())
         )
-        result = await self.session.execute(sa_delete(AgentSession).where(AgentSession.sdk_session_id == session_id))
+        result = await self.session.execute(
+            sa_delete(AgentSession).where(
+                AgentSession.sdk_session_id == session_id,
+                *self._ownership_filters(),
+            )
+        )
         await self.session.commit()
         return rowcount(result) > 0
 
     async def interrupt_running(self) -> int:
         now = utc_now()
         result = await self.session.execute(
-            update(AgentSession).where(AgentSession.status == "running").values(status="interrupted", updated_at=now)
+            update(AgentSession)
+            .where(AgentSession.status == "running", *self._ownership_filters())
+            .values(status="interrupted", updated_at=now)
         )
         await self.session.commit()
         return rowcount(result)

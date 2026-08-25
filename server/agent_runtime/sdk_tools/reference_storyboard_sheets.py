@@ -59,7 +59,11 @@ def generate_reference_storyboard_sheets_tool(ctx: ToolContext):
                 missing_only=requested is None,
                 image_override=image_override_from_args(args),
             )
-            enqueued, failures = await batch_enqueue_only(project_name=ctx.project_name, specs=specs)
+            enqueued, failures = await batch_enqueue_only(
+                project_name=ctx.project_name,
+                specs=specs,
+                user_id=ctx.user_id,
+            )
             return _response(
                 {
                     "requested": requested,
@@ -87,7 +91,10 @@ def confirm_reference_storyboard_sheet_tool(ctx: ToolContext):
             "type": "object",
             "properties": {
                 "script": {"type": "string", "description": "剧本文件名，例如 episode_1.json"},
-                "unit_id": {"type": "string", "description": "用户已确认当前 Video Unit Storyboard Sheet 的 Video Unit ID"},
+                "unit_id": {
+                    "type": "string",
+                    "description": "用户已确认当前 Video Unit Storyboard Sheet 的 Video Unit ID",
+                },
             },
             "required": ["script", "unit_id"],
         },
@@ -147,7 +154,11 @@ def generate_reference_keyframes_tool(ctx: ToolContext):
                 missing_only=requested is None,
                 image_override=image_override_from_args(args),
             )
-            enqueued, failures = await batch_enqueue_only(project_name=ctx.project_name, specs=specs)
+            enqueued, failures = await batch_enqueue_only(
+                project_name=ctx.project_name,
+                specs=specs,
+                user_id=ctx.user_id,
+            )
             return _response(
                 {
                     "requested": requested,

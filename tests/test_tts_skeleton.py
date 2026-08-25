@@ -515,7 +515,7 @@ class TestDeriveExecutionModelForEnqueueAudio:
         from lib.config.resolver import ProviderModel
 
         class _FakeResolver:
-            def __init__(self, factory):
+            def __init__(self, factory, **_kwargs):
                 pass
 
             async def resolve_audio_backend(self, project, payload):

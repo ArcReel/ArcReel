@@ -447,10 +447,11 @@ async def prepare_current_storyboard_narrated_video_duration(
     planned_duration_seconds: int | None,
     confirmed_request_duration_seconds: int | None,
     tts_in_progress: bool | None = None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> NarratedVideoDurationPreparation:
     """Materialize current TTS and video-tier facts for one storyboard unit."""
 
-    resolver = ConfigResolver(async_session_factory)
+    resolver = ConfigResolver(async_session_factory, user_id=user_id)
     candidate = await ConfigReferenceCapabilityProjection(resolver).resolve_candidate(project, capability)
     request_resolution = await resolver.resolve_resolution(project, candidate.provider_id, candidate.model_id)
     planned = planned_duration_seconds

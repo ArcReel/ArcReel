@@ -775,6 +775,7 @@ async def _submit_with_checkpoint(
     completed: list[str],
     fallback_relpath: Callable[[str], str],
     save_fn: Callable[[], None],
+    user_id: str,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Run a batch and update checkpoint per success. Returns ``(successes, failures)``.
 
@@ -795,6 +796,7 @@ async def _submit_with_checkpoint(
         specs=specs,
         on_success=on_success,
         stop_on_failure=True,
+        user_id=user_id,
     )
 
 
@@ -934,6 +936,7 @@ async def _generate_reference_units(
             save_fn=lambda: (
                 None if ckpt_path is None else _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode)
             ),
+            user_id=ctx.user_id,
         )
         record_batch_outcomes(
             builder,
@@ -1403,7 +1406,10 @@ class _StoryboardBatch:
 
         if checkpoint is None:
             successes, failures = await batch_enqueue_and_wait(
-                project_name=self.ctx.project_name, specs=specs, stop_on_failure=True
+                project_name=self.ctx.project_name,
+                specs=specs,
+                stop_on_failure=True,
+                user_id=self.ctx.user_id,
             )
             self._record(successes, failures)
             return self.result()
@@ -1418,6 +1424,7 @@ class _StoryboardBatch:
                 completed=checkpoint.completed,
                 fallback_relpath=_scene_fallback_relpath,
                 save_fn=checkpoint.save_fn,
+                user_id=self.ctx.user_id,
             )
             self._record(successes, failures)
 

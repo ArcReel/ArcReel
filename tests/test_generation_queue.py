@@ -636,7 +636,7 @@ def stub_enqueue_resolution(monkeypatch):
     holder = {"resolved": ProviderModel("custom-7", "advisory-video-model")}
 
     class _FakeResolver:
-        def __init__(self, factory):
+        def __init__(self, factory, **_kwargs):
             pass
 
         async def resolve_video_backend(self, project, payload, *, capability=None):

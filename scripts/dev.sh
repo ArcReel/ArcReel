@@ -18,12 +18,6 @@ trap cleanup EXIT INT TERM
 
 cd "${ROOT_DIR}"
 
-if [[ ! -f "${ROOT_DIR}/.env" ]]; then
-  echo "Error: ${ROOT_DIR}/.env does not exist."
-  echo "Create it first with: cp .env.example .env"
-  exit 1
-fi
-
 if [[ ! -d "${ROOT_DIR}/frontend/node_modules" ]]; then
   echo "Error: frontend dependencies are not installed."
   echo "Run: cd frontend && pnpm install"

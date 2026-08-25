@@ -22,6 +22,24 @@ async def store():
 
 
 class TestSessionMetaStore:
+    async def test_sessions_are_private_to_exact_user(self):
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        alice = SessionMetaStore(session_factory=factory, user_id="alice")
+        bob = SessionMetaStore(session_factory=factory, user_id="bob")
+        try:
+            created = await alice.create(project_name="shared", sdk_session_id="alice-session")
+
+            assert await alice.get(created.id) is not None
+            assert await bob.get(created.id) is None
+            assert await bob.list(project_name="shared") == []
+            assert await bob.update_status(created.id, "running") is False
+            assert await bob.delete(created.id) is False
+        finally:
+            await engine.dispose()
+
     async def test_session_lifecycle(self, store):
         session = await store.create(project_name="demo", sdk_session_id="sdk-abc")
         assert session.project_name == "demo"

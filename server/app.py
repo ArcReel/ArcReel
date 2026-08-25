@@ -23,6 +23,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.datastructures import MutableHeaders
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Message, Receive, Scope, Send
@@ -41,10 +42,19 @@ from lib.logging_config import attach_file_handler, migrate_legacy_log_dir, setu
 from lib.path_safety import try_safe_join
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
-from server.auth import ensure_auth_password, get_current_user
+from server.auth import (
+    ensure_auth_password,
+    get_current_user,
+    get_token_secret,
+    require_admin,
+    require_admin_for_custom_provider_config,
+    require_admin_for_provider_config,
+    require_admin_for_system_config,
+)
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.routers import (
+    account_center_admin,
     agent_chat,
     agent_config,
     api_keys,
@@ -419,7 +429,14 @@ async def lifespan(app: FastAPI):
     # 启动共享 httpx 客户端（用于版本检查等外部 API 调用）
     await startup_http_client()
 
+    from server.services.account_center_sync import AccountCenterSyncWorker
+
+    account_center_sync_worker = AccountCenterSyncWorker()
+    app.state.account_center_sync_worker = account_center_sync_worker
+    await account_center_sync_worker.start()
+
     # Initialize async services
+    assistant.configure_assistant_runtime(in_docker=is_docker, sandbox_enabled=sandbox_enabled)
     await assistant.assistant_service.startup(in_docker=is_docker, sandbox_enabled=sandbox_enabled)
     assistant.assistant_service.session_manager.start_patrol()
 
@@ -478,6 +495,9 @@ async def lifespan(app: FastAPI):
         finally:
             get_generation_queue().set_worker_cancel_callback(None)
         logger.info("GenerationWorker 已停止")
+    account_center_sync_worker = getattr(app.state, "account_center_sync_worker", None)
+    if account_center_sync_worker:
+        await account_center_sync_worker.stop()
     await shutdown_http_client()
     await close_db()
 
@@ -515,6 +535,14 @@ app.add_middleware(
     allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=get_token_secret(),
+    session_cookie="arcreel_oidc",
+    max_age=600,
+    same_site="lax",
+    https_only=os.environ.get("ACCOUNT_CENTER_REDIRECT_URI", "").startswith("https://"),
 )
 
 
@@ -634,18 +662,36 @@ app.include_router(auth_router.router, prefix="/api/v1", dependencies=[Depends(g
 app.include_router(
     assistant.router,
     prefix="/api/v1/projects/{project_name}/assistant",
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(get_current_user), Depends(assistant.ensure_assistant_service_ready)],
     tags=["Agent 会话"],
 )
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
-app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
-app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
-app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
-app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])
-app.include_router(agent_chat.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 对话"])
-app.include_router(agent_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 配置"])
 app.include_router(
-    custom_providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义供应商"]
+    providers.router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_admin_for_provider_config)],
+    tags=["供应商管理"],
+)
+app.include_router(
+    system_config.router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_admin_for_system_config)],
+    tags=["系统配置"],
+)
+app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(require_admin)], tags=["系统"])
+app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(require_admin)], tags=["API Key 管理"])
+app.include_router(
+    agent_chat.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(assistant.ensure_assistant_service_ready)],
+    tags=["Agent 对话"],
+)
+app.include_router(agent_config.router, prefix="/api/v1", dependencies=[Depends(require_admin)], tags=["Agent 配置"])
+app.include_router(
+    custom_providers.router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_admin_for_custom_provider_config)],
+    tags=["自定义供应商"],
 )
 app.include_router(
     cost_estimation.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用估算"]
@@ -674,6 +720,7 @@ app.include_router(onboarding.router, prefix="/api/v1", dependencies=[Depends(ge
 
 # 公开端点：匿名可达。登录入口是拿 token 的前提，静态媒体经 <img src> / <video src> 加载。
 app.include_router(auth_router.public_router, prefix="/api/v1", tags=["认证"])
+app.include_router(account_center_admin.router, prefix="/api/v1")
 app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 
 # 自带认证端点：成因都是浏览器直发请求带不了 Authorization header，
@@ -681,6 +728,7 @@ app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 app.include_router(
     assistant.self_auth_router,
     prefix="/api/v1/projects/{project_name}/assistant",
+    dependencies=[Depends(assistant.ensure_assistant_service_ready_flexible)],
     tags=["Agent 会话"],
 )
 app.include_router(project_events.self_auth_router, prefix="/api/v1", tags=["项目变更流"])

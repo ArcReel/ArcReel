@@ -14,7 +14,7 @@ class _FakeQueue:
     def __init__(self, *, task=None):
         self.task = task
 
-    async def get_task(self, task_id):
+    async def get_task(self, task_id, **_kwargs):
         return self.task
 
 
@@ -50,7 +50,7 @@ class _RenderQueue:
             "page_size": 50,
         }
 
-    async def get_task(self, task_id):
+    async def get_task(self, task_id, **_kwargs):
         return dict(self._task) if self._task is not None else None
 
 

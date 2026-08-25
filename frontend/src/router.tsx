@@ -1,7 +1,7 @@
 // router.tsx — Route definitions for the studio layout
 
 import { useEffect, useRef } from "react";
-import { Route, Switch, Redirect, useParams } from "wouter";
+import { Route, Switch, Redirect, useParams, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { StudioLayout } from "@/components/layout";
@@ -11,6 +11,8 @@ import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
 import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { AccountCenterCallbackPage } from "@/pages/AccountCenterCallbackPage";
+import { AccountCenterSetupPage } from "@/pages/AccountCenterSetupPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { CharacterCatalogSyncMonitor } from "@/components/assets/CharacterCatalogSyncMonitor";
@@ -105,6 +107,29 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  const role = useAuthStore((state) => state.role);
+  // ``null`` is the legacy / AUTH_ENABLED=false state and keeps the original
+  // single-user settings behavior. Account-center users always receive an
+  // explicit ``admin`` or ``user`` role in their ArcReel token.
+  if (role === "user") return <Redirect to="~/app/projects" />;
+  return <>{children}</>;
+}
+
+function RootEntry() {
+  const search = useSearch();
+  const sso = new URLSearchParams(search).get("sso") === "1";
+  useEffect(() => {
+    if (sso) {
+      window.location.replace("/api/v1/auth/account-center/start?return_to=%2Fapp%2Fprojects");
+    }
+  }, [sso]);
+  if (sso) {
+    return <div role="status" className="flex h-screen items-center justify-center bg-bg text-text-3"><Loader2 className="h-5 w-5 motion-safe:animate-spin" /></div>;
+  }
+  return <Redirect to="/app/projects" />;
+}
+
 // ---------------------------------------------------------------------------
 // StudioWorkspace — loads project data and renders three-column layout
 // ---------------------------------------------------------------------------
@@ -197,10 +222,12 @@ export function AppRoutes() {
       <Switch>
         {/* Login page */}
         <Route path="/login" component={LoginPage} />
+        <Route path="/auth/account-center/callback" component={AccountCenterCallbackPage} />
+        <Route path="/account-center/setup" component={AccountCenterSetupPage} />
 
         {/* Root redirects to projects list */}
         <Route path="/">
-          <Redirect to="/app/projects" />
+          <RootEntry />
         </Route>
 
         {/* /app and /app/ also redirect to projects list */}
@@ -218,7 +245,9 @@ export function AppRoutes() {
         {/* System settings */}
         <Route path={ROUTE_APP_SETTINGS}>
           <AuthGuard>
-            <SystemConfigPage />
+            <AdminGuard>
+              <SystemConfigPage />
+            </AdminGuard>
           </AuthGuard>
         </Route>
 

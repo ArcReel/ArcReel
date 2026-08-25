@@ -28,7 +28,7 @@ from server.agent_runtime.service import (
 )
 from server.agent_runtime.session_branch import SessionBranchError
 from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
-from server.auth import CurrentUserFlexible
+from server.auth import CurrentUser, CurrentUserFlexible, current_request_user_id
 
 router = APIRouter()
 
@@ -37,6 +37,9 @@ router = APIRouter()
 self_auth_router = APIRouter()
 
 assistant_service = AssistantService(project_root=PROJECT_ROOT)
+_assistant_services: dict[str, AssistantService] = {assistant_service.user_id: assistant_service}
+_assistant_runtime_in_docker = False
+_assistant_runtime_sandbox_enabled = True
 
 MAX_IMAGE_SOURCE_BYTES = 5 * 1024 * 1024
 # Base64 needs four characters for every three source bytes, rounded up to a full quartet.
@@ -45,8 +48,37 @@ MAX_IMAGES_PER_REQUEST = 5
 MAX_IMAGES_TOTAL_BASE64_CHARS = MAX_IMAGES_PER_REQUEST * MAX_IMAGE_BASE64_CHARS
 
 
-def get_assistant_service() -> AssistantService:
-    return assistant_service
+def get_assistant_service(user_id: str | None = None) -> AssistantService:
+    resolved_user_id = user_id or current_request_user_id()
+    service = _assistant_services.get(resolved_user_id)
+    if service is None:
+        service = AssistantService(project_root=PROJECT_ROOT, user_id=resolved_user_id)
+        _assistant_services[resolved_user_id] = service
+    return service
+
+
+def configure_assistant_runtime(*, in_docker: bool, sandbox_enabled: bool) -> None:
+    global _assistant_runtime_in_docker, _assistant_runtime_sandbox_enabled
+    _assistant_runtime_in_docker = bool(in_docker)
+    _assistant_runtime_sandbox_enabled = bool(sandbox_enabled)
+
+
+async def _ensure_service_ready(user_id: str) -> AssistantService:
+    service = get_assistant_service(user_id)
+    await service.startup(
+        in_docker=_assistant_runtime_in_docker,
+        sandbox_enabled=_assistant_runtime_sandbox_enabled,
+    )
+    service.session_manager.start_patrol()
+    return service
+
+
+async def ensure_assistant_service_ready(user: CurrentUser) -> None:
+    await _ensure_service_ready(user.id)
+
+
+async def ensure_assistant_service_ready_flexible(user: CurrentUserFlexible) -> None:
+    await _ensure_service_ready(user.id)
 
 
 def agent_startup_failure_detail(

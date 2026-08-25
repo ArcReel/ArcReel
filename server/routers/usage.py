@@ -11,12 +11,14 @@ from fastapi import APIRouter, Query
 from lib.db import async_session_factory
 from lib.db.repositories.usage_repo import UsageRepository
 from lib.providers import CallType
+from server.auth import CurrentUser
 
 router = APIRouter()
 
 
 @router.get("/usage/stats")
 async def get_stats(
+    user: CurrentUser,
     project_name: str | None = Query(None, description="项目名称（可选）"),
     provider: str | None = Query(None, description="按供应商筛选"),
     start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
@@ -27,7 +29,7 @@ async def get_stats(
     end = datetime.fromisoformat(end_date) if end_date else None
 
     async with async_session_factory() as session:
-        repo = UsageRepository(session)
+        repo = UsageRepository(session, user_id=user.id)
         if group_by == "provider":
             stats = await repo.get_stats_grouped_by_provider(
                 project_name=project_name,
@@ -47,6 +49,7 @@ async def get_stats(
 
 @router.get("/usage/calls")
 async def get_calls(
+    user: CurrentUser,
     project_name: str | None = Query(None, description="项目名称"),
     call_type: CallType | None = Query(None, description="调用类型 (image/video/text)"),
     status: str | None = Query(None, description="状态 (success/failed)"),
@@ -59,7 +62,7 @@ async def get_calls(
     end = datetime.fromisoformat(end_date) if end_date else None
 
     async with async_session_factory() as session:
-        result = await UsageRepository(session).get_calls(
+        result = await UsageRepository(session, user_id=user.id).get_calls(
             project_name=project_name,
             call_type=call_type,
             status=status,
@@ -72,7 +75,7 @@ async def get_calls(
 
 
 @router.get("/usage/projects")
-async def get_projects_list():
+async def get_projects_list(user: CurrentUser):
     async with async_session_factory() as session:
-        projects = await UsageRepository(session).get_projects_list()
+        projects = await UsageRepository(session, user_id=user.id).get_projects_list()
     return {"projects": projects}

@@ -328,7 +328,7 @@ async def resolve_generation_context(
         if project_path is not None
         else await asyncio.to_thread(get_project_manager().get_project_path, project_name)
     )
-    resolver = ConfigResolver(async_session_factory)
+    resolver = ConfigResolver(async_session_factory, user_id=user_id)
 
     image_result: ImageLaneResult | None = None
     video_result: VideoLaneResult | None = None

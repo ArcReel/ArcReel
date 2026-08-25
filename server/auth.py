@@ -18,12 +18,13 @@ import secrets
 import string
 import time
 from collections import OrderedDict
+from contextvars import ContextVar
 from datetime import UTC
 from pathlib import Path
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Query, Request
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
 from pydantic import BaseModel, ConfigDict
@@ -41,6 +42,21 @@ class CurrentUserInfo(BaseModel):
     role: str = "admin"
 
     model_config = ConfigDict(frozen=True)
+
+
+_current_user_id: ContextVar[str | None] = ContextVar("arcreel_current_user_id", default=None)
+
+
+def current_request_user_id() -> str:
+    """Return the authenticated user bound to the current request task."""
+    from lib.db.base import DEFAULT_USER_ID
+
+    return _current_user_id.get() or DEFAULT_USER_ID
+
+
+def _bind_current_user(user: CurrentUserInfo) -> CurrentUserInfo:
+    _current_user_id.set(user.id)
+    return user
 
 
 # JWT 签名密钥缓存
@@ -106,7 +122,13 @@ def get_token_secret() -> str:
     return _cached_token_secret
 
 
-def create_token(username: str) -> str:
+def create_token(
+    username: str,
+    *,
+    user_id: str | None = None,
+    role: str = "admin",
+    identity_source: str = "internal",
+) -> str:
     """创建 JWT token
 
     Args:
@@ -118,6 +140,9 @@ def create_token(username: str) -> str:
     now = time.time()
     payload = {
         "sub": username,
+        "uid": user_id,
+        "role": role,
+        "identity_source": identity_source,
         "iat": now,
         "exp": now + TOKEN_EXPIRY_SECONDS,
     }
@@ -377,7 +402,12 @@ async def _verify_api_key(token: str) -> dict | None:
         except (ValueError, TypeError):
             logger.warning("API Key expires_at 值格式无法解析，忽略过期检查: %r", expires_at)
 
-    payload = {"sub": f"apikey:{row['name']}", "via": "apikey"}
+    payload = {
+        "sub": f"apikey:{row['name']}",
+        "uid": row.get("user_id"),
+        "role": "admin",
+        "via": "apikey",
+    }
     _set_api_key_cache(key_hash, payload, expires_at_ts=expires_at_monotonic)
 
     # 异步更新 last_used_at（不阻塞，保存引用防止 GC）
@@ -428,8 +458,10 @@ def _payload_to_user(payload: dict) -> CurrentUserInfo:
     """Convert a verified JWT/API-key payload to CurrentUserInfo."""
     from lib.db.base import DEFAULT_USER_ID
 
-    sub = payload.get("sub", "")
-    return CurrentUserInfo(id=DEFAULT_USER_ID, sub=sub, role="admin")
+    sub = str(payload.get("sub", ""))
+    user_id = str(payload.get("uid") or DEFAULT_USER_ID)
+    role = str(payload.get("role") or "admin")
+    return CurrentUserInfo(id=user_id, sub=sub, role=role)
 
 
 async def get_current_user(
@@ -441,7 +473,7 @@ async def get_current_user(
     启用时缺 token 抛 401（与旧 oauth2_scheme auto_error 行为等价）。
     """
     if not is_auth_enabled():
-        return _anonymous_user()
+        return _bind_current_user(_anonymous_user())
     if not token:
         raise HTTPException(
             status_code=401,
@@ -449,7 +481,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     payload = await _verify_and_get_payload_async(token)
-    return _payload_to_user(payload)
+    return _bind_current_user(await _payload_to_current_user(payload))
 
 
 async def get_current_user_flexible(
@@ -461,7 +493,7 @@ async def get_current_user_flexible(
     ``AUTH_ENABLED=false`` 时无视 token，直接返回匿名 admin。
     """
     if not is_auth_enabled():
-        return _anonymous_user()
+        return _bind_current_user(_anonymous_user())
     raw = token or query_token
     if not raw:
         raise HTTPException(
@@ -470,7 +502,68 @@ async def get_current_user_flexible(
             headers={"WWW-Authenticate": "Bearer"},
         )
     payload = await _verify_and_get_payload_async(raw)
-    return _payload_to_user(payload)
+    return _bind_current_user(await _payload_to_current_user(payload))
+
+
+async def _payload_to_current_user(payload: dict) -> CurrentUserInfo:
+    current = _payload_to_user(payload)
+    if payload.get("identity_source") != "arcreel_cloud":
+        return current
+    from lib.db import async_session_factory
+    from lib.db.models.user import User
+
+    async with async_session_factory() as session:
+        user = await session.get(User, current.id)
+    if user is None or not user.is_active or not user.arcreel_cloud_sub:
+        raise HTTPException(
+            status_code=401,
+            detail="ArcReel 云账号已失效，请重新登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return CurrentUserInfo(id=user.id, sub=user.username, role=user.role)
+
+
+async def require_admin(current_user: Annotated[CurrentUserInfo, Depends(get_current_user)]) -> CurrentUserInfo:
+    """Require the local administrator role for sensitive system operations."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要 ArcReel 管理员权限")
+    return current_user
+
+
+async def require_admin_for_provider_config(
+    request: Request,
+    current_user: Annotated[CurrentUserInfo, Depends(get_current_user)],
+) -> CurrentUserInfo:
+    """Allow the provider catalog to creators; reserve provider details and changes for admins."""
+    if request.method == "GET" and request.url.path.rstrip("/") == "/api/v1/providers":
+        return current_user
+    return _assert_admin(current_user)
+
+
+async def require_admin_for_custom_provider_config(
+    request: Request,
+    current_user: Annotated[CurrentUserInfo, Depends(get_current_user)],
+) -> CurrentUserInfo:
+    """Allow the custom-provider summary needed by bootstrap; reserve management for admins."""
+    if request.method == "GET" and request.url.path.rstrip("/") == "/api/v1/custom-providers":
+        return current_user
+    return _assert_admin(current_user)
+
+
+async def require_admin_for_system_config(
+    request: Request,
+    current_user: Annotated[CurrentUserInfo, Depends(get_current_user)],
+) -> CurrentUserInfo:
+    """Allow read-only runtime config required by creation flows; protect every mutation."""
+    if request.method in {"GET", "HEAD"}:
+        return current_user
+    return _assert_admin(current_user)
+
+
+def _assert_admin(current_user: CurrentUserInfo) -> CurrentUserInfo:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要 ArcReel 管理员权限")
+    return current_user
 
 
 # Type aliases for FastAPI dependency injection

@@ -23,6 +23,7 @@ def _auth_env():
     with patch.dict(
         os.environ,
         {
+            "ARCREEL_CLOUD_ENABLED": "false",
             "AUTH_USERNAME": "testuser",
             "AUTH_PASSWORD": "testpass",
             "AUTH_TOKEN_SECRET": "test-middleware-secret-key-at-least-32-bytes",

@@ -640,6 +640,7 @@ class EventLogStore:
             seq_start_row = await session.execute(
                 select(func.coalesce(func.max(AgentSessionEventLogEntry.seq), -1) + 1).where(
                     AgentSessionEventLogEntry.session_id == session_id,
+                    AgentSessionEventLogEntry.user_id == self._user_id,
                 )
             )
             seq_start = int(seq_start_row.scalar_one())
@@ -690,6 +691,7 @@ class EventLogStore:
                 select(AgentSessionEventLogEntry.seq, AgentSessionEventLogEntry.payload).where(
                     AgentSessionEventLogEntry.session_id == session_id,
                     AgentSessionEventLogEntry.client_key == client_key,
+                    AgentSessionEventLogEntry.user_id == self._user_id,
                 )
             )
             row = result.first()
@@ -715,6 +717,7 @@ class EventLogStore:
                 .where(
                     AgentSessionEventLogEntry.client_key == client_key,
                     AgentSessionEventLogEntry.seq == 0,
+                    AgentSessionEventLogEntry.user_id == self._user_id,
                 )
                 .order_by(AgentSessionEventLogEntry.created_at)
                 .limit(1)
@@ -731,6 +734,7 @@ class EventLogStore:
                 .where(
                     AgentSessionEventLogEntry.session_id == session_id,
                     AgentSessionEventLogEntry.seq > after_seq,
+                    AgentSessionEventLogEntry.user_id == self._user_id,
                 )
                 .order_by(AgentSessionEventLogEntry.seq)
             )
@@ -745,6 +749,7 @@ class EventLogStore:
                 sa_delete(AgentSessionEventLogEntry).where(
                     AgentSessionEventLogEntry.session_id == session_id,
                     AgentSessionEventLogEntry.seq == seq,
+                    AgentSessionEventLogEntry.user_id == self._user_id,
                 )
             )
             await session.commit()
@@ -785,6 +790,7 @@ class EventLogStore:
                 select(AgentSessionUserMessageLink.sdk_entry_uuid).where(
                     AgentSessionUserMessageLink.session_id == session_id,
                     AgentSessionUserMessageLink.user_entry_uuid == user_entry_uuid,
+                    AgentSessionUserMessageLink.user_id == self._user_id,
                 )
             )
             row = result.first()
@@ -793,16 +799,29 @@ class EventLogStore:
     async def delete_session(self, session_id: str) -> None:
         async with self._session_factory() as session:
             await session.execute(
-                sa_delete(AgentSessionEventLogEntry).where(AgentSessionEventLogEntry.session_id == session_id)
+                sa_delete(AgentSessionEventLogEntry).where(
+                    AgentSessionEventLogEntry.session_id == session_id,
+                    AgentSessionEventLogEntry.user_id == self._user_id,
+                )
             )
             await session.execute(
-                sa_delete(AgentSessionUserMessageLink).where(AgentSessionUserMessageLink.session_id == session_id)
+                sa_delete(AgentSessionUserMessageLink).where(
+                    AgentSessionUserMessageLink.session_id == session_id,
+                    AgentSessionUserMessageLink.user_id == self._user_id,
+                )
             )
             await session.commit()
 
     async def has_entries(self, session_id: str) -> bool:
         async with self._session_factory() as session:
-            result = await session.execute(select(exists().where(AgentSessionEventLogEntry.session_id == session_id)))
+            result = await session.execute(
+                select(
+                    exists().where(
+                        AgentSessionEventLogEntry.session_id == session_id,
+                        AgentSessionEventLogEntry.user_id == self._user_id,
+                    )
+                )
+            )
             return bool(result.scalar())
 
     async def last_entry(self, session_id: str) -> dict[str, Any] | None:
@@ -811,6 +830,7 @@ class EventLogStore:
             result = await session.execute(
                 select(AgentSessionEventLogEntry.seq, AgentSessionEventLogEntry.payload)
                 .where(AgentSessionEventLogEntry.session_id == session_id)
+                .where(AgentSessionEventLogEntry.user_id == self._user_id)
                 .order_by(AgentSessionEventLogEntry.seq.desc())
                 .limit(1)
             )

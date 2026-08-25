@@ -104,22 +104,10 @@ cd ArcReel
 ```bash
 uv sync
 cd frontend && pnpm install && cd ..
-cp .env.example .env
 ```
 
-编辑 `.env`：
-
-```dotenv
-AUTH_USERNAME=admin
-AUTH_PASSWORD=请设置一个强密码
-AUTH_TOKEN_SECRET=请设置一个长期固定的随机密钥
-```
-
-`AUTH_TOKEN_SECRET` 可以使用以下命令生成：
-
-```bash
-openssl rand -hex 32
-```
+正式云端账号服务已内置，普通用户无需创建或编辑 `.env`。管理员需要提前在数据中台为用户创建
+ArcReel 账号并分配供应商 API Key。
 
 启动后端和前端开发服务：
 
@@ -139,7 +127,7 @@ curl http://localhost:1241/health
 http://localhost:5173
 ```
 
-> `AUTH_PASSWORD` 留空时，首次启动会自动生成密码并回写到 `.env`。正式使用时仍建议主动设置强密码并妥善保存。
+> 使用数据中台分配的 ArcReel 账号和密码登录。登录成功后，系统会自动获取该账号的供应商 API Key。
 
 ### 2.3 可选 PostgreSQL {#deploy-with-postgresql}
 

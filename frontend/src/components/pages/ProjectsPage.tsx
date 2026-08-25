@@ -17,6 +17,7 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { GlassModal } from "@/components/ui/GlassModal";
@@ -400,6 +401,7 @@ function TopBar({
   searchInputRef,
 }: TopBarProps) {
   const { t } = useTranslation(["common", "dashboard", "assets"]);
+  const isAdmin = useAuthStore((state) => state.role !== "user");
   return (
     <div
       className="sticky top-0 z-30"
@@ -487,23 +489,27 @@ function TopBar({
             <Plus className="h-3.5 w-3.5" />
             {t("dashboard:create_project")}
           </button>
-          <span aria-hidden className="mx-1 h-5 w-px bg-hairline-soft" />
-          <button
-            type="button"
-            onClick={onSettings}
-            data-onboarding={ONBOARDING_ANCHORS.lobbySettings}
-            className={`relative ${ICON_BTN_FILLED_CLS}`}
-            title={t("settings")}
-            aria-label={t("settings")}
-          >
-            <Settings className="h-4 w-4" aria-hidden />
-            {configIncomplete ? (
-              <span
-                aria-label={t("config_incomplete")}
-                className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-warm-bright"
-              />
-            ) : null}
-          </button>
+          {isAdmin ? (
+            <>
+              <span aria-hidden className="mx-1 h-5 w-px bg-hairline-soft" />
+              <button
+                type="button"
+                onClick={onSettings}
+                data-onboarding={ONBOARDING_ANCHORS.lobbySettings}
+                className={`relative ${ICON_BTN_FILLED_CLS}`}
+                title={t("settings")}
+                aria-label={t("settings")}
+              >
+                <Settings className="h-4 w-4" aria-hidden />
+                {configIncomplete ? (
+                  <span
+                    aria-label={t("config_incomplete")}
+                    className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-warm-bright"
+                  />
+                ) : null}
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
     </div>

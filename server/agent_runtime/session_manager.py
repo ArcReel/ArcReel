@@ -376,8 +376,10 @@ class SessionManager:
         in_docker: bool = False,
         sandbox_enabled: bool = True,
         event_log_store: EventLogStore | None = None,
+        user_id: str = DEFAULT_USER_ID,
     ):
-        self.event_log_store = event_log_store or EventLogStore()
+        self._user_id = user_id
+        self.event_log_store = event_log_store or EventLogStore(user_id=user_id)
         self.project_root = Path(project_root)
         # Tests construct SessionManager directly without going through
         # AssistantService, so we fall back to the legacy ``project_root/projects``

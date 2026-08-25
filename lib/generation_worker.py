@@ -29,6 +29,7 @@ _ORPHAN_RESCAN_LEASE_LOST_MULT = 3
 
 from lib.api_errors import ApiError
 from lib.config.resolver import VideoBucketCapabilityError
+from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import (
     TASK_POLL_INTERVAL_SEC,
     TASK_WORKER_HEARTBEAT_SEC,
@@ -416,7 +417,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
 
-        resolver = ConfigResolver(async_session_factory)
+        resolver = ConfigResolver(async_session_factory, user_id=str(task.get("user_id") or DEFAULT_USER_ID))
         if is_video:
             resolved, _capability = await resolve_video_execution_for_queued_task(
                 resolver=resolver,

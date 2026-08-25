@@ -14,6 +14,7 @@ from lib.i18n import Translator
 from lib.project_manager import get_project_manager
 from lib.reference_video import find_reference_unit
 from lib.reference_video.request_projection import POST_PRODUCTION, NarrationDelivery, ReferenceRequestOptions
+from server.auth import CurrentUser
 from server.services.cost_estimation import CostEstimationService
 
 router = APIRouter()
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 @router.get("/projects/{project_name}/cost-estimate")
 async def get_cost_estimate(
     project_name: str,
+    user: CurrentUser,
     _t: Translator,
     reference_unit_id: str | None = None,
     narration_delivery: NarrationDelivery = POST_PRODUCTION,
@@ -53,11 +55,12 @@ async def get_cost_estimate(
 
     project_data, scripts = await asyncio.to_thread(_sync)
 
-    resolver = ConfigResolver(async_session_factory)
+    resolver = ConfigResolver(async_session_factory, user_id=user.id)
     service = CostEstimationService(
         resolver,
         async_session_factory,
         project_path=get_project_manager().get_project_path(project_name),
+        user_id=user.id,
     )
 
     if reference_unit_id and not any(find_reference_unit(script, reference_unit_id) for script in scripts.values()):

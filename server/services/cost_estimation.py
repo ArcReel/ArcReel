@@ -19,6 +19,7 @@ from lib.config.resolver import (
     video_bucket_for_generation_mode,
 )
 from lib.cost_calculator import cost_calculator
+from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.generation_queue import GenerationQueue
@@ -267,10 +268,12 @@ class CostEstimationService:
         session_factory: async_sessionmaker[AsyncSession],
         *,
         project_path: Path | None = None,
+        user_id: str = DEFAULT_USER_ID,
     ) -> None:
         self._resolver = resolver
         self._session_factory = session_factory
         self._project_path = project_path
+        self._user_id = user_id
         self._generation_queue = GenerationQueue(session_factory=session_factory)
 
     async def compute(
@@ -396,7 +399,9 @@ class CostEstimationService:
 
         # Get actual costs + 自定义供应商价格（缺则预估恒为零，需与实际记账同源预查 DB 单价）
         async with self._session_factory() as session:
-            actual_by_segment = await UsageRepository(session).get_actual_costs_by_segment(project_name)
+            actual_by_segment = await UsageRepository(session, user_id=self._user_id).get_actual_costs_by_segment(
+                project_name
+            )
             custom_repo = CustomProviderRepository(session)
             image_price = await custom_repo.resolve_price(image_provider, image_model)
             audio_price = await custom_repo.resolve_price(audio_provider, audio_model)
@@ -707,7 +712,10 @@ class CostEstimationService:
 
         # Project-level actual costs (characters/scenes/props/products 资产图 —— segment_id is null)
         async with self._session_factory() as session:
-            project_image_by_type = await UsageRepository(session).get_project_image_costs_by_asset_type(project_name)
+            project_image_by_type = await UsageRepository(
+                session,
+                user_id=self._user_id,
+            ).get_project_image_costs_by_asset_type(project_name)
         for asset_type in ("characters", "scenes", "props", "products"):
             bucket = project_image_by_type.get(asset_type)
             if bucket:

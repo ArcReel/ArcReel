@@ -25,6 +25,13 @@ PUBLIC_OPERATIONS = frozenset(
         "GET /health",
         "GET /api/v1/auth/status",
         "POST /api/v1/auth/token",
+        "GET /api/v1/auth/account-center/start",
+        "POST /api/v1/auth/account-center/direct",
+        "GET /api/v1/auth/account-center/portal",
+        "GET /api/v1/auth/account-center/callback",
+        "POST /api/v1/auth/account-center/exchange",
+        "GET /api/v1/auth/account-center/setup",
+        "POST /api/v1/auth/account-center/setup",
         "GET /api/v1/files/{project_name}/{path}",
         "GET /api/v1/global-assets/{asset_type}/{filename}",
     }
@@ -63,6 +70,7 @@ def _auth_env():
     with patch.dict(
         os.environ,
         {
+            "ARCREEL_CLOUD_ENABLED": "false",
             "AUTH_ENABLED": "true",
             "AUTH_USERNAME": "testuser",
             "AUTH_PASSWORD": "testpass",
@@ -127,6 +135,12 @@ def test_public_endpoints_stay_reachable(client):
     """公开端点不被 router 级依赖误伤。"""
     assert client.get("/health").status_code == 200
     assert client.get("/api/v1/auth/status").status_code == 200
+    assert client.get("/api/v1/auth/account-center/start", follow_redirects=False).status_code != 401
+    assert client.get("/api/v1/auth/account-center/portal", follow_redirects=False).status_code != 401
+    assert client.get("/api/v1/auth/account-center/callback", follow_redirects=False).status_code != 401
+    assert client.post("/api/v1/auth/account-center/exchange", json={}).status_code != 401
+    assert client.get("/api/v1/auth/account-center/setup").status_code != 401
+    assert client.post("/api/v1/auth/account-center/setup", json={}).status_code != 401
     assert (
         client.post(
             "/api/v1/auth/token",
