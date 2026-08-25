@@ -8,7 +8,7 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.script_review import complete_stale_step1_rebuild
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_outcome_response, tool_services
+from server.media_tools.context import ToolContext, tool_outcome_response, tool_services
 from server.tool_runtime import (
     CompleteStep1RebuildRequest,
     ToolOutcome,

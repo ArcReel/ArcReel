@@ -954,11 +954,11 @@ class TestReferenceVideoStep1Migration:
 class TestReferenceVideoStep2Enforcement:
     async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):
         """Agent 路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""
-        from server.agent_runtime.sdk_tools._context import ToolContext
         from server.agent_runtime.sdk_tools.text_generation import (
             confirm_script_review_tool,
             generate_episode_script_tool,
         )
+        from server.media_tools.context import ToolContext
 
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         _write_rv_step1(pm, _rv_step1())
@@ -1267,8 +1267,8 @@ class TestStep1WriteStore:
 
 class TestStep2Enforcement:
     async def test_generate_blocked_when_pending(self, tmp_path):
-        from server.agent_runtime.sdk_tools._context import ToolContext
         from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
+        from server.media_tools.context import ToolContext
 
         pm = _make_project(tmp_path, "drama")
         _write_step1(pm, "drama", _drama_step1())
@@ -1283,8 +1283,8 @@ class TestStep2Enforcement:
 
     async def test_confirm_tool_unblocks_step2(self, tmp_path):
         """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 step1→step2 不被破坏）。"""
-        from server.agent_runtime.sdk_tools._context import ToolContext
         from server.agent_runtime.sdk_tools.text_generation import confirm_script_review_tool
+        from server.media_tools.context import ToolContext
 
         pm = _make_project(tmp_path, "drama")
         _write_step1(pm, "drama", _drama_step1())

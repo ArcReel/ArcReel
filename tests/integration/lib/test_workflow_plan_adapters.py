@@ -18,10 +18,10 @@ from lib.workflow_state import (
     WorkflowStatus,
     WorkflowTarget,
 )
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
+from server.media_tools.context import ToolContext
 from server.routers import projects
 from server.services import workflow_planner
 
@@ -68,10 +68,18 @@ def _status() -> WorkflowStatus:
 
 class _Planner:
     def __init__(self):
-        self.calls: list[tuple[str, WorkflowPlanRequest]] = []
+        self.calls: list[tuple[str, WorkflowPlanRequest, str]] = []
 
-    async def get_plan(self, project_name: str, request: WorkflowPlanRequest):
-        self.calls.append((project_name, request))
+    async def get_plan(
+        self,
+        project_name: str,
+        request: WorkflowPlanRequest,
+        *,
+        user_id: str,
+        queue=None,
+        config_resolver=None,
+    ):
+        self.calls.append((project_name, request, user_id))
         return build_workflow_plan(_status(), narration_delivery=request.narration_delivery)
 
 
@@ -103,8 +111,8 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
     assert response.status_code == 200
     assert mcp_body == {"workflow_plan": response.json()}
     assert planner.calls == [
-        ("demo", WorkflowPlanRequest.model_validate(payload)),
-        ("demo", WorkflowPlanRequest.model_validate(payload)),
+        ("demo", WorkflowPlanRequest.model_validate(payload), "default"),
+        ("demo", WorkflowPlanRequest.model_validate(payload), "u1"),
     ]
 
 
@@ -131,7 +139,15 @@ class _FailingPlanner:
     def __init__(self, error: Exception):
         self._error = error
 
-    async def get_plan(self, project_name: str, request: WorkflowPlanRequest):
+    async def get_plan(
+        self,
+        project_name: str,
+        request: WorkflowPlanRequest,
+        *,
+        user_id: str,
+        queue=None,
+        config_resolver=None,
+    ):
         raise self._error
 
 

@@ -30,6 +30,7 @@ from lib.project_migration_guard import assert_project_migration_ok
 from lib.task_terminal_events import TERMINAL_TASK_STATUSES, emit_task_terminal_events
 
 if TYPE_CHECKING:
+    from lib.artifact_activation import ArtifactCurrencyResolver
     from lib.config.resolver import ConfigResolver, ProviderModel, VideoCapability
     from lib.reference_video.request_projection import ReferenceUnitRequestProjection
 
@@ -475,13 +476,18 @@ class GenerationQueue:
         return batch_id
 
     async def get_generation_batch(
-        self, *, project_name: str, batch_id: str, user_id: str = DEFAULT_USER_ID
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+        user_id: str = DEFAULT_USER_ID,
+        resolver: ArtifactCurrencyResolver | None = None,
     ) -> GenerationBatchReadModel:
         async with self._task_repo() as repo:
             batch = await repo.get_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
         if batch is None:
             raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
-        return build_generation_batch_read_model(batch, batch["memberships"], batch["queue_depth"])
+        return build_generation_batch_read_model(batch, batch["memberships"], batch["queue_depth"], resolver)
 
     async def attach_task_to_generation_batch(
         self,

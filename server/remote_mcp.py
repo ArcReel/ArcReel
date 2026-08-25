@@ -7,15 +7,18 @@ import json
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import asdict, is_dataclass
-from typing import Annotated, Any, Literal
+from copy import deepcopy
+from typing import Any, Literal
 
+from jsonschema import ValidationError as JsonSchemaValidationError
+from jsonschema import validate as validate_json
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp.tools import Tool as FastMCPTool
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import CallToolResult, ContentBlock, TextContent
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from mcp.types import CallToolResult, TextContent
+from pydantic import AnyHttpUrl, Field
 from starlette.responses import PlainTextResponse
 from starlette.types import Receive, Scope, Send
 
@@ -39,7 +42,7 @@ from server.draft_workflow import (
 )
 from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
-from server.media_tools.definition import ToolDefinition
+from server.media_tools.definition import ToolDefinition, json_value, media_outcome_payload
 from server.media_tools.grid import generate_grid_tool
 from server.media_tools.image_edits import edit_images_tool
 from server.media_tools.narration_audio import generate_narration_audio_tool
@@ -111,35 +114,6 @@ _LOCAL_ORIGINS = [
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
 
 
-class _VideoTarget(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class _EpisodeVideoTarget(_VideoTarget):
-    scope: Literal["episode"]
-    episode: PositiveEpisode
-
-
-class _AllVideoTarget(_VideoTarget):
-    scope: Literal["all"]
-
-
-class _SceneVideoTarget(_VideoTarget):
-    scope: Literal["scene"]
-    ids: list[str] = Field(min_length=1, max_length=1)
-
-
-class _SelectedVideoTarget(_VideoTarget):
-    scope: Literal["selected"]
-    ids: list[str] = Field(min_length=1)
-
-
-VideoTarget = Annotated[
-    _EpisodeVideoTarget | _AllVideoTarget | _SceneVideoTarget | _SelectedVideoTarget,
-    Field(discriminator="scope"),
-]
-
-
 class ArcApiKeyVerifier(TokenVerifier):
     """Bridge MCP Bearer auth to ArcReel's existing API Key verifier."""
 
@@ -162,19 +136,14 @@ def _csv_env(name: str, default: list[str]) -> list[str]:
 
 def _to_mcp_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallToolResult:
     if outcome.problem is not None:
-        structured = {"problem": outcome.problem.model_dump(mode="json")}
+        structured = {"problem": json_value(outcome.problem)}
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(structured, ensure_ascii=False))],
             structuredContent=structured,
             isError=True,
         )
     value = outcome.value
-    if isinstance(value, BaseModel):
-        payload = value.model_dump(mode="json")
-    elif is_dataclass(value) and not isinstance(value, type):
-        payload = asdict(value)
-    else:
-        payload = value
+    payload = json_value(value)
     structured = {domain_key: payload}
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(structured, ensure_ascii=False))],
@@ -197,14 +166,12 @@ def _project_scope(project: str, projects: ProjectManager) -> ProjectScope:
     return ProjectScope(project_name=project_name, projects_root=projects.projects_root)
 
 
-def _media_response_to_mcp(response) -> CallToolResult:
-    content: list[ContentBlock] = [
-        TextContent(type="text", text=str(item.get("text", ""))) for item in response.content
-    ]
+def _media_outcome_to_mcp(definition: ToolDefinition, outcome: ToolOutcome[Any]) -> CallToolResult:
+    structured, summary, is_error = media_outcome_payload(definition, outcome)
     return CallToolResult(
-        content=content,
-        structuredContent=response.structured or None,
-        isError=response.is_error,
+        content=[TextContent(type="text", text=summary or json.dumps(structured, ensure_ascii=False))],
+        structuredContent=structured,
+        isError=is_error,
     )
 
 
@@ -237,6 +204,66 @@ def _default_services(projects: ProjectManager) -> Services:
     )
 
 
+def _remote_media_schema(definition: ToolDefinition) -> dict[str, Any]:
+    schema = deepcopy(definition.input_schema)
+    schema["properties"] = {
+        "project": {"type": "string", "description": "ArcReel project name"},
+        **schema.get("properties", {}),
+    }
+    schema["required"] = ["project", *schema.get("required", [])]
+    return schema
+
+
+MediaDefinitionFactory = Callable[[ToolContext], ToolDefinition]
+MediaInvoker = Callable[[str, MediaDefinitionFactory, dict[str, Any]], Awaitable[CallToolResult]]
+
+
+class _RemoteMediaTool(FastMCPTool):
+    """Validate and forward media arguments through the shared JSON schema."""
+
+    definition_factory: MediaDefinitionFactory = Field(exclude=True)
+    media_invoker: MediaInvoker = Field(exclude=True)
+    definition: ToolDefinition = Field(exclude=True)
+
+    async def run(self, arguments: dict[str, Any], context: Any = None, convert_result: bool = False) -> Any:
+        del context, convert_result
+        try:
+            validate_json(arguments, self.parameters)
+        except JsonSchemaValidationError as exc:
+            return _media_outcome_to_mcp(
+                self.definition,
+                ToolOutcome(problem=ToolProblem("invalid_request", exc.message)),
+            )
+        forwarded = dict(arguments)
+        project = forwarded.pop("project")
+        return await self.media_invoker(project, self.definition_factory, forwarded)
+
+
+def _remote_media_tool(
+    definition: ToolDefinition,
+    definition_factory: MediaDefinitionFactory,
+    media_invoker: MediaInvoker,
+) -> FastMCPTool:
+    async def unused() -> CallToolResult:
+        raise RuntimeError("remote media tools override run")
+
+    metadata = FastMCPTool.from_function(unused, structured_output=False)
+    return _RemoteMediaTool(
+        fn=unused,
+        name=definition.name,
+        title=None,
+        description=definition.description,
+        parameters=_remote_media_schema(definition),
+        fn_metadata=metadata.fn_metadata,
+        is_async=True,
+        context_kwarg=None,
+        annotations=None,
+        definition_factory=definition_factory,
+        media_invoker=media_invoker,
+        definition=definition,
+    )
+
+
 def build_remote_mcp_server(
     *,
     projects: ProjectManager | None = None,
@@ -252,9 +279,59 @@ def build_remote_mcp_server(
         projects = projects or get_project_manager()
         services = _default_services(projects)
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
+
+    def media_context(project: str) -> ToolContext:
+        scope = _project_scope(project, projects)
+        return ToolContext(
+            project_name=scope.project_name,
+            projects_root=scope.projects_root,
+            pm=projects,
+            config_resolver=services.capabilities,
+            caller=caller,
+            queue=services.queue,
+        )
+
+    async def invoke_media(
+        project: str,
+        definition_factory: Callable[[ToolContext], ToolDefinition],
+        args: dict[str, Any],
+    ) -> CallToolResult:
+        try:
+            ctx = media_context(project)
+            if definition_factory is not list_pending_assets_tool and (
+                problem := await migration_gate(ctx.scope, services)
+            ):
+                return _to_mcp_result("generation_batch", ToolOutcome(problem=problem))
+            definition = definition_factory(ctx)
+            return _media_outcome_to_mcp(definition, await definition.invoke(args))
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("generation_batch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+
+    schema_context = ToolContext(
+        project_name="schema",
+        projects_root=projects.projects_root,
+        pm=projects,
+        config_resolver=services.capabilities,
+        caller=caller,
+        queue=services.queue,
+    )
+    media_tools: list[FastMCPTool] = []
+    for definition_factory in (
+        list_pending_assets_tool,
+        generate_assets_tool,
+        generate_storyboards_tool,
+        edit_images_tool,
+        generate_grid_tool,
+        generate_videos_tool,
+        generate_narration_audio_tool,
+    ):
+        definition = definition_factory(schema_context)
+        media_tools.append(_remote_media_tool(definition, definition_factory, invoke_media))
+
     public_url = AnyHttpUrl(os.environ.get("MCP_PUBLIC_URL", "http://localhost:1241/mcp"))
     server = FastMCP(
         "arcreel",
+        tools=media_tools,
         token_verifier=token_verifier or ArcApiKeyVerifier(),
         auth=AuthSettings(
             issuer_url=public_url,
@@ -724,117 +801,6 @@ def build_remote_mcp_server(
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("project_file", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         return _to_mcp_result("project_file", await read_project_file(ToolRequest(path), scope, caller, services))
-
-    def media_context(project: str) -> ToolContext:
-        scope = _project_scope(project, projects)
-        return ToolContext(
-            project_name=scope.project_name,
-            projects_root=scope.projects_root,
-            pm=projects,
-            config_resolver=services.capabilities,
-            caller=caller,
-            queue=services.queue,
-        )
-
-    async def invoke_media(
-        project: str,
-        definition_factory: Callable[[ToolContext], ToolDefinition],
-        args: dict[str, Any],
-    ) -> CallToolResult:
-        try:
-            ctx = media_context(project)
-            if definition_factory is not list_pending_assets_tool and (
-                problem := await migration_gate(ctx.scope, services)
-            ):
-                return _to_mcp_result("generation_batch", ToolOutcome(problem=problem))
-            outcome = await definition_factory(ctx).invoke(args)
-            assert outcome.value is not None
-            return _media_response_to_mcp(outcome.value)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("generation_batch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-
-    @server.tool(name="list_pending_assets", structured_output=False)
-    async def remote_list_pending_assets(project: str, type: str | None = None) -> CallToolResult:
-        """List assets that do not yet have a reusable generated image."""
-        return await invoke_media(project, list_pending_assets_tool, {"type": type})
-
-    @server.tool(name="generate_assets", structured_output=False)
-    async def remote_generate_assets(
-        project: str,
-        type: str | None = None,
-        names: list[str] | None = None,
-        all: bool = False,
-    ) -> CallToolResult:
-        """Submit missing or explicitly selected asset images as one durable batch."""
-        return await invoke_media(project, generate_assets_tool, {"type": type, "names": names, "all": all})
-
-    @server.tool(name="generate_storyboards", structured_output=False)
-    async def remote_generate_storyboards(
-        project: str, script: str, segment_ids: list[str] | None = None
-    ) -> CallToolResult:
-        """Submit storyboard image generation and return its durable batch handle."""
-        return await invoke_media(project, generate_storyboards_tool, {"script": script, "segment_ids": segment_ids})
-
-    @server.tool(name="edit_images", structured_output=False)
-    async def remote_edit_images(
-        project: str,
-        resource_type: str,
-        edits: list[dict[str, str]],
-        script_file: str | None = None,
-    ) -> CallToolResult:
-        """Submit instruction-based image edits as one durable batch."""
-        return await invoke_media(
-            project,
-            edit_images_tool,
-            {"resource_type": resource_type, "edits": edits, "script_file": script_file},
-        )
-
-    @server.tool(name="generate_grid", structured_output=False)
-    async def remote_generate_grid(
-        project: str,
-        script: str,
-        scene_ids: list[str] | None = None,
-        list_only: bool = False,
-    ) -> CallToolResult:
-        """Submit grid-storyboard generation or list its planned groups."""
-        return await invoke_media(
-            project, generate_grid_tool, {"script": script, "scene_ids": scene_ids, "list_only": list_only}
-        )
-
-    @server.tool(name="generate_videos", structured_output=False)
-    async def remote_generate_videos(
-        project: str,
-        script: str,
-        target: VideoTarget,
-        narration_delivery: NarrationDelivery,
-        force: bool = False,
-        confirmed_request_duration_seconds: int | None = None,
-        confirmed_request_durations: dict[str, int] | None = None,
-    ) -> CallToolResult:
-        """Submit video generation with episode, scene, all, or selected scope."""
-        return await invoke_media(
-            project,
-            generate_videos_tool,
-            {
-                "script": script,
-                "target": target.model_dump(mode="json"),
-                "narration_delivery": narration_delivery,
-                "force": force,
-                "confirmed_request_duration_seconds": confirmed_request_duration_seconds,
-                "confirmed_request_durations": confirmed_request_durations,
-            },
-        )
-
-    @server.tool(name="generate_narration_audio", structured_output=False)
-    async def remote_generate_narration_audio(
-        project: str, script: str, segment_ids: list[str] | None = None
-    ) -> CallToolResult:
-        """Submit narration audio generation and return its durable batch handle."""
-        return await invoke_media(
-            project,
-            generate_narration_audio_tool,
-            {"script": script, "segment_ids": segment_ids},
-        )
 
     return server
 

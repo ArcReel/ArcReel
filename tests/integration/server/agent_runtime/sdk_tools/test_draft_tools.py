@@ -21,7 +21,6 @@ from lib.draft_quarantine import (
     quarantine_path,
     write_quarantine,
 )
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
     discard_draft_tool,
     open_draft_tool,
@@ -29,6 +28,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     promote_draft_tool,
 )
 from server.draft_workflow import DraftContext, DraftWorkflow, DraftWorkflowError
+from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     _call,
@@ -61,8 +61,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _write_nr_step1,
     _write_rv_step1,
 )
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 
 def _draft_result(out: dict) -> dict:

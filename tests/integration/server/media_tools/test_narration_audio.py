@@ -6,11 +6,9 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock
 
-import pytest
-
 from lib.artifact_manifest import ArtifactKey, ArtifactStatus
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _activate_unbound_project,
     _call,
@@ -18,8 +16,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _reference_video_script,
     _use_reference_route,
 )
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # enqueue_narration_audio

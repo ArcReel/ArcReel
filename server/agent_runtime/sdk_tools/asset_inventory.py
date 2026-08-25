@@ -8,7 +8,7 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.asset_inventory import complete_asset_inventory as complete_asset_inventory_service
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_outcome_response, tool_services
+from server.media_tools.context import ToolContext, tool_outcome_response, tool_services
 from server.tool_runtime import (
     CompleteAssetInventoryRequest,
     ToolOutcome,

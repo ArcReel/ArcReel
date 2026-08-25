@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 from lib.project_manager import ProjectManager
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.entry import create_project_tool, list_projects_tool, upload_source_tool
+from server.media_tools.context import ToolContext
 
 
 async def test_embedded_entry_tools_use_the_session_projects_root(tmp_path: Path) -> None:

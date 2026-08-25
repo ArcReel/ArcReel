@@ -11,20 +11,18 @@ import pytest
 
 from lib import script_review
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     generate_step1_tool,
     get_video_capabilities_tool,
 )
+from server.media_tools.context import ToolContext
 from server.text_generation import TextGenerationRequest, _parse_normalized_content
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
     _fake_caps_resolver,
     _use_fake_caps,
 )
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # i2v 桶不可解析：不带图档位随之回退按 r2v 桶求值（``reference_unit_duration_tiers``）。
 _NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
@@ -300,7 +298,7 @@ async def test_fetch_video_caps_narrows_durations_by_constraints() -> None:
     Veo 项目保存 1080p 时只接受 8 秒；不收窄的话 drama / narration 拆分会产出 4/6 秒镜头，
     视频入队时才被 backend 拒。
     """
-    from server.agent_runtime.sdk_tools import _context as ctx_mod
+    from server.media_tools import context as ctx_mod
 
     resolver = _fake_caps_resolver(
         provider_id="gemini-aistudio",

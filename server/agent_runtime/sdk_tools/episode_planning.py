@@ -15,7 +15,7 @@ from claude_agent_sdk import tool
 
 from lib.episode_planner import EpisodePlanner
 from lib.episode_reset import reset_episode_planning
-from server.agent_runtime.sdk_tools._context import (
+from server.media_tools.context import (
     ToolContext,
     tool_outcome_response,
     tool_services,

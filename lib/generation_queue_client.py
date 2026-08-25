@@ -240,6 +240,8 @@ async def get_active_tasks_for_resources(
     task_type: str,
     resource_ids: list[str],
     script_file: str | None = None,
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
 ) -> list[dict[str, Any]]:
     """查询命中入队去重键、当前处于活动态（queued/running/cancelling）的任务。
 
@@ -247,12 +249,13 @@ async def get_active_tasks_for_resources(
     固定 None——调用方均非 image_edit 任务，不占用该维度）。供调用方在真正入队前探测冲突并
     拒绝，不消费也不影响任务本身的去重状态。
     """
-    queue = get_generation_queue()
+    queue = queue or get_generation_queue()
     return await queue.get_active_tasks_for_resources(
         project_name=project_name,
         task_type=task_type,
         resource_ids=resource_ids,
         script_file=script_file,
+        user_id=user_id,
     )
 
 

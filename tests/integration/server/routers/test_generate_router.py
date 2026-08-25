@@ -7,13 +7,18 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.artifact_activation import ArtifactKey, register_current_artifact_if_provable
+from lib.artifact_manifest import ArtifactManifest, ProjectArtifactManifestAdapter
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
+from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.speech_composition import admit_script_unit
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
+from server.services.narration_delivery_tasks import CurrentTtsSettingsResolver
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.factories import wav_bytes
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -22,10 +27,16 @@ class _FakeQueue:
 
     def __init__(self):
         self.calls = []
+        self.active_by_user: dict[str, list[dict[str, str]]] = {}
+        self.active_queries: list[dict[str, object]] = []
 
     async def enqueue_task(self, **kwargs):
         self.calls.append(kwargs)
         return {"task_id": f"task-{len(self.calls)}", "deduped": False}
+
+    async def get_active_tasks_for_resources(self, **kwargs):
+        self.active_queries.append(kwargs)
+        return self.active_by_user.get(str(kwargs.get("user_id")), [])
 
 
 class _FakePM:
@@ -173,7 +184,7 @@ async def _noop_bucket_precheck(project, capability):
     return None
 
 
-def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True):
+def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True, user_id="default"):
     if register_storyboards:
         fake_pm.register_storyboards()
     else:
@@ -189,7 +200,7 @@ def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True):
 
     app = FastAPI()
     register_error_handlers(app)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id=user_id, sub="testuser", role="admin")
     app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     # raise_server_exceptions=False：500 由 app 级 Exception handler 生成响应后
     # Starlette 会 re-raise，默认配置会把它抛进测试而非返回响应
@@ -388,41 +399,29 @@ class TestGenerateRouter:
     def test_video_use_tts_prechecks_current_saved_duration(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        fake_pm.project["video_provider_i2v"] = "openai/sora-2"
+        fake_pm.script["segments"][0]["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        audio = project_path / "audio" / "segment_E1S01.wav"
+        audio.parent.mkdir()
+        audio.write_bytes(wav_bytes(3.5))
         fake_queue = _FakeQueue()
-        client = _client(monkeypatch, fake_pm, fake_queue)
-        captured: dict[str, object] = {}
-
-        from lib.narration_delivery import (
-            USE_TTS,
-            NarratedVideoDurationPreparation,
-            NarrationDeliveryPreparation,
-            NarrationTtsStatus,
+        fake_queue.active_by_user = {
+            "default": [{"resource_id": "E1S01", "status": "running"}],
+            "tenant-user": [{"resource_id": "E1S02", "status": "running"}],
+        }
+        client = _client(monkeypatch, fake_pm, fake_queue, user_id="tenant-user")
+        settings = TtsSynthesisSettings("openai", "tts-1", "alloy", None)
+        preparation = admit_script_unit("segments", fake_pm.script["segments"][0]).preparation
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.episode_audio(1, "E1S01"),
+            artifact_path="audio/segment_E1S01.wav",
+            basis=build_narration_audio_basis(preparation, settings),
         )
 
-        async def _project(**kwargs):
-            captured.update(kwargs)
-            # 重投影的产物照真实形状给出，路由的本地化与放行判定因而照跑；
-            # cost 留空即不触发报价查询（该分支由本文件的报价用例覆盖）。
-            return NarratedVideoDurationPreparation(
-                narration=NarrationDeliveryPreparation(
-                    delivery=USE_TTS,
-                    unit_id="E1S01",
-                    speech_mode=None,
-                    tts_status=NarrationTtsStatus.CURRENT,
-                    artifact_path="audio/segment_E1S01.wav",
-                    basis_digest="current-audio-basis",
-                    actual_duration_seconds=3.5,
-                    problems=(),
-                ),
-                planned_duration_seconds=4,
-                duration_input=4,
-                request_duration_seconds=4,
-                adjustment="exact",
-                problems=(),
-                current_visual_duration_seconds=4,
-            )
+        async def _resolve_tts(_self, _project):
+            return settings
 
-        monkeypatch.setattr(generate, "prepare_current_storyboard_narrated_video_duration", _project)
+        monkeypatch.setattr(CurrentTtsSettingsResolver, "resolve_tts_synthesis_settings", _resolve_tts)
 
         with client:
             response = client.post(
@@ -438,8 +437,12 @@ class TestGenerateRouter:
             )
 
         assert response.status_code == 200, response.text
-        assert captured["planned_duration_seconds"] == 4
-        assert captured["seed"] == 739
+        projection = response.json()["narration_delivery"]
+        assert projection["narration_delivery"]["tts_status"] == "current"
+        assert projection["planned_duration"] == 4
+        assert fake_queue.active_queries
+        assert {query["user_id"] for query in fake_queue.active_queries} == {"tenant-user"}
+        assert fake_queue.calls[0]["user_id"] == "tenant-user"
         assert "duration_seconds" not in fake_queue.calls[0]["payload"]
 
     def test_video_use_tts_confirms_only_the_current_higher_tier(self, tmp_path, monkeypatch):

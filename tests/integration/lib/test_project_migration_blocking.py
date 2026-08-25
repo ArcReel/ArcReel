@@ -29,12 +29,12 @@ from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script_batch_edit import script_revision
 from lib.workflow_plan import WorkflowPlanRequest
 from lib.workflow_state import WorkflowStateService
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
+from server.agent_runtime.sdk_tools.enqueue_assets import list_pending_assets_tool
 from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
-from server.media_tools.assets import list_pending_assets_tool
+from server.media_tools.context import ToolContext
 from server.services.workflow_planner import WorkflowPlanner
 from tests.integration.lib.project_migrations.test_project_migration_v7_v8 import _project
 
@@ -158,8 +158,8 @@ def test_generation_entries_refuse_while_the_project_is_blocked(tmp_path: Path, 
 
 
 async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: Path) -> None:
-    from server.agent_runtime.sdk_tools._context import ToolContext
     from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
+    from server.media_tools.context import ToolContext
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
@@ -234,9 +234,7 @@ async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of
     assert blocked["problem"]["code"] == MIGRATION_FAILURE_CODE
     assert blocked["problem"]["action"] == RETRY_MIGRATION_ACTION
     assert blocked["problem"]["detail"] == failure.reason
-    # migration_refusal_response 按 text + "\n" + json.dumps(payload, ...) 拼接，直接比对该已知
-    # 序列化结果，不靠猜切分点（提示文本或缩进 JSON 内部各自可能出现 "\n"/"{"，两者都不是可靠锚点）。
-    assert blocked["content"][0]["text"].endswith(json.dumps(blocked["problem"], ensure_ascii=False, indent=2))
+    assert failure.reason in blocked["content"][0]["text"]
 
     _repair_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is None

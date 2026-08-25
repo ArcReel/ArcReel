@@ -18,16 +18,22 @@ from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow_state import WorkflowStatus
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
 from server.auth import create_download_token, create_token
+from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
+from server.media_tools.context import ToolContext
+from server.media_tools.grid import generate_grid_tool
+from server.media_tools.image_edits import edit_images_tool
+from server.media_tools.narration_audio import generate_narration_audio_tool
+from server.media_tools.storyboards import generate_storyboards_tool
+from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import _call
 
 
 class _Planner:
-    async def get_plan(self, project_name: str, request: WorkflowPlanRequest):
+    async def get_plan(self, project_name: str, request: WorkflowPlanRequest, **_caller_scope):
         assert project_name == "demo"
         status = WorkflowStatus.model_validate(
             {
@@ -188,7 +194,9 @@ async def test_remote_mcp_rejects_non_api_key_bearer_tokens(remote_server, token
     assert response.status_code == 401
 
 
-async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(remote_server) -> None:
+async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
+    remote_server, remote_projects: ProjectManager
+) -> None:
     app = _mounted(remote_server)
     async with remote_server.session_manager.run():
         async with httpx.AsyncClient(
@@ -276,17 +284,38 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
         "project" in listed[name].inputSchema["required"]
         for name in migrated | readers | drafts | text_and_script | batches
     )
+    media_ctx = ToolContext("demo", remote_projects.projects_root, pm=remote_projects)
+    definitions = {
+        definition.name: definition
+        for definition in (
+            list_pending_assets_tool(media_ctx),
+            generate_assets_tool(media_ctx),
+            generate_storyboards_tool(media_ctx),
+            edit_images_tool(media_ctx),
+            generate_grid_tool(media_ctx),
+            generate_videos_tool(media_ctx),
+            generate_narration_audio_tool(media_ctx),
+        )
+    }
+    for name, definition in definitions.items():
+        remote_schema = listed[name].inputSchema
+        assert remote_schema["properties"]["project"]["type"] == "string"
+        assert {key: value for key, value in remote_schema["properties"].items() if key != "project"} == (
+            definition.input_schema["properties"]
+        )
+        assert remote_schema["required"] == ["project", *definition.input_schema.get("required", [])]
+        assert {key: value for key, value in remote_schema.items() if key not in {"properties", "required"}} == {
+            key: value for key, value in definition.input_schema.items() if key not in {"properties", "required"}
+        }
     assert all(listed[name].inputSchema["properties"]["episode"]["minimum"] == 1 for name in drafts)
     video_properties = listed["generate_videos"].inputSchema["properties"]
     assert "resume" not in video_properties
     assert "confirmed_request_duration_seconds" in video_properties
     assert "confirmed_request_durations" in video_properties
     assert {"narration_voice", "narration_speed", "narration_volume"}.isdisjoint(video_properties)
-    video_schema = listed["generate_videos"].inputSchema
     target_schema = video_properties["target"]
-    mapping = target_schema["discriminator"]["mapping"]
-    assert set(mapping) == {"episode", "scene", "all", "selected"}
-    target_defs = {scope: video_schema["$defs"][reference.rsplit("/", 1)[-1]] for scope, reference in mapping.items()}
+    target_defs = {branch["properties"]["scope"]["const"]: branch for branch in target_schema["oneOf"]}
+    assert set(target_defs) == {"episode", "scene", "all", "selected"}
     assert target_defs["episode"]["required"] == ["scope", "episode"]
     assert target_defs["scene"]["required"] == ["scope", "ids"]
     assert target_defs["scene"]["properties"]["ids"]["maxItems"] == 1
@@ -319,6 +348,66 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
     assert nonexistent.isError
     assert empty.isError
     assert escape.isError
+
+
+async def test_media_errors_are_typed_in_embedded_and_remote_hosts(
+    remote_server, remote_projects: ProjectManager
+) -> None:
+    definition = generate_assets_tool(ToolContext("demo", remote_projects.projects_root, pm=remote_projects))
+    embedded = await definition.invoke({"names": ["张三"]})
+
+    assert embedded.problem is not None
+    assert embedded.problem.code == "invalid_request"
+
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    remote = await session.call_tool("generate_assets", {"project": "demo", "names": ["张三"]})
+
+    assert remote.isError
+    assert remote.structuredContent == {"problem": embedded.problem.model_dump(mode="json")}
+
+
+async def test_remote_media_runtime_validates_and_forwards_with_the_shared_schema(remote_server) -> None:
+    """共享 schema 允许的扩展字段须到达 handler，不能被手写 FastMCP 参数模型拒绝。"""
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "edit_images",
+                        {
+                            "project": "demo",
+                            "resource_type": "character",
+                            "edits": [{"id": "张三", "instruction": "改成红发", "meta": 5}],
+                        },
+                    )
+                    invalid = await session.call_tool(
+                        "generate_assets",
+                        {"project": "demo", "type": "not-an-asset-type"},
+                    )
+
+    assert result.structuredContent is not None
+    assert "problem" in result.structuredContent
+
+    assert invalid.isError
+    assert invalid.structuredContent is not None
+    assert invalid.structuredContent["problem"]["code"] == "invalid_request"
 
 
 async def test_remote_media_submission_returns_complete_durable_batch_and_dedupes(

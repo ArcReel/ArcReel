@@ -49,16 +49,17 @@ from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.media_tools.context import (
     ToolContext,
-    generation_batch_submission_response,
-    generation_result_response,
+    generation_batch_submission_outcome,
+    generation_result_outcome,
     tool_error,
+    tool_problem,
     tool_services,
     validate_script_filename,
 )
 from server.media_tools.definition import tool
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import apply_grid_split
-from server.tool_runtime import submit_media_generation
+from server.tool_runtime import ToolOutcome, submit_media_generation
 
 _OPERATION = "generate_grid"
 
@@ -157,7 +158,7 @@ async def handle_generate_grid(
     args: dict[str, Any],
     *,
     batch_waiter: GridBatchWaiter = batch_enqueue_and_wait,
-) -> dict[str, Any]:
+) -> ToolOutcome[Any]:
     try:
         script_filename = validate_script_filename(args["script"])
         scene_ids = normalize_requested_ids(args.get("scene_ids"), field="scene_ids")
@@ -173,17 +174,14 @@ async def handle_generate_grid(
         # 必须先过宫格开关校验——否则未开宫格的项目靠 ``list_only=true``
         # 就能拿到成功响应，调用方会误以为该工具适用于当前项目。
         if not grid_storyboard_enabled(project):
-            return {
-                "content": [{"type": "text", "text": "⚠️  项目未启用宫格分镜（grid_storyboard 未开启）"}],
-                "is_error": True,
-            }
+            return tool_problem("⚠️  项目未启用宫格分镜（grid_storyboard 未开启）")
 
         # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；预览与生成共用同一次判定
         allow_large_grid = await resolve_large_grid_allowed(project)
 
         if list_only:
             lines = _list_groups(project, script, scene_ids, allow_large_grid=allow_large_grid)
-            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+            return ToolOutcome(value="\n".join(lines))
 
         episode = resolve_artifact_episode(
             project=project,
@@ -380,7 +378,7 @@ async def handle_generate_grid(
             embedded_waiter=batch_waiter,
         )
         if submitted.successes is None or submitted.failures is None:
-            return generation_batch_submission_response(submitted.batch)
+            return generation_batch_submission_outcome(submitted.batch)
 
         for result in [*submitted.successes, *submitted.failures]:
             grid_id = grid_id_by_result[result.resource_id]
@@ -475,7 +473,7 @@ async def handle_generate_grid(
                     artifact_status=cell_status,
                     provider_checkpoint=provider_checkpoint_from_task(result.task or {}),
                 )
-        return generation_result_response(builder.build(), log, batch_id=submitted.batch.batch_id)
+        return generation_result_outcome(builder.build(), log, batch_id=submitted.batch.batch_id)
     except Exception as exc:  # noqa: BLE001
         return tool_error(_OPERATION, exc)
 
@@ -507,7 +505,7 @@ def generate_grid_tool(ctx: ToolContext, *, batch_waiter: GridBatchWaiter = batc
             "required": ["script"],
         },
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         return await handle_generate_grid(ctx, args, batch_waiter=batch_waiter)
 
     return _handler

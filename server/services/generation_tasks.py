@@ -1801,6 +1801,7 @@ async def execute_tts_task(
         project_name=project_name,
         resource_ids=(resource_id,),
         script_file=script_file,
+        user_id=user_id,
     ):
         raise ConflictError("tts_conflicts_with_active_narrated_video", resource_id=resource_id)
 
@@ -2462,6 +2463,7 @@ async def execute_video_task(
                 project_name=project_name,
                 resource_id=resource_id,
                 script_file=str(script_file),
+                user_id=user_id,
             ),
         )
         narration_actual_duration = delivery_projection.narration.actual_duration_seconds

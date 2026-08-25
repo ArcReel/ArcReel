@@ -455,6 +455,10 @@ class FakeConfigResolver:
         self.project_payloads.append(project)
         return self._resolve(capability)
 
+    async def resolve_resolution(self, project: dict[str, Any], provider_id: str, model_id: str) -> str:
+        del project, provider_id, model_id
+        return "1080p"
+
     async def resolve_image_backend(
         self,
         project: dict[str, Any] | None,

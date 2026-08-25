@@ -56,8 +56,8 @@ from lib.storyboard_sequence import get_storyboard_items
 from lib.version_manager import VersionManager
 from server.media_tools.context import (
     ToolContext,
-    generation_batch_submission_response,
-    generation_result_response,
+    generation_batch_submission_outcome,
+    generation_result_outcome,
     tool_error,
     tool_services,
     validate_script_filename,
@@ -77,7 +77,7 @@ from server.services.video_batch_admission import (
     storyboard_item_id,
     video_target_states,
 )
-from server.tool_runtime import submit_media_generation
+from server.tool_runtime import ToolOutcome, ToolProblem, submit_media_generation
 
 logger = logging.getLogger(__name__)
 
@@ -247,16 +247,12 @@ def _confirmed_request_durations(args: dict[str, Any]) -> dict[str, int]:
     return confirmed
 
 
-def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str] | None = None) -> dict[str, Any]:
+def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str] | None = None) -> ToolOutcome[Any]:
     payload = exc.admission.to_dict()
     text = f"{name} 失败: unit {exc.admission.unit_id} 发声准入未通过；请按 problems 的 action 修复"
     if log:
         text = "\n".join([text, *log])
-    return {
-        "content": [{"type": "text", "text": text}],
-        "is_error": True,
-        "speech_admission": payload,
-    }
+    return ToolOutcome(problem=ToolProblem("speech_admission_refused", text, params={"speech_admission": payload}))
 
 
 @dataclass(frozen=True)
@@ -328,7 +324,7 @@ def _batch_admission_response(
     log: list[str],
     builder: GenerationResultBuilder,
     states: dict[str, GenerationTargetState] | None = None,
-) -> dict[str, Any]:
+) -> ToolOutcome[Any]:
     """转述整批拒绝：零任务入队，每个目标都带自己的机器可读结论。
 
     待确认档位是入队前的正常拦截点，不是异常——``is_error`` 不跟着 blocked 走，
@@ -337,19 +333,17 @@ def _batch_admission_response(
 
     admission = refusal.admission
     admission.record_refusal(builder, states=states)
-    confirmation = admission.decision is BatchAdmissionDecision.CONFIRMATION_REQUIRED
-    lines = [*log, *(_confirmation_lines(admission) if confirmation else _blocked_lines(admission))]
+    confirmation_required = admission.decision is BatchAdmissionDecision.CONFIRMATION_REQUIRED
+    lines = [*log, *(_confirmation_lines(admission) if confirmation_required else _blocked_lines(admission))]
     result = builder.build()
-    response: dict[str, Any] = {
-        "content": [{"type": "text", "text": "\n".join(lines)}],
-        "generation_result": result.model_dump(mode="json"),
+    payload: dict[str, Any] = {
+        "generation_result": result,
         "batch_admission": admission.to_payload(),
         "request_projections": admission.projections(),
         **_sole_speech_admission(result),
+        "summary": "\n".join(lines),
     }
-    if not confirmation:
-        response["is_error"] = True
-    return response
+    return ToolOutcome(value=payload)
 
 
 def _apply_delivery_payload(
@@ -409,6 +403,9 @@ async def _admit_storyboard_specs(
         operation=operation,
         selection=selection,
         extra_tickets=extra_tickets,
+        user_id=ctx.caller.user_id,
+        queue=ctx.queue,
+        tts_settings_resolver=ctx.tts_settings_resolver,
     )
     if admission.admitted:
         _apply_delivery_payload(specs, request_options, confirmed_request_durations)
@@ -709,6 +706,10 @@ async def _generate_reference_units(
         operation=operation,
         selection=selection,
         extra_tickets=[*refused, *spec_refused],
+        user_id=ctx.caller.user_id,
+        queue=ctx.queue,
+        config_resolver=ctx.config_resolver,
+        tts_settings_resolver=ctx.tts_settings_resolver,
     )
     if not admission.admitted:
         return BatchAdmissionRefused(admission)
@@ -776,7 +777,7 @@ async def _run_reference_batch(
     confirmed_request_durations: Mapping[str, int],
     log: list[str],
     operation: str,
-) -> dict[str, Any]:
+) -> ToolOutcome[Any]:
     """参考生视频的共享收尾：目标状态 → 批量生成 → 准入拒绝或结果响应。
 
     ``reuse_existing`` 收 currency 解析器与 unit，让整集路线的复用判定与点名路线的
@@ -806,9 +807,9 @@ async def _run_reference_batch(
     if isinstance(result, BatchAdmissionRefused):
         return _batch_admission_response(result, log, builder, states)
     if ctx.caller.source == "mcp" and result.batch is not None:
-        return generation_batch_submission_response(result.batch)
+        return generation_batch_submission_outcome(result.batch)
     batch = builder.build()
-    return generation_result_response(
+    return generation_result_outcome(
         batch,
         log,
         request_projections=result.projections,
@@ -826,7 +827,7 @@ async def _run_reference_episode(
     confirmed_request_durations: Mapping[str, int],
     log: list[str],
     operation: str,
-) -> dict[str, Any]:
+) -> ToolOutcome[Any]:
     """Run reference_video-mode generation and format the tool response.
 
     All 4 video handlers fall through to whole-episode reference generation
@@ -913,7 +914,7 @@ async def _run_reference_units(
     log: list[str],
     operation: str,
     force: bool = True,
-) -> dict[str, Any]:
+) -> ToolOutcome[Any]:
     """生成点名的参考生视频 unit；统一入口默认复用已有可用成片。"""
     project = ctx.pm.load_project(ctx.project_name)
     script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -1084,10 +1085,10 @@ class _StoryboardBatch:
     states: dict[str, GenerationTargetState]
     log: list[str]
 
-    def result(self) -> dict[str, Any]:
+    def result(self) -> ToolOutcome[Any]:
         """把已记录的逐目标结论折成响应。"""
 
-        return generation_result_response(self.builder.build(), self.log)
+        return generation_result_outcome(self.builder.build(), self.log)
 
     async def build_specs(
         self,
@@ -1128,7 +1129,7 @@ class _StoryboardBatch:
         items: list[dict[str, Any]],
         specs: list[TaskSpec],
         extra_tickets: list[UnitAdmissionTicket],
-    ) -> dict[str, Any]:
+    ) -> ToolOutcome[Any]:
         """整批准入后提交；准入未通过则零任务入队地转述拒绝。"""
 
         admission = await _admit_storyboard_specs(
@@ -1168,9 +1169,9 @@ class _StoryboardBatch:
             embedded_waiter=_wait_storyboard_batch,
         )
         if submitted.successes is None or submitted.failures is None:
-            return generation_batch_submission_response(submitted.batch)
+            return generation_batch_submission_outcome(submitted.batch)
         self._record(submitted.successes, submitted.failures)
-        return generation_result_response(self.builder.build(), self.log, batch_id=submitted.batch.batch_id)
+        return generation_result_outcome(self.builder.build(), self.log, batch_id=submitted.batch.batch_id)
 
 
 def _episode_scope_tool(ctx: ToolContext):
@@ -1179,7 +1180,7 @@ def _episode_scope_tool(ctx: ToolContext):
         "",
         {},
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
@@ -1267,7 +1268,7 @@ def _all_scope_tool(ctx: ToolContext):
         "",
         {},
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         log: list[str] = []
         operation = _OPERATION
         try:
@@ -1332,8 +1333,8 @@ def _all_scope_tool(ctx: ToolContext):
                     embedded_waiter=batch_enqueue_and_wait,
                 )
                 if submitted.successes is None:
-                    return generation_batch_submission_response(submitted.batch)
-                return generation_result_response(
+                    return generation_batch_submission_outcome(submitted.batch)
+                return generation_result_outcome(
                     builder.build(),
                     log,
                     batch_id=submitted.batch.batch_id,
@@ -1371,7 +1372,7 @@ def _selected_scope_tool(ctx: ToolContext):
         "",
         {},
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         log: list[str] = []
         operation = _OPERATION
         try:
@@ -1434,7 +1435,7 @@ def _selected_scope_tool(ctx: ToolContext):
                 seen_canonical.add(canonical)
                 selected.append(item)
             if not selected and not refused and not screen_refused:
-                return generation_result_response(builder.build(), log)
+                return generation_result_outcome(builder.build(), log)
 
             currency = active_artifact_currency_resolver(project_dir, sb.project)
             already_done: list[str] = []
@@ -1485,7 +1486,7 @@ def _selected_scope_tool(ctx: ToolContext):
     return _handler
 
 
-async def handle_generate_videos(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+async def handle_generate_videos(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:
     try:
         target = args.get("target")
         if not isinstance(target, dict):
@@ -1599,7 +1600,7 @@ def generate_videos_tool(ctx: ToolContext):
             "required": ["script", "target", "narration_delivery"],
         },
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         return await handle_generate_videos(ctx, args)
 
     return _handler

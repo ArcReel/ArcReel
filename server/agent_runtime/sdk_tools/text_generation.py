@@ -9,13 +9,13 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
-from server.agent_runtime.sdk_tools._context import (
+from server.draft_workflow import DiscardDraftRequest, DraftLocator, PatchDraftRequest, PromoteDraftRequest
+from server.media_tools.context import (
     MAX_INSTRUCTIONS_LEN,
     ToolContext,
     tool_outcome_response,
     tool_services,
 )
-from server.draft_workflow import DiscardDraftRequest, DraftLocator, PatchDraftRequest, PromoteDraftRequest
 from server.text_generation import TextGenerationRequest as ToolTextGenerationRequest
 from server.tool_runtime import (
     ToolOutcome,
@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # 本模块的能力查询函数（``_fetch_caps_with_fallback`` / ``_fetch_reference_caps_with_fallback``
-# 及 ``_context`` 的 ``resolve_video_caps`` /
+# 及 ``server.media_tools.context`` 的 ``resolve_video_caps`` /
 # ``fetch_video_caps``）未注入解析器时一律省略 ``config_resolver`` 关键字，不传 ``None``：
 # 这些符号会被整体替换为不接受该关键字的替身，调用形状须与不带该关键字的签名兼容。
 

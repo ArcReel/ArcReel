@@ -88,6 +88,7 @@ updates:
       backend-core:
         patterns:
           - "PyYAML"
+          - "jsonschema"
           - "packaging"
           - "portalocker"
           - "socksio"

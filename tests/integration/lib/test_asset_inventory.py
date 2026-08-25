@@ -10,8 +10,8 @@ import pytest
 from lib.asset_inventory import AssetInventoryInvalidRequest, AssetInventoryRevisionConflict, complete_asset_inventory
 from lib.project_manager import ProjectManager
 from lib.source_revision import SourceScope, compute_source_revision
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
+from server.media_tools.context import ToolContext
 
 
 def _make_project(tmp_path: Path) -> tuple[ProjectManager, Path]:

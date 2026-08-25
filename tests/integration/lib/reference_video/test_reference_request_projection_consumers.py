@@ -12,9 +12,9 @@ from lib.config.resolver import ConfigResolver
 from lib.generation_queue import reference_projection_for_queued_task
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.auth import CurrentUserInfo
 from server.media_tools import videos
+from server.media_tools.context import ToolContext
 from server.routers import reference_videos
 from server.services.cost_estimation import CostEstimationService, VideoRequestQuote
 from tests.fakes import FakeReferenceCapabilityProjection, fake_reference_request_projector
@@ -161,6 +161,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 project_name="demo",
                 episode=1,
                 unit_id="E1U1",
+                user=CurrentUserInfo(id="u1", sub="test", role="admin"),
                 _t=lambda key, **_params: key,
                 narration_delivery=USE_TTS,
             )
@@ -176,9 +177,9 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 ),
             )
 
-        agent_response = await videos.generate_videos_tool(
+        agent_outcome = await videos.generate_videos_tool(
             ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)  # type: ignore[arg-type]
-        ).handler(
+        ).invoke(
             {
                 "script": "ep1.json",
                 "target": {"scope": "scene", "ids": ["E1U1"]},
@@ -204,7 +205,8 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         ) == expected_facts
         precheck_detail = cast(dict[str, object], web_precheck_blocked.value.detail)
         generate_detail = cast(dict[str, object], web_generate_blocked.value.detail)
-        agent_projection = cast(dict[str, object], agent_response["request_projections"][0])
+        assert isinstance(agent_outcome.value, dict)
+        agent_projection = cast(dict[str, object], agent_outcome.value["request_projections"][0])
         for projection in (precheck_detail, generate_detail, agent_projection):
             assert (
                 projection["hydrated_capability"],

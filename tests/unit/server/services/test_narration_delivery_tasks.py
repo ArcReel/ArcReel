@@ -232,6 +232,7 @@ async def test_active_tts_observation_spans_script_locator_spellings() -> None:
             task_type="tts",
             resource_ids=["E1U1"],
             script_file=locator,
+            user_id="default",
         )
         for locator in ("episode_1.json", "scripts/episode_1.json")
     ]

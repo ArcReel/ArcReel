@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from lib.config.registry import ProviderMeta
 
     ProviderProjection = Callable[[dict[str, Any]], Awaitable[str]]
+    TaskExecutor = Callable[..., Awaitable[dict[str, Any]]]
 
 logger = logging.getLogger(__name__)
 
@@ -454,6 +455,14 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     return resolved.provider_id or DEFAULT_PROVIDER
 
 
+async def _execute_task(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
+    from server.services.generation_tasks import execute_generation_task
+
+    if task.get("task_type") in ("video", "reference_video"):
+        return await execute_generation_task(task, claimed_provider_id=claimed_provider_id)
+    return await execute_generation_task(task)
+
+
 class GenerationWorker:
     """Queue worker with per-provider image/video/audio/text lanes and single-active lease."""
 
@@ -464,11 +473,13 @@ class GenerationWorker:
         capacity: CapacityTable | None = None,
         slots: SlotTable | None = None,
         provider_projection: ProviderProjection = _extract_provider,
+        executor: TaskExecutor = _execute_task,
         lanes: tuple[str, ...] = ("image", "video", "audio", "text"),
     ):
         self.queue = queue or get_generation_queue()
         # 认领期与执行期共用的 provider 投影：限流按它的结果路由到对应容量桶。
         self._provider_projection = provider_projection
+        self._executor = executor
         self._lanes = lanes
         self.lease_name = lease_name
         self.owner_id = f"worker-{uuid.uuid4().hex[:10]}"
@@ -801,13 +812,8 @@ class GenerationWorker:
         provider_id = claimed_provider_id or await self._provider_projection(task)
         logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
-        from server.services.generation_tasks import execute_generation_task
-
         try:
-            if task_type in ("video", "reference_video"):
-                result = await execute_generation_task(task, claimed_provider_id=provider_id)
-            else:
-                result = await execute_generation_task(task)
+            result = await self._executor(task, claimed_provider_id=provider_id)
         except asyncio.CancelledError:
             # 用户/级联取消：worker.request_cancel 触发 asyncio.Task.cancel()
             await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))

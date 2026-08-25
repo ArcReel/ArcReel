@@ -18,11 +18,6 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server
 
 from lib.db.base import DEFAULT_USER_ID
-from server.agent_runtime.sdk_tools._context import (
-    ToolContext,
-    migration_failure_for,
-    migration_refusal_response,
-)
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
 from server.agent_runtime.sdk_tools.content_read import (
     get_episode_script_tool,
@@ -67,6 +62,11 @@ from server.agent_runtime.sdk_tools.text_generation import (
 )
 from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
 from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool
+from server.media_tools.context import (
+    ToolContext,
+    migration_failure_for,
+    migration_refusal_response,
+)
 from server.tool_runtime import CallerContext
 
 __all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
@@ -132,9 +132,8 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
 #
 # The read-only tools are outside this set on purpose — they answer the verdict inside
 # their own handlers, so this frozenset stays exactly the registration-time blocks.
-# ``list_pending_assets`` reads it via
-# ``migration_failure_for`` and return the same ``migration_refusal_response`` envelope
-# the wrapper does; ``get_workflow_plan`` carries it as the plan's single problem rather
+# ``list_pending_assets`` reads it via ``migration_failure_for`` and returns the same
+# typed migration problem that the wrapper encodes; ``get_workflow_plan`` carries it as the plan's single problem rather
 # than refusing; ``get_video_capabilities`` reads model capability only, never the
 # project's artifacts, and stays fully available.
 MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
