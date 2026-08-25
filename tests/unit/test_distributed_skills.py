@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import yaml
@@ -26,3 +27,14 @@ def test_setup_skill_is_explicit_only_for_claude_and_codex() -> None:
     assert _frontmatter(skill_dir / "SKILL.md")["disable-model-invocation"] is True
     openai = yaml.safe_load((skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8"))
     assert openai["policy"]["allow_implicit_invocation"] is False
+
+
+def test_video_workflow_skill_has_portable_relative_references() -> None:
+    skill_dir = SKILLS_ROOT / "video-workflow"
+    skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    references = re.findall(r"\]\((references/[^)]+\.md)\)", skill)
+
+    assert references
+    assert all((skill_dir / reference).is_file() for reference in references)
+    package = "\n".join(path.read_text(encoding="utf-8") for path in skill_dir.rglob("*.md"))
+    assert all(term not in package for term in ("cwd", ".claude", "Claude Code", "AskUserQuestion"))
