@@ -10,14 +10,12 @@ import pytest
 from lib.artifact_manifest import ArtifactStatus
 from lib.generation_queue_client import BatchTaskResult, is_interrupted_wait_error
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.media_tools.context import ToolContext
 from server.media_tools.grid import generate_grid_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
     _generation_result,
 )
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 
 def _fake_grid_waiter(enqueue, wait=None):

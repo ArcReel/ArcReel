@@ -32,15 +32,16 @@ from lib.generation_result import (
 )
 from server.media_tools.context import (
     ToolContext,
-    generation_batch_submission_response,
-    generation_result_response,
+    generation_batch_submission_outcome,
+    generation_result_outcome,
     tool_error,
+    tool_problem,
     tool_services,
     validate_script_filename,
 )
 from server.media_tools.definition import tool
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
-from server.tool_runtime import submit_media_generation
+from server.tool_runtime import ToolOutcome, submit_media_generation
 
 # 编辑始终是显式选择：一次编辑必须携带自己的指令，没有可由 Manifest 推导的
 # "缺失的编辑"，因此本工具不提供 missing-only 选择。
@@ -185,23 +186,15 @@ def _build_specs(
     return specs
 
 
-async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:
     try:
         resource_type = args.get("resource_type")
         if resource_type not in EDITABLE_RESOURCE_TYPES:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"resource_type 必须是以下之一: {', '.join(EDITABLE_RESOURCE_TYPES)}",
-                    }
-                ],
-                "is_error": True,
-            }
+            return tool_problem(f"resource_type 必须是以下之一: {', '.join(EDITABLE_RESOURCE_TYPES)}")
 
         edits = args.get("edits")
         if not isinstance(edits, list) or not edits:
-            return {"content": [{"type": "text", "text": "edits 不能为空"}], "is_error": True}
+            return tool_problem("edits 不能为空")
 
         is_storyboard = resource_type == "storyboard"
         script_filename: str | None = None
@@ -209,10 +202,7 @@ async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> dict[str
         if is_storyboard:
             raw_script = args.get("script_file")
             if not raw_script:
-                return {
-                    "content": [{"type": "text", "text": "resource_type=storyboard 时 script_file 必填"}],
-                    "is_error": True,
-                }
+                return tool_problem("resource_type=storyboard 时 script_file 必填")
             script_filename = validate_script_filename(raw_script)
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
@@ -274,10 +264,7 @@ async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> dict[str
                 caller_source=ctx.caller.source,
             )
         if not specs and not builder.recorded_ids:
-            return {
-                "content": [{"type": "text", "text": "\n".join([*warnings, "没有可执行的编辑任务"])}],
-                "is_error": True,
-            }
+            return tool_problem("\n".join([*warnings, "没有可执行的编辑任务"]))
 
         submitted = await submit_media_generation(
             scope=ctx.scope,
@@ -291,7 +278,7 @@ async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> dict[str
             embedded_waiter=batch_enqueue_and_wait,
         )
         if submitted.successes is None or submitted.failures is None:
-            return generation_batch_submission_response(submitted.batch)
+            return generation_batch_submission_outcome(submitted.batch)
         if specs:
             # 编辑产物不写回 Manifest（编辑意图不可推导，见模块顶部说明），
             # 因此这里不带 resolver：产物时效轴如实留空而不是假装已知。states 只
@@ -304,7 +291,7 @@ async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> dict[str
                 fallback_path=lambda rid: rid,
             )
 
-        return generation_result_response(builder.build(), warnings, batch_id=submitted.batch.batch_id)
+        return generation_result_outcome(builder.build(), warnings, batch_id=submitted.batch.batch_id)
     except Exception as exc:  # noqa: BLE001
         return tool_error(_OPERATION, exc)
 
@@ -353,7 +340,7 @@ def edit_images_tool(ctx: ToolContext):
             "required": ["resource_type", "edits"],
         },
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         return await handle_edit_images(ctx, args)
 
     return _handler

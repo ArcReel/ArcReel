@@ -6,7 +6,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from server.agent_runtime.sdk_tools._context import (
+from server.media_tools.context import (
     ToolContext,
     migration_failure_for,
     migration_refusal_response,

@@ -38,14 +38,14 @@ from lib.script_skeleton import ensure_route_skeleton
 from lib.speech_composition import SpeechAdmission, SpeechMode, admit_script_unit
 from server.media_tools.context import (
     ToolContext,
-    generation_batch_submission_response,
-    generation_result_response,
+    generation_batch_submission_outcome,
+    generation_result_outcome,
     tool_error,
     tool_services,
     validate_script_filename,
 )
 from server.media_tools.definition import tool
-from server.tool_runtime import submit_media_generation
+from server.tool_runtime import ToolOutcome, submit_media_generation
 
 _OPERATION = "generate_narration_audio"
 
@@ -114,7 +114,7 @@ def _candidates(
     return candidates, problems
 
 
-async def handle_generate_narration_audio(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+async def handle_generate_narration_audio(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:
     try:
         script_filename = validate_script_filename(args["script"])
         segment_ids = normalize_requested_ids(args.get("segment_ids"), field="segment_ids")
@@ -192,7 +192,7 @@ async def handle_generate_narration_audio(ctx: ToolContext, args: dict[str, Any]
             embedded_waiter=batch_enqueue_and_wait,
         )
         if submitted.successes is None or submitted.failures is None:
-            return generation_batch_submission_response(submitted.batch)
+            return generation_batch_submission_outcome(submitted.batch)
         if specs:
             record_batch_outcomes(
                 builder,
@@ -203,7 +203,7 @@ async def handle_generate_narration_audio(ctx: ToolContext, args: dict[str, Any]
                 fallback_path=lambda rid: resource_relative_path("audio", rid),
             )
 
-        return generation_result_response(builder.build(), batch_id=submitted.batch.batch_id)
+        return generation_result_outcome(builder.build(), batch_id=submitted.batch.batch_id)
     except Exception as exc:  # noqa: BLE001
         return tool_error(_OPERATION, exc)
 
@@ -233,7 +233,7 @@ def generate_narration_audio_tool(ctx: ToolContext):
             "required": ["script"],
         },
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         return await handle_generate_narration_audio(ctx, args)
 
     return _handler

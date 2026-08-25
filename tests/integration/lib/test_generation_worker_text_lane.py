@@ -8,8 +8,9 @@ from lib.generation_queue_client import wait_for_task
 from lib.generation_worker import CapacityTable, GenerationWorker
 
 
-async def test_text_lane_is_serial_and_does_not_block_media(file_db_factory, monkeypatch) -> None:
+async def test_text_lane_is_serial_and_does_not_block_media(file_db_factory) -> None:
     queue = GenerationQueue(session_factory=file_db_factory)
+    project_name = "text-lane-test-missing-project"
     first_text_started = asyncio.Event()
     second_text_started = asyncio.Event()
     release_first_text = asyncio.Event()
@@ -30,24 +31,22 @@ async def test_text_lane_is_serial_and_does_not_block_media(file_db_factory, mon
     async def provider(task: dict[str, Any]) -> str:
         return str(task["provider_id"])
 
-    monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", execute)
-    monkeypatch.setattr("lib.generation_queue.assert_project_migration_ok", lambda _project: None)
     first = await queue.enqueue_task(
-        project_name="demo",
+        project_name=project_name,
         task_type="text_episode_script",
         media_type="text",
         resource_id="episode-1",
         provider_id="text",
     )
     second = await queue.enqueue_task(
-        project_name="demo",
+        project_name=project_name,
         task_type="text_episode_script",
         media_type="text",
         resource_id="episode-2",
         provider_id="text",
     )
     image = await queue.enqueue_task(
-        project_name="demo",
+        project_name=project_name,
         task_type="storyboard",
         media_type="image",
         resource_id="scene-1",
@@ -57,6 +56,7 @@ async def test_text_lane_is_serial_and_does_not_block_media(file_db_factory, mon
         queue=queue,
         capacity=CapacityTable(_limits={}, _defaults={"image": 1, "text": 1}),
         provider_projection=provider,
+        executor=execute,
         lanes=("image", "text"),
     )
     worker.poll_interval = 0.01

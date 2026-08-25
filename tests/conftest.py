@@ -268,6 +268,13 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 
 
 @pytest.fixture
+async def concurrent_session_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """方言敏感且允许独立连接：PG 走真实 schema，本地 SQLite 走 WAL 文件库。"""
+    async with test_engine(file_path=tmp_path / "concurrency-aware.db") as engine:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+
+
+@pytest.fixture
 async def file_session_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """File-backed SQLite with NullPool — each connection is independent.
 
@@ -334,7 +341,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         if tier is not None:
             item.add_marker(getattr(pytest.mark, tier))
 
-    target_fixtures = {"async_session", "session_factory", "file_session_factory"}
+    target_fixtures = {"async_session", "session_factory", "concurrent_session_factory", "file_session_factory"}
     canonical_modules = {"tests.conftest"}
     uses_db = pytest.mark.uses_db
     for item in items:

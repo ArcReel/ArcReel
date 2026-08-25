@@ -8,7 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from lib.artifact_manifest import ArtifactStatus
+from lib.artifact_activation import ArtifactCurrencyResolver
+from lib.artifact_manifest import ArtifactKey, ArtifactStatus
 from lib.generation_result import (
     GenerationBatchResult,
     GenerationItemResult,
@@ -19,6 +20,7 @@ from lib.generation_result import (
     GenerationTargetState,
     GenerationTaskState,
     enqueue_problem,
+    observe_artifact_status,
     problem_from_task_failure,
     provider_checkpoint_from_task,
 )
@@ -180,6 +182,7 @@ def _terminal_result(
     snapshot: GenerationBatchRequestSnapshot,
     tasks: dict[str, dict[str, Any]],
     blocked: dict[str, GenerationItemResult],
+    resolver: ArtifactCurrencyResolver | None,
 ) -> GenerationBatchResult:
     items: list[GenerationItemResult] = []
     for requested in snapshot.requested:
@@ -209,15 +212,22 @@ def _terminal_result(
             "artifact_key": requested.artifact_key,
             "artifact_path": unit_result.get("file_path") or task_result.get("file_path") or requested.artifact_path,
             "task_id": task["task_id"],
-            "artifact_status": requested.artifact_status,
             "provider_checkpoint": provider_checkpoint_from_task(task),
         }
         if status == "succeeded" and not unit_result.get("problem"):
+            artifact_status = None
+            if resolver is not None and requested.artifact_key is not None:
+                artifact_status, _blocker = observe_artifact_status(
+                    resolver=resolver,
+                    key=ArtifactKey.decode(requested.artifact_key),
+                    artifact_path=common["artifact_path"],
+                )
             items.append(
                 GenerationItemResult(
                     **common,
                     state=GenerationItemState.SUCCEEDED,
                     task_state=GenerationTaskState.SUCCEEDED,
+                    artifact_status=artifact_status,
                 )
             )
         else:
@@ -232,6 +242,7 @@ def _terminal_result(
                         if status == "cancelled"
                         else GenerationTaskState.FAILED
                     ),
+                    artifact_status=requested.artifact_status,
                     problem=(
                         GenerationProblem.model_validate(unit_result["problem"])
                         if unit_result.get("problem")
@@ -267,6 +278,7 @@ def build_generation_batch_read_model(
     batch: dict[str, Any],
     memberships: list[dict[str, Any]],
     queue_depth: dict[str, int],
+    resolver: ArtifactCurrencyResolver | None = None,
 ) -> GenerationBatchReadModel:
     snapshot = GenerationBatchRequestSnapshot.model_validate(batch["requested"])
     blocked_entries = [GenerationBatchBlockedItem.model_validate(item) for item in batch["blocked"]]
@@ -316,7 +328,7 @@ def build_generation_batch_read_model(
         total=len(members),
     )
     done = all(member.status in TERMINAL_TASK_STATUSES or member.status == "blocked" for member in members)
-    terminal = _terminal_result(batch["operation"], snapshot, tasks, blocked) if done else None
+    terminal = _terminal_result(batch["operation"], snapshot, tasks, blocked, resolver) if done else None
     return GenerationBatchReadModel(
         batch_id=batch["batch_id"],
         project=batch["project_name"],

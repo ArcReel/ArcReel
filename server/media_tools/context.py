@@ -17,6 +17,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.generation_batch import GenerationBatchReadModel
 from lib.generation_queue import GenerationQueue, get_generation_queue
 from lib.generation_result import GenerationBatchResult, migration_problem, render_generation_result
+from lib.narration_delivery import TtsSettingsResolver
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import MigrationFailureRecord
 from lib.project_migration_guard import project_migration_failure
@@ -28,7 +29,7 @@ from server.services.video_caps import (
 from server.services.video_caps import (
     reference_unit_duration_tiers as reference_unit_duration_tiers,
 )
-from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome
+from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolProblem
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class ToolContext:
         config_resolver: ConfigResolver | None = None,
         caller: CallerContext | None = None,
         queue: GenerationQueue | None = None,
+        tts_settings_resolver: TtsSettingsResolver | None = None,
     ):
         self.project_name = project_name
         self.projects_root = projects_root
@@ -58,6 +60,7 @@ class ToolContext:
         self.config_resolver = config_resolver
         self.caller = caller or CallerContext(user_id=DEFAULT_USER_ID, source="embedded")
         self.queue = queue or get_generation_queue()
+        self.tts_settings_resolver = tts_settings_resolver
 
     @property
     def project_path(self) -> Path:
@@ -107,15 +110,21 @@ async def migration_failure_for(ctx: ToolContext) -> MigrationFailureRecord | No
     return await asyncio.to_thread(project_migration_failure, ctx.project_name, ctx.pm)
 
 
-def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> dict[str, Any]:
-    """Build the common ``{"is_error": True}`` response for a handler failure."""
+def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> ToolOutcome[Any]:
+    """Return a typed handler failure for host adapters to encode."""
     msg = f"{name} 失败: {exc}"
     text = "\n".join([msg, *log]) if log else msg
-    return {"content": [{"type": "text", "text": text}], "is_error": True}
+    return ToolOutcome(problem=ToolProblem("internal_error", text))
 
 
-def migration_refusal_response(failure: MigrationFailureRecord, *, text: str) -> dict[str, Any]:
-    """Envelope the migration verdict as a media tool refusal.
+def tool_problem(
+    detail: str, *, code: str = "invalid_request", params: dict[str, Any] | None = None
+) -> ToolOutcome[Any]:
+    return ToolOutcome(problem=ToolProblem(code, detail, params=params))
+
+
+def migration_refusal_outcome(failure: MigrationFailureRecord) -> ToolOutcome[Any]:
+    """Return the migration verdict as a typed media refusal.
 
     Every tool that reports the verdict — the blocked ones wrapped at
     registration and the retry tool when the rerun fails again — returns this
@@ -123,7 +132,21 @@ def migration_refusal_response(failure: MigrationFailureRecord, *, text: str) ->
     named episode / file / violation instead of two envelopes for one fact.
     """
     problem = migration_problem(failure)
-    payload = problem.model_dump(mode="json")
+    return ToolOutcome(
+        problem=ToolProblem(
+            code=problem.code,
+            detail=problem.detail,
+            action=problem.action,
+            params=problem.params,
+        )
+    )
+
+
+def migration_refusal_response(failure: MigrationFailureRecord, *, text: str) -> dict[str, Any]:
+    """Encode a migration refusal for non-media SDK adapters."""
+    outcome = migration_refusal_outcome(failure)
+    assert outcome.problem is not None
+    payload = outcome.problem.model_dump(mode="json")
     return {
         "content": [{"type": "text", "text": text + "\n" + json.dumps(payload, ensure_ascii=False, indent=2)}],
         "is_error": True,
@@ -131,31 +154,27 @@ def migration_refusal_response(failure: MigrationFailureRecord, *, text: str) ->
     }
 
 
-def generation_result_response(
+def generation_result_outcome(
     result: GenerationBatchResult,
     log: list[str] | None = None,
     **extra: Any,
-) -> dict[str, Any]:
-    """Envelope one generation batch contract for a media tool response.
+) -> ToolOutcome[Any]:
+    """Return one generation batch contract for host adapters to encode.
 
     ``generation_result`` is the machine-readable payload; the text block is a
     rendering of the same fields, so no consumer has to parse it to decide
     whether to retry.
     """
-    return {
-        "content": [{"type": "text", "text": render_generation_result(result, log=log or ())}],
-        "is_error": not result.ok,
-        "generation_result": result.model_dump(mode="json"),
+    payload: dict[str, Any] = {
+        "generation_result": result,
+        "summary": render_generation_result(result, log=log or ()),
         **extra,
     }
+    return ToolOutcome(value=payload)
 
 
-def generation_batch_submission_response(result: GenerationBatchReadModel) -> dict[str, Any]:
-    payload = result.model_dump(mode="json")
-    return {
-        "content": [{"type": "text", "text": json.dumps({"generation_batch": payload}, ensure_ascii=False)}],
-        "generation_batch": payload,
-    }
+def generation_batch_submission_outcome(result: GenerationBatchReadModel) -> ToolOutcome[GenerationBatchReadModel]:
+    return ToolOutcome(value=result)
 
 
 # instructions 超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。

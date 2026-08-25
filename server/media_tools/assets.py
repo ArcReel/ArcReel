@@ -31,15 +31,16 @@ from lib.generation_result import (
 from lib.project_manager import ProjectManager
 from server.media_tools.context import (
     ToolContext,
-    generation_batch_submission_response,
-    generation_result_response,
+    generation_batch_submission_outcome,
+    generation_result_outcome,
     migration_failure_for,
-    migration_refusal_response,
+    migration_refusal_outcome,
     tool_error,
+    tool_problem,
     tool_services,
 )
 from server.media_tools.definition import tool
-from server.tool_runtime import submit_media_generation
+from server.tool_runtime import ToolOutcome, submit_media_generation
 
 # Asset-type emoji shown in tool output. Other display fields (bucket_key,
 # label_zh, subdir) come from lib.asset_types.ASSET_SPECS — the cross-app
@@ -124,14 +125,11 @@ def _description_of(project: dict[str, Any], asset_type: str, unit_id: str) -> s
     return description if isinstance(description, str) and description.strip() else None
 
 
-async def handle_list_pending_assets(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+async def handle_list_pending_assets(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:
     try:
         failure = await migration_failure_for(ctx)
         if failure is not None:
-            return migration_refusal_response(
-                failure,
-                text="❌ 项目数据升级未完成，产物清单不可读，无法列出待生成资产。请按明细修复后调用 retry_project_migration：",
-            )
+            return migration_refusal_outcome(failure)
         asset_type = args.get("type")
         types = (asset_type,) if asset_type else ALL_TYPES
         lines: list[str] = []
@@ -150,7 +148,7 @@ async def handle_list_pending_assets(ctx: ToolContext, args: dict[str, Any]) -> 
                 lines.append(f"  {_EMOJI[t]} {item['name']} — {desc_preview}")
         if not asset_type and total == 0:
             lines.append(f"\n✅ 项目 '{ctx.project_name}' 所有资产均已有资产图")
-        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+        return ToolOutcome(value="\n".join(lines))
     except Exception as exc:  # noqa: BLE001
         return tool_error("list_pending_assets", exc)
 
@@ -170,27 +168,21 @@ def list_pending_assets_tool(ctx: ToolContext):
             },
         },
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         return await handle_list_pending_assets(ctx, args)
 
     return _handler
 
 
-async def handle_generate_assets(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+async def handle_generate_assets(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:
     try:
         asset_type = args.get("type")
         names = normalize_requested_ids(args.get("names"), field="names")
         all_flag = bool(args.get("all"))
         if names is not None and not asset_type:
-            return {
-                "content": [{"type": "text", "text": "names 必须配合 type 使用"}],
-                "is_error": True,
-            }
+            return tool_problem("names 必须配合 type 使用")
         if names is not None and all_flag:
-            return {
-                "content": [{"type": "text", "text": "all 与 names 互斥，不能同时使用"}],
-                "is_error": True,
-            }
+            return tool_problem("all 与 names 互斥，不能同时使用")
 
         project = ctx.pm.load_project(ctx.project_name)
         resolver = active_artifact_currency_resolver(ctx.project_path, project)
@@ -250,7 +242,7 @@ async def handle_generate_assets(ctx: ToolContext, args: dict[str, Any]) -> dict
             embedded_waiter=batch_enqueue_and_wait,
         )
         if submitted.successes is None or submitted.failures is None:
-            return generation_batch_submission_response(submitted.batch)
+            return generation_batch_submission_outcome(submitted.batch)
         record_batch_outcomes(
             builder,
             successes=submitted.successes,
@@ -265,7 +257,7 @@ async def handle_generate_assets(ctx: ToolContext, args: dict[str, Any]) -> dict
             ),
         )
 
-        return generation_result_response(builder.build(), batch_id=submitted.batch.batch_id)
+        return generation_result_outcome(builder.build(), batch_id=submitted.batch.batch_id)
     except Exception as exc:  # noqa: BLE001
         return tool_error(_OPERATION, exc)
 
@@ -298,7 +290,7 @@ def generate_assets_tool(ctx: ToolContext):
             },
         },
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         return await handle_generate_assets(ctx, args)
 
     return _handler

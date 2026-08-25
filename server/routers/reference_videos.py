@@ -459,6 +459,7 @@ async def precheck_unit_duration(
     project_name: str,
     episode: int,
     unit_id: str,
+    user: CurrentUser,
     _t: Translator,
     narration_delivery: NarrationDelivery = POST_PRODUCTION,
 ) -> dict[str, Any]:
@@ -470,11 +471,14 @@ async def precheck_unit_duration(
     project, script, script_file = _load_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)
     _require_unit_ready(unit)
+    queue = get_generation_queue()
     tts_in_progress = (
         await tts_task_in_progress(
             project_name=project_name,
             resource_id=unit_id,
             script_file=script_file,
+            user_id=user.id,
+            queue=queue,
         )
         if narration_delivery == USE_TTS
         else False
@@ -489,6 +493,7 @@ async def precheck_unit_duration(
         project_path=project_path,
         options=ReferenceRequestOptions(narration_delivery=narration_delivery),
         project_name=project_name,
+        user_id=user.id,
         tts_in_progress=tts_in_progress,
     )
     projection = await project_reference_unit_request(
@@ -579,11 +584,14 @@ async def generate_unit(
     _require_unit_ready(unit)
     guard_prompt = str(unit.get("text") or "")
     request_options = (req or GenerateUnitRequest()).projection_options()
+    queue = get_generation_queue()
     tts_in_progress = (
         await tts_task_in_progress(
             project_name=project_name,
             resource_id=unit_id,
             script_file=script_file,
+            user_id=user.id,
+            queue=queue,
         )
         if request_options.narration_delivery == USE_TTS
         else False
@@ -597,6 +605,7 @@ async def generate_unit(
         project_path=project_path,
         options=request_options,
         project_name=project_name,
+        user_id=user.id,
         tts_in_progress=tts_in_progress,
     )
     projection = await project_reference_unit_request(
@@ -630,7 +639,6 @@ async def generate_unit(
     except TaskSpecValidationError as exc:
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
 
-    queue = get_generation_queue()
     result = await queue.enqueue_task(
         project_name=project_name,
         task_type=spec.task_type,
@@ -738,6 +746,7 @@ async def generate_units_batch(
         )
         for unit_id in selection.unmatched_ids
     ]
+    queue = get_generation_queue()
     admission = await admit_reference_video_batch(
         project_name=project_name,
         project=project,
@@ -755,6 +764,8 @@ async def generate_units_batch(
         # 产物状态不可读的 unit 被选目标环节排除在外，但它属于这次请求：不带进准入，
         # 同批健康的 unit 会照常入队，剩下这一个被无声略过。
         extra_tickets=[*unmatched, *malformed, *artifact_state_tickets(selection.unavailable)],
+        user_id=user.id,
+        queue=queue,
     )
     payload = _admission_payload(admission, _t)
     payload["skipped_unit_ids"] = sorted(state.unit_id for state in selection.skipped)
@@ -779,7 +790,12 @@ async def generate_units_batch(
             **(spec.payload or {}),
             "reference_request_options": options.to_payload(),
         }
-    enqueued, enqueue_failures = await batch_enqueue_only(project_name=project_name, specs=specs, user_id=user.id)
+    enqueued, enqueue_failures = await batch_enqueue_only(
+        project_name=project_name,
+        specs=specs,
+        user_id=user.id,
+        queue=queue,
+    )
     # 入队中断不撤销已创建的任务：它们是准入通过的完整付费单元，照常执行。没轮到的目标
     # 逐 ID 报出来，界面据此释放乐观占用标记，下次「缺失即生成」只补这些。
     payload["enqueue_failures"] = [_enqueue_failure_payload(failure, _t) for failure in enqueue_failures]

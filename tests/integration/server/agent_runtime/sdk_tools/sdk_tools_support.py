@@ -20,12 +20,15 @@ from lib.generation_result import (
     GenerationBatchResult,
 )
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools._media_adapter import _response, sdk_media_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_step1_tool,
     open_draft_tool,
     promote_draft_tool,
 )
+from server.media_tools.context import ToolContext
+from server.media_tools.definition import ToolDefinition
+from server.tool_runtime import ToolOutcome
 from tests.fakes import FakeConfigResolver
 
 # ---------------------------------------------------------------------------
@@ -49,9 +52,12 @@ async def _fake_scene_batch(*, project_name, specs, on_success=None, on_failure=
     ], []
 
 
-def _generation_result(out: dict[str, Any]) -> GenerationBatchResult:
+def _generation_result(out: dict[str, Any] | ToolOutcome[Any]) -> GenerationBatchResult:
     """Read the structured contract out of a tool response, never its text."""
 
+    if isinstance(out, ToolOutcome):
+        assert isinstance(out.value, dict)
+        return GenerationBatchResult.model_validate(out.value["generation_result"])
     return GenerationBatchResult.model_validate(out["generation_result"])
 
 
@@ -62,7 +68,7 @@ def _videos_tool_for_scope(ctx: ToolContext, scope: str):
 
     definition = generate_videos_tool(ctx)
 
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
         forwarded = dict(args)
         script = str(forwarded["script"])
         target: dict[str, Any] = {"scope": scope}
@@ -78,7 +84,7 @@ def _videos_tool_for_scope(ctx: ToolContext, scope: str):
         forwarded["target"] = target
         return await definition.handler(forwarded)
 
-    return replace(definition, handler=_handler)
+    return sdk_media_tool(replace(definition, handler=_handler))
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +366,10 @@ async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
     required = schema.get("required", ()) if isinstance(schema, dict) else ()
     if "narration_delivery" in required and "narration_delivery" not in args:
         args = {**args, "narration_delivery": "post_production"}
-    return await tool_obj.handler(args)
+    outcome = await tool_obj.handler(args)
+    if isinstance(tool_obj, ToolDefinition):
+        return _response(tool_obj, outcome)
+    return outcome
 
 
 def _activate_unbound_project(fake_ctx: ToolContext, *, generation_mode: str = "storyboard") -> None:

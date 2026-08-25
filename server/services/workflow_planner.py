@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.db.base import DEFAULT_USER_ID
+from lib.generation_queue import GenerationQueue, get_generation_queue
 from lib.generation_queue_client import get_active_tasks_for_resources
 from lib.generation_result import (
     GenerationProblem,
@@ -68,7 +70,12 @@ class WorkflowPlanner:
         self,
         project_name: str,
         request: WorkflowPlanRequest,
+        *,
+        user_id: str = DEFAULT_USER_ID,
+        queue: GenerationQueue | None = None,
+        config_resolver: object | None = None,
     ) -> WorkflowPlan:
+        queue = queue or get_generation_queue()
         status = await asyncio.to_thread(
             WorkflowStateService(self._pm).get_status,
             project_name,
@@ -88,7 +95,7 @@ class WorkflowPlanner:
             )
         facts = await self._script_facts(project_name, status)
         structure_problems = self._structure_problems(facts)
-        tasks = await self._active_tasks(project_name, status, facts, request)
+        tasks = await self._active_tasks(project_name, status, facts, request, user_id=user_id, queue=queue)
         admission = None
         if (
             facts is not None
@@ -97,7 +104,15 @@ class WorkflowPlanner:
             and status.state == "VIDEO"
             and status.next_action.type == "generate_videos"
         ):
-            admission = await self._video_admission(project_name, status, facts, request)
+            admission = await self._video_admission(
+                project_name,
+                status,
+                facts,
+                request,
+                user_id=user_id,
+                queue=queue,
+                config_resolver=config_resolver,
+            )
         return build_workflow_plan(
             status,
             narration_delivery=request.narration_delivery,
@@ -168,6 +183,9 @@ class WorkflowPlanner:
         status: WorkflowStatus,
         facts: _ScriptFacts | None,
         request: WorkflowPlanRequest,
+        *,
+        user_id: str,
+        queue: GenerationQueue,
     ) -> list[WorkflowTaskObservation]:
         if facts is None:
             return []
@@ -191,6 +209,8 @@ class WorkflowPlanner:
                     task_type=task_type,
                     resource_ids=unit_ids,
                     script_file=facts.script_file,
+                    user_id=user_id,
+                    queue=queue,
                 )
             )
         seen: set[str] = set()
@@ -218,6 +238,10 @@ class WorkflowPlanner:
         status: WorkflowStatus,
         facts: _ScriptFacts,
         request: WorkflowPlanRequest,
+        *,
+        user_id: str,
+        queue: GenerationQueue,
+        config_resolver: object | None,
     ) -> dict[str, Any]:
         options = ReferenceRequestOptions(narration_delivery=request.narration_delivery or "post_production")
         if status.project.generation_mode == "reference_video":
@@ -243,6 +267,9 @@ class WorkflowPlanner:
                 confirmed_request_durations=request.confirmed_request_durations,
                 spec_check=lambda unit: reference_unit_task_spec(unit, facts.script_file),
                 extra_tickets=extra,
+                user_id=user_id,
+                queue=queue,
+                config_resolver=config_resolver,
             )
             return admission.to_payload()
 
@@ -284,6 +311,8 @@ class WorkflowPlanner:
             selection=GenerationSelectionMode.MISSING_ONLY,
             confirmed_request_durations=request.confirmed_request_durations,
             extra_tickets=refused,
+            user_id=user_id,
+            queue=queue,
         )
         return admission.to_payload()
 

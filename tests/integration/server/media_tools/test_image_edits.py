@@ -9,7 +9,7 @@ import pytest
 
 from lib.artifact_manifest import ArtifactStatus
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.media_tools.context import ToolContext
 from server.media_tools.image_edits import edit_images_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
@@ -17,8 +17,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _generation_result,
     _use_fake_caps,
 )
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # enqueue_image_edits

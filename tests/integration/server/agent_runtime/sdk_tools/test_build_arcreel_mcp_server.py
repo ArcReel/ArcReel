@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 # ---------------------------------------------------------------------------
 # build_arcreel_mcp_server
 # ---------------------------------------------------------------------------

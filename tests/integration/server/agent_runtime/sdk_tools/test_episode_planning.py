@@ -6,12 +6,10 @@ from typing import Any
 
 import pytest
 
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
 )
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # episode_planning — plan_episodes 薄包装

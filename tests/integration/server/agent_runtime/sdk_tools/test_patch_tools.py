@@ -16,12 +16,12 @@ from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArt
 from lib.project_manager import ProjectManager
 from lib.reference_video.request_projection import unit_reference_declarations
 from lib.script_batch_edit import script_revision
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
+from server.media_tools.context import ToolContext
 
 
 def _segment(segment_id: str, duration: int = 4) -> dict[str, Any]:

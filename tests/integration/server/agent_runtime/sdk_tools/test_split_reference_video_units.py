@@ -5,12 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import pytest
-
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_step1_tool,
 )
+from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     _call,
@@ -24,8 +22,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _rv_unit,
     _use_fake_caps,
 )
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # i2v 桶不可解析：不带图档位随之回退按 r2v 桶求值（``reference_unit_duration_tiers``）。
 _NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
@@ -120,7 +116,7 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
     """
     from lib.config import resolver as resolver_mod
     from lib.config.registry import ModelInfo
-    from server.agent_runtime.sdk_tools import _context
+    from server.media_tools import context as _context
 
     contradictory = ModelInfo(
         display_name="contradictory",
@@ -148,7 +144,7 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
 async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket() -> None:
     """不带图档位按 i2v 桶模型求值：无引用 unit 执行期降级到 i2v 桶执行，创作侧放行的秒数
     须与该桶模型的声明一致，否则会放行 r2v 独有档位、漏掉 i2v 独有档位。"""
-    from server.agent_runtime.sdk_tools import _context
+    from server.media_tools import context as _context
 
     resolver = _fake_caps_resolver(
         by_capability={

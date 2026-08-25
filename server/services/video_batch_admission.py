@@ -33,6 +33,8 @@ from lib.batch_admission import (
 )
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.db import async_session_factory
+from lib.db.base import DEFAULT_USER_ID
+from lib.generation_queue import GenerationQueue
 from lib.generation_queue_client import TaskSpec, get_active_tasks_for_resources
 from lib.generation_result import (
     GenerationAction,
@@ -50,6 +52,7 @@ from lib.narration_delivery import (
     USE_TTS,
     NarratedVideoDurationPreparation,
     NarrationDeliveryProblem,
+    TtsSettingsResolver,
     VideoRequestCostFacts,
     video_request_cost_unavailable_problem,
     video_request_requires_exact_quote,
@@ -408,6 +411,8 @@ async def _active_conflicts(
     task_type: str,
     script_file: str | None,
     unit_ids: Sequence[str],
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Map unit id → the active task that already occupies it, if any."""
 
@@ -418,6 +423,8 @@ async def _active_conflicts(
         task_type=task_type,
         resource_ids=list(unit_ids),
         script_file=script_file,
+        user_id=user_id,
+        queue=queue,
     )
     return {str(task["resource_id"]): task for task in active if task.get("resource_id")}
 
@@ -453,6 +460,10 @@ async def admit_reference_video_batch(
     confirmed_request_durations: Mapping[str, int] | None = None,
     spec_check: Callable[[dict[str, Any]], object] | None = None,
     extra_tickets: Sequence[UnitAdmissionTicket] = (),
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
+    config_resolver: object | None = None,
+    tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Evaluate every reference unit of one request against the current state.
 
@@ -472,12 +483,16 @@ async def admit_reference_video_batch(
         task_type="reference_video",
         script_file=script_file,
         unit_ids=unit_ids,
+        user_id=user_id,
+        queue=queue,
     )
     active_tts = (
         await active_tts_resource_ids(
             project_name=project_name,
             resource_ids=unit_ids,
             script_file=script_file,
+            user_id=user_id,
+            queue=queue,
         )
         if request_options.narration_delivery == USE_TTS
         else frozenset()
@@ -541,6 +556,8 @@ async def admit_reference_video_batch(
                 project_path=project_path,
                 options=unit_options,
                 project_name=project_name,
+                user_id=user_id,
+                tts_settings_resolver=tts_settings_resolver,
                 tts_in_progress=unit_id in active_tts,
             )
             projection = await project_reference_unit_request(
@@ -551,6 +568,7 @@ async def admit_reference_video_batch(
                 options=current_options,
                 tts_in_progress=unit_id in active_tts,
                 current_options_materialized=True,
+                resolver=config_resolver,
             )
         except ValueError as exc:
             # 投影读的是剧本上的值（如 duration_seconds）：脏值在这里抛出去会让整个请求塌成
@@ -643,6 +661,9 @@ async def admit_storyboard_video_batch(
     selection: GenerationSelectionMode,
     confirmed_request_durations: Mapping[str, int] | None = None,
     extra_tickets: Sequence[UnitAdmissionTicket] = (),
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
+    tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Evaluate every storyboard unit of one request against the current state.
 
@@ -661,12 +682,16 @@ async def admit_storyboard_video_batch(
         task_type="video",
         script_file=script_file,
         unit_ids=resource_ids,
+        user_id=user_id,
+        queue=queue,
     )
     active_tts = (
         await active_tts_resource_ids(
             project_name=project_name,
             resource_ids=resource_ids,
             script_file=script_file,
+            user_id=user_id,
+            queue=queue,
         )
         if request_options.narration_delivery == USE_TTS
         else frozenset()
@@ -700,6 +725,9 @@ async def admit_storyboard_video_batch(
             ),
             confirmed_request_duration_seconds=unit_options.confirmed_request_duration_seconds,
             tts_in_progress=resource_id in active_tts,
+            user_id=user_id,
+            queue=queue,
+            tts_settings_resolver=tts_settings_resolver,
         )
         tickets.append(await _storyboard_ticket(resource_id=resource_id, preparation=preparation))
 
@@ -967,6 +995,9 @@ async def admit_storyboard_video_request(
     operation: str,
     selection: GenerationSelectionMode,
     extra_tickets: Sequence[UnitAdmissionTicket],
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
+    tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Admit one Storyboard-mode request from the specs it would actually enqueue.
 
@@ -999,6 +1030,9 @@ async def admit_storyboard_video_request(
         operation=operation,
         selection=selection,
         extra_tickets=extra_tickets,
+        user_id=user_id,
+        queue=queue,
+        tts_settings_resolver=tts_settings_resolver,
     )
     if conflict_detail is None:
         return admission

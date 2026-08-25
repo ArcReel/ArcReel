@@ -433,6 +433,7 @@ async def execute_reference_video_task(
             project_name=project_name,
             resource_id=resource_id,
             script_file=str(script_file),
+            user_id=user_id,
         )
         if request_options.narration_delivery == USE_TTS
         else False

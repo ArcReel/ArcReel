@@ -63,6 +63,7 @@ from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_us
 from server.services.narration_delivery_tasks import (
     active_narrated_video_resource_ids,
     prepare_current_storyboard_narrated_video_duration,
+    tts_task_in_progress,
 )
 
 logger = logging.getLogger(__name__)
@@ -314,6 +315,7 @@ async def generate_video(
 
     delivery_projection: NarratedVideoDurationPreparation | None = None
     delivery_payload: dict[str, object] | None = None
+    queue = get_generation_queue()
     if req.narration_delivery == USE_TTS:
         current_planned_duration = item.get("duration_seconds")
         if (
@@ -337,6 +339,15 @@ async def generate_video(
                 # 当前盘上单元重投影，否则客户端旧快照可能先通过、执行时才要求另一档确认。
                 planned_duration_seconds=current_planned_duration,
                 confirmed_request_duration_seconds=req.confirmed_request_duration_seconds,
+                tts_in_progress=await tts_task_in_progress(
+                    project_name=project_name,
+                    resource_id=segment_id,
+                    script_file=req.script_file,
+                    user_id=user.id,
+                    queue=queue,
+                ),
+                user_id=user.id,
+                queue=queue,
             )
         except ProjectionResolutionError as exc:
             raise BadRequestError(exc.code, **exc.params) from exc
@@ -370,7 +381,6 @@ async def generate_video(
     )
 
     # 入队（provider 由服务层根据配置自动解析，调用方无需传递）
-    queue = get_generation_queue()
     result = await queue.enqueue_task(
         project_name=project_name,
         task_type=spec.task_type,
@@ -479,6 +489,7 @@ async def generate_tts(
         project_name=project_name,
         resource_ids=(segment_id,),
         script_file=req.script_file,
+        user_id=user.id,
     )
     if segment_id in active_narrated_video:
         raise ConflictError("tts_conflicts_with_active_narrated_video", resource_id=segment_id)

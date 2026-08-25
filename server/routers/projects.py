@@ -738,11 +738,15 @@ async def get_workflow_status(
 
 
 @router.post("/projects/{name}/workflow-plan", response_model=WorkflowPlan)
-async def get_workflow_plan(name: str, request: WorkflowPlanRequest):
+async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_user: CurrentUser):
     """Return the side-effect-free plan for one transient workflow request."""
 
     try:
-        return await workflow_plan_service.get_workflow_planner(get_project_manager()).get_plan(name, request)
+        return await workflow_plan_service.get_workflow_planner(get_project_manager()).get_plan(
+            name,
+            request,
+            user_id=current_user.id,
+        )
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:

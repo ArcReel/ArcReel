@@ -18,13 +18,14 @@ from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.resource_paths import resource_relative_path
 from lib.script_skeleton import SkeletonRouteMismatchError
 from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.media_tools import videos as enqueue_videos_mod
+from server.media_tools.context import ToolContext
 from server.media_tools.videos import generate_videos_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _CLAIMED_BASIS_DIGEST,
     _activate_unbound_project,
     _call,
+    _fake_caps_resolver,
     _fake_reference_projection,
     _fake_scene_batch,
     _generation_result,
@@ -33,8 +34,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _videos_tool_for_scope,
 )
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 
 def _episode_scope(ctx: ToolContext):
@@ -2518,7 +2517,8 @@ def _ad_reference_unit(**overrides: Any) -> dict[str, Any]:
 
 
 @pytest.fixture
-def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
+def ad_reference_ctx(fake_ctx: ToolContext) -> ToolContext:
+    fake_ctx.config_resolver = _fake_caps_resolver(supported_durations=(5,), default_duration=5)
 
     pm = fake_ctx.pm
     pm.project_payload.update(  # type: ignore[attr-defined]
@@ -2526,7 +2526,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
             "content_mode": "ad",
             "generation_mode": "reference_video",
             "style": "明亮写实",
-            "products": {"保温杯": {"description": "主推商品"}},
+            "products": {"保温杯": {"description": "主推商品", "reference_images": ["products/保温杯.png"]}},
             "episodes": [{"episode": 1, "title": "短片", "script_file": "scripts/episode_1.json"}],
         }
     )
@@ -2536,15 +2536,9 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
         "title": "短片",
         "video_units": [_ad_reference_unit()],
     }
-
-    async def _fake_no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
-        return []
-
-    async def _allow_audio_switch(_project: dict[str, Any], _capability: str) -> None:
-        return None
-
-    monkeypatch.setattr("server.services.video_batch_admission.get_active_tasks_for_resources", _fake_no_active_tasks)
-    monkeypatch.setattr("server.services.video_batch_admission.assert_audio_switch_supported", _allow_audio_switch)
+    product = fake_ctx.project_path / "products" / "保温杯.png"
+    product.parent.mkdir(parents=True, exist_ok=True)
+    product.write_bytes(b"product")
     return fake_ctx
 
 

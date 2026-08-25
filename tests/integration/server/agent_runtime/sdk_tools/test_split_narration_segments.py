@@ -6,13 +6,11 @@ import json
 import unicodedata
 from typing import Any
 
-import pytest
-
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_step1_tool,
 )
+from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
     _nr_generator_returning,
@@ -21,8 +19,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _nr_source,
     _use_fake_caps,
 )
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # split_narration_segments

@@ -8,11 +8,11 @@ from lib.generation_batch import GenerationBatchRequestedItem, GenerationBatchRe
 from lib.generation_queue import GenerationQueue
 from lib.generation_result import GenerationSelectionMode
 from lib.project_manager import ProjectManager
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.generation_batches import (
     cancel_generation_batch_tool,
     get_generation_batch_tool,
 )
+from server.media_tools.context import ToolContext
 
 
 async def test_sdk_batch_tools_are_project_bound_and_use_the_durable_queue(db_factory, tmp_path) -> None:
@@ -36,6 +36,8 @@ async def test_sdk_batch_tools_are_project_bound_and_use_the_durable_queue(db_fa
         batch_unit_id="E1S01",
     )
     projects = ProjectManager(tmp_path / "projects")
+    projects.create_project("demo")
+    projects.create_project_metadata("demo")
     ctx = ToolContext("demo", projects.projects_root, projects, queue=queue)
 
     get_tool = get_generation_batch_tool(ctx)

@@ -9,9 +9,10 @@ from claude_agent_sdk import tool
 
 from lib.script_batch_edit import ScriptBatchEditResult, script_revision
 from lib.script_editor import ScriptEditError
-from server.agent_runtime.sdk_tools._context import (
+from server.media_tools.context import (
     ToolContext,
     tool_error,
+    tool_outcome_response,
     tool_services,
     validate_script_filename,
 )
@@ -191,7 +192,7 @@ def patch_episode_script_tool(ctx: ToolContext):
                     )
             return output
         except Exception as exc:  # noqa: BLE001
-            return tool_error("patch_episode_script", exc)
+            return tool_outcome_response("problem", tool_error("patch_episode_script", exc))
 
     return _handler
 

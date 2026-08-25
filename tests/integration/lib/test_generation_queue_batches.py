@@ -1,9 +1,10 @@
-"""Real SQLite behavior for durable generation batches."""
+"""Durable database behavior for generation batches."""
 
 from __future__ import annotations
 
 import pytest
 
+from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
 from lib.db.models.user import User
 from lib.generation_batch import (
     GenerationBatchBlockedItem,
@@ -22,8 +23,8 @@ from lib.generation_result import (
 
 
 @pytest.fixture
-async def batch_queue(db_factory):
-    return GenerationQueue(session_factory=db_factory)
+async def batch_queue(session_factory):
+    return GenerationQueue(session_factory=session_factory)
 
 
 def _snapshot(*unit_ids: str) -> GenerationBatchRequestSnapshot:
@@ -178,6 +179,50 @@ async def test_all_reusable_submission_still_creates_a_terminal_batch(
     assert [item.unit_id for item in submitted.generation_result.skipped] == ["E1S01"]
 
 
+async def test_terminal_batch_reobserves_artifact_currency_instead_of_echoing_admission(
+    batch_queue: GenerationQueue,
+) -> None:
+    key = ArtifactKey.episode_storyboard(1, "E1S01")
+    batch_id = await batch_queue.create_generation_batch(
+        project_name="demo",
+        operation="generate_storyboards",
+        requested=GenerationBatchRequestSnapshot(
+            selection=GenerationSelectionMode.MISSING_ONLY,
+            requested=[
+                GenerationBatchRequestedItem(
+                    unit_id="E1S01",
+                    artifact_key=key.encode(),
+                    artifact_path="storyboards/old.png",
+                    artifact_status=ArtifactStatus.MISSING,
+                )
+            ],
+        ),
+        blocked=[],
+        source="mcp",
+    )
+    task = await _enqueue(batch_queue, batch_id, "E1S01")
+    assert await batch_queue.claim_next_task("image") is not None
+    await batch_queue.mark_task_succeeded(task["task_id"], {"file_path": "storyboards/current.png"})
+
+    class _Resolver:
+        def compare(self, observed_key: ArtifactKey, *, artifact_path: str | None = None):
+            assert observed_key == key
+            assert artifact_path == "storyboards/current.png"
+            return ArtifactComparison(status=ArtifactStatus.STALE, artifact_path="storyboards/current.png")
+
+    without_resolver = await batch_queue.get_generation_batch(project_name="demo", batch_id=batch_id)
+    with_resolver = await batch_queue.get_generation_batch(
+        project_name="demo",
+        batch_id=batch_id,
+        resolver=_Resolver(),  # type: ignore[arg-type]
+    )
+
+    assert without_resolver.generation_result is not None
+    assert without_resolver.generation_result.items[0].artifact_status is None
+    assert with_resolver.generation_result is not None
+    assert with_resolver.generation_result.items[0].artifact_status is ArtifactStatus.STALE
+
+
 async def test_batch_membership_rejects_another_project_or_unrequested_unit(
     batch_queue: GenerationQueue,
 ) -> None:
@@ -204,8 +249,8 @@ async def test_batch_membership_rejects_another_project_or_unrequested_unit(
     assert (await batch_queue.list_tasks(project_name="other"))["items"] == []
 
 
-async def test_batches_and_active_dedup_are_user_scoped(batch_queue: GenerationQueue, db_factory) -> None:
-    async with db_factory() as session:
+async def test_batches_and_active_dedup_are_user_scoped(batch_queue: GenerationQueue, session_factory) -> None:
+    async with session_factory() as session:
         session.add(User(id="other-user", username="other-user"))
         await session.commit()
 

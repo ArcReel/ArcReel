@@ -23,7 +23,6 @@ from lib.draft_quarantine import (
 )
 from lib.project_manager import ProjectManager
 from lib.reference_video.draft_validation import DraftViolation
-from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     generate_step1_tool,
@@ -32,6 +31,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     promote_draft_tool,
 )
 from server.draft_workflow import DraftContext, DraftWorkflow
+from server.media_tools.context import ToolContext
 from server.text_generation import TextGenerationError, TextGenerationRequest, generate_reference_step1
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
@@ -67,8 +67,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _write_nr_step1,
     _write_rv_step1,
 )
-
-pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # 草稿与修复晋升闭环（step1）

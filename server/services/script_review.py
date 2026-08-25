@@ -27,7 +27,7 @@ from lib.json_io import load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
 from lib.speech_composition import SpeechAdmission, admit_script_unit
-from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers, resolve_video_caps
+from server.media_tools.context import reference_unit_duration_tiers, resolve_video_caps
 
 logger = logging.getLogger(__name__)
 

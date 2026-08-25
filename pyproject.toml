@@ -38,6 +38,7 @@ dependencies = [
     "pdf-oxide>=0.3.46",
     "socksio>=1.0.0",
     "mcp>=1.29.0,<2",
+    "jsonschema>=4.26.0",
 ]
 
 [dependency-groups]

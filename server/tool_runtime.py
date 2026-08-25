@@ -18,6 +18,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from lib.artifact_activation import active_artifact_currency_resolver
 from lib.asset_inventory import (
     AssetInventoryError,
     AssetInventoryInvalidRequest,
@@ -268,10 +269,16 @@ async def get_generation_batch(
     services: Services,
 ) -> ToolOutcome[Any]:
     try:
+        project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
+        resolver = active_artifact_currency_resolver(
+            services.projects.get_project_path(scope.project_name),
+            project,
+        )
         result = await services.queue.get_generation_batch(
             project_name=scope.project_name,
             batch_id=request.value.batch_id,
             user_id=_caller.user_id,
+            resolver=resolver,
         )
     except GenerationBatchNotFound as exc:
         return ToolOutcome(problem=ToolProblem("generation_batch_not_found", str(exc)))
@@ -1160,7 +1167,13 @@ async def get_workflow_plan(
     services: Services,
 ) -> ToolOutcome[WorkflowPlan]:
     try:
-        plan = await services.workflow_planner.get_plan(scope.project_name, request.value)
+        plan = await services.workflow_planner.get_plan(
+            scope.project_name,
+            request.value,
+            user_id=_caller.user_id,
+            queue=services.queue,
+            config_resolver=services.capabilities,
+        )
     except WorkflowRequestError as exc:
         return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
     except Exception as exc:  # noqa: BLE001
