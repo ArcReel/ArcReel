@@ -187,32 +187,52 @@ class WorkflowPlanner:
         user_id: str,
         queue: GenerationQueue,
     ) -> list[WorkflowTaskObservation]:
-        if facts is None:
-            return []
-        id_field = facts.id_field
-        unit_ids = [
-            str(item[id_field]) for item in facts.items if isinstance(item.get(id_field), str) and str(item[id_field])
-        ]
-        if not unit_ids:
-            return []
-        task_types = ["reference_video" if status.project.generation_mode == "reference_video" else "video"]
-        if status.project.generation_mode == "storyboard" and not status.project.grid_storyboard:
-            task_types.append("storyboard")
-        if request.narration_delivery == USE_TTS:
-            task_types.append("tts")
-
         rows: list[dict[str, Any]] = []
-        for task_type in task_types:
+        text_queries = [("text_episode_plan", ["episode-planning"])] if status.project.content_mode != "ad" else []
+        if status.target is not None:
+            episode_ids = [f"episode-{status.target.episode}"]
+            text_queries.append(("text_episode_script", episode_ids))
+            if status.project.content_mode != "ad":
+                step1_type = (
+                    "text_reference_step1"
+                    if status.project.generation_mode == "reference_video"
+                    else f"text_{status.project.content_mode}_step1"
+                )
+                text_queries.append((step1_type, episode_ids))
+        for task_type, resource_ids in text_queries:
             rows.extend(
                 await get_active_tasks_for_resources(
                     project_name=project_name,
                     task_type=task_type,
-                    resource_ids=unit_ids,
-                    script_file=facts.script_file,
+                    resource_ids=resource_ids,
                     user_id=user_id,
                     queue=queue,
                 )
             )
+
+        if facts is not None:
+            id_field = facts.id_field
+            unit_ids = [
+                str(item[id_field])
+                for item in facts.items
+                if isinstance(item.get(id_field), str) and str(item[id_field])
+            ]
+            task_types = ["reference_video" if status.project.generation_mode == "reference_video" else "video"]
+            if status.project.generation_mode == "storyboard" and not status.project.grid_storyboard:
+                task_types.append("storyboard")
+            if request.narration_delivery == USE_TTS:
+                task_types.append("tts")
+            for task_type in task_types:
+                rows.extend(
+                    await get_active_tasks_for_resources(
+                        project_name=project_name,
+                        task_type=task_type,
+                        resource_ids=unit_ids,
+                        script_file=facts.script_file,
+                        user_id=user_id,
+                        queue=queue,
+                    )
+                )
         seen: set[str] = set()
         observations: list[WorkflowTaskObservation] = []
         for task in rows:
@@ -224,6 +244,7 @@ class WorkflowPlanner:
                 WorkflowTaskObservation(
                     unit_id=str(task.get("resource_id") or ""),
                     task_id=task_id,
+                    batch_id=str(task["batch_id"]) if task.get("batch_id") is not None else None,
                     task_type=str(task.get("task_type") or ""),
                     status=str(task.get("status") or ""),
                     provider_checkpoint=provider_checkpoint_from_task(task),

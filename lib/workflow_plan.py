@@ -61,6 +61,7 @@ class WorkflowTaskObservation(BaseModel):
 
     unit_id: str
     task_id: str
+    batch_id: str | None = None
     task_type: str
     status: str
     provider_checkpoint: ProviderCheckpoint | None = None
@@ -119,6 +120,11 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
 }
 
 _TASK_STEP: dict[str, str] = {
+    "text_episode_plan": "episode_plan",
+    "text_drama_step1": "step1_content",
+    "text_narration_step1": "step1_content",
+    "text_reference_step1": "step1_content",
+    "text_episode_script": "final_script",
     "storyboard": "storyboard",
     "grid": "storyboard",
     "tts": "narration_delivery",
@@ -299,9 +305,16 @@ def build_workflow_plan(
     elif structure_problems:
         next_action = _structure_action(structure_problems, script_revision=script_revision)
     elif active_tasks:
+        # ponytail: fixed five-minute remote observation window; replace with per-task ETA only if providers expose it.
+        batch_ids = list(dict.fromkeys(task.batch_id for task in active_tasks if task.batch_id is not None))
         next_action = WorkflowNextAction(
             type=WorkflowActionType.WAIT_FOR_TASK,
-            args={"task_ids": [task.task_id for task in active_tasks]},
+            args={
+                "task_ids": [task.task_id for task in active_tasks],
+                **({"batch_ids": batch_ids} if batch_ids else {}),
+                "poll_after_seconds": 10,
+                "max_poll_attempts": 30,
+            },
             requested_ids=[task.unit_id for task in active_tasks],
             reason="workflow has active generation tasks",
         )
