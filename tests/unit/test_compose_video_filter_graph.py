@@ -1,15 +1,15 @@
 """compose_video.py 滤镜图构造与 fps 解析的纯函数单测。
 
-不依赖 ffmpeg / ffprobe，覆盖以下回归断言：
+不依赖 ffmpeg / ffprobe，覆盖以下断言：
 
 - `_resolve_fps`：avg_frame_rate `"0/0"`/`"0"`/`""` 显式回退到 r_frame_rate，
-  而不是被 `or` 链当作真值通过（issue #562、#564 第 5 条）
+  而不是被 `or` 链当作真值通过
 - `_build_xfade_filter_complex`：
   - 全 cut → 返回 None（调用方 fallback 到 concatenate_final）
-  - 多片段 xfade chain + acrossfade chain 音画对齐（#564 第 3 条）
-  - cut+xfade 混用按 cut 分组、组内 offset 不跨 cut 累加（#564 评论补充）
+  - 多片段 xfade chain + acrossfade chain 音画对齐
+  - cut+xfade 混用按 cut 分组、组内 offset 不跨 cut 累加
   - 短片段边界自动降级为 cut（避免负 offset）
-  - audio 输入标签用空串连接而非 `;` 分隔（#564 第 1 条核心回归）
+  - audio 输入标签用空串连接而非 `;` 分隔
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ compose_video = _load_module()
 
 class TestResolveFps:
     def test_avg_0_over_0_falls_back_to_r(self) -> None:
-        """#562 核心场景：avg 为 '0/0' 时必须回退 r，不能直接被 `or` 当真值通过。"""
+        """avg 为 '0/0' 时必须回退 r，不能直接被 `or` 当真值通过。"""
         assert compose_video._resolve_fps("0/0", "24/1") == "24/1"
 
     def test_avg_0_falls_back_to_r(self) -> None:
@@ -92,9 +92,8 @@ class TestResolveFps:
 class TestCoerceNumericDuration:
     """ffprobe duration 字段的容错解析。
 
-    ffprobe 对部分 webm / 流式封装会返回 `stream.duration="N/A"`，
-    这是真值字符串但不是数值；旧实现 `stream.duration or format.duration` 会
-    选中 "N/A" 然后 float() 抛错，导致正常视频被拒。这里覆盖该回归。
+    ffprobe 对部分 webm / 流式封装会返回 `stream.duration="N/A"`：这是真值字符串但不是
+    数值，`or` 链会选中它并让 float() 抛错。非数值真值必须在转换前被拒并回退到下一个来源。
     """
 
     def test_numeric_string_parses(self) -> None:
@@ -183,11 +182,10 @@ class TestBuildXfadeFilterComplex:
         assert "[g0v1][2:v]xfade=transition=fade:duration=0.5:offset=9.000[g0v]" in result
 
     def test_no_semicolon_inside_audio_input_labels(self) -> None:
-        """#564 第 1 条核心回归：audio 输入标签之间不能出现 `;` 分隔。
+        """audio 输入标签之间不能出现 `;` 分隔。
 
-        旧实现用 `";".join([f"[{i}:a]"...])` 拼接成 `[0:a];[1:a];[2:a]concat=...`，
-        分号会被 ffmpeg 当作 filter chain 分隔符，导致 concat 输入参数不足报错。
-        新实现走 acrossfade 链，自然不会出现 `[N:a];[M:a]` 这种相邻片段。
+        `;` 是 ffmpeg 的 filter chain 分隔符，相邻 audio 输入标签之间出现它会切断
+        滤镜链、使下游输入参数不足而报错；音频走 acrossfade 链逐段串联即可避免。
         """
         result = compose_video._build_xfade_filter_complex([5.0, 5.0, 5.0], ["fade", "fade"], 0.5)
         assert result is not None
@@ -196,7 +194,7 @@ class TestBuildXfadeFilterComplex:
         assert "[1:a];[2:a]" not in result
 
     def test_cut_xfade_mix_groups_by_cut(self) -> None:
-        """#564 评论补充：cut+xfade 混用按 cut 分组。
+        """cut+xfade 混用按 cut 分组。
 
         durations=[5,5,5,5], transitions=["fade","cut","fade"]
         → group A=[0,1], group B=[2,3]，组间 concat 串联
@@ -364,7 +362,7 @@ class TestConcatenateFinalSingleSegment:
     def test_single_clip_skips_concat_filter(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """单段输入应走 `-c copy + faststart` 直接 remux，不走 concat filter。
 
-        #564 第 2 条：concat=n=1 会让 ffmpeg 报参数错误。
+        concat=n=1 会让 ffmpeg 报参数错误。
         """
         captured: list[list[str]] = []
 

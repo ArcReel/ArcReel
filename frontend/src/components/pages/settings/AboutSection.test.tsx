@@ -16,7 +16,7 @@ const VERSION_RESPONSE: GetSystemVersionResponse = {
   update_check_error: null,
 };
 
-describe("AboutSection diagnostics download (issue #1040)", () => {
+describe("AboutSection diagnostics download", () => {
   beforeEach(() => {
     vi.spyOn(API, "getSystemVersion").mockResolvedValue(VERSION_RESPONSE);
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-diagnostics");

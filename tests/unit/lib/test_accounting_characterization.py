@@ -14,7 +14,7 @@ CostCalculator → 定价策略）的落库行为逐字段锁定：链路内部�
 started_at / finished_at 可精确断言。SQLite 回读 DateTime(timezone=True) 为 naive
 datetime，跨 session 的 finish/finalize 中相减前按 UTC 补齐 naive 一侧 tzinfo 再与
 aware(finished_at) 相减，duration_ms 按真实步进（单次 start→finish 为 5000ms）回写
-（PostgreSQL 下同样为真实时长，不再分岔）。created_at / updated_at 由 ORM 列默认绑定
+（PostgreSQL 下同样为真实时长，不分岔）。created_at / updated_at 由 ORM 列默认绑定
 真实时钟、非记账语义字段，仅断言为 datetime。
 """
 
@@ -49,6 +49,7 @@ from lib.video_backends.base import (
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
+from tests.fakes import FakeConfigResolver
 
 # ---------------------------------------------------------------------------
 # 冻结时钟：写入侧（usage_repo.utc_now）是 aware datetime，SQLite 回读为 naive。
@@ -353,16 +354,6 @@ class _FakeTextBackend:
         )
 
 
-class _FakeConfigResolver:
-    """generate/resume_video_async 仅消费 video_generate_audio 这一个配置读点。"""
-
-    def __init__(self, *, video_generate_audio: bool = True) -> None:
-        self._video_generate_audio = video_generate_audio
-
-    async def video_generate_audio(self, project_name: str | None = None) -> bool:
-        return self._video_generate_audio
-
-
 def _media_generator(
     tmp_path: Path,
     db: _AccountingDb,
@@ -384,7 +375,7 @@ def _media_generator(
         image_backend=image_backend,
         video_backend=video_backend,
         audio_backend=audio_backend,
-        config_resolver=cast(ConfigResolver, _FakeConfigResolver()),
+        config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         image_provider_id=image_provider_id or (image_backend.name if image_backend else None),
         video_provider_id=video_provider_id or (video_backend.name if video_backend else None),
         audio_provider_id=audio_provider_id or (audio_backend.name if audio_backend else None),

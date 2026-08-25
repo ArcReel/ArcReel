@@ -273,6 +273,7 @@ class OptionsAssembler:
         arcreel_server = build_arcreel_mcp_server(
             project_name=project_name,
             projects_root=self.projects_root,
+            user_id=self._user_id_provider(),
         )
 
         return ClaudeAgentOptions(

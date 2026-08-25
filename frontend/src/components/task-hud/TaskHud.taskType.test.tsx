@@ -7,7 +7,7 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import i18n from "@/i18n";
 
-// issue #1218：任务 HUD 的 task_type 标签本地化。已知类型经 i18n key 映射显示；
+// 任务 HUD 的 task_type 标签本地化：已知类型经 i18n key 映射显示；
 // 词表外的未知类型机械兜底显示原始串（不做语义猜测映射）。
 
 function HostedTaskHud() {

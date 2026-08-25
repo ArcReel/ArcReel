@@ -196,7 +196,6 @@ MOTIVE_OVERRIDES = {
     # 名字不像 I/O，实际经 ConfigResolver / 文件系统 / 远端探测
     "server.agent_runtime.sdk_tools._context.resolve_video_caps": MOTIVE_IO,
     "server.agent_runtime.sdk_tools.enqueue_image_edits._i2i_provider_available": MOTIVE_IO,
-    "server.agent_runtime.sdk_tools.text_generation._resolve_video_capabilities": MOTIVE_IO,
     "lib.artifact_manifest._O_NOFOLLOW": MOTIVE_IO,
     "server.routers.system_config._read_app_version": MOTIVE_IO,
     "server.services.diagnostics._app_version": MOTIVE_IO,

@@ -17,6 +17,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server
 
+from lib.db.base import DEFAULT_USER_ID
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     migration_failure_for,
@@ -64,6 +65,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
 )
 from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
 from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool
+from server.tool_runtime import CallerContext
 
 __all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
 
@@ -179,9 +181,13 @@ def _refuse_while_migration_failed(sdk_tool: Any, ctx: ToolContext) -> Any:
     return replace(sdk_tool, handler=_guarded)
 
 
-def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
+def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id: str = DEFAULT_USER_ID) -> Any:
     """Build the per-session in-process MCP server with all ArcReel tools."""
-    ctx = ToolContext(project_name=project_name, projects_root=projects_root)
+    ctx = ToolContext(
+        project_name=project_name,
+        projects_root=projects_root,
+        caller=CallerContext(user_id=user_id, source="embedded"),
+    )
     tools = [
         complete_asset_inventory_tool(ctx),
         complete_step1_rebuild_tool(ctx),
