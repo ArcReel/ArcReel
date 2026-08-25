@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import os
+import subprocess
+import sys
 import threading
 
 import pytest
@@ -589,9 +592,10 @@ async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolCon
     assert promoted.get("is_error") is not True, promoted
 
 
-async def test_patch_draft_revision_covers_source_metadata(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server import draft_workflow as mod
-
+@pytest.mark.skipif(os.name != "posix", reason="FIFO-backed filesystem snapshot requires POSIX")
+async def test_patch_draft_revision_covers_source_metadata_without_blocking_event_loop(
+    fake_ctx: ToolContext,
+) -> None:
     _rv_source(fake_ctx)
     (fake_ctx.project_path / "source" / "episode_2.txt").write_text(_RV_NOVEL, encoding="utf-8")
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
@@ -602,26 +606,69 @@ async def test_patch_draft_revision_covers_source_metadata(fake_ctx: ToolContext
         "content": opened["content"],
         "base_revision": opened["revision"],
     }
-    original_to_thread = asyncio.to_thread
-    caller_thread = threading.get_ident()
-    worker_threads: list[int] = []
+    path = _rv_quarantine_path(fake_ctx)
+    snapshot = path.read_text(encoding="utf-8")
+    path.unlink()
+    os.mkfifo(path)
+    snapshot_writer = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            """
+import select
+import sys
 
-    async def observed_to_thread(function, /, *args, **kwargs):
-        def run():
-            worker_threads.append(threading.get_ident())
-            return function(*args, **kwargs)
+with open(sys.argv[1], "w", encoding="utf-8") as fifo:
+    print("snapshot_started", flush=True)
+    if not select.select([sys.stdin], [], [], 10)[0]:
+        print("event_loop_blocked", flush=True)
+    fifo.write(sys.argv[2])
+""",
+            os.fspath(path),
+            snapshot,
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert snapshot_writer.stdin is not None
+    assert snapshot_writer.stdout is not None
 
-        return await original_to_thread(run)
+    def release_fifo() -> None:
+        try:
+            snapshot_writer.stdin.write("\n")
+            snapshot_writer.stdin.flush()
+        except BrokenPipeError:
+            pass
 
-    monkeypatch.setattr(mod.asyncio, "to_thread", observed_to_thread)
+    patching = asyncio.create_task(_call(patch_draft_tool(fake_ctx), {**args, "source": "source/episode_2.txt"}))
+    try:
+        started = await asyncio.wait_for(asyncio.to_thread(snapshot_writer.stdout.readline), timeout=20)
+        assert started == "snapshot_started\n"
+        asyncio.get_running_loop().call_soon(release_fifo)
+        first = _draft_result(await patching)
+        writer_output = await asyncio.to_thread(snapshot_writer.stdout.read)
+    finally:
+        release_fifo()
+        if snapshot_writer.poll() is None:
+            snapshot_writer.terminate()
+        await asyncio.to_thread(snapshot_writer.wait, 10)
+        try:
+            snapshot_writer.stdin.close()
+        except BrokenPipeError:
+            pass
+        snapshot_writer.stdout.close()
+        if not patching.done():
+            patching.cancel()
+        await asyncio.gather(patching, return_exceptions=True)
 
-    first = _draft_result(await _call(patch_draft_tool(fake_ctx), {**args, "source": "source/episode_2.txt"}))
     stale = await _call(patch_draft_tool(fake_ctx), {**args, "source": "source/episode_1.txt"})
 
+    assert "event_loop_blocked" not in writer_output
     assert first["revision"] != opened["revision"]
+    assert _read_rv_quarantine(fake_ctx)["meta"]["source"] == "source/episode_2.txt"
     assert stale.get("is_error") is True
     assert "revision_conflict" in stale["content"][0]["text"]
-    assert worker_threads and all(thread != caller_thread for thread in worker_threads)
 
 
 async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolContext) -> None:
