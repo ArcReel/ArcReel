@@ -364,7 +364,8 @@ def write_formal_step1_locked(
     下游草稿。返回内容是否发生变化。
 
     调用方须已持有该文件的排他锁（``formal_step1_lock``，或同一路径的
-    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。三个变体
+    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）；指定
+    ``dependent_quarantine`` 时还须先持有该草稿锁，统一锁序为「下游草稿 → 正式 step1」。三个变体
     的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、迁移回写）汇入本函数。正式 step1
     之所以对 Agent 写禁，正是因为写盘只发生在这一个持锁的出口。
 
@@ -411,6 +412,32 @@ def write_step1_locked(
         clear_dependent_quarantine=clear_step2_quarantine,
         basis=basis,
     )
+
+
+def write_step1(
+    project_path: Path,
+    episode: int,
+    content: dict[str, Any],
+    *,
+    expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
+    clear_step2_quarantine: bool = True,
+    basis: ArtifactBasis | None = None,
+    before_lock: Callable[[], None] | None = None,
+) -> bool:
+    """Run the reference step1 transaction in global lock order: step2 draft, then formal step1."""
+    step2_path = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
+    pm = ProjectManager(str(project_path.parent))
+    if before_lock is not None:
+        before_lock()
+    with pm.file_lock(step2_path), step1_write_lock(project_path, episode):
+        return write_step1_locked(
+            project_path,
+            episode,
+            content,
+            expected_fingerprint=expected_fingerprint,
+            clear_step2_quarantine=clear_step2_quarantine,
+            basis=basis,
+        )
 
 
 def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:
@@ -515,10 +542,10 @@ def migrate_step1_draft_in_place(
 ) -> tuple[dict[str, Any] | None, list[ValidationMessage]]:
     """对已读入内存的 step1 草稿就地做一次性时长收编迁移并回写；返回 ``(最新 project, warnings)``。
 
-    调用方须已持有该文件的排他锁（``step1_write_lock`` / 同路径 ``ProjectManager.file_lock``）
-    ——回写经单一写盘出口 ``write_step1_locked``，与 Web 端保存 / 重拆分写盘同一把 per-path
-    锁。迁移是机械格式收编、不是内容编辑，不作废 step2 草稿；同临界区读改写也无并发
-    窗口，不做基线比对。未发生迁移时不回写，返回 ``(None, [])``。
+    调用方须按「step2 草稿 → 正式 step1」顺序持有两把排他锁；回写经单一写盘出口
+    ``write_step1_locked``，与 Web 端保存 / 重拆分写盘同一把 per-path 锁。迁移是机械格式
+    收编、不是内容编辑，不作废 step2 草稿；同临界区读改写也无并发窗口，不做基线比对。
+    未发生迁移时不回写，返回 ``(None, [])``。
 
     迁移多数情况下是机械格式收编，回写会让内容指纹漂移：经 ``update_project`` 在锁内把该集
     确认指纹平移到迁移后的值（``carry_confirmation_through_migration``），避免已确认分集仅因

@@ -2,30 +2,37 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
+import threading
+from contextlib import asynccontextmanager
+from typing import Any
 
 import pytest
 
+from lib import script_review
 from lib.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
+    draft_revision,
     quarantine_path,
+    read_quarantine,
     write_quarantine,
 )
+from lib.project_manager import ProjectManager
 from lib.reference_video.draft_validation import DraftViolation
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
-    _generate_drama_step1_tool as normalize_drama_script_tool,
-)
-from server.agent_runtime.sdk_tools.text_generation import (
-    _generate_narration_step1_tool as split_narration_segments_tool,
-)
-from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
+    generate_step1_tool,
+    open_draft_tool,
     patch_draft_tool,
+    promote_draft_tool,
 )
+from server.draft_workflow import DraftContext, DraftWorkflow
+from server.text_generation import TextGenerationError, TextGenerationRequest, generate_reference_step1
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     _call,
@@ -48,6 +55,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _read_nr_quarantine,
     _read_rv_quarantine,
     _run_rv_split,
+    _rv_generator_returning,
     _rv_project,
     _rv_quarantine_path,
     _rv_saved_unit,
@@ -130,6 +138,45 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     assert len(envelope["content"]["units"]) == 3
 
 
+async def test_reference_step1_write_transaction_does_not_block_event_loop(fake_ctx: ToolContext, monkeypatch) -> None:
+    _rv_source(fake_ctx)
+    resolver = _use_fake_caps(fake_ctx)
+    from server import text_generation as mod
+
+    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning([_rv_unit("@[张三] 起身")]))
+    started = threading.Event()
+    release = threading.Event()
+    caller_thread = threading.get_ident()
+    worker_threads: list[int] = []
+
+    def before_commit() -> None:
+        worker_threads.append(threading.get_ident())
+        started.set()
+        release.wait()
+
+    generation = asyncio.create_task(
+        generate_reference_step1(
+            TextGenerationRequest(episode=1),
+            project_name=fake_ctx.project_name,
+            projects=fake_ctx.pm,
+            config_resolver=resolver,
+            before_commit=before_commit,
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        ticked = asyncio.Event()
+        asyncio.get_running_loop().call_soon(ticked.set)
+        await asyncio.wait_for(ticked.wait(), timeout=1)
+    finally:
+        release.set()
+
+    result = await generation
+
+    assert result.message.startswith("✅")
+    assert worker_threads and all(thread != caller_thread for thread in worker_threads)
+
+
 async def test_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
     """Agent 修好草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
     _rv_source(fake_ctx)
@@ -168,6 +215,27 @@ async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolCon
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["braces_in_description"]
 
 
+async def test_promote_draft_rejects_stale_draft_revision(fake_ctx: ToolContext, monkeypatch) -> None:
+    _rv_source(fake_ctx)
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
+    args = {"episode": 1, "doc_type": "reference_step1"}
+    opened = json.loads((await _call(open_draft_tool(fake_ctx), args))["content"][0]["text"])["draft"]
+    updated = copy.deepcopy(opened["content"])
+    updated["units"][0]["text"] = "@[张三] 在 @[村口] 出场"
+    patched = await _call(
+        patch_draft_tool(fake_ctx),
+        {**args, "content": updated, "base_revision": opened["revision"]},
+    )
+    assert patched.get("is_error") is not True, patched
+
+    out = await _call(promote_draft_tool(fake_ctx), {**args, "base_revision": opened["revision"]})
+
+    assert out.get("is_error") is True
+    assert "revision_conflict" in out["content"][0]["text"]
+    assert _rv_quarantine_path(fake_ctx).exists()
+    assert not _rv_step1_path(fake_ctx).exists()
+
+
 # ---------------------------------------------------------------------------
 # step1 乐观并发控制（取回时记基线指纹，晋升前锁内比对）
 # ---------------------------------------------------------------------------
@@ -192,6 +260,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     assert "并发冲突" in report
     assert "accept_formal_revision" in report
     assert "patch_draft" in report
+    assert "base_revision" in report
     assert 'doc_type\\": \\"reference_step1' in report
     # 冲突报告附上盘上现值的扁平草稿单元，供 Agent 对照合并
     assert "在 @[村口] 等候" in report
@@ -232,6 +301,7 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
     report = out["content"][0]["text"]
     assert "null" in report
     assert "None" not in report
+    assert "accepts_formal_revision=true" in report
 
     refreshed = json.loads((await _open_for_edit(fake_ctx))["content"][0]["text"])["draft"]
     assert refreshed["formal_revision"] is None
@@ -283,11 +353,63 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
     envelope = _read_rv_quarantine(fake_ctx)
     envelope["content"]["units"][0]["text"] = "@[张三] 出场"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    formal_fingerprint = script_review.content_fingerprint(_rv_step1_path(fake_ctx))
 
     out = await _promote(fake_ctx)
 
     assert out.get("is_error") is True
     assert "并发冲突" in out["content"][0]["text"]
+    assert "base_revision" in out["content"][0]["text"]
+    assert script_review.content_fingerprint(_rv_step1_path(fake_ctx)) == formal_fingerprint
+
+
+async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server import text_generation as mod
+
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
+    expected = script_review.content_fingerprint(_rv_step1_path(fake_ctx))
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            started.set()
+            await release.wait()
+
+            class _Result:
+                text = json.dumps({"units": [_rv_unit("@[不存在的人] 出场")]}, ensure_ascii=False)
+
+            return _Result()
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    resolver = _use_fake_caps(fake_ctx)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    generation = asyncio.create_task(
+        generate_reference_step1(
+            TextGenerationRequest(episode=1),
+            project_name=fake_ctx.project_name,
+            projects=fake_ctx.pm,
+            config_resolver=resolver,
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+    except TimeoutError:
+        generation.cancel()
+        await asyncio.gather(generation, return_exceptions=True)
+        raise
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 在 @[村口] 等候")])
+    release.set()
+
+    with pytest.raises(TextGenerationError):
+        await asyncio.wait_for(generation, timeout=1)
+
+    current = script_review.content_fingerprint(_rv_step1_path(fake_ctx))
+    assert current != expected
+    assert _read_rv_quarantine(fake_ctx)["meta"]["base_fingerprint"] == expected
 
 
 @pytest.mark.parametrize(
@@ -370,6 +492,7 @@ async def test_promote_draft_requires_source_provenance(fake_ctx: ToolContext, m
 
     out = await _promote(fake_ctx)
     assert out.get("is_error") is True
+    assert json.loads(out["content"][0]["text"])["problem"]["code"] == "draft_invalid"
     assert "meta.source 缺失" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
 
@@ -386,6 +509,54 @@ async def test_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, 
 
     assert out.get("is_error") is not True, out
     assert "晋升" in out["content"][0]["text"]
+
+
+async def test_cancelled_reference_step1_promotion_finishes_commit_and_cleanup(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    _rv_source(fake_ctx)
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
+    envelope = _read_rv_quarantine(fake_ctx)
+    envelope["content"]["units"][0]["text"] = "@[张三] 起身"
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    started = threading.Event()
+    release = threading.Event()
+
+    def before_commit() -> None:
+        started.set()
+        release.wait()
+
+    draft = read_quarantine(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP1)
+    assert draft is not None
+    _use_fake_caps(fake_ctx)
+    workflow = DraftWorkflow(
+        DraftContext(
+            project_name=fake_ctx.project_name,
+            projects_root=fake_ctx.projects_root,
+            pm=fake_ctx.pm,
+            config_resolver=fake_ctx.config_resolver,
+        )
+    )
+    promotion = asyncio.create_task(
+        workflow.promote(
+            1,
+            "reference_step1",
+            draft_revision(draft),
+            before_commit=before_commit,
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        promotion.cancel()
+        await asyncio.sleep(0)
+        assert not promotion.done()
+    finally:
+        release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(promotion, timeout=1)
+    assert _rv_step1_path(fake_ctx).exists()
+    assert not _rv_quarantine_path(fake_ctx).exists()
 
 
 async def test_writing_reference_step1_clears_stale_step2_quarantine(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -433,33 +604,151 @@ async def test_promote_reference_step1_preserves_step2_draft_when_content_unchan
 async def test_promote_draft_step2_uses_async_factory(fake_ctx: ToolContext, monkeypatch) -> None:
     """step2 晋升走 ``ScriptGenerator.create``：晋升同样经 _add_metadata 落盘，裸构造会把
     metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。"""
-    from server import draft_workflow as mod
+    from lib.text_generator import TextGenerator
 
+    _rv_source(fake_ctx)
+    split = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 在 @[村口] 等候")])
+    assert split.get("is_error") is not True, split
+    project = fake_ctx.pm.project_payload  # pyright: ignore[reportAttributeAccessIssue]
+    project["episodes"][0]["step1_review"] = {
+        "fingerprint": script_review.content_fingerprint(_rv_step1_path(fake_ctx)),
+        "confirmed_at": "2026-08-24T00:00:00Z",
+    }
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(project, ensure_ascii=False),
+        encoding="utf-8",
+    )
     write_quarantine(
         fake_ctx.project_path,
         1,
         QUARANTINE_KIND_STEP2,
-        content={"title": "第1集", "units": [{"text": "@[张三] 起身"}]},
+        content={"title": "第1集", "units": [{"text": "镜头1：中景，平视。@[张三] 在 @[村口] 等候。"}]},
         violations=[],
+        meta={"base_fingerprint": None},
     )
+    seen: dict[str, object] = {}
 
-    class _FakeGenerator:
-        def __init__(self, _path) -> None:
-            raise AssertionError("晋升不得裸构造 ScriptGenerator")
+    class _TextBoundary:
+        model = "review-factory"
 
-        @classmethod
-        async def create(cls, project_path, **_kwargs):
-            obj = cls.__new__(cls)
-            obj.project_path = project_path
-            return obj
+    async def create_text_generator(task_type, project_name=None):
+        seen["task_type"] = task_type
+        seen["project_name"] = project_name
+        return _TextBoundary()
 
-        async def promote_reference_step2_draft(self, episode: int):
-            return self.project_path / "scripts" / f"episode_{episode}.json"
-
-    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
+    monkeypatch.setattr(TextGenerator, "create", create_text_generator)
     out = await _promote(fake_ctx)
     assert out.get("is_error") is not True, out
     assert "episode_1.json" in out["content"][0]["text"]
+    saved = json.loads((fake_ctx.project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+    assert saved["metadata"]["generator"] == "review-factory"
+    assert seen["project_name"] == fake_ctx.project_name
+
+
+async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from lib.text_generator import TextGenerator
+
+    _rv_source(fake_ctx)
+    split = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身")])
+    assert split.get("is_error") is not True, split
+    project = fake_ctx.pm.project_payload  # pyright: ignore[reportAttributeAccessIssue]
+    project["episodes"][0]["step1_review"] = {
+        "fingerprint": script_review.content_fingerprint(_rv_step1_path(fake_ctx)),
+        "confirmed_at": "2026-08-24T00:00:00Z",
+    }
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(project, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_STEP2,
+        content={"title": "第1集", "units": [{"text": "镜头1：中景，平视。@[张三] 起身。"}]},
+        violations=[],
+        meta={"base_fingerprint": None},
+    )
+    path = quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2)
+    draft = read_quarantine(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2)
+    assert draft is not None
+    _use_fake_caps(fake_ctx)
+    workflow = DraftWorkflow(
+        DraftContext(
+            project_name=fake_ctx.project_name,
+            projects_root=fake_ctx.projects_root,
+            pm=fake_ctx.pm,
+            config_resolver=fake_ctx.config_resolver,
+        )
+    )
+
+    class _TextBoundary:
+        model = "async-lock"
+
+    async def create_text_generator(_task_type, _project_name=None):
+        return _TextBoundary()
+
+    monkeypatch.setattr(TextGenerator, "create", create_text_generator)
+    pm = ProjectManager(str(fake_ctx.project_path.parent))
+    held = threading.Event()
+    release = threading.Event()
+
+    def hold_lock() -> None:
+        with pm.file_lock(path):
+            held.set()
+            release.wait()
+
+    holder = asyncio.create_task(asyncio.to_thread(hold_lock))
+    promotion: asyncio.Task[dict[str, Any]] | None = None
+    try:
+        assert await asyncio.to_thread(held.wait, 1)
+        attempted = asyncio.Event()
+        promotion = asyncio.create_task(
+            workflow.promote(
+                1,
+                "reference_step2",
+                draft_revision(draft),
+                before_lock=attempted.set,
+            )
+        )
+        await asyncio.wait_for(attempted.wait(), 0.3)
+        assert not promotion.done()
+    finally:
+        release.set()
+        assert await asyncio.wait_for(holder, timeout=1) is None
+
+    assert promotion is not None
+    out = await asyncio.wait_for(promotion, timeout=1)
+    assert out["promoted"] is True
+    assert (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
+
+
+async def test_open_step1_draft_waits_for_quarantine_lock(fake_ctx: ToolContext, monkeypatch) -> None:
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+    target = _drama_quarantine_path(fake_ctx)
+    pm = ProjectManager(str(fake_ctx.project_path.parent))
+    attempted = asyncio.Event()
+    original_async_lock = ProjectManager.async_file_lock
+
+    async with pm.async_file_lock(target):
+
+        @asynccontextmanager
+        async def observed_async_lock(self, path, **kwargs):
+            if path == target:
+                attempted.set()
+            async with original_async_lock(self, path, **kwargs):
+                yield
+
+        monkeypatch.setattr(ProjectManager, "async_file_lock", observed_async_lock)
+        opening = asyncio.create_task(_open_drama_for_edit(fake_ctx, source="source/episode_1.txt"))
+        await asyncio.wait_for(attempted.wait(), timeout=1)
+        assert not opening.done()
+
+    out = await opening
+    assert out.get("is_error") is not True, out
+    assert target.exists()
 
 
 async def test_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext) -> None:
@@ -481,14 +770,12 @@ async def test_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext) ->
     )
 
 
-async def test_promote_draft_step2_blocked_by_review_gate(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_step2_blocked_by_review_gate(fake_ctx: ToolContext) -> None:
     """step1 未经确认时 step2 草稿不晋升：常规生成路径在工具入口就被内容确认拦下，两条路不该分叉。
 
     草稿在场期间用户在 Web 端改过 step1 会让确认指纹失效，该集回到 pending_review——此时晋升等于
     拿一份用户没确认过的 step1 合成正式剧本。
     """
-    from server import text_generation as mod
-
     _rv_project(fake_ctx)
     step1 = _rv_step1_path(fake_ctx)
     step1.parent.mkdir(parents=True, exist_ok=True)
@@ -500,7 +787,8 @@ async def test_promote_draft_step2_blocked_by_review_gate(fake_ctx: ToolContext,
         content={"title": "第1集", "units": [{"text": "@[张三] 起身"}]},
         violations=[],
     )
-    monkeypatch.setattr(mod.script_review, "gate_blocks_step2", lambda *_args, **_kw: True)
+    project = json.loads((fake_ctx.project_path / "project.json").read_text(encoding="utf-8"))
+    assert script_review.review_status(fake_ctx.project_path, project, 1) == "pending_review"
 
     out = await _promote(fake_ctx)
     assert out.get("is_error") is True
@@ -690,12 +978,155 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    out = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+    out = await _call(generate_step1_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
 
     assert out.get("is_error") is not True, out
     assert not _drama_quarantine_path(fake_ctx).exists()
     saved = json.loads(_drama_step1_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["scenes"][0]["scene_description"] == "重新规范化后的描述。"
+
+
+async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ctx: ToolContext, monkeypatch) -> None:
+    """重生成的正式文件提交与草稿 patch/promote 共用草稿锁，避免交叉覆盖。"""
+    from server import text_generation as mod
+
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    regenerated = {"title": "第一集", "scenes": [_drama_scene(scene_description="重新规范化后的描述。")]}
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            class _R:
+                text = json.dumps(regenerated, ensure_ascii=False)
+
+            return _R()
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    _use_fake_caps(fake_ctx)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    pm = ProjectManager(str(fake_ctx.project_path.parent))
+    target = _drama_quarantine_path(fake_ctx)
+    attempted = asyncio.Event()
+    original_async_file_lock = ProjectManager.async_file_lock
+    async with pm.async_file_lock(target):
+
+        @asynccontextmanager
+        async def observed_async_file_lock(self, path, **kwargs):
+            if path == target:
+                attempted.set()
+            async with original_async_file_lock(self, path, **kwargs):
+                yield
+
+        monkeypatch.setattr(ProjectManager, "async_file_lock", observed_async_file_lock)
+        task = asyncio.create_task(
+            _call(generate_step1_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+        )
+        await asyncio.wait_for(attempted.wait(), timeout=1)
+        assert not task.done(), "generation commit must wait for the draft lock"
+
+    out = await task
+    assert out.get("is_error") is not True, out
+
+
+async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from server import text_generation as mod
+
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+    opened_out = await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    opened = json.loads(opened_out["content"][0]["text"])["draft"]
+    started = asyncio.Event()
+    release = asyncio.Event()
+    regenerated = {"title": "第一集", "scenes": [_drama_scene(scene_description="重生成内容")]}
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            started.set()
+            await release.wait()
+
+            class _R:
+                text = json.dumps(regenerated, ensure_ascii=False)
+
+            return _R()
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    _use_fake_caps(fake_ctx)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    generation = asyncio.create_task(
+        _call(generate_step1_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+    )
+    await started.wait()
+    edited = copy.deepcopy(opened["content"])
+    edited["scenes"][0]["scene_description"] = "并发编辑内容"
+    patched = await _call(
+        patch_draft_tool(fake_ctx),
+        {
+            "episode": 1,
+            "doc_type": "drama_step1",
+            "content": edited,
+            "base_revision": opened["revision"],
+        },
+    )
+    assert patched.get("is_error") is not True, patched
+    release.set()
+
+    out = await generation
+
+    assert out.get("is_error") is True
+    assert "draft_revision_conflict" in out["content"][0]["text"]
+    assert _read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "并发编辑内容"
+    formal = json.loads(_drama_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert formal["scenes"][0]["scene_description"] != "重生成内容"
+
+
+async def test_normalize_drama_script_preserves_output_when_formal_changes_during_model_call(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from server import text_generation as mod
+
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene(scene_description="生成前内容")])
+    started = asyncio.Event()
+    release = asyncio.Event()
+    regenerated = {"title": "第一集", "scenes": [_drama_scene(scene_description="本次生成内容")]}
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            started.set()
+            await release.wait()
+
+            class _R:
+                text = json.dumps(regenerated, ensure_ascii=False)
+
+            return _R()
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    _use_fake_caps(fake_ctx)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    generation = asyncio.create_task(
+        _call(generate_step1_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+    )
+    await started.wait()
+    _write_drama_step1(fake_ctx, [_drama_scene(scene_description="并发正式内容")])
+    release.set()
+
+    out = await generation
+
+    assert out.get("is_error") is True
+    assert "formal_revision_conflict" in out["content"][0]["text"]
+    formal = json.loads(_drama_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert formal["scenes"][0]["scene_description"] == "并发正式内容"
+    assert _read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "本次生成内容"
 
 
 # ---------------------------------------------------------------------------
@@ -718,7 +1149,7 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
-    out = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+    out = await _call(generate_step1_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
 
     assert out.get("is_error") is True
     report = out["content"][0]["text"]
@@ -751,11 +1182,46 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([_nr_segment("E1S01", 4, _RV_NOVEL)]))
 
-    out = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+    out = await _call(generate_step1_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
 
     assert out.get("is_error") is not True, out
     assert not _nr_quarantine_path(fake_ctx).exists()
     assert json.loads(_nr_step1_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 4
+
+
+@pytest.mark.parametrize("segment_id", [" ", "items[0]", "E1S1", "E2S01"])
+async def test_split_narration_segments_rejects_malformed_segment_id(
+    fake_ctx: ToolContext, monkeypatch, segment_id: str
+) -> None:
+    from server import text_generation as mod
+
+    _nr_source(fake_ctx)
+    _use_fake_caps(fake_ctx)
+    monkeypatch.setattr(
+        mod.TextGenerator,
+        "create",
+        _nr_generator_returning([_nr_segment(segment_id, 4, _RV_NOVEL)]),
+    )
+
+    out = await _call(generate_step1_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+
+    assert out.get("is_error") is True
+    assert not _nr_step1_path(fake_ctx).exists()
+
+
+async def test_promote_narration_step1_rejects_segment_id_from_another_episode(fake_ctx: ToolContext) -> None:
+    _nr_source(fake_ctx)
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = _read_nr_quarantine(fake_ctx)
+    envelope["content"]["segments"][0]["segment_id"] = "E2S01"
+    _nr_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote_nr(fake_ctx)
+
+    assert out.get("is_error") is True
+    assert "[invalid_segment_id]" in out["content"][0]["text"]
+    assert _nr_quarantine_path(fake_ctx).exists()
 
 
 async def test_promote_narration_step1_reports_schema_breach_without_writing(fake_ctx: ToolContext) -> None:

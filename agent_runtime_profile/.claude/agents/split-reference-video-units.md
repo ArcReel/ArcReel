@@ -88,8 +88,8 @@ mcp__arcreel__generate_step1({"episode": N, "source": "source/episode_N.txt", "i
 正常草稿装的是**扁平草稿结构**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。若违约报告指出 `content` 损坏或 `content.units` 不是数组，按报告中的字段路径修复整个 `content`；只有视频单元级违约才定位到 `content.units[i]`。
 
 1. 调用 `mcp__arcreel__open_draft({"episode": N, "doc_type": "reference_step1"})` 取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告定位
-2. 修复返回的 `content`，再调用 `mcp__arcreel__patch_draft({"episode": N, "doc_type": "reference_step1", "content": <完整修改后正文>, "base_revision": "<revision>"})`；严禁用 Edit / Write 直改正式文件或 `project.json`
-3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "reference_step1"})` 重新全量校验并晋升
+2. 修复返回的 `content`，再调用 `mcp__arcreel__patch_draft({"episode": N, "doc_type": "reference_step1", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`；严禁用 Edit / Write 直改正式文件或 `project.json`
+3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "reference_step1", "base_revision": "<patch_draft 返回的新 revision>"})` 重新全量校验并晋升
 4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具
 
 晋升成功后正式 `step1_reference_units.json` 落盘、草稿自动清除。草稿在场期间，内容确认与 step2 生成都被阻塞，处置完才能继续。
@@ -101,8 +101,8 @@ mcp__arcreel__generate_step1({"episode": N, "source": "source/episode_N.txt", "i
 正式文件不可直改，改动经可编辑草稿这条持锁通道落回：
 
 1. 调用 `mcp__arcreel__open_draft({"episode": N, "doc_type": "reference_step1", "source": "source/episode_N.txt"})`，取得完整 `content` 与 `revision`（正式文件保持原样）
-2. 修改返回的 `content.units[i]`，再调用 `mcp__arcreel__patch_draft({"episode": N, "doc_type": "reference_step1", "content": <完整修改后正文>, "base_revision": "<revision>"})`。`unit_id` 是派生物，不要手写
-3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "reference_step1"})` 全量校验并晋升回正式文件
+2. 修改返回的 `content.units[i]`，再调用 `mcp__arcreel__patch_draft({"episode": N, "doc_type": "reference_step1", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`。`unit_id` 是派生物，不要手写
+3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "reference_step1", "base_revision": "<patch_draft 返回的新 revision>"})` 全量校验并晋升回正式文件
 4. 返回违约报告则按报告继续改草稿再晋升，无轮次上限（同情况 C）。中途决定不改了就原样晋升：内容未变即等于把原稿回写，草稿随之清除
 
 > 草稿在场期间，内容确认与 step2 生成被阻塞，改完必须晋升，不要留着草稿收工。

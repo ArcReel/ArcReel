@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import unicodedata
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, NamedTuple, cast
@@ -17,7 +19,9 @@ from lib import script_review
 from lib.artifact_manifest import ArtifactBasis
 from lib.artifact_provenance import Step1PromptVariant, build_step1_request
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
+from lib.async_thread import run_sync_transaction
 from lib.config.resolver import ConfigResolver
+from lib.content_digest import prefixed_sha256_file
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
 from lib.draft_quarantine import (
@@ -90,6 +94,10 @@ class TextGenerationRequest:
     instructions: str | None = None
     dry_run: bool = False
 
+    def __post_init__(self) -> None:
+        if isinstance(self.episode, bool) or not isinstance(self.episode, int) or self.episode < 1:
+            raise ValueError("episode must be a positive integer")
+
 
 @dataclass(frozen=True, slots=True)
 class TextGenerationResult:
@@ -98,6 +106,113 @@ class TextGenerationResult:
 
 class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
+
+
+def _draft_file_revision(path: Path) -> str | None:
+    try:
+        return prefixed_sha256_file(path)
+    except FileNotFoundError:
+        return None
+
+
+def _generation_baselines(
+    draft_path: Path,
+    formal_path: Path,
+) -> tuple[str | None, str | None]:
+    return _draft_file_revision(draft_path), script_review.content_fingerprint(formal_path)
+
+
+def _assert_draft_revision(path: Path, expected: str | None) -> None:
+    actual = _draft_file_revision(path)
+    if actual != expected:
+        raise TextGenerationError(
+            f"draft_revision_conflict: draft changed during generation; expected {expected}, actual {actual}"
+        )
+
+
+def _quarantine_formal_generation_conflict(
+    project_path: Path,
+    episode: int,
+    kind: str,
+    content: dict[str, Any],
+    source: str | None,
+    expected: str | None,
+    actual: str | None,
+) -> str:
+    return quarantine_and_report(
+        project_path,
+        episode,
+        kind,
+        content=content,
+        violations=[
+            DraftViolation(
+                f"正式内容在模型生成期间已变化（expected {expected}, actual {actual}）；"
+                "本次生成结果已保留为草稿，请合并最新正式内容后再晋升",
+                code="formal_revision_conflict",
+            )
+        ],
+        meta={"source": source, "base_fingerprint": expected},
+    )
+
+
+def _commit_generated_reference_step1(
+    project_path: Path,
+    episode: int,
+    content: dict[str, Any],
+    expected_fingerprint: str | None,
+    basis: ArtifactBasis,
+    before_commit: Callable[[], None] | None = None,
+) -> None:
+    if before_commit is not None:
+        before_commit()
+    script_review.write_step1(
+        project_path,
+        episode,
+        content,
+        expected_fingerprint=expected_fingerprint,
+        basis=basis,
+    )
+    clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+
+
+def _commit_single_step1(
+    project_path: Path,
+    episode: int,
+    step1_path: Path,
+    kind: str,
+    content: dict[str, Any],
+    expected_fingerprint: Any,
+    basis: ArtifactBasis | None,
+) -> None:
+    with script_review.formal_step1_lock(project_path, episode, step1_path):
+        script_review.write_formal_step1_locked(
+            project_path,
+            episode,
+            step1_path,
+            content,
+            expected_fingerprint=expected_fingerprint,
+            basis=basis,
+        )
+        clear_quarantine(project_path, episode, kind)
+
+
+def _quarantine_invalid_step1_generation(
+    project_path: Path,
+    episode: int,
+    kind: str,
+    content: dict[str, Any],
+    violations: list[DraftViolation],
+    source: str | None,
+    base_fingerprint: str | None,
+) -> str:
+    return quarantine_and_report(
+        project_path,
+        episode,
+        kind,
+        content=content,
+        violations=violations,
+        meta={"source": source or None, "base_fingerprint": base_fingerprint},
+    )
 
 
 def _instructions(value: Any) -> str | None:
@@ -253,10 +368,10 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
         rv_json = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
         if not rv_json.exists() and (drafts_path / REFERENCE_VIDEO_STEP1_LEGACY_FILENAME).exists():
             return rv_json, (
-                f"重跑 split-reference-video-units 把旧 {REFERENCE_VIDEO_STEP1_LEGACY_FILENAME} "
+                f"调用 generate_step1 把旧 {REFERENCE_VIDEO_STEP1_LEGACY_FILENAME} "
                 f"重新拆分为结构化 {REFERENCE_VIDEO_STEP1_FILENAME}"
             )
-        return rv_json, "split-reference-video-units 子智能体 (Step 1)"
+        return rv_json, "generate_step1 tool"
     if content_mode != "narration" and content_mode in STEP1_FILENAMES:
         # STEP1_FILENAMES 中除 narration 外的模式走两段式结构化 JSON（见 ADR 0041）。
         # narration 虽也在 STEP1_FILENAMES，但另有旧 .md 迁移提示分支，需先排除。
@@ -267,20 +382,11 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
     narration_legacy_md = STEP1_LEGACY_FILENAMES["narration"][0]
     step1_json = drafts_path / narration_json
     if not step1_json.exists() and (drafts_path / narration_legacy_md).exists():
-        return step1_json, f"重跑 split-narration-segments 把旧 {narration_legacy_md} 重新拆分为结构化 {narration_json}"
-    return step1_json, "split-narration-segments 子智能体 (Step 1)"
+        return step1_json, f"调用 generate_step1 把旧 {narration_legacy_md} 重新拆分为结构化 {narration_json}"
+    return step1_json, "generate_step1 tool"
 
 
-async def generate_episode_script(
-    request: TextGenerationRequest,
-    *,
-    project_name: str,
-    projects: ProjectManager,
-    config_resolver: ConfigResolver,
-) -> TextGenerationResult:
-    episode = request.episode
-    instructions = _instructions(request.instructions)
-    project_path = projects.get_project_path(project_name)
+def _episode_generation_preflight(project_path: Path, episode: int, *, enforce_review_gate: bool) -> None:
     try:
         project_data = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -304,19 +410,44 @@ async def generate_episode_script(
         if not step1_path.exists():
             raise TextGenerationError(f"❌ 未找到 Step 1 文件: {step1_path}\n   请先完成 {hint}")
 
+    if enforce_review_gate and script_review.gate_blocks_step2(project_path, project_data, episode):
+        raise TextGenerationError(
+            "⏸️ step1 结构化中间态尚未完成内容确认，step2 视觉生成被阻塞。"
+            "请在 Web 端审阅并确认本集 step1 内容后再生成剧本。"
+        )
+
+
+async def generate_episode_script(
+    request: TextGenerationRequest,
+    *,
+    project_name: str,
+    projects: ProjectManager,
+    config_resolver: ConfigResolver,
+) -> TextGenerationResult:
+    episode = request.episode
+    instructions = _instructions(request.instructions)
+    project_path = projects.get_project_path(project_name)
+    await asyncio.to_thread(
+        _episode_generation_preflight,
+        project_path,
+        episode,
+        enforce_review_gate=not request.dry_run,
+    )
+
     try:
         if request.dry_run:
-            generator = ScriptGenerator(project_path, config_resolver=config_resolver)
+            generator = await asyncio.to_thread(
+                ScriptGenerator,
+                project_path,
+                config_resolver=config_resolver,
+            )
             prompt = await generator.build_prompt(episode, instructions=instructions)
             return TextGenerationResult(f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}")
 
-        if script_review.gate_blocks_step2(project_path, project_data, episode):
-            raise TextGenerationError(
-                "⏸️ step1 结构化中间态尚未完成内容确认，step2 视觉生成被阻塞。"
-                "请在 Web 端审阅并确认本集 step1 内容后再生成剧本。"
-            )
-
-        generator = await ScriptGenerator.create(project_path, config_resolver=config_resolver)
+        generator = await ScriptGenerator.create(
+            project_path,
+            config_resolver=config_resolver,
+        )
         result_path = await generator.generate(episode=episode, instructions=instructions)
     except FileNotFoundError as exc:
         raise TextGenerationError(f"❌ 文件错误: {exc}") from exc
@@ -402,9 +533,10 @@ async def generate_drama_step1(
     episode = request.episode
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
-    project = projects.load_project(project_name)
+    project = await asyncio.to_thread(projects.load_project_readonly, project_name)
     try:
-        novel_text, prompt_inputs, step1_basis = _load_step1_source_with_basis(
+        novel_text, prompt_inputs, step1_basis = await asyncio.to_thread(
+            _load_step1_source_with_basis,
             project_path,
             request.source,
             project,
@@ -444,6 +576,14 @@ async def generate_drama_step1(
                 f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}\n\nPrompt 长度: {len(prompt)} 字符"
             )
 
+        draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
+        step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
+        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+            draft_baseline, formal_baseline = await asyncio.to_thread(
+                _generation_baselines,
+                draft_path,
+                step1_path,
+            )
         schema = build_drama_normalized_script_model(supported_durations)
         generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=project_name)
         result = await generator.generate(
@@ -465,10 +605,31 @@ async def generate_drama_step1(
             else:
                 scene["needs_replan"] = True
 
-        step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
-        with script_review.formal_step1_lock(project_path, episode, step1_path):
-            script_review.write_formal_step1_locked(project_path, episode, step1_path, content, basis=step1_basis)
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
+        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+            _assert_draft_revision(draft_path, draft_baseline)
+            try:
+                await run_sync_transaction(
+                    _commit_single_step1,
+                    project_path,
+                    episode,
+                    step1_path,
+                    QUARANTINE_KIND_DRAMA_STEP1,
+                    content,
+                    formal_baseline,
+                    step1_basis,
+                )
+            except script_review.Step1WriteConflict as exc:
+                raise TextGenerationError(
+                    _quarantine_formal_generation_conflict(
+                        project_path,
+                        episode,
+                        QUARANTINE_KIND_DRAMA_STEP1,
+                        content,
+                        request.source,
+                        formal_baseline,
+                        exc.actual,
+                    )
+                ) from exc
 
         return TextGenerationResult(
             f"✅ 规范化剧本（结构化内容）已保存: {step1_path}\n📊 生成统计: {len(raw_scenes)} 个分镜"
@@ -805,6 +966,7 @@ def _covers_source_verbatim(parts: list[str], source: str) -> bool:
 def _collect_narration_violations(
     segments: list[dict[str, Any]],
     *,
+    episode: int,
     supported_durations: list[int],
     characters: dict[str, Any],
     scenes: dict[str, Any],
@@ -827,6 +989,19 @@ def _collect_narration_violations(
     该改分镜还是该改范围。
     """
     violations: list[DraftViolation] = []
+
+    expected_id = re.compile(rf"E{episode}S\d{{2}}")
+    for index, segment in enumerate(segments):
+        segment_id = segment.get("segment_id")
+        if not isinstance(segment_id, str) or expected_id.fullmatch(segment_id) is None:
+            label = _narration_segment_label(segment, index)
+            violations.append(
+                DraftViolation(
+                    f"{label} 的 segment_id 必须为 E{episode}S## 格式且集号匹配",
+                    code="invalid_segment_id",
+                    label=label,
+                )
+            )
 
     dupes = sorted(str(sid) for sid, count in Counter(s.get("segment_id") for s in segments).items() if count > 1)
     if dupes:
@@ -916,14 +1091,16 @@ async def generate_reference_step1(
     project_name: str,
     projects: ProjectManager,
     config_resolver: ConfigResolver,
+    before_commit: Callable[[], None] | None = None,
 ) -> TextGenerationResult:
     episode = request.episode
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
-    project = projects.load_project(project_name)
+    project = await asyncio.to_thread(projects.load_project_readonly, project_name)
 
     try:
-        novel_text, prompt_inputs, step1_basis = _load_step1_source_with_basis(
+        novel_text, prompt_inputs, step1_basis = await asyncio.to_thread(
+            _load_step1_source_with_basis,
             project_path,
             request.source,
             project,
@@ -968,6 +1145,14 @@ async def generate_reference_step1(
                 f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}\n\nPrompt 长度: {len(prompt)} 字符"
             )
 
+        draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP1)
+        formal_step1_path = script_review.official_reference_step1_path(project_path, episode)
+        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+            draft_baseline, formal_baseline = await asyncio.to_thread(
+                _generation_baselines,
+                draft_path,
+                formal_step1_path,
+            )
         schema = build_reference_units_step1_model(split_caps.durations)
         generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=project_name)
         result = await generator.generate(
@@ -992,17 +1177,17 @@ async def generate_reference_step1(
             source_language=project.get("source_language"),
         )
         if violations:
-            with script_review.step1_write_lock(project_path, episode) as step1_path:
-                report = quarantine_and_report(
+            async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+                _assert_draft_revision(draft_path, draft_baseline)
+                report = await run_sync_transaction(
+                    _quarantine_invalid_step1_generation,
                     project_path,
                     episode,
                     QUARANTINE_KIND_STEP1,
-                    content={"units": flat_units},
-                    violations=violations,
-                    meta={
-                        "source": request.source or None,
-                        "base_fingerprint": script_review.content_fingerprint(step1_path),
-                    },
+                    {"units": flat_units},
+                    violations,
+                    request.source,
+                    formal_baseline,
                 )
             raise TextGenerationError(report)
 
@@ -1012,15 +1197,43 @@ async def generate_reference_step1(
             episode=episode,
             max_refs=split_caps.max_refs,
         )
-        with script_review.step1_write_lock(project_path, episode) as step1_path:
-            script_review.write_step1_locked(project_path, episode, {"units": raw_units}, basis=step1_basis)
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+            _assert_draft_revision(draft_path, draft_baseline)
+            try:
+                await run_sync_transaction(
+                    _commit_generated_reference_step1,
+                    project_path,
+                    episode,
+                    {"units": raw_units},
+                    formal_baseline,
+                    step1_basis,
+                    before_commit,
+                )
+            except script_review.Step1WriteConflict as exc:
+                raise TextGenerationError(
+                    _quarantine_formal_generation_conflict(
+                        project_path,
+                        episode,
+                        QUARANTINE_KIND_STEP1,
+                        {"units": flat_units},
+                        request.source,
+                        formal_baseline,
+                        exc.actual,
+                    )
+                ) from exc
         warning_lines = _reference_voice_warning_lines(
             [flat_unit["text"] for flat_unit in flat_units],
             project,
             split_caps.voice,
         )
-        return TextGenerationResult(_reference_result_text(step1_path, raw_units, warning_lines, action="拆分"))
+        return TextGenerationResult(
+            _reference_result_text(
+                script_review.official_reference_step1_path(project_path, episode),
+                raw_units,
+                warning_lines,
+                action="拆分",
+            )
+        )
     except TextGenerationError:
         raise
     except Exception as exc:
@@ -1037,10 +1250,11 @@ async def generate_narration_step1(
     episode = request.episode
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
-    project = projects.load_project(project_name)
+    project = await asyncio.to_thread(projects.load_project_readonly, project_name)
 
     try:
-        novel_text, prompt_inputs, step1_basis = _load_step1_source_with_basis(
+        novel_text, prompt_inputs, step1_basis = await asyncio.to_thread(
+            _load_step1_source_with_basis,
             project_path,
             request.source,
             project,
@@ -1077,6 +1291,14 @@ async def generate_narration_step1(
                 f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}\n\nPrompt 长度: {len(prompt)} 字符"
             )
 
+        draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_NARRATION_STEP1)
+        step1_path = _narration_step1_path(project_path, episode)
+        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+            draft_baseline, formal_baseline = await asyncio.to_thread(
+                _generation_baselines,
+                draft_path,
+                step1_path,
+            )
         generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=project_name)
         result = await generator.generate(
             BackendTextGenerationRequest(
@@ -1098,6 +1320,7 @@ async def generate_narration_step1(
 
         violations = _collect_narration_violations(
             raw_segments,
+            episode=episode,
             supported_durations=supported_durations,
             characters=characters,
             scenes=scenes,
@@ -1105,31 +1328,46 @@ async def generate_narration_step1(
             novel_text=novel_text,
             source_scope=_coverage_source_scope(request.source),
         )
-        step1_path = _narration_step1_path(project_path, episode)
         if violations:
-            with script_review.formal_step1_lock(project_path, episode, step1_path):
-                report = quarantine_and_report(
+            async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+                _assert_draft_revision(draft_path, draft_baseline)
+                report = await run_sync_transaction(
+                    _quarantine_invalid_step1_generation,
                     project_path,
                     episode,
                     QUARANTINE_KIND_NARRATION_STEP1,
-                    content=content,
-                    violations=violations,
-                    meta={
-                        "source": request.source or None,
-                        "base_fingerprint": script_review.content_fingerprint(step1_path),
-                    },
+                    content,
+                    violations,
+                    request.source,
+                    formal_baseline,
                 )
             raise TextGenerationError(report)
 
-        with script_review.formal_step1_lock(project_path, episode, step1_path):
-            script_review.write_formal_step1_locked(
-                project_path,
-                episode,
-                step1_path,
-                content,
-                basis=step1_basis,
-            )
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_NARRATION_STEP1)
+        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+            _assert_draft_revision(draft_path, draft_baseline)
+            try:
+                await run_sync_transaction(
+                    _commit_single_step1,
+                    project_path,
+                    episode,
+                    step1_path,
+                    QUARANTINE_KIND_NARRATION_STEP1,
+                    content,
+                    formal_baseline,
+                    step1_basis,
+                )
+            except script_review.Step1WriteConflict as exc:
+                raise TextGenerationError(
+                    _quarantine_formal_generation_conflict(
+                        project_path,
+                        episode,
+                        QUARANTINE_KIND_NARRATION_STEP1,
+                        content,
+                        request.source,
+                        formal_baseline,
+                        exc.actual,
+                    )
+                ) from exc
 
         total_chars = sum(len(str(segment.get("novel_text") or "")) for segment in raw_segments)
         total_seconds = sum(int(segment.get("duration_seconds") or 0) for segment in raw_segments)

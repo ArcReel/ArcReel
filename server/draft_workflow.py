@@ -8,12 +8,13 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol, cast
+from typing import Annotated, Any, Literal, NamedTuple, Protocol, cast
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lib import script_review
 from lib.artifact_manifest import ArtifactBasis
+from lib.async_thread import run_sync_transaction
 from lib.config.resolver import ConfigResolver
 from lib.draft_quarantine import (
     DOC_TYPE_TO_QUARANTINE_KIND,
@@ -36,7 +37,7 @@ from lib.draft_quarantine import (
 from lib.draft_violation import DraftViolation
 from lib.episode_paths import STEP1_FILENAMES, episode_drafts_dir, episode_script_filename
 from lib.json_io import atomic_write_json, load_json_or_none
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, ScriptWriteConflict
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
     NarrationStep1Draft,
@@ -49,6 +50,7 @@ from server.text_generation import (
     _build_reference_units_from_flat,
     _collect_narration_violations,
     _collect_reference_flat_violations,
+    _commit_single_step1,
     _coverage_source_scope,
     _fetch_caps_with_fallback,
     _fetch_reference_caps_with_fallback,
@@ -73,23 +75,36 @@ class DraftContext:
         return self.pm.get_project_path(self.project_name)
 
 
-@dataclass(frozen=True, slots=True)
-class DraftLocator:
-    episode: int
-    doc_type: str
+DraftDocType = Literal["drama_step1", "narration_step1", "reference_step1", "reference_step2"]
+PositiveEpisode = Annotated[int, Field(strict=True, ge=1)]
+
+
+class _DraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: PositiveEpisode
+    doc_type: DraftDocType
+
+
+class DraftLocator(_DraftRequest):
     source: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class PatchDraftRequest:
-    episode: int
-    doc_type: str
+class PatchDraftRequest(_DraftRequest):
     content: dict[str, Any]
     base_revision: str
     accept_formal_revision: str | None = None
     accepts_formal_revision: bool = False
     source: str | None = None
     updates_source: bool = False
+
+
+class PromoteDraftRequest(_DraftRequest):
+    base_revision: str
+
+
+class DiscardDraftRequest(_DraftRequest):
+    base_revision: str
 
 
 class DraftWorkflowError(Exception):
@@ -208,38 +223,120 @@ async def revalidate_reference_step1_draft(
     return ReferenceDraftRevalidation(violations, flat_units, split_caps, schema_failed=False, basis=step1_basis)
 
 
-async def _promote_reference_step1(ctx: DraftContext, episode: int, draft: QuarantinedDraft) -> None:
+def _commit_reference_step1(
+    project_path: Path,
+    episode: int,
+    content: dict[str, Any],
+    expected_fingerprint: Any,
+    basis: ArtifactBasis | None,
+    before_commit: Callable[[], None] | None = None,
+) -> None:
+    if before_commit is not None:
+        before_commit()
+    script_review.write_step1(
+        project_path,
+        episode,
+        content,
+        expected_fingerprint=expected_fingerprint,
+        basis=basis,
+    )
+    clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+
+
+def _open_step1_draft(
+    project_path: Path,
+    episode: int,
+    step1_path: Path,
+    kind: str,
+    source: str | None,
+    to_draft_shape: Callable[[dict[str, Any]], dict[str, Any] | None],
+    missing_detail: str,
+) -> None:
+    with script_review.formal_step1_lock(project_path, episode, step1_path):
+        if quarantine_exists(project_path, episode, kind):
+            return
+        data = load_json_or_none(step1_path)
+        content = to_draft_shape(data) if isinstance(data, dict) else None
+        if content is None:
+            raise DraftWorkflowError("draft_source_missing", missing_detail)
+        write_quarantine(
+            project_path,
+            episode,
+            kind,
+            content=content,
+            violations=[],
+            meta={
+                "source": source or None,
+                "base_fingerprint": script_review.content_fingerprint_of_data(data),
+            },
+        )
+
+
+def _validate_open_source(project_path: Path, source: str) -> None:
+    _load_novel_source(project_path, source)
+
+
+def _rewrite_invalid_draft(
+    project_path: Path,
+    episode: int,
+    kind: str,
+    content: dict[str, Any],
+    violations: list[DraftViolation],
+    meta: dict[str, Any],
+) -> str:
+    return quarantine_and_report(
+        project_path,
+        episode,
+        kind,
+        content=content,
+        violations=violations,
+        meta=meta,
+    )
+
+
+async def _promote_reference_step1(
+    ctx: DraftContext,
+    episode: int,
+    draft: QuarantinedDraft,
+    *,
+    before_commit: Callable[[], None] | None = None,
+) -> None:
     """按产出时那套校验器全量重判 step1 草稿，通过则晋升为正式 step1 并清除草稿。"""
     project_path = ctx.project_path
-    project = ctx.pm.load_project(ctx.project_name)
-    revalidation = await revalidate_reference_step1_draft(
-        project_path,
-        project,
-        episode,
-        draft,
-        config_resolver=ctx.config_resolver,
-    )
+    project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
+    try:
+        revalidation = await revalidate_reference_step1_draft(
+            project_path,
+            project,
+            episode,
+            draft,
+            config_resolver=ctx.config_resolver,
+        )
+    except ValueError as exc:
+        raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
     violations, flat_units, split_caps = revalidation.violations, revalidation.flat_units, revalidation.caps
     if revalidation.schema_failed:
         # schema 违约：写回 Agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿
         # 改形，它照着报告回去看反而对不上自己写的东西。
-        report = quarantine_and_report(
+        report = await run_sync_transaction(
+            _rewrite_invalid_draft,
             project_path,
             episode,
             QUARANTINE_KIND_STEP1,
-            content=draft.content,
-            violations=violations,
-            meta=draft.meta,
+            draft.content,
+            violations,
+            draft.meta,
         )
         raise DraftWorkflowError("draft_invalid", report)
     if violations:
-        report = quarantine_and_report(
+        report = await run_sync_transaction(
+            _rewrite_invalid_draft,
             project_path,
             episode,
             QUARANTINE_KIND_STEP1,
-            content={"units": flat_units},
-            violations=violations,
-            meta=draft.meta,
+            {"units": flat_units},
+            violations,
+            draft.meta,
         )
         raise DraftWorkflowError("draft_invalid", report)
 
@@ -252,18 +349,15 @@ async def _promote_reference_step1(ctx: DraftContext, episode: int, draft: Quara
         draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
     )
     try:
-        with script_review.step1_write_lock(project_path, episode):
-            script_review.write_step1_locked(
-                project_path,
-                episode,
-                {"units": units},
-                expected_fingerprint=expected,
-                basis=revalidation.basis,
-            )
-            # 落盘成功后才清草稿：写盘失败（含冲突）时草稿还在，改完重试晋升即可，不会两头皆空。
-            # 清理与写盘同一临界区：并发的取回请求不会在两步之间看到「正式文件已是新内容、
-            # 草稿却还在场」的中间态。
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+        await run_sync_transaction(
+            _commit_reference_step1,
+            project_path,
+            episode,
+            {"units": units},
+            expected,
+            revalidation.basis,
+            before_commit,
+        )
     except script_review.Step1WriteConflict as conflict:
         raise DraftWorkflowError(
             "formal_revision_conflict",
@@ -310,7 +404,31 @@ def _render_step1_conflict_report(
         f"{latest_block}\n\n"
         f"处置：调用 open_draft 读取当前草稿与 formal_revision，对照上方最新内容合并 {field_hint}；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
-        f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}"}}) 重新晋升。'
+        "若该值为 null 且使用 remote MCP，还须传 accepts_formal_revision=true；"
+        f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}", '
+        '"base_revision": "<patch_draft 返回的新 revision>"}) 重新晋升。'
+    )
+
+
+def _render_step2_conflict_report(
+    episode: int,
+    draft: QuarantinedDraft,
+    conflict: ScriptWriteConflict,
+) -> str:
+    latest = (
+        json.dumps(conflict.current_content, ensure_ascii=False, indent=2)
+        if conflict.current_content is not None
+        else "null"
+    )
+    return (
+        "❌ 晋升中止（并发冲突）：正式剧本在本草稿产出后已被修改，本次未写盘、草稿仍在场。\n"
+        f"草稿基线指纹: {json.dumps(conflict.expected)}；盘上现值指纹: {json.dumps(conflict.actual)}\n\n"
+        f"当前正式剧本的最新内容：\n{latest}\n\n"
+        "处置：调用 open_draft 读取当前草稿与 formal_revision，合并最新正式内容；"
+        "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
+        "若该值为 null 且使用 remote MCP，还须传 accepts_formal_revision=true；"
+        f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "reference_step2", '
+        '"base_revision": "<patch_draft 返回的新 revision>"}) 重新晋升。'
     )
 
 
@@ -449,10 +567,14 @@ async def revalidate_drama_step1_draft(
     return SingleStep1DraftRevalidation([], content, schema_failed=False, basis=step1_basis)
 
 
-async def _promote_drama_step1(ctx: DraftContext, episode: int, draft: QuarantinedDraft) -> None:
+async def _promote_drama_step1(
+    ctx: DraftContext,
+    episode: int,
+    draft: QuarantinedDraft,
+) -> None:
     """按产出时那套校验器全量重判 drama step1 草稿，通过则晋升为正式 step1 并清除草稿。"""
     project_path = ctx.project_path
-    project = ctx.pm.load_project(ctx.project_name)
+    project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
     try:
         revalidation = await revalidate_drama_step1_draft(
             project_path,
@@ -467,13 +589,14 @@ async def _promote_drama_step1(ctx: DraftContext, episode: int, draft: Quarantin
     if revalidation.violations:
         # schema 违约时写回 Agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿
         # 改形，它照着报告回去看反而对不上自己写的东西。过了 schema 的那份则回写收编后的内容。
-        report = quarantine_and_report(
+        report = await run_sync_transaction(
+            _rewrite_invalid_draft,
             project_path,
             episode,
             QUARANTINE_KIND_DRAMA_STEP1,
-            content=draft.content if revalidation.schema_failed else revalidation.content,
-            violations=revalidation.violations,
-            meta=draft.meta,
+            draft.content if revalidation.schema_failed else revalidation.content,
+            revalidation.violations,
+            draft.meta,
         )
         raise DraftWorkflowError("draft_invalid", report)
 
@@ -486,19 +609,16 @@ async def _promote_drama_step1(ctx: DraftContext, episode: int, draft: Quarantin
     )
     step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
     try:
-        with script_review.formal_step1_lock(project_path, episode, step1_path):
-            script_review.write_formal_step1_locked(
-                project_path,
-                episode,
-                step1_path,
-                content,
-                expected_fingerprint=expected,
-                basis=step1_basis,
-            )
-            # 落盘成功后才清草稿：写盘失败（含冲突）时草稿还在，改完重试晋升即可，不会两头皆空。
-            # 清理与写盘同一临界区：并发的取回请求不会在两步之间看到「正式文件已是新内容、
-            # 草稿却还在场」的中间态。
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
+        await run_sync_transaction(
+            _commit_single_step1,
+            project_path,
+            episode,
+            step1_path,
+            QUARANTINE_KIND_DRAMA_STEP1,
+            content,
+            expected,
+            step1_basis,
+        )
     except script_review.Step1WriteConflict as conflict:
         raise DraftWorkflowError(
             "formal_revision_conflict",
@@ -512,7 +632,11 @@ async def _promote_drama_step1(ctx: DraftContext, episode: int, draft: Quarantin
         ) from conflict
 
 
-async def _open_drama_step1_for_edit(ctx: DraftContext, episode: int, source: str | None) -> None:
+async def _open_drama_step1_for_edit(
+    ctx: DraftContext,
+    episode: int,
+    source: str | None,
+) -> None:
     """把本集正式 drama step1 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。
 
     与参考生视频同一条流程：草稿有无的检查、正式文件的读取、草稿的写入整段在同一把 per-path
@@ -525,42 +649,22 @@ async def _open_drama_step1_for_edit(ctx: DraftContext, episode: int, source: st
     # 会卡在一个自己改不动的死角。校验失败时不落盘，无效参数不留持久副作用。
     if source is not None:
         try:
-            _load_novel_source(project_path, source)
+            await asyncio.to_thread(_validate_open_source, project_path, source)
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
     step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
-    with script_review.formal_step1_lock(project_path, episode, step1_path):
-        # 已有草稿在场时不覆盖：那份草稿可能已含 Agent 未晋升的修改，拿正式文件盖过去等于
-        # 抹掉它手上的工作。出路是继续改那份草稿再晋升。
-        if quarantine_exists(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1):
-            return
-
-        data = load_json_or_none(step1_path)
-        draft_content = _drama_step1_draft_shape(data) if isinstance(data, dict) else None
-        if draft_content is None:
-            raise DraftWorkflowError(
-                "draft_source_missing",
-                f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在、不是合法 JSON，"
-                "或 scenes 不是非空数组）；首次生成请调用 generate_step1",
-            )
-
-        write_quarantine(
-            project_path,
-            episode,
-            QUARANTINE_KIND_DRAMA_STEP1,
-            content=draft_content,
-            # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「待修复草稿」，报告为空即可，
-            # 晋升时照常全量重判。
-            violations=[],
-            # source 键一律写出（未指定时为 null），与生成侧同口径。base_fingerprint 记下此刻
-            # 正式文件的指纹（与本临界区读到的 data 同一份内容）：晋升前按它做基线比对，取回与
-            # 晋升之间正式文件被 Web 端保存等并发写入改过时中止晋升、报冲突让 Agent 合并。
-            meta={
-                "source": source or None,
-                "base_fingerprint": script_review.content_fingerprint_of_data(data),
-            },
-        )
+    await run_sync_transaction(
+        _open_step1_draft,
+        project_path,
+        episode,
+        step1_path,
+        QUARANTINE_KIND_DRAMA_STEP1,
+        source,
+        _drama_step1_draft_shape,
+        f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在、不是合法 JSON，"
+        "或 scenes 不是非空数组）；首次生成请调用 generate_step1",
+    )
 
 
 async def revalidate_narration_step1_draft(
@@ -632,6 +736,7 @@ async def revalidate_narration_step1_draft(
 
     violations = _collect_narration_violations(
         content["segments"],
+        episode=episode,
         supported_durations=supported_durations,
         characters=cast(dict[str, Any], prompt_inputs["characters"]),
         scenes=cast(dict[str, Any], prompt_inputs["scenes"]),
@@ -663,10 +768,14 @@ def _narration_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | No
     return {"segments": list(segments)}
 
 
-async def _promote_narration_step1(ctx: DraftContext, episode: int, draft: QuarantinedDraft) -> None:
+async def _promote_narration_step1(
+    ctx: DraftContext,
+    episode: int,
+    draft: QuarantinedDraft,
+) -> None:
     """按产出时那套校验器全量重判 narration step1 草稿，通过则晋升为正式 step1 并清除草稿。"""
     project_path = ctx.project_path
-    project = ctx.pm.load_project(ctx.project_name)
+    project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
     try:
         revalidation = await revalidate_narration_step1_draft(
             project_path,
@@ -682,13 +791,14 @@ async def _promote_narration_step1(ctx: DraftContext, episode: int, draft: Quara
     # 它照着报告回去看反而对不上自己写的东西。过了 schema 的那份则回写收编后的内容。
     if revalidation.violations:
         content = draft.content if revalidation.schema_failed else revalidation.content
-        report = quarantine_and_report(
+        report = await run_sync_transaction(
+            _rewrite_invalid_draft,
             project_path,
             episode,
             QUARANTINE_KIND_NARRATION_STEP1,
-            content=content,
-            violations=revalidation.violations,
-            meta=draft.meta,
+            content,
+            revalidation.violations,
+            draft.meta,
         )
         raise DraftWorkflowError("draft_invalid", report)
 
@@ -700,19 +810,16 @@ async def _promote_narration_step1(ctx: DraftContext, episode: int, draft: Quara
     )
     step1_path = _narration_step1_path(project_path, episode)
     try:
-        with script_review.formal_step1_lock(project_path, episode, step1_path):
-            script_review.write_formal_step1_locked(
-                project_path,
-                episode,
-                step1_path,
-                revalidation.content,
-                expected_fingerprint=expected,
-                basis=revalidation.basis,
-            )
-            # 落盘成功后才清草稿：写盘失败（含冲突）时草稿还在，改完重试晋升即可，不会两头皆空。
-            # 清理与写盘同一临界区：并发的取回请求不会在两步之间看到「正式文件已是新内容、草稿
-            # 却还在场」的中间态。
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_NARRATION_STEP1)
+        await run_sync_transaction(
+            _commit_single_step1,
+            project_path,
+            episode,
+            step1_path,
+            QUARANTINE_KIND_NARRATION_STEP1,
+            revalidation.content,
+            expected,
+            revalidation.basis,
+        )
     except script_review.Step1WriteConflict as conflict:
         conflict_report = _render_step1_conflict_report(
             episode,
@@ -724,7 +831,11 @@ async def _promote_narration_step1(ctx: DraftContext, episode: int, draft: Quara
         raise DraftWorkflowError("formal_revision_conflict", conflict_report) from conflict
 
 
-async def _open_narration_step1_for_edit(ctx: DraftContext, episode: int, source: str | None) -> None:
+async def _open_narration_step1_for_edit(
+    ctx: DraftContext,
+    episode: int,
+    source: str | None,
+) -> None:
     """把本集正式 narration step1 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。
 
     与另两条路线同一条流程：草稿有无的检查、正式文件的读取、草稿的写入整段在同一把 per-path 锁
@@ -737,42 +848,22 @@ async def _open_narration_step1_for_edit(ctx: DraftContext, episode: int, source
     # 会卡在一个自己改不动的死角。校验失败时不落盘，无效参数不留持久副作用。
     if source is not None:
         try:
-            _load_novel_source(project_path, source)
+            await asyncio.to_thread(_validate_open_source, project_path, source)
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
     step1_path = _narration_step1_path(project_path, episode)
-    with script_review.formal_step1_lock(project_path, episode, step1_path):
-        # 已有草稿在场时不覆盖：那份草稿可能已含 Agent 未晋升的修改，拿正式文件盖过去等于抹掉
-        # 它手上的工作。出路是继续改那份草稿再晋升。
-        if quarantine_exists(project_path, episode, QUARANTINE_KIND_NARRATION_STEP1):
-            return
-
-        data = load_json_or_none(step1_path)
-        draft_content = _narration_step1_draft_shape(data) if isinstance(data, dict) else None
-        if draft_content is None:
-            raise DraftWorkflowError(
-                "draft_source_missing",
-                f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在、不是合法 JSON，"
-                "或 segments 不是非空数组）；首次生成请调用 generate_step1",
-            )
-
-        write_quarantine(
-            project_path,
-            episode,
-            QUARANTINE_KIND_NARRATION_STEP1,
-            content=draft_content,
-            # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「待修复草稿」，报告为空即可，
-            # 晋升时照常全量重判。
-            violations=[],
-            # source 键一律写出（未指定时为 null），与生成侧同口径。base_fingerprint 记下此刻正式
-            # 文件的指纹（与本临界区读到的 data 同一份内容）：晋升前按它做基线比对，取回与晋升
-            # 之间正式文件被 Web 端保存等并发写入改过时中止晋升、报冲突让 Agent 合并。
-            meta={
-                "source": source or None,
-                "base_fingerprint": script_review.content_fingerprint_of_data(data),
-            },
-        )
+    await run_sync_transaction(
+        _open_step1_draft,
+        project_path,
+        episode,
+        step1_path,
+        QUARANTINE_KIND_NARRATION_STEP1,
+        source,
+        _narration_step1_draft_shape,
+        f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在、不是合法 JSON，"
+        "或 segments 不是非空数组）；首次生成请调用 generate_step1",
+    )
 
 
 class Step1DraftRevalidation(NamedTuple):
@@ -841,7 +932,11 @@ async def revalidate_step1_draft(
     return Step1DraftRevalidation(single.violations, None if single.schema_failed else single.content)
 
 
-async def _open_reference_step1_for_edit(ctx: DraftContext, episode: int, source: str | None) -> None:
+async def _open_reference_step1_for_edit(
+    ctx: DraftContext,
+    episode: int,
+    source: str | None,
+) -> None:
     """把本集正式参考生视频 step1 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。"""
     project_path = ctx.project_path
     # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升重判用，若此刻
@@ -850,7 +945,7 @@ async def _open_reference_step1_for_edit(ctx: DraftContext, episode: int, source
     # 无效参数不留持久副作用。
     if source is not None:
         try:
-            _load_novel_source(project_path, source)
+            await asyncio.to_thread(_validate_open_source, project_path, source)
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
@@ -858,50 +953,33 @@ async def _open_reference_step1_for_edit(ctx: DraftContext, episode: int, source
     # 各做一次的话，同一集的两个并发取回请求可能都先看到「无草稿」，再都各自写入草稿，
     # 后写者悄悄覆盖前者的 content 与 meta.source。写临界区与 Web 端保存、迁移同一把锁，
     # 读也持锁避免取回一份写到一半的 step1。
-    with script_review.step1_write_lock(project_path, episode) as step1_path:
-        # 已有草稿在场时不覆盖：那份草稿要么是待修复草稿、要么是上一轮取回后 Agent 已改了
-        # 一半，拿正式文件盖过去等于抹掉它手上的修改。两种情况的出路相同——继续改那份
-        # 草稿再晋升。
-        if quarantine_exists(project_path, episode, QUARANTINE_KIND_STEP1):
-            return
-
-        data = load_json_or_none(step1_path)
-        if not isinstance(data, dict):
-            raise DraftWorkflowError(
-                "draft_source_missing",
-                f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在或不是合法 JSON）；"
-                "首次生成请调用 generate_step1",
-            )
-        raw_units = data.get("units")
-        if not isinstance(raw_units, list) or not raw_units:
-            raise DraftWorkflowError("draft_source_missing", f"❌ {step1_path} 的 units 不是非空数组，无法取回编辑")
-
-        write_quarantine(
-            project_path,
-            episode,
-            QUARANTINE_KIND_STEP1,
-            content={"units": _flatten_reference_step1_units(raw_units)},
-            # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「待修复草稿」，报告为空即可，
-            # 晋升时照常全量重判。
-            violations=[],
-            # source 键一律写出（未指定时为 null），与拆分侧同口径：晋升侧据此区分「本就按
-            # 整个 source/ 判锚」与「meta 被改坏」。base_fingerprint 记下此刻正式文件的
-            # 指纹（与本临界区读到的 data 同一份内容）：晋升前按它做基线比对，取回与晋升
-            # 之间正式文件被 Web 端保存等并发写入改过时中止晋升、报冲突让 Agent 合并。
-            meta={
-                "source": source or None,
-                "base_fingerprint": script_review.content_fingerprint_of_data(data),
-            },
-        )
+    step1_path = script_review.official_reference_step1_path(project_path, episode)
+    await run_sync_transaction(
+        _open_step1_draft,
+        project_path,
+        episode,
+        step1_path,
+        QUARANTINE_KIND_STEP1,
+        source,
+        _reference_step1_draft_shape,
+        f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在、不是合法 JSON，"
+        "或 units 不是非空数组）；首次生成请调用 generate_step1",
+    )
 
 
-_STEP1_EDIT_OPENERS: dict[str, Callable[[DraftContext, int, str | None], Awaitable[None]]] = {
+_STEP1_EDIT_OPENERS: dict[
+    str,
+    Callable[[DraftContext, int, str | None], Awaitable[None]],
+] = {
     QUARANTINE_KIND_STEP1: _open_reference_step1_for_edit,
     QUARANTINE_KIND_DRAMA_STEP1: _open_drama_step1_for_edit,
     QUARANTINE_KIND_NARRATION_STEP1: _open_narration_step1_for_edit,
 }
 
-_SINGLE_STEP1_PROMOTERS: dict[str, Callable[[DraftContext, int, QuarantinedDraft], Awaitable[None]]] = {
+_SINGLE_STEP1_PROMOTERS: dict[
+    str,
+    Callable[[DraftContext, int, QuarantinedDraft], Awaitable[None]],
+] = {
     QUARANTINE_KIND_DRAMA_STEP1: _promote_drama_step1,
     QUARANTINE_KIND_NARRATION_STEP1: _promote_narration_step1,
 }
@@ -913,7 +991,7 @@ class DraftWorkflow:
     def __init__(self, ctx: DraftContext):
         self.ctx = ctx
 
-    def _kind(self, episode: int, doc_type: str, *, allow_stale_discard: bool = False) -> str:
+    async def _kind(self, episode: int, doc_type: str, *, allow_stale_discard: bool = False) -> str:
         if isinstance(episode, bool) or episode < 1:
             raise DraftWorkflowError("invalid_request", "episode must be a positive integer")
         kind = DOC_TYPE_TO_QUARANTINE_KIND.get(doc_type)
@@ -921,7 +999,7 @@ class DraftWorkflow:
             raise DraftWorkflowError("invalid_request", f"unsupported doc_type: {doc_type}")
         if allow_stale_discard:
             return kind
-        project = self.ctx.pm.load_project(self.ctx.project_name)
+        project = await asyncio.to_thread(self.ctx.pm.load_project_readonly, self.ctx.project_name)
         active_step1 = script_review.step1_quarantine_kind(project)
         compatible = kind == active_step1 or (kind == QUARANTINE_KIND_STEP2 and _uses_reference_video_units(project))
         if not compatible:
@@ -930,56 +1008,150 @@ class DraftWorkflow:
             )
         return kind
 
-    def _read(self, episode: int, kind: str) -> dict[str, Any]:
+    def _read_if_present(
+        self,
+        episode: int,
+        kind: str,
+    ) -> dict[str, Any] | None:
         draft = read_quarantine(self.ctx.project_path, episode, kind)
         if draft is not None:
             payload = draft_payload(draft)
             payload["formal_revision"] = script_review.content_fingerprint(self._formal_path(episode, kind))
             return payload
-        detail = f"episode {episode} has no {doc_type_for_kind(kind)} draft"
         if quarantine_exists(self.ctx.project_path, episode, kind):
             detail = f"episode {episode} {doc_type_for_kind(kind)} draft is not a valid JSON envelope"
+            raise DraftWorkflowError("draft_not_found", detail)
+        return None
+
+    def _read(
+        self,
+        episode: int,
+        kind: str,
+    ) -> dict[str, Any]:
+        payload = self._read_if_present(episode, kind)
+        if payload is not None:
+            return payload
+        detail = f"episode {episode} has no {doc_type_for_kind(kind)} draft"
         raise DraftWorkflowError("draft_not_found", detail)
+
+    def _draft_snapshot(
+        self,
+        episode: int,
+        kind: str,
+    ) -> tuple[QuarantinedDraft | None, str | None]:
+        draft = read_quarantine(self.ctx.project_path, episode, kind)
+        return draft, draft_revision(draft) if draft is not None else None
 
     def _formal_path(self, episode: int, kind: str) -> Path:
         if kind == QUARANTINE_KIND_STEP2:
             return self.ctx.project_path / "scripts" / episode_script_filename(episode)
-        project = self.ctx.pm.load_project(self.ctx.project_name)
+        project = self.ctx.pm.load_project_readonly(self.ctx.project_name)
         path = script_review.step1_path(self.ctx.project_path, project, episode)
         if path is None:
             raise ValueError("project has no formal step1 document")
         return path
 
-    async def open(self, episode: int, doc_type: str, source: str | None = None) -> dict[str, Any]:
-        resolved = self._kind(episode, doc_type)
-        existing = read_quarantine(self.ctx.project_path, episode, resolved)
-        if existing is not None:
-            return self._read(episode, resolved)
-        if quarantine_exists(self.ctx.project_path, episode, resolved):
-            return self._read(episode, resolved)
+    def _open_reference_step2(
+        self,
+        episode: int,
+        resolved: str,
+    ) -> None:
+        script = self.ctx.pm.load_script_readonly(
+            self.ctx.project_name,
+            episode_script_filename(episode),
+        )
+        units = script.get("video_units")
+        if not isinstance(units, list) or not units:
+            raise DraftWorkflowError("draft_source_missing", "formal reference step2 has no video_units")
+        write_quarantine(
+            self.ctx.project_path,
+            episode,
+            resolved,
+            content={
+                "title": script.get("title") or f"第{episode}集",
+                "units": [{"text": unit.get("text", "")} for unit in units if isinstance(unit, dict)],
+            },
+            violations=[],
+            meta={"base_fingerprint": script_review.content_fingerprint_of_data(script)},
+        )
+
+    async def open(
+        self,
+        episode: int,
+        doc_type: str,
+        source: str | None = None,
+    ) -> dict[str, Any]:
+        resolved = await self._kind(episode, doc_type)
+        path = quarantine_path(self.ctx.project_path, episode, resolved)
 
         try:
-            if resolved == QUARANTINE_KIND_STEP2:
-                path = quarantine_path(self.ctx.project_path, episode, resolved)
-                with ProjectManager(str(self.ctx.projects_root)).file_lock(path):
-                    existing = read_quarantine(self.ctx.project_path, episode, resolved)
-                    if existing is not None:
-                        return self._read(episode, resolved)
-                    script = self.ctx.pm.load_script(self.ctx.project_name, episode_script_filename(episode))
-                    units = script.get("video_units")
-                    if not isinstance(units, list) or not units:
-                        raise DraftWorkflowError("draft_source_missing", "formal reference step2 has no video_units")
-                    content = {
-                        "title": script.get("title") or f"第{episode}集",
-                        "units": [{"text": unit.get("text", "")} for unit in units if isinstance(unit, dict)],
-                    }
-                    write_quarantine(self.ctx.project_path, episode, resolved, content=content, violations=[])
-            else:
-                await _STEP1_EDIT_OPENERS[resolved](self.ctx, episode, source)
+            async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+                existing = await asyncio.to_thread(self._read_if_present, episode, resolved)
+                if existing is not None:
+                    return existing
+                if resolved == QUARANTINE_KIND_STEP2:
+                    await run_sync_transaction(
+                        self._open_reference_step2,
+                        episode,
+                        resolved,
+                    )
+                else:
+                    await _STEP1_EDIT_OPENERS[resolved](self.ctx, episode, source)
+                return await asyncio.to_thread(self._read, episode, resolved)
         except DraftWorkflowError:
             raise
         except Exception as exc:  # noqa: BLE001
             raise DraftWorkflowError("draft_open_failed", str(exc)) from exc
+
+    def _patch_locked(
+        self,
+        episode: int,
+        resolved: str,
+        content: dict[str, Any],
+        base_revision: str,
+        accept_formal_revision: str | None,
+        accepts_formal_revision: bool,
+        source: str | None,
+        updates_source: bool,
+        before_commit: Callable[[], None] | None,
+    ) -> dict[str, Any]:
+        path = quarantine_path(self.ctx.project_path, episode, resolved)
+        draft = read_quarantine(self.ctx.project_path, episode, resolved)
+        if draft is None:
+            return self._read(episode, resolved)
+        actual_revision = draft_revision(draft)
+        if base_revision != actual_revision:
+            raise DraftWorkflowError(
+                "revision_conflict",
+                f"draft revision changed: expected {base_revision}, actual {actual_revision}",
+            )
+        meta = draft.meta
+        if updates_source:
+            if resolved == QUARANTINE_KIND_STEP2:
+                raise DraftWorkflowError("invalid_request", "source is only valid for step1 drafts")
+            _load_novel_source(self.ctx.project_path, source)
+            meta = {**meta, "source": source}
+        if accepts_formal_revision:
+            actual_formal_revision = script_review.content_fingerprint(self._formal_path(episode, resolved))
+            if accept_formal_revision != actual_formal_revision:
+                raise DraftWorkflowError(
+                    "formal_revision_conflict",
+                    "formal document changed again: "
+                    f"expected {accept_formal_revision}, actual {actual_formal_revision}",
+                )
+            meta = {**meta, "base_fingerprint": actual_formal_revision}
+        if before_commit is not None:
+            before_commit()
+        atomic_write_json(
+            path,
+            {
+                "kind": draft.kind,
+                "episode": draft.episode,
+                "meta": meta,
+                "violations": draft.violations,
+                "content": content,
+            },
+        )
         return self._read(episode, resolved)
 
     async def patch(
@@ -992,76 +1164,88 @@ class DraftWorkflow:
         accepts_formal_revision: bool = False,
         source: str | None = None,
         updates_source: bool = False,
+        *,
+        before_commit: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
-        resolved = self._kind(episode, doc_type)
+        resolved = await self._kind(episode, doc_type)
         path = quarantine_path(self.ctx.project_path, episode, resolved)
-        with ProjectManager(str(self.ctx.projects_root)).file_lock(path):
-            draft = read_quarantine(self.ctx.project_path, episode, resolved)
+        async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+            return await run_sync_transaction(
+                self._patch_locked,
+                episode,
+                resolved,
+                content,
+                base_revision,
+                accept_formal_revision,
+                accepts_formal_revision,
+                source,
+                updates_source,
+                before_commit,
+            )
+
+    async def promote(
+        self,
+        episode: int,
+        doc_type: str,
+        base_revision: str,
+        *,
+        before_commit: Callable[[], None] | None = None,
+        before_lock: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
+        resolved = await self._kind(episode, doc_type)
+        path = quarantine_path(self.ctx.project_path, episode, resolved)
+        result_path: Path | None = None
+        if before_lock is not None:
+            before_lock()
+        async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+            draft, actual_revision = await asyncio.to_thread(
+                self._draft_snapshot,
+                episode,
+                resolved,
+            )
             if draft is None:
-                return self._read(episode, resolved)
-            actual_revision = draft_revision(draft.content)
+                return await asyncio.to_thread(self._read, episode, resolved)
             if base_revision != actual_revision:
                 raise DraftWorkflowError(
                     "revision_conflict",
                     f"draft revision changed: expected {base_revision}, actual {actual_revision}",
                 )
-            meta = draft.meta
-            if updates_source:
-                if resolved == QUARANTINE_KIND_STEP2:
-                    raise DraftWorkflowError("invalid_request", "source is only valid for step1 drafts")
-                _load_novel_source(self.ctx.project_path, source)
-                meta = {**meta, "source": source}
-            if accepts_formal_revision:
-                actual_formal_revision = script_review.content_fingerprint(self._formal_path(episode, resolved))
-                if accept_formal_revision != actual_formal_revision:
-                    raise DraftWorkflowError(
-                        "formal_revision_conflict",
-                        "formal document changed again: "
-                        f"expected {accept_formal_revision}, actual {actual_formal_revision}",
-                    )
-                meta = {**meta, "base_fingerprint": actual_formal_revision}
-            atomic_write_json(
-                path,
-                {
-                    "kind": draft.kind,
-                    "episode": draft.episode,
-                    "meta": meta,
-                    "violations": draft.violations,
-                    "content": content,
-                },
-            )
-        return self._read(episode, resolved)
-
-    async def promote(self, episode: int, doc_type: str) -> dict[str, Any]:
-        resolved = self._kind(episode, doc_type)
-        path = quarantine_path(self.ctx.project_path, episode, resolved)
-        result_path: Path | None = None
-        with ProjectManager(str(self.ctx.projects_root)).file_lock(path):
-            draft = read_quarantine(self.ctx.project_path, episode, resolved)
-            if draft is None:
-                return self._read(episode, resolved)
             try:
                 if resolved in _SINGLE_STEP1_PROMOTERS:
                     await _SINGLE_STEP1_PROMOTERS[resolved](self.ctx, episode, draft)
                 elif resolved == QUARANTINE_KIND_STEP1:
-                    await _promote_reference_step1(self.ctx, episode, draft)
+                    await _promote_reference_step1(
+                        self.ctx,
+                        episode,
+                        draft,
+                        before_commit=before_commit,
+                    )
                 else:
-                    project = self.ctx.pm.load_project(self.ctx.project_name)
+                    project = await asyncio.to_thread(self.ctx.pm.load_project_readonly, self.ctx.project_name)
                     if script_review.gate_blocks_step2(self.ctx.project_path, project, episode):
                         raise DraftWorkflowError(
                             "review_required", "step1 content must be confirmed before promoting step2"
                         )
                     generator = await ScriptGenerator.create(
                         self.ctx.project_path,
-                        **(
-                            {"config_resolver": self.ctx.config_resolver}
-                            if self.ctx.config_resolver is not None
-                            else {}
-                        ),
+                        config_resolver=self.ctx.config_resolver,
                     )
-                    result_path = await generator.promote_reference_step2_draft(episode)
+                    promote_kwargs = (
+                        {"expected_fingerprint": draft.meta["base_fingerprint"]}
+                        if "base_fingerprint" in draft.meta
+                        else {}
+                    )
+                    result_path = await generator.promote_reference_step2_draft(
+                        episode,
+                        _step2_lock_held=True,
+                        **promote_kwargs,
+                    )
             except DraftWorkflowError:
                 raise
+            except ScriptWriteConflict as exc:
+                raise DraftWorkflowError(
+                    "formal_revision_conflict", _render_step2_conflict_report(episode, draft, exc)
+                ) from exc
             except DraftViolation as exc:
                 raise DraftWorkflowError("draft_invalid", str(exc)) from exc
             except Exception as exc:  # noqa: BLE001
@@ -1076,10 +1260,26 @@ class DraftWorkflow:
             value["path"] = str(result_path)
         return value
 
-    async def discard(self, episode: int, doc_type: str) -> dict[str, Any]:
-        resolved = self._kind(episode, doc_type, allow_stale_discard=True)
+    async def discard(
+        self,
+        episode: int,
+        doc_type: str,
+        base_revision: str,
+    ) -> dict[str, Any]:
+        resolved = await self._kind(episode, doc_type, allow_stale_discard=True)
         path = quarantine_path(self.ctx.project_path, episode, resolved)
-        with ProjectManager(str(self.ctx.projects_root)).file_lock(path):
+        async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+            draft, actual_revision = await asyncio.to_thread(
+                self._draft_snapshot,
+                episode,
+                resolved,
+            )
+            if draft is not None:
+                if base_revision != actual_revision:
+                    raise DraftWorkflowError(
+                        "revision_conflict",
+                        f"draft revision changed: expected {base_revision}, actual {actual_revision}",
+                    )
             discarded = path.exists()
             path.unlink(missing_ok=True)
         return {"episode": episode, "doc_type": doc_type, "discarded": discarded}

@@ -8,14 +8,14 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.draft_quarantine import DOC_TYPE_TO_QUARANTINE_KIND, OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
+from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 from server.agent_runtime.sdk_tools._context import (
     MAX_INSTRUCTIONS_LEN,
     ToolContext,
     tool_outcome_response,
     tool_services,
 )
-from server.draft_workflow import DraftLocator, PatchDraftRequest
+from server.draft_workflow import DiscardDraftRequest, DraftLocator, PatchDraftRequest, PromoteDraftRequest
 from server.text_generation import TextGenerationRequest as ToolTextGenerationRequest
 from server.tool_runtime import (
     ToolOutcome,
@@ -76,41 +76,6 @@ def get_video_capabilities_tool(ctx: ToolContext):
 
 
 # ---------------------------------------------------------------------------
-# generate_episode_script
-# ---------------------------------------------------------------------------
-
-
-def _generate_episode_script_tool(ctx: ToolContext):
-    return generate_episode_script_tool(ctx)
-
-
-# ---------------------------------------------------------------------------
-# confirm_script_review
-# ---------------------------------------------------------------------------
-
-
-def _confirm_script_review_tool(ctx: ToolContext):
-    return confirm_script_review_tool(ctx)
-
-
-# ---------------------------------------------------------------------------
-# drama generate_step1 variant
-# ---------------------------------------------------------------------------
-
-
-def _generate_drama_step1_tool(ctx: ToolContext):
-    return generate_step1_tool(ctx)
-
-
-def _generate_reference_step1_tool(ctx: ToolContext):
-    return generate_step1_tool(ctx)
-
-
-def _generate_narration_step1_tool(ctx: ToolContext):
-    return generate_step1_tool(ctx)
-
-
-# ---------------------------------------------------------------------------
 # draft workflow adapters
 # ---------------------------------------------------------------------------
 
@@ -122,25 +87,15 @@ def _draft_response(outcome: ToolOutcome[dict[str, Any]]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps({"draft": outcome.value}, ensure_ascii=False)}]}
 
 
-_DRAFT_LOCATOR_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "episode": {"type": "integer", "minimum": 1, "description": "剧集编号"},
-        "doc_type": {"type": "string", "enum": list(DOC_TYPE_TO_QUARANTINE_KIND)},
-    },
-    "required": ["episode", "doc_type"],
-}
+_DRAFT_LOCATOR_SCHEMA = DraftLocator.model_json_schema()
+_DRAFT_LOCATOR_SCHEMA["properties"].pop("source")
+_DRAFT_LOCATOR_SCHEMA["properties"]["episode"]["description"] = "剧集编号"
 
-_OPEN_DRAFT_SCHEMA: dict[str, Any] = {
-    **_DRAFT_LOCATOR_SCHEMA,
-    "properties": {
-        **_DRAFT_LOCATOR_SCHEMA["properties"],
-        "source": {
-            "type": "string",
-            "description": "可选小说源文件路径；仅在首次从正式 step1 创建草稿时用作重判来源",
-        },
-    },
-}
+_OPEN_DRAFT_SCHEMA = DraftLocator.model_json_schema()
+_OPEN_DRAFT_SCHEMA["properties"]["episode"]["description"] = "剧集编号"
+_OPEN_DRAFT_SCHEMA["properties"]["source"]["description"] = (
+    "可选小说源文件路径；仅在首次从正式 step1 创建草稿时用作重判来源"
+)
 
 
 def open_draft_tool(ctx: ToolContext):
@@ -151,9 +106,7 @@ def open_draft_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            locator = DraftLocator(
-                episode=int(args["episode"]), doc_type=str(args["doc_type"]), source=args.get("source")
-            )
+            locator = DraftLocator.model_validate(args)
             outcome = await open_draft(ToolRequest(locator), ctx.scope, ctx.caller, tool_services(ctx))
         except Exception as exc:  # noqa: BLE001
             outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
@@ -188,24 +141,12 @@ def patch_draft_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            content = args["content"]
-            if not isinstance(content, dict):
-                raise ValueError("content must be an object")
-            accept_formal_revision = args.get("accept_formal_revision")
-            if accept_formal_revision is not None and not isinstance(accept_formal_revision, str):
-                raise ValueError("accept_formal_revision must be a string or null")
-            source = args.get("source")
-            if source is not None and not isinstance(source, str):
-                raise ValueError("source must be a string or null")
-            request = PatchDraftRequest(
-                episode=int(args["episode"]),
-                doc_type=str(args["doc_type"]),
-                content=content,
-                base_revision=str(args["base_revision"]),
-                accept_formal_revision=accept_formal_revision,
-                accepts_formal_revision="accept_formal_revision" in args,
-                source=source,
-                updates_source="source" in args,
+            request = PatchDraftRequest.model_validate(
+                {
+                    **args,
+                    "accepts_formal_revision": "accept_formal_revision" in args,
+                    "updates_source": "source" in args,
+                }
             )
             outcome = await patch_draft(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
         except Exception as exc:  # noqa: BLE001
@@ -216,11 +157,20 @@ def patch_draft_tool(ctx: ToolContext):
 
 
 def discard_draft_tool(ctx: ToolContext):
-    @tool("discard_draft", "丢弃指定草稿；正式文档保持不变。重复调用安全。", _DRAFT_LOCATOR_SCHEMA)
+    schema = {
+        **_DRAFT_LOCATOR_SCHEMA,
+        "properties": {
+            **_DRAFT_LOCATOR_SCHEMA["properties"],
+            "base_revision": {"type": "string", "description": "open_draft / 上次 patch_draft 返回的 revision"},
+        },
+        "required": ["episode", "doc_type", "base_revision"],
+    }
+
+    @tool("discard_draft", "按 canonical revision 丢弃指定草稿；正式文档保持不变。", schema)
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            locator = DraftLocator(episode=int(args["episode"]), doc_type=str(args["doc_type"]))
-            outcome = await discard_draft(ToolRequest(locator), ctx.scope, ctx.caller, tool_services(ctx))
+            request = DiscardDraftRequest.model_validate(args)
+            outcome = await discard_draft(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
         except Exception as exc:  # noqa: BLE001
             outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
         return _draft_response(outcome)
@@ -234,15 +184,24 @@ def discard_draft_tool(ctx: ToolContext):
 
 
 def promote_draft_tool(ctx: ToolContext):
+    schema = {
+        **_DRAFT_LOCATOR_SCHEMA,
+        "properties": {
+            **_DRAFT_LOCATOR_SCHEMA["properties"],
+            "base_revision": {"type": "string", "description": "open_draft 返回的当前草稿 revision"},
+        },
+        "required": [*_DRAFT_LOCATOR_SCHEMA["required"], "base_revision"],
+    }
+
     @tool(
         PROMOTE_TOOL_NAME,
         "重新全量校验指定草稿；通过则晋升为正式文件并清除草稿，不通过则刷新违约报告。可反复调用。",
-        _DRAFT_LOCATOR_SCHEMA,
+        schema,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            locator = DraftLocator(episode=int(args["episode"]), doc_type=str(args["doc_type"]))
-            outcome = await promote_draft(ToolRequest(locator), ctx.scope, ctx.caller, tool_services(ctx))
+            request = PromoteDraftRequest.model_validate(args)
+            outcome = await promote_draft(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
         except Exception as exc:  # noqa: BLE001
             outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
         return _draft_response(outcome)
@@ -257,7 +216,7 @@ def generate_episode_script_tool(ctx: ToolContext):
         {
             "type": "object",
             "properties": {
-                "episode": {"type": "integer", "description": "剧集编号"},
+                "episode": {"type": "integer", "minimum": 1, "description": "剧集编号"},
                 "instructions": _INSTRUCTIONS_SCHEMA,
                 "dry_run": {"type": "boolean", "description": "仅显示 prompt，不调用模型"},
             },
@@ -286,7 +245,7 @@ def generate_step1_tool(
         {
             "type": "object",
             "properties": {
-                "episode": {"type": "integer", "description": "剧集编号"},
+                "episode": {"type": "integer", "minimum": 1, "description": "剧集编号"},
                 "source": {"type": "string", "description": "可选的项目内源文件相对路径"},
                 "instructions": _INSTRUCTIONS_SCHEMA,
                 "dry_run": {"type": "boolean", "description": "仅显示 prompt，不调用模型"},

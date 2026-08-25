@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -10,17 +11,13 @@ import pytest
 
 from lib import script_review
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server import tool_runtime
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.text_generation import (
-    _generate_drama_step1_tool as normalize_drama_script_tool,
-)
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     generate_step1_tool,
     get_video_capabilities_tool,
 )
-from server.text_generation import TextGenerationResult, _parse_normalized_content
+from server.text_generation import TextGenerationRequest, _parse_normalized_content
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
     _fake_caps_resolver,
@@ -35,47 +32,6 @@ _NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
 # ---------------------------------------------------------------------------
 # text_generation
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("content_mode", "generation_mode", "expected"),
-    [
-        ("drama", "storyboard", "drama"),
-        ("narration", "storyboard", "narration"),
-        ("drama", "reference_video", "reference"),
-    ],
-)
-async def test_generate_step1_dispatches_by_project_axes(
-    fake_ctx: ToolContext,
-    monkeypatch: pytest.MonkeyPatch,
-    content_mode: str,
-    generation_mode: str,
-    expected: str,
-) -> None:
-    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
-        content_mode=content_mode,
-        generation_mode=generation_mode,
-    )
-
-    async def handler(*_args, **_kwargs):
-        return TextGenerationResult(expected)
-
-    monkeypatch.setattr(
-        tool_runtime,
-        {
-            "drama": "generate_drama_step1",
-            "narration": "generate_narration_step1",
-            "reference": "generate_reference_step1",
-        }[expected],
-        handler,
-    )
-
-    result = await _call(
-        generate_step1_tool(fake_ctx),
-        {"episode": 1},
-    )
-
-    assert json.loads(result["content"][0]["text"])["text_generation"]["message"] == expected
 
 
 async def test_get_video_capabilities_happy(fake_ctx: ToolContext) -> None:
@@ -157,6 +113,32 @@ async def test_get_video_capabilities_error(fake_ctx: ToolContext) -> None:
     tool_obj = get_video_capabilities_tool(fake_ctx)
     out = await _call(tool_obj, {})
     assert out.get("is_error") is True
+
+
+@pytest.mark.parametrize("content_mode", ["ad", "unsupported"])
+async def test_generate_step1_rejects_inapplicable_content_modes(fake_ctx: ToolContext, content_mode: str) -> None:
+    fake_ctx.pm.project_payload["content_mode"] = content_mode
+    resolver = _use_fake_caps(fake_ctx)
+    caller_thread = threading.get_ident()
+
+    out = await _call(generate_step1_tool(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert out.get("is_error") is True
+    assert json.loads(out["content"][0]["text"])["problem"]["code"] == "generation_refused"
+    assert resolver.capability_calls == []
+    assert fake_ctx.pm.readonly_load_threads  # type: ignore[attr-defined]
+    assert all(thread != caller_thread for thread in fake_ctx.pm.readonly_load_threads)  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("factory", [generate_episode_script_tool, generate_step1_tool])
+def test_generation_tools_require_positive_episode(fake_ctx: ToolContext, factory) -> None:
+    assert factory(fake_ctx).input_schema["properties"]["episode"]["minimum"] == 1
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 1.5, "1"])
+def test_text_generation_request_rejects_non_positive_or_non_integer_episode(bad: Any) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        TextGenerationRequest(episode=bad)
 
 
 async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -357,7 +339,7 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext) -> None:
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
     _use_fake_caps(fake_ctx)
-    tool_obj = normalize_drama_script_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
     assert "DRY RUN" in out["content"][0]["text"]
@@ -380,7 +362,7 @@ async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: Too
     monkeypatch.setattr(artifact_provenance, "project_step1_prompt_inputs", counted_projection)
     _use_fake_caps(fake_ctx)
 
-    result = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    result = await _call(generate_step1_tool(fake_ctx), {"episode": 1, "dry_run": True})
 
     assert result.get("is_error") is not True, result
     assert calls == 1
@@ -398,7 +380,7 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
     (src / "chapter1.txt").write_text("once upon a time", encoding="utf-8")
 
     _use_fake_caps(fake_ctx)
-    tool_obj = normalize_drama_script_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
     assert "English" in out["content"][0]["text"]
@@ -426,7 +408,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    tool_obj = normalize_drama_script_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
     # 空 scenes 不写盘，避免生成阶段才必然失败
@@ -442,7 +424,7 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
 
     _use_fake_caps(fake_ctx)
-    tool_obj = normalize_drama_script_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 2, "dry_run": True, "source": "source/chapter2.txt"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
@@ -468,7 +450,7 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
     ]
 
     _use_fake_caps(fake_ctx)
-    tool_obj = normalize_drama_script_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
@@ -524,7 +506,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    tool_obj = normalize_drama_script_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
 
     assert out.get("is_error") is not True, out
@@ -602,7 +584,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await _call(
-        normalize_drama_script_tool(fake_ctx),
+        generate_step1_tool(fake_ctx),
         {"episode": 1, "source": "source/selected.txt"},
     )
 
@@ -678,7 +660,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await _call(
-        normalize_drama_script_tool(fake_ctx),
+        generate_step1_tool(fake_ctx),
         {"episode": 1, "source": "source/selected.txt"},
     )
 
@@ -732,7 +714,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1})
+    result = await _call(generate_step1_tool(fake_ctx), {"episode": 1})
 
     assert result.get("is_error") is not True, result
     saved = json.loads(
@@ -743,7 +725,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
 
 
 async def test_normalize_drama_script_no_source(fake_ctx: ToolContext) -> None:
-    tool_obj = normalize_drama_script_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
 
@@ -795,7 +777,7 @@ async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
     _use_fake_caps(fake_ctx)
-    tool_obj = normalize_drama_script_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
@@ -875,5 +857,5 @@ async def test_generate_episode_script_reference_legacy_md_hints_resplit(fake_ct
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "重跑 split-reference-video-units" in text
+    assert "调用 generate_step1" in text
     assert "step1_reference_units.json" in text

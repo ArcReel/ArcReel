@@ -9,7 +9,7 @@ import pytest
 
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
-    _generate_reference_step1_tool as split_reference_video_units_tool,
+    generate_step1_tool,
 )
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
@@ -246,7 +246,7 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext) -> Non
     _rv_source(fake_ctx)
     _use_fake_caps(fake_ctx)
 
-    tool_obj = split_reference_video_units_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
@@ -270,7 +270,7 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units, captured))
 
-    out = await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1})
+    out = await _call(generate_step1_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is not True, out
 
     saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
@@ -422,7 +422,7 @@ async def test_split_reference_video_units_rejects_braces_in_description(fake_ct
 
 
 async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> None:
-    tool_obj = split_reference_video_units_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
 
@@ -431,7 +431,7 @@ async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolCo
     _rv_source(fake_ctx)
     _use_fake_caps(fake_ctx)
 
-    tool_obj = split_reference_video_units_tool(fake_ctx)
+    tool_obj = generate_step1_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单 unit 出场人物尽量不超过两人"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]

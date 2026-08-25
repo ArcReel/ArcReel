@@ -49,7 +49,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 等待返回。返回 `is_error: true` 时查看错误信息并尝试修复或报告问题。
 
-若错误为 **草稿待处置**，按错误报告的 `doc_type` 调 `open_draft`，取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告修复。修复后以同一 `episode` / `doc_type` 和 `base_revision` 调 `patch_draft`，最后调用 `promote_draft`。返回违约报告则继续 open → patch → promote，无轮次上限。不要用 Read/Edit 直接操作草稿文件，也不要重跑生成工具重抽。
+若错误为 **草稿待处置**，按错误报告的 `doc_type` 调 `open_draft`，取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告修复。修复后以同一 `episode` / `doc_type`，并将 `open_draft` 返回的 `revision` 作为 `base_revision` 调 `patch_draft`，再把 `patch_draft` 返回的新 `revision` 作为 `base_revision` 调用 `promote_draft`。返回违约报告则继续 open → patch → promote，无轮次上限。不要用 Read/Edit 直接操作草稿文件，也不要重跑生成工具重抽。
 
 若错误为 **内容确认阻塞**（drama / narration / reference_video 的 step1 结构化中间态尚未经显式确认，或确认后内容又被改；ad 无 step1，不会遇到本错误），这不是数据错误：不要反复重试、不要改写中间文件。确认须由用户驱动——回报主 Agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
 

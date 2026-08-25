@@ -1322,9 +1322,9 @@ export default {
   'review_confirm_blocked_quarantined': 'A draft needs fixes — confirm once it is fixed and promoted',
   'review_request_fix': 'Ask the Agent to fix it',
   'review_fix_request_prefill_header':
-    'Episode {{episode}}’s content organization draft has {{count}} violation(s) to fix — call open_draft to read it, then correct it with patch_draft:',
+    'Episode {{episode}}’s content organization draft has {{count}} violation(s) to fix — call open_draft with doc_type={{docType}} to read it, then correct it with patch_draft using the same doc_type and pass the returned revision as base_revision:',
   'review_fix_request_promote_prefill':
-    'Episode {{episode}}’s content organization draft now revalidates with no violations but has not been promoted yet — call open_draft to read its doc_type, then call promote_draft with the same doc_type.',
+    'Episode {{episode}}’s content organization draft now revalidates with no violations but has not been promoted yet — call open_draft with doc_type={{docType}}, then call promote_draft with the same doc_type and pass the returned revision as base_revision.',
 
   // ReferenceStep1PreviewPanel (reference_video variant step1 per-episode preview)
   'reference_step1_source_text_label': 'Source text',
@@ -1349,7 +1349,7 @@ export default {
   'reference_step1_duration_out_of_tier_hint': 'One or more video units have a duration outside the currently valid tiers — pick a new value before confirming',
   'reference_step1_confirm_continue_prefill': 'Episode {{episode}}’s split is confirmed — please continue generating the script and reference-to-video outputs.',
   'reference_step1_fix_request_prefill_header':
-    'Episode {{episode}}’s reference-to-video content organization draft has {{count}} violation(s) to fix — call open_draft to read it, then correct it with patch_draft:',
+    'Episode {{episode}}’s reference-to-video content organization draft has {{count}} violation(s) to fix — call open_draft with doc_type=reference_step1 to read it, then correct it with patch_draft using the same doc_type and pass the returned revision as base_revision:',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

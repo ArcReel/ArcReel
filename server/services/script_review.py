@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from lib import script_review
 from lib.config.resolver import ConfigResolver, resolve_raw_supported_durations
-from lib.draft_quarantine import read_quarantine, violation_entries
+from lib.draft_quarantine import QUARANTINE_KIND_STEP2, quarantine_path, read_quarantine, violation_entries
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.json_io import load_json_or_none
 from lib.project_manager import ProjectManager
@@ -199,8 +200,9 @@ class ScriptReviewService:
         schema 随后硬拒，用户在 gate 里既看不出问题也改不动。为 None（项目未配置视频型号）时
         退回结构区间 clamp——缺配置不该阻断草稿加载，档位偏移仍由执行时取档兜底。
 
-        调用方须已持有 ``self.pm.file_lock(path)``——本函数只做读改写，不自行加锁，避免与
-        调用方（如 ``confirm``）已持有的同一把锁发生同线程二次获取的死锁。
+        调用方须已持有 ``self.pm.file_lock(path)``；reference_video 还须先持 step2 草稿锁，
+        统一锁序为「下游草稿 → 正式 step1」。本函数只做读改写，不自行加锁，避免与调用方
+        （如 ``confirm``）已持有的同一把锁发生同线程二次获取的死锁。
         """
         content = _read_json(path)
         if content is None or script_review.step1_kind(project) != "reference_video":
@@ -256,7 +258,12 @@ class ScriptReviewService:
         if path is not None:
             # 迁移可能回写 step1 与确认记录；指纹与状态在同一把锁内、迁移之后取，三者才据
             # 同一份落盘内容派生——锁外取则并发 save_content 会让指纹描述另一份内容。
-            with self.pm.file_lock(path):
+            step2_lock = (
+                self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2))
+                if script_review.step1_kind(project) == "reference_video"
+                else nullcontext()
+            )
+            with step2_lock, self.pm.file_lock(path):
                 content, project = self._read_step1_migrated(
                     project_name, project, episode, path, project_path, supported_durations
                 )
@@ -433,7 +440,8 @@ class ScriptReviewService:
         try:
             if kind == "reference_video":
                 # 写盘经单一出口：锁、基线比对、step2 草稿清理都在 write_step1_locked 一处。
-                with script_review.step1_write_lock(project_path, episode):
+                step2_path = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
+                with self.pm.file_lock(step2_path), script_review.step1_write_lock(project_path, episode):
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
                     script_review.write_step1_locked(project_path, episode, validated, expected_fingerprint=expected)
             else:
@@ -484,7 +492,13 @@ class ScriptReviewService:
         # 存量草稿先做时长收编再校验：Agent / 直连调用可能不经 get_state 就确认。同一把
         # per-path 锁覆盖读改写全程（含下方 reference_video 分支自己的落盘），避免中途被
         # save_content 或迁移的写入插队——_read_step1_migrated 要求调用方已持锁。
-        with self.pm.file_lock(path):
+        kind, model = self._resolve_step1_model(project, episode)
+        step2_lock = (
+            self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2))
+            if kind == "reference_video"
+            else nullcontext()
+        )
+        with step2_lock, self.pm.file_lock(path):
             content, project = self._read_step1_migrated(
                 project_name, project, episode, path, project_path, supported_durations
             )
@@ -492,7 +506,6 @@ class ScriptReviewService:
                 raise ScriptReviewError("no_step1")
             # 确认前按 step1 变体模型校验 step1 结构：content 为 None（非法 JSON / 非对象）同样会
             # 在此被 model_validate 拒绝为 invalid_content，不会被仅凭「文件存在」放行。
-            kind, model = self._resolve_step1_model(project, episode)
             try:
                 validated = model.model_validate(content)
             except ValidationError as exc:

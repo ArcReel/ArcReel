@@ -6,13 +6,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from lib.project_manager import ProjectManager
+import pytest
+
+from lib import project_manager as project_manager_module
+from lib.content_digest import canonical_json_digest
+from lib.project_manager import ProjectManager, ScriptWriteConflict
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.project_archive import ProjectArchiveService
 
@@ -62,6 +67,119 @@ def _make_script(episode: int, payload_size: int) -> dict:
 
 
 class TestSaveScriptConcurrency:
+    def test_same_name_project_creation_claims_directory_atomically(self, tmp_path: Path, monkeypatch) -> None:
+        pm = ProjectManager(tmp_path)
+        project_dir = tmp_path / "demo"
+        barrier = threading.Barrier(2)
+        synchronized_threads: set[int] = set()
+        synchronization_lock = threading.Lock()
+        original_mkdir = Path.mkdir
+
+        def synchronized_mkdir(path: Path, *args, **kwargs) -> None:
+            thread_id = threading.get_ident()
+            with synchronization_lock:
+                should_wait = path == project_dir and thread_id not in synchronized_threads
+                if should_wait:
+                    synchronized_threads.add(thread_id)
+            if should_wait:
+                _ = barrier.wait()
+            original_mkdir(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", synchronized_mkdir)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(pm.create_project, "demo", mode) for mode in ("drama", "narration")]
+            outcomes = []
+            try:
+                for future in futures:
+                    try:
+                        outcomes.append(future.result(timeout=5))
+                    except FileExistsError as exc:
+                        outcomes.append(exc)
+            finally:
+                barrier.abort()
+
+        assert sum(isinstance(outcome, Path) for outcome in outcomes) == 1
+        assert sum(isinstance(outcome, FileExistsError) for outcome in outcomes) == 1
+        assert (project_dir / "project.json").exists()
+
+    async def test_async_file_lock_wait_keeps_event_loop_responsive(self, tmp_path: Path, monkeypatch) -> None:
+        pm = ProjectManager(tmp_path)
+        path = tmp_path / "draft.json"
+        held = threading.Event()
+        release = threading.Event()
+
+        def hold_lock() -> None:
+            with pm.file_lock(path):
+                held.set()
+                release.wait()
+
+        holder = threading.Thread(target=hold_lock)
+        holder.start()
+        task: asyncio.Task[None] | None = None
+        try:
+            assert await asyncio.to_thread(held.wait, 1)
+
+            attempted = asyncio.Event()
+            entered = asyncio.Event()
+            original_lock = project_manager_module.portalocker.lock
+
+            def tracked_lock(*args, **kwargs) -> None:
+                attempted.set()
+                original_lock(*args, **kwargs)
+
+            monkeypatch.setattr(project_manager_module.portalocker, "lock", tracked_lock)
+
+            async def contend() -> None:
+                async with pm.async_file_lock(path):
+                    entered.set()
+
+            task = asyncio.create_task(contend())
+            await asyncio.wait_for(attempted.wait(), timeout=1)
+            assert not entered.is_set()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            release.set()
+            holder.join(timeout=1)
+
+        async with pm.async_file_lock(path):
+            pass
+
+    async def test_async_file_lock_propagates_non_contention_errors(self, tmp_path: Path, monkeypatch) -> None:
+        pm = ProjectManager(tmp_path)
+
+        def fail_lock(*_args, **_kwargs) -> None:
+            raise project_manager_module.portalocker.LockException("lock backend failed")
+
+        monkeypatch.setattr(project_manager_module.portalocker, "lock", fail_lock)
+
+        with pytest.raises(project_manager_module.portalocker.LockException, match="lock backend failed"):
+            async with pm.async_file_lock(tmp_path / "draft.json"):
+                pass
+
+    def test_save_script_rejects_stale_expected_fingerprint(self, tmp_path: Path) -> None:
+        pm = ProjectManager(tmp_path)
+        name = "proj-occ"
+        _seed_project(pm, name)
+        path = pm.save_script(name, _make_script(1, payload_size=4), "episode_1.json")
+        baseline = canonical_json_digest(json.loads(path.read_text(encoding="utf-8")))
+
+        newer = _make_script(1, payload_size=5)
+        pm.save_script(name, newer, "episode_1.json")
+
+        with pytest.raises(ScriptWriteConflict) as caught:
+            pm.save_script(
+                name,
+                _make_script(1, payload_size=6),
+                "episode_1.json",
+                expected_fingerprint=baseline,
+            )
+
+        assert caught.value.expected == baseline
+        assert caught.value.actual == canonical_json_digest(pm.load_script(name, "episode_1.json"))
+        assert len(pm.load_script(name, "episode_1.json")["segments"]) == 5
+
     def test_concurrent_save_script_no_corruption(self, tmp_path: Path) -> None:
         """并发写入同一 script 文件，最终应可被 json.load 成功解析。"""
         pm = ProjectManager(tmp_path)

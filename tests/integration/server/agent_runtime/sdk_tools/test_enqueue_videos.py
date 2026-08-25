@@ -2863,4 +2863,4 @@ async def test_generate_video_episode_rejects_mismatched_storyboard_script_on_re
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
-    assert "split-reference-video-units" in out["content"][0]["text"]
+    assert "generate_step1" in out["content"][0]["text"]

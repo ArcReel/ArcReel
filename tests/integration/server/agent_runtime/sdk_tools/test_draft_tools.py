@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
+import threading
 
 import pytest
 
@@ -11,10 +14,18 @@ from lib.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_STEP1,
     QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_STEP2,
+    quarantine_path,
     write_quarantine,
 )
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.text_generation import discard_draft_tool, open_draft_tool, patch_draft_tool
+from server.agent_runtime.sdk_tools.text_generation import (
+    discard_draft_tool,
+    open_draft_tool,
+    patch_draft_tool,
+    promote_draft_tool,
+)
+from server.draft_workflow import DraftContext, DraftWorkflow, DraftWorkflowError
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     _call,
@@ -53,6 +64,25 @@ pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_referenc
 
 def _draft_result(out: dict) -> dict:
     return json.loads(out["content"][0]["text"])["draft"]
+
+
+@pytest.mark.parametrize("factory", [open_draft_tool, patch_draft_tool, promote_draft_tool, discard_draft_tool])
+def test_draft_tools_share_strict_locator_schema(fake_ctx: ToolContext, factory) -> None:
+    schema = factory(fake_ctx).input_schema
+    assert schema["properties"]["episode"]["minimum"] == 1
+    assert schema["properties"]["doc_type"]["enum"] == [
+        "drama_step1",
+        "narration_step1",
+        "reference_step1",
+        "reference_step2",
+    ]
+
+
+def _write_reference_step2(fake_ctx: ToolContext, script: dict) -> None:
+    fake_ctx.pm.script_payload = script  # pyright: ignore[reportAttributeAccessIssue]
+    scripts = fake_ctx.project_path / "scripts"
+    scripts.mkdir(exist_ok=True)
+    (scripts / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -177,11 +207,92 @@ async def test_open_draft_rejects_missing_source_without_side_effect(
     会卡在一个自己改不动的死角。校验失败时不产生持久副作用，Agent 改对参数重试即可。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
+    workflow = DraftWorkflow(
+        DraftContext(
+            project_name=fake_ctx.project_name,
+            projects_root=fake_ctx.projects_root,
+            pm=fake_ctx.pm,
+            config_resolver=fake_ctx.config_resolver,
+        )
+    )
 
-    out = await _open_for_edit(fake_ctx, source="source/episode_不存在.txt")
+    with pytest.raises(DraftWorkflowError) as excinfo:
+        await workflow.open(
+            1,
+            "reference_step1",
+            source="source/episode_不存在.txt",
+        )
 
-    assert out.get("is_error") is True
+    assert excinfo.value.code == "draft_open_failed"
     assert not _rv_quarantine_path(fake_ctx).exists()
+
+
+async def test_step1_write_cannot_race_a_step2_draft_patch(fake_ctx: ToolContext) -> None:
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
+    _write_reference_step2(
+        fake_ctx,
+        {
+            "title": "第一集",
+            "content_mode": "narration",
+            "episode": 1,
+            "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
+        },
+    )
+    opened = _draft_result(await _open_for_edit(fake_ctx, doc_type="reference_step2"))
+    changed = copy.deepcopy(opened["content"])
+    changed["units"][0]["text"] = "并发编辑"
+    target = quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2)
+    patch_reached_write = threading.Event()
+    allow_patch_write = threading.Event()
+    writer_attempted_draft_lock = threading.Event()
+    workflow = DraftWorkflow(
+        DraftContext(
+            project_name=fake_ctx.project_name,
+            projects_root=fake_ctx.projects_root,
+            pm=fake_ctx.pm,
+            config_resolver=fake_ctx.config_resolver,
+        )
+    )
+
+    def pause_before_patch_commit() -> None:
+        patch_reached_write.set()
+        _ = allow_patch_write.wait()
+
+    def patch() -> dict:
+        return asyncio.run(
+            workflow.patch(
+                1,
+                "reference_step2",
+                changed,
+                opened["revision"],
+                before_commit=pause_before_patch_commit,
+            )
+        )
+
+    def rewrite_step1() -> None:
+        script_review.write_step1(
+            fake_ctx.project_path,
+            1,
+            {"units": [_rv_saved_unit("@[张三] 修改 step1")]},
+            before_lock=writer_attempted_draft_lock.set,
+        )
+
+    patch_task = asyncio.create_task(asyncio.to_thread(patch))
+    writer_task: asyncio.Task[None] | None = None
+    patch_result: dict | None = None
+    try:
+        assert await asyncio.to_thread(patch_reached_write.wait, 1)
+        writer_task = asyncio.create_task(asyncio.to_thread(rewrite_step1))
+        attempted = await asyncio.to_thread(writer_attempted_draft_lock.wait, 1)
+        assert attempted
+    finally:
+        allow_patch_write.set()
+        if writer_task is not None:
+            patch_result, _ = await asyncio.wait_for(asyncio.gather(patch_task, writer_task), timeout=2)
+
+    assert patch_result is not None
+    assert not target.exists()
 
 
 async def test_open_draft_rejects_non_reference_episode(fake_ctx: ToolContext) -> None:
@@ -396,12 +507,15 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
         _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     else:
         _rv_project(fake_ctx)
-        fake_ctx.pm.script_payload = {
-            "title": "第一集",
-            "content_mode": "narration",
-            "episode": 1,
-            "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
-        }
+        _write_reference_step2(
+            fake_ctx,
+            {
+                "title": "第一集",
+                "content_mode": "narration",
+                "episode": 1,
+                "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
+            },
+        )
 
     args = {"episode": 1, "doc_type": doc_type}
     opened = _draft_result(await _call(open_draft_tool(fake_ctx), args))
@@ -435,7 +549,9 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
     assert second["revision"] != first["revision"]
 
     if doc_type == "reference_step2":
-        discarded = _draft_result(await _call(discard_draft_tool(fake_ctx), args))
+        discarded = _draft_result(
+            await _call(discard_draft_tool(fake_ctx), {**args, "base_revision": second["revision"]})
+        )
         assert discarded["discarded"] is True
     else:
         if doc_type == "drama_step1":
@@ -473,13 +589,83 @@ async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolCon
     assert promoted.get("is_error") is not True, promoted
 
 
+async def test_patch_draft_revision_covers_source_metadata(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server import draft_workflow as mod
+
+    _rv_source(fake_ctx)
+    (fake_ctx.project_path / "source" / "episode_2.txt").write_text(_RV_NOVEL, encoding="utf-8")
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
+    opened = _draft_result(await _open_for_edit(fake_ctx, source="source/episode_1.txt"))
+    args = {
+        "episode": 1,
+        "doc_type": "reference_step1",
+        "content": opened["content"],
+        "base_revision": opened["revision"],
+    }
+    original_to_thread = asyncio.to_thread
+    caller_thread = threading.get_ident()
+    worker_threads: list[int] = []
+
+    async def observed_to_thread(function, /, *args, **kwargs):
+        def run():
+            worker_threads.append(threading.get_ident())
+            return function(*args, **kwargs)
+
+        return await original_to_thread(run)
+
+    monkeypatch.setattr(mod.asyncio, "to_thread", observed_to_thread)
+
+    first = _draft_result(await _call(patch_draft_tool(fake_ctx), {**args, "source": "source/episode_2.txt"}))
+    stale = await _call(patch_draft_tool(fake_ctx), {**args, "source": "source/episode_1.txt"})
+
+    assert first["revision"] != opened["revision"]
+    assert stale.get("is_error") is True
+    assert "revision_conflict" in stale["content"][0]["text"]
+    assert worker_threads and all(thread != caller_thread for thread in worker_threads)
+
+
+async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolContext) -> None:
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
+    opened = _draft_result(await _open_for_edit(fake_ctx))
+    changed = copy.deepcopy(opened["content"])
+    changed["units"][0]["text"] = "@[张三] 走向 @[村口]"
+    patched = _draft_result(
+        await _call(
+            patch_draft_tool(fake_ctx),
+            {
+                "episode": 1,
+                "doc_type": "reference_step1",
+                "content": changed,
+                "base_revision": opened["revision"],
+            },
+        )
+    )
+
+    stale = await _call(
+        discard_draft_tool(fake_ctx),
+        {"episode": 1, "doc_type": "reference_step1", "base_revision": opened["revision"]},
+    )
+
+    assert stale.get("is_error") is True
+    assert "revision_conflict" in stale["content"][0]["text"]
+    assert _rv_quarantine_path(fake_ctx).exists()
+    discarded = _draft_result(
+        await _call(
+            discard_draft_tool(fake_ctx),
+            {"episode": 1, "doc_type": "reference_step1", "base_revision": patched["revision"]},
+        )
+    )
+    assert discarded["discarded"] is True
+
+
 async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: ToolContext) -> None:
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     formal_before = _rv_step1_path(fake_ctx).read_text(encoding="utf-8")
-    await _open_for_edit(fake_ctx)
+    opened = _draft_result(await _open_for_edit(fake_ctx))
 
-    args = {"episode": 1, "doc_type": "reference_step1"}
+    args = {"episode": 1, "doc_type": "reference_step1", "base_revision": opened["revision"]}
     first = _draft_result(await _call(discard_draft_tool(fake_ctx), args))
     second = _draft_result(await _call(discard_draft_tool(fake_ctx), args))
 
@@ -491,15 +677,20 @@ async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: To
 
 async def test_open_reference_step2_returns_flat_editable_content(fake_ctx: ToolContext) -> None:
     _rv_project(fake_ctx)
-    fake_ctx.pm.script_payload = {
-        "title": "第一集",
-        "content_mode": "narration",
-        "episode": 1,
-        "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
-    }
+    _write_reference_step2(
+        fake_ctx,
+        {
+            "title": "第一集",
+            "content_mode": "narration",
+            "episode": 1,
+            "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
+        },
+    )
 
     out = await _call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "reference_step2"})
 
     draft = _draft_result(out)
     assert draft["content"] == {"title": "第一集", "units": [{"text": "@[张三] 起身"}]}
     assert draft["revision"].startswith("sha256-v1:")
+    envelope = json.loads(quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2).read_text(encoding="utf-8"))
+    assert envelope["meta"]["base_fingerprint"] == draft["formal_revision"]

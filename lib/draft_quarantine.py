@@ -119,9 +119,17 @@ class QuarantinedDraft:
     path: Path
 
 
-def draft_revision(content: object) -> str:
-    """Return the canonical optimistic-concurrency token for draft content."""
-    return prefixed_canonical_json_digest(content)
+def draft_revision(draft: QuarantinedDraft) -> str:
+    """Return the canonical optimistic-concurrency token for persisted draft state."""
+    return prefixed_canonical_json_digest(
+        {
+            "kind": draft.kind,
+            "episode": draft.episode,
+            "meta": draft.meta,
+            "violations": draft.violations,
+            "content": draft.content,
+        }
+    )
 
 
 def draft_payload(draft: QuarantinedDraft) -> dict[str, Any]:
@@ -131,7 +139,7 @@ def draft_payload(draft: QuarantinedDraft) -> dict[str, Any]:
         "doc_type": QUARANTINE_KIND_TO_DOC_TYPE[draft.kind],
         "content": draft.content,
         "violations": draft.violations,
-        "revision": draft_revision(draft.content),
+        "revision": draft_revision(draft),
     }
 
 
@@ -251,7 +259,8 @@ def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, e
         f'处置：调用 open_draft({{"episode": {episode}, "doc_type": "{doc_type}"}}) 读取正文与 revision；'
         f"修正 {field} 后用 patch_draft 携带 base_revision 提交；"
         "若违约是「资产名未登记」，也可改为在 project.json 登记该资产、或改用已登记的名称。\n"
-        f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}"}}) '
+        f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}", '
+        '"base_revision": "<patch_draft 返回的 revision>"}) '
         "重新全量校验并晋升为正式文件；"
         "仍有违约时会返回刷新后的报告，可继续修改再晋升，无轮次上限。"
     )

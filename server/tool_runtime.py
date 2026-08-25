@@ -28,6 +28,7 @@ from lib.asset_inventory import (
     complete_asset_inventory as complete_asset_inventory_service,
 )
 from lib.asset_types import ASSET_SPECS
+from lib.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.config.resolver import ConfigResolver
 from lib.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.episode_paths import (
@@ -85,11 +86,13 @@ from lib.source_revision import SourceScope
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import WorkflowRequestError
 from server.draft_workflow import (
+    DiscardDraftRequest,
     DraftContext,
     DraftLocator,
     DraftWorkflow,
     DraftWorkflowError,
     PatchDraftRequest,
+    PromoteDraftRequest,
 )
 from server.services.video_caps import annotate_reference_unit_tiers
 from server.services.workflow_planner import WorkflowPlanner
@@ -237,7 +240,7 @@ async def generate_step1(
     services: Services,
 ) -> ToolOutcome[TextGenerationResult]:
     try:
-        project = services.projects.load_project(scope.project_name)
+        project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
         content_mode = project.get("content_mode", "narration")
         if content_mode == "ad":
             raise TextGenerationError("广告/短片项目无 step1，请直接调用 generate_episode_script")
@@ -436,14 +439,18 @@ def _decode_business_file(project_dir: Path, relative: str) -> tuple[Any, str, s
     return content, revision, etag, len(raw)
 
 
-def _business_file_entries(project_dir: Path) -> list[ProjectFileEntry]:
-    candidates = [project_dir / "project.json"]
-    for dirname in ("source", "scripts"):
+def _business_file_entries(
+    project_dir: Path,
+    *,
+    source_only: bool = False,
+) -> list[ProjectFileEntry]:
+    candidates = [] if source_only else [project_dir / "project.json"]
+    for dirname in ("source",) if source_only else ("source", "scripts"):
         directory = project_dir / dirname
         if directory.is_dir() and not directory.is_symlink():
             candidates.extend(directory.iterdir())
     drafts = project_dir / "drafts"
-    if drafts.is_dir() and not drafts.is_symlink():
+    if not source_only and drafts.is_dir() and not drafts.is_symlink():
         for episode_dir in drafts.iterdir():
             if episode_dir.is_dir() and not episode_dir.is_symlink() and _EPISODE_DIR_RE.fullmatch(episode_dir.name):
                 candidates.extend(episode_dir.iterdir())
@@ -473,6 +480,11 @@ def _file_problem(name: str, exc: BaseException) -> ToolProblem:
     return ToolProblem("internal_error", f"{name} 失败: {exc}")
 
 
+def _get_project_content_sync(project_name: str, projects: ProjectManager) -> ProjectContent:
+    project = projects.load_project_readonly(project_name)
+    return ProjectContent(revision=prefixed_canonical_json_digest(project), project=project)
+
+
 async def get_project_content(
     _request: ToolRequest[None],
     scope: ProjectScope,
@@ -480,12 +492,12 @@ async def get_project_content(
     services: Services,
 ) -> ToolOutcome[ProjectContent]:
     try:
-        project = services.projects.load_project_readonly(scope.project_name)
+        content = await asyncio.to_thread(_get_project_content_sync, scope.project_name, services.projects)
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("project_not_found", f"项目未找到或缺 project.json: {exc}"))
     except Exception as exc:  # noqa: BLE001
         return ToolOutcome(problem=ToolProblem("internal_error", f"get_project_content 失败: {exc}"))
-    return ToolOutcome(value=ProjectContent(revision=prefixed_canonical_json_digest(project), project=project))
+    return ToolOutcome(value=content)
 
 
 async def get_episode_script(
@@ -498,10 +510,10 @@ async def get_episode_script(
     if not isinstance(filename, str) or not filename or "/" in filename or "\\" in filename or filename in {".", ".."}:
         return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
     try:
-        failure = project_migration_failure(scope.project_name, services.projects)
+        failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
         if failure is not None:
             return ToolOutcome(problem=ToolProblem(MIGRATION_FAILURE_CODE, failure.reason))
-        script = services.projects.load_script_readonly(scope.project_name, filename)
+        script = await asyncio.to_thread(services.projects.load_script_readonly, scope.project_name, filename)
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
     except (TypeError, ValueError) as exc:
@@ -521,7 +533,11 @@ async def list_source_files(
 ) -> ToolOutcome[SourceFilesContent]:
     try:
         project_dir = services.projects.get_project_path(scope.project_name)
-        files = [entry for entry in _business_file_entries(project_dir) if entry.path.startswith("source/")]
+        files = await asyncio.to_thread(
+            _business_file_entries,
+            project_dir,
+            source_only=True,
+        )
         revision = prefixed_canonical_json_digest([entry.model_dump() for entry in files])
         return ToolOutcome(value=SourceFilesContent(revision=revision, files=files))
     except Exception as exc:  # noqa: BLE001
@@ -538,12 +554,33 @@ async def get_source_text(
         project_dir = services.projects.get_project_path(scope.project_name)
         if not request.value.startswith("source/"):
             raise ValueError("path 必须指向 source/ 下的文本文件")
-        content, revision, etag, _size = _decode_business_file(project_dir, request.value)
+        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, request.value)
         if not isinstance(content, str):
             raise ValueError("source 文件必须是文本")
         return ToolOutcome(value=SourceTextContent(revision=revision, etag=etag, path=request.value, text=content))
     except Exception as exc:  # noqa: BLE001
         return ToolOutcome(problem=_file_problem("get_source_text", exc))
+
+
+def _get_step1_content_sync(project_name: str, episode: int, projects: ProjectManager) -> Step1Content | None:
+    project = projects.load_project_readonly(project_name)
+    kind = step1_kind(project)
+    if kind is None:
+        return None
+    names = (
+        (REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_LEGACY_FILENAME)
+        if kind == "reference_video"
+        else (STEP1_FILENAMES[kind], *STEP1_LEGACY_FILENAMES.get(kind, ()))
+    )
+    project_dir = projects.get_project_path(project_name)
+    for name in names:
+        relative = f"drafts/episode_{episode}/{name}"
+        try:
+            content, revision, etag, _size = _decode_business_file(project_dir, relative)
+        except FileNotFoundError:
+            continue
+        return Step1Content(revision=revision, etag=etag, episode=episode, path=relative, content=content)
+    raise FileNotFoundError
 
 
 async def get_step1_content(
@@ -556,32 +593,10 @@ async def get_step1_content(
     if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
         return ToolOutcome(problem=ToolProblem("invalid_request", "episode 必须是正整数"))
     try:
-        project = services.projects.load_project_readonly(scope.project_name)
-        kind = step1_kind(project)
-        if kind is None:
+        result = await asyncio.to_thread(_get_step1_content_sync, scope.project_name, episode, services.projects)
+        if result is None:
             return ToolOutcome(problem=ToolProblem("step1_not_applicable", "当前项目没有 step1 中间态"))
-        names = (
-            (REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_LEGACY_FILENAME)
-            if kind == "reference_video"
-            else (STEP1_FILENAMES[kind], *STEP1_LEGACY_FILENAMES.get(kind, ()))
-        )
-        project_dir = services.projects.get_project_path(scope.project_name)
-        for name in names:
-            relative = f"drafts/episode_{episode}/{name}"
-            try:
-                content, revision, etag, _size = _decode_business_file(project_dir, relative)
-            except FileNotFoundError:
-                continue
-            return ToolOutcome(
-                value=Step1Content(
-                    revision=revision,
-                    etag=etag,
-                    episode=episode,
-                    path=relative,
-                    content=content,
-                )
-            )
-        raise FileNotFoundError
+        return ToolOutcome(value=result)
     except Exception as exc:  # noqa: BLE001
         return ToolOutcome(problem=_file_problem("get_step1_content", exc))
 
@@ -593,7 +608,10 @@ async def list_project_files(
     services: Services,
 ) -> ToolOutcome[ProjectFilesContent]:
     try:
-        files = _business_file_entries(services.projects.get_project_path(scope.project_name))
+        files = await asyncio.to_thread(
+            _business_file_entries,
+            services.projects.get_project_path(scope.project_name),
+        )
         revision = prefixed_canonical_json_digest([entry.model_dump() for entry in files])
         return ToolOutcome(value=ProjectFilesContent(revision=revision, files=files))
     except Exception as exc:  # noqa: BLE001
@@ -608,7 +626,7 @@ async def read_project_file(
 ) -> ToolOutcome[ProjectFileContent]:
     try:
         project_dir = services.projects.get_project_path(scope.project_name)
-        content, revision, etag, _size = _decode_business_file(project_dir, request.value)
+        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, request.value)
         return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=request.value, content=content))
     except Exception as exc:  # noqa: BLE001
         return ToolOutcome(problem=_file_problem("read_project_file", exc))
@@ -666,23 +684,31 @@ async def patch_draft(
 
 
 async def promote_draft(
-    request: ToolRequest[DraftLocator],
+    request: ToolRequest[PromoteDraftRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
-    locator = request.value
-    return await _run_draft(_draft_workflow(scope, services).promote(locator.episode, locator.doc_type))
+    promotion = request.value
+    return await _run_draft(
+        _draft_workflow(scope, services).promote(
+            promotion.episode,
+            promotion.doc_type,
+            promotion.base_revision,
+        )
+    )
 
 
 async def discard_draft(
-    request: ToolRequest[DraftLocator],
+    request: ToolRequest[DiscardDraftRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
-    locator = request.value
-    return await _run_draft(_draft_workflow(scope, services).discard(locator.episode, locator.doc_type))
+    discard = request.value
+    return await _run_draft(
+        _draft_workflow(scope, services).discard(discard.episode, discard.doc_type, discard.base_revision)
+    )
 
 
 class CreateProjectToolRequest(BaseModel):
@@ -728,7 +754,7 @@ async def list_projects(
         result = []
         for name in sorted(services.projects.list_projects()):
             try:
-                project = services.projects.load_project(name)
+                project = services.projects.load_project_readonly(name)
             except (FileNotFoundError, ValueError):
                 continue
             result.append(
@@ -755,25 +781,29 @@ async def create_project(
     def _create() -> dict[str, Any]:
         value = request.value
         name = services.projects.normalize_project_name(value.name)
-        services.projects.create_project(name, content_mode=value.content_mode)
-        project = services.projects.create_project_metadata(
-            name,
-            value.title,
-            content_mode=value.content_mode,
-            aspect_ratio=value.aspect_ratio,
-            default_duration=value.default_duration,
-            extras={
-                "generation_mode": value.generation_mode,
-                "grid_storyboard": value.grid_storyboard,
-            },
-            target_duration=value.target_duration,
-            brief=value.brief,
-            source_kind=value.source_kind,
-        )
+        services.projects.create_project(name, content_mode=value.content_mode, publish=False)
+        try:
+            project = services.projects.create_project_metadata(
+                name,
+                value.title,
+                content_mode=value.content_mode,
+                aspect_ratio=value.aspect_ratio,
+                default_duration=value.default_duration,
+                extras={
+                    "generation_mode": value.generation_mode,
+                    "grid_storyboard": value.grid_storyboard,
+                },
+                target_duration=value.target_duration,
+                brief=value.brief,
+                source_kind=value.source_kind,
+            )
+        except Exception:
+            services.projects.delete_project_directory(name)
+            raise
         return {"name": name, "project": project}
 
     try:
-        return ToolOutcome(value=await asyncio.to_thread(_create))
+        return ToolOutcome(value=await _run_sync_transaction(_create))
     except FileExistsError as exc:
         return ToolOutcome(problem=ToolProblem("project_exists", str(exc)))
     except ValueError as exc:
@@ -788,6 +818,9 @@ async def upload_source(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
+    if problem := await migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+
     def _upload() -> dict[str, Any]:
         value = request.value
         if Path(value.filename).name != value.filename or "\\" in value.filename or value.filename.startswith("."):
@@ -797,16 +830,22 @@ async def upload_source(
             raise UnsupportedFormatError(ext=suffix)
         if not services.projects.project_exists(scope.project_name):
             raise FileNotFoundError(f"项目 '{scope.project_name}' 缺少 project.json")
-        with tempfile.NamedTemporaryFile(suffix=Path(value.filename).suffix) as source:
-            source.write(value.content.encode("utf-8"))
-            source.flush()
+        source_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=Path(value.filename).suffix, delete=False) as source:
+                source_path = Path(source.name)
+                source.write(value.content.encode("utf-8"))
+                source.flush()
             with services.projects.locked_source_mutation(scope.project_name) as source_dir:
                 result = SourceLoader.load(
-                    Path(source.name),
+                    source_path,
                     source_dir,
                     original_filename=value.filename,
                     on_conflict=value.on_conflict,
                 )
+        finally:
+            if source_path is not None:
+                source_path.unlink(missing_ok=True)
         return {
             "filename": result.normalized_path.name,
             "path": f"source/{result.normalized_path.name}",
@@ -856,7 +895,7 @@ async def get_video_capabilities(
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
     try:
-        project = services.projects.load_project(scope.project_name)
+        project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
         payload = await services.capabilities.video_capabilities_for_project(project)
         await annotate_reference_unit_tiers(payload, project, config_resolver=services.capabilities)
     except FileNotFoundError as exc:
@@ -1021,10 +1060,9 @@ def _remap_operation_indexes(result: ScriptBatchEditResult, source_indexes: list
     return result.model_copy(update={"problems": tuple(remapped)})
 
 
-async def patch_episode_script(
+def _patch_episode_script_sync(
     request: ToolRequest[PatchEpisodeScriptRequest],
     scope: ProjectScope,
-    _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[ScriptBatchEditResult]:
     try:
@@ -1091,6 +1129,15 @@ async def patch_episode_script(
         fresh_insert_indexes=fresh_insert_indexes,
     )
     return ToolOutcome(value=_remap_operation_indexes(result, source_indexes))
+
+
+async def patch_episode_script(
+    request: ToolRequest[PatchEpisodeScriptRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[ScriptBatchEditResult]:
+    return await _run_sync_transaction(_patch_episode_script_sync, request, scope, services)
 
 
 MAX_INSTRUCTIONS_LEN = 4000
@@ -1284,7 +1331,7 @@ def _migration_tool_problem(failure: MigrationFailureRecord) -> ToolProblem:
     )
 
 
-async def _migration_gate(scope: ProjectScope, services: Services) -> ToolProblem | None:
+async def migration_gate(scope: ProjectScope, services: Services) -> ToolProblem | None:
     failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
     return _migration_tool_problem(failure) if failure is not None else None
 
@@ -1348,7 +1395,7 @@ async def plan_episodes(
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
 ) -> ToolOutcome[PlanEpisodesResult]:
-    if problem := await _migration_gate(scope, services):
+    if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     try:
         planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
@@ -1386,11 +1433,12 @@ async def reset_episode_planning(
     *,
     resetter: Callable[..., Any] = reset_episode_planning_service,
 ) -> ToolOutcome[ResetEpisodePlanningResult]:
-    if problem := await _migration_gate(scope, services):
+    if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     value = request.value
     try:
-        result = resetter(
+        result = await _run_sync_transaction(
+            resetter,
             services.projects.get_project_path(scope.project_name),
             from_episode=value.from_episode,
             confirm_consumed=value.confirm_consumed,
@@ -1554,10 +1602,9 @@ def _format_upsert(table: str, result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-async def patch_project(
+def _patch_project_sync(
     request: ToolRequest[PatchProjectRequest],
     scope: ProjectScope,
-    _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[PatchProjectResult]:
     value = request.value
@@ -1621,10 +1668,18 @@ async def patch_project(
         return ToolOutcome(problem=_unexpected("patch_project", exc))
 
 
-async def patch_episode_meta(
-    request: ToolRequest[PatchEpisodeMetaRequest],
+async def patch_project(
+    request: ToolRequest[PatchProjectRequest],
     scope: ProjectScope,
     _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[PatchProjectResult]:
+    return await _run_sync_transaction(_patch_project_sync, request, scope, services)
+
+
+def _patch_episode_meta_sync(
+    request: ToolRequest[PatchEpisodeMetaRequest],
+    scope: ProjectScope,
     services: Services,
 ) -> ToolOutcome[PatchEpisodeMetaResult]:
     value = request.value
@@ -1643,6 +1698,15 @@ async def patch_episode_meta(
     )
 
 
+async def patch_episode_meta(
+    request: ToolRequest[PatchEpisodeMetaRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[PatchEpisodeMetaResult]:
+    return await _run_sync_transaction(_patch_episode_meta_sync, request, scope, services)
+
+
 async def rename_asset(
     request: ToolRequest[RenameAssetRequest],
     scope: ProjectScope,
@@ -1651,7 +1715,13 @@ async def rename_asset(
 ) -> ToolOutcome[RenameAssetResult]:
     value = request.value
     try:
-        report = services.projects.rename_asset(scope.project_name, value.table, value.old_name, value.new_name)
+        report = await _run_sync_transaction(
+            services.projects.rename_asset,
+            scope.project_name,
+            value.table,
+            value.old_name,
+            value.new_name,
+        )
     except Exception as exc:  # noqa: BLE001
         return ToolOutcome(problem=_unexpected("rename_asset", exc))
     message = (
@@ -1679,7 +1749,7 @@ async def retry_project_migration(
 ) -> ToolOutcome[RetryProjectMigrationResult]:
     project_dir = services.projects.get_project_path(scope.project_name)
     try:
-        failure = await asyncio.to_thread(migrate_project_with_verdict, project_dir)
+        failure = await _run_sync_transaction(migrate_project_with_verdict, project_dir)
         if failure is not None:
             return ToolOutcome(problem=_migration_tool_problem(failure))
         plan = await services.workflow_planner.get_plan(scope.project_name, WorkflowPlanRequest())
@@ -1708,7 +1778,7 @@ async def complete_asset_inventory(
     run_sync: Callable[..., Awaitable[Any]] = asyncio.to_thread,
     complete: Callable[..., Any] = complete_asset_inventory_service,
 ) -> ToolOutcome[CompleteAssetInventoryResult]:
-    if problem := await _migration_gate(scope, services):
+    if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     value = request.value
     try:
@@ -1763,7 +1833,7 @@ async def complete_step1_rebuild(
     run_sync: Callable[..., Awaitable[Any]] = asyncio.to_thread,
     complete: Callable[..., Any] = complete_stale_step1_rebuild,
 ) -> ToolOutcome[CompleteStep1RebuildResult]:
-    if problem := await _migration_gate(scope, services):
+    if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     value = request.value
     try:
@@ -1804,7 +1874,9 @@ __all__ = [
     "SourceTextContent",
     "Step1Content",
     "DraftLocator",
+    "DiscardDraftRequest",
     "PatchDraftRequest",
+    "PromoteDraftRequest",
     "ProjectScope",
     "RenameAssetRequest",
     "ResetEpisodePlanningRequest",

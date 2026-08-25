@@ -19,7 +19,13 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
-from lib.episode_paths import AGENT_PROTECTED_STEP1_FILENAMES
+from lib.episode_paths import (
+    AGENT_PROTECTED_STEP1_FILENAMES,
+    DRAMA_STEP1_QUARANTINE_FILENAME,
+    NARRATION_STEP1_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -680,6 +686,7 @@ class AgentAccessPolicy:
     #: 写禁 step1 文件名的归一化形态（与路径比对同一把尺）。类体内不能调 classmethod，
     #: 故占位声明在此、实际值在 ``PROTECTED_WRITE_RULES`` 之后一并赋。
     _PROTECTED_STEP1_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
+    _PROTECTED_QUARANTINE_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
 
     @classmethod
     def _is_protected_formal_step1(cls, target: Path, bases: list[Path]) -> bool:
@@ -695,8 +702,8 @@ class AgentAccessPolicy:
         generation_mode 运行时可变。多认一两个本项目用不到的 step1 文件名无害——那些文件在
         该项目里本就没有合法写入者。
 
-        只拦正式文件，不拦同目录的 ``.invalid.json`` 草稿：草稿本就是给 Agent 用文件工具
-        改的编辑工位，且没有第二条写入路径（Web 端草稿保存只写正式文件名），无并发可言。
+        正式文件与 ``.invalid.json`` 草稿均拦截：草稿修改必须走 revisioned MCP 工具，才能与
+        Web/remote patch、promotion 和 generation 共用 per-path 锁与 OCC，避免直写绕过并发控制。
 
         ``bases`` 与 target 的 raw/resolved 双形式口径同 ``_is_protected_project_json``。
         集号不枚举、按 ``episode_*`` 目录名匹配：同上，集是运行时增删的。
@@ -707,7 +714,11 @@ class AgentAccessPolicy:
             if not target_s.startswith(drafts_dir + os.sep):
                 continue
             parts = target_s[len(drafts_dir) + 1 :].split(os.sep)
-            if len(parts) == 2 and parts[0].startswith("episode_") and parts[1] in cls._PROTECTED_STEP1_FILENAMES_NORM:
+            if (
+                len(parts) == 2
+                and parts[0].startswith("episode_")
+                and parts[1] in cls._PROTECTED_STEP1_FILENAMES_NORM | cls._PROTECTED_QUARANTINE_FILENAMES_NORM
+            ):
                 return True
         return False
 
@@ -721,8 +732,7 @@ class AgentAccessPolicy:
 #: - ``formal_step1``：「写入口持锁」——正式 step1 另有多条持同一把 per-path 锁的写入
 #:   路径，Write/Edit 取不到锁，直改即丢失更新窗口。两层刻意不对称：sandbox 按 ``drafts/``
 #:   整目录 deny（清单在会话装配期一次性构造，集是运行时增删的，逐文件枚举必然落空；Bash
-#:   本就没有合法写入者），hook 只拒正式 step1——同目录的 ``.invalid.json`` 草稿正是
-#:   留给内置 Edit 的编辑工位，不能拒。
+#:   本就没有合法写入者），hook 拒正式 step1 与四类 revisioned quarantine 草稿。
 AgentAccessPolicy.PROTECTED_WRITE_RULES = (
     ProtectedWriteRule(
         name="project_json",
@@ -738,7 +748,7 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
         name="formal_step1",
         matches=AgentAccessPolicy._is_protected_formal_step1,
         deny_message=(
-            "访问被拒绝：正式 step1（"
+            "访问被拒绝：正式 step1 与待修复草稿（"
             + " / ".join(sorted(AGENT_PROTECTED_STEP1_FILENAMES))
             + "）不可用 Write/Edit 直改。"
             "这些文件与 Web 端保存、迁移读改写、重生成共享一把文件锁，而 Write/Edit 取不到这把锁，"
@@ -754,4 +764,13 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
 #: 写禁文件名的归一化形态（与路径比对同一把尺）。类体内不能引用 classmethod，故在表之后赋值。
 AgentAccessPolicy._PROTECTED_STEP1_FILENAMES_NORM = frozenset(
     AgentAccessPolicy._normalize_path_for_protected_compare(Path(name)) for name in AGENT_PROTECTED_STEP1_FILENAMES
+)
+AgentAccessPolicy._PROTECTED_QUARANTINE_FILENAMES_NORM = frozenset(
+    AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
+    for name in (
+        DRAMA_STEP1_QUARANTINE_FILENAME,
+        NARRATION_STEP1_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+    )
 )

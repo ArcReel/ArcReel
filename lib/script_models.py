@@ -320,7 +320,7 @@ class NarrationStep1Segment(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    segment_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号}")
+    segment_id: str = Field(pattern=r"^E[1-9]\d*S\d{2}$", description="分镜 ID，格式 E{集}S##")
     novel_text: str = Field(min_length=1, description="小说原文（逐字保留，用于配音与透传）")
     duration_seconds: int = Field(ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")

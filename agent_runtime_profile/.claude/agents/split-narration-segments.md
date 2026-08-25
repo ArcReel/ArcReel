@@ -119,8 +119,8 @@ mcp__arcreel__open_draft({"episode": N, "doc_type": "narration_step1", "source":
 **Step 3**: 晋升回正式文件
 
 ```text
-mcp__arcreel__patch_draft({"episode": N, "doc_type": "narration_step1", "content": <完整修改后正文>, "base_revision": "<revision>"})
-mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_step1"})
+mcp__arcreel__patch_draft({"episode": N, "doc_type": "narration_step1", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})
+mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_step1", "base_revision": "<patch_draft 返回的新 revision>"})
 ```
 
 全量校验通过则写回正式 `step1_segments.json`、草稿自动清除；不通过则返回逐条报告，

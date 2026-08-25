@@ -171,20 +171,33 @@ def test_protected_step1_filenames_match_shared_constant() -> None:
 @pytest.mark.parametrize(
     "relative",
     [
-        "drafts/episode_1/step1_reference_units.invalid.json",
-        "drafts/episode_1/step1_normalized_script.invalid.json",
-        "drafts/episode_1/step1_segments.invalid.json",
         "drafts/episode_1/step1_narration_segments.json",
         "drafts/step1_reference_units.json",
         "drafts/episode_1/sub/step1_reference_units.json",
     ],
 )
 def test_write_near_formal_step1_allowed(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """写禁只覆盖那三个正式文件，不外溢到同目录邻居：草稿 (.invalid.json) 正是给 Agent 用
-    文件工具改的编辑工位，连它一起拦会把「取回草稿 → 改 → 晋升」这条替代路径也堵死。"""
+    """写禁不外溢到未注册的同目录邻居。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert allowed, f"{tool} {relative} 应允许，却被拒：{reason}"
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "drafts/episode_1/step1_reference_units.invalid.json",
+        "drafts/episode_1/step1_normalized_script.invalid.json",
+        "drafts/episode_1/step1_segments.invalid.json",
+        "drafts/episode_1/step2_reference_script.invalid.json",
+    ],
+)
+def test_write_revisioned_draft_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    cwd = _cwd(policy)
+    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert reason and "patch_draft" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])

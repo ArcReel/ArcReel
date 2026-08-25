@@ -87,8 +87,8 @@ mcp__arcreel__generate_step1({"episode": N, "source": "source/episode_N.txt", "i
 **触发**：`drafts/episode_{N}/step1_normalized_script.invalid.json` 存在，不论正式 JSON 是否存在。
 
 1. 调用 `mcp__arcreel__open_draft({"episode": N, "doc_type": "drama_step1"})` 取得草稿 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上修复草稿 `content` 中对应字段
-2. 调用 `mcp__arcreel__patch_draft({"episode": N, "doc_type": "drama_step1", "content": <完整修改后正文>, "base_revision": "<revision>"})`
-3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_step1"})` 全量校验并晋升；仍返回违约报告时继续 open → patch → promote
+2. 调用 `mcp__arcreel__patch_draft({"episode": N, "doc_type": "drama_step1", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`
+3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_step1", "base_revision": "<patch_draft 返回的新 revision>"})` 全量校验并晋升；仍返回违约报告时继续 open → patch → promote
 
 晋升成功后正式 `step1_normalized_script.json` 落盘、草稿自动清除。草稿在场期间，内容确认与 step2 生成均被阻塞，必须处置完成。
 
@@ -121,8 +121,8 @@ mcp__arcreel__open_draft({"episode": N, "doc_type": "drama_step1", "source": "so
 **Step 3**: 晋升回正式文件
 
 ```text
-mcp__arcreel__patch_draft({"episode": N, "doc_type": "drama_step1", "content": <完整修改后正文>, "base_revision": "<revision>"})
-mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_step1"})
+mcp__arcreel__patch_draft({"episode": N, "doc_type": "drama_step1", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})
+mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_step1", "base_revision": "<patch_draft 返回的新 revision>"})
 ```
 
 全量校验通过则写回正式 `step1_normalized_script.json`、可编辑草稿自动清除；不通过则返回逐条报告，
