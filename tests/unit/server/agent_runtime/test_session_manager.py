@@ -116,7 +116,7 @@ class TestSessionManager:
 
         # 订阅者彻底跟不上（队列填满关键消息、无可逐出）→ 按会话流溢出策略移除。
         for i in range(120):
-            managed.channel.broadcast({"type": "assistant", "uuid": f"m{i}"})
+            managed.channel.broadcast({"type": "result", "uuid": f"m{i}"})
         assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
@@ -401,7 +401,7 @@ class TestSessionManager:
             assert isinstance(await anext(stream), Heartbeat)
             # 挤爆订阅者队列：critical 消息填满 + 无可驱逐 → 队列被清空，流结束。
             for i in range(120):
-                managed.channel.broadcast({"type": "assistant", "uuid": f"m{i}"})
+                managed.channel.broadcast({"type": "result", "uuid": f"m{i}"})
             tail = [event async for event in stream]
             assert tail == []
         # 正常退出后订阅者被移除

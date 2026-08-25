@@ -1,6 +1,6 @@
 /**
  * OpenClaw 集成引导 Modal
- * 提示词区域（可复制，含动态 skill.md URL）、3 步使用说明、"获取 API 令牌"按钮
+ * 提示词区域（可复制，含动态安装指引 URL）、3 步使用说明、"获取 API 令牌"按钮
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -36,7 +36,7 @@ const STEP_KEYS = [
   { step: "03", titleKey: "openclaw_step_03_title", descKey: "openclaw_step_03_desc" },
 ] as const;
 
-const SKILL_URL = `${window.location.origin}/skill.md`;
+const INSTALLATION_GUIDE_URL = `${window.location.origin}/agent-installation-guide.md`;
 
 export function OpenClawModal({ onClose }: OpenClawModalProps) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -45,7 +45,7 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const copiedTimerRef = useRef<number | null>(null);
 
-  const systemPrompt = t("dashboard:openclaw_system_prompt", { skillUrl: SKILL_URL });
+  const systemPrompt = t("dashboard:openclaw_system_prompt", { guideUrl: INSTALLATION_GUIDE_URL });
 
   const handleCopyPrompt = useCallback(async () => {
     await copyText(systemPrompt);
@@ -140,12 +140,12 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
             <p className="mt-1.5 text-[11px] text-text-4">
               {t("dashboard:openclaw_skill_url_label")}
               <a
-                href={SKILL_URL}
+                href={INSTALLATION_GUIDE_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="ml-1 inline-flex items-center gap-0.5 text-accent-2 hover:text-accent"
               >
-                {SKILL_URL}
+                {INSTALLATION_GUIDE_URL}
                 <ExternalLink className="h-3 w-3" />
               </a>
             </p>
