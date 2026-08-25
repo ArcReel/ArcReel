@@ -44,6 +44,23 @@
   <img src="docs/assets/hero-screenshot.png" alt="ArcReel 工作台" width="900">
 </p>
 
+## 赞助商
+
+> [想出现在这里？](mailto:support@arc-reel.com)
+
+<table>
+  <tr>
+    <td width="200" align="center" valign="top">
+      <a href="https://metaso.cn/minimax-h3/?s=arc"><img src="docs/assets/sponsors/metaso.png" alt="秘塔科技" width="180"></a>
+    </td>
+    <td valign="top">
+      <strong>MiniMax H3 视频生成 API｜秘塔科技</strong><br>
+      秘塔科技提供高性价比的 MiniMax H3 视频生成服务：<strong>768P 仅 0.09 元/秒，2K 仅 0.15 元/秒</strong>。支持原生 2K、音画同步，API 兼容 <strong>OpenAI 协议</strong>，同时支持 <strong>ComfyUI</strong>，无需自行部署 GPU。<br>
+      🎁 通过 <a href="https://metaso.cn/minimax-h3/?s=arc">ArcReel 专属链接注册</a>，即可领取赠送额度及专属优惠。
+    </td>
+  </tr>
+</table>
+
 ## ArcReel 是什么
 
 ArcReel 是面向 AI 漫剧与小说改编、旁白/解说短视频、广告与带货短片的开源自托管工作台。它把内容分析、资产管理、分镜、媒体生成、费用追踪和导出组织成一条可审核、可中断恢复的生产流水线。
