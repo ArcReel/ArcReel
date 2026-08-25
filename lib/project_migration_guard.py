@@ -36,10 +36,10 @@ def project_migration_failure(project_name: str, pm: ProjectManager | None = Non
     return load_migration_verdict(project_dir)
 
 
-def assert_project_migration_ok(project_name: str) -> None:
+def assert_project_migration_ok(project_name: str, pm: ProjectManager | None = None) -> None:
     """Raise the shared refusal when the project's migration verdict is a failure."""
 
-    failure = project_migration_failure(project_name)
+    failure = project_migration_failure(project_name, pm)
     if failure is not None:
         raise ConflictError(MIGRATION_FAILURE_CODE, name=project_name, reason=failure.reason)
 

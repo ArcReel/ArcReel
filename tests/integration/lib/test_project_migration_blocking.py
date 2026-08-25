@@ -15,14 +15,22 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from lib.api_errors import ConflictError
-from lib.artifact_activation import ARTIFACT_MANIFEST_SCHEMA_VERSION
+from lib.artifact_activation import (
+    ARTIFACT_MANIFEST_SCHEMA_VERSION,
+    register_current_artifact,
+    register_current_artifact_if_provable,
+)
+from lib.artifact_manifest import ArtifactKey
+from lib.generation_queue import GenerationQueue
 from lib.generation_result import GenerationAction, GenerationProblemCode
+from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MIGRATION_FAILURE_FILENAME,
     RETRY_MIGRATION_ACTION,
     load_migration_failure,
+    record_migration_failure,
 )
 from lib.project_migrations.runner import migrate_project_with_verdict, run_project_migrations
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -36,6 +44,7 @@ from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.media_tools.context import ToolContext
 from server.services.workflow_planner import WorkflowPlanner
+from server.tool_runtime import CallerContext, ProjectScope, Services, ToolRequest, retry_project_migration
 from tests.integration.lib.project_migrations.test_project_migration_v7_v8 import _project
 
 
@@ -184,6 +193,86 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     assert unblocked.get("is_error") is not True
     assert load_migration_failure(project_dir) is None
     assert json.loads(unblocked["content"][0]["text"])["migration_retry"]["workflow_plan"]["status"]["blockers"] == []
+
+
+async def test_retry_success_uses_caller_scoped_queue_and_capabilities(tmp_path: Path, file_db_factory) -> None:
+    projects_root = tmp_path / "projects"
+    projects = ProjectManager(projects_root)
+    projects.create_project("demo", content_mode="ad")
+    projects.create_project_metadata("demo", "Demo", "", "ad", target_duration=30)
+    project_dir = projects.get_project_path("demo")
+    atomic_write_json(
+        project_dir / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "广告",
+            "content_mode": "ad",
+            "shots": [
+                {
+                    "shot_id": "E1S01",
+                    "duration_seconds": 4,
+                    "voiceover_text": "",
+                    "characters_in_shot": [],
+                    "scenes": [],
+                    "props": [],
+                    "products_in_shot": [],
+                    "image_prompt": "画面",
+                    "video_prompt": "动作",
+                    "generated_assets": {},
+                }
+            ],
+        },
+    )
+    register_current_artifact_if_provable(project_dir, ArtifactKey.episode_step1(1))
+    register_current_artifact(project_dir, ArtifactKey.episode_script(1))
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+    capabilities = object()
+
+    class RecordingPlanner(WorkflowPlanner):
+        received: dict[str, object]
+
+        async def get_plan(self, project_name, request, **kwargs):
+            self.received = kwargs
+            return await super().get_plan(project_name, request, **kwargs)
+
+    planner = RecordingPlanner(projects)
+    await queue.enqueue_task(
+        project_name="demo",
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01",
+        payload={"projects_root": str(projects_root)},
+        script_file="episode_1.json",
+        source="mcp",
+        user_id="tenant-user",
+        provider_id="image-provider",
+    )
+    record_migration_failure(
+        project_dir, RuntimeError("retry requested"), schema_version=CURRENT_PROJECT_SCHEMA_VERSION
+    )
+    services = Services(
+        projects=projects,
+        workflow_planner=planner,
+        capabilities=capabilities,  # type: ignore[arg-type]
+        queue=queue,
+    )
+
+    outcome = await retry_project_migration(
+        ToolRequest(None),
+        ProjectScope(project_name="demo", projects_root=projects_root),
+        CallerContext(user_id="tenant-user", source="mcp"),
+        services,
+    )
+
+    assert outcome.problem is None
+    assert outcome.value is not None
+    assert outcome.value.workflow_plan.next_action.type == "wait_for_task"
+    assert outcome.value.workflow_plan.next_action.requested_ids == ["E1S01"]
+    assert planner.received == {
+        "user_id": "tenant-user",
+        "queue": queue,
+        "config_resolver": capabilities,
+    }
 
 
 def _assert_list_pending_assets_unblocked(unblocked: dict, ctx: ToolContext) -> None:

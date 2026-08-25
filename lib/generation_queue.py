@@ -32,6 +32,7 @@ from lib.task_terminal_events import TERMINAL_TASK_STATUSES, emit_task_terminal_
 if TYPE_CHECKING:
     from lib.artifact_activation import ArtifactCurrencyResolver
     from lib.config.resolver import ConfigResolver, ProviderModel, VideoCapability
+    from lib.project_manager import ProjectManager
     from lib.reference_video.request_projection import ReferenceUnitRequestProjection
 
 logger = logging.getLogger(__name__)
@@ -326,8 +327,10 @@ class GenerationQueue:
         self,
         *,
         session_factory=None,
+        project_manager: ProjectManager | None = None,
     ):
         self._session_factory = session_factory or safe_session_factory
+        self._project_manager = project_manager
         # in-process callback to signal a running asyncio.Task to cancel;
         # set by server.app boot via set_worker_cancel_callback before worker.start()
         self._worker_cancel_callback: WorkerCancelCallback | None = None
@@ -374,7 +377,7 @@ class GenerationQueue:
         # Every Web, Agent and batch generation entry reaches the queue through this
         # method, so a project whose migration failed is refused here once instead of
         # at each caller. Nothing is created and nothing is billed.
-        await asyncio.to_thread(assert_project_migration_ok, project_name)
+        await asyncio.to_thread(assert_project_migration_ok, project_name, self._project_manager)
 
         if task_type == "reference_video":
             payload = reference_video_enqueue_payload(payload, script_file=script_file)

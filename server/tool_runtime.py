@@ -2117,7 +2117,13 @@ async def retry_project_migration(
         failure = await _run_sync_transaction(migrate_project_with_verdict, project_dir)
         if failure is not None:
             return ToolOutcome(problem=_migration_tool_problem(failure))
-        plan = await services.workflow_planner.get_plan(scope.project_name, WorkflowPlanRequest())
+        plan = await services.workflow_planner.get_plan(
+            scope.project_name,
+            WorkflowPlanRequest(),
+            user_id=_caller.user_id,
+            queue=services.queue,
+            config_resolver=services.capabilities,
+        )
     except Exception as exc:  # noqa: BLE001
         try:
             residual = load_migration_failure(project_dir)
