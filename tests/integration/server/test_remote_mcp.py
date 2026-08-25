@@ -9,7 +9,8 @@ from fastapi import FastAPI
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from lib.db.base import DEFAULT_USER_ID
+from lib.artifact_activation import register_current_artifact_if_provable
+from lib.artifact_manifest import ArtifactKey
 from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_STEP1, read_quarantine
 from lib.generation_queue import GenerationQueue
 from lib.generation_worker import CapacityTable, GenerationWorker
@@ -23,14 +24,13 @@ from server.agent_runtime.sdk_tools.text_generation import generate_episode_scri
 from server.auth import create_download_token, create_token
 from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
-from server.media_tools.definition import media_outcome_payload
 from server.media_tools.grid import generate_grid_tool
 from server.media_tools.image_edits import edit_images_tool
 from server.media_tools.narration_audio import generate_narration_audio_tool
 from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
-from server.tool_runtime import CallerContext, Services
+from server.tool_runtime import Services
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import _call
 
 
@@ -73,6 +73,11 @@ class _Capabilities:
     async def resolve_image_backend(self, _project: dict, _payload: object, *, capability: str) -> None:
         assert capability == "i2i"
         raise ValueError("image capability unavailable")
+
+
+class _AvailableImageCapabilities(_Capabilities):
+    async def resolve_image_backend(self, _project: dict, _payload: object, *, capability: str) -> None:
+        assert capability == "i2i"
 
 
 @pytest.fixture
@@ -124,7 +129,7 @@ def remote_batch_server(remote_projects: ProjectManager, db_factory):
     services = Services(
         projects=remote_projects,
         workflow_planner=_Planner(),
-        capabilities=_Capabilities(),
+        capabilities=_AvailableImageCapabilities(),
         queue=queue,
     )
     return (
@@ -382,27 +387,29 @@ async def test_media_errors_are_typed_in_embedded_and_remote_hosts(
     assert remote.structuredContent == {"problem": embedded.problem.model_dump(mode="json")}
 
 
-async def test_remote_media_runtime_validates_and_forwards_with_the_shared_schema(
-    remote_server, remote_projects: ProjectManager
+async def test_remote_media_runtime_validates_shared_schema_and_forwards_nested_instruction(
+    remote_batch_server, remote_projects: ProjectManager
 ) -> None:
-    """共享 schema 允许的扩展字段须到达 handler，不能被手写 FastMCP 参数模型拒绝。"""
+    """远程 adapter 按共享 schema 校验，并把嵌套编辑指令完整转发给 handler。"""
+    remote_batch_server, queue = remote_batch_server
+    instruction = "把头发改成红色，保留原有发型"
     args = {
         "resource_type": "character",
-        "edits": [{"id": "张三", "instruction": "改成红发", "meta": 5}],
+        "edits": [{"id": "张三", "instruction": instruction}],
     }
-    definition = edit_images_tool(
-        ToolContext(
-            "demo",
-            remote_projects.projects_root,
-            pm=remote_projects,
-            config_resolver=_Capabilities(),  # type: ignore[arg-type]
-            caller=CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
-        )
-    )
-    shared = await definition.invoke(args)
-    expected, _, _ = media_outcome_payload(definition, shared)
-    app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
+    project = remote_projects.load_project("demo")
+    project["characters"] = {
+        "张三": {"description": "黑衣剑客", "character_sheet": "characters/zhangsan.png"},
+    }
+    remote_projects.save_project("demo", project)
+    project_dir = remote_projects.get_project_path("demo")
+    (project_dir / "characters").mkdir(exist_ok=True)
+    (project_dir / "characters" / "zhangsan.png").write_bytes(b"png")
+    assert register_current_artifact_if_provable(project_dir, ArtifactKey.asset_sheet("character", "张三"))
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+
+    app = _mounted(remote_batch_server)
+    async with remote_batch_server.session_manager.run():
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
@@ -421,13 +428,13 @@ async def test_remote_media_runtime_validates_and_forwards_with_the_shared_schem
                         {"project": "demo", "type": "not-an-asset-type"},
                     )
 
-    assert shared.problem is None
-    assert expected["generation_batch"]["generation_result"]["requested"] == ["张三"]
-    assert expected["generation_batch"]["generation_result"]["blocked"] == ["张三"]
     assert not result.isError
     assert result.structuredContent is not None
-    remote_outcome = result.structuredContent["generation_batch"]["generation_result"]
-    assert remote_outcome == expected["generation_batch"]["generation_result"]
+    members = result.structuredContent["generation_batch"]["members"]
+    assert [(member["unit_id"], member["status"]) for member in members] == [("张三", "queued")]
+    tasks = (await queue.list_tasks(project_name="demo", task_type="image_edit"))["items"]
+    assert len(tasks) == 1
+    assert tasks[0]["payload"]["prompt"] == instruction
 
     assert invalid.isError
     assert invalid.structuredContent is not None
