@@ -9,10 +9,14 @@ from fastapi import FastAPI
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from lib.api_errors import ConflictError
 from lib.artifact_activation import register_current_artifact_if_provable
 from lib.artifact_manifest import ArtifactKey
 from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_STEP1, read_quarantine
+from lib.generation_batch import GenerationBatchRequestSnapshot
 from lib.generation_queue import GenerationQueue
+from lib.generation_queue_client import submit_generation_batch
+from lib.generation_result import GenerationSelectionMode
 from lib.generation_worker import CapacityTable, GenerationWorker
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
@@ -130,7 +134,7 @@ def remote_batch_server(remote_projects: ProjectManager, db_factory):
         }
         return {"sub": subjects[token], "via": "apikey"} if token in subjects else None
 
-    queue = GenerationQueue(session_factory=db_factory)
+    queue = GenerationQueue(session_factory=db_factory, project_manager=remote_projects)
     services = Services(
         projects=remote_projects,
         workflow_planner=_Planner(),
@@ -567,6 +571,34 @@ async def test_remote_media_submission_returns_complete_durable_batch_and_dedupe
     assert len((await queue.list_tasks(project_name="demo"))["items"]) == 1
     assert not cancelled.isError and not reread.isError
     assert reread.structuredContent["generation_batch"]["members"][0]["status"] == "cancelled"
+
+
+async def test_remote_batch_submission_reads_migration_verdict_from_fixture_root(
+    remote_batch_server,
+    remote_projects: ProjectManager,
+) -> None:
+    _server, queue = remote_batch_server
+    record_migration_failure(
+        remote_projects.get_project_path("demo"),
+        RuntimeError("blocked in fixture root"),
+        schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
+    )
+
+    with pytest.raises(ConflictError) as raised:
+        await submit_generation_batch(
+            project_name="demo",
+            operation="generate_assets",
+            requested=GenerationBatchRequestSnapshot(
+                selection=GenerationSelectionMode.MISSING_ONLY,
+                requested=[],
+            ),
+            blocked=[],
+            specs=[],
+            source="mcp",
+            queue=queue,
+        )
+
+    assert raised.value.key == MIGRATION_FAILURE_CODE
 
 
 async def test_remote_api_keys_share_the_persisted_single_operator_owner(
