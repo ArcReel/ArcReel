@@ -552,6 +552,7 @@ class GenerationWorker:
         try:
             await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
         except TimeoutError:
+            # No local wake is normal; cross-process work is discovered on the polling timeout.
             pass
         self._wake_event.clear()
 
