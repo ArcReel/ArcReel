@@ -113,12 +113,15 @@ _LOCAL_ORIGINS = [
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
 _REMOTE_DURABLE_BATCH_MEDIA_TOOLS = frozenset(
-    {"generate_assets", "generate_storyboards", "generate_grid", "edit_images"}
+    {"generate_assets", "generate_storyboards", "generate_grid", "edit_images", "generate_videos"}
 )
 _REMOTE_DURABLE_BATCH_DESCRIPTION = (
     " Remote MCP generation submissions return durable admission and durable generation_batch state immediately; "
     "follow poll_after_seconds "
     "by calling get_generation_batch until done=true, then read the terminal requested / succeeded / failed / blocked result."
+)
+_REMOTE_TEXT_DRY_RUN_DESCRIPTION = (
+    " For dry_run=true, return the prompt immediately without a generation_batch; do not poll."
 )
 
 
@@ -495,7 +498,13 @@ def build_remote_mcp_server(
             return _to_mcp_result("draft", ToolOutcome(problem=problem))
         return _to_mcp_result("draft", await discard_draft(ToolRequest(request), scope, caller, services))
 
-    @server.tool(name="generate_episode_script", structured_output=False)
+    @server.tool(
+        name="generate_episode_script",
+        description=(
+            "Generate an episode script." + _REMOTE_DURABLE_BATCH_DESCRIPTION + _REMOTE_TEXT_DRY_RUN_DESCRIPTION
+        ),
+        structured_output=False,
+    )
     async def remote_generate_episode_script(
         project: str,
         episode: PositiveEpisode,
@@ -520,7 +529,15 @@ def build_remote_mcp_server(
             ),
         )
 
-    @server.tool(name="generate_step1", structured_output=False)
+    @server.tool(
+        name="generate_step1",
+        description=(
+            "Generate the project-appropriate structured step1 document."
+            + _REMOTE_DURABLE_BATCH_DESCRIPTION
+            + _REMOTE_TEXT_DRY_RUN_DESCRIPTION
+        ),
+        structured_output=False,
+    )
     async def remote_generate_step1(
         project: str,
         episode: PositiveEpisode,
@@ -645,7 +662,11 @@ def build_remote_mcp_server(
             "video_capabilities", await get_video_capabilities(ToolRequest(None), scope, caller, services)
         )
 
-    @server.tool(name="plan_episodes", structured_output=False)
+    @server.tool(
+        name="plan_episodes",
+        description="Plan the next source window for one explicit project." + _REMOTE_DURABLE_BATCH_DESCRIPTION,
+        structured_output=False,
+    )
     async def remote_plan_episodes(project: str, instructions: str | None = None) -> CallToolResult:
         """Plan the next source window for one explicit project."""
         try:
