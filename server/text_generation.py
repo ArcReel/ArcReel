@@ -197,6 +197,37 @@ async def _run_compensable_step1_commit(
     return receipts[0]
 
 
+async def _run_compensable_quarantine(
+    project_path: Path,
+    episode: int,
+    kind: str,
+    content: dict[str, Any],
+    violations: list[DraftViolation],
+    source: str | None,
+    base_fingerprint: str | None,
+) -> str:
+    receipts: list[FormalWriteReceipt] = []
+    try:
+        report = await run_sync_transaction(
+            _quarantine_invalid_step1_generation,
+            project_path,
+            episode,
+            kind,
+            content,
+            violations,
+            source,
+            base_fingerprint,
+            receipts,
+        )
+    except asyncio.CancelledError:
+        if receipts:
+            await run_noninterruptible_sync(receipts[0].compensate_cancelled)
+        raise
+    if len(receipts) != 1:
+        raise RuntimeError("quarantine write did not return cancellation state")
+    return report
+
+
 class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
 
@@ -358,15 +389,20 @@ def _quarantine_invalid_step1_generation(
     violations: list[DraftViolation],
     source: str | None,
     base_fingerprint: str | None,
+    cancellation_receipts: list[FormalWriteReceipt] | None = None,
 ) -> str:
-    return quarantine_and_report(
-        project_path,
-        episode,
-        kind,
-        content=content,
-        violations=violations,
-        meta={"source": source or None, "base_fingerprint": base_fingerprint},
-    )
+    with formal_write_transaction(
+        quarantine_path(project_path, episode, kind),
+        cancellation_receipts=cancellation_receipts,
+    ):
+        return quarantine_and_report(
+            project_path,
+            episode,
+            kind,
+            content=content,
+            violations=violations,
+            meta={"source": source or None, "base_fingerprint": base_fingerprint},
+        )
 
 
 def _instructions(value: Any) -> str | None:
@@ -1360,8 +1396,7 @@ async def generate_reference_step1(
         if violations:
             async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
                 _assert_draft_revision(draft_path, draft_baseline)
-                report = await run_sync_transaction(
-                    _quarantine_invalid_step1_generation,
+                report = await _run_compensable_quarantine(
                     project_path,
                     episode,
                     QUARANTINE_KIND_STEP1,
@@ -1513,8 +1548,7 @@ async def generate_narration_step1(
         if violations:
             async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
                 _assert_draft_revision(draft_path, draft_baseline)
-                report = await run_sync_transaction(
-                    _quarantine_invalid_step1_generation,
+                report = await _run_compensable_quarantine(
                     project_path,
                     episode,
                     QUARANTINE_KIND_NARRATION_STEP1,
