@@ -123,7 +123,12 @@ def remote_server(remote_projects: ProjectManager):
 @pytest.fixture
 def remote_batch_server(remote_projects: ProjectManager, db_factory):
     async def verify_api_key(token: str):
-        return {"sub": "apikey:test", "via": "apikey"} if token == "arc-valid" else None
+        subjects = {
+            "arc-valid": "apikey:test",
+            "arc-user-a": "apikey:user-a",
+            "arc-user-b": "apikey:user-b",
+        }
+        return {"sub": subjects[token], "via": "apikey"} if token in subjects else None
 
     queue = GenerationQueue(session_factory=db_factory)
     services = Services(
@@ -308,6 +313,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
             generate_narration_audio_tool(media_ctx),
         )
     }
+    remote_batch_tools = {"generate_assets", "generate_storyboards", "edit_images", "generate_grid"}
     for name, definition in definitions.items():
         remote_schema = listed[name].inputSchema
         assert remote_schema["properties"]["project"]["type"] == "string"
@@ -315,10 +321,37 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
             definition.input_schema["properties"]
         )
         assert remote_schema["required"] == ["project", *definition.input_schema.get("required", [])]
-        assert {key: value for key, value in remote_schema.items() if key not in {"properties", "required"}} == {
-            key: value for key, value in definition.input_schema.items() if key not in {"properties", "required"}
-        }
+        assert remote_schema["additionalProperties"] is False
+        assert {
+            key: value
+            for key, value in remote_schema.items()
+            if key not in {"properties", "required", "additionalProperties"}
+        } == {key: value for key, value in definition.input_schema.items() if key not in {"properties", "required"}}
+    for name in remote_batch_tools:
+        remote_description = listed[name].description
+        assert remote_description.startswith(definitions[name].description)
+        assert "durable admission" in remote_description
+        assert "durable generation_batch" in remote_description
+        assert "immediately" in remote_description
+        assert "poll_after_seconds" in remote_description
+        assert "get_generation_batch" in remote_description
+        assert "done=true" in remote_description
     assert all(listed[name].inputSchema["properties"]["episode"]["minimum"] == 1 for name in drafts)
+    patch_schema = listed["patch_episode_script"].inputSchema
+    operations_schema = patch_schema["properties"]["operations"]
+    operation_defs = patch_schema["$defs"]
+    operation_branches = [
+        operation_defs[branch["$ref"].rsplit("/", 1)[1]] for branch in operations_schema["items"]["oneOf"]
+    ]
+    assert operations_schema["minItems"] == 1
+    assert operations_schema["items"]["discriminator"]["propertyName"] == "op"
+    assert {branch["properties"]["op"]["const"] for branch in operation_branches} == {
+        "update",
+        "insert",
+        "remove",
+        "split",
+    }
+    assert all(branch["additionalProperties"] is False for branch in operation_branches)
     video_properties = listed["generate_videos"].inputSchema["properties"]
     assert "resume" not in video_properties
     assert "confirmed_request_duration_seconds" in video_properties
@@ -335,6 +368,10 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     assert target_defs["all"]["required"] == ["scope"]
     assert all(definition["additionalProperties"] is False for definition in target_defs.values())
     assert "base_revision" in listed["discard_draft"].inputSchema["required"]
+    narration_description = listed["generate_narration_audio"].description
+    assert "remote MCP" in narration_description
+    assert "get_generation_batch" in narration_description
+    assert "poll_after_seconds" in narration_description
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
@@ -359,6 +396,40 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     assert nonexistent.isError
     assert empty.isError
     assert escape.isError
+
+
+async def test_remote_grid_list_only_returns_preview_without_a_batch(
+    remote_server, remote_projects: ProjectManager
+) -> None:
+    project = remote_projects.load_project("demo")
+    project["grid_storyboard"] = True
+    remote_projects.save_project("demo", project)
+
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools = await session.list_tools()
+                    result = await session.call_tool(
+                        "generate_grid",
+                        {"project": "demo", "script": "episode_1.json", "list_only": True},
+                    )
+
+    description = next(tool.description for tool in tools.tools if tool.name == "generate_grid")
+    assert description is not None
+    assert "generation submissions" in description
+    assert "list_only=true, the preview returns immediately without a generation_batch; do not poll" in description
+    assert not result.isError
+    assert result.structuredContent is not None
+    assert set(result.structuredContent) == {"generate_grid"}
+    assert isinstance(result.structuredContent["generate_grid"], str)
 
 
 async def test_media_errors_are_typed_in_embedded_and_remote_hosts(
@@ -496,6 +567,62 @@ async def test_remote_media_submission_returns_complete_durable_batch_and_dedupe
     assert len((await queue.list_tasks(project_name="demo"))["items"]) == 1
     assert not cancelled.isError and not reread.isError
     assert reread.structuredContent["generation_batch"]["members"][0]["status"] == "cancelled"
+
+
+async def test_remote_api_keys_share_the_persisted_single_operator_owner(
+    remote_batch_server,
+    remote_projects: ProjectManager,
+) -> None:
+    remote_batch_server, queue = remote_batch_server
+    project = remote_projects.load_project("demo")
+    project["characters"] = {"张三": {"description": "黑衣剑客"}}
+    remote_projects.save_project("demo", project)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+
+    app = _mounted(remote_batch_server)
+
+    async def call_as(token: str, tool: str, args: dict[str, object]):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": f"Bearer {token}"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    return await session.call_tool(tool, args)
+
+    async with remote_batch_server.session_manager.run():
+        first = await call_as(
+            "arc-user-a",
+            "generate_assets",
+            {"project": "demo", "type": "character", "names": ["张三"]},
+        )
+        first_batch = first.structuredContent["generation_batch"]
+        foreign_read = await call_as(
+            "arc-user-b",
+            "get_generation_batch",
+            {"project": "demo", "batch_id": first_batch["batch_id"]},
+        )
+        second = await call_as(
+            "arc-user-b",
+            "generate_assets",
+            {"project": "demo", "type": "character", "names": ["张三"]},
+        )
+        foreign_cancel = await call_as(
+            "arc-user-b",
+            "cancel_generation_batch",
+            {"project": "demo", "batch_id": first_batch["batch_id"]},
+        )
+
+    second_batch = second.structuredContent["generation_batch"]
+    assert not first.isError and not second.isError
+    assert not foreign_read.isError and not foreign_cancel.isError
+    assert first_batch["members"][0]["deduped"] is False
+    assert second_batch["members"][0]["deduped"] is True
+    assert first_batch["members"][0]["task_id"] == second_batch["members"][0]["task_id"]
+    assert len((await queue.list_tasks(project_name="demo"))["items"]) == 1
 
 
 async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> None:
