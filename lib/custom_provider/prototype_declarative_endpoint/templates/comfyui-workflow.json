@@ -1,0 +1,64 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "ComfyUI 工作流（托管平台，文生视频）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "media_type": "video",
+    "description": "托管 ComfyUI 平台的工作流任务：一条自定义调用端点对应一条工作流，nodeInfoList 写死节点定位、只把 prompt 注入文本节点。轮询是 POST + JSON body，状态在外层整数 code，产物用过滤器在多输出节点里挑 mp4。图生视频不可用：素材必须经 multipart 上传换服务器相对路径（#2121 U2）。",
+    "hints": {
+      "base_url": "https://www.example-comfy-host.com",
+      "suggested_models": [{ "id": "1904136902449209346", "label": "workflowId（模型行填工作流 id）" }]
+    }
+  },
+  "auth": {
+    "headers": { "Authorization": "Bearer {{ api_key }}" }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/task/openapi/create",
+    "headers": { "Host": "www.example-comfy-host.com" },
+    "body": {
+      "workflowId": "{{ model }}",
+      "instanceType": "plus",
+      "nodeInfoList": [
+        { "nodeId": "6", "fieldName": "text", "fieldValue": "{{ prompt }}" },
+        { "nodeId": "3", "fieldName": "seed", "fieldValue": "{{ seed }}" }
+      ]
+    },
+    "extract": {
+      "task_id": ["$.data.taskId"],
+      "error": ["$.msg", "$.message"]
+    }
+  },
+  "poll": {
+    "method": "POST",
+    "url": "{{ base_url }}/task/openapi/outputs",
+    "headers": { "Host": "www.example-comfy-host.com" },
+    "body": { "taskId": "{{ task_id }}" },
+    "interval_seconds": 5,
+    "timeout_seconds": 600,
+    "extract": {
+      "status": { "paths": ["$.code"], "accept": "scalar" },
+      "video_url": ["$.data[?@.fileType == 'mp4'].fileUrl", "$.data[0].fileUrl"],
+      "error": ["$.data.failedReason.exception_message", "$.msg"],
+      "usage": {
+        "coins": { "paths": ["$.data[?@.fileType == 'mp4'].consumeCoins"], "accept": "scalar" },
+        "cost_ms": { "paths": ["$.data[0].taskCostTime"], "accept": "scalar" }
+      }
+    }
+  },
+  "status_map": {
+    "0": "succeeded",
+    "813": "queued",
+    "804": "running",
+    "805": "failed"
+  },
+  "capabilities": {
+    "first_frame": false,
+    "last_frame": false,
+    "max_reference_images": 0,
+    "audio_track": "always_off"
+  }
+}

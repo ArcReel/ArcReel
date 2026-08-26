@@ -1,0 +1,52 @@
+{
+  "generic-submit-poll": {
+    "submit": [
+      { "id": "ok", "label": "200 · 正常接单 {task_id}", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "pending", "created_at": 1724659200 } } },
+      { "id": "biz_error", "label": "200 · 业务码报错（无 task_id）", "response": { "status_code": 200, "body": { "code": 401, "message": "Invalid API Key" } } },
+      { "id": "http_401", "label": "401 · HTTP 级鉴权失败", "response": { "status_code": 401, "body": { "error": { "message": "unauthorized", "type": "auth" } } } },
+      { "id": "http_202", "label": "202 · Accepted（非 200 的成功码）", "response": { "status_code": 202, "body": { "task_id": "t_202" } } }
+    ],
+    "poll": [
+      { "id": "pending", "label": "pending", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "pending" } } },
+      { "id": "processing", "label": "processing", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "processing", "progress": 40 } } },
+      { "id": "completed", "label": "completed · 带 video_url 与 usage", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "completed", "video_url": "https://cdn.example.com/v/t_001.mp4", "usage": { "credits": 12 } } } },
+      { "id": "completed_no_url", "label": "completed · 但没有 video_url", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "completed" } } },
+      { "id": "failed", "label": "failed · 带 error", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "failed", "error": "content policy violation" } } },
+      { "id": "unknown", "label": "WAITING_GPU（未登记的状态串）", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "WAITING_GPU" } } },
+      { "id": "json_in_string", "label": "completed · 产物藏在 JSON 字符串里（kie 形态）", "response": { "status_code": 200, "body": { "status": "completed", "data": { "resultJson": "{\"resultUrls\":[\"https://cdn.example.com/v/k.mp4\"]}" } } } }
+    ]
+  },
+  "newapi-video": {
+    "submit": [
+      { "id": "ok", "label": "200 · OpenAIVideo 外壳 {id, task_id}", "response": { "status_code": 200, "body": { "id": "task_abc", "task_id": "task_abc", "object": "video", "model": "kling-v2-1", "status": "queued", "progress": 0 } } },
+      { "id": "id_only", "label": "201 · 只有 id（走第二条路径）", "response": { "status_code": 201, "body": { "id": "task_abc", "object": "video", "status": "queued" } } },
+      { "id": "task_error", "label": "429 · TaskError {code, message}", "response": { "status_code": 429, "body": { "code": "rate_limited", "message": "当前分组上游负载已饱和" } } }
+    ],
+    "poll": [
+      { "id": "a_processing", "label": "形状 (a) Gemini 渠道 · processing", "response": { "status_code": 200, "body": { "code": "success", "data": { "task_id": "task_abc", "status": "processing", "url": null, "error": null } } } },
+      { "id": "a_succeeded", "label": "形状 (a) Gemini 渠道 · succeeded {data.url}", "response": { "status_code": 200, "body": { "code": "success", "data": { "task_id": "task_abc", "status": "succeeded", "url": "https://host/proxy/a.mp4", "format": "mp4" } } } },
+      { "id": "b_not_start", "label": "形状 (b) TaskDto · NOT_START", "response": { "status_code": 200, "body": { "code": "success", "data": { "task_id": "task_abc", "status": "NOT_START", "progress": "0%" } } } },
+      { "id": "b_in_progress", "label": "形状 (b) TaskDto · IN_PROGRESS", "response": { "status_code": 200, "body": { "code": "success", "data": { "task_id": "task_abc", "status": "IN_PROGRESS", "progress": "50%" } } } },
+      { "id": "b_success", "label": "形状 (b) TaskDto · SUCCESS {data.result_url}", "response": { "status_code": 200, "body": { "code": "success", "data": { "task_id": "task_abc", "status": "SUCCESS", "progress": "100%", "result_url": "https://host/v1/videos/task_abc/content" } } } },
+      { "id": "b_failure", "label": "形状 (b) TaskDto · FAILURE {fail_reason}", "response": { "status_code": 200, "body": { "code": "success", "data": { "task_id": "task_abc", "status": "FAILURE", "fail_reason": "upstream returned 500" } } } },
+      { "id": "c_in_progress", "label": "形状 (c) OpenAI 风格 · in_progress", "response": { "status_code": 200, "body": { "id": "task_abc", "status": "in_progress", "progress": 30 } } },
+      { "id": "c_completed", "label": "形状 (c) OpenAI 风格 · completed {metadata.url}", "response": { "status_code": 200, "body": { "id": "task_abc", "status": "completed", "metadata": { "url": "https://host/proxy/c.mp4", "duration": 5 } } } },
+      { "id": "c_failed", "label": "形状 (c) OpenAI 风格 · failed {error.message}", "response": { "status_code": 200, "body": { "id": "task_abc", "status": "failed", "error": { "code": "moderation", "message": "prompt blocked by moderation" } } } },
+      { "id": "unknown_status", "label": "UNKNOWN（内部枚举兜底）", "response": { "status_code": 200, "body": { "code": "success", "data": { "task_id": "task_abc", "status": "UNKNOWN" } } } }
+    ]
+  },
+  "comfyui-workflow": {
+    "submit": [
+      { "id": "ok", "label": "200 · code 0 {data.taskId}", "response": { "status_code": 200, "body": { "code": 0, "msg": "success", "data": { "taskId": "1910246754753896450", "taskStatus": "QUEUED", "promptTips": "{\"result\": true, \"error\": null}" } } } },
+      { "id": "token_invalid", "label": "200 · code 412 TOKEN_INVALID", "response": { "status_code": 200, "body": { "code": 412, "msg": "TOKEN_INVALID", "data": null } } },
+      { "id": "workflow_missing", "label": "200 · code 380 WORKFLOW_NOT_EXISTS", "response": { "status_code": 200, "body": { "code": 380, "msg": "WORKFLOW_NOT_EXISTS", "data": null } } }
+    ],
+    "poll": [
+      { "id": "queued", "label": "code 813 · 排队", "response": { "status_code": 200, "body": { "code": 813, "msg": "TASK_QUEUE", "data": null } } },
+      { "id": "running", "label": "code 804 · 运行中", "response": { "status_code": 200, "body": { "code": 804, "msg": "APIKEY_TASK_IS_RUNNING", "data": null } } },
+      { "id": "success_multi", "label": "code 0 · 多输出节点（png + mp4）", "response": { "status_code": 200, "body": { "code": 0, "msg": "success", "data": [ { "fileUrl": "https://cdn.example.com/out/preview.png", "fileType": "png", "taskCostTime": "42", "nodeId": "9", "consumeCoins": "0" }, { "fileUrl": "https://cdn.example.com/out/final.mp4", "fileType": "mp4", "taskCostTime": "42", "nodeId": "12", "consumeCoins": "18" } ] } } },
+      { "id": "success_png_only", "label": "code 0 · 只有 png（工作流没接视频节点）", "response": { "status_code": 200, "body": { "code": 0, "msg": "success", "data": [ { "fileUrl": "https://cdn.example.com/out/preview.png", "fileType": "png", "taskCostTime": "12", "nodeId": "9", "consumeCoins": "2" } ] } } },
+      { "id": "failed", "label": "code 805 · 节点异常", "response": { "status_code": 200, "body": { "code": 805, "msg": "APIKEY_TASK_STATUS_ERROR", "data": { "failedReason": { "node_name": "KSampler", "exception_message": "CUDA out of memory", "traceback": "..." } } } } }
+    ]
+  }
+}

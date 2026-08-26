@@ -1,0 +1,73 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "NewAPI 视频（/v1/video/generations）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "media_type": "video",
+    "description": "new-api 内核中转站的视频任务接口。同一任务的轮询响应有三种形状（Gemini 渠道 / 通用 TaskDto / OpenAI 风格），产物与状态用优先级数组一次覆盖；三套状态词表全部登记在 status_map。",
+    "hints": {
+      "base_url": "https://your-newapi-host",
+      "suggested_models": [{ "id": "kling-v2-1", "label": "示例：Kling 渠道" }]
+    }
+  },
+  "auth": {
+    "headers": { "Authorization": "Bearer {{ api_key }}" }
+  },
+  "inputs": {
+    "first_frame": { "source": "start_image", "encoding": "data_uri" },
+    "last_frame": { "source": "end_image", "encoding": "data_uri" }
+  },
+  "enum_maps": {
+    "aspect_ratio": { "16:9": "1920x1080", "9:16": "1080x1920", "1:1": "1024x1024" }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/v1/video/generations",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "image": "{{ inputs.first_frame }}",
+      "duration": "{{ duration }}",
+      "size": "{{ aspect_ratio }}",
+      "seed": "{{ seed }}",
+      "metadata": {
+        "image_tail": "{{ inputs.last_frame }}"
+      }
+    },
+    "success_status_codes": [200, 201],
+    "extract": {
+      "task_id": ["$.task_id", "$.id"],
+      "error": ["$.error.message", "$.message"]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/v1/video/generations/{{ task_id }}",
+    "extract": {
+      "status": ["$.data.status", "$.status"],
+      "video_url": ["$.data.url", "$.data.result_url", "$.metadata.url", "$.url"],
+      "error": ["$.data.fail_reason", "$.data.error.message", "$.error.message"]
+    }
+  },
+  "status_map": {
+    "not_start": "queued",
+    "submitted": "queued",
+    "queued": "queued",
+    "in_progress": "running",
+    "processing": "running",
+    "success": "succeeded",
+    "succeeded": "succeeded",
+    "completed": "succeeded",
+    "failure": "failed",
+    "failed": "failed",
+    "unknown": "running"
+  },
+  "capabilities": {
+    "first_frame": true,
+    "last_frame": true,
+    "max_reference_images": 0,
+    "audio_track": "controllable"
+  }
+}

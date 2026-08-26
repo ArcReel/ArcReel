@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型 · 自定义调用端点：定义格式与模板语言</title>
+<style>
+  :root { --ink: #1c1c1c; --muted: #6b6b6b; --line: #e3e0d9; --bg: #faf9f6; --panel: #fff; --accent: #b4532a; --accent-soft: #f6e9e2; --ok: #2f7a4a; --warn: #a56a00; --bad: #b3261e; --code: #f3f1ec; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.6 -apple-system, "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", sans-serif; color: var(--ink); background: var(--bg); }
+  header { padding: 36px 40px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0 0 8px; font-size: 24px; font-weight: 600; letter-spacing: .2px; }
+  header p { margin: 0; max-width: 960px; color: var(--muted); }
+  header .q { color: var(--ink); margin-top: 10px; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); margin-right: 8px; vertical-align: middle; }
+  .grid { display: grid; grid-template-columns: 420px 1fr; gap: 24px; padding: 24px 40px 80px; align-items: start; }
+  aside { position: sticky; top: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+  .card h3 { margin: 16px 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px; background: #fff; cursor: pointer; color: var(--ink); }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+  select, input[type=text], input[type=number] { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  textarea { width: 100%; min-height: 380px; font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; border: 1px solid var(--line); border-radius: 7px; padding: 10px; background: var(--code); resize: vertical; }
+  pre { margin: 0; font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; background: var(--code); border-radius: 7px; padding: 10px 12px; overflow: auto; max-height: 360px; white-space: pre-wrap; word-break: break-all; }
+  .kv { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 14px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-all; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 6px; font-weight: 600; font-size: 13px; }
+  .badge.idle { background: #eee; } .badge.submitted, .badge.polling { background: #fff3d6; color: var(--warn); } .badge.done { background: #e2f1e6; color: var(--ok); } .badge.failed { background: #fbe4e2; color: var(--bad); }
+  .issue { padding: 6px 10px; border-left: 3px solid var(--line); margin: 4px 0; font-size: 13px; background: #fff; }
+  .issue.error { border-color: var(--bad); } .issue.warning { border-color: var(--warn); }
+  .issue code { font-size: 12px; color: var(--muted); }
+  .log { font-size: 13px; max-height: 220px; overflow: auto; }
+  .log div { padding: 2px 0; border-bottom: 1px dashed var(--line); }
+  .trace { font-size: 13px; }
+  .trace .hit { color: var(--ok); } .trace .miss { color: var(--muted); } .trace .err { color: var(--bad); }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tabs button { font-size: 13px; }
+  .steps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .steps button { position: relative; padding-left: 30px; }
+  .steps button .n { position: absolute; left: 9px; top: 5px; width: 16px; height: 16px; border-radius: 50%; font-size: 11px; line-height: 16px; text-align: center; background: var(--accent-soft); color: var(--accent); }
+  .steps button.done .n { background: var(--ok); color: #fff; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .q-list li { margin: 8px 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } aside { position: static; } .two { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="tag">PROTOTYPE</span>自定义调用端点：定义格式与模板语言细则</h1>
+  <p>Wayfinder #2119 · 票 #2123。这是一份可以点的草案，不是产品界面。</p>
+  <p class="q"><strong>要回答的问题：</strong>「JSON 结构模板 + <code>{{ }}</code> 占位符 + 唯一的 <code>$each</code> + JSONPath 优先级数组 + 纯字典映射 + header/query 鉴权」这套声明式定义，写成 JSON Schema 后，能否把三份起步模板（通用提交+轮询、NewAPI 视频、ComfyUI 工作流）从「填参数 → 渲染请求 → 读响应 → 归一状态 → 取产物」完整跑通，中途的每一条约定（整串占位符保留原生类型、空值删键、整数状态字符串化查表、只收字符串命中、枚举缺项不发请求……）在真实回包形状面前是否站得住。</p>
+  <p class="muted" style="margin-top:8px">用法：左栏选一份起步模板（可直接改 JSON 再「应用」），右栏用「引导走查」按顺序点，或在「自由操作」里任意组合提交 / 轮询响应。所有 HTTP 往来都是假的：你选哪条响应，供应商就「回」哪条。</p>
+</header>
+
+<div class="grid">
+  <aside>
+    <div class="card">
+      <h2>起步模板</h2>
+      <div class="row" id="templateButtons"></div>
+      <p class="muted" id="templateDesc"></p>
+      <h3>定义 JSON（可编辑）</h3>
+      <textarea id="defEditor" spellcheck="false"></textarea>
+      <div class="row">
+        <button class="primary" id="applyDef">应用定义</button>
+        <button id="revertDef">还原为模板原文</button>
+      </div>
+      <h3>校验结果</h3>
+      <div id="issues"></div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="card">
+      <h2>当前状态</h2>
+      <dl class="kv">
+        <dt>阶段</dt><dd id="phase"></dd>
+        <dt>供应商任务 id</dt><dd id="taskId">—</dd>
+        <dt>归一状态</dt><dd id="canonical">—</dd>
+        <dt>产物 URL</dt><dd id="videoUrl">—</dd>
+        <dt>错误</dt><dd id="error">—</dd>
+        <dt>用量</dt><dd id="usage">—</dd>
+      </dl>
+      <h3>请求参数（改动会重置会话）</h3>
+      <div class="row">
+        <label>prompt <input type="text" id="p_prompt" size="28"></label>
+        <label>model <input type="text" id="p_model" size="14"></label>
+        <label>duration <select id="p_duration"><option>5</option><option>10</option><option>7</option></select></label>
+        <label>aspect_ratio <select id="p_aspect"><option>9:16</option><option>16:9</option><option>1:1</option><option>4:3</option></select></label>
+        <label>seed <input type="number" id="p_seed" size="6" placeholder="空"></label>
+        <label><input type="checkbox" id="p_audio" checked> generate_audio</label>
+      </div>
+      <div class="row">
+        <label>首帧 <select id="a_start"><option value="">无</option><option value="image/png">png</option><option value="image/jpeg">jpeg</option><option value="image/webp">webp</option></select></label>
+        <label>尾帧 <select id="a_end"><option value="">无</option><option value="image/png">png</option></select></label>
+        <label>参考图数 <select id="a_refs"><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
+        <span class="muted">素材是假的短 base64；编码方式由定义里的 inputs 决定。</span>
+      </div>
+      <h3>自由操作</h3>
+      <div class="row">
+        <select id="submitFixture"></select><button class="primary" id="btnSubmit">提交（用这条响应）</button>
+      </div>
+      <div class="row">
+        <select id="pollFixture"></select><button class="primary" id="btnPoll">轮询一次（用这条响应）</button>
+        <button id="btnReset">重置会话</button>
+      </div>
+      <h3>日志</h3>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="card">
+      <h2>引导走查</h2>
+      <div class="tabs" id="scenarioTabs"></div>
+      <p id="scenarioDesc"></p>
+      <div class="steps" id="scenarioSteps"></div>
+    </div>
+
+    <div class="two">
+      <div class="card">
+        <h2>提交</h2>
+        <h3>渲染后的请求</h3><pre id="submitReq">—</pre>
+        <h3>渲染轨迹</h3><div class="trace" id="submitTrace">—</div>
+        <h3>响应</h3><pre id="submitResp">—</pre>
+        <h3>提取</h3><div class="trace" id="submitExtract">—</div>
+      </div>
+      <div class="card">
+        <h2>轮询</h2>
+        <h3>渲染后的请求</h3><pre id="pollReq">—</pre>
+        <h3>响应</h3><pre id="pollResp">—</pre>
+        <h3>状态映射链</h3><div class="trace" id="statusChain">—</div>
+        <h3>提取</h3><div class="trace" id="pollExtract">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>待你拍板的约定</h2>
+      <p class="muted">下面每条都已在本页按「原型选择」实现；走查时觉得哪条别扭，就是要改的地方。</p>
+      <ol class="q-list">
+        <li><strong>响应根是 body。</strong>JSONPath 的 <code>$</code> 指向响应体；headers / status_code 经 extract 对象的 <code>source</code> 指定，而不是 n8n 式的 <code>$.body.…</code> 三分对象。</li>
+        <li><strong>四档而非五档。</strong><code>status_map</code> 只能映射到 queued / running / succeeded / failed；<code>expired</code> 不由声明式产生（抽样 0 家需要）。timeout / cancelled / aborted 一律归 failed。</li>
+        <li><strong><code>{{ api_key }}</code> 只在 auth 节可用。</strong>请求体 / URL 里出现即校验失败——代价是凭证入体的旧式接口不支持。</li>
+        <li><strong>轮询允许 POST + body</strong>（ComfyUI 托管平台需要）。submit / poll 是同一种请求对象。</li>
+        <li><strong>整串单占位符保留原生类型；混合文本一律串化；值为 null 的整串占位符删掉所在键 / 元素；混合文本里遇到 null 报错。</strong></li>
+        <li><strong>枚举映射只对 duration / aspect_ratio / resolution / generate_audio 开放</strong>，键按字符串化查表，缺项不发请求。数字→字符串枚举（"5"）走这里，不给模板加转换。</li>
+        <li><strong>提取只收字符串命中</strong>（默认 <code>accept: string</code>），状态字段可声明 <code>accept: scalar</code> 以收整数码；数组 / 对象 / null 一律跳到下一条路径。</li>
+        <li><strong><code>json_decode</code> + <code>then</code></strong> 是评估项：固定后缀、非表达式，换来 JSON-in-string 两家可用。要不要进首期？</li>
+        <li><strong>素材只有四个来源</strong>（start_image / end_image / reference_images / reference_audio_files）与两种编码；列表型只能经 <code>$each</code>；MIME 白名单不匹配即不发请求。</li>
+        <li><strong>能力声明与 <code>VideoCapabilities</code> 同名同义</strong>；<code>supported_durations</code> / <code>resolution</code> 仍留在模型行 DB，不进定义文件。</li>
+        <li><strong>ComfyUI 模板把 workflowId 当 <code>{{ model }}</code></strong>（模型行填工作流 id）。可接受的复用，还是需要独立变量？</li>
+        <li><strong>自托管 ComfyUI <code>/history</code> 的产物不是 URL</strong>（filename / subfolder / type 要拼 <code>/view?…</code>），本原型不覆盖；托管平台形态（返回 fileUrl）可覆盖。</li>
+        <li><strong>路径校验器是手写子集解析器</strong>（本页所用），前端是否引入 json-p3 做即时求值预览仍是 #2122 的未决项。</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <details><summary>JSON Schema 原文（schema.json，三份模板均通过 Draft 2020-12 校验）</summary><pre id="schemaText" style="max-height:600px"></pre></details>
+    </div>
+  </main>
+</div>
+
+<script id="proto-data" type="application/json">/*__DATA__*/</script>
+<script>/*__MODULE__*/</script>
+<script>
+(() => {
+  const D = DeclarativeEndpoint;
+  const DATA = JSON.parse(document.getElementById("proto-data").textContent);
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const pretty = (o) => (o === undefined ? "—" : JSON.stringify(o, null, 2));
+  const FAKE_B64 = { "image/png": "iVBORw0KGgoAAAANSUhEUg…", "image/jpeg": "/9j/4AAQSkZJRgABAQ…", "image/webp": "UklGRiQAAABXRUJQVlA4…" };
+
+  const TEMPLATE_ORDER = ["generic-submit-poll", "newapi-video", "comfyui-workflow"];
+  let templateId = TEMPLATE_ORDER[0];
+  let def = structuredClone(DATA.templates[templateId]);
+  let state = null;
+
+  const readParams = () => ({
+    base_url: (def.meta && def.meta.hints && def.meta.hints.base_url) || "https://api.example.com",
+    api_key: "sk-demo-key",
+    model: $("p_model").value,
+    prompt: $("p_prompt").value,
+    duration: Number($("p_duration").value),
+    aspect_ratio: $("p_aspect").value,
+    resolution: null,
+    generate_audio: $("p_audio").checked,
+    seed: $("p_seed").value === "" ? null : Number($("p_seed").value),
+  });
+  const readAssets = () => {
+    const a = {};
+    const mk = (mime) => ({ mime, base64: FAKE_B64[mime] || "QUJD…" });
+    if ($("a_start").value) a.start_image = mk($("a_start").value);
+    if ($("a_end").value) a.end_image = mk($("a_end").value);
+    const n = Number($("a_refs").value);
+    if (n > 0) a.reference_images = Array.from({ length: n }, () => mk("image/png"));
+    return a;
+  };
+  const fresh = () => { state = D.initialState(def, readParams(), readAssets()); };
+
+  // ─── 左栏：模板与定义编辑 ───
+  function renderTemplateButtons() {
+    $("templateButtons").innerHTML = TEMPLATE_ORDER.map((id) => `<button data-t="${id}" class="${id === templateId ? "active" : ""}">${esc(DATA.templates[id].meta.name)}</button>`).join("");
+    $("templateButtons").querySelectorAll("button").forEach((b) => b.onclick = () => selectTemplate(b.dataset.t));
+    $("templateDesc").textContent = DATA.templates[templateId].meta.description || "";
+  }
+  function selectTemplate(id, patch) {
+    templateId = id;
+    def = structuredClone(DATA.templates[id]);
+    if (patch) def = patch(def);
+    $("defEditor").value = JSON.stringify(def, null, 2);
+    if (id === "comfyui-workflow" && $("p_model").value.indexOf("19041") !== 0) $("p_model").value = "1904136902449209346";
+    if (id !== "comfyui-workflow" && $("p_model").value.indexOf("19041") === 0) $("p_model").value = "example-video-v1";
+    renderTemplateButtons(); renderFixtures(); applyDefinition(false);
+  }
+  function applyDefinition(fromEditor = true) {
+    if (fromEditor) {
+      try { def = JSON.parse($("defEditor").value); } catch (e) { $("issues").innerHTML = `<div class="issue error">JSON 解析失败：${esc(e.message)}</div>`; return; }
+    }
+    const issues = D.validateDefinition(def);
+    $("issues").innerHTML = issues.length ? issues.map((i) => `<div class="issue ${i.level}"><code>${esc(i.where)}</code><br>${esc(i.message)}</div>`).join("") : `<div class="issue" style="border-color:var(--ok)">语义校验通过（JSON Schema 校验见 validate.py）</div>`;
+    fresh(); render();
+  }
+  $("applyDef").onclick = () => applyDefinition(true);
+  $("revertDef").onclick = () => selectTemplate(templateId);
+
+  // ─── fixtures ───
+  function renderFixtures() {
+    const fx = DATA.fixtures[templateId] || DATA.fixtures["generic-submit-poll"];
+    $("submitFixture").innerHTML = fx.submit.map((f) => `<option value="${f.id}">${esc(f.label)}</option>`).join("");
+    $("pollFixture").innerHTML = fx.poll.map((f) => `<option value="${f.id}">${esc(f.label)}</option>`).join("");
+  }
+  const fixture = (kind, id) => {
+    const fx = DATA.fixtures[templateId] || DATA.fixtures["generic-submit-poll"];
+    return structuredClone(fx[kind].find((f) => f.id === id).response);
+  };
+
+  // ─── 动作 ───
+  function dispatch(action) { state = D.reduce(state, action); render(); }
+  $("btnSubmit").onclick = () => dispatch({ type: "SUBMIT", response: fixture("submit", $("submitFixture").value) });
+  $("btnPoll").onclick = () => dispatch({ type: "POLL", response: fixture("poll", $("pollFixture").value) });
+  $("btnReset").onclick = () => { fresh(); render(); };
+  ["p_prompt", "p_model", "p_duration", "p_aspect", "p_seed", "p_audio"].forEach((id) => $(id).addEventListener("change", () => dispatch({ type: "SET_PARAMS", params: readParams() })));
+  ["a_start", "a_end", "a_refs"].forEach((id) => $(id).addEventListener("change", () => { state = D.reduce(state, { type: "SET_ASSETS", assets: {} }); state.assets = readAssets(); render(); }));
+
+  // ─── 渲染 ───
+  const traceHtml = (ex) => {
+    if (!ex) return "—";
+    const rows = ex.trace.map((r) => {
+      if (r.error) return `<div class="err">✗ <code>${esc(r.path)}</code> ${esc(r.error)}</div>`;
+      const cls = r.accepted ? "hit" : "miss";
+      const bits = [`命中 ${r.count}`];
+      if (r.skipped) bits.push(r.skipped);
+      if (r.note) bits.push(r.note);
+      (r.warnings || []).forEach((w) => bits.push("⚠ " + w));
+      return `<div class="${cls}">${r.accepted ? "✓" : "·"} <code>${esc(r.path)}</code> ${esc(bits.join("；"))}</div>`;
+    });
+    rows.push(`<div><strong>结果：</strong>${ex.hit ? `<code>${esc(JSON.stringify(ex.value))}</code> 来自 ${esc(ex.hit.canonical)}` : "无命中"}</div>`);
+    return rows.join("");
+  };
+  const extractsHtml = (obj) => Object.entries(obj || {}).map(([k, v]) => `<div style="margin:6px 0"><strong>${esc(k)}</strong>${traceHtml(v)}</div>`).join("") || "—";
+
+  function render() {
+    const s = state;
+    $("phase").innerHTML = `<span class="badge ${s.phase}">${{ idle: "未提交", submitted: "已提交", polling: "轮询中", done: "完成", failed: "失败" }[s.phase]}</span>`;
+    $("taskId").textContent = s.taskId ?? "—";
+    $("canonical").innerHTML = s.status ? `<strong>${esc(s.status.canonical)}</strong> <span class="muted">（原值 ${esc(JSON.stringify(s.status.raw))} · ${esc(s.status.source)}）</span>` : "—";
+    $("videoUrl").textContent = s.videoUrl ?? "—";
+    $("error").innerHTML = s.error ? `<span style="color:var(--bad)">${esc(s.error)}</span>` : "—";
+    $("usage").textContent = Object.keys(s.usage).length ? JSON.stringify(s.usage) : "—";
+    $("log").innerHTML = s.log.map((l) => `<div>${esc(l)}</div>`).join("") || "<div class=muted>还没有动作</div>";
+    $("log").scrollTop = 1e6;
+    const sub = s.submit;
+    $("submitReq").textContent = sub ? pretty({ method: sub.request.method, url: sub.request.url, headers: sub.request.headers, body: sub.request.body }) : "—";
+    $("submitTrace").innerHTML = sub ? (sub.request.trace.map((t) => `<div>· ${esc(t)}</div>`).join("") || "<div class=muted>无</div>") : "—";
+    $("submitResp").textContent = sub ? pretty(sub.response) : "—";
+    $("submitExtract").innerHTML = sub ? extractsHtml(sub.extract) : "—";
+    const po = s.poll;
+    $("pollReq").textContent = po ? pretty({ method: po.request.method, url: po.request.url, headers: po.request.headers, body: po.request.body }) : "—";
+    $("pollResp").textContent = po ? pretty(po.response) : "—";
+    $("statusChain").innerHTML = po ? `<div>原值 <code>${esc(JSON.stringify(po.mapped.raw))}</code> → 字符串化 + lowercase <code>${esc(JSON.stringify(po.mapped.key))}</code> → 查 <strong>${esc(po.mapped.source)}</strong> → <strong>${esc(po.mapped.canonical)}</strong></div><div class="muted">status_map 优先，其次内置同义词表，都没有则按 running 继续轮询。</div>` : "—";
+    $("pollExtract").innerHTML = po ? extractsHtml({ ...po.extract, ...Object.fromEntries(Object.entries(po.usage).map(([k, v]) => ["usage." + k, v])) }) : "—";
+    renderScenarioSteps();
+  }
+
+  // ─── 引导走查 ───
+  const withRefs = (d) => {
+    d.inputs = { ...(d.inputs || {}), reference_images: { source: "reference_images", encoding: "base64", mime_types: ["image/png", "image/jpeg"] } };
+    d.submit.body.reference_images = [{ $each: { in: "inputs.reference_images", as: "img", item: { type: "image", data: "{{ img }}", slot: "{{ index }}" } } }];
+    d.submit.body.$each = { in: "inputs.reference_images", as: "img", key: "image_{{ index }}", value: "{{ img }}" };
+    d.capabilities.max_reference_images = 3;
+    return d;
+  };
+  const withJsonDecode = (d) => { d.poll.extract.video_url = { paths: ["$.video_url", "$.data.resultJson"], json_decode: true, then: ["$.resultUrls[0]"] }; return d; };
+  const withBadThings = (d) => { d.submit.body.key = "{{ api_key }}"; d.submit.body.oops = "{{ nope }}"; d.submit.body.tid = "{{ task_id }}"; d.poll.extract.video_url = ["$..url", "$.video_url"]; d.status_map.expired = "failed"; return d; };
+  const setUI = (o) => { for (const [k, v] of Object.entries(o)) { const el = $(k); if (el.type === "checkbox") el.checked = v; else el.value = v; } };
+
+  const SCENARIOS = [
+    { id: "g_happy", title: "通用 · 顺路走完", template: "generic-submit-poll", ui: { p_duration: "5", p_seed: "", a_start: "image/png" },
+      desc: "最普通的一趟：提交后排队、处理、完成。看点：duration 经 enum_maps 从字符串键 \"5\" 落成数字 5；seed 为空 → 整串占位符删键，请求体里没有 seed；首帧按 data_uri 编进 image；完成时 usage.credits 用 accept: scalar 收到数字 12。",
+      steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：pending", { type: "POLL", fixture: "pending" }], ["轮询：processing", { type: "POLL", fixture: "processing" }], ["轮询：completed", { type: "POLL", fixture: "completed" }]] },
+    { id: "n_shapes", title: "NewAPI · 三种轮询形状", template: "newapi-video", ui: { p_aspect: "16:9", a_start: "image/png", a_end: "image/png" },
+      desc: "同一个 task 在 new-api 里可能以三种形状回来。看点：提交只回 id → task_id 走第二条路径；NOT_START 靠 status_map 登记成 queued；形状 (a) 的 data.url 为 null 被跳过；形状 (c) 的 metadata.url 是优先级数组的第三条。aspect_ratio 16:9 经 enum_maps 变成 size \"1920x1080\"，尾帧进 metadata.image_tail。",
+      steps: [["提交：只有 id", { type: "SUBMIT", fixture: "id_only" }], ["轮询：(b) NOT_START", { type: "POLL", fixture: "b_not_start" }], ["轮询：(a) processing", { type: "POLL", fixture: "a_processing" }], ["轮询：(c) completed", { type: "POLL", fixture: "c_completed" }]] },
+    { id: "n_fail", title: "NewAPI · 任务失败", template: "newapi-video", ui: {},
+      desc: "形状 (b) 的 FAILURE 与 fail_reason。看点：FAILURE 不在内置同义词表里（内置只有 failed / fail / error），靠模板的 status_map；错误信息按 error 优先级数组第一条 data.fail_reason 取到。",
+      steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：(b) FAILURE", { type: "POLL", fixture: "b_failure" }]] },
+    { id: "c_happy", title: "ComfyUI · POST 轮询与整数状态", template: "comfyui-workflow", ui: { p_model: "1904136902449209346", p_seed: "42", a_start: "" },
+      desc: "托管 ComfyUI 平台。看点：nodeInfoList 写死节点定位，只注入 prompt 与 seed（seed 整串占位符 → 数字 42，不是 \"42\"）；轮询是 POST + body {taskId}；状态在外层整数 code，字符串化后查 status_map（813 → queued，804 → running，0 → succeeded）；产物用过滤器在 png / mp4 两个输出里挑 mp4；usage.coins 同样用过滤器定位。",
+      steps: [["提交：code 0", { type: "SUBMIT", fixture: "ok" }], ["轮询：813 排队", { type: "POLL", fixture: "queued" }], ["轮询：804 运行", { type: "POLL", fixture: "running" }], ["轮询：0 · png + mp4", { type: "POLL", fixture: "success_multi" }]] },
+    { id: "c_nomp4", title: "ComfyUI · 成功但没有视频", template: "comfyui-workflow", ui: { p_model: "1904136902449209346" },
+      desc: "工作流跑成功了，但输出里只有 png。看点：status 归一为 succeeded，但 video_url 优先级数组两条都无命中（过滤器空、$.data[0].fileUrl 是 png——注意这条兜底路径会把 png 当视频取走！）。这是要拍板的：兜底路径要不要留？",
+      steps: [["提交：code 0", { type: "SUBMIT", fixture: "ok" }], ["轮询：0 · 只有 png", { type: "POLL", fixture: "success_png_only" }]] },
+    { id: "c_fail", title: "ComfyUI · 节点异常", template: "comfyui-workflow", ui: { p_model: "1904136902449209346" },
+      desc: "code 805。看点：失败时 data 从数组变成对象，error 路径 data.failedReason.exception_message 命中；注意 msg 也是可选兜底。",
+      steps: [["提交：code 0", { type: "SUBMIT", fixture: "ok" }], ["轮询：805", { type: "POLL", fixture: "failed" }]] },
+    { id: "g_refs", title: "参考图 · $each 铺字段", template: "generic-submit-poll", patch: withRefs, ui: { a_refs: "2", a_start: "image/png" },
+      desc: "定义被打了补丁：新增 inputs.reference_images（裸 base64），请求体里同时用了数组位置的 $each（展开成元素）与对象位置的 $each（展开成 image_0 / image_1 键）。看点：两种展开的形状；把参考图数改成 0 再提交，数组变空、键消失。",
+      steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }]] },
+    { id: "g_submit_fail", title: "提交失败的两种样子", template: "generic-submit-poll", ui: {},
+      desc: "① HTTP 200 但业务码报错、没有 task_id → 约定「成功码之下 task_id 无命中 ⇒ 提交失败」，错误信息按 error 路径取（$.message）。② HTTP 401 → 直接失败，同样按 error 路径取（$.error.message）。",
+      steps: [["提交：200 + 业务码", { type: "SUBMIT", fixture: "biz_error" }], ["重置", { type: "RESET" }], ["提交：401", { type: "SUBMIT", fixture: "http_401" }]] },
+    { id: "g_enum_miss", title: "枚举映射缺项 → 不发请求", template: "generic-submit-poll", ui: { p_duration: "7" },
+      desc: "duration 选了 7，而 enum_maps.duration 只登记了 5 / 10。看点：渲染阶段就 fail-loud，请求根本没渲染出来（提交面板是空的），不会拿供应商的默认档位去付费。",
+      steps: [["提交：正常接单（不会发出去）", { type: "SUBMIT", fixture: "ok" }]] },
+    { id: "g_mime", title: "素材 MIME 白名单", template: "generic-submit-poll", ui: { a_start: "image/webp" },
+      desc: "首帧是 webp，而 inputs.first_frame.mime_types 只允许 jpeg / png。看点：编码阶段拒绝，同样不发请求。",
+      steps: [["提交：正常接单（不会发出去）", { type: "SUBMIT", fixture: "ok" }]] },
+    { id: "g_validate", title: "定义校验：故意写坏", template: "generic-submit-poll", patch: withBadThings, ui: {},
+      desc: "定义被打了四处坏补丁：请求体里引用 {{ api_key }}、引用未声明的 {{ nope }}、在 submit 里用 {{ task_id }}、video_url 用了 $..url 递归、status_map 映射到 expired。看左栏「校验结果」——五条错误应各自命中；这一票要拍板的是错误文案是否足够让作者自己改对。",
+      steps: [["看左栏校验结果（无需点）", { type: "NOOP" }]] },
+    { id: "g_json", title: "评估项：JSON-in-string 后缀", template: "generic-submit-poll", patch: withJsonDecode, ui: {},
+      desc: "video_url 改成对象形式：paths 里第二条命中 data.resultJson（一个 JSON 字符串），json_decode 后按 then 的 $.resultUrls[0] 继续取。看点：提取轨迹里多出一行 (json_decode)。这能换来 kie.ai 统一接口与 Segmind PixelFlow 两家——值不值一个开关？",
+      steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：产物藏在字符串里", { type: "POLL", fixture: "json_in_string" }]] },
+    { id: "g_unknown", title: "未知状态串兜底 · 成功无产物", template: "generic-submit-poll", ui: {},
+      desc: "WAITING_GPU 既不在 status_map 也不在内置表 → 按 running 继续轮询（与现有 normalize_provider_status 一致）。随后 completed 却没有 video_url → 判失败而不是去下载空 URL。",
+      steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：WAITING_GPU", { type: "POLL", fixture: "unknown" }], ["轮询：completed 无 URL", { type: "POLL", fixture: "completed_no_url" }]] },
+  ];
+  let scenario = null, stepDone = -1;
+  function renderScenarioTabs() {
+    $("scenarioTabs").innerHTML = SCENARIOS.map((sc) => `<button data-s="${sc.id}" class="${scenario && scenario.id === sc.id ? "active" : ""}">${esc(sc.title)}</button>`).join("");
+    $("scenarioTabs").querySelectorAll("button").forEach((b) => b.onclick = () => startScenario(b.dataset.s));
+  }
+  function startScenario(id) {
+    scenario = SCENARIOS.find((s) => s.id === id); stepDone = -1;
+    setUI({ p_prompt: "一个女孩在教室里，镜头缓慢推进", p_model: "example-video-v1", p_duration: "5", p_aspect: "9:16", p_seed: "", p_audio: true, a_start: "", a_end: "", a_refs: "0", ...scenario.ui });
+    selectTemplate(scenario.template, scenario.patch);
+    $("scenarioDesc").textContent = scenario.desc;
+    renderScenarioTabs(); renderScenarioSteps();
+  }
+  function renderScenarioSteps() {
+    if (!scenario) { $("scenarioSteps").innerHTML = ""; return; }
+    $("scenarioSteps").innerHTML = scenario.steps.map(([label], i) => `<button data-i="${i}" class="${i <= stepDone ? "done" : ""}" ${i !== stepDone + 1 ? "disabled" : ""}><span class="n">${i + 1}</span>${esc(label)}</button>`).join("");
+    $("scenarioSteps").querySelectorAll("button").forEach((b) => b.onclick = () => runStep(Number(b.dataset.i)));
+  }
+  function runStep(i) {
+    const [, a] = scenario.steps[i];
+    if (a.type === "SUBMIT") dispatch({ type: "SUBMIT", response: fixture("submit", a.fixture) });
+    else if (a.type === "POLL") dispatch({ type: "POLL", response: fixture("poll", a.fixture) });
+    else if (a.type === "RESET") { fresh(); render(); }
+    stepDone = i; renderScenarioSteps();
+  }
+
+  // ─── 启动 ───
+  $("schemaText").textContent = JSON.stringify(DATA.schema, null, 2);
+  setUI({ p_prompt: "一个女孩在教室里，镜头缓慢推进", p_model: "example-video-v1" });
+  renderScenarioTabs();
+  selectTemplate(templateId);
+})();
+</script>
+</body>
+</html>

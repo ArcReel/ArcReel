@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arcreel.local/schemas/custom-endpoint/1.0.0/prototype.json",
+  "title": "ArcReel 自定义调用端点 · 声明式定义（原型 #2123）",
+  "description": "PROTOTYPE — 供 #2123 讨论用的 schema 草案，不是正式契约。JSON Schema 只管结构；占位符引用、JSONPath 语法子集、api_key 作用域等语义规则由校验器（declarative_endpoint.js / 后端）另行检查。",
+  "type": "object",
+  "required": ["kind", "schema_version", "meta", "auth", "submit", "poll", "capabilities"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "description": "容器类型。首期只有 declarative；plugin 等其他 kind 由后续 ADR 定义，导入时遇到未知 kind 直接拒绝。",
+      "enum": ["declarative"]
+    },
+    "schema_version": {
+      "description": "本定义文件遵循的格式版本（semver）。导入按 Dify 式三档：更高版本或 major 更低 → 需确认；minor 更低 → 警告放行；同版 → 直接。",
+      "$ref": "#/$defs/semver"
+    },
+    "meta": { "$ref": "#/$defs/meta" },
+    "auth": { "$ref": "#/$defs/auth" },
+    "inputs": {
+      "description": "素材输入声明：把 ArcReel 请求里的素材字段编码成模板可引用的值。模板里用 {{ inputs.<name> }} 引用；列表型（reference_images）只能经 $each 展开。",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/inputDecl" }
+    },
+    "enum_maps": {
+      "description": "枚举参数字典：键是 ArcReel 侧的值（字符串化后查表），值是写进请求的供应商侧值。渲染 {{ <var> }} 时若该变量登记在此，先查表再落值；查不到即 fail-loud，不发请求。",
+      "type": "object",
+      "propertyNames": { "enum": ["duration", "aspect_ratio", "resolution", "generate_audio"] },
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": { "$ref": "#/$defs/scalar" }
+      }
+    },
+    "submit": { "$ref": "#/$defs/submitRequest" },
+    "poll": { "$ref": "#/$defs/pollRequest" },
+    "status_map": {
+      "description": "供应商状态串 → 四档 canonical 状态。查表前原值先字符串化（整数状态码可用）、lowercase + strip。本表叠加在内置同义词表之上（本表优先）；两表都未登记的串按 running 继续轮询。expired 不由声明式产生。",
+      "type": "object",
+      "propertyNames": { "type": "string", "minLength": 1 },
+      "additionalProperties": { "enum": ["queued", "running", "succeeded", "failed"] }
+    },
+    "capabilities": { "$ref": "#/$defs/capabilities" }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "scalar": { "type": ["string", "number", "boolean"] },
+    "template": {
+      "description": "字符串模板。{{ var }} / {{ inputs.x }} 占位符；整串只有一个占位符时保留变量的原生类型（数字、布尔、null、对象），混合文本一律串化。值为 null 的整串占位符 → 所在键 / 数组元素被删除。",
+      "type": "string"
+    },
+    "jsonTemplate": {
+      "description": "JSON 结构模板：任意 JSON 值，其中字符串按 template 规则渲染；对象里的 $each 键 / 数组里的 $each 元素按 eachDirective 展开。",
+      "anyOf": [
+        { "$ref": "#/$defs/template" },
+        { "type": ["number", "boolean", "null"] },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonTemplate" } },
+        {
+          "type": "object",
+          "properties": { "$each": { "$ref": "#/$defs/eachDirective" } },
+          "additionalProperties": { "$ref": "#/$defs/jsonTemplate" }
+        }
+      ]
+    },
+    "eachDirective": {
+      "description": "唯一的铺字段构造。数组位置写 {\"$each\": {...,\"item\": T}}（展开为若干元素）；对象位置写 \"$each\": {...,\"key\": K, \"value\": V}（展开为若干键值对并入所在对象）。循环体内可用 {{ <as> }} 与 {{ index }}（0 起）。",
+      "type": "object",
+      "required": ["in", "as"],
+      "additionalProperties": false,
+      "properties": {
+        "in": { "type": "string", "pattern": "^inputs\\.[a-z][a-z0-9_]*$" },
+        "as": { "$ref": "#/$defs/identifier" },
+        "item": { "$ref": "#/$defs/jsonTemplate" },
+        "key": { "$ref": "#/$defs/template" },
+        "value": { "$ref": "#/$defs/jsonTemplate" }
+      },
+      "oneOf": [
+        { "required": ["item"], "not": { "anyOf": [ { "required": ["key"] }, { "required": ["value"] } ] } },
+        { "required": ["key", "value"], "not": { "required": ["item"] } }
+      ]
+    },
+    "headerMap": {
+      "type": "object",
+      "propertyNames": { "type": "string", "pattern": "^[A-Za-z0-9-]+$" },
+      "additionalProperties": { "$ref": "#/$defs/template" }
+    },
+    "queryMap": {
+      "type": "object",
+      "propertyNames": { "type": "string", "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/template" }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["name", "author", "version", "media_type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "author": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "version": { "$ref": "#/$defs/semver" },
+        "media_type": { "description": "首期只有 video；image / audio 为预留值，导入时拒绝。", "enum": ["video"] },
+        "description": { "type": "string", "maxLength": 2000 },
+        "homepage": { "type": "string", "format": "uri" },
+        "hints": {
+          "description": "随文件分发的提示，导入时展示并由用户确认，不直接写入凭证。",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "base_url": { "type": "string", "format": "uri" },
+            "suggested_models": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id"],
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": "string", "minLength": 1 },
+                  "label": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "auth": {
+      "description": "鉴权：header 名 + 值模板，或 query 参数。{{ api_key }} 只允许出现在这一节；签名类不支持。两者都可为空（无鉴权端点）。",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headers": { "$ref": "#/$defs/headerMap" },
+        "query": { "$ref": "#/$defs/queryMap" }
+      }
+    },
+    "inputDecl": {
+      "type": "object",
+      "required": ["source", "encoding"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "对应 VideoGenerationRequest 的素材字段。",
+          "enum": ["start_image", "end_image", "reference_images", "reference_audio_files"]
+        },
+        "encoding": {
+          "description": "首期只有 data_uri 与 base64；url 预留给「素材公网 URL 托管」。",
+          "enum": ["data_uri", "base64"]
+        },
+        "mime_types": {
+          "description": "允许的 MIME 白名单；不在其中的素材在发请求前 fail-loud。缺省不限制。",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[a-z]+/[a-z0-9.+-]+$" }
+        }
+      }
+    },
+    "jsonpath": {
+      "description": "RFC 9535 JSONPath，限定子集：$ 起头；只允许 child segment（.name / ['name'] / [n] 含负下标 / [*] / [a:b]）；过滤器只允许 @ 单值查询、字面量比较、&& || !。禁用 .. 递归、联合、切片 step、函数扩展。子集由校验器检查，schema 只做粗筛。",
+      "type": "string",
+      "pattern": "^\\$(\\.|\\[).*$",
+      "not": { "pattern": "\\.\\." }
+    },
+    "extractSpec": {
+      "description": "响应取值：JSONPath 优先级数组，逐条求值，第一条产生「可接受命中」的路径胜出，取其第一个节点。简写形式即路径数组（accept=string）。",
+      "oneOf": [
+        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/jsonpath" } },
+        {
+          "type": "object",
+          "required": ["paths"],
+          "additionalProperties": false,
+          "properties": {
+            "paths": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/jsonpath" } },
+            "accept": {
+              "description": "可接受的命中类型：string（默认；跳过数组 / 对象 / null / 数字）、scalar（字符串 / 数字 / 布尔，数字与布尔按字符串化交给下游）。",
+              "enum": ["string", "scalar"],
+              "default": "string"
+            },
+            "json_decode": {
+              "description": "命中值是 JSON-in-string 时，先 JSON 解析再按 then 路径继续取值（评估中的固定后缀，见 #2121 U1）。",
+              "type": "boolean",
+              "default": false
+            },
+            "then": {
+              "description": "json_decode 后继续取值的优先级数组。",
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/jsonpath" }
+            },
+            "source": {
+              "description": "路径求值的根：body（默认）、headers（键小写）、status_code。",
+              "enum": ["body", "headers", "status_code"],
+              "default": "body"
+            }
+          },
+          "dependentRequired": { "then": ["json_decode"] }
+        }
+      ]
+    },
+    "requestBase": {
+      "type": "object",
+      "required": ["method", "url"],
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT"] },
+        "url": {
+          "description": "URL 模板；路径与 query 内的占位符值不做 percent-encoding（{{ model }} 可含 /）。",
+          "$ref": "#/$defs/template"
+        },
+        "headers": { "$ref": "#/$defs/headerMap" },
+        "query": { "$ref": "#/$defs/queryMap" },
+        "body": { "$ref": "#/$defs/jsonTemplate" }
+      }
+    },
+    "submitRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestBase" },
+        {
+          "type": "object",
+          "required": ["extract"],
+          "additionalProperties": false,
+          "properties": {
+            "method": true, "url": true, "headers": true, "query": true, "body": true,
+            "success_status_codes": {
+              "description": "视为提交成功的 HTTP 状态码；缺省 200 / 201 / 202。成功码之下 task_id 无命中 ⇒ 提交失败，错误信息按 error 取。",
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "integer", "minimum": 200, "maximum": 299 }
+            },
+            "extract": {
+              "type": "object",
+              "required": ["task_id"],
+              "additionalProperties": false,
+              "properties": {
+                "task_id": { "$ref": "#/$defs/extractSpec" },
+                "error": { "$ref": "#/$defs/extractSpec" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "pollRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestBase" },
+        {
+          "type": "object",
+          "required": ["extract"],
+          "additionalProperties": false,
+          "properties": {
+            "method": true, "url": true, "headers": true, "query": true, "body": true,
+            "interval_seconds": { "type": "number", "minimum": 1, "maximum": 120, "default": 5 },
+            "timeout_seconds": { "type": "number", "minimum": 30, "maximum": 7200, "default": 900 },
+            "extract": {
+              "type": "object",
+              "required": ["status", "video_url"],
+              "additionalProperties": false,
+              "properties": {
+                "status": { "$ref": "#/$defs/extractSpec" },
+                "video_url": { "$ref": "#/$defs/extractSpec" },
+                "error": { "$ref": "#/$defs/extractSpec" },
+                "duration_seconds": { "$ref": "#/$defs/extractSpec" },
+                "seed": { "$ref": "#/$defs/extractSpec" },
+                "usage": {
+                  "description": "用量：无统一形状，按名字各取一条。#2126 定最终字段集。",
+                  "type": "object",
+                  "propertyNames": { "$ref": "#/$defs/identifier" },
+                  "additionalProperties": { "$ref": "#/$defs/extractSpec" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "capabilities": {
+      "description": "协议级能力声明，与 lib/video_backends/base.py::VideoCapabilities 同名同义；模型行沿用 capability_overrides 覆盖。",
+      "type": "object",
+      "required": ["first_frame", "last_frame", "max_reference_images"],
+      "additionalProperties": false,
+      "properties": {
+        "first_frame": { "type": "boolean" },
+        "last_frame": { "type": "boolean" },
+        "max_reference_images": { "type": "integer", "minimum": 0 },
+        "reference_audio_mode": { "enum": ["none", "direct"], "default": "none" },
+        "max_reference_audio_count": { "type": "integer", "minimum": 0, "default": 0 },
+        "max_reference_audio_total_seconds": { "type": ["number", "null"], "default": null },
+        "reference_audio_per_image": { "type": "boolean", "default": false },
+        "max_prompt_chars": { "type": ["integer", "null"], "minimum": 1, "default": null },
+        "first_frame_ratio_adaptive_only": { "type": "boolean", "default": false },
+        "audio_track": { "enum": ["controllable", "always_on", "always_off"], "default": "controllable" },
+        "reference_route_audio_track": { "enum": ["controllable", "always_on", "always_off", null], "default": null }
+      }
+    }
+  }
+}
