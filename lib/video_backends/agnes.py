@@ -339,32 +339,48 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         start_image = self._single_path(request.start_image)
         end_image = self._single_path(request.end_image)
 
-        # 参考图与首/尾帧走互斥的单通道。两者同时给出时
-        # fail-loud，而非静默走参考图分支丢掉用户的首/尾帧。
-        if reference_images and (start_image is not None or end_image is not None):
-            raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
-
-        # 尾帧仅在 keyframes（首+尾）模式下生效，无独立尾帧通道。只给尾帧时 fail-loud，而非静默
-        # 退化为文生视频——video_capabilities.last_frame=True 表示支持首尾帧对，不含单独尾帧。
-        if end_image is not None and start_image is None:
-            raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
-
+        # Agnes没有开始帧结束帧的区别，只有图生视频或者关键帧生视频，所以可以合并
+        # 如果只有单图，那么就是ti2vid，如果是多图，那么就是keyframes
+        if start_image is not None:
+            reference_images.append(start_image)
+        if end_image is not None:
+            reference_images.append(end_image)
+        
         if reference_images:
-            if len(reference_images) > _MAX_REFERENCE_IMAGES:
-                raise VideoCapabilityError(
-                    "video_reference_images_exceeded",
-                    model=self._model,
-                    count=len(reference_images),
-                    limit=_MAX_REFERENCE_IMAGES,
-                )
-            payload["extra_body"] = {"image": [self._encode_reference(p) for p in reference_images]}
-        elif start_image is not None and end_image is not None:
-            payload["extra_body"] = {
-                "image": [self._encode_start(start_image), self._encode_end(end_image)],
-                "mode": _KEYFRAMES_MODE,
-            }
-        elif start_image is not None:
-            payload["image"] = self._encode_start(start_image)
+            if len(reference_images) == 1:
+                payload["image"] = self._encode_reference(reference_images[0])
+            else:
+                payload["extra_body"] = {
+                    "image": [self._encode_reference(p) for p in reference_images],
+                    "mode": "keyframes",
+                }
+
+        # # 参考图与首/尾帧走互斥的单通道。两者同时给出时
+        # # fail-loud，而非静默走参考图分支丢掉用户的首/尾帧。
+        # if reference_images and (start_image is not None or end_image is not None):
+        #     raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
+
+        # # 尾帧仅在 keyframes（首+尾）模式下生效，无独立尾帧通道。只给尾帧时 fail-loud，而非静默
+        # # 退化为文生视频——video_capabilities.last_frame=True 表示支持首尾帧对，不含单独尾帧。
+        # if end_image is not None and start_image is None:
+        #     raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
+
+        # if reference_images:
+        #     if len(reference_images) > _MAX_REFERENCE_IMAGES:
+        #         raise VideoCapabilityError(
+        #             "video_reference_images_exceeded",
+        #             model=self._model,
+        #             count=len(reference_images),
+        #             limit=_MAX_REFERENCE_IMAGES,
+        #         )
+        #     payload["extra_body"] = {"image": [self._encode_reference(p) for p in reference_images]}
+        # elif start_image is not None and end_image is not None:
+        #     payload["extra_body"] = {
+        #         "image": [self._encode_start(start_image), self._encode_end(end_image)],
+        #         "mode": _KEYFRAMES_MODE,
+        #     }
+        # elif start_image is not None:
+        #     payload["image"] = self._encode_start(start_image)
 
         return payload
 
@@ -635,7 +651,7 @@ class AgnesVideo_2_5_Flash_Backend(ProviderJobIdPersistenceMixin):
         payload: dict = {
             "model": self._model,
             "prompt": request.prompt,
-            "seconds": request.duration_seconds,
+            "seconds": f"{request.duration_seconds}",
             "size": request.resolution,
             "aspect_ratio": request.aspect_ratio,
             "n": 1,
