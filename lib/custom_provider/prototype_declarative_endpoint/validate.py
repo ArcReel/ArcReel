@@ -47,14 +47,18 @@ def main() -> int:
         ("kind 未知", variant(lambda d: d.__setitem__("kind", "python"))),
         ("schema_version 非 semver", variant(lambda d: d.__setitem__("schema_version", "1.0"))),
         ("meta 缺 author", variant(lambda d: d["meta"].pop("author"))),
-        ("media_type=image（预留）", variant(lambda d: d["meta"].__setitem__("media_type", "image"))),
+        ("meta.media_type 已移除", variant(lambda d: d["meta"].__setitem__("media_type", "video"))),
+        ("inputs.mime_types 已移除", variant(lambda d: d["inputs"]["first_frame"].__setitem__("mime_types", ["image/png"]))),
+        ("submit.query 已移除", variant(lambda d: d["submit"].__setitem__("query", {"k": "v"}))),
+        ("poll.interval_seconds 已移除", variant(lambda d: d["poll"].__setitem__("interval_seconds", 5))),
+        ("capabilities.first_frame 已移除（由 inputs 推导）", variant(lambda d: d["capabilities"].__setitem__("first_frame", True))),
         ("inputs.encoding=url（预留）", variant(lambda d: d["inputs"]["first_frame"].__setitem__("encoding", "url"))),
         ("submit.extract 缺 task_id", variant(lambda d: d["submit"]["extract"].pop("task_id"))),
         ("poll.extract 缺 video_url", variant(lambda d: d["poll"]["extract"].pop("video_url"))),
         ("JSONPath 含 .. 递归", variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["$..url"]))),
         ("JSONPath 无 $ 前缀", variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["video_url"]))),
-        ("status_map 映射到 pending（非五个字面量）", variant(lambda d: d["status_map"].__setitem__("pending", "pending"))),
-        ("poll.expired_status_codes 含 200", variant(lambda d: d["poll"].__setitem__("expired_status_codes", [200]))),
+        ("status_map 映射到 expired（不由声明式产生）", variant(lambda d: d["status_map"].__setitem__("gone", "expired"))),
+        ("poll.expired_status_codes 已移除", variant(lambda d: d["poll"].__setitem__("expired_status_codes", [404]))),
         ("enum_maps 对 prompt 做映射", variant(lambda d: d["enum_maps"].__setitem__("prompt", {"a": "b"}))),
         (
             "$each 同时给 item 与 key",
@@ -72,11 +76,11 @@ def main() -> int:
         ("顶层多余键", variant(lambda d: d.__setitem__("api_key", "sk-xxx"))),
         ("auth.headers 值非字符串", variant(lambda d: d["auth"]["headers"].__setitem__("X-Num", 1))),
         (
-            "extract.source=status_code（不是提取来源）",
-            variant(lambda d: d["poll"]["extract"].__setitem__("status", {"paths": ["$.x"], "source": "status_code"})),
+            "extract.source 已移除",
+            variant(lambda d: d["poll"]["extract"].__setitem__("status", {"paths": ["$.x"], "source": "headers"})),
         ),
-        ("poll.success_status_codes 含 422", variant(lambda d: d["poll"].__setitem__("success_status_codes", [200, 422]))),
-        ("poll.retry_status_codes 含 200", variant(lambda d: d["poll"].__setitem__("retry_status_codes", [200]))),
+        ("poll.success_status_codes 已移除", variant(lambda d: d["poll"].__setitem__("success_status_codes", [200]))),
+        ("poll.retry_status_codes 已移除", variant(lambda d: d["poll"].__setitem__("retry_status_codes", [503]))),
     ]
     print()
     for label, doc in negatives:
@@ -118,8 +122,8 @@ def main() -> int:
             variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["$.data[?@.fileType == 'mp4'].fileUrl"])),
         ),
         ("无鉴权端点", variant(lambda d: d.__setitem__("auth", {}))),
-        ("status_map 映射到 expired（第五个字面量）", variant(lambda d: d["status_map"].__setitem__("gone", "expired"))),
-        ("poll 无 retry_status_codes（空表：任何非成功码即失败）", variant(lambda d: d["poll"].__setitem__("retry_status_codes", []))),
+        ("capabilities 整节省略", variant(lambda d: d.pop("capabilities"))),
+        ("meta 只有 name / author / version", variant(lambda d: (d["meta"].pop("hints"), d["meta"].pop("description")))),
     ]
     print()
     for label, doc in positives:

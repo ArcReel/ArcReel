@@ -30,7 +30,7 @@
   .kv { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 14px; }
   .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-all; }
   .badge { display: inline-block; padding: 2px 10px; border-radius: 6px; font-weight: 600; font-size: 13px; }
-  .badge.idle { background: #eee; } .badge.submitted, .badge.polling { background: #fff3d6; color: var(--warn); } .badge.done { background: #e2f1e6; color: var(--ok); } .badge.failed { background: #fbe4e2; color: var(--bad); } .badge.expired { background: #ece6f7; color: #5b3fa3; }
+  .badge.idle { background: #eee; } .badge.submitted, .badge.polling { background: #fff3d6; color: var(--warn); } .badge.done { background: #e2f1e6; color: var(--ok); } .badge.failed { background: #fbe4e2; color: var(--bad); }
   .issue { padding: 6px 10px; border-left: 3px solid var(--line); margin: 4px 0; font-size: 13px; background: #fff; }
   .issue.error { border-color: var(--bad); } .issue.warning { border-color: var(--warn); }
   .issue code { font-size: 12px; color: var(--muted); }
@@ -142,16 +142,17 @@
       <h2>待你拍板的约定</h2>
       <p class="muted">下面每条都已在本页按「原型选择」实现；走查时觉得哪条别扭，就是要改的地方。</p>
       <ol class="q-list">
-        <li><strong>响应根是 body。</strong>JSONPath 的 <code>$</code> 指向响应体；headers 经 extract 对象的 <code>source</code> 指定，而不是 n8n 式的 <code>$.body.…</code> 三分对象。HTTP 状态码不走 JSONPath：submit 用 <code>success_status_codes</code>；poll 用 <code>success_status_codes</code>（缺省 200）+ <code>retry_status_codes</code>（缺省 429 / 5xx，保持上一状态继续轮询）+ <code>expired_status_codes</code>（缺省 404 ⇒ expired），三表之外的码 ⇒ 任务失败（Segmind 式 422）。</li>
-        <li><strong>模板只替运行时区分四个结果：继续 / succeeded / failed / expired。</strong><code>status_map</code> 目标值直接用 <code>ProviderJobStatus</code> 五个字面量：queued 与 running 都是「继续轮询」（只影响 UI 文案，unknown → running 的兜底说明这个分割不承重）；<code>expired</code> 是独立终态：provider 已不认识这个任务（过期 / 404），任务本身没有缺陷——运行时在重启接续（ADR 0007）时据此给「可重试、不重扣费」而不是普通失败；折进 failed 会丢掉这个区分。<code>timeout_seconds</code> 耗尽由运行时自行产出 expired，不经模板。</li>
+        <li><strong>响应根是 body，且只有 body。</strong>JSONPath 的 <code>$</code> 指向解析后的响应体（不是 n8n 式的 <code>$.body.…</code> 包装对象），没有切换到 headers 的 <code>source</code>。HTTP 状态码不走 JSONPath，也不进定义文件：2xx 即成功；429 / 5xx 由运行时重试（保持上一状态继续轮询）；其余码 ⇒ 任务失败，错误按 <code>error</code> 从 body 取（Segmind 式 422）。</li>
+        <li><strong>模板只替运行时区分三个结果：继续 / succeeded / failed。</strong><code>status_map</code> 目标值用与 <code>ProviderJobStatus</code> 同名的四个字面量（queued 与 running 都是「继续轮询」，只影响 UI 文案，不加翻译层）。<code>expired</code> 不由声明式产生：手写模板的 404 多半是 URL 写错而非任务过期，抽样 0/10 有过期状态；声明式 backend 按 <code>v2_video_generations</code> 先例把 EXPIRED 折进 FAILED，日后放开是纯增量。</li>
         <li><strong><code>{{ api_key }}</code> 只在 auth 节可用，且 auth 节优先。</strong>请求体 / URL 里出现 <code>{{ api_key }}</code> 即校验失败；submit / poll 声明与 auth 同名的 header（不区分大小写）/ query 也是校验错误，渲染时以 auth 为准——凭证只有 auth 一个写入口。代价是凭证入体的旧式接口不支持。</li>
         <li><strong>轮询允许 POST + body</strong>（ComfyUI 托管平台需要）。submit / poll 是同一种请求对象。</li>
         <li><strong>整串单占位符保留原生类型；混合文本一律串化；值为 null 的整串占位符删掉所在键 / 元素；混合文本里遇到 null 报错。</strong></li>
         <li><strong>枚举映射只对 duration / aspect_ratio / resolution / generate_audio 开放</strong>，键按字符串化查表，缺项不发请求。数字→字符串枚举（"5"）走这里，不给模板加转换。</li>
         <li><strong>提取只收字符串命中</strong>（默认 <code>accept: string</code>），状态字段可声明 <code>accept: scalar</code> 以收整数码；数组 / 对象 / null 一律跳到下一条路径。</li>
         <li><strong><code>json_decode</code> + <code>then</code></strong> 是评估项：固定后缀、非表达式，换来 JSON-in-string 两家可用。要不要进首期？</li>
-        <li><strong>素材只有四个来源</strong>（start_image / end_image / reference_images / reference_audio_files）与两种编码；列表型只能经 <code>$each</code>；MIME 白名单不匹配即不发请求。</li>
-        <li><strong>能力声明与 <code>VideoCapabilities</code> 同名同义</strong>；<code>supported_durations</code> / <code>resolution</code> 仍留在模型行 DB，不进定义文件。</li>
+        <li><strong>素材只有四个来源</strong>（start_image / end_image / reference_images / reference_audio_files）与两种编码；列表型只能经 <code>$each</code>。不做 MIME 白名单：不支持的格式由供应商在提交时拒绝（未接单不计费）。</li>
+        <li><strong>能力声明与 <code>VideoCapabilities</code> 同名同义，但 <code>first_frame</code> / <code>last_frame</code> 由 inputs 推导</strong>（有 start_image / end_image 来源即支持），不再重复声明；<code>capabilities</code> 整节可省略。<code>supported_durations</code> / <code>resolution</code> 仍留在模型行 DB，不进定义文件。</li>
+        <li><strong>已砍字段（都是运行时策略或零信息，日后加回是增量）：</strong><code>submit/poll.query</code>（写进 url；auth.query 保留）、<code>success_status_codes</code>、<code>retry_status_codes</code>、<code>expired_status_codes</code>、<code>interval_seconds</code>、<code>timeout_seconds</code>、<code>extract.source</code>、<code>inputs.*.mime_types</code>、<code>poll.extract.duration_seconds / seed</code>、<code>meta.media_type</code>。校验器对这些字段给「字段已移除」错误而不是静默忽略。</li>
         <li><strong>ComfyUI 模板把 workflowId 当 <code>{{ model }}</code></strong>（模型行填工作流 id）。可接受的复用，还是需要独立变量？</li>
         <li><strong>自托管 ComfyUI <code>/history</code> 的产物不是 URL</strong>（filename / subfolder / type 要拼 <code>/view?…</code>），本原型不覆盖；托管平台形态（返回 fileUrl）可覆盖。</li>
         <li><strong>路径校验器是手写子集解析器</strong>（本页所用），前端是否引入 json-p3 做即时求值预览仍是 #2122 的未决项。</li>
@@ -266,7 +267,7 @@
 
   function render() {
     const s = state;
-    $("phase").innerHTML = `<span class="badge ${s.phase}">${{ idle: "未提交", submitted: "已提交", polling: "轮询中", done: "完成", failed: "失败", expired: "已过期" }[s.phase]}</span>`;
+    $("phase").innerHTML = `<span class="badge ${s.phase}">${{ idle: "未提交", submitted: "已提交", polling: "轮询中", done: "完成", failed: "失败" }[s.phase]}</span>`;
     $("taskId").textContent = s.taskId ?? "—";
     $("canonical").innerHTML = s.status ? `<strong>${esc(s.status.canonical)}</strong> <span class="muted">（原值 ${esc(JSON.stringify(s.status.raw))} · ${esc(s.status.source)}）</span>` : "—";
     $("videoUrl").textContent = s.videoUrl ?? "—";
@@ -282,14 +283,14 @@
     const po = s.poll;
     $("pollReq").textContent = po ? pretty({ method: po.request.method, url: po.request.url, headers: po.request.headers, body: po.request.body }) : "—";
     $("pollResp").textContent = po ? pretty(po.response) : "—";
-    $("statusChain").innerHTML = po ? `<div>原值 <code>${esc(JSON.stringify(po.mapped.raw))}</code> → 字符串化 + lowercase <code>${esc(JSON.stringify(po.mapped.key))}</code> → 查 <strong>${esc(po.mapped.source)}</strong> → <strong>${esc(po.mapped.canonical)}</strong></div><div class="muted">status_map 优先，其次内置同义词表，都没有则按 running 继续轮询。queued / running 对运行时都是「继续」；expired 是独立终态（provider 已不认识该任务）。</div>` : "—";
+    $("statusChain").innerHTML = po ? `<div>原值 <code>${esc(JSON.stringify(po.mapped.raw))}</code> → 字符串化 + lowercase <code>${esc(JSON.stringify(po.mapped.key))}</code> → 查 <strong>${esc(po.mapped.source)}</strong> → <strong>${esc(po.mapped.canonical)}</strong></div><div class="muted">status_map 优先，其次内置同义词表，都没有则按 running 继续轮询。queued / running 对运行时都是「继续」；expired 不由声明式产生，内置表折为 failed。</div>` : "—";
     $("pollExtract").innerHTML = po ? extractsHtml({ ...po.extract, ...Object.fromEntries(Object.entries(po.usage).map(([k, v]) => ["usage." + k, v])) }) : "—";
     renderScenarioSteps();
   }
 
   // ─── 引导走查 ───
   const withRefs = (d) => {
-    d.inputs = { ...(d.inputs || {}), reference_images: { source: "reference_images", encoding: "base64", mime_types: ["image/png", "image/jpeg"] } };
+    d.inputs = { ...(d.inputs || {}), reference_images: { source: "reference_images", encoding: "base64" } };
     d.submit.body.reference_images = [{ $each: { in: "inputs.reference_images", as: "img", item: { type: "image", data: "{{ img }}", slot: "{{ index }}" } } }];
     d.submit.body.$each = { in: "inputs.reference_images", as: "img", key: "image_{{ index }}", value: "{{ img }}" };
     d.capabilities.max_reference_images = 3;
@@ -327,9 +328,6 @@
     { id: "g_enum_miss", title: "枚举映射缺项 → 不发请求", template: "generic-submit-poll", ui: { p_duration: "7" },
       desc: "duration 选了 7，而 enum_maps.duration 只登记了 5 / 10。看点：渲染阶段就 fail-loud，请求根本没渲染出来（提交面板是空的），不会拿供应商的默认档位去付费。",
       steps: [["提交：正常接单（不会发出去）", { type: "SUBMIT", fixture: "ok" }]] },
-    { id: "g_mime", title: "素材 MIME 白名单", template: "generic-submit-poll", ui: { a_start: "image/webp" },
-      desc: "首帧是 webp，而 inputs.first_frame.mime_types 只允许 jpeg / png。看点：编码阶段拒绝，同样不发请求。",
-      steps: [["提交：正常接单（不会发出去）", { type: "SUBMIT", fixture: "ok" }]] },
     { id: "g_validate", title: "定义校验：故意写坏", template: "generic-submit-poll", patch: withBadThings, ui: {},
       desc: "定义被打了六处坏补丁：请求体里引用 {{ api_key }}、引用未声明的 {{ nope }}、在 submit 里用 {{ task_id }}、video_url 用了 $..url 递归、status_map 映射到 expired、poll.headers 声明了与 auth 同名的 authorization（小写）。看左栏「校验结果」——六条错误应各自命中；这一票要拍板的是错误文案是否足够让作者自己改对。",
       steps: [["看左栏校验结果（无需点）", { type: "NOOP" }]] },
@@ -337,10 +335,10 @@
       desc: "video_url 改成对象形式：paths 里第二条命中 data.resultJson（一个 JSON 字符串），json_decode 后按 then 的 $.resultUrls[0] 继续取。看点：提取轨迹里多出一行 (json_decode)。这能换来 kie.ai 统一接口与 Segmind PixelFlow 两家——值不值一个开关？",
       steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：产物藏在字符串里", { type: "POLL", fixture: "json_in_string" }]] },
     { id: "g_http", title: "轮询 HTTP 级错误 · 瞬时 vs 失败", template: "generic-submit-poll", ui: {},
-      desc: "HTTP 码不走 JSONPath。看点：503 在 retry_status_codes 内 → 不看 body，保持上一状态（queued）继续轮询；422 不在 success / retry / expired 任一表 → 任务失败，错误信息按 poll.extract.error 从 body 取（Segmind 式）。",
+      desc: "HTTP 码不走 JSONPath，也不进定义文件。看点：503 是运行时认定的瞬时错误 → 不看 body，保持上一状态（queued）继续轮询；422 非 2xx 且非瞬时 → 任务失败，错误信息按 poll.extract.error 从 body 取（Segmind 式）。",
       steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：503 瞬时", { type: "POLL", fixture: "http_503" }], ["轮询：422 失败", { type: "POLL", fixture: "http_422" }]] },
-    { id: "g_expired", title: "expired 独立终态 · body 与 404 两条路", template: "generic-submit-poll", ui: {},
-      desc: "① body 回 expired：不在模板 status_map，内置同义词表映到 expired（来源 builtin），reducer 进「已过期」终态而不是失败。② 重置后再来一次，轮询直接回 HTTP 404：命中 expired_status_codes，同样进 expired。两条路对运行时都是同一结果：终态，且重启接续时按「可重试、不重扣费」处理。",
+    { id: "g_expired", title: "expired / 404 都是 failed", template: "generic-submit-poll", ui: {},
+      desc: "① body 回 expired：不在模板 status_map，内置同义词表折为 failed（来源 builtin）。② 重置后再来一次，轮询直接回 HTTP 404：非 2xx 且非瞬时 → failed，错误取 body 的 error。声明式不产生 expired：手写模板的 404 多半是 URL 写错，不该被当成「可安全重试」。",
       steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：body expired", { type: "POLL", fixture: "expired" }], ["重置", { type: "RESET" }], ["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：HTTP 404", { type: "POLL", fixture: "http_404" }]] },
     { id: "g_unknown", title: "未知状态串兜底 · 成功无产物", template: "generic-submit-poll", ui: {},
       desc: "WAITING_GPU 既不在 status_map 也不在内置表 → 按 running 继续轮询（与现有 normalize_provider_status 一致）。随后 completed 却没有 video_url → 判失败而不是去下载空 URL。",

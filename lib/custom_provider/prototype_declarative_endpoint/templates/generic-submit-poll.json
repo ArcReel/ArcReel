@@ -5,7 +5,6 @@
     "name": "通用提交 + 轮询",
     "author": "ArcReel",
     "version": "0.1.0",
-    "media_type": "video",
     "description": "「JSON in/out + 提交/轮询」流派的最小骨架：扁平请求体、字符串状态、扁平产物字段。复制后改 url / 字段名即可对接同流派的中转站。",
     "hints": {
       "base_url": "https://api.example.com",
@@ -16,7 +15,7 @@
     "headers": { "Authorization": "Bearer {{ api_key }}" }
   },
   "inputs": {
-    "first_frame": { "source": "start_image", "encoding": "data_uri", "mime_types": ["image/jpeg", "image/png"] }
+    "first_frame": { "source": "start_image", "encoding": "data_uri" }
   },
   "enum_maps": {
     "duration": { "5": 5, "10": 10 }
@@ -40,11 +39,6 @@
   "poll": {
     "method": "GET",
     "url": "{{ base_url }}/v1/video/fetch/{{ task_id }}",
-    "interval_seconds": 5,
-    "timeout_seconds": 900,
-    "success_status_codes": [200],
-    "retry_status_codes": [429, 500, 502, 503, 504],
-    "expired_status_codes": [404],
     "extract": {
       "status": ["$.status"],
       "video_url": ["$.video_url"],
@@ -61,8 +55,6 @@
     "failed": "failed"
   },
   "capabilities": {
-    "first_frame": true,
-    "last_frame": false,
     "max_reference_images": 0,
     "audio_track": "controllable"
   }

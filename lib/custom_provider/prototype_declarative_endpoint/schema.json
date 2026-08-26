@@ -4,7 +4,7 @@
   "title": "ArcReel 自定义调用端点 · 声明式定义（原型 #2123）",
   "description": "PROTOTYPE — 供 #2123 讨论用的 schema 草案，不是正式契约。JSON Schema 只管结构；占位符引用、JSONPath 语法子集、api_key 作用域等语义规则由校验器（declarative_endpoint.js / 后端）另行检查。",
   "type": "object",
-  "required": ["kind", "schema_version", "meta", "auth", "submit", "poll", "capabilities"],
+  "required": ["kind", "schema_version", "meta", "auth", "submit", "poll"],
   "additionalProperties": false,
   "properties": {
     "kind": {
@@ -36,10 +36,10 @@
     "submit": { "$ref": "#/$defs/submitRequest" },
     "poll": { "$ref": "#/$defs/pollRequest" },
     "status_map": {
-      "description": "供应商状态串 → ProviderJobStatus 五个字面量。查表前原值先字符串化（整数状态码可用）、lowercase + strip。本表叠加在内置同义词表之上（本表优先）；两表都未登记的串按 running 继续轮询。运行时只区分四个结果：queued / running 都是「继续轮询」（仅影响 UI 文案）；succeeded 取 video_url；failed 取 error；expired 表示 provider 端已不认识这个任务（过期 / 不存在）——任务本身没有缺陷，运行时据此在重启接续（ADR 0007）时给出「可重试、不重扣费」而不是普通失败。timeout_seconds 耗尽由运行时自行产出 expired，不经本表。",
+      "description": "供应商状态串 → queued / running / succeeded / failed（与 ProviderJobStatus 同名，不加翻译层）。查表前原值先字符串化（整数状态码可用）、lowercase + strip。本表叠加在内置同义词表之上（本表优先）；两表都未登记的串按 running 继续轮询。运行时只区分三个结果：queued / running 都是「继续轮询」（仅影响 UI 文案）；succeeded 取 video_url；failed 取 error。expired 不由声明式产生：手写模板的 404 多半是 URL 写错而非任务过期，声明式 backend 按 v2_video_generations 先例把 EXPIRED 折进 FAILED；日后放开是纯增量。",
       "type": "object",
       "propertyNames": { "type": "string", "minLength": 1 },
-      "additionalProperties": { "enum": ["queued", "running", "succeeded", "failed", "expired"] }
+      "additionalProperties": { "enum": ["queued", "running", "succeeded", "failed"] }
     },
     "capabilities": { "$ref": "#/$defs/capabilities" }
   },
@@ -99,13 +99,12 @@
     },
     "meta": {
       "type": "object",
-      "required": ["name", "author", "version", "media_type"],
+      "required": ["name", "author", "version"],
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string", "minLength": 1, "maxLength": 80 },
         "author": { "type": "string", "minLength": 1, "maxLength": 80 },
         "version": { "$ref": "#/$defs/semver" },
-        "media_type": { "description": "首期只有 video；image / audio 为预留值，导入时拒绝。", "enum": ["video"] },
         "description": { "type": "string", "maxLength": 2000 },
         "homepage": { "type": "string", "format": "uri" },
         "hints": {
@@ -149,14 +148,8 @@
           "enum": ["start_image", "end_image", "reference_images", "reference_audio_files"]
         },
         "encoding": {
-          "description": "首期只有 data_uri 与 base64；url 预留给「素材公网 URL 托管」。",
+          "description": "首期只有 data_uri 与 base64；url 预留给「素材公网 URL 托管」。素材格式不做白名单：不支持的格式由供应商在提交时拒绝（未接单不计费）。",
           "enum": ["data_uri", "base64"]
-        },
-        "mime_types": {
-          "description": "允许的 MIME 白名单；不在其中的素材在发请求前 fail-loud。缺省不限制。",
-          "type": "array",
-          "minItems": 1,
-          "items": { "type": "string", "pattern": "^[a-z]+/[a-z0-9.+-]+$" }
         }
       }
     },
@@ -167,7 +160,7 @@
       "not": { "pattern": "\\.\\." }
     },
     "extractSpec": {
-      "description": "响应取值：JSONPath 优先级数组，逐条求值，第一条产生「可接受命中」的路径胜出，取其第一个节点。简写形式即路径数组（accept=string）。",
+      "description": "响应取值：JSONPath 优先级数组，逐条求值，第一条产生「可接受命中」的路径胜出，取其第一个节点。简写形式即路径数组（accept=string）。$ 一律指向解析后的响应体；HTTP 状态码不走 JSONPath（2xx 即成功，429 / 5xx 由运行时重试，其余码即失败）。",
       "oneOf": [
         { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/jsonpath" } },
         {
@@ -191,11 +184,6 @@
               "type": "array",
               "minItems": 1,
               "items": { "$ref": "#/$defs/jsonpath" }
-            },
-            "source": {
-              "description": "路径求值的根：body（默认）或 headers（键小写）。HTTP 状态码不走 JSONPath：submit 用 success_status_codes，poll 用 success_status_codes + retry_status_codes + expired_status_codes。",
-              "enum": ["body", "headers"],
-              "default": "body"
             }
           },
           "dependentRequired": { "then": ["json_decode"] }
@@ -212,7 +200,6 @@
           "$ref": "#/$defs/template"
         },
         "headers": { "$ref": "#/$defs/headerMap" },
-        "query": { "$ref": "#/$defs/queryMap" },
         "body": { "$ref": "#/$defs/jsonTemplate" }
       }
     },
@@ -224,14 +211,9 @@
           "required": ["extract"],
           "additionalProperties": false,
           "properties": {
-            "method": true, "url": true, "headers": true, "query": true, "body": true,
-            "success_status_codes": {
-              "description": "视为提交成功的 HTTP 状态码；缺省 200 / 201 / 202。成功码之下 task_id 无命中 ⇒ 提交失败，错误信息按 error 取。",
-              "type": "array",
-              "minItems": 1,
-              "items": { "type": "integer", "minimum": 200, "maximum": 299 }
-            },
+            "method": true, "url": true, "headers": true, "body": true,
             "extract": {
+              "description": "任何 2xx 视为提交成功；成功码之下 task_id 无命中 ⇒ 提交失败，错误信息按 error 取。",
               "type": "object",
               "required": ["task_id"],
               "additionalProperties": false,
@@ -252,26 +234,9 @@
           "required": ["extract"],
           "additionalProperties": false,
           "properties": {
-            "method": true, "url": true, "headers": true, "query": true, "body": true,
-            "interval_seconds": { "type": "number", "minimum": 1, "maximum": 120, "default": 5 },
-            "timeout_seconds": { "type": "number", "minimum": 30, "maximum": 7200, "default": 900 },
-            "success_status_codes": {
-              "description": "视为轮询响应有效的 HTTP 状态码；缺省 200。成功码之下再按 extract.status 查状态。",
-              "type": "array",
-              "minItems": 1,
-              "items": { "type": "integer", "minimum": 200, "maximum": 299 }
-            },
-            "retry_status_codes": {
-              "description": "视为瞬时错误、保持上一状态继续轮询的 HTTP 状态码；缺省 429 / 500 / 502 / 503 / 504。既不在 success / retry / expired 任一表的码 ⇒ 任务失败，错误信息按 extract.error 取（Segmind 式 422）。",
-              "type": "array",
-              "items": { "type": "integer", "minimum": 400, "maximum": 599 }
-            },
-            "expired_status_codes": {
-              "description": "视为 provider 端任务已过期 / 不存在的 HTTP 状态码；缺省 404。语义同 status_map 的 expired。",
-              "type": "array",
-              "items": { "type": "integer", "minimum": 400, "maximum": 599 }
-            },
+            "method": true, "url": true, "headers": true, "body": true,
             "extract": {
+              "description": "轮询间隔 / 超时 / 瞬时错误重试是运行时策略，不进定义文件。2xx 之下按 status 查状态；429 / 5xx 保持上一状态继续轮询；其余码 ⇒ 任务失败，错误按 error 取（Segmind 式 422）。",
               "type": "object",
               "required": ["status", "video_url"],
               "additionalProperties": false,
@@ -279,8 +244,6 @@
                 "status": { "$ref": "#/$defs/extractSpec" },
                 "video_url": { "$ref": "#/$defs/extractSpec" },
                 "error": { "$ref": "#/$defs/extractSpec" },
-                "duration_seconds": { "$ref": "#/$defs/extractSpec" },
-                "seed": { "$ref": "#/$defs/extractSpec" },
                 "usage": {
                   "description": "用量：无统一形状，按名字各取一条。#2126 定最终字段集。",
                   "type": "object",
@@ -294,14 +257,11 @@
       ]
     },
     "capabilities": {
-      "description": "协议级能力声明，与 lib/video_backends/base.py::VideoCapabilities 同名同义；模型行沿用 capability_overrides 覆盖。",
+      "description": "协议级能力声明，与 lib/video_backends/base.py::VideoCapabilities 同名同义；模型行沿用 capability_overrides 覆盖。first_frame / last_frame 不在此声明，由 inputs 是否存在 start_image / end_image 来源推导。整节可省略（全部取默认值）。",
       "type": "object",
-      "required": ["first_frame", "last_frame", "max_reference_images"],
       "additionalProperties": false,
       "properties": {
-        "first_frame": { "type": "boolean" },
-        "last_frame": { "type": "boolean" },
-        "max_reference_images": { "type": "integer", "minimum": 0 },
+        "max_reference_images": { "type": "integer", "minimum": 0, "default": 0 },
         "reference_audio_mode": { "enum": ["none", "direct"], "default": "none" },
         "max_reference_audio_count": { "type": "integer", "minimum": 0, "default": 0 },
         "max_reference_audio_total_seconds": { "type": ["number", "null"], "default": null },

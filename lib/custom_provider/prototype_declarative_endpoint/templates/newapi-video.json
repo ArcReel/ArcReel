@@ -5,7 +5,6 @@
     "name": "NewAPI 视频（/v1/video/generations）",
     "author": "ArcReel",
     "version": "0.1.0",
-    "media_type": "video",
     "description": "new-api 内核中转站的视频任务接口。同一任务的轮询响应有三种形状（Gemini 渠道 / 通用 TaskDto / OpenAI 风格），产物与状态用优先级数组一次覆盖；三套状态词表全部登记在 status_map。",
     "hints": {
       "base_url": "https://your-newapi-host",
@@ -36,7 +35,6 @@
         "image_tail": "{{ inputs.last_frame }}"
       }
     },
-    "success_status_codes": [200, 201],
     "extract": {
       "task_id": ["$.task_id", "$.id"],
       "error": ["$.error.message", "$.message"]
@@ -65,8 +63,6 @@
     "unknown": "running"
   },
   "capabilities": {
-    "first_frame": true,
-    "last_frame": true,
     "max_reference_images": 0,
     "audio_track": "controllable"
   }
