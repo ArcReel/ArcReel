@@ -637,6 +637,7 @@ with open(sys.argv[1], "w", encoding="utf-8") as fifo:
             snapshot_writer.stdin.write("\n")
             snapshot_writer.stdin.flush()
         except BrokenPipeError:
+            # The child may close stdin after its FIFO write completes.
             pass
 
     patching = asyncio.create_task(_call(patch_draft_tool(fake_ctx), {**args, "source": "source/episode_2.txt"}))
@@ -654,6 +655,7 @@ with open(sys.argv[1], "w", encoding="utf-8") as fifo:
         try:
             snapshot_writer.stdin.close()
         except BrokenPipeError:
+            # The child may close stdin after its FIFO write completes.
             pass
         snapshot_writer.stdout.close()
         if not patching.done():

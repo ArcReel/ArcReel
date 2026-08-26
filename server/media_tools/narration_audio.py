@@ -211,10 +211,11 @@ async def handle_generate_narration_audio(ctx: ToolContext, args: dict[str, Any]
 def generate_narration_audio_tool(ctx: ToolContext):
     @tool(
         _OPERATION,
-        "为任意生成模式中由 narrator 拥有发声内容的单元显式生成旁白配音（TTS），入队并等待完成。"
+        "为任意生成模式中由 narrator 拥有发声内容的单元显式生成旁白配音（TTS）。embedded 调用入队并等待完成；"
+        "remote MCP 调用返回 durable generation_batch，须按 poll_after_seconds 查询 get_generation_batch 直到 done=true。"
         "script 为剧本文件名（如 episode_1.json）；segment_ids 接受当前骨架的 unit ID 列表"
         "（不传则只选缺旁白配音的 narrator 单元；已失效但可用的旧配音不会被自动重生）。"
-        "返回 requested / succeeded / failed / blocked 的逐 ID 结果，"
+        "终态返回 requested / succeeded / failed / blocked 的逐 ID 结果，"
         "每个失败项带稳定 code 与下一步动作。"
         "合成文本在 worker 开始时从最新剧本的规范 narrator utterances 读取，不依赖分镜图或视频。",
         {

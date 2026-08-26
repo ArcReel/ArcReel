@@ -571,6 +571,16 @@ class TestExecuteGridTask:
             def compensate_cancelled(self) -> None:
                 compensated.append("manifest")
 
+        class _SplitResult:
+            updated_scene_ids = ["E1S01"]
+
+            def compensate_cancelled(self) -> None:
+                compensated.append("split")
+
+        async def _split(*_args, **kwargs):
+            assert kwargs["task_aware"] is True
+            return _SplitResult()
+
         generator = _Generator()
         with (
             patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -582,6 +592,7 @@ class TestExecuteGridTask:
                 "server.services.generation_tasks.register_formal_task_artifact",
                 return_value=_ManifestReceipt(),
             ),
+            patch("server.services.grid_split.apply_grid_split", new=_split),
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
@@ -596,7 +607,11 @@ class TestExecuteGridTask:
             result = await execute_grid_task(
                 "test-project",
                 grid_id,
-                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                {
+                    "prompt": "test grid prompt",
+                    "script_file": "episode_1.json",
+                    "report_scene_ids": ["E1S01"],
+                },
                 user_id="test-user",
                 task_id="grid-task",
             )
@@ -614,7 +629,7 @@ class TestExecuteGridTask:
         assert restored.provider == "later-provider"
         assert versions.get_current_version("grids", grid_id) == old_version
         assert current.read_bytes() == b"old-grid"
-        assert compensated == ["manifest"]
+        assert compensated == ["split", "manifest"]
 
     async def test_execute_grid_task_does_not_touch_storyboards(self, project_with_script, grid_json):
         """生成任务只产出联合图：不写任何分镜格文件、不回写剧本、不登记分镜版本——

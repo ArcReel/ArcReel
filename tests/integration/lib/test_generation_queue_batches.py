@@ -207,13 +207,14 @@ async def test_one_paid_task_can_project_to_every_requested_unit(
         blocked=[],
         source="mcp",
     )
-    task = await _enqueue(batch_queue, batch_id, "E1S01")
-    await batch_queue.attach_task_to_generation_batch(
+    task = await batch_queue.enqueue_task(
         project_name="demo",
+        task_type="storyboard",
+        media_type="image",
+        resource_id="grid-1",
+        script_file="episode_01.json",
         batch_id=batch_id,
-        task_id=task["task_id"],
-        unit_id="E1S02",
-        deduped=False,
+        batch_unit_ids=("E1S01", "E1S02"),
     )
 
     submitted = await batch_queue.get_generation_batch(project_name="demo", batch_id=batch_id)

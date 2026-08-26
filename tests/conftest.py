@@ -332,7 +332,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     分类 marker 由用例所在的 `tests/unit|integration|e2e/` 段决定，不手写。
     `uses_db` 只在用例消费本 conftest 的方言敏感 fixture（`async_session` /
-    `session_factory` / `file_session_factory`）时注入；用例在本地覆写同名 fixture
+    `session_factory` / `concurrent_session_factory` / `file_session_factory`）时注入；用例在本地覆写同名 fixture
     为硬编码 SQLite engine 时不注入，使 postgres-compat job 保持真实的方言信号，
     而不是把只跑 SQLite 的代码算进 `postgres` 覆盖率标记。
     """

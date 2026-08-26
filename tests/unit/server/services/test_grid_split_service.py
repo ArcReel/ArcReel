@@ -242,6 +242,87 @@ class TestApplyGridSplit:
         assert emit.call_args.kwargs["resource_id"] == grid.id
         assert result.asset_fingerprints == {"a": 1}
 
+    async def test_task_cancellation_restores_split_cells_and_sidecars(
+        self,
+        project_with_script,
+        grid_with_image,
+    ):
+        from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+        from lib.version_manager import VersionManager
+
+        _register_grid(project_with_script, grid_with_image)
+        storyboards = project_with_script / "storyboards"
+        old_bytes = {}
+        for index, scene_id in enumerate(("E1S01", "E1S02", "E1S03"), start=1):
+            old_bytes[scene_id] = f"old-{index}".encode()
+            (storyboards / f"scene_{scene_id}.png").write_bytes(old_bytes[scene_id])
+
+        pm = ProjectManager(project_with_script.parent)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            patch("server.services.generation_tasks.emit_generation_success_batch", return_value={}),
+        ):
+            result = await apply_grid_split("test-project", grid_with_image, task_aware=True)
+
+        split_grid = GridManager(project_with_script).get(grid_with_image.id)
+        assert split_grid is not None
+        assert split_grid.split_at is not None
+        result.compensate_cancelled()
+
+        script = pm.load_script("test-project", "episode_1.json")
+        for item in script["segments"]:
+            scene_id = item["segment_id"]
+            assert (storyboards / f"scene_{scene_id}.png").read_bytes() == old_bytes[scene_id]
+            assert item["generated_assets"]["storyboard_image"] is None
+            assert item["generated_assets"].get("grid_id") is None
+            assert item["generated_assets"].get("grid_cell_index") is None
+            assert (
+                ProjectArtifactManifestAdapter(project_with_script).get_entry(
+                    ArtifactKey.episode_storyboard(1, scene_id)
+                )
+                is None
+            )
+            assert VersionManager(project_with_script).get_current_version("storyboards", scene_id) == 1
+
+        restored_grid = GridManager(project_with_script).get(grid_with_image.id)
+        assert restored_grid is not None
+        assert restored_grid.split_at is None
+        assert all(frame.image_path is None for frame in restored_grid.frame_chain)
+
+    async def test_task_cancellation_preserves_a_later_cell_selection(
+        self,
+        project_with_script,
+        grid_with_image,
+    ):
+        from lib.version_manager import VersionManager
+
+        _register_grid(project_with_script, grid_with_image)
+        storyboards = project_with_script / "storyboards"
+        for scene_id in ("E1S01", "E1S02", "E1S03"):
+            (storyboards / f"scene_{scene_id}.png").write_bytes(f"old-{scene_id}".encode())
+
+        pm = ProjectManager(project_with_script.parent)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            patch("server.services.generation_tasks.emit_generation_success_batch", return_value={}),
+        ):
+            result = await apply_grid_split("test-project", grid_with_image, task_aware=True)
+
+        versions = VersionManager(project_with_script)
+        later_file = storyboards / "scene_E1S01.png"
+        later_file.write_bytes(b"later-edit")
+        later_version = versions.add_version("storyboards", "E1S01", "later", source_file=later_file)
+
+        result.compensate_cancelled()
+
+        assert versions.get_current_version("storyboards", "E1S01") == later_version
+        assert later_file.read_bytes() == b"later-edit"
+        for scene_id in ("E1S02", "E1S03"):
+            assert (storyboards / f"scene_{scene_id}.png").read_bytes() == f"old-{scene_id}".encode()
+        restored_grid = GridManager(project_with_script).get(grid_with_image.id)
+        assert restored_grid is not None
+        assert restored_grid.split_at is not None
+
     async def test_registration_failure_restores_every_split_sidecar(self, project_with_script, grid_with_image):
         from lib.version_manager import VersionManager
 

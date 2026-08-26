@@ -211,6 +211,8 @@ async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id
     item = result.items[0]
     assert item.problem is not None
     assert item.problem.code == "generation_post_processing_failed"
+    assert item.problem.detail == "联合图已生成，但切分落格失败（不要重新生成）"
+    assert "cannot write the split cells" not in item.problem.detail
     assert item.problem.params["grid_id"].startswith("grid_")
     # 恢复路径只在宫格面板内可执行，不是本工具能派发的下一步：action 不能是
     # RETRY，否则按 action 派发的消费者会重跑 generate_grid，重新生成联合图

@@ -4,7 +4,7 @@
 
 Values such as narration delivery and confirmed request durations belong to one request rather than persistent project settings. Carry them into later plan calls only while the user's choice still applies. Never invent a value merely to satisfy a required argument.
 
-Stop all mutations when the plan reports blockers or `next_action.type` is `none`. Use the structured problem code, action, path, and details; do not parse prose to choose a recovery. Formal project data must be changed through ArcReel's transactional tools. If the available remote tools cannot repair it, explain the limit instead of editing storage directly.
+Stop all mutations when `next_action.type` is `none`. When the plan reports blockers, execute only a recovery action explicitly named by `next_action`; `retry_project_migration` is the permitted migration recovery, not permission for unrelated mutations. Use the structured problem code, action, path, and details; do not parse prose to choose a recovery. Formal project data must be changed through ArcReel's transactional tools. If the available remote tools cannot repair it, explain the limit instead of editing storage directly.
 
 Get explicit consent before destructive changes or any action that the plan or tool identifies as billable. Video batch admission is all-or-nothing: when admission is blocked or needs confirmation, enqueue nothing, explain each affected unit, resolve the reported action, and request a fresh plan.
 

@@ -363,6 +363,9 @@ class GenerationQueue:
         so cancel API can deliver signals synchronously (ADR 0006 秒级响应)."""
         self._worker_cancel_callback = callback
 
+    async def assert_project_migration_ok(self, project_name: str) -> None:
+        await asyncio.to_thread(assert_project_migration_ok, project_name, self._project_manager)
+
     @asynccontextmanager
     async def _task_repo(self) -> AsyncIterator[TaskRepository]:
         """打开一条 TaskRepository 会话，退出时把落地的任务终态发上项目事件总线。
@@ -401,7 +404,7 @@ class GenerationQueue:
         # Every Web, Agent and batch generation entry reaches the queue through this
         # method, so a project whose migration failed is refused here once instead of
         # at each caller. Nothing is created and nothing is billed.
-        await asyncio.to_thread(assert_project_migration_ok, project_name, self._project_manager)
+        await self.assert_project_migration_ok(project_name)
 
         if task_type == "reference_video":
             payload = reference_video_enqueue_payload(payload, script_file=script_file)
