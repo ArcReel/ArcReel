@@ -151,7 +151,7 @@
         <li><strong>提取只收字符串命中</strong>（默认 <code>accept: string</code>），状态字段可声明 <code>accept: scalar</code> 以收整数码；数组 / 对象 / null 一律跳到下一条路径。</li>
         <li><strong><code>json_decode</code> + <code>then</code></strong> 是评估项：固定后缀、非表达式，换来 JSON-in-string 两家可用。要不要进首期？</li>
         <li><strong>素材只有四个来源</strong>（start_image / end_image / reference_images / reference_audio_files）与两种编码；列表型只能经 <code>$each</code>。不做 MIME 白名单：不支持的格式由供应商在提交时拒绝（未接单不计费）。</li>
-        <li><strong>能力声明与 <code>VideoCapabilities</code> 同名同义，但 <code>first_frame</code> / <code>last_frame</code> 由 submit 实际引用到的 inputs 推导</strong>（引用了 start_image / end_image 来源的 input 即支持；声明而未引用的 input 是校验错误），不再重复声明；<code>capabilities</code> 整节可省略。<code>supported_durations</code> / <code>resolution</code> 仍留在模型行 DB，不进定义文件。</li>
+        <li><strong>能力全部显式声明，<code>capabilities</code> 是唯一来源</strong>，字段与 <code>VideoCapabilities</code> 1:1；校验器与 submit 实际引用到的 inputs 做两向一致性检查（声明 first_frame 却没引用 start_image 来源、引用了 end_image 却没声明 last_frame、参考图 / 参考音频同理，都是错误；声明而未引用的 input 也是错误）。不做部分推导：推导只能证明「素材有没有发出去」，证明不了上限与音轨语义，两个来源不如一个。<code>capabilities</code> 整节可省略＝无素材输入。<code>supported_durations</code> / <code>resolution</code> 仍留在模型行 DB，不进定义文件。</li>
         <li><strong>已砍字段（都是运行时策略或零信息，日后加回是增量）：</strong><code>submit/poll.query</code>（写进 url；auth.query 保留）、<code>success_status_codes</code>、<code>retry_status_codes</code>、<code>expired_status_codes</code>、<code>interval_seconds</code>、<code>timeout_seconds</code>、<code>extract.source</code>、<code>inputs.*.mime_types</code>、<code>poll.extract.duration_seconds / seed</code>、<code>meta.media_type</code>。校验器对这些字段给「字段已移除」错误而不是静默忽略。</li>
         <li><strong>ComfyUI 模板把 workflowId 当 <code>{{ model }}</code></strong>（模型行填工作流 id）。可接受的复用，还是需要独立变量？</li>
         <li><strong>自托管 ComfyUI <code>/history</code> 的产物不是 URL</strong>（filename / subfolder / type 要拼 <code>/view?…</code>），本原型不覆盖；托管平台形态（返回 fileUrl）可覆盖。</li>
@@ -329,7 +329,7 @@
       desc: "duration 选了 7，而 enum_maps.duration 只登记了 5 / 10。看点：渲染阶段就 fail-loud，请求根本没渲染出来（提交面板是空的），不会拿供应商的默认档位去付费。",
       steps: [["提交：正常接单（不会发出去）", { type: "SUBMIT", fixture: "ok" }]] },
     { id: "g_validate", title: "定义校验：故意写坏", template: "generic-submit-poll", patch: withBadThings, ui: {},
-      desc: "定义被打了八处坏补丁：请求体里引用 {{ api_key }}、引用未声明的 {{ nope }}、在 submit 里用 {{ task_id }}、video_url 用了 $..url 递归、status_map 映射到 expired、poll.headers 声明了与 auth 同名的 authorization（小写）、声明了 submit 没引用的 inputs.unused_tail（否则会被推导成支持尾帧）、poll.url 自带与 auth.query 同名的 key。看左栏「校验结果」——八条错误应各自命中；要看的是错误文案是否足够让作者自己改对。",
+      desc: "定义被打了八处坏补丁：请求体里引用 {{ api_key }}、引用未声明的 {{ nope }}、在 submit 里用 {{ task_id }}、video_url 用了 $..url 递归、status_map 映射到 expired、poll.headers 声明了与 auth 同名的 authorization（小写）、声明了 submit 没引用的 inputs.unused_tail、poll.url 自带与 auth.query 同名的 key。看左栏「校验结果」——八条错误应各自命中；要看的是错误文案是否足够让作者自己改对。",
       steps: [["看左栏校验结果（无需点）", { type: "NOOP" }]] },
     { id: "g_json", title: "评估项：JSON-in-string 后缀", template: "generic-submit-poll", patch: withJsonDecode, ui: {},
       desc: "video_url 改成对象形式：paths 里第二条命中 data.resultJson（一个 JSON 字符串），json_decode 后按 then 的 $.resultUrls[0] 继续取。看点：提取轨迹里多出一行 (json_decode)。这能换来 kie.ai 统一接口与 Segmind PixelFlow 两家——值不值一个开关？",

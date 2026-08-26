@@ -53,6 +53,8 @@
     "805": "failed"
   },
   "capabilities": {
+    "first_frame": false,
+    "last_frame": false,
     "max_reference_images": 0,
     "audio_track": "always_off"
   }

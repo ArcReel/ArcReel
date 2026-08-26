@@ -51,7 +51,7 @@ def main() -> int:
         ("inputs.mime_types 已移除", variant(lambda d: d["inputs"]["first_frame"].__setitem__("mime_types", ["image/png"]))),
         ("submit.query 已移除", variant(lambda d: d["submit"].__setitem__("query", {"k": "v"}))),
         ("poll.interval_seconds 已移除", variant(lambda d: d["poll"].__setitem__("interval_seconds", 5))),
-        ("capabilities.first_frame 已移除（由 inputs 推导）", variant(lambda d: d["capabilities"].__setitem__("first_frame", True))),
+        ("capabilities.first_frame 非布尔", variant(lambda d: d["capabilities"].__setitem__("first_frame", "yes"))),
         ("inputs.encoding=url（预留）", variant(lambda d: d["inputs"]["first_frame"].__setitem__("encoding", "url"))),
         ("submit.extract 缺 task_id", variant(lambda d: d["submit"]["extract"].pop("task_id"))),
         ("poll.extract 缺 video_url", variant(lambda d: d["poll"]["extract"].pop("video_url"))),
@@ -122,7 +122,7 @@ def main() -> int:
             variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["$.data[?@.fileType == 'mp4'].fileUrl"])),
         ),
         ("无鉴权端点", variant(lambda d: d.__setitem__("auth", {}))),
-        ("capabilities 整节省略", variant(lambda d: d.pop("capabilities"))),
+        ("capabilities 只声明 first_frame（其余默认；一致性由语义校验器查）", variant(lambda d: d.__setitem__("capabilities", {"first_frame": True}))),
         ("meta 只有 name / author / version", variant(lambda d: (d["meta"].pop("hints"), d["meta"].pop("description")))),
     ]
     print()

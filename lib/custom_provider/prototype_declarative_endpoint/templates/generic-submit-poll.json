@@ -55,6 +55,8 @@
     "failed": "failed"
   },
   "capabilities": {
+    "first_frame": true,
+    "last_frame": false,
     "max_reference_images": 0,
     "audio_track": "controllable"
   }

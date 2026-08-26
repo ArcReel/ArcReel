@@ -257,10 +257,12 @@
       ]
     },
     "capabilities": {
-      "description": "协议级能力声明，与 lib/video_backends/base.py::VideoCapabilities 同名同义；模型行沿用 capability_overrides 覆盖。first_frame / last_frame 不在此声明，由 submit 里实际引用到的 inputs 是否含 start_image / end_image 来源推导（声明而未引用的 input 是校验错误）。整节可省略（全部取默认值）。",
+      "description": "协议级能力声明，与 lib/video_backends/base.py::VideoCapabilities 同名同义、全部显式声明（能力的唯一来源）；模型行沿用 capability_overrides 覆盖。校验器与 submit 里实际引用到的 inputs 做两向一致性检查：声明 first_frame / last_frame / max_reference_images>0 / reference_audio_mode≠none 时必须引用了对应来源的 input，引用了对应来源的 input 时必须声明该能力；声明而未引用的 input 是校验错误。整节可省略（全部取默认值，即无素材输入）。",
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "first_frame": { "type": "boolean", "default": false },
+        "last_frame": { "type": "boolean", "default": false },
         "max_reference_images": { "type": "integer", "minimum": 0, "default": 0 },
         "reference_audio_mode": { "enum": ["none", "direct"], "default": "none" },
         "max_reference_audio_count": { "type": "integer", "minimum": 0, "default": 0 },
