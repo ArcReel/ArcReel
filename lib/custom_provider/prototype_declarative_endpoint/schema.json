@@ -130,7 +130,7 @@
       }
     },
     "auth": {
-      "description": "鉴权：header 名 + 值模板，或 query 参数。{{ api_key }} 只允许出现在这一节；签名类不支持。两者都可为空（无鉴权端点）。submit / poll 不得声明与本节同名的 header（不区分大小写）/ query，冲突即校验失败；渲染时以本节为准。",
+      "description": "鉴权：header 名 + 值模板，或 query 参数。{{ api_key }} 只允许出现在这一节；签名类不支持。两者都可为空（无鉴权端点）。submit / poll 不得声明与本节同名的 header（不区分大小写），url 模板自带的 query 参数不得与本节 query 同名；冲突即校验失败。",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -257,7 +257,7 @@
       ]
     },
     "capabilities": {
-      "description": "协议级能力声明，与 lib/video_backends/base.py::VideoCapabilities 同名同义；模型行沿用 capability_overrides 覆盖。first_frame / last_frame 不在此声明，由 inputs 是否存在 start_image / end_image 来源推导。整节可省略（全部取默认值）。",
+      "description": "协议级能力声明，与 lib/video_backends/base.py::VideoCapabilities 同名同义；模型行沿用 capability_overrides 覆盖。first_frame / last_frame 不在此声明，由 submit 里实际引用到的 inputs 是否含 start_image / end_image 来源推导（声明而未引用的 input 是校验错误）。整节可省略（全部取默认值）。",
       "type": "object",
       "additionalProperties": false,
       "properties": {

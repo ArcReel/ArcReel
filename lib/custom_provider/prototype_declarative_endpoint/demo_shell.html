@@ -144,14 +144,14 @@
       <ol class="q-list">
         <li><strong>响应根是 body，且只有 body。</strong>JSONPath 的 <code>$</code> 指向解析后的响应体（不是 n8n 式的 <code>$.body.…</code> 包装对象），没有切换到 headers 的 <code>source</code>。HTTP 状态码不走 JSONPath，也不进定义文件：2xx 即成功；429 / 5xx 由运行时重试（保持上一状态继续轮询）；其余码 ⇒ 任务失败，错误按 <code>error</code> 从 body 取（Segmind 式 422）。</li>
         <li><strong>模板只替运行时区分三个结果：继续 / succeeded / failed。</strong><code>status_map</code> 目标值用与 <code>ProviderJobStatus</code> 同名的四个字面量（queued 与 running 都是「继续轮询」，只影响 UI 文案，不加翻译层）。<code>expired</code> 不由声明式产生：手写模板的 404 多半是 URL 写错而非任务过期，抽样 0/10 有过期状态；声明式 backend 按 <code>v2_video_generations</code> 先例把 EXPIRED 折进 FAILED，日后放开是纯增量。</li>
-        <li><strong><code>{{ api_key }}</code> 只在 auth 节可用，且 auth 节优先。</strong>请求体 / URL 里出现 <code>{{ api_key }}</code> 即校验失败；submit / poll 声明与 auth 同名的 header（不区分大小写）/ query 也是校验错误，渲染时以 auth 为准——凭证只有 auth 一个写入口。代价是凭证入体的旧式接口不支持。</li>
+        <li><strong><code>{{ api_key }}</code> 只在 auth 节可用，且 auth 节优先。</strong>请求体 / URL 里出现 <code>{{ api_key }}</code> 即校验失败；submit / poll 声明与 auth 同名的 header（不区分大小写）、url 模板自带与 auth.query 同名的参数，都是校验错误（渲染期再查一次，fail-loud）——凭证只有 auth 一个写入口。代价是凭证入体的旧式接口不支持。</li>
         <li><strong>轮询允许 POST + body</strong>（ComfyUI 托管平台需要）。submit / poll 是同一种请求对象。</li>
         <li><strong>整串单占位符保留原生类型；混合文本一律串化；值为 null 的整串占位符删掉所在键 / 元素；混合文本里遇到 null 报错。</strong></li>
         <li><strong>枚举映射只对 duration / aspect_ratio / resolution / generate_audio 开放</strong>，键按字符串化查表，缺项不发请求。数字→字符串枚举（"5"）走这里，不给模板加转换。</li>
         <li><strong>提取只收字符串命中</strong>（默认 <code>accept: string</code>），状态字段可声明 <code>accept: scalar</code> 以收整数码；数组 / 对象 / null 一律跳到下一条路径。</li>
         <li><strong><code>json_decode</code> + <code>then</code></strong> 是评估项：固定后缀、非表达式，换来 JSON-in-string 两家可用。要不要进首期？</li>
         <li><strong>素材只有四个来源</strong>（start_image / end_image / reference_images / reference_audio_files）与两种编码；列表型只能经 <code>$each</code>。不做 MIME 白名单：不支持的格式由供应商在提交时拒绝（未接单不计费）。</li>
-        <li><strong>能力声明与 <code>VideoCapabilities</code> 同名同义，但 <code>first_frame</code> / <code>last_frame</code> 由 inputs 推导</strong>（有 start_image / end_image 来源即支持），不再重复声明；<code>capabilities</code> 整节可省略。<code>supported_durations</code> / <code>resolution</code> 仍留在模型行 DB，不进定义文件。</li>
+        <li><strong>能力声明与 <code>VideoCapabilities</code> 同名同义，但 <code>first_frame</code> / <code>last_frame</code> 由 submit 实际引用到的 inputs 推导</strong>（引用了 start_image / end_image 来源的 input 即支持；声明而未引用的 input 是校验错误），不再重复声明；<code>capabilities</code> 整节可省略。<code>supported_durations</code> / <code>resolution</code> 仍留在模型行 DB，不进定义文件。</li>
         <li><strong>已砍字段（都是运行时策略或零信息，日后加回是增量）：</strong><code>submit/poll.query</code>（写进 url；auth.query 保留）、<code>success_status_codes</code>、<code>retry_status_codes</code>、<code>expired_status_codes</code>、<code>interval_seconds</code>、<code>timeout_seconds</code>、<code>extract.source</code>、<code>inputs.*.mime_types</code>、<code>poll.extract.duration_seconds / seed</code>、<code>meta.media_type</code>。校验器对这些字段给「字段已移除」错误而不是静默忽略。</li>
         <li><strong>ComfyUI 模板把 workflowId 当 <code>{{ model }}</code></strong>（模型行填工作流 id）。可接受的复用，还是需要独立变量？</li>
         <li><strong>自托管 ComfyUI <code>/history</code> 的产物不是 URL</strong>（filename / subfolder / type 要拼 <code>/view?…</code>），本原型不覆盖；托管平台形态（返回 fileUrl）可覆盖。</li>
@@ -297,7 +297,7 @@
     return d;
   };
   const withJsonDecode = (d) => { d.poll.extract.video_url = { paths: ["$.video_url", "$.data.resultJson"], json_decode: true, then: ["$.resultUrls[0]"] }; return d; };
-  const withBadThings = (d) => { d.submit.body.key = "{{ api_key }}"; d.submit.body.oops = "{{ nope }}"; d.submit.body.tid = "{{ task_id }}"; d.poll.extract.video_url = ["$..url", "$.video_url"]; d.status_map.timeout = "expired"; d.poll.headers = { authorization: "Basic dXNlcjpwYXNz" }; return d; };
+  const withBadThings = (d) => { d.submit.body.key = "{{ api_key }}"; d.submit.body.oops = "{{ nope }}"; d.submit.body.tid = "{{ task_id }}"; d.poll.extract.video_url = ["$..url", "$.video_url"]; d.status_map.timeout = "expired"; d.poll.headers = { authorization: "Basic dXNlcjpwYXNz" }; d.inputs.unused_tail = { source: "end_image", encoding: "base64" }; d.auth.query = { key: "{{ api_key }}" }; d.poll.url += "?key=dup"; return d; };
   const setUI = (o) => { for (const [k, v] of Object.entries(o)) { const el = $(k); if (el.type === "checkbox") el.checked = v; else el.value = v; } };
 
   const SCENARIOS = [
@@ -329,7 +329,7 @@
       desc: "duration 选了 7，而 enum_maps.duration 只登记了 5 / 10。看点：渲染阶段就 fail-loud，请求根本没渲染出来（提交面板是空的），不会拿供应商的默认档位去付费。",
       steps: [["提交：正常接单（不会发出去）", { type: "SUBMIT", fixture: "ok" }]] },
     { id: "g_validate", title: "定义校验：故意写坏", template: "generic-submit-poll", patch: withBadThings, ui: {},
-      desc: "定义被打了六处坏补丁：请求体里引用 {{ api_key }}、引用未声明的 {{ nope }}、在 submit 里用 {{ task_id }}、video_url 用了 $..url 递归、status_map 映射到 expired、poll.headers 声明了与 auth 同名的 authorization（小写）。看左栏「校验结果」——六条错误应各自命中；这一票要拍板的是错误文案是否足够让作者自己改对。",
+      desc: "定义被打了八处坏补丁：请求体里引用 {{ api_key }}、引用未声明的 {{ nope }}、在 submit 里用 {{ task_id }}、video_url 用了 $..url 递归、status_map 映射到 expired、poll.headers 声明了与 auth 同名的 authorization（小写）、声明了 submit 没引用的 inputs.unused_tail（否则会被推导成支持尾帧）、poll.url 自带与 auth.query 同名的 key。看左栏「校验结果」——八条错误应各自命中；要看的是错误文案是否足够让作者自己改对。",
       steps: [["看左栏校验结果（无需点）", { type: "NOOP" }]] },
     { id: "g_json", title: "评估项：JSON-in-string 后缀", template: "generic-submit-poll", patch: withJsonDecode, ui: {},
       desc: "video_url 改成对象形式：paths 里第二条命中 data.resultJson（一个 JSON 字符串），json_decode 后按 then 的 $.resultUrls[0] 继续取。看点：提取轨迹里多出一行 (json_decode)。这能换来 kie.ai 统一接口与 Segmind PixelFlow 两家——值不值一个开关？",
