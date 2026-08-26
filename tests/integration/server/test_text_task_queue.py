@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -17,6 +18,11 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.task import GenerationBatch
+from lib.draft_quarantine import (
+    QUARANTINE_KIND_NARRATION_STEP1,
+    QUARANTINE_KIND_STEP1,
+    quarantine_path,
+)
 from lib.episode_planner import EpisodePlanner, EpisodePlanningError, EpisodePlanSummary, PlanResult
 from lib.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
 from lib.generation_queue import CompensableGenerationResult, GenerationQueue
@@ -27,6 +33,7 @@ from lib.project_manager import ProjectManager
 from lib.project_migration_failure import ProjectMigrationError, record_migration_failure
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.text_backends.base import TextGenerationResult as BackendTextGenerationResult
+from lib.workflow_state import WorkflowStateService
 from server import tool_runtime
 from server.text_generation import (
     CompensableTextGenerationResult,
@@ -717,3 +724,101 @@ async def test_cancel_during_started_episode_plan_commit_restores_batch_and_ledg
     assert batch.members[0].status == "cancelled"
     assert (project_path / "project.json").read_bytes() == before_project
     assert not (project_path / "source" / "episode_1.txt").exists()
+
+
+@pytest.mark.parametrize(
+    ("project_name", "generation_mode", "quarantine_kind", "generated_text"),
+    [
+        (
+            "reference",
+            "reference_video",
+            QUARANTINE_KIND_STEP1,
+            '{"units":[{"duration_seconds":4,"source_text":"张三走向村口。","text":"@[未登记角色] 出场"}]}',
+        ),
+        (
+            "narration",
+            "storyboard",
+            QUARANTINE_KIND_NARRATION_STEP1,
+            '{"episode":1,"segments":[{"segment_id":"E1S01","novel_text":"张三走向村口。",'
+            '"duration_seconds":4,"segment_break":false,"characters_in_segment":["未登记角色"],'
+            '"scenes":[],"props":[]}]}',
+        ),
+    ],
+)
+async def test_cancel_during_invalid_step1_quarantine_leaves_no_workflow_blocker(
+    tmp_path: Path,
+    file_db_factory,
+    monkeypatch,
+    project_name: str,
+    generation_mode: str,
+    quarantine_kind: str,
+    generated_text: str,
+) -> None:
+    projects = ProjectManager(tmp_path / "projects")
+    project_path = projects.create_project(project_name, content_mode="narration")
+    projects.create_project_metadata(project_name, project_name, "", "narration")
+    projects.update_project(project_name, lambda project: project.update(generation_mode=generation_mode))
+    (project_path / "source" / "episode_1.txt").write_text("张三走向村口。", encoding="utf-8")
+
+    class Generator:
+        async def generate(self, _request, project_name=None):
+            return BackendTextGenerationResult(text=generated_text, provider="fake", model="fake-model")
+
+    async def create_generator(_task_type, project_name=None):
+        return Generator()
+
+    monkeypatch.setattr("server.text_generation.TextGenerator.create", create_generator)
+    draft_path = quarantine_path(project_path, 1, quarantine_kind)
+    started = threading.Event()
+    release = threading.Event()
+    original_replace = os.replace
+
+    def blocking_replace(src, dst):
+        original_replace(src, dst)
+        if Path(dst) == draft_path and not started.is_set():
+            started.set()
+            release.wait()
+
+    monkeypatch.setattr("lib.json_io.os.replace", blocking_replace)
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+
+    async def execute(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
+        del claimed_provider_id
+        return await execute_queued_text_task(task)
+
+    worker = await _start_text_worker(queue, execute, dispatch_cancellation=True)
+    services = Services(
+        projects=projects,
+        workflow_planner=object(),  # type: ignore[arg-type]
+        capabilities=ConfigResolver(async_session_factory),
+        queue=queue,
+    )
+    try:
+        submitted = await generate_step1(
+            ToolRequest(TextGenerationRequest(episode=1)),
+            ProjectScope(project_name=project_name, projects_root=projects.projects_root),
+            CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
+            services,
+        )
+        assert submitted.value is not None
+        batch_id = submitted.value.batch_id
+        task_id = submitted.value.members[0].task_id
+        assert task_id is not None
+        assert await asyncio.to_thread(started.wait, 1)
+        cancelled = await queue.cancel_generation_batch(project_name=project_name, batch_id=batch_id)
+        assert cancelled.cancelling == [task_id]
+    finally:
+        release.set()
+    try:
+        task = await wait_for_task(task_id, 0.01, queue=queue)
+        assert task["status"] == "cancelled"
+    finally:
+        await worker.stop()
+        queue.set_worker_cancel_callback(None)
+
+    batch = await queue.get_generation_batch(project_name=project_name, batch_id=batch_id)
+    assert batch.done is True
+    assert batch.members[0].status == "cancelled"
+    assert not draft_path.exists()
+    status = WorkflowStateService(projects).get_status(project_name)
+    assert all(blocker.code != "step1_quarantined" for blocker in status.blockers)
