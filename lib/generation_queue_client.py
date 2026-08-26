@@ -200,6 +200,7 @@ async def enqueue_task_only(
     user_id: str = DEFAULT_USER_ID,
     batch_id: str | None = None,
     batch_unit_id: str | None = None,
+    batch_unit_ids: tuple[str, ...] = (),
     queue: GenerationQueue | None = None,
 ) -> dict[str, Any]:
     queue = queue or get_generation_queue()
@@ -231,6 +232,7 @@ async def enqueue_task_only(
         user_id=user_id,
         batch_id=batch_id,
         batch_unit_id=batch_unit_id,
+        batch_unit_ids=batch_unit_ids,
     )
     return enqueue_result
 
@@ -529,6 +531,7 @@ class EnqueuedTask:
     resource_id: str
     task_id: str
     deduped: bool
+    unit_id: str | None = None
 
 
 async def _enqueue_sequentially(
@@ -589,21 +592,13 @@ async def _enqueue_sequentially(
                 dependency_index=spec.dependency_index,
                 user_id=user_id,
                 batch_id=batch_id,
-                batch_unit_id=(spec.unit_id or spec.resource_id) if batch_id is not None else None,
+                batch_unit_ids=(
+                    tuple(dict.fromkeys((spec.unit_id or spec.resource_id, *spec.batch_unit_ids)))
+                    if batch_id is not None
+                    else ()
+                ),
                 queue=queue,
             )
-            if batch_id is not None:
-                primary_unit_id = spec.unit_id or spec.resource_id
-                for unit_id in spec.batch_unit_ids:
-                    if unit_id != primary_unit_id:
-                        await (queue or get_generation_queue()).attach_task_to_generation_batch(
-                            project_name=project_name,
-                            batch_id=batch_id,
-                            task_id=enqueue_result["task_id"],
-                            unit_id=unit_id,
-                            user_id=user_id,
-                            deduped=bool(enqueue_result.get("deduped")),
-                        )
         except Exception as exc:  # noqa: BLE001
             failures.append(
                 BatchTaskResult(
@@ -637,6 +632,7 @@ async def _enqueue_sequentially(
                 resource_id=spec.resource_id,
                 task_id=enqueue_result["task_id"],
                 deduped=deduped,
+                unit_id=spec.unit_id,
             )
         )
     return enqueued, failures
@@ -682,6 +678,7 @@ async def submit_generation_batch(
     """Persist one admission result, enqueue its members, and return the durable read model."""
 
     queue = queue or get_generation_queue()
+    await queue.assert_project_migration_ok(project_name)
     batch_id = await queue.create_generation_batch(
         project_name=project_name,
         operation=operation,
@@ -747,15 +744,15 @@ async def batch_enqueue_and_wait(
         batch_id=batch_id,
         queue=queue,
     )
-    task_ids = {item.resource_id: item.task_id for item in enqueued}
+    task_ids = {item.unit_id or item.resource_id: item.task_id for item in enqueued}
 
     # Phase 2 — Parallel wait via asyncio.gather (single event loop), only for
     # specs that actually reached the queue.
-    enqueued_specs = [spec for spec in specs if spec.resource_id in task_ids]
+    enqueued_specs = [spec for spec in specs if (spec.unit_id or spec.resource_id) in task_ids]
 
     async def _wait_one(spec: TaskSpec) -> BatchTaskResult:
-        tid = task_ids[spec.resource_id]
         unit_id = spec.unit_id or spec.resource_id
+        tid = task_ids[unit_id]
         try:
             task = await wait_for_task(tid, queue=queue)
             return _task_result_from_finished(task, unit_id, tid)

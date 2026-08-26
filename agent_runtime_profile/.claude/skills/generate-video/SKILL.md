@@ -55,10 +55,10 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 | 重新生成单个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1U2"]}, "force": true, "narration_delivery": chosen_narration_delivery})` |
 | 重新生成多个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1U2", "E1U3"]}, "force": true, "narration_delivery": chosen_narration_delivery})` |
 
-一次调用完成入队、等待与结果回报：
+一次调用完成入队并返回 durable batch；按返回的 `poll_after_seconds` 调用 `get_generation_batch`，直到 `done: true` 后再处理结果：
 
 - 把点名视为强制重做，覆盖已有成片。
-- 任一目标已有在途任务时等待其完成，再重做整批目标。
+- 已有在途任务时不自动 force 重做；等待并读取其 batch 结果，避免对刚完成的目标再次付费提交。
 - 只生成剧本中点名的自包含视频单元；未命中的 ID 记为 `blocked`，带 `generation_unit_not_found`。
 - 调用中断后查询 durable batch；只把未成功的 ID 用 `selected`、`force: false` 重发，已完成项归 `skipped`。
 - 结果按 `requested / succeeded / failed / blocked` 逐 ID 返回，

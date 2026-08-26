@@ -170,6 +170,23 @@ class _CancellationReceipt(Protocol):
         pass
 
 
+@dataclass(frozen=True, slots=True)
+class _CompositeCancellationReceipt:
+    receipts: tuple[_CancellationReceipt, ...]
+
+    def compensate_cancelled(self) -> None:
+        failures: list[Exception] = []
+        for receipt in self.receipts:
+            try:
+                receipt.compensate_cancelled()
+            except Exception as exc:
+                failures.append(exc)
+        if failures:
+            for failure in failures[1:]:
+                failures[0].add_note(f"additional cancellation compensation failed: {failure}")
+            raise failures[0]
+
+
 def register_formal_task_artifact(
     project_path: Path,
     *,
@@ -3416,6 +3433,11 @@ async def execute_grid_task(
                     project_name,
                     grid,
                     only_scene_ids=frozenset(str(scene_id) for scene_id in report_scene_ids),
+                    task_aware=task_id is not None,
+                )
+            if task_id is not None:
+                receipt = _CompositeCancellationReceipt(
+                    tuple(candidate for candidate in (split, receipt) if candidate is not None)
                 )
             cut = set(split.updated_scene_ids)
             for scene_id in report_scene_ids:
@@ -3430,12 +3452,13 @@ async def execute_grid_task(
                             "params": {"grid_id": grid.id},
                         }
                     }
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
+            logger.exception("联合图切分落格失败: grid_id=%s", grid.id)
             for scene_id in report_scene_ids:
                 unit_results[scene_id] = {
                     "problem": {
                         "code": "generation_post_processing_failed",
-                        "detail": f"联合图已生成，但切分落格失败（不要重新生成）: {exc}",
+                        "detail": "联合图已生成，但切分落格失败（不要重新生成）",
                         "action": "none",
                         "params": {"grid_id": grid.id},
                     }

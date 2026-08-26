@@ -405,6 +405,7 @@ async def _admit_storyboard_specs(
         extra_tickets=extra_tickets,
         user_id=ctx.caller.user_id,
         queue=ctx.queue,
+        config_resolver=ctx.config_resolver,
         tts_settings_resolver=ctx.tts_settings_resolver,
     )
     if admission.admitted:
@@ -1520,11 +1521,11 @@ async def handle_generate_videos(ctx: ToolContext, args: dict[str, Any]) -> Tool
             ) or ProjectManager.resolve_episode_from_script(script, script_filename)
             if episode != actual_episode:
                 raise ValueError(f"target.episode={episode} 与剧本集号 {actual_episode} 不一致")
-            return await _episode_scope_tool(ctx).handler(forwarded)
+            return await _episode_scope_tool(ctx).invoke(forwarded)
         if scope == "all":
             if "episode" in target or "ids" in target:
                 raise ValueError("target.scope=all 时不能提供 target.episode/ids")
-            return await _all_scope_tool(ctx).handler(forwarded)
+            return await _all_scope_tool(ctx).invoke(forwarded)
 
         ids = normalize_requested_ids(target.get("ids"), field="target.ids")
         if scope == "scene" and (ids is None or len(ids) != 1):
@@ -1533,11 +1534,8 @@ async def handle_generate_videos(ctx: ToolContext, args: dict[str, Any]) -> Tool
             raise ValueError("target.scope=selected 时 target.ids 必填且不能为空")
         if "episode" in target:
             raise ValueError(f"target.scope={scope} 时不能提供 target.episode")
-        if scope == "scene":
-            forwarded["scene_ids"] = ids
-            return await _selected_scope_tool(ctx).handler(forwarded)
         forwarded["scene_ids"] = ids
-        return await _selected_scope_tool(ctx).handler(forwarded)
+        return await _selected_scope_tool(ctx).invoke(forwarded)
     except Exception as exc:  # noqa: BLE001
         return tool_error("generate_videos", exc)
 

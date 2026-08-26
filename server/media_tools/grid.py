@@ -8,6 +8,7 @@ an individual cell.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
@@ -60,6 +61,8 @@ from server.media_tools.definition import tool
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import apply_grid_split
 from server.tool_runtime import ToolOutcome, submit_media_generation
+
+logger = logging.getLogger(__name__)
 
 _OPERATION = "generate_grid"
 
@@ -432,12 +435,13 @@ async def handle_generate_grid(
                         )
                         for scene_id in report_ids
                     }
-                except Exception as exc:  # noqa: BLE001
+                except Exception:  # noqa: BLE001
+                    logger.exception("联合图切分落格失败: grid_id=%s", grid.id)
                     unit_results = {
                         scene_id: {
                             "problem": {
                                 "code": GenerationProblemCode.POST_PROCESSING_FAILED,
-                                "detail": f"联合图已生成，但切分落格失败（不要重新生成）: {exc}",
+                                "detail": "联合图已生成，但切分落格失败（不要重新生成）",
                                 "action": GenerationAction.NONE,
                                 "params": {"grid_id": grid.id},
                             }

@@ -31,7 +31,7 @@ from lib.batch_admission import (
     UnitAdmissionTicket,
     refused_ticket,
 )
-from lib.config.resolver import video_bucket_for_generation_mode
+from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import GenerationQueue
@@ -663,6 +663,7 @@ async def admit_storyboard_video_batch(
     extra_tickets: Sequence[UnitAdmissionTicket] = (),
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
+    config_resolver: ConfigResolver | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Evaluate every storyboard unit of one request against the current state.
@@ -727,6 +728,7 @@ async def admit_storyboard_video_batch(
             tts_in_progress=resource_id in active_tts,
             user_id=user_id,
             queue=queue,
+            config_resolver=config_resolver,
             tts_settings_resolver=tts_settings_resolver,
         )
         tickets.append(await _storyboard_ticket(resource_id=resource_id, preparation=preparation))
@@ -997,6 +999,7 @@ async def admit_storyboard_video_request(
     extra_tickets: Sequence[UnitAdmissionTicket],
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
+    config_resolver: ConfigResolver | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Admit one Storyboard-mode request from the specs it would actually enqueue.
@@ -1032,6 +1035,7 @@ async def admit_storyboard_video_request(
         extra_tickets=extra_tickets,
         user_id=user_id,
         queue=queue,
+        config_resolver=config_resolver,
         tts_settings_resolver=tts_settings_resolver,
     )
     if conflict_detail is None:

@@ -12,7 +12,10 @@ from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import _fake_caps_resolver, _FakePM
 
 
-def _build_fake_ctx(tmp_path: Path, session_factory) -> ToolContext:
+def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
+    monkeypatch.setattr("lib.db.async_session_factory", session_factory)
+    monkeypatch.setattr("server.services.video_batch_admission.async_session_factory", session_factory)
+    monkeypatch.setattr("server.services.video_caps.async_session_factory", session_factory)
     project_dir = tmp_path / "demo"
     project_dir.mkdir()
     (project_dir / "storyboards").mkdir()
@@ -32,13 +35,17 @@ def _build_fake_ctx(tmp_path: Path, session_factory) -> ToolContext:
 
 
 @pytest.fixture
-def idle_fake_ctx(tmp_path: Path, concurrent_session_factory) -> ToolContext:
-    return _build_fake_ctx(tmp_path, concurrent_session_factory)
+def idle_fake_ctx(tmp_path: Path, concurrent_session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
+    return _build_fake_ctx(tmp_path, concurrent_session_factory, monkeypatch)
 
 
 @pytest.fixture
-async def fake_ctx(tmp_path: Path, concurrent_session_factory) -> AsyncIterator[ToolContext]:
-    ctx = _build_fake_ctx(tmp_path, concurrent_session_factory)
+async def fake_ctx(
+    tmp_path: Path,
+    concurrent_session_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[ToolContext]:
+    ctx = _build_fake_ctx(tmp_path, concurrent_session_factory, monkeypatch)
     queue = ctx.queue
 
     async def text_provider(_task: dict[str, Any]) -> str:

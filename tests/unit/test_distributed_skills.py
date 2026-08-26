@@ -37,6 +37,13 @@ def test_setup_skill_is_explicit_only_for_claude_and_codex() -> None:
     assert openai["policy"]["allow_implicit_invocation"] is False
 
 
+def test_setup_skill_sends_bearer_keys_only_over_tls_or_loopback() -> None:
+    skill = (SKILLS_ROOT / "setup-arcreel-skills" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "uses `https`" in skill
+    assert "Permit `http` only for a loopback endpoint" in skill
+
+
 def test_video_workflow_skill_has_portable_relative_references() -> None:
     skill_dir = SKILLS_ROOT / "video-workflow"
     skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
@@ -53,3 +60,13 @@ def test_video_workflow_hands_final_export_to_an_arcreel_host() -> None:
 
     assert "remote MCP does not compose or export the final video" in skill
     assert "WebUI or embedded host" in skill
+
+
+def test_video_workflow_polls_batches_and_allows_migration_recovery() -> None:
+    skill_dir = SKILLS_ROOT / "video-workflow"
+    skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    plan_safety = (skill_dir / "references" / "plan-safety.md").read_text(encoding="utf-8")
+
+    assert "call `get_generation_batch` at each returned `poll_after_seconds`" in skill
+    assert "until it reports `done: true`" in skill
+    assert "`retry_project_migration` is the permitted migration recovery" in plan_safety

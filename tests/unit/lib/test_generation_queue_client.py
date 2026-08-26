@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from lib.generation_batch import GenerationBatchRequestSnapshot
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskCancelledError,
@@ -16,8 +17,10 @@ from lib.generation_queue_client import (
     batch_enqueue_only,
     enqueue_and_wait,
     enqueue_task_only,
+    submit_generation_batch,
     wait_for_task,
 )
+from lib.generation_result import GenerationSelectionMode
 
 
 class TestTaskSpecFromRequest:
@@ -396,6 +399,30 @@ class TestBatchEnqueueAndWaitSync:
 
     @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    def test_same_named_asset_types_wait_for_their_own_tasks(self, mock_enqueue, mock_wait):
+        mock_enqueue.side_effect = [
+            {"task_id": "character-task"},
+            {"task_id": "prop-task"},
+        ]
+        mock_wait.side_effect = [
+            {"status": "succeeded", "result": {"file_path": "character.png"}},
+            {"status": "succeeded", "result": {"file_path": "prop.png"}},
+        ]
+
+        successes, failures = batch_enqueue_and_wait_sync(
+            project_name="demo",
+            specs=[
+                TaskSpec(task_type="character", media_type="image", resource_id="玉佩", unit_id="character/玉佩"),
+                TaskSpec(task_type="prop", media_type="image", resource_id="玉佩", unit_id="prop/玉佩"),
+            ],
+        )
+
+        assert failures == []
+        assert [call.args[0] for call in mock_wait.await_args_list] == ["character-task", "prop-task"]
+        assert [result.resource_id for result in successes] == ["character/玉佩", "prop/玉佩"]
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_partial_failure(self, mock_enqueue, mock_wait):
         mock_enqueue.side_effect = [
             {"task_id": "t1"},
@@ -620,6 +647,52 @@ class TestBatchEnqueueAndWaitSync:
 
 class TestBatchEnqueueOnly:
     """入队中断不撤销已创建的任务，没轮到的目标逐 ID 报出来。"""
+
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_projects_all_memberships_in_the_enqueue_transaction(self, mock_enqueue):
+        mock_enqueue.return_value = {"task_id": "grid-task", "deduped": False}
+        spec = TaskSpec(
+            task_type="storyboard",
+            media_type="image",
+            resource_id="grid-1",
+            unit_id="E1S01",
+            batch_unit_ids=("E1S01", "E1S02"),
+        )
+
+        enqueued, failures = await batch_enqueue_only(project_name="demo", specs=[spec], batch_id="batch-1")
+
+        assert failures == []
+        assert enqueued[0].task_id == "grid-task"
+        assert mock_enqueue.await_args.kwargs["batch_unit_ids"] == ("E1S01", "E1S02")
+
+    async def test_migration_is_rejected_before_the_durable_batch_is_created(self):
+        calls: list[str] = []
+
+        class _Queue:
+            async def assert_project_migration_ok(self, project_name: str) -> None:
+                assert project_name == "demo"
+                calls.append("migration")
+                raise RuntimeError("migration blocked")
+
+            async def create_generation_batch(self, **_kwargs: Any) -> str:
+                calls.append("create")
+                return "batch-1"
+
+        with pytest.raises(RuntimeError, match="migration blocked"):
+            await submit_generation_batch(
+                project_name="demo",
+                operation="generate_assets",
+                requested=GenerationBatchRequestSnapshot(
+                    selection=GenerationSelectionMode.MISSING_ONLY,
+                    requested=[],
+                ),
+                blocked=[],
+                specs=[],
+                source="mcp",
+                queue=_Queue(),  # type: ignore[arg-type]
+            )
+
+        assert calls == ["migration"]
 
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     async def test_creates_every_task_and_reports_dedup_per_resource(self, mock_enqueue):

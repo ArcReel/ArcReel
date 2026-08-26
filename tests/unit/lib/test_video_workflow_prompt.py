@@ -32,6 +32,7 @@ REFERENCES = PROFILE / ".claude" / "references"
 WORKFLOW_PLAN_REFERENCE = REFERENCES / "workflow-plan.md"
 GENERATION_RESULTS_REFERENCE = REFERENCES / "generation-results.md"
 VIDEO_SKILL = PROFILE / ".claude" / "skills" / "generate-video" / "SKILL.md"
+DISTRIBUTED_VIDEO_WORKFLOW = REPO / "skills" / "video-workflow" / "SKILL.md"
 NARRATION_AUDIO_SKILL = PROFILE / ".claude" / "skills" / "generate-narration-audio" / "SKILL.md"
 
 WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
@@ -111,6 +112,22 @@ def test_delivery_options_are_both_named_where_the_choice_is_made(path: Path) ->
 
     assert POST_PRODUCTION in content
     assert USE_TTS in content
+
+
+def test_generate_video_waits_on_the_durable_batch_without_forcing_completed_targets() -> None:
+    content = _reference(VIDEO_SKILL)
+
+    assert "get_generation_batch" in content
+    assert "poll_after_seconds" in content
+    assert "已有在途任务时不自动 force 重做" in content
+
+
+def test_preexisting_tasks_use_bounded_plan_polling() -> None:
+    content = _reference(DISTRIBUTED_VIDEO_WORKFLOW)
+
+    assert "wait_for_task" in content
+    assert "max_poll_attempts" in content
+    assert "get_workflow_plan" in content
 
 
 def test_plan_reference_covers_every_tts_problem_code_and_its_action() -> None:
