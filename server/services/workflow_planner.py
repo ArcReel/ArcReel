@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.asset_types import ASSET_SPECS
+from lib.config.resolver import ConfigResolver
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import GenerationQueue, get_generation_queue
 from lib.generation_queue_client import get_active_tasks_for_resources
@@ -16,6 +18,7 @@ from lib.generation_result import (
     migration_problem,
     provider_checkpoint_from_task,
 )
+from lib.grid_manager import GridManager
 from lib.narration_delivery import USE_TTS
 from lib.project_manager import ProjectManager, get_project_manager
 from lib.project_migration_failure import (
@@ -73,7 +76,7 @@ class WorkflowPlanner:
         *,
         user_id: str = DEFAULT_USER_ID,
         queue: GenerationQueue | None = None,
-        config_resolver: object | None = None,
+        config_resolver: ConfigResolver | None = None,
     ) -> WorkflowPlan:
         queue = queue or get_generation_queue()
         status = await asyncio.to_thread(
@@ -211,6 +214,19 @@ class WorkflowPlanner:
             )
 
         if facts is not None:
+            for asset_type in ASSET_SPECS:
+                bucket = facts.project.get(ASSET_SPECS[asset_type].bucket_key)
+                resource_ids = list(bucket) if isinstance(bucket, dict) else []
+                if resource_ids:
+                    rows.extend(
+                        await get_active_tasks_for_resources(
+                            project_name=project_name,
+                            task_type=asset_type,
+                            resource_ids=resource_ids,
+                            user_id=user_id,
+                            queue=queue,
+                        )
+                    )
             id_field = facts.id_field
             unit_ids = [
                 str(item[id_field])
@@ -218,8 +234,33 @@ class WorkflowPlanner:
                 if isinstance(item.get(id_field), str) and str(item[id_field])
             ]
             task_types = ["reference_video" if status.project.generation_mode == "reference_video" else "video"]
-            if status.project.generation_mode == "storyboard" and not status.project.grid_storyboard:
-                task_types.append("storyboard")
+            if status.project.generation_mode == "storyboard":
+                if status.project.grid_storyboard:
+                    grids_dir = facts.project_path / "grids"
+                    grids = (
+                        await asyncio.to_thread(GridManager(facts.project_path).list_all)
+                        if await asyncio.to_thread(grids_dir.is_dir)
+                        else []
+                    )
+                    unit_id_set = set(unit_ids)
+                    grid_ids = [
+                        grid.id
+                        for grid in grids
+                        if grid.script_file == facts.script_file and set(grid.scene_ids) & unit_id_set
+                    ]
+                    if grid_ids:
+                        rows.extend(
+                            await get_active_tasks_for_resources(
+                                project_name=project_name,
+                                task_type="grid",
+                                resource_ids=grid_ids,
+                                script_file=facts.script_file,
+                                user_id=user_id,
+                                queue=queue,
+                            )
+                        )
+                else:
+                    task_types.append("storyboard")
             if request.narration_delivery == USE_TTS:
                 task_types.append("tts")
             for task_type in task_types:
@@ -262,7 +303,7 @@ class WorkflowPlanner:
         *,
         user_id: str,
         queue: GenerationQueue,
-        config_resolver: object | None,
+        config_resolver: ConfigResolver | None,
     ) -> dict[str, Any]:
         options = ReferenceRequestOptions(narration_delivery=request.narration_delivery or "post_production")
         if status.project.generation_mode == "reference_video":
@@ -334,6 +375,7 @@ class WorkflowPlanner:
             extra_tickets=refused,
             user_id=user_id,
             queue=queue,
+            config_resolver=config_resolver,
         )
         return admission.to_payload()
 
