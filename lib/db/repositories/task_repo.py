@@ -960,11 +960,58 @@ class TaskRepository(BaseRepository):
         if not requested_ids:
             return []
 
+        eligible_result = await self.session.execute(
+            select(Task).where(
+                Task.task_id.in_(requested_ids),
+                Task.status == "failed",
+                Task.execution_checkpoint_json.is_(None),
+                Task.provider_job_id.is_(None),
+                Task.provider_endpoint.is_(None),
+                Task.submitted_base_url.is_(None),
+            )
+        )
+        eligible_by_id = {task.task_id: task for task in eligible_result.scalars().all()}
+        if not eligible_by_id:
+            return []
+
+        def dedupe_key(task: Task) -> tuple[str, str, str, str, str]:
+            return (
+                task.project_name,
+                task.task_type,
+                task.resource_id,
+                task.script_file or "",
+                task.resource_type or "",
+            )
+
+        candidates = list(eligible_by_id.values())
+        active_result = await self.session.execute(
+            select(Task).where(
+                Task.status.in_(ACTIVE_TASK_STATUSES),
+                Task.project_name.in_({task.project_name for task in candidates}),
+                Task.task_type.in_({task.task_type for task in candidates}),
+                Task.resource_id.in_({task.resource_id for task in candidates}),
+            )
+        )
+        occupied_keys = {dedupe_key(task) for task in active_result.scalars().all()}
+        selected_ids: list[str] = []
+        for task_id in requested_ids:
+            task = eligible_by_id.get(task_id)
+            if task is None:
+                continue
+            key = dedupe_key(task)
+            if key in occupied_keys:
+                continue
+            occupied_keys.add(key)
+            selected_ids.append(task_id)
+
+        if not selected_ids:
+            return []
+
         now = utc_now()
         rows = await self.session.execute(
             update(Task)
             .where(
-                Task.task_id.in_(requested_ids),
+                Task.task_id.in_(selected_ids),
                 Task.status == "failed",
                 Task.execution_checkpoint_json.is_(None),
                 Task.provider_job_id.is_(None),
@@ -983,7 +1030,7 @@ class TaskRepository(BaseRepository):
         )
         requeued_set = set(rows.scalars().all())
         await self.session.commit()
-        return [task_id for task_id in requested_ids if task_id in requeued_set]
+        return [task_id for task_id in selected_ids if task_id in requeued_set]
 
     async def get(self, task_id: str) -> dict[str, Any] | None:
         stmt = select(Task).where(Task.task_id == task_id)

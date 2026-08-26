@@ -86,6 +86,54 @@ class TestRepoStateMachineGuards:
 
         assert await repo.requeue_failed_pre_provider([]) == []
 
+    async def test_requeue_failed_pre_provider_serializes_same_resource_candidates(self, db_session):
+        repo = TaskRepository(db_session)
+
+        task_ids = []
+        for suffix in ("a", "b"):
+            task = await repo.enqueue(
+                project_name="demo",
+                task_type="video",
+                media_type="video",
+                resource_id="same-shot",
+                payload={"candidate": suffix},
+                script_file="ep1.json",
+            )
+            task_ids.append(task["task_id"])
+            await repo.claim_next("video")
+            await repo.mark_failed(task["task_id"], f"local failure {suffix}")
+
+        requeued = await repo.requeue_failed_pre_provider(task_ids)
+
+        assert requeued == [task_ids[0]]
+        assert (await repo.get(task_ids[0]))["status"] == "queued"
+        assert (await repo.get(task_ids[1]))["status"] == "failed"
+
+    async def test_requeue_failed_pre_provider_skips_key_owned_by_active_replacement(self, db_session):
+        repo = TaskRepository(db_session)
+        failed = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="same-shot",
+            payload={"candidate": "old"},
+            script_file="ep1.json",
+        )
+        await repo.claim_next("video")
+        await repo.mark_failed(failed["task_id"], "local failure")
+        replacement = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="same-shot",
+            payload={"candidate": "new"},
+            script_file="ep1.json",
+        )
+
+        assert await repo.requeue_failed_pre_provider([failed["task_id"]]) == []
+        assert (await repo.get(failed["task_id"]))["status"] == "failed"
+        assert (await repo.get(replacement["task_id"]))["status"] == "queued"
+
     async def test_mark_succeeded_only_from_running(self, db_session):
         repo = TaskRepository(db_session)
         t = await repo.enqueue(
