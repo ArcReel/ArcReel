@@ -1547,7 +1547,7 @@ def generate_videos_tool(ctx: ToolContext):
         "generate_videos",
         "生成视频。target.scope 取 episode/scene/all/selected；scene/selected 在 target.ids 传目标 ID。"
         "force 默认 false，复用 current/stale 成片；true 才强制重生。narration_delivery 必填。"
-        "整批预检任一目标不通过则零任务、无 batch handle；通过后返回 durable batch。",
+        "整批预检任一目标不通过则零任务、无 batch handle；通过后内嵌调用等待并返回逐 ID 终态结果。",
         {
             "type": "object",
             "properties": {

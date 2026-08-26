@@ -317,7 +317,16 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
             generate_narration_audio_tool(media_ctx),
         )
     }
-    remote_batch_tools = {"generate_assets", "generate_storyboards", "edit_images", "generate_grid"}
+    remote_batch_tools = {
+        "generate_assets",
+        "generate_storyboards",
+        "edit_images",
+        "generate_grid",
+        "generate_videos",
+        "generate_episode_script",
+        "generate_step1",
+        "plan_episodes",
+    }
     for name, definition in definitions.items():
         remote_schema = listed[name].inputSchema
         assert remote_schema["properties"]["project"]["type"] == "string"
@@ -333,13 +342,17 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         } == {key: value for key, value in definition.input_schema.items() if key not in {"properties", "required"}}
     for name in remote_batch_tools:
         remote_description = listed[name].description
-        assert remote_description.startswith(definitions[name].description)
+        if name in definitions:
+            assert remote_description.startswith(definitions[name].description)
         assert "durable admission" in remote_description
         assert "durable generation_batch" in remote_description
         assert "immediately" in remote_description
         assert "poll_after_seconds" in remote_description
         assert "get_generation_batch" in remote_description
         assert "done=true" in remote_description
+    embedded_video_description = definitions["generate_videos"].description
+    assert "返回 durable batch" not in embedded_video_description
+    assert "内嵌调用等待并返回逐 ID 终态结果" in embedded_video_description
     assert all(listed[name].inputSchema["properties"]["episode"]["minimum"] == 1 for name in drafts)
     patch_schema = listed["patch_episode_script"].inputSchema
     operations_schema = patch_schema["properties"]["operations"]
@@ -773,6 +786,7 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
             async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
+                    tools = {tool.name: tool for tool in (await session.list_tools()).tools}
                     step1 = await session.call_tool(
                         "generate_step1",
                         {
@@ -800,10 +814,16 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
                     )
 
     assert not step1.isError
+    assert "dry_run=true" in tools["generate_step1"].description
+    assert "prompt immediately without a generation_batch; do not poll" in tools["generate_step1"].description
+    assert set(step1.structuredContent) == {"text_generation"}
     assert step1.structuredContent["text_generation"]["message"]
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
     assert not script.isError
+    assert "dry_run=true" in tools["generate_episode_script"].description
+    assert "prompt immediately without a generation_batch; do not poll" in tools["generate_episode_script"].description
+    assert set(script.structuredContent) == {"text_generation"}
     assert "DRY RUN" in script.structuredContent["text_generation"]["message"]
     assert progress_messages == ["Generating step1", "Generating episode script"]
     assert patched.isError
