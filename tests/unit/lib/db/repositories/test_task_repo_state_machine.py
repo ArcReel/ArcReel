@@ -12,6 +12,80 @@ from lib.db.repositories.task_repo import TaskRepository
 
 @pytest.mark.asyncio
 class TestRepoStateMachineGuards:
+    async def test_requeue_failed_pre_provider_only_retries_unsubmitted_tasks(self, db_session):
+        repo = TaskRepository(db_session)
+
+        eligible = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="eligible",
+            payload={},
+            script_file="ep1.json",
+            provider_id="custom-2",
+        )
+        await repo.claim_next("video")
+        await repo.mark_failed(eligible["task_id"], "local validation failed")
+
+        submitted = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="submitted",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(
+            submitted["task_id"],
+            "provider-job-1",
+            endpoint="openai-video",
+            base_url="https://provider.example.com/v1",
+        )
+        await repo.mark_failed(submitted["task_id"], "provider failed")
+
+        checkpointed = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="checkpointed",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.claim_next("video")
+        await repo.persist_execution_checkpoint(checkpointed["task_id"], '{"version":1}', "custom-2")
+        await repo.mark_failed(checkpointed["task_id"], "failed after checkpoint")
+
+        queued = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="still-queued",
+            payload={},
+            script_file="ep1.json",
+        )
+
+        requeued = await repo.requeue_failed_pre_provider(
+            [eligible["task_id"], submitted["task_id"], checkpointed["task_id"], queued["task_id"]]
+        )
+
+        assert requeued == [eligible["task_id"]]
+        retried = await repo.get(eligible["task_id"])
+        assert retried is not None
+        assert retried["status"] == "queued"
+        assert retried["started_at"] is None
+        assert retried["finished_at"] is None
+        assert retried["error_message"] is None
+        assert retried["provider_id"] == "custom-2"
+        assert (await repo.get(submitted["task_id"]))["status"] == "failed"
+        assert (await repo.get(checkpointed["task_id"]))["status"] == "failed"
+        assert (await repo.get(queued["task_id"]))["status"] == "queued"
+
+    async def test_requeue_failed_pre_provider_rejects_empty_task_ids(self, db_session):
+        repo = TaskRepository(db_session)
+
+        assert await repo.requeue_failed_pre_provider([]) == []
+
     async def test_mark_succeeded_only_from_running(self, db_session):
         repo = TaskRepository(db_session)
         t = await repo.enqueue(

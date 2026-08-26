@@ -463,6 +463,14 @@ class GenerationQueue:
             logger.warning("回收 %d 个 running 任务", recovered)
         return recovered
 
+    async def requeue_failed_pre_provider_tasks(self, task_ids: list[str]) -> list[str]:
+        """Operator retry seam for failed tasks with no provider-submission evidence."""
+        async with self._task_repo() as repo:
+            requeued = await repo.requeue_failed_pre_provider(task_ids)
+        if requeued:
+            logger.warning("人工回队 %d 个未提交供应商的失败任务", len(requeued))
+        return requeued
+
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:
         async with self._task_repo() as repo:
             return await repo.list_orphan_tasks_on_start()

@@ -6,6 +6,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import ColumnElement, func, select, text, update
@@ -946,6 +947,43 @@ class TaskRepository(BaseRepository):
 
         await self.session.commit()
         return len(requeued_tasks)
+
+    async def requeue_failed_pre_provider(self, task_ids: Sequence[str]) -> list[str]:
+        """Manually retry failed tasks that provably never crossed the provider boundary.
+
+        This is deliberately narrower than a general failed-task retry. A task is eligible only
+        when every submission marker is absent: no immutable execution checkpoint, provider job,
+        endpoint, or submitted base URL. The guarded UPDATE makes a stale operator observation
+        harmless and preserves the original task identity, request payload, and advisory provider.
+        """
+        requested_ids = list(dict.fromkeys(task_id for task_id in task_ids if task_id))
+        if not requested_ids:
+            return []
+
+        now = utc_now()
+        rows = await self.session.execute(
+            update(Task)
+            .where(
+                Task.task_id.in_(requested_ids),
+                Task.status == "failed",
+                Task.execution_checkpoint_json.is_(None),
+                Task.provider_job_id.is_(None),
+                Task.provider_endpoint.is_(None),
+                Task.submitted_base_url.is_(None),
+            )
+            .values(
+                status="queued",
+                started_at=None,
+                finished_at=None,
+                updated_at=now,
+                result_json=None,
+                error_message=None,
+            )
+            .returning(Task.task_id)
+        )
+        requeued_set = set(rows.scalars().all())
+        await self.session.commit()
+        return [task_id for task_id in requested_ids if task_id in requeued_set]
 
     async def get(self, task_id: str) -> dict[str, Any] | None:
         stmt = select(Task).where(Task.task_id == task_id)

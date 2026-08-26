@@ -435,6 +435,28 @@ class TestGenerationQueue:
         assert claimed_again is not None
         assert claimed_again["task_id"] == task["task_id"]
 
+    async def test_requeue_failed_pre_provider_tasks(self, queue):
+        task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S02",
+            payload={"prompt": "video"},
+            script_file="episode_01.json",
+            source="webui",
+        )
+        running = await queue.claim_next_task(media_type="video")
+        assert running is not None
+        await queue.mark_task_failed(task["task_id"], "local validation failed")
+
+        requeued = await queue.requeue_failed_pre_provider_tasks([task["task_id"]])
+
+        assert requeued == [task["task_id"]]
+        queued = await queue.get_task(task["task_id"])
+        assert queued is not None
+        assert queued["status"] == "queued"
+        assert queued["error_message"] is None
+
     async def test_cancel_task(self, queue):
         result = await queue.enqueue_task(
             project_name="demo",
