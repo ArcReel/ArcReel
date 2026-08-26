@@ -1,4 +1,4 @@
-"""PROTOTYPE — 用 JSON Schema 2020-12 校验三份起步模板与若干反例（#2123）。
+"""PROTOTYPE — 用 JSON Schema 2020-12 校验起步模板、templates/builtin 下的内置复刻定义与若干反例（#2123 / #2142）。
 
 用法：uv run python lib/custom_provider/prototype_declarative_endpoint/validate.py
 """
@@ -26,7 +26,7 @@ def errors(doc: object) -> list[str]:
 
 def main() -> int:
     failed = False
-    templates = sorted((HERE / "templates").glob("*.json"))
+    templates = sorted((HERE / "templates").glob("*.json")) + sorted((HERE / "templates" / "builtin").glob("*.json"))
     for path in templates:
         errs = errors(json.loads(path.read_text()))
         mark = "OK " if not errs else "FAIL"
@@ -48,7 +48,10 @@ def main() -> int:
         ("schema_version 非 semver", variant(lambda d: d.__setitem__("schema_version", "1.0"))),
         ("meta 缺 author", variant(lambda d: d["meta"].pop("author"))),
         ("meta.media_type 已移除", variant(lambda d: d["meta"].__setitem__("media_type", "video"))),
-        ("inputs.mime_types 已移除", variant(lambda d: d["inputs"]["first_frame"].__setitem__("mime_types", ["image/png"]))),
+        (
+            "inputs.mime_types 已移除",
+            variant(lambda d: d["inputs"]["first_frame"].__setitem__("mime_types", ["image/png"])),
+        ),
         ("submit.query 已移除", variant(lambda d: d["submit"].__setitem__("query", {"k": "v"}))),
         ("poll.interval_seconds 已移除", variant(lambda d: d["poll"].__setitem__("interval_seconds", 5))),
         ("capabilities.first_frame 非布尔", variant(lambda d: d["capabilities"].__setitem__("first_frame", "yes"))),
@@ -57,7 +60,10 @@ def main() -> int:
         ("poll.extract 缺 video_url", variant(lambda d: d["poll"]["extract"].pop("video_url"))),
         ("JSONPath 含 .. 递归", variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["$..url"]))),
         ("JSONPath 无 $ 前缀", variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["video_url"]))),
-        ("status_map 映射到 expired（不由声明式产生）", variant(lambda d: d["status_map"].__setitem__("gone", "expired"))),
+        (
+            "status_map 映射到 expired（不由声明式产生）",
+            variant(lambda d: d["status_map"].__setitem__("gone", "expired")),
+        ),
         ("poll.expired_status_codes 已移除", variant(lambda d: d["poll"].__setitem__("expired_status_codes", [404]))),
         ("enum_maps 对 prompt 做映射", variant(lambda d: d["enum_maps"].__setitem__("prompt", {"a": "b"}))),
         (
@@ -122,8 +128,14 @@ def main() -> int:
             variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["$.data[?@.fileType == 'mp4'].fileUrl"])),
         ),
         ("无鉴权端点", variant(lambda d: d.__setitem__("auth", {}))),
-        ("capabilities 只声明 first_frame（其余默认；一致性由语义校验器查）", variant(lambda d: d.__setitem__("capabilities", {"first_frame": True}))),
-        ("meta 只有 name / author / version", variant(lambda d: (d["meta"].pop("hints"), d["meta"].pop("description")))),
+        (
+            "capabilities 只声明 first_frame（其余默认；一致性由语义校验器查）",
+            variant(lambda d: d.__setitem__("capabilities", {"first_frame": True})),
+        ),
+        (
+            "meta 只有 name / author / version",
+            variant(lambda d: (d["meta"].pop("hints"), d["meta"].pop("description"))),
+        ),
     ]
     print()
     for label, doc in positives:

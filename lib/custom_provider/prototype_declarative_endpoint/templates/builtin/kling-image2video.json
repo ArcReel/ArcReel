@@ -1,0 +1,96 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "可灵 图生视频（bearer，内置复刻）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "description": "复刻 lib/video_backends/kling.py 的 bearer 模式（自定义 endpoint）：POST /v1/videos/{子路径} → GET /v1/videos/{子路径}/{task_id}。内置按素材在场选子路径（text2video / image2video / multi-image2video）并把 mode 从 service_tier / resolution=4k 派生，格式没有这两种构造：子路径各成一份定义、mode 写死 std。JWT 模式（access_key + secret_key HS256 签名、30 分钟续签）在格式的 auth 节不可表达。响应信封 code≠0 且 HTTP 200 时，提交阶段靠 task_id 无命中判失败；轮询阶段无 task_status 只能落 running。 image / image_tail 为裸 base64。",
+    "hints": {
+      "base_url": "https://api-beijing.klingai.com/v1",
+      "suggested_models": [
+        {
+          "id": "kling-v3"
+        },
+        {
+          "id": "kling-v3-omni"
+        }
+      ]
+    }
+  },
+  "auth": {
+    "headers": {
+      "Authorization": "Bearer {{ api_key }}"
+    }
+  },
+  "inputs": {
+    "first_frame": {
+      "source": "start_image",
+      "encoding": "base64"
+    },
+    "last_frame": {
+      "source": "end_image",
+      "encoding": "base64"
+    }
+  },
+  "enum_maps": {
+    "duration": {
+      "5": "5",
+      "10": "10"
+    },
+    "generate_audio": {
+      "true": "on",
+      "false": "off"
+    }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/videos/image2video",
+    "body": {
+      "model_name": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "mode": "std",
+      "duration": "{{ duration }}",
+      "aspect_ratio": "{{ aspect_ratio }}",
+      "image": "{{ inputs.first_frame }}",
+      "image_tail": "{{ inputs.last_frame }}",
+      "sound": "{{ generate_audio }}"
+    },
+    "extract": {
+      "task_id": [
+        "$.data.task_id"
+      ],
+      "error": [
+        "$.message",
+        "$.data.msg"
+      ]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/videos/image2video/{{ task_id }}",
+    "extract": {
+      "status": [
+        "$.data.task_status"
+      ],
+      "video_url": [
+        "$.data.task_result.videos[0].url"
+      ],
+      "error": [
+        "$.data.task_status_msg",
+        "$.message"
+      ]
+    }
+  },
+  "status_map": {
+    "submitted": "queued",
+    "processing": "running",
+    "succeed": "succeeded",
+    "failed": "failed"
+  },
+  "capabilities": {
+    "first_frame": true,
+    "last_frame": true,
+    "audio_track": "controllable"
+  }
+}

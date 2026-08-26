@@ -1,0 +1,73 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "Agnes 视频（内置复刻：文生 / 首帧 / 参考图）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "description": "复刻 lib/video_backends/agnes.py 的 POST /v1/videos → GET /v1/videos/{task_id} 链路。裸 base64 素材；首帧走顶层 image，参考图走 extra_body.image。首尾帧（keyframes）形状与本定义互斥，见 agnes-keyframes.json。width / height 由 aspect_ratio × resolution 算出，格式无派生尺寸变量，故本定义不下发。",
+    "hints": {
+      "base_url": "https://apihub.agnes-ai.com/v1",
+      "suggested_models": [{ "id": "agnes-video-v2.0", "label": "Agnes Video 2.0" }]
+    }
+  },
+  "auth": {
+    "headers": { "Authorization": "Bearer {{ api_key }}" }
+  },
+  "inputs": {
+    "first_frame": { "source": "start_image", "encoding": "base64" },
+    "refs": { "source": "reference_images", "encoding": "base64" }
+  },
+  "enum_maps": {
+    "duration": {
+      "1": 25, "2": 49, "3": 73, "4": 97, "5": 121, "6": 145, "7": 169, "8": 193, "9": 217,
+      "10": 241, "11": 265, "12": 289, "13": 313, "14": 337, "15": 361, "16": 385, "17": 409, "18": 433
+    }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/videos",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "num_frames": "{{ duration }}",
+      "frame_rate": 24,
+      "seed": "{{ seed }}",
+      "image": "{{ inputs.first_frame }}",
+      "extra_body": {
+        "image": [{ "$each": { "in": "inputs.refs", "as": "r", "item": "{{ r }}" } }]
+      }
+    },
+    "extract": {
+      "task_id": ["$.task_id", "$.id"],
+      "error": ["$.error.message", "$.error", "$.message"]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/videos/{{ task_id }}",
+    "extract": {
+      "status": ["$.status"],
+      "video_url": ["$.url", "$.video_url", "$.metadata.url", "$.metadata.video_url"],
+      "error": ["$.error.message", "$.error.code", "$.error"],
+      "usage": {
+        "seconds": { "paths": ["$.seconds"], "accept": "scalar" }
+      }
+    }
+  },
+  "status_map": {
+    "queued": "queued",
+    "in_progress": "running",
+    "completed": "succeeded",
+    "failed": "failed",
+    "error": "failed",
+    "cancelled": "failed",
+    "canceled": "failed"
+  },
+  "capabilities": {
+    "first_frame": true,
+    "last_frame": false,
+    "max_reference_images": 4,
+    "audio_track": "always_off"
+  }
+}

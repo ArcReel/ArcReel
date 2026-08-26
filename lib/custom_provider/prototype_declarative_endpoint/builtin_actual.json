@@ -1,0 +1,5345 @@
+[
+ {
+  "id": "agnes/t2v",
+  "template": "agnes.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "agnes-video-v2.0",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "",
+  "result": {
+   "task_id": "task-42",
+   "video_uri": "https://cdn.test/agnes/out.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/videos",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "agnes-video-v2.0",
+      "prompt": "A cat running",
+      "height": 1280,
+      "width": 720,
+      "num_frames": 121,
+      "frame_rate": 24,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    },
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/agnes/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "in_progress",
+     "progress": 40
+    },
+    {
+     "task_id": "task-42",
+     "status": "completed",
+     "size": "720x1280",
+     "url": "https://cdn.test/agnes/out.mp4",
+     "remixed_from_video_id": null,
+     "seconds": "5.0"
+    }
+   ]
+  }
+ },
+ {
+  "id": "agnes/i2v",
+  "template": "agnes.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "agnes-video-v2.0",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   }
+  },
+  "note": "",
+  "result": {
+   "task_id": "task-42",
+   "video_uri": "https://cdn.test/agnes/out.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/videos",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "agnes-video-v2.0",
+      "prompt": "A cat running",
+      "height": 1280,
+      "width": 720,
+      "num_frames": 121,
+      "frame_rate": 24,
+      "seed": 7,
+      "image": "iVBORw0KGgpTVEFSVA=="
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/agnes/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "completed",
+     "size": "720x1280",
+     "url": "https://cdn.test/agnes/out.mp4",
+     "remixed_from_video_id": null,
+     "seconds": "5.0"
+    }
+   ]
+  }
+ },
+ {
+  "id": "agnes/keyframes",
+  "template": "agnes-keyframes.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "agnes-video-v2.0",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   },
+   "end_image": {
+    "name": "end.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpFTkQ="
+   }
+  },
+  "note": "首尾帧形状单独一份定义",
+  "result": {
+   "task_id": "task-42",
+   "video_uri": "https://cdn.test/agnes/out.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/videos",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "agnes-video-v2.0",
+      "prompt": "A cat running",
+      "height": 1280,
+      "width": 720,
+      "num_frames": 121,
+      "frame_rate": 24,
+      "seed": 7,
+      "extra_body": {
+       "image": [
+        "iVBORw0KGgpTVEFSVA==",
+        "iVBORw0KGgpFTkQ="
+       ],
+       "mode": "keyframes"
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/agnes/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "completed",
+     "size": "720x1280",
+     "url": "https://cdn.test/agnes/out.mp4",
+     "remixed_from_video_id": null,
+     "seconds": "5.0"
+    }
+   ]
+  }
+ },
+ {
+  "id": "agnes/r2v",
+  "template": "agnes.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "agnes-video-v2.0",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    },
+    {
+     "name": "ref2.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYy"
+    }
+   ]
+  },
+  "note": "",
+  "result": {
+   "task_id": "task-42",
+   "video_uri": "https://cdn.test/agnes/out.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/videos",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "agnes-video-v2.0",
+      "prompt": "A cat running",
+      "height": 1280,
+      "width": 720,
+      "num_frames": 121,
+      "frame_rate": 24,
+      "seed": 7,
+      "extra_body": {
+       "image": [
+        "iVBORw0KGgpSRUYx",
+        "iVBORw0KGgpSRUYy"
+       ]
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/agnes/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "completed",
+     "size": "720x1280",
+     "url": "https://cdn.test/agnes/out.mp4",
+     "remixed_from_video_id": null,
+     "seconds": "5.0"
+    }
+   ]
+  }
+ },
+ {
+  "id": "agnes/video_id_only",
+  "template": "agnes.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "agnes-video-v2.0",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "完成态只带 video_id，内置二次查询 /agnesapi",
+  "result": {
+   "task_id": "task-42",
+   "video_uri": "https://cdn.test/agnes/queried.mp4",
+   "duration_seconds": 8,
+   "seed": 7,
+   "usage_tokens": null,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/videos",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "agnes-video-v2.0",
+      "prompt": "A cat running",
+      "height": 1280,
+      "width": 720,
+      "num_frames": 121,
+      "frame_rate": 24,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "query": [
+    {
+     "method": "GET",
+     "url": "https://x/agnesapi?video_id=vid-123",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/agnes/queried.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "video_id": "vid-123",
+     "status": "completed",
+     "remixed_from_video_id": null,
+     "seconds": "8.0"
+    }
+   ],
+   "query": [
+    {
+     "video_id": "vid-123",
+     "url": "https://cdn.test/agnes/queried.mp4"
+    }
+   ]
+  }
+ },
+ {
+  "id": "agnes/legacy_remixed_url",
+  "template": "agnes.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "agnes-video-v2.0",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "旧网关把 URL 回填在 remixed_from_video_id",
+  "result": {
+   "task_id": "task-42",
+   "video_uri": "https://cdn.test/agnes/legacy.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/videos",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "agnes-video-v2.0",
+      "prompt": "A cat running",
+      "height": 1280,
+      "width": 720,
+      "num_frames": 121,
+      "frame_rate": 24,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/agnes/legacy.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "video_id": "vid-x",
+     "status": "completed",
+     "remixed_from_video_id": "https://cdn.test/agnes/legacy.mp4"
+    }
+   ]
+  }
+ },
+ {
+  "id": "agnes/failed",
+  "template": "agnes.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "agnes-video-v2.0",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: Agnes 视频生成失败: upstream down",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/videos",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "agnes-video-v2.0",
+      "prompt": "A cat running",
+      "height": 1280,
+      "width": 720,
+      "num_frames": 121,
+      "frame_rate": 24,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "failed",
+     "error": {
+      "message": "upstream down"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "agnes/cancelled",
+  "template": "agnes.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "agnes-video-v2.0",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: Agnes 视频生成失败: user cancelled",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/videos",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "agnes-video-v2.0",
+      "prompt": "A cat running",
+      "height": 1280,
+      "width": 720,
+      "num_frames": 121,
+      "frame_rate": 24,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "cancelled",
+     "error": {
+      "message": "user cancelled"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "agnes/completed_no_url",
+  "template": "agnes.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "agnes-video-v2.0",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: Agnes 任务完成但缺少成片 URL 与 video_id（字段: ['status', 'task_id']）",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/videos",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "agnes-video-v2.0",
+      "prompt": "A cat running",
+      "height": 1280,
+      "width": 720,
+      "num_frames": 121,
+      "frame_rate": 24,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/videos/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "completed"
+    }
+   ]
+  }
+ },
+ {
+  "id": "ark/1x-t2v",
+  "template": "ark-seedance-1x.json",
+  "params": {
+   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+   "api_key": "K",
+   "model": "doubao-seedance-1-5-pro-251215",
+   "prompt": "a flower field",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 42
+  },
+  "assets": {},
+  "note": "service_tier=default",
+  "result": {
+   "task_id": "cgt-1",
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+     "headers": {
+      "authorization": "Bearer <SDK 注入>"
+     },
+     "body": {
+      "model": "doubao-seedance-1-5-pro-251215",
+      "content": [
+       {
+        "type": "text",
+        "text": "a flower field"
+       }
+      ],
+      "ratio": "16:9",
+      "duration": 5,
+      "generate_audio": true,
+      "watermark": false,
+      "resolution": "720p",
+      "service_tier": "default",
+      "seed": 42
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    },
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ark/video.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "cgt-1"
+    }
+   ],
+   "poll": [
+    {
+     "id": "cgt-1",
+     "status": "queued"
+    },
+    {
+     "id": "cgt-1",
+     "status": "succeeded",
+     "content": {
+      "video_url": "https://cdn.test/ark/video.mp4"
+     },
+     "seed": 58944,
+     "usage": {
+      "completion_tokens": 246840
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "ark/1x-i2v-last",
+  "template": "ark-seedance-1x.json",
+  "params": {
+   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+   "api_key": "K",
+   "model": "doubao-seedance-1-5-pro-251215",
+   "prompt": "morph",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": false,
+   "seed": null
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   },
+   "end_image": {
+    "name": "end.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpFTkQ="
+   }
+  },
+  "note": "",
+  "result": {
+   "task_id": "cgt-1",
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+     "headers": {
+      "authorization": "Bearer <SDK 注入>"
+     },
+     "body": {
+      "model": "doubao-seedance-1-5-pro-251215",
+      "content": [
+       {
+        "type": "text",
+        "text": "morph"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+        },
+        "role": "first_frame"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpFTkQ="
+        },
+        "role": "last_frame"
+       }
+      ],
+      "ratio": "16:9",
+      "duration": 5,
+      "generate_audio": false,
+      "watermark": false,
+      "resolution": "720p",
+      "service_tier": "default"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ark/video.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "cgt-1"
+    }
+   ],
+   "poll": [
+    {
+     "id": "cgt-1",
+     "status": "succeeded",
+     "content": {
+      "video_url": "https://cdn.test/ark/video.mp4"
+     },
+     "seed": 58944,
+     "usage": {
+      "completion_tokens": 246840
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "ark/1x-r2v",
+  "template": "ark-seedance-1x.json",
+  "params": {
+   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+   "api_key": "K",
+   "model": "doubao-seedance-1-5-pro-251215",
+   "prompt": "[图1] 与 [图2] 对话",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    },
+    {
+     "name": "ref2.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYy"
+    }
+   ]
+  },
+  "note": "",
+  "result": {
+   "task_id": "cgt-1",
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+     "headers": {
+      "authorization": "Bearer <SDK 注入>"
+     },
+     "body": {
+      "model": "doubao-seedance-1-5-pro-251215",
+      "content": [
+       {
+        "type": "text",
+        "text": "[图1] 与 [图2] 对话"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYx"
+        },
+        "role": "reference_image"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYy"
+        },
+        "role": "reference_image"
+       }
+      ],
+      "ratio": "16:9",
+      "duration": 5,
+      "generate_audio": true,
+      "watermark": false,
+      "resolution": "720p",
+      "service_tier": "default"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ark/video.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "cgt-1"
+    }
+   ],
+   "poll": [
+    {
+     "id": "cgt-1",
+     "status": "succeeded",
+     "content": {
+      "video_url": "https://cdn.test/ark/video.mp4"
+     },
+     "seed": 58944,
+     "usage": {
+      "completion_tokens": 246840
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "ark/1x-flex",
+  "template": "ark-seedance-1x.json",
+  "params": {
+   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+   "api_key": "K",
+   "model": "doubao-seedance-1-5-pro-251215",
+   "prompt": "test",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "service_tier=flex，格式无该变量",
+  "result": {
+   "task_id": "cgt-1",
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+     "headers": {
+      "authorization": "Bearer <SDK 注入>"
+     },
+     "body": {
+      "model": "doubao-seedance-1-5-pro-251215",
+      "content": [
+       {
+        "type": "text",
+        "text": "test"
+       }
+      ],
+      "ratio": "16:9",
+      "duration": 5,
+      "generate_audio": true,
+      "watermark": false,
+      "resolution": "720p",
+      "service_tier": "flex"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ark/video.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "cgt-1"
+    }
+   ],
+   "poll": [
+    {
+     "id": "cgt-1",
+     "status": "succeeded",
+     "content": {
+      "video_url": "https://cdn.test/ark/video.mp4"
+     },
+     "seed": 58944,
+     "usage": {
+      "completion_tokens": 246840
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "ark/2-0-r2v-audio",
+  "template": "ark-seedance-2-0.json",
+  "params": {
+   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+   "api_key": "K",
+   "model": "doubao-seedance-2-0-260128",
+   "prompt": "两人对话",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    },
+    {
+     "name": "ref2.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYy"
+    }
+   ],
+   "reference_audio_files": [
+    {
+     "name": "a.wav",
+     "mime": "audio/wav",
+     "bytes_b64": "UklGRgAAAABXQVZFQQ=="
+    }
+   ]
+  },
+  "note": "",
+  "result": {
+   "task_id": "cgt-1",
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+     "headers": {
+      "authorization": "Bearer <SDK 注入>"
+     },
+     "body": {
+      "model": "doubao-seedance-2-0-260128",
+      "content": [
+       {
+        "type": "text",
+        "text": "两人对话"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYx"
+        },
+        "role": "reference_image"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYy"
+        },
+        "role": "reference_image"
+       },
+       {
+        "type": "audio_url",
+        "audio_url": {
+         "url": "data:audio/wav;base64,UklGRgAAAABXQVZFQQ=="
+        },
+        "role": "reference_audio"
+       }
+      ],
+      "ratio": "16:9",
+      "duration": 5,
+      "generate_audio": true,
+      "watermark": false,
+      "resolution": "720p"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ark/video.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "cgt-1"
+    }
+   ],
+   "poll": [
+    {
+     "id": "cgt-1",
+     "status": "succeeded",
+     "content": {
+      "video_url": "https://cdn.test/ark/video.mp4"
+     },
+     "seed": 58944,
+     "usage": {
+      "completion_tokens": 246840
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "ark/2-0-i2v-last",
+  "template": "ark-seedance-2-0.json",
+  "params": {
+   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+   "api_key": "K",
+   "model": "doubao-seedance-2-0-260128",
+   "prompt": "morph",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   },
+   "end_image": {
+    "name": "end.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpFTkQ="
+   }
+  },
+  "note": "",
+  "result": {
+   "task_id": "cgt-1",
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+     "headers": {
+      "authorization": "Bearer <SDK 注入>"
+     },
+     "body": {
+      "model": "doubao-seedance-2-0-260128",
+      "content": [
+       {
+        "type": "text",
+        "text": "morph"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+        },
+        "role": "first_frame"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpFTkQ="
+        },
+        "role": "last_frame"
+       }
+      ],
+      "ratio": "16:9",
+      "duration": 5,
+      "generate_audio": true,
+      "watermark": false,
+      "resolution": "720p"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ark/video.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "cgt-1"
+    }
+   ],
+   "poll": [
+    {
+     "id": "cgt-1",
+     "status": "succeeded",
+     "content": {
+      "video_url": "https://cdn.test/ark/video.mp4"
+     },
+     "seed": 58944,
+     "usage": {
+      "completion_tokens": 246840
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "ark/2-5-i2v-adaptive",
+  "template": "ark-seedance-2-5.json",
+  "params": {
+   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+   "api_key": "K",
+   "model": "doubao-seedance-2-5-260628",
+   "prompt": "girl",
+   "duration": 5,
+   "aspect_ratio": "adaptive",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   }
+  },
+  "note": "编排层已把 aspect_ratio 改写为 adaptive",
+  "result": {
+   "task_id": "cgt-1",
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+     "headers": {
+      "authorization": "Bearer <SDK 注入>"
+     },
+     "body": {
+      "model": "doubao-seedance-2-5-260628",
+      "content": [
+       {
+        "type": "text",
+        "text": "girl"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+        },
+        "role": "first_frame"
+       }
+      ],
+      "ratio": "adaptive",
+      "duration": 5,
+      "generate_audio": true,
+      "watermark": false,
+      "resolution": "720p"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ark/video.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "cgt-1"
+    }
+   ],
+   "poll": [
+    {
+     "id": "cgt-1",
+     "status": "succeeded",
+     "content": {
+      "video_url": "https://cdn.test/ark/video.mp4"
+     },
+     "seed": 58944,
+     "usage": {
+      "completion_tokens": 246840
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "ark/failed",
+  "template": "ark-seedance-1x.json",
+  "params": {
+   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+   "api_key": "K",
+   "model": "doubao-seedance-1-5-pro-251215",
+   "prompt": "test",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: Ark 视频生成失败(status=failed): namespace(code='OutputVideoSensitiveContentDetected', message='content violation')",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+     "headers": {
+      "authorization": "Bearer <SDK 注入>"
+     },
+     "body": {
+      "model": "doubao-seedance-1-5-pro-251215",
+      "content": [
+       {
+        "type": "text",
+        "text": "test"
+       }
+      ],
+      "ratio": "16:9",
+      "duration": 5,
+      "generate_audio": true,
+      "watermark": false,
+      "resolution": "720p",
+      "service_tier": "default"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "cgt-1"
+    }
+   ],
+   "poll": [
+    {
+     "id": "cgt-1",
+     "status": "failed",
+     "error": {
+      "code": "OutputVideoSensitiveContentDetected",
+      "message": "content violation"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "ark/expired",
+  "template": "ark-seedance-1x.json",
+  "params": {
+   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+   "api_key": "K",
+   "model": "doubao-seedance-1-5-pro-251215",
+   "prompt": "test",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: Ark 视频生成失败(status=expired): Unknown error",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+     "headers": {
+      "authorization": "Bearer <SDK 注入>"
+     },
+     "body": {
+      "model": "doubao-seedance-1-5-pro-251215",
+      "content": [
+       {
+        "type": "text",
+        "text": "test"
+       }
+      ],
+      "ratio": "16:9",
+      "duration": 5,
+      "generate_audio": true,
+      "watermark": false,
+      "resolution": "720p",
+      "service_tier": "default"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+     "headers": {},
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "cgt-1"
+    }
+   ],
+   "poll": [
+    {
+     "id": "cgt-1",
+     "status": "expired",
+     "error": null
+    }
+   ]
+  }
+ },
+ {
+  "id": "dashscope/happyhorse-t2v",
+  "template": "dashscope-t2v.json",
+  "params": {
+   "base_url": "https://dashscope.aliyuncs.com/api/v1",
+   "api_key": "K",
+   "model": "happyhorse-1.1-t2v",
+   "prompt": "p",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 3
+  },
+  "assets": {},
+  "note": "",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+     "headers": {
+      "authorization": "Bearer K",
+      "x-dashscope-async": "enable"
+     },
+     "body": {
+      "model": "happyhorse-1.1-t2v",
+      "input": {
+       "prompt": "p"
+      },
+      "parameters": {
+       "resolution": "720P",
+       "duration": 5,
+       "watermark": false,
+       "ratio": "16:9",
+       "seed": 3
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    },
+    {
+     "method": "GET",
+     "url": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ds/o.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "PENDING"
+     },
+     "request_id": "req-1"
+    }
+   ],
+   "poll": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "RUNNING"
+     },
+     "request_id": "req-2"
+    },
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "SUCCEEDED",
+      "video_url": "https://cdn.test/ds/o.mp4"
+     },
+     "usage": {
+      "duration": 8,
+      "input_video_duration": 0,
+      "output_video_duration": 8
+     },
+     "request_id": "req-3"
+    }
+   ]
+  }
+ },
+ {
+  "id": "dashscope/happyhorse-i2v",
+  "template": "dashscope-i2v.json",
+  "params": {
+   "base_url": "https://dashscope.aliyuncs.com/api/v1",
+   "api_key": "K",
+   "model": "happyhorse-1.1-i2v",
+   "prompt": "p",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "480p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   }
+  },
+  "note": "首帧在场不下发 ratio",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+     "headers": {
+      "authorization": "Bearer K",
+      "x-dashscope-async": "enable"
+     },
+     "body": {
+      "model": "happyhorse-1.1-i2v",
+      "input": {
+       "prompt": "p",
+       "media": [
+        {
+         "type": "first_frame",
+         "url": "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+        }
+       ]
+      },
+      "parameters": {
+       "resolution": "480P",
+       "duration": 5,
+       "watermark": false
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ds/o.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "PENDING"
+     },
+     "request_id": "req-1"
+    }
+   ],
+   "poll": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "SUCCEEDED",
+      "video_url": "https://cdn.test/ds/o.mp4"
+     },
+     "usage": {
+      "duration": 8,
+      "input_video_duration": 0,
+      "output_video_duration": 8
+     },
+     "request_id": "req-3"
+    }
+   ]
+  }
+ },
+ {
+  "id": "dashscope/happyhorse-r2v",
+  "template": "dashscope-happyhorse-r2v.json",
+  "params": {
+   "base_url": "https://dashscope.aliyuncs.com/api/v1",
+   "api_key": "K",
+   "model": "happyhorse-1.1-r2v",
+   "prompt": "[Image 1] dances",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    },
+    {
+     "name": "ref2.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYy"
+    }
+   ]
+  },
+  "note": "",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+     "headers": {
+      "authorization": "Bearer K",
+      "x-dashscope-async": "enable"
+     },
+     "body": {
+      "model": "happyhorse-1.1-r2v",
+      "input": {
+       "prompt": "[Image 1] dances",
+       "media": [
+        {
+         "type": "reference_image",
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYx"
+        },
+        {
+         "type": "reference_image",
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYy"
+        }
+       ]
+      },
+      "parameters": {
+       "resolution": "720P",
+       "duration": 5,
+       "watermark": false,
+       "ratio": "16:9"
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ds/o.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "PENDING"
+     },
+     "request_id": "req-1"
+    }
+   ],
+   "poll": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "SUCCEEDED",
+      "video_url": "https://cdn.test/ds/o.mp4"
+     },
+     "usage": {
+      "duration": 8,
+      "input_video_duration": 0,
+      "output_video_duration": 8
+     },
+     "request_id": "req-3"
+    }
+   ]
+  }
+ },
+ {
+  "id": "dashscope/wan27-r2v-voice",
+  "template": "dashscope-wan27-r2v.json",
+  "params": {
+   "base_url": "https://dashscope.aliyuncs.com/api/v1",
+   "api_key": "K",
+   "model": "wan2.7-r2v",
+   "prompt": "两人对话",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "1080p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   },
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    },
+    {
+     "name": "ref2.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYy"
+    }
+   ],
+   "reference_audio_files": [
+    {
+     "name": "a.wav",
+     "mime": "audio/wav",
+     "bytes_b64": "UklGRgAAAABXQVZFQQ=="
+    }
+   ]
+  },
+  "note": "参考音频按 targets 挂到 refs[1].reference_voice",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+     "headers": {
+      "authorization": "Bearer K",
+      "x-dashscope-async": "enable"
+     },
+     "body": {
+      "model": "wan2.7-r2v",
+      "input": {
+       "prompt": "两人对话",
+       "media": [
+        {
+         "type": "first_frame",
+         "url": "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+        },
+        {
+         "type": "reference_image",
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYx"
+        },
+        {
+         "type": "reference_image",
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYy",
+         "reference_voice": "data:audio/wav;base64,UklGRgAAAABXQVZFQQ=="
+        }
+       ]
+      },
+      "parameters": {
+       "resolution": "1080P",
+       "duration": 5,
+       "watermark": false
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ds/o.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "PENDING"
+     },
+     "request_id": "req-1"
+    }
+   ],
+   "poll": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "SUCCEEDED",
+      "video_url": "https://cdn.test/ds/o.mp4"
+     },
+     "usage": {
+      "duration": 8,
+      "input_video_duration": 0,
+      "output_video_duration": 8
+     },
+     "request_id": "req-3"
+    }
+   ]
+  }
+ },
+ {
+  "id": "dashscope/wan3-t2v",
+  "template": "dashscope-wan3.json",
+  "params": {
+   "base_url": "https://dashscope.aliyuncs.com/api/v1",
+   "api_key": "K",
+   "model": "wan3.0-video",
+   "prompt": "p",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": false,
+   "seed": null
+  },
+  "assets": {},
+  "note": "无首帧：ratio 下发",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+     "headers": {
+      "authorization": "Bearer K",
+      "x-dashscope-async": "enable"
+     },
+     "body": {
+      "model": "wan3.0-video",
+      "input": {
+       "prompt": "p"
+      },
+      "parameters": {
+       "resolution": "720P",
+       "duration": 5,
+       "watermark": false,
+       "ratio": "16:9",
+       "audio": false
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ds/o.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "PENDING"
+     },
+     "request_id": "req-1"
+    }
+   ],
+   "poll": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "SUCCEEDED",
+      "video_url": "https://cdn.test/ds/o.mp4"
+     },
+     "usage": {
+      "duration": 8,
+      "input_video_duration": 0,
+      "output_video_duration": 8
+     },
+     "request_id": "req-3"
+    }
+   ]
+  }
+ },
+ {
+  "id": "dashscope/wan3-all",
+  "template": "dashscope-wan3.json",
+  "params": {
+   "base_url": "https://dashscope.aliyuncs.com/api/v1",
+   "api_key": "K",
+   "model": "wan3.0-video",
+   "prompt": "p",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   },
+   "end_image": {
+    "name": "end.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpFTkQ="
+   },
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    }
+   ],
+   "reference_audio_files": [
+    {
+     "name": "a.wav",
+     "mime": "audio/wav",
+     "bytes_b64": "UklGRgAAAABXQVZFQQ=="
+    }
+   ]
+  },
+  "note": "有首帧：ratio 不下发",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+     "headers": {
+      "authorization": "Bearer K",
+      "x-dashscope-async": "enable"
+     },
+     "body": {
+      "model": "wan3.0-video",
+      "input": {
+       "prompt": "p",
+       "media": [
+        {
+         "type": "first_frame",
+         "url": "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+        },
+        {
+         "type": "last_frame",
+         "url": "data:image/png;base64,iVBORw0KGgpFTkQ="
+        },
+        {
+         "type": "reference_image",
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYx"
+        },
+        {
+         "type": "reference_audio",
+         "url": "data:audio/wav;base64,UklGRgAAAABXQVZFQQ=="
+        }
+       ]
+      },
+      "parameters": {
+       "resolution": "720P",
+       "duration": 5,
+       "watermark": false,
+       "audio": true
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/ds/o.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "PENDING"
+     },
+     "request_id": "req-1"
+    }
+   ],
+   "poll": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "SUCCEEDED",
+      "video_url": "https://cdn.test/ds/o.mp4"
+     },
+     "usage": {
+      "duration": 8,
+      "input_video_duration": 0,
+      "output_video_duration": 8
+     },
+     "request_id": "req-3"
+    }
+   ]
+  }
+ },
+ {
+  "id": "dashscope/failed",
+  "template": "dashscope-t2v.json",
+  "params": {
+   "base_url": "https://dashscope.aliyuncs.com/api/v1",
+   "api_key": "K",
+   "model": "wan2.7-t2v",
+   "prompt": "p",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: DashScope 任务失败 status=FAILED code=DataInspectionFailed: boom",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+     "headers": {
+      "authorization": "Bearer K",
+      "x-dashscope-async": "enable"
+     },
+     "body": {
+      "model": "wan2.7-t2v",
+      "input": {
+       "prompt": "p"
+      },
+      "parameters": {
+       "resolution": "720P",
+       "duration": 5,
+       "watermark": false,
+       "ratio": "16:9"
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "PENDING"
+     },
+     "request_id": "req-1"
+    }
+   ],
+   "poll": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "FAILED",
+      "code": "DataInspectionFailed",
+      "message": "boom"
+     },
+     "request_id": "r"
+    }
+   ]
+  }
+ },
+ {
+  "id": "dashscope/unknown",
+  "template": "dashscope-t2v.json",
+  "params": {
+   "base_url": "https://dashscope.aliyuncs.com/api/v1",
+   "api_key": "K",
+   "model": "wan2.7-t2v",
+   "prompt": "p",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "task_id 24h 过期",
+  "error": "RuntimeError: DashScope task expired during generate: t-1",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+     "headers": {
+      "authorization": "Bearer K",
+      "x-dashscope-async": "enable"
+     },
+     "body": {
+      "model": "wan2.7-t2v",
+      "input": {
+       "prompt": "p"
+      },
+      "parameters": {
+       "resolution": "720P",
+       "duration": 5,
+       "watermark": false,
+       "ratio": "16:9"
+      }
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "PENDING"
+     },
+     "request_id": "req-1"
+    }
+   ],
+   "poll": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "UNKNOWN"
+     },
+     "request_id": "r"
+    }
+   ]
+  }
+ },
+ {
+  "id": "dashscope/submit_biz_error",
+  "template": "dashscope-t2v.json",
+  "params": {
+   "base_url": "https://dashscope.aliyuncs.com/api/v1",
+   "api_key": "K",
+   "model": "wan2.7-t2v",
+   "prompt": "p",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "HTTP 200 + 业务码，无 output.task_id",
+  "error": "RuntimeError: DashScope 提交失败 code=InvalidApiKey: Invalid API-key provided.",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+     "headers": {
+      "authorization": "Bearer K",
+      "x-dashscope-async": "enable"
+     },
+     "body": {
+      "model": "wan2.7-t2v",
+      "input": {
+       "prompt": "p"
+      },
+      "parameters": {
+       "resolution": "720P",
+       "duration": 5,
+       "watermark": false,
+       "ratio": "16:9"
+      }
+     }
+    }
+   ],
+   "poll": [],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "code": "InvalidApiKey",
+     "message": "Invalid API-key provided.",
+     "request_id": "r"
+    }
+   ],
+   "poll": [
+    {
+     "output": {
+      "task_id": "t-1",
+      "task_status": "SUCCEEDED",
+      "video_url": "https://cdn.test/ds/o.mp4"
+     },
+     "usage": {
+      "duration": 8,
+      "input_video_duration": 0,
+      "output_video_duration": 8
+     },
+     "request_id": "req-3"
+    }
+   ]
+  }
+ },
+ {
+  "id": "kling/t2v",
+  "template": "kling-text2video.json",
+  "params": {
+   "base_url": "https://api-beijing.klingai.com/v1",
+   "api_key": "K",
+   "model": "kling-v3",
+   "prompt": "a cat walking",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": null,
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/kling/v.mp4",
+   "duration_seconds": 5,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api-beijing.klingai.com/v1/videos/text2video",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model_name": "kling-v3",
+      "prompt": "a cat walking",
+      "mode": "std",
+      "duration": "5",
+      "aspect_ratio": "9:16",
+      "sound": "on"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    },
+    {
+     "method": "GET",
+     "url": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/kling/v.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-1",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "submitted",
+      "created_at": 1,
+      "updated_at": 1
+     }
+    }
+   ],
+   "poll": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-2",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "processing"
+     }
+    },
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-3",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "succeed",
+      "task_result": {
+       "videos": [
+        {
+         "id": "v1",
+         "url": "https://cdn.test/kling/v.mp4",
+         "duration": "5"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "kling/i2v-tail-pro",
+  "template": "kling-image2video.json",
+  "params": {
+   "base_url": "https://api-beijing.klingai.com/v1",
+   "api_key": "K",
+   "model": "kling-v3",
+   "prompt": "a cat walking",
+   "duration": 10,
+   "aspect_ratio": "9:16",
+   "resolution": null,
+   "generate_audio": false,
+   "seed": null
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   },
+   "end_image": {
+    "name": "end.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpFTkQ="
+   }
+  },
+  "note": "service_tier=pro → mode=pro，格式无该变量",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/kling/v.mp4",
+   "duration_seconds": 10,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api-beijing.klingai.com/v1/videos/image2video",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model_name": "kling-v3",
+      "prompt": "a cat walking",
+      "mode": "pro",
+      "duration": "10",
+      "aspect_ratio": "9:16",
+      "image": "iVBORw0KGgpTVEFSVA==",
+      "image_tail": "iVBORw0KGgpFTkQ=",
+      "sound": "off"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api-beijing.klingai.com/v1/videos/image2video/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/kling/v.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-1",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "submitted",
+      "created_at": 1,
+      "updated_at": 1
+     }
+    }
+   ],
+   "poll": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-3",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "succeed",
+      "task_result": {
+       "videos": [
+        {
+         "id": "v1",
+         "url": "https://cdn.test/kling/v.mp4",
+         "duration": "5"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "kling/r2v",
+  "template": "kling-multi-image2video.json",
+  "params": {
+   "base_url": "https://api-beijing.klingai.com/v1",
+   "api_key": "K",
+   "model": "kling-v3-omni",
+   "prompt": "两人",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": null,
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    },
+    {
+     "name": "ref2.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYy"
+    }
+   ]
+  },
+  "note": "",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/kling/v.mp4",
+   "duration_seconds": 5,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": false
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api-beijing.klingai.com/v1/videos/multi-image2video",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model_name": "kling-v3-omni",
+      "prompt": "两人",
+      "mode": "std",
+      "duration": "5",
+      "aspect_ratio": "16:9",
+      "image_list": [
+       {
+        "image": "iVBORw0KGgpSRUYx"
+       },
+       {
+        "image": "iVBORw0KGgpSRUYy"
+       }
+      ]
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api-beijing.klingai.com/v1/videos/multi-image2video/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/kling/v.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-1",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "submitted",
+      "created_at": 1,
+      "updated_at": 1
+     }
+    }
+   ],
+   "poll": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-3",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "succeed",
+      "task_result": {
+       "videos": [
+        {
+         "id": "v1",
+         "url": "https://cdn.test/kling/v.mp4",
+         "duration": "5"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "kling/failed",
+  "template": "kling-text2video.json",
+  "params": {
+   "base_url": "https://api-beijing.klingai.com/v1",
+   "api_key": "K",
+   "model": "kling-v3",
+   "prompt": "x",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": null,
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: Kling 任务失败 task_id=t-1: nsfw",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api-beijing.klingai.com/v1/videos/text2video",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model_name": "kling-v3",
+      "prompt": "x",
+      "mode": "std",
+      "duration": "5",
+      "aspect_ratio": "9:16",
+      "sound": "on"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-1",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "submitted",
+      "created_at": 1,
+      "updated_at": 1
+     }
+    }
+   ],
+   "poll": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "failed",
+      "task_status_msg": "nsfw"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "kling/envelope_error_poll",
+  "template": "kling-text2video.json",
+  "params": {
+   "base_url": "https://api-beijing.klingai.com/v1",
+   "api_key": "K",
+   "model": "kling-v3",
+   "prompt": "x",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": null,
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "HTTP 200 + 顶层 code≠0，无 task_status",
+  "error": "RuntimeError: Kling API code=1200: bad task",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api-beijing.klingai.com/v1/videos/text2video",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model_name": "kling-v3",
+      "prompt": "x",
+      "mode": "std",
+      "duration": "5",
+      "aspect_ratio": "9:16",
+      "sound": "on"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-1",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "submitted",
+      "created_at": 1,
+      "updated_at": 1
+     }
+    }
+   ],
+   "poll": [
+    {
+     "code": 1200,
+     "message": "bad task",
+     "request_id": "r"
+    }
+   ]
+  }
+ },
+ {
+  "id": "kling/jwt-t2v",
+  "template": null,
+  "params": {
+   "base_url": "https://api-beijing.klingai.com/v1",
+   "api_key": "K",
+   "model": "kling-v3",
+   "prompt": "a cat walking",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": null,
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "JWT 模式：Authorization 为 HS256 签名 token，格式 auth 节不可表达",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/kling/v.mp4",
+   "duration_seconds": 5,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api-beijing.klingai.com/v1/videos/text2video",
+     "headers": {
+      "authorization": "Bearer <HS256 JWT>"
+     },
+     "body": {
+      "model_name": "kling-v3",
+      "prompt": "a cat walking",
+      "mode": "std",
+      "duration": "5",
+      "aspect_ratio": "9:16",
+      "sound": "on"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+     "headers": {
+      "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhay0xIiwiZXhwIjoxNzg3NzU2NDA5LCJuYmYiOjE3ODc3NTQ2MDR9.6zgWtL-2K26NQ3gG8BKWM7THtrR6mI8u4OGevOiodCY"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/kling/v.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-1",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "submitted",
+      "created_at": 1,
+      "updated_at": 1
+     }
+    }
+   ],
+   "poll": [
+    {
+     "code": 0,
+     "message": "SUCCEED",
+     "request_id": "r-3",
+     "data": {
+      "task_id": "t-1",
+      "task_status": "succeed",
+      "task_result": {
+       "videos": [
+        {
+         "id": "v1",
+         "url": "https://cdn.test/kling/v.mp4",
+         "duration": "5"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "jwt_payload": {
+   "iss": "ak-1",
+   "exp": 1787756409,
+   "nbf": 1787754604
+  },
+  "jwt_header": {
+   "alg": "HS256",
+   "typ": "JWT"
+  }
+ },
+ {
+  "id": "minimax/hailuo-t2v",
+  "template": "minimax-hailuo-v1.json",
+  "params": {
+   "base_url": "https://api.minimaxi.com/v1",
+   "api_key": "K",
+   "model": "MiniMax-Hailuo-2.3",
+   "prompt": "a cat",
+   "duration": 6,
+   "aspect_ratio": "16:9",
+   "resolution": "768p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "两步取 URL：file_id → files/retrieve",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/mm/final.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.minimaxi.com/v1/video_generation",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "MiniMax-Hailuo-2.3",
+      "prompt": "a cat",
+      "duration": 6,
+      "resolution": "768P"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    },
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "retrieve": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v1/files/retrieve?file_id=file-9",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/mm/final.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "t-1",
+     "status": "Processing",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    },
+    {
+     "task_id": "t-1",
+     "status": "Success",
+     "file_id": "file-9",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "retrieve": [
+    {
+     "file": {
+      "file_id": "file-9",
+      "download_url": "https://cdn.test/mm/final.mp4"
+     },
+     "base_resp": {
+      "status_code": 0
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "minimax/hailuo-i2v",
+  "template": "minimax-hailuo-v1.json",
+  "params": {
+   "base_url": "https://api.minimaxi.com/v1",
+   "api_key": "K",
+   "model": "MiniMax-Hailuo-2.3",
+   "prompt": "a cat",
+   "duration": 6,
+   "aspect_ratio": "16:9",
+   "resolution": "1080p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   }
+  },
+  "note": "",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/mm/final.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.minimaxi.com/v1/video_generation",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "MiniMax-Hailuo-2.3",
+      "prompt": "a cat",
+      "duration": 6,
+      "resolution": "1080P",
+      "first_frame_image": "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "retrieve": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v1/files/retrieve?file_id=file-9",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/mm/final.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "t-1",
+     "status": "Success",
+     "file_id": "file-9",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "retrieve": [
+    {
+     "file": {
+      "file_id": "file-9",
+      "download_url": "https://cdn.test/mm/final.mp4"
+     },
+     "base_resp": {
+      "status_code": 0
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "minimax/s2v",
+  "template": "minimax-s2v-01.json",
+  "params": {
+   "base_url": "https://api.minimaxi.com/v1",
+   "api_key": "K",
+   "model": "S2V-01",
+   "prompt": "a cat",
+   "duration": 6,
+   "aspect_ratio": "16:9",
+   "resolution": "768p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    }
+   ]
+  },
+  "note": "",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/mm/final.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.minimaxi.com/v1/video_generation",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "S2V-01",
+      "prompt": "a cat",
+      "subject_reference": [
+       {
+        "type": "character",
+        "image": [
+         "data:image/png;base64,iVBORw0KGgpSRUYx"
+        ]
+       }
+      ]
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "retrieve": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v1/files/retrieve?file_id=file-9",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/mm/final.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "t-1",
+     "status": "Success",
+     "file_id": "file-9",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "retrieve": [
+    {
+     "file": {
+      "file_id": "file-9",
+      "download_url": "https://cdn.test/mm/final.mp4"
+     },
+     "base_resp": {
+      "status_code": 0
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "minimax/hailuo-fail",
+  "template": "minimax-hailuo-v1.json",
+  "params": {
+   "base_url": "https://api.minimaxi.com/v1",
+   "api_key": "K",
+   "model": "MiniMax-Hailuo-2.3",
+   "prompt": "a cat",
+   "duration": 6,
+   "aspect_ratio": "16:9",
+   "resolution": "768p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: MiniMax 视频任务失败 task_id=t-1 status_code=2013: invalid params",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.minimaxi.com/v1/video_generation",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "MiniMax-Hailuo-2.3",
+      "prompt": "a cat",
+      "duration": 6,
+      "resolution": "768P"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "t-1",
+     "status": "Fail",
+     "base_resp": {
+      "status_code": 2013,
+      "status_msg": "invalid params"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "minimax/hailuo-base-resp-error-poll",
+  "template": "minimax-hailuo-v1.json",
+  "params": {
+   "base_url": "https://api.minimaxi.com/v1",
+   "api_key": "K",
+   "model": "MiniMax-Hailuo-2.3",
+   "prompt": "a cat",
+   "duration": 6,
+   "aspect_ratio": "16:9",
+   "resolution": "768p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "HTTP 200 + base_resp.status_code≠0，无 status",
+  "error": "RuntimeError: MiniMax base_resp status_code=1004: auth failed",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.minimaxi.com/v1/video_generation",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "MiniMax-Hailuo-2.3",
+      "prompt": "a cat",
+      "duration": 6,
+      "resolution": "768P"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 1004,
+      "status_msg": "auth failed"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "minimax/h3-t2v",
+  "template": "minimax-h3-v2.json",
+  "params": {
+   "base_url": "https://api.minimaxi.com/v2",
+   "api_key": "K",
+   "model": "MiniMax-H3",
+   "prompt": "a cat",
+   "duration": 6,
+   "aspect_ratio": "16:9",
+   "resolution": "768p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/mm/h3.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.minimaxi.com/v2/video_generation",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "MiniMax-H3",
+      "content": [
+       {
+        "type": "text",
+        "text": "a cat"
+       }
+      ],
+      "resolution": "768P",
+      "duration": 6,
+      "ratio": "16:9"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    },
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/mm/h3.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "task": {
+      "id": "h3-task",
+      "model": "MiniMax-H3",
+      "status": "running"
+     },
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    },
+    {
+     "task": {
+      "id": "h3-task",
+      "model": "MiniMax-H3",
+      "status": "succeeded",
+      "content": {
+       "url": "https://cdn.test/mm/h3.mp4"
+      }
+     },
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "minimax/h3-i2v-last",
+  "template": "minimax-h3-v2.json",
+  "params": {
+   "base_url": "https://api.minimaxi.com/v2",
+   "api_key": "K",
+   "model": "MiniMax-H3",
+   "prompt": "a cat",
+   "duration": 6,
+   "aspect_ratio": "adaptive",
+   "resolution": "768p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   },
+   "end_image": {
+    "name": "end.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpFTkQ="
+   }
+  },
+  "note": "编排层已把 aspect_ratio 改写为 adaptive",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/mm/h3.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.minimaxi.com/v2/video_generation",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "MiniMax-H3",
+      "content": [
+       {
+        "type": "text",
+        "text": "a cat"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+        },
+        "role": "first_frame"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpFTkQ="
+        },
+        "role": "last_frame"
+       }
+      ],
+      "resolution": "768P",
+      "duration": 6,
+      "ratio": "adaptive"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/mm/h3.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "task": {
+      "id": "h3-task",
+      "model": "MiniMax-H3",
+      "status": "succeeded",
+      "content": {
+       "url": "https://cdn.test/mm/h3.mp4"
+      }
+     },
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "minimax/h3-r2v-audio",
+  "template": "minimax-h3-v2.json",
+  "params": {
+   "base_url": "https://api.minimaxi.com/v2",
+   "api_key": "K",
+   "model": "MiniMax-H3",
+   "prompt": "a cat",
+   "duration": 6,
+   "aspect_ratio": "16:9",
+   "resolution": "768p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    },
+    {
+     "name": "ref2.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYy"
+    }
+   ],
+   "reference_audio_files": [
+    {
+     "name": "a.wav",
+     "mime": "audio/wav",
+     "bytes_b64": "UklGRgAAAABXQVZFQQ=="
+    }
+   ]
+  },
+  "note": "",
+  "result": {
+   "task_id": "t-1",
+   "video_uri": "https://cdn.test/mm/h3.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.minimaxi.com/v2/video_generation",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "MiniMax-H3",
+      "content": [
+       {
+        "type": "text",
+        "text": "a cat"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYx"
+        },
+        "role": "reference_image"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,iVBORw0KGgpSRUYy"
+        },
+        "role": "reference_image"
+       },
+       {
+        "type": "audio_url",
+        "audio_url": {
+         "url": "data:audio/wav;base64,UklGRgAAAABXQVZFQQ=="
+        },
+        "role": "reference_audio"
+       }
+      ],
+      "resolution": "768P",
+      "duration": 6,
+      "ratio": "16:9"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/mm/h3.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "task": {
+      "id": "h3-task",
+      "model": "MiniMax-H3",
+      "status": "succeeded",
+      "content": {
+       "url": "https://cdn.test/mm/h3.mp4"
+      }
+     },
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "minimax/h3-failed",
+  "template": "minimax-h3-v2.json",
+  "params": {
+   "base_url": "https://api.minimaxi.com/v2",
+   "api_key": "K",
+   "model": "MiniMax-H3",
+   "prompt": "a cat",
+   "duration": 6,
+   "aspect_ratio": "16:9",
+   "resolution": "768p",
+   "generate_audio": true,
+   "seed": null
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: MiniMax 视频任务failed task_id=h3-task: quota exhausted",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.minimaxi.com/v2/video_generation",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "MiniMax-H3",
+      "content": [
+       {
+        "type": "text",
+        "text": "a cat"
+       }
+      ],
+      "resolution": "768P",
+      "duration": 6,
+      "ratio": "16:9"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "t-1",
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "task": {
+      "id": "h3-task",
+      "status": "failed",
+      "error": "quota exhausted"
+     },
+     "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "newapi/t2v",
+  "template": "newapi-builtin.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "kling-v1",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "",
+  "result": {
+   "task_id": "task-42",
+   "video_uri": null,
+   "duration_seconds": 5,
+   "seed": 0,
+   "usage_tokens": null,
+   "generate_audio": null
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "kling-v1",
+      "prompt": "A cat running",
+      "width": 720,
+      "height": 1280,
+      "duration": 5,
+      "n": 1,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/video/generations/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    },
+    {
+     "method": "GET",
+     "url": "https://x/v1/video/generations/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/na/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "in_progress"
+    },
+    {
+     "task_id": "task-42",
+     "status": "completed",
+     "url": "https://cdn.test/na/out.mp4",
+     "format": "mp4",
+     "metadata": {
+      "duration": 5,
+      "fps": 24,
+      "width": 720,
+      "height": 1280,
+      "seed": 0
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "newapi/i2v",
+  "template": "newapi-builtin.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "kling-v1",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   }
+  },
+  "note": "",
+  "result": {
+   "task_id": "task-42",
+   "video_uri": null,
+   "duration_seconds": 5,
+   "seed": 0,
+   "usage_tokens": null,
+   "generate_audio": null
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "kling-v1",
+      "prompt": "A cat running",
+      "width": 720,
+      "height": 1280,
+      "duration": 5,
+      "n": 1,
+      "seed": 7,
+      "image": "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/video/generations/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/na/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "completed",
+     "url": "https://cdn.test/na/out.mp4",
+     "format": "mp4",
+     "metadata": {
+      "duration": 5,
+      "fps": 24,
+      "width": 720,
+      "height": 1280,
+      "seed": 0
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "newapi/wrapped",
+  "template": "newapi-builtin.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "kling-v1",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "{code,data} 包装体",
+  "result": {
+   "task_id": "task-42",
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 4242,
+   "usage_tokens": null,
+   "generate_audio": null
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "kling-v1",
+      "prompt": "A cat running",
+      "width": 720,
+      "height": 1280,
+      "duration": 5,
+      "n": 1,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/video/generations/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/na/wrapped.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "code": "success",
+     "data": {
+      "task_id": "task-42",
+      "status": "SUCCESS",
+      "result_url": "https://cdn.test/na/wrapped.mp4",
+      "metadata": {
+       "duration": 8,
+       "seed": 4242
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "newapi/failed",
+  "template": "newapi-builtin.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "kling-v1",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: NewAPI 视频生成失败: upstream down",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "kling-v1",
+      "prompt": "A cat running",
+      "width": 720,
+      "height": 1280,
+      "duration": 5,
+      "n": 1,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/video/generations/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "failed",
+     "error": {
+      "code": 500,
+      "message": "upstream down"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "newapi/expired",
+  "template": "newapi-builtin.json",
+  "params": {
+   "base_url": "https://x/v1",
+   "api_key": "K",
+   "model": "kling-v1",
+   "prompt": "A cat running",
+   "duration": 5,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 7
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: NewAPI task expired during generate: task-42",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://x/v1/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "kling-v1",
+      "prompt": "A cat running",
+      "width": 720,
+      "height": 1280,
+      "duration": 5,
+      "n": 1,
+      "seed": 7
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://x/v1/video/generations/task-42",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "task-42",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "task_id": "task-42",
+     "status": "expired"
+    }
+   ]
+  }
+ },
+ {
+  "id": "v2/t2v",
+  "template": "v2-video-generations.json",
+  "params": {
+   "base_url": "https://api.aimlapi.com",
+   "api_key": "K",
+   "model": "seedance-1.0",
+   "prompt": "a cat",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 42
+  },
+  "assets": {},
+  "note": "",
+  "result": {
+   "task_id": "gen-1",
+   "video_uri": "https://cdn.test/v2/v.mp4",
+   "duration_seconds": 5,
+   "seed": 42,
+   "usage_tokens": null,
+   "generate_audio": null
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.aimlapi.com/v2/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "seedance-1.0",
+      "prompt": "a cat",
+      "duration": 5,
+      "aspect_ratio": "16:9",
+      "resolution": "720p",
+      "seed": 42
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    },
+    {
+     "method": "GET",
+     "url": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/v2/v.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "gen-1",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "id": "gen-1",
+     "status": "generating"
+    },
+    {
+     "id": "gen-1",
+     "status": "completed",
+     "video": {
+      "url": "https://cdn.test/v2/v.mp4"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "v2/i2v-last",
+  "template": "v2-video-generations.json",
+  "params": {
+   "base_url": "https://api.aimlapi.com",
+   "api_key": "K",
+   "model": "seedance-1.0",
+   "prompt": "a cat",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 42
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   },
+   "end_image": {
+    "name": "end.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpFTkQ="
+   }
+  },
+  "note": "",
+  "result": {
+   "task_id": "gen-1",
+   "video_uri": "https://cdn.test/v2/v.mp4",
+   "duration_seconds": 5,
+   "seed": 42,
+   "usage_tokens": null,
+   "generate_audio": null
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.aimlapi.com/v2/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "seedance-1.0",
+      "prompt": "a cat",
+      "duration": 5,
+      "aspect_ratio": "16:9",
+      "resolution": "720p",
+      "seed": 42,
+      "image_url": "data:image/png;base64,iVBORw0KGgpTVEFSVA==",
+      "last_image_url": "data:image/png;base64,iVBORw0KGgpFTkQ="
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/v2/v.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "gen-1",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "id": "gen-1",
+     "status": "completed",
+     "video": {
+      "url": "https://cdn.test/v2/v.mp4"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "v2/r2v",
+  "template": "v2-video-generations.json",
+  "params": {
+   "base_url": "https://api.aimlapi.com",
+   "api_key": "K",
+   "model": "seedance-1.0",
+   "prompt": "a cat",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 42
+  },
+  "assets": {
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    },
+    {
+     "name": "ref2.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYy"
+    }
+   ]
+  },
+  "note": "",
+  "result": {
+   "task_id": "gen-1",
+   "video_uri": "https://cdn.test/v2/v.mp4",
+   "duration_seconds": 5,
+   "seed": 42,
+   "usage_tokens": null,
+   "generate_audio": null
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.aimlapi.com/v2/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "seedance-1.0",
+      "prompt": "a cat",
+      "duration": 5,
+      "aspect_ratio": "16:9",
+      "resolution": "720p",
+      "seed": 42,
+      "image_urls": [
+       "data:image/png;base64,iVBORw0KGgpSRUYx",
+       "data:image/png;base64,iVBORw0KGgpSRUYy"
+      ]
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/v2/v.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": "gen-1",
+     "status": "queued"
+    }
+   ],
+   "poll": [
+    {
+     "id": "gen-1",
+     "status": "completed",
+     "video": {
+      "url": "https://cdn.test/v2/v.mp4"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "v2/int-id",
+  "template": "v2-video-generations.json",
+  "params": {
+   "base_url": "https://api.aimlapi.com",
+   "api_key": "K",
+   "model": "seedance-1.0",
+   "prompt": "a cat",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 42
+  },
+  "assets": {},
+  "note": "整数 id 与扁平 url",
+  "result": {
+   "task_id": "123",
+   "video_uri": "https://cdn.test/v2/n.mp4",
+   "duration_seconds": 5,
+   "seed": 42,
+   "usage_tokens": null,
+   "generate_audio": null
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.aimlapi.com/v2/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "seedance-1.0",
+      "prompt": "a cat",
+      "duration": 5,
+      "aspect_ratio": "16:9",
+      "resolution": "720p",
+      "seed": 42
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.aimlapi.com/v2/video/generations?generation_id=123",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/v2/n.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "id": 123
+    }
+   ],
+   "poll": [
+    {
+     "id": 123,
+     "status": "completed",
+     "url": "https://cdn.test/v2/n.mp4"
+    }
+   ]
+  }
+ },
+ {
+  "id": "v2/failed",
+  "template": "v2-video-generations.json",
+  "params": {
+   "base_url": "https://api.aimlapi.com",
+   "api_key": "K",
+   "model": "seedance-1.0",
+   "prompt": "a cat",
+   "duration": 5,
+   "aspect_ratio": "16:9",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 42
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: V2 视频生成失败: boom",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.aimlapi.com/v2/video/generations",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": {
+      "model": "seedance-1.0",
+      "prompt": "a cat",
+      "duration": 5,
+      "aspect_ratio": "16:9",
+      "resolution": "720p",
+      "seed": 42
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.aimlapi.com/v2/video/generations?generation_id=vg_1",
+     "headers": {
+      "authorization": "Bearer K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "generation_id": "vg_1"
+    }
+   ],
+   "poll": [
+    {
+     "status": "error",
+     "error": {
+      "message": "boom"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "vidu/t2v",
+  "template": "vidu-text2video.json",
+  "params": {
+   "base_url": "https://api.vidu.cn/ent/v2",
+   "api_key": "K",
+   "model": "viduq3-turbo",
+   "prompt": "hello",
+   "duration": 8,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 3
+  },
+  "assets": {},
+  "note": "",
+  "result": {
+   "task_id": "job-1",
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 3,
+   "usage_tokens": 96,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.vidu.cn/ent/v2/text2video",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": {
+      "model": "viduq3-turbo",
+      "prompt": "hello",
+      "duration": 8,
+      "resolution": "720p",
+      "seed": 3,
+      "audio": true,
+      "aspect_ratio": "9:16"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": null
+    },
+    {
+     "method": "GET",
+     "url": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/vidu/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "job-1",
+     "state": "created",
+     "model": "viduq3-turbo",
+     "credits": 96
+    }
+   ],
+   "poll": [
+    {
+     "id": "job-1",
+     "state": "processing",
+     "credits": 96
+    },
+    {
+     "id": "job-1",
+     "state": "success",
+     "credits": 96,
+     "creations": [
+      {
+       "id": "c1",
+       "url": "https://cdn.test/vidu/out.mp4",
+       "cover_url": "https://cdn.test/vidu/cover.png"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "id": "vidu/i2v",
+  "template": "vidu-img2video.json",
+  "params": {
+   "base_url": "https://api.vidu.cn/ent/v2",
+   "api_key": "K",
+   "model": "viduq3-turbo",
+   "prompt": "hello",
+   "duration": 8,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 3
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   }
+  },
+  "note": "/img2video 不带 aspect_ratio",
+  "result": {
+   "task_id": "job-1",
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 3,
+   "usage_tokens": 96,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.vidu.cn/ent/v2/img2video",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": {
+      "model": "viduq3-turbo",
+      "prompt": "hello",
+      "duration": 8,
+      "resolution": "720p",
+      "seed": 3,
+      "audio": true,
+      "images": [
+       "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
+      ]
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/vidu/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "job-1",
+     "state": "created",
+     "model": "viduq3-turbo",
+     "credits": 96
+    }
+   ],
+   "poll": [
+    {
+     "id": "job-1",
+     "state": "success",
+     "credits": 96,
+     "creations": [
+      {
+       "id": "c1",
+       "url": "https://cdn.test/vidu/out.mp4",
+       "cover_url": "https://cdn.test/vidu/cover.png"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "id": "vidu/start-end",
+  "template": "vidu-start-end2video.json",
+  "params": {
+   "base_url": "https://api.vidu.cn/ent/v2",
+   "api_key": "K",
+   "model": "viduq3-turbo",
+   "prompt": "hello",
+   "duration": 8,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 3
+  },
+  "assets": {
+   "start_image": {
+    "name": "start.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpTVEFSVA=="
+   },
+   "end_image": {
+    "name": "end.png",
+    "mime": "image/png",
+    "bytes_b64": "iVBORw0KGgpFTkQ="
+   }
+  },
+  "note": "",
+  "result": {
+   "task_id": "job-1",
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 3,
+   "usage_tokens": 96,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.vidu.cn/ent/v2/start-end2video",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": {
+      "model": "viduq3-turbo",
+      "prompt": "hello",
+      "duration": 8,
+      "resolution": "720p",
+      "seed": 3,
+      "audio": true,
+      "images": [
+       "data:image/png;base64,iVBORw0KGgpTVEFSVA==",
+       "data:image/png;base64,iVBORw0KGgpFTkQ="
+      ]
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/vidu/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "job-1",
+     "state": "created",
+     "model": "viduq3-turbo",
+     "credits": 96
+    }
+   ],
+   "poll": [
+    {
+     "id": "job-1",
+     "state": "success",
+     "credits": 96,
+     "creations": [
+      {
+       "id": "c1",
+       "url": "https://cdn.test/vidu/out.mp4",
+       "cover_url": "https://cdn.test/vidu/cover.png"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "id": "vidu/r2v",
+  "template": "vidu-reference2video.json",
+  "params": {
+   "base_url": "https://api.vidu.cn/ent/v2",
+   "api_key": "K",
+   "model": "viduq3-turbo",
+   "prompt": "hello",
+   "duration": 8,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 3
+  },
+  "assets": {
+   "reference_images": [
+    {
+     "name": "ref1.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYx"
+    },
+    {
+     "name": "ref2.png",
+     "mime": "image/png",
+     "bytes_b64": "iVBORw0KGgpSRUYy"
+    }
+   ]
+  },
+  "note": "",
+  "result": {
+   "task_id": "job-1",
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 3,
+   "usage_tokens": 96,
+   "generate_audio": true
+  },
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.vidu.cn/ent/v2/reference2video",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": {
+      "model": "viduq3-turbo",
+      "prompt": "hello",
+      "duration": 8,
+      "resolution": "720p",
+      "seed": 3,
+      "audio": true,
+      "aspect_ratio": "9:16",
+      "images": [
+       "data:image/png;base64,iVBORw0KGgpSRUYx",
+       "data:image/png;base64,iVBORw0KGgpSRUYy"
+      ]
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": null
+    }
+   ],
+   "download": [
+    {
+     "method": "GET",
+     "url": "https://cdn.test/vidu/out.mp4",
+     "headers": {},
+     "body": null
+    }
+   ]
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "job-1",
+     "state": "created",
+     "model": "viduq3-turbo",
+     "credits": 96
+    }
+   ],
+   "poll": [
+    {
+     "id": "job-1",
+     "state": "success",
+     "credits": 96,
+     "creations": [
+      {
+       "id": "c1",
+       "url": "https://cdn.test/vidu/out.mp4",
+       "cover_url": "https://cdn.test/vidu/cover.png"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "id": "vidu/failed",
+  "template": "vidu-text2video.json",
+  "params": {
+   "base_url": "https://api.vidu.cn/ent/v2",
+   "api_key": "K",
+   "model": "viduq3-turbo",
+   "prompt": "hello",
+   "duration": 8,
+   "aspect_ratio": "9:16",
+   "resolution": "720p",
+   "generate_audio": true,
+   "seed": 3
+  },
+  "assets": {},
+  "note": "",
+  "error": "RuntimeError: Vidu 任务失败: err_code=ContentModeration",
+  "requests": {
+   "submit": [
+    {
+     "method": "POST",
+     "url": "https://api.vidu.cn/ent/v2/text2video",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": {
+      "model": "viduq3-turbo",
+      "prompt": "hello",
+      "duration": 8,
+      "resolution": "720p",
+      "seed": 3,
+      "audio": true,
+      "aspect_ratio": "9:16"
+     }
+    }
+   ],
+   "poll": [
+    {
+     "method": "GET",
+     "url": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+     "headers": {
+      "authorization": "Token K"
+     },
+     "body": null
+    }
+   ],
+   "download": []
+  },
+  "fixtures": {
+   "submit": [
+    {
+     "task_id": "job-1",
+     "state": "created",
+     "model": "viduq3-turbo",
+     "credits": 96
+    }
+   ],
+   "poll": [
+    {
+     "id": "job-1",
+     "state": "failed",
+     "err_code": "ContentModeration"
+    }
+   ]
+  }
+ }
+]

@@ -1,0 +1,146 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "MiniMax H3（v2 多模态，内置复刻）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "description": "复刻 minimax.py 的 v2 链路：POST /v2/video_generation（content[] 按 role 摊首帧 / 尾帧 / 参考图 / 参考音频）→ GET /v2/query/video_generation/{task_id} 至 task.status=succeeded 直接取 task.content.url。首尾帧条目内占位符为空时格式只删 url 键不删条目，与内置不同；首帧在场时 ratio 固定 adaptive 由 capabilities.first_frame_ratio_adaptive_only 交编排层改写。",
+    "hints": {
+      "base_url": "https://api.minimaxi.com/v2",
+      "suggested_models": [
+        {
+          "id": "MiniMax-H3"
+        }
+      ]
+    }
+  },
+  "auth": {
+    "headers": {
+      "Authorization": "Bearer {{ api_key }}"
+    }
+  },
+  "inputs": {
+    "first_frame": {
+      "source": "start_image",
+      "encoding": "data_uri"
+    },
+    "last_frame": {
+      "source": "end_image",
+      "encoding": "data_uri"
+    },
+    "refs": {
+      "source": "reference_images",
+      "encoding": "data_uri"
+    },
+    "ref_audio": {
+      "source": "reference_audio_files",
+      "encoding": "data_uri"
+    }
+  },
+  "enum_maps": {
+    "resolution": {
+      "768p": "768P",
+      "2k": "2K"
+    }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/video_generation",
+    "body": {
+      "model": "{{ model }}",
+      "content": [
+        {
+          "type": "text",
+          "text": "{{ prompt }}"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "{{ inputs.first_frame }}"
+          },
+          "role": "first_frame"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "{{ inputs.last_frame }}"
+          },
+          "role": "last_frame"
+        },
+        {
+          "$each": {
+            "in": "inputs.refs",
+            "as": "r",
+            "item": {
+              "type": "image_url",
+              "image_url": {
+                "url": "{{ r }}"
+              },
+              "role": "reference_image"
+            }
+          }
+        },
+        {
+          "$each": {
+            "in": "inputs.ref_audio",
+            "as": "a",
+            "item": {
+              "type": "audio_url",
+              "audio_url": {
+                "url": "{{ a }}"
+              },
+              "role": "reference_audio"
+            }
+          }
+        }
+      ],
+      "resolution": "{{ resolution }}",
+      "duration": "{{ duration }}",
+      "ratio": "{{ aspect_ratio }}"
+    },
+    "extract": {
+      "task_id": [
+        "$.task_id"
+      ],
+      "error": [
+        "$.base_resp.status_msg"
+      ]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/query/video_generation/{{ task_id }}",
+    "extract": {
+      "status": [
+        "$.task.status"
+      ],
+      "video_url": [
+        "$.task.content.url"
+      ],
+      "error": [
+        "$.task.error",
+        "$.task.status_msg",
+        "$.base_resp.status_msg"
+      ]
+    }
+  },
+  "status_map": {
+    "queued": "queued",
+    "running": "running",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "cancelled": "failed"
+  },
+  "capabilities": {
+    "first_frame": true,
+    "last_frame": true,
+    "max_reference_images": 9,
+    "reference_audio_mode": "direct",
+    "max_reference_audio_count": 3,
+    "max_reference_audio_total_seconds": 15,
+    "max_prompt_chars": 7000,
+    "first_frame_ratio_adaptive_only": true,
+    "audio_track": "always_on"
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "Ark Seedance 2.0（内置复刻）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "description": "复刻 lib/video_backends/ark.py 经 volcenginesdkarkruntime 发出的 POST /api/v3/contents/generations/tasks → GET .../tasks/{id}（SDK 路径见 resources/content_generation/tasks.py）。content[] 条目按 role 区分首帧 / 尾帧 / 参考图；首尾帧条目内的占位符为空时格式只删 url 键、不删整个条目，与内置行为不同。 2.0 不下发 service_tier；参考音频作为 type=audio_url / role=reference_audio 条目。",
+    "hints": {
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+      "suggested_models": [
+        {
+          "id": "doubao-seedance-2-0-260128"
+        }
+      ]
+    }
+  },
+  "auth": {
+    "headers": {
+      "Authorization": "Bearer {{ api_key }}"
+    }
+  },
+  "inputs": {
+    "first_frame": {
+      "source": "start_image",
+      "encoding": "data_uri"
+    },
+    "last_frame": {
+      "source": "end_image",
+      "encoding": "data_uri"
+    },
+    "refs": {
+      "source": "reference_images",
+      "encoding": "data_uri"
+    },
+    "ref_audio": {
+      "source": "reference_audio_files",
+      "encoding": "data_uri"
+    }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/contents/generations/tasks",
+    "body": {
+      "model": "{{ model }}",
+      "content": [
+        {
+          "type": "text",
+          "text": "{{ prompt }}"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "{{ inputs.first_frame }}"
+          },
+          "role": "first_frame"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "{{ inputs.last_frame }}"
+          },
+          "role": "last_frame"
+        },
+        {
+          "$each": {
+            "in": "inputs.refs",
+            "as": "r",
+            "item": {
+              "type": "image_url",
+              "image_url": {
+                "url": "{{ r }}"
+              },
+              "role": "reference_image"
+            }
+          }
+        },
+        {
+          "$each": {
+            "in": "inputs.ref_audio",
+            "as": "a",
+            "item": {
+              "type": "audio_url",
+              "audio_url": {
+                "url": "{{ a }}"
+              },
+              "role": "reference_audio"
+            }
+          }
+        }
+      ],
+      "ratio": "{{ aspect_ratio }}",
+      "duration": "{{ duration }}",
+      "generate_audio": "{{ generate_audio }}",
+      "watermark": false,
+      "resolution": "{{ resolution }}",
+      "seed": "{{ seed }}"
+    },
+    "extract": {
+      "task_id": [
+        "$.id"
+      ],
+      "error": [
+        "$.error.message",
+        "$.message"
+      ]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/contents/generations/tasks/{{ task_id }}",
+    "extract": {
+      "status": [
+        "$.status"
+      ],
+      "video_url": [
+        "$.content.video_url"
+      ],
+      "error": [
+        "$.error.message",
+        "$.error.code"
+      ],
+      "usage": {
+        "completion_tokens": {
+          "paths": [
+            "$.usage.completion_tokens"
+          ],
+          "accept": "scalar"
+        },
+        "seed": {
+          "paths": [
+            "$.seed"
+          ],
+          "accept": "scalar"
+        }
+      }
+    }
+  },
+  "status_map": {
+    "queued": "queued",
+    "running": "running",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "expired": "failed",
+    "cancelled": "failed"
+  },
+  "capabilities": {
+    "first_frame": true,
+    "last_frame": true,
+    "max_reference_images": 9,
+    "reference_audio_mode": "direct",
+    "max_reference_audio_count": 3,
+    "max_reference_audio_total_seconds": 15,
+    "audio_track": "controllable"
+  }
+}

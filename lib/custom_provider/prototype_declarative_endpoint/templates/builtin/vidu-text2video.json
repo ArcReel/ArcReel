@@ -1,0 +1,84 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "Vidu 文生视频（内置复刻）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "description": "复刻 lib/video_backends/vidu.py：内置按素材在场分派到 /text2video、/img2video、/start-end2video、/reference2video 四个端点，格式没有按素材选 URL 的构造，四个端点各成一份定义；轮询同为 GET /tasks/{id}/creations 取 state / creations[0].url / credits。audio 开关只对 q3 系列下发，duration 按 (model, endpoint) 合法集合校正、resolution 按白名单回落——两者归模型行声明。",
+    "hints": {
+      "base_url": "https://api.vidu.cn/ent/v2",
+      "suggested_models": [
+        {
+          "id": "viduq3-turbo"
+        }
+      ]
+    }
+  },
+  "auth": {
+    "headers": {
+      "Authorization": "Token {{ api_key }}"
+    }
+  },
+  "inputs": {},
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/text2video",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "duration": "{{ duration }}",
+      "resolution": "{{ resolution }}",
+      "seed": "{{ seed }}",
+      "audio": "{{ generate_audio }}",
+      "aspect_ratio": "{{ aspect_ratio }}"
+    },
+    "extract": {
+      "task_id": [
+        "$.task_id"
+      ],
+      "error": [
+        "$.message",
+        "$.error"
+      ]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/tasks/{{ task_id }}/creations",
+    "extract": {
+      "status": [
+        "$.state"
+      ],
+      "video_url": [
+        "$.creations[0].url"
+      ],
+      "error": {
+        "paths": [
+          "$.err_code"
+        ],
+        "accept": "scalar"
+      },
+      "usage": {
+        "credits": {
+          "paths": [
+            "$.credits"
+          ],
+          "accept": "scalar"
+        }
+      }
+    }
+  },
+  "status_map": {
+    "created": "queued",
+    "queueing": "queued",
+    "processing": "running",
+    "success": "succeeded",
+    "failed": "failed"
+  },
+  "capabilities": {
+    "first_frame": false,
+    "max_prompt_chars": 5000,
+    "audio_track": "controllable"
+  }
+}

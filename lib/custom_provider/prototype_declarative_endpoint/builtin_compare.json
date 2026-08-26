@@ -1,0 +1,2506 @@
+[
+ {
+  "id": "agnes/t2v",
+  "template": "agnes.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/agnes/out.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/agnes/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/videos",
+   "url_declarative": "https://x/v1/videos",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.extra_body",
+     "builtin": "<缺>",
+     "declarative": {
+      "image": []
+     }
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/videos/task-42",
+   "url_declarative": "https://x/v1/videos/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(status_map)",
+   "video_url": "https://cdn.test/agnes/out.mp4",
+   "error": null,
+   "usage": {
+    "seconds": "5.0"
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "agnes/i2v",
+  "template": "agnes.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/agnes/out.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/agnes/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/videos",
+   "url_declarative": "https://x/v1/videos",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.extra_body",
+     "builtin": "<缺>",
+     "declarative": {
+      "image": []
+     }
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/videos/task-42",
+   "url_declarative": "https://x/v1/videos/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(status_map)",
+   "video_url": "https://cdn.test/agnes/out.mp4",
+   "error": null,
+   "usage": {
+    "seconds": "5.0"
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "agnes/keyframes",
+  "template": "agnes-keyframes.json",
+  "note": "首尾帧形状单独一份定义",
+  "builtin": {
+   "video_uri": "https://cdn.test/agnes/out.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/agnes/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/videos",
+   "url_declarative": "https://x/v1/videos",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/videos/task-42",
+   "url_declarative": "https://x/v1/videos/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(status_map)",
+   "video_url": "https://cdn.test/agnes/out.mp4",
+   "error": null,
+   "usage": {
+    "seconds": "5.0"
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "agnes/r2v",
+  "template": "agnes.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/agnes/out.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/agnes/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/videos",
+   "url_declarative": "https://x/v1/videos",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/videos/task-42",
+   "url_declarative": "https://x/v1/videos/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(status_map)",
+   "video_url": "https://cdn.test/agnes/out.mp4",
+   "error": null,
+   "usage": {
+    "seconds": "5.0"
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "agnes/video_id_only",
+  "template": "agnes.json",
+  "note": "完成态只带 video_id，内置二次查询 /agnesapi",
+  "builtin": {
+   "video_uri": "https://cdn.test/agnes/queried.mp4",
+   "duration_seconds": 8,
+   "seed": 7,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/agnes/queried.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/videos",
+   "url_declarative": "https://x/v1/videos",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.extra_body",
+     "builtin": "<缺>",
+     "declarative": {
+      "image": []
+     }
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/videos/task-42",
+   "url_declarative": "https://x/v1/videos/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "completed→succeeded(status_map)",
+   "video_url": null,
+   "error": "状态已成功但 video_url 优先级数组无命中 ⇒ 判失败（不下载）",
+   "usage": {
+    "seconds": "8.0"
+   }
+  },
+  "issues": [
+   "submit.body",
+   "outcome"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "agnes/legacy_remixed_url",
+  "template": "agnes.json",
+  "note": "旧网关把 URL 回填在 remixed_from_video_id",
+  "builtin": {
+   "video_uri": "https://cdn.test/agnes/legacy.mp4",
+   "duration_seconds": 5,
+   "seed": 7,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/agnes/legacy.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/videos",
+   "url_declarative": "https://x/v1/videos",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.extra_body",
+     "builtin": "<缺>",
+     "declarative": {
+      "image": []
+     }
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/videos/task-42",
+   "url_declarative": "https://x/v1/videos/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "completed→succeeded(status_map)",
+   "video_url": null,
+   "error": "状态已成功但 video_url 优先级数组无命中 ⇒ 判失败（不下载）",
+   "usage": {
+    "seconds": null
+   }
+  },
+  "issues": [
+   "submit.body",
+   "outcome"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "agnes/failed",
+  "template": "agnes.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: Agnes 视频生成失败: upstream down",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/videos",
+   "url_declarative": "https://x/v1/videos",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.extra_body",
+     "builtin": "<缺>",
+     "declarative": {
+      "image": []
+     }
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/videos/task-42",
+   "url_declarative": "https://x/v1/videos/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "failed→failed(status_map)",
+   "video_url": null,
+   "error": "upstream down",
+   "usage": {
+    "seconds": null
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "agnes/cancelled",
+  "template": "agnes.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: Agnes 视频生成失败: user cancelled",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/videos",
+   "url_declarative": "https://x/v1/videos",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.extra_body",
+     "builtin": "<缺>",
+     "declarative": {
+      "image": []
+     }
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/videos/task-42",
+   "url_declarative": "https://x/v1/videos/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "cancelled→failed(status_map)",
+   "video_url": null,
+   "error": "user cancelled",
+   "usage": {
+    "seconds": null
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "agnes/completed_no_url",
+  "template": "agnes.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: Agnes 任务完成但缺少成片 URL 与 video_id（字段: ['status', 'task_id']）",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/videos",
+   "url_declarative": "https://x/v1/videos",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.extra_body",
+     "builtin": "<缺>",
+     "declarative": {
+      "image": []
+     }
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/videos/task-42",
+   "url_declarative": "https://x/v1/videos/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "completed→succeeded(status_map)",
+   "video_url": null,
+   "error": "状态已成功但 video_url 优先级数组无命中 ⇒ 判失败（不下载）",
+   "usage": {
+    "seconds": null
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "ark/1x-t2v",
+  "template": "ark-seedance-1x.json",
+  "note": "service_tier=default",
+  "builtin": {
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "download_url": "https://cdn.test/ark/video.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[1]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<56 chars>"
+    },
+    {
+     "path": "$.content[2]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<55 chars>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/ark/video.mp4",
+   "error": null,
+   "usage": {
+    "completion_tokens": 246840,
+    "seed": 58944
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "ark/1x-i2v-last",
+  "template": "ark-seedance-1x.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "download_url": "https://cdn.test/ark/video.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/ark/video.mp4",
+   "error": null,
+   "usage": {
+    "completion_tokens": 246840,
+    "seed": 58944
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "ark/1x-r2v",
+  "template": "ark-seedance-1x.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "download_url": "https://cdn.test/ark/video.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[1].image_url.url",
+     "builtin": "data:image/png;base64,iVBORw0KGgpSRUYx",
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.content[1].role",
+     "builtin": "reference_image",
+     "declarative": "first_frame"
+    },
+    {
+     "path": "$.content[2].image_url.url",
+     "builtin": "data:image/png;base64,iVBORw0KGgpSRUYy",
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.content[2].role",
+     "builtin": "reference_image",
+     "declarative": "last_frame"
+    },
+    {
+     "path": "$.content[3]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<106 chars>"
+    },
+    {
+     "path": "$.content[4]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<106 chars>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/ark/video.mp4",
+   "error": null,
+   "usage": {
+    "completion_tokens": 246840,
+    "seed": 58944
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "ark/1x-flex",
+  "template": "ark-seedance-1x.json",
+  "note": "service_tier=flex，格式无该变量",
+  "builtin": {
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "download_url": "https://cdn.test/ark/video.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[1]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<56 chars>"
+    },
+    {
+     "path": "$.content[2]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<55 chars>"
+    },
+    {
+     "path": "$.service_tier",
+     "builtin": "flex",
+     "declarative": "default"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/ark/video.mp4",
+   "error": null,
+   "usage": {
+    "completion_tokens": 246840,
+    "seed": 58944
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "ark/2-0-r2v-audio",
+  "template": "ark-seedance-2-0.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "download_url": "https://cdn.test/ark/video.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[1].image_url.url",
+     "builtin": "data:image/png;base64,iVBORw0KGgpSRUYx",
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.content[1].role",
+     "builtin": "reference_image",
+     "declarative": "first_frame"
+    },
+    {
+     "path": "$.content[2].image_url.url",
+     "builtin": "data:image/png;base64,iVBORw0KGgpSRUYy",
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.content[2].role",
+     "builtin": "reference_image",
+     "declarative": "last_frame"
+    },
+    {
+     "path": "$.content[3].type",
+     "builtin": "audio_url",
+     "declarative": "image_url"
+    },
+    {
+     "path": "$.content[3].audio_url",
+     "builtin": {
+      "url": "data:audio/wav;base64,UklGRgAAAABXQVZFQQ=="
+     },
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.content[3].role",
+     "builtin": "reference_audio",
+     "declarative": "reference_image"
+    },
+    {
+     "path": "$.content[3].image_url",
+     "builtin": "<缺>",
+     "declarative": {
+      "url": "data:image/png;base64,iVBORw0KGgpSRUYx"
+     }
+    },
+    {
+     "path": "$.content[4]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<106 chars>"
+    },
+    {
+     "path": "$.content[5]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"audio_url\",\"audio_url\":…<110 chars>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/ark/video.mp4",
+   "error": null,
+   "usage": {
+    "completion_tokens": 246840,
+    "seed": 58944
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "ark/2-0-i2v-last",
+  "template": "ark-seedance-2-0.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "download_url": "https://cdn.test/ark/video.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/ark/video.mp4",
+   "error": null,
+   "usage": {
+    "completion_tokens": 246840,
+    "seed": 58944
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "ark/2-5-i2v-adaptive",
+  "template": "ark-seedance-2-5.json",
+  "note": "编排层已把 aspect_ratio 改写为 adaptive",
+  "builtin": {
+   "video_uri": "https://cdn.test/ark/video.mp4",
+   "duration_seconds": 5,
+   "seed": 58944,
+   "usage_tokens": 246840,
+   "download_url": "https://cdn.test/ark/video.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[2]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<55 chars>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/ark/video.mp4",
+   "error": null,
+   "usage": {
+    "completion_tokens": 246840,
+    "seed": 58944
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "ark/failed",
+  "template": "ark-seedance-1x.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: Ark 视频生成失败(status=failed): namespace(code='OutputVideoSensitiveContentDetected', message='content violation')",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[1]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<56 chars>"
+    },
+    {
+     "path": "$.content[2]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<55 chars>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "failed→failed(status_map)",
+   "video_url": null,
+   "error": "content violation",
+   "usage": {
+    "completion_tokens": null,
+    "seed": null
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "ark/expired",
+  "template": "ark-seedance-1x.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: Ark 视频生成失败(status=expired): Unknown error",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[1]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<56 chars>"
+    },
+    {
+     "path": "$.content[2]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<55 chars>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_declarative": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "expired→failed(status_map)",
+   "video_url": null,
+   "error": "（错误路径无命中）",
+   "usage": {
+    "completion_tokens": null,
+    "seed": null
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "dashscope/happyhorse-t2v",
+  "template": "dashscope-t2v.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/ds/o.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "SUCCEEDED→succeeded(status_map)",
+   "video_url": "https://cdn.test/ds/o.mp4",
+   "error": null,
+   "usage": {
+    "duration": 8
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "dashscope/happyhorse-i2v",
+  "template": "dashscope-i2v.json",
+  "note": "首帧在场不下发 ratio",
+  "builtin": {
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/ds/o.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "SUCCEEDED→succeeded(status_map)",
+   "video_url": "https://cdn.test/ds/o.mp4",
+   "error": null,
+   "usage": {
+    "duration": 8
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "dashscope/happyhorse-r2v",
+  "template": "dashscope-happyhorse-r2v.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/ds/o.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "SUCCEEDED→succeeded(status_map)",
+   "video_url": "https://cdn.test/ds/o.mp4",
+   "error": null,
+   "usage": {
+    "duration": 8
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "dashscope/wan27-r2v-voice",
+  "template": "dashscope-wan27-r2v.json",
+  "note": "参考音频按 targets 挂到 refs[1].reference_voice",
+  "builtin": {
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/ds/o.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.input.media[2].reference_voice",
+     "builtin": "data:audio/wav;base64,UklGRgAAAABXQVZFQQ==",
+     "declarative": "<缺>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "SUCCEEDED→succeeded(status_map)",
+   "video_url": "https://cdn.test/ds/o.mp4",
+   "error": null,
+   "usage": {
+    "duration": 8
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "dashscope/wan3-t2v",
+  "template": "dashscope-wan3.json",
+  "note": "无首帧：ratio 下发",
+  "builtin": {
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/ds/o.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.input.media",
+     "builtin": "<缺>",
+     "declarative": [
+      {
+       "type": "first_frame"
+      },
+      {
+       "type": "last_frame"
+      }
+     ]
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "SUCCEEDED→succeeded(status_map)",
+   "video_url": "https://cdn.test/ds/o.mp4",
+   "error": null,
+   "usage": {
+    "duration": 8
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "dashscope/wan3-all",
+  "template": "dashscope-wan3.json",
+  "note": "有首帧：ratio 不下发",
+  "builtin": {
+   "video_uri": "https://cdn.test/ds/o.mp4",
+   "duration_seconds": 8,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/ds/o.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.parameters.ratio",
+     "builtin": "<缺>",
+     "declarative": "16:9"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "SUCCEEDED→succeeded(status_map)",
+   "video_url": "https://cdn.test/ds/o.mp4",
+   "error": null,
+   "usage": {
+    "duration": 8
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "dashscope/failed",
+  "template": "dashscope-t2v.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: DashScope 任务失败 status=FAILED code=DataInspectionFailed: boom",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "FAILED→failed(status_map)",
+   "video_url": null,
+   "error": "boom",
+   "usage": {
+    "duration": null
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "dashscope/unknown",
+  "template": "dashscope-t2v.json",
+  "note": "task_id 24h 过期",
+  "builtin": {
+   "error": "RuntimeError: DashScope task expired during generate: t-1",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/tasks/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "UNKNOWN→failed(status_map)",
+   "video_url": null,
+   "error": "（错误路径无命中）",
+   "usage": {
+    "duration": null
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "dashscope/submit_biz_error",
+  "template": "dashscope-t2v.json",
+  "note": "HTTP 200 + 业务码，无 output.task_id",
+  "builtin": {
+   "error": "RuntimeError: DashScope 提交失败 code=InvalidApiKey: Invalid API-key provided.",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "url_declarative": "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": null,
+   "url_declarative": null,
+   "url_match": null
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": null,
+   "video_url": null,
+   "error": "提交成功码之下 task_id 无命中 ⇒ 按提交失败处理：Invalid API-key provided.",
+   "usage": {}
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "kling/t2v",
+  "template": "kling-text2video.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/kling/v.mp4",
+   "duration_seconds": 5,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/kling/v.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/text2video",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/text2video",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeed→succeeded(status_map)",
+   "video_url": "https://cdn.test/kling/v.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "kling/i2v-tail-pro",
+  "template": "kling-image2video.json",
+  "note": "service_tier=pro → mode=pro，格式无该变量",
+  "builtin": {
+   "video_uri": "https://cdn.test/kling/v.mp4",
+   "duration_seconds": 10,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/kling/v.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/image2video",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/image2video",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.mode",
+     "builtin": "pro",
+     "declarative": "std"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/image2video/t-1",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/image2video/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeed→succeeded(status_map)",
+   "video_url": "https://cdn.test/kling/v.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "kling/r2v",
+  "template": "kling-multi-image2video.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/kling/v.mp4",
+   "duration_seconds": 5,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/kling/v.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/multi-image2video",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/multi-image2video",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/multi-image2video/t-1",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/multi-image2video/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeed→succeeded(status_map)",
+   "video_url": "https://cdn.test/kling/v.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "kling/failed",
+  "template": "kling-text2video.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: Kling 任务失败 task_id=t-1: nsfw",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/text2video",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/text2video",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "failed→failed(status_map)",
+   "video_url": null,
+   "error": "nsfw",
+   "usage": {}
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "kling/envelope_error_poll",
+  "template": "kling-text2video.json",
+  "note": "HTTP 200 + 顶层 code≠0，无 task_status",
+  "builtin": {
+   "error": "RuntimeError: Kling API code=1200: bad task",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/text2video",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/text2video",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+   "url_declarative": "https://api-beijing.klingai.com/v1/videos/text2video/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "polling",
+   "status": "null→running(missing)",
+   "video_url": null,
+   "error": null,
+   "usage": {}
+  },
+  "issues": [
+   "outcome"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "kling/jwt-t2v",
+  "template": null,
+  "note": "JWT 模式：Authorization 为 HS256 签名 token，格式 auth 节不可表达",
+  "builtin": {
+   "video_uri": "https://cdn.test/kling/v.mp4",
+   "duration_seconds": 5,
+   "seed": null,
+   "usage_tokens": null
+  },
+  "verdict": "N/A",
+  "detail": "JWT header={\"alg\":\"HS256\",\"typ\":\"JWT\"} payload keys=iss,exp,nbf"
+ },
+ {
+  "id": "minimax/hailuo-t2v",
+  "template": "minimax-hailuo-v1.json",
+  "note": "两步取 URL：file_id → files/retrieve",
+  "builtin": {
+   "video_uri": "https://cdn.test/mm/final.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/mm/final.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.minimaxi.com/v1/video_generation",
+   "url_declarative": "https://api.minimaxi.com/v1/video_generation",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_declarative": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "Success→succeeded(status_map)",
+   "video_url": null,
+   "error": "状态已成功但 video_url 优先级数组无命中 ⇒ 判失败（不下载）",
+   "usage": {}
+  },
+  "issues": [
+   "outcome"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "minimax/hailuo-i2v",
+  "template": "minimax-hailuo-v1.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/mm/final.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/mm/final.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.minimaxi.com/v1/video_generation",
+   "url_declarative": "https://api.minimaxi.com/v1/video_generation",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_declarative": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "Success→succeeded(status_map)",
+   "video_url": null,
+   "error": "状态已成功但 video_url 优先级数组无命中 ⇒ 判失败（不下载）",
+   "usage": {}
+  },
+  "issues": [
+   "outcome"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "minimax/s2v",
+  "template": "minimax-s2v-01.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/mm/final.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/mm/final.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.minimaxi.com/v1/video_generation",
+   "url_declarative": "https://api.minimaxi.com/v1/video_generation",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_declarative": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "Success→succeeded(status_map)",
+   "video_url": null,
+   "error": "状态已成功但 video_url 优先级数组无命中 ⇒ 判失败（不下载）",
+   "usage": {}
+  },
+  "issues": [
+   "outcome"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "minimax/hailuo-fail",
+  "template": "minimax-hailuo-v1.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: MiniMax 视频任务失败 task_id=t-1 status_code=2013: invalid params",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.minimaxi.com/v1/video_generation",
+   "url_declarative": "https://api.minimaxi.com/v1/video_generation",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_declarative": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "Fail→failed(status_map)",
+   "video_url": null,
+   "error": "invalid params",
+   "usage": {}
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "minimax/hailuo-base-resp-error-poll",
+  "template": "minimax-hailuo-v1.json",
+  "note": "HTTP 200 + base_resp.status_code≠0，无 status",
+  "builtin": {
+   "error": "RuntimeError: MiniMax base_resp status_code=1004: auth failed",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.minimaxi.com/v1/video_generation",
+   "url_declarative": "https://api.minimaxi.com/v1/video_generation",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_declarative": "https://api.minimaxi.com/v1/query/video_generation?task_id=t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "polling",
+   "status": "null→running(missing)",
+   "video_url": null,
+   "error": null,
+   "usage": {}
+  },
+  "issues": [
+   "outcome"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "minimax/h3-t2v",
+  "template": "minimax-h3-v2.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/mm/h3.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/mm/h3.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.minimaxi.com/v2/video_generation",
+   "url_declarative": "https://api.minimaxi.com/v2/video_generation",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[1]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<56 chars>"
+    },
+    {
+     "path": "$.content[2]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<55 chars>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+   "url_declarative": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/mm/h3.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "minimax/h3-i2v-last",
+  "template": "minimax-h3-v2.json",
+  "note": "编排层已把 aspect_ratio 改写为 adaptive",
+  "builtin": {
+   "video_uri": "https://cdn.test/mm/h3.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/mm/h3.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.minimaxi.com/v2/video_generation",
+   "url_declarative": "https://api.minimaxi.com/v2/video_generation",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+   "url_declarative": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/mm/h3.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "minimax/h3-r2v-audio",
+  "template": "minimax-h3-v2.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/mm/h3.mp4",
+   "duration_seconds": 6,
+   "seed": null,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/mm/h3.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.minimaxi.com/v2/video_generation",
+   "url_declarative": "https://api.minimaxi.com/v2/video_generation",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[1].image_url.url",
+     "builtin": "data:image/png;base64,iVBORw0KGgpSRUYx",
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.content[1].role",
+     "builtin": "reference_image",
+     "declarative": "first_frame"
+    },
+    {
+     "path": "$.content[2].image_url.url",
+     "builtin": "data:image/png;base64,iVBORw0KGgpSRUYy",
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.content[2].role",
+     "builtin": "reference_image",
+     "declarative": "last_frame"
+    },
+    {
+     "path": "$.content[3].type",
+     "builtin": "audio_url",
+     "declarative": "image_url"
+    },
+    {
+     "path": "$.content[3].audio_url",
+     "builtin": {
+      "url": "data:audio/wav;base64,UklGRgAAAABXQVZFQQ=="
+     },
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.content[3].role",
+     "builtin": "reference_audio",
+     "declarative": "reference_image"
+    },
+    {
+     "path": "$.content[3].image_url",
+     "builtin": "<缺>",
+     "declarative": {
+      "url": "data:image/png;base64,iVBORw0KGgpSRUYx"
+     }
+    },
+    {
+     "path": "$.content[4]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<106 chars>"
+    },
+    {
+     "path": "$.content[5]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"audio_url\",\"audio_url\":…<110 chars>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+   "url_declarative": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "succeeded→succeeded(status_map)",
+   "video_url": "https://cdn.test/mm/h3.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "minimax/h3-failed",
+  "template": "minimax-h3-v2.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: MiniMax 视频任务failed task_id=h3-task: quota exhausted",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.minimaxi.com/v2/video_generation",
+   "url_declarative": "https://api.minimaxi.com/v2/video_generation",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.content[1]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<56 chars>"
+    },
+    {
+     "path": "$.content[2]",
+     "builtin": "<缺>",
+     "declarative": "{\"type\":\"image_url\",\"image_url\":…<55 chars>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+   "url_declarative": "https://api.minimaxi.com/v2/query/video_generation/t-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "failed→failed(status_map)",
+   "video_url": null,
+   "error": "quota exhausted",
+   "usage": {}
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "newapi/t2v",
+  "template": "newapi-builtin.json",
+  "note": "",
+  "builtin": {
+   "video_uri": null,
+   "duration_seconds": 5,
+   "seed": 0,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/na/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/video/generations",
+   "url_declarative": "https://x/v1/video/generations",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/video/generations/task-42",
+   "url_declarative": "https://x/v1/video/generations/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(builtin)",
+   "video_url": "https://cdn.test/na/out.mp4",
+   "error": null,
+   "usage": {
+    "duration": 5,
+    "seed": 0
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "newapi/i2v",
+  "template": "newapi-builtin.json",
+  "note": "",
+  "builtin": {
+   "video_uri": null,
+   "duration_seconds": 5,
+   "seed": 0,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/na/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/video/generations",
+   "url_declarative": "https://x/v1/video/generations",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/video/generations/task-42",
+   "url_declarative": "https://x/v1/video/generations/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(builtin)",
+   "video_url": "https://cdn.test/na/out.mp4",
+   "error": null,
+   "usage": {
+    "duration": 5,
+    "seed": 0
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "newapi/wrapped",
+  "template": "newapi-builtin.json",
+  "note": "{code,data} 包装体",
+  "builtin": {
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 4242,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/na/wrapped.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/video/generations",
+   "url_declarative": "https://x/v1/video/generations",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/video/generations/task-42",
+   "url_declarative": "https://x/v1/video/generations/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "SUCCESS→succeeded(builtin)",
+   "video_url": "https://cdn.test/na/wrapped.mp4",
+   "error": null,
+   "usage": {
+    "duration": 8,
+    "seed": 4242
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "newapi/failed",
+  "template": "newapi-builtin.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: NewAPI 视频生成失败: upstream down",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/video/generations",
+   "url_declarative": "https://x/v1/video/generations",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/video/generations/task-42",
+   "url_declarative": "https://x/v1/video/generations/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "failed→failed(builtin)",
+   "video_url": null,
+   "error": "upstream down",
+   "usage": {
+    "duration": null,
+    "seed": null
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "newapi/expired",
+  "template": "newapi-builtin.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: NewAPI task expired during generate: task-42",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://x/v1/video/generations",
+   "url_declarative": "https://x/v1/video/generations",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.width",
+     "builtin": 720,
+     "declarative": "<缺>"
+    },
+    {
+     "path": "$.height",
+     "builtin": 1280,
+     "declarative": "<缺>"
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://x/v1/video/generations/task-42",
+   "url_declarative": "https://x/v1/video/generations/task-42",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "expired→failed(status_map)",
+   "video_url": null,
+   "error": "（错误路径无命中）",
+   "usage": {
+    "duration": null,
+    "seed": null
+   }
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "v2/t2v",
+  "template": "v2-video-generations.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/v2/v.mp4",
+   "duration_seconds": 5,
+   "seed": 42,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/v2/v.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.image_urls",
+     "builtin": "<缺>",
+     "declarative": []
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(builtin)",
+   "video_url": "https://cdn.test/v2/v.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "v2/i2v-last",
+  "template": "v2-video-generations.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/v2/v.mp4",
+   "duration_seconds": 5,
+   "seed": 42,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/v2/v.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.image_urls",
+     "builtin": "<缺>",
+     "declarative": []
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(builtin)",
+   "video_url": "https://cdn.test/v2/v.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "v2/r2v",
+  "template": "v2-video-generations.json",
+  "note": "",
+  "builtin": {
+   "video_uri": "https://cdn.test/v2/v.mp4",
+   "duration_seconds": 5,
+   "seed": 42,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/v2/v.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations?generation_id=gen-1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(builtin)",
+   "video_url": "https://cdn.test/v2/v.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "v2/int-id",
+  "template": "v2-video-generations.json",
+  "note": "整数 id 与扁平 url",
+  "builtin": {
+   "video_uri": "https://cdn.test/v2/n.mp4",
+   "duration_seconds": 5,
+   "seed": 42,
+   "usage_tokens": null,
+   "download_url": "https://cdn.test/v2/n.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.image_urls",
+     "builtin": "<缺>",
+     "declarative": []
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations?generation_id=123",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations?generation_id=123",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "completed→succeeded(builtin)",
+   "video_url": "https://cdn.test/v2/n.mp4",
+   "error": null,
+   "usage": {}
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "v2/failed",
+  "template": "v2-video-generations.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: V2 视频生成失败: boom",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations",
+   "header_diff": [],
+   "body_diff": [
+    {
+     "path": "$.image_urls",
+     "builtin": "<缺>",
+     "declarative": []
+    }
+   ]
+  },
+  "poll": {
+   "url_builtin": "https://api.aimlapi.com/v2/video/generations?generation_id=vg_1",
+   "url_declarative": "https://api.aimlapi.com/v2/video/generations?generation_id=vg_1",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "error→failed(builtin)",
+   "video_url": null,
+   "error": "boom",
+   "usage": {}
+  },
+  "issues": [
+   "submit.body"
+  ],
+  "verdict": "GAP"
+ },
+ {
+  "id": "vidu/t2v",
+  "template": "vidu-text2video.json",
+  "note": "",
+  "builtin": {
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 3,
+   "usage_tokens": 96,
+   "download_url": "https://cdn.test/vidu/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.vidu.cn/ent/v2/text2video",
+   "url_declarative": "https://api.vidu.cn/ent/v2/text2video",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_declarative": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "success→succeeded(status_map)",
+   "video_url": "https://cdn.test/vidu/out.mp4",
+   "error": null,
+   "usage": {
+    "credits": 96
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "vidu/i2v",
+  "template": "vidu-img2video.json",
+  "note": "/img2video 不带 aspect_ratio",
+  "builtin": {
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 3,
+   "usage_tokens": 96,
+   "download_url": "https://cdn.test/vidu/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.vidu.cn/ent/v2/img2video",
+   "url_declarative": "https://api.vidu.cn/ent/v2/img2video",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_declarative": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "success→succeeded(status_map)",
+   "video_url": "https://cdn.test/vidu/out.mp4",
+   "error": null,
+   "usage": {
+    "credits": 96
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "vidu/start-end",
+  "template": "vidu-start-end2video.json",
+  "note": "",
+  "builtin": {
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 3,
+   "usage_tokens": 96,
+   "download_url": "https://cdn.test/vidu/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.vidu.cn/ent/v2/start-end2video",
+   "url_declarative": "https://api.vidu.cn/ent/v2/start-end2video",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_declarative": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "success→succeeded(status_map)",
+   "video_url": "https://cdn.test/vidu/out.mp4",
+   "error": null,
+   "usage": {
+    "credits": 96
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "vidu/r2v",
+  "template": "vidu-reference2video.json",
+  "note": "",
+  "builtin": {
+   "video_uri": null,
+   "duration_seconds": 8,
+   "seed": 3,
+   "usage_tokens": 96,
+   "download_url": "https://cdn.test/vidu/out.mp4"
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.vidu.cn/ent/v2/reference2video",
+   "url_declarative": "https://api.vidu.cn/ent/v2/reference2video",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_declarative": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "done",
+   "status": "success→succeeded(status_map)",
+   "video_url": "https://cdn.test/vidu/out.mp4",
+   "error": null,
+   "usage": {
+    "credits": 96
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ },
+ {
+  "id": "vidu/failed",
+  "template": "vidu-text2video.json",
+  "note": "",
+  "builtin": {
+   "error": "RuntimeError: Vidu 任务失败: err_code=ContentModeration",
+   "download_url": null
+  },
+  "validate": [],
+  "submit": {
+   "url_match": true,
+   "url_builtin": "https://api.vidu.cn/ent/v2/text2video",
+   "url_declarative": "https://api.vidu.cn/ent/v2/text2video",
+   "header_diff": [],
+   "body_diff": []
+  },
+  "poll": {
+   "url_builtin": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_declarative": "https://api.vidu.cn/ent/v2/tasks/job-1/creations",
+   "url_match": true
+  },
+  "declarative": {
+   "phase": "failed",
+   "status": "failed→failed(status_map)",
+   "video_url": null,
+   "error": "ContentModeration",
+   "usage": {
+    "credits": null
+   }
+  },
+  "issues": [],
+  "verdict": "PASS"
+ }
+]

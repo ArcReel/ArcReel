@@ -1,0 +1,70 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "Agnes 视频（内置复刻：首尾帧 keyframes 形状）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "description": "agnes.py 在 start_image + end_image 同时在场时改走 extra_body.image=[首, 尾] + mode=keyframes、顶层不再放 image。格式没有「按素材在场切换 body 形状」的构造，故该形状单独成一份定义；只给首帧时本定义会发出 [首] + keyframes，与内置行为不同。",
+    "hints": { "base_url": "https://apihub.agnes-ai.com/v1" }
+  },
+  "auth": {
+    "headers": { "Authorization": "Bearer {{ api_key }}" }
+  },
+  "inputs": {
+    "first_frame": { "source": "start_image", "encoding": "base64" },
+    "last_frame": { "source": "end_image", "encoding": "base64" }
+  },
+  "enum_maps": {
+    "duration": {
+      "1": 25, "2": 49, "3": 73, "4": 97, "5": 121, "6": 145, "7": 169, "8": 193, "9": 217,
+      "10": 241, "11": 265, "12": 289, "13": 313, "14": 337, "15": 361, "16": 385, "17": 409, "18": 433
+    }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/videos",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "num_frames": "{{ duration }}",
+      "frame_rate": 24,
+      "seed": "{{ seed }}",
+      "extra_body": {
+        "image": ["{{ inputs.first_frame }}", "{{ inputs.last_frame }}"],
+        "mode": "keyframes"
+      }
+    },
+    "extract": {
+      "task_id": ["$.task_id", "$.id"],
+      "error": ["$.error.message", "$.error", "$.message"]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/videos/{{ task_id }}",
+    "extract": {
+      "status": ["$.status"],
+      "video_url": ["$.url", "$.video_url", "$.metadata.url", "$.metadata.video_url"],
+      "error": ["$.error.message", "$.error.code", "$.error"],
+      "usage": {
+        "seconds": { "paths": ["$.seconds"], "accept": "scalar" }
+      }
+    }
+  },
+  "status_map": {
+    "queued": "queued",
+    "in_progress": "running",
+    "completed": "succeeded",
+    "failed": "failed",
+    "error": "failed",
+    "cancelled": "failed",
+    "canceled": "failed"
+  },
+  "capabilities": {
+    "first_frame": true,
+    "last_frame": true,
+    "max_reference_images": 0,
+    "audio_track": "always_off"
+  }
+}

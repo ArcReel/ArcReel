@@ -1,0 +1,101 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "DashScope 文生视频（happyhorse / wan2.7 t2v，内置复刻）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "description": "复刻 lib/video_backends/dashscope.py 的 POST /api/v1/services/aigc/video-generation/video-synthesis（X-DashScope-Async: enable）→ GET /api/v1/tasks/{id}。 文生视频无 media；ratio 随请求下发。",
+    "hints": {
+      "base_url": "https://dashscope.aliyuncs.com/api/v1",
+      "suggested_models": [
+        {
+          "id": "happyhorse-1.1-t2v"
+        },
+        {
+          "id": "wan2.7-t2v"
+        }
+      ]
+    }
+  },
+  "auth": {
+    "headers": {
+      "Authorization": "Bearer {{ api_key }}"
+    }
+  },
+  "inputs": {},
+  "enum_maps": {
+    "resolution": {
+      "480p": "480P",
+      "720p": "720P",
+      "1080p": "1080P"
+    }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/services/aigc/video-generation/video-synthesis",
+    "headers": {
+      "X-DashScope-Async": "enable"
+    },
+    "body": {
+      "model": "{{ model }}",
+      "input": {
+        "prompt": "{{ prompt }}"
+      },
+      "parameters": {
+        "resolution": "{{ resolution }}",
+        "duration": "{{ duration }}",
+        "watermark": false,
+        "ratio": "{{ aspect_ratio }}",
+        "seed": "{{ seed }}"
+      }
+    },
+    "extract": {
+      "task_id": [
+        "$.output.task_id"
+      ],
+      "error": [
+        "$.message",
+        "$.code"
+      ]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/tasks/{{ task_id }}",
+    "extract": {
+      "status": [
+        "$.output.task_status"
+      ],
+      "video_url": [
+        "$.output.video_url"
+      ],
+      "error": [
+        "$.output.message",
+        "$.output.code",
+        "$.message",
+        "$.code"
+      ],
+      "usage": {
+        "duration": {
+          "paths": [
+            "$.usage.duration"
+          ],
+          "accept": "scalar"
+        }
+      }
+    }
+  },
+  "status_map": {
+    "pending": "queued",
+    "running": "running",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "canceled": "failed",
+    "unknown": "failed"
+  },
+  "capabilities": {
+    "first_frame": false,
+    "audio_track": "always_on"
+  }
+}

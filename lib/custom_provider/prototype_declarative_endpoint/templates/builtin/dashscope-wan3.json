@@ -1,0 +1,152 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "DashScope 万相 3.0（内置复刻）",
+    "author": "ArcReel",
+    "version": "0.1.0",
+    "description": "复刻 lib/video_backends/dashscope.py 的 POST /api/v1/services/aigc/video-generation/video-synthesis（X-DashScope-Async: enable）→ GET /api/v1/tasks/{id}。 wan3.0 单模型通吃文生 / 首尾帧 / 参考生：media 依次为首帧、尾帧、参考图、独立 reference_audio 条目；parameters.audio 为音轨开关。内置只在无首帧时下发 ratio，格式无条件字段，本定义恒下发 ratio；首尾帧条目内占位符为空时只删 url 键不删条目。",
+    "hints": {
+      "base_url": "https://dashscope.aliyuncs.com/api/v1",
+      "suggested_models": [
+        {
+          "id": "wan3.0-video"
+        }
+      ]
+    }
+  },
+  "auth": {
+    "headers": {
+      "Authorization": "Bearer {{ api_key }}"
+    }
+  },
+  "inputs": {
+    "first_frame": {
+      "source": "start_image",
+      "encoding": "data_uri"
+    },
+    "last_frame": {
+      "source": "end_image",
+      "encoding": "data_uri"
+    },
+    "refs": {
+      "source": "reference_images",
+      "encoding": "data_uri"
+    },
+    "ref_audio": {
+      "source": "reference_audio_files",
+      "encoding": "data_uri"
+    }
+  },
+  "enum_maps": {
+    "resolution": {
+      "480p": "480P",
+      "720p": "720P",
+      "1080p": "1080P"
+    }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/services/aigc/video-generation/video-synthesis",
+    "headers": {
+      "X-DashScope-Async": "enable"
+    },
+    "body": {
+      "model": "{{ model }}",
+      "input": {
+        "prompt": "{{ prompt }}",
+        "media": [
+          {
+            "type": "first_frame",
+            "url": "{{ inputs.first_frame }}"
+          },
+          {
+            "type": "last_frame",
+            "url": "{{ inputs.last_frame }}"
+          },
+          {
+            "$each": {
+              "in": "inputs.refs",
+              "as": "r",
+              "item": {
+                "type": "reference_image",
+                "url": "{{ r }}"
+              }
+            }
+          },
+          {
+            "$each": {
+              "in": "inputs.ref_audio",
+              "as": "a",
+              "item": {
+                "type": "reference_audio",
+                "url": "{{ a }}"
+              }
+            }
+          }
+        ]
+      },
+      "parameters": {
+        "resolution": "{{ resolution }}",
+        "duration": "{{ duration }}",
+        "watermark": false,
+        "ratio": "{{ aspect_ratio }}",
+        "seed": "{{ seed }}",
+        "audio": "{{ generate_audio }}"
+      }
+    },
+    "extract": {
+      "task_id": [
+        "$.output.task_id"
+      ],
+      "error": [
+        "$.message",
+        "$.code"
+      ]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/tasks/{{ task_id }}",
+    "extract": {
+      "status": [
+        "$.output.task_status"
+      ],
+      "video_url": [
+        "$.output.video_url"
+      ],
+      "error": [
+        "$.output.message",
+        "$.output.code",
+        "$.message",
+        "$.code"
+      ],
+      "usage": {
+        "duration": {
+          "paths": [
+            "$.usage.duration"
+          ],
+          "accept": "scalar"
+        }
+      }
+    }
+  },
+  "status_map": {
+    "pending": "queued",
+    "running": "running",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "canceled": "failed",
+    "unknown": "failed"
+  },
+  "capabilities": {
+    "first_frame": true,
+    "last_frame": true,
+    "max_reference_images": 10,
+    "reference_audio_mode": "direct",
+    "max_reference_audio_count": 5,
+    "max_reference_audio_total_seconds": 15,
+    "max_prompt_chars": 20000,
+    "audio_track": "controllable"
+  }
+}
