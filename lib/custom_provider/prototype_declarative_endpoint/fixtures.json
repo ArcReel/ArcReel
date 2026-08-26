@@ -13,6 +13,9 @@
       { "id": "completed_no_url", "label": "completed · 但没有 video_url", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "completed" } } },
       { "id": "failed", "label": "failed · 带 error", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "failed", "error": "content policy violation" } } },
       { "id": "unknown", "label": "WAITING_GPU（未登记的状态串）", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "WAITING_GPU" } } },
+      { "id": "expired", "label": "expired（内置表折为 failed）", "response": { "status_code": 200, "body": { "task_id": "t_001", "status": "expired" } } },
+      { "id": "http_503", "label": "503 · 瞬时错误（retry_status_codes）", "response": { "status_code": 503, "body": { "error": "upstream temporarily unavailable" } } },
+      { "id": "http_422", "label": "422 · Segmind 式失败（非成功码）", "response": { "status_code": 422, "body": { "error": "NSFW content detected" } } },
       { "id": "json_in_string", "label": "completed · 产物藏在 JSON 字符串里（kie 形态）", "response": { "status_code": 200, "body": { "status": "completed", "data": { "resultJson": "{\"resultUrls\":[\"https://cdn.example.com/v/k.mp4\"]}" } } } }
     ]
   },

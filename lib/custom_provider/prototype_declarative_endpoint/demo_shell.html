@@ -142,9 +142,9 @@
       <h2>待你拍板的约定</h2>
       <p class="muted">下面每条都已在本页按「原型选择」实现；走查时觉得哪条别扭，就是要改的地方。</p>
       <ol class="q-list">
-        <li><strong>响应根是 body。</strong>JSONPath 的 <code>$</code> 指向响应体；headers / status_code 经 extract 对象的 <code>source</code> 指定，而不是 n8n 式的 <code>$.body.…</code> 三分对象。</li>
-        <li><strong>四档而非五档。</strong><code>status_map</code> 只能映射到 queued / running / succeeded / failed；<code>expired</code> 不由声明式产生（抽样 0 家需要）。timeout / cancelled / aborted 一律归 failed。</li>
-        <li><strong><code>{{ api_key }}</code> 只在 auth 节可用。</strong>请求体 / URL 里出现即校验失败——代价是凭证入体的旧式接口不支持。</li>
+        <li><strong>响应根是 body。</strong>JSONPath 的 <code>$</code> 指向响应体；headers 经 extract 对象的 <code>source</code> 指定，而不是 n8n 式的 <code>$.body.…</code> 三分对象。HTTP 状态码不走 JSONPath：submit 用 <code>success_status_codes</code>；poll 用 <code>success_status_codes</code>（缺省 200）+ <code>retry_status_codes</code>（缺省 429 / 5xx，保持上一状态继续轮询），两表之外的码 ⇒ 任务失败（Segmind 式 422）。</li>
+        <li><strong>四档而非五档。</strong><code>status_map</code> 只能映射到 queued / running / succeeded / failed；内置同义词表把 <code>expired</code> / <code>timeout</code> 折为 failed，reducer 对任何四档之外的值也折为 failed——第五档不会漏进轮询循环。<em>待拍板：</em>折为 failed（本页选择，原状态串保留在日志里）还是保留 <code>expired</code> 作第五档（需同时放开 status_map 枚举与 reducer 终态）。</li>
+        <li><strong><code>{{ api_key }}</code> 只在 auth 节可用，且 auth 节优先。</strong>请求体 / URL 里出现 <code>{{ api_key }}</code> 即校验失败；submit / poll 声明与 auth 同名的 header（不区分大小写）/ query 也是校验错误，渲染时以 auth 为准——凭证只有 auth 一个写入口。代价是凭证入体的旧式接口不支持。</li>
         <li><strong>轮询允许 POST + body</strong>（ComfyUI 托管平台需要）。submit / poll 是同一种请求对象。</li>
         <li><strong>整串单占位符保留原生类型；混合文本一律串化；值为 null 的整串占位符删掉所在键 / 元素；混合文本里遇到 null 报错。</strong></li>
         <li><strong>枚举映射只对 duration / aspect_ratio / resolution / generate_audio 开放</strong>，键按字符串化查表，缺项不发请求。数字→字符串枚举（"5"）走这里，不给模板加转换。</li>
@@ -296,7 +296,7 @@
     return d;
   };
   const withJsonDecode = (d) => { d.poll.extract.video_url = { paths: ["$.video_url", "$.data.resultJson"], json_decode: true, then: ["$.resultUrls[0]"] }; return d; };
-  const withBadThings = (d) => { d.submit.body.key = "{{ api_key }}"; d.submit.body.oops = "{{ nope }}"; d.submit.body.tid = "{{ task_id }}"; d.poll.extract.video_url = ["$..url", "$.video_url"]; d.status_map.expired = "failed"; return d; };
+  const withBadThings = (d) => { d.submit.body.key = "{{ api_key }}"; d.submit.body.oops = "{{ nope }}"; d.submit.body.tid = "{{ task_id }}"; d.poll.extract.video_url = ["$..url", "$.video_url"]; d.status_map.timeout = "expired"; d.poll.headers = { authorization: "Basic dXNlcjpwYXNz" }; return d; };
   const setUI = (o) => { for (const [k, v] of Object.entries(o)) { const el = $(k); if (el.type === "checkbox") el.checked = v; else el.value = v; } };
 
   const SCENARIOS = [
@@ -331,11 +331,17 @@
       desc: "首帧是 webp，而 inputs.first_frame.mime_types 只允许 jpeg / png。看点：编码阶段拒绝，同样不发请求。",
       steps: [["提交：正常接单（不会发出去）", { type: "SUBMIT", fixture: "ok" }]] },
     { id: "g_validate", title: "定义校验：故意写坏", template: "generic-submit-poll", patch: withBadThings, ui: {},
-      desc: "定义被打了四处坏补丁：请求体里引用 {{ api_key }}、引用未声明的 {{ nope }}、在 submit 里用 {{ task_id }}、video_url 用了 $..url 递归、status_map 映射到 expired。看左栏「校验结果」——五条错误应各自命中；这一票要拍板的是错误文案是否足够让作者自己改对。",
+      desc: "定义被打了六处坏补丁：请求体里引用 {{ api_key }}、引用未声明的 {{ nope }}、在 submit 里用 {{ task_id }}、video_url 用了 $..url 递归、status_map 映射到 expired、poll.headers 声明了与 auth 同名的 authorization（小写）。看左栏「校验结果」——六条错误应各自命中；这一票要拍板的是错误文案是否足够让作者自己改对。",
       steps: [["看左栏校验结果（无需点）", { type: "NOOP" }]] },
     { id: "g_json", title: "评估项：JSON-in-string 后缀", template: "generic-submit-poll", patch: withJsonDecode, ui: {},
       desc: "video_url 改成对象形式：paths 里第二条命中 data.resultJson（一个 JSON 字符串），json_decode 后按 then 的 $.resultUrls[0] 继续取。看点：提取轨迹里多出一行 (json_decode)。这能换来 kie.ai 统一接口与 Segmind PixelFlow 两家——值不值一个开关？",
       steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：产物藏在字符串里", { type: "POLL", fixture: "json_in_string" }]] },
+    { id: "g_http", title: "轮询 HTTP 级错误 · 瞬时 vs 失败", template: "generic-submit-poll", ui: {},
+      desc: "HTTP 码不走 JSONPath。看点：503 在 retry_status_codes 内 → 不看 body，保持上一状态（queued）继续轮询；422 既不在 success 也不在 retry → 任务失败，错误信息按 poll.extract.error 从 body 取（Segmind 式）。",
+      steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：503 瞬时", { type: "POLL", fixture: "http_503" }], ["轮询：422 失败", { type: "POLL", fixture: "http_422" }]] },
+    { id: "g_expired", title: "expired 折为 failed", template: "generic-submit-poll", ui: {},
+      desc: "供应商回 expired：不在模板 status_map，内置同义词表把它折为 failed（来源 builtin），reducer 走失败分支；原状态串保留在日志里。要保留第五档就改这里。",
+      steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：expired", { type: "POLL", fixture: "expired" }]] },
     { id: "g_unknown", title: "未知状态串兜底 · 成功无产物", template: "generic-submit-poll", ui: {},
       desc: "WAITING_GPU 既不在 status_map 也不在内置表 → 按 running 继续轮询（与现有 normalize_provider_status 一致）。随后 completed 却没有 video_url → 判失败而不是去下载空 URL。",
       steps: [["提交：正常接单", { type: "SUBMIT", fixture: "ok" }], ["轮询：WAITING_GPU", { type: "POLL", fixture: "unknown" }], ["轮询：completed 无 URL", { type: "POLL", fixture: "completed_no_url" }]] },

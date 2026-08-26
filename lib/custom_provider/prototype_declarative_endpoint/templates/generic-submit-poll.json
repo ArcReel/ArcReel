@@ -42,6 +42,8 @@
     "url": "{{ base_url }}/v1/video/fetch/{{ task_id }}",
     "interval_seconds": 5,
     "timeout_seconds": 900,
+    "success_status_codes": [200],
+    "retry_status_codes": [429, 500, 502, 503, 504],
     "extract": {
       "status": ["$.status"],
       "video_url": ["$.video_url"],

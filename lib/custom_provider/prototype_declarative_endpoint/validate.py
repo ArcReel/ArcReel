@@ -70,6 +70,12 @@ def main() -> int:
         ("capabilities.audio_track 非法枚举", variant(lambda d: d["capabilities"].__setitem__("audio_track", "never"))),
         ("顶层多余键", variant(lambda d: d.__setitem__("api_key", "sk-xxx"))),
         ("auth.headers 值非字符串", variant(lambda d: d["auth"]["headers"].__setitem__("X-Num", 1))),
+        (
+            "extract.source=status_code（不是提取来源）",
+            variant(lambda d: d["poll"]["extract"].__setitem__("status", {"paths": ["$.x"], "source": "status_code"})),
+        ),
+        ("poll.success_status_codes 含 422", variant(lambda d: d["poll"].__setitem__("success_status_codes", [200, 422]))),
+        ("poll.retry_status_codes 含 200", variant(lambda d: d["poll"].__setitem__("retry_status_codes", [200]))),
     ]
     print()
     for label, doc in negatives:
@@ -111,6 +117,7 @@ def main() -> int:
             variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["$.data[?@.fileType == 'mp4'].fileUrl"])),
         ),
         ("无鉴权端点", variant(lambda d: d.__setitem__("auth", {}))),
+        ("poll 无 retry_status_codes（空表：任何非成功码即失败）", variant(lambda d: d["poll"].__setitem__("retry_status_codes", []))),
     ]
     print()
     for label, doc in positives:
