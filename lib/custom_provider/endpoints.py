@@ -33,6 +33,7 @@ from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import VideoCapabilities
 from lib.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
+from lib.video_backends.grok_sub2api import GrokSub2APIVideoBackend
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.minimax import MiniMaxVideoBackend
 from lib.video_backends.newapi import NewAPIVideoBackend
@@ -146,6 +147,15 @@ def _build_openai_tts(provider, model_id: str) -> CustomAudioBackend:
 def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_grok_sub2api_video(provider, model_id: str) -> CustomVideoBackend:
+    delegate = GrokSub2APIVideoBackend(
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        model=model_id,
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -304,6 +314,16 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_openai_video,
         # OpenAI Sora input_reference 为单张首帧图。
         video_max_reference_images=1,
+    ),
+    "grok-sub2api-video": EndpointSpec(
+        key="grok-sub2api-video",
+        media_type="video",
+        family="grok",
+        display_name_key="endpoint_grok_sub2api_video_display",
+        request_method="POST",
+        request_path_template="/v1/videos/generations",
+        build_backend=_build_grok_sub2api_video,
+        video_caps_for_model=GrokSub2APIVideoBackend.video_capabilities_for_model,
     ),
     "newapi-video": EndpointSpec(
         key="newapi-video",
@@ -549,6 +569,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     列表常夹带 gemini-*/imagen-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
     openai-chat/openai-images，每次都要手动改回。
 
+    0) Grok Imagine 视频 → "grok-sub2api-video"，使用 request-id status/content 协议，不误归同步
+       OpenAI video endpoint。
     1) 阿里百炼视频 → happyhorse / wan2.7 / wan3 家族（含 wan-2.7-xxx / wan-3-xxx 连字符形态、
        image-to-video 续接别名）走 "dashscope-async-video"（原生异步端点）。happyhorse 不在
        _VIDEO_PATTERN 须显式；万相视频抢在通用 is_video 前拦截。真正的图像变体不自动推 dashscope
@@ -562,17 +584,17 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        请求构造，同样排除出原生路由（见 classify_wan_model 的 is_videoedit 处的说明）。
     2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
-    2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
+    4) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
        语义但本质是视频）；其余含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
        _VIDEO_PATTERN，须先于通用 is_video 拦截，否则视频会落到 openai-video；v3-omni 图像/视频同名
        默认归视频、图像手动选。
-    3) imagen → "gemini-image"（图像，不论 discovery_format）
-    4) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
-    5) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
-    6) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
-    7) TTS 家族（tts/speech/cosyvoice）→ "openai-tts"（audio 仅 OpenAI 兼容一条端点，
+    5) imagen → "gemini-image"（图像，不论 discovery_format）
+    6) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
+    7) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
+    8) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
+    9) TTS 家族（tts/speech/cosyvoice）→ "openai-tts"（audio 仅 OpenAI 兼容一条端点，
        不分 discovery_format；precedence 在 text 默认之前）
-    8) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
+    10) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
     """
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
@@ -618,6 +640,9 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 走原生端点（见 classify_wan_model 的 has_known_modality 处的说明），落到下方 5) 的通用视频
     # 端点，避免本后端收到无法正确构造的请求。
     wan_unsupported_modality = is_wan_family and not classification.has_known_modality
+
+    if lowered == "grok-imagine-video" or lowered.startswith("grok-imagine-video-"):
+        return "grok-sub2api-video"
 
     # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
     if classification.family == "happyhorse":

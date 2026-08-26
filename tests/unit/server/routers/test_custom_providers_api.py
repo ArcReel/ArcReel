@@ -201,6 +201,7 @@ class TestEndpointCatalog:
             "openai-images-edits",
             "gemini-image",
             "openai-video",
+            "grok-sub2api-video",
             "newapi-video",
             "v2-video-generations",
             "ark-seedance",

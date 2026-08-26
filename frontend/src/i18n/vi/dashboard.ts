@@ -992,6 +992,7 @@ export default {
   'endpoint_openai_images_edits_display': 'Ảnh OpenAI (chỉ I2I)',
   'endpoint_gemini_image_display': 'Ảnh Google Gemini',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
+  'endpoint_grok_sub2api_video_display': 'Video gói đăng ký Grok (Sub2API)',
   'endpoint_newapi_video_display': 'NewAPI Unified Video',
   'endpoint_v2_video_generations_display': 'V2 Video Generations',
   'endpoint_ark_seedance_display': 'Volcengine Ark (Seedance)',

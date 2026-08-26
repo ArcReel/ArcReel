@@ -24,6 +24,7 @@ class TestRegistry:
             "openai-images-edits",
             "gemini-image",
             "openai-video",
+            "grok-sub2api-video",
             "newapi-video",
             "v2-video-generations",
             "ark-seedance",
@@ -41,7 +42,18 @@ class TestRegistry:
         for key, spec in ENDPOINT_REGISTRY.items():
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video", "audio"}
-            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax", "kling"}
+            assert spec.family in {
+                "openai",
+                "google",
+                "newapi",
+                "v2",
+                "ark",
+                "vidu",
+                "dashscope",
+                "minimax",
+                "kling",
+                "grok",
+            }
             assert spec.display_name_key.startswith("endpoint_")
             assert callable(spec.build_backend)
             assert spec.request_method == "POST"
@@ -74,6 +86,7 @@ class TestRegistry:
             "dashscope-async-video",
             "minimax-video",
             "kling-video",
+            "grok-sub2api-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
@@ -94,6 +107,7 @@ class TestRegistry:
             "dashscope-async-video",
             "minimax-video",
             "kling-video",
+            "grok-sub2api-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
@@ -221,6 +235,7 @@ class TestRegistry:
         }
         assert video_keys == {
             "openai-video",
+            "grok-sub2api-video",
             "newapi-video",
             "v2-video-generations",
             "ark-seedance",
@@ -229,6 +244,15 @@ class TestRegistry:
             "minimax-video",
             "kling-video",
         }
+
+    def test_grok_sub2api_video_contract(self):
+        spec = ENDPOINT_REGISTRY["grok-sub2api-video"]
+        assert spec.family == "grok"
+        assert spec.request_path_template == "/v1/videos/generations"
+        assert spec.video_caps_for_model is not None
+        assert spec.video_caps_for_model("grok-imagine-video-1.5").first_frame is True
+        assert spec.video_caps_for_model("grok-imagine-video-2.0").first_frame is True
+        assert spec.end_image_capable is False
 
 
 class TestHelpers:
@@ -269,6 +293,8 @@ class TestInferEndpoint:
             ("gemini-2.0-flash-exp-image-generation", "openai", "gemini-image"),
             ("gemini-3-pro-image-preview", "openai", "gemini-image"),
             # ── 新视频分支路由 ──
+            ("grok-imagine-video", "openai", "grok-sub2api-video"),
+            ("grok-imagine-video-2.0", "openai", "grok-sub2api-video"),
             ("seedance-1.0", "openai", "ark-seedance"),
             ("doubao-seedance-2-0", "openai", "ark-seedance"),
             ("viduq3", "openai", "vidu-video"),
