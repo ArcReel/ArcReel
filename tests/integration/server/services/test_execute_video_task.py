@@ -108,6 +108,14 @@ class TestGenerationTasks:
         fake_generator = _CheckpointingGenerator()
         fake_queue = type("Queue", (), {})()
         fake_queue.persist_execution_checkpoint = AsyncMock()
+        normalization_policy = {
+            "schema_version": 1,
+            "kind": "safe_frame_crop",
+            "input": {"width": 720, "height": 1280},
+            "crop": {"x": 0, "y": 0, "width": 612, "height": 1088},
+            "output": {"width": 720, "height": 1280},
+            "scale_filter": "lanczos",
+        }
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
         monkeypatch.setattr(
@@ -125,6 +133,7 @@ class TestGenerationTasks:
                 "prompt": {"action": "stale enqueue prompt"},
                 "duration_seconds": 4,
                 "video_provider_i2v": "stale/model",
+                "video_output_normalization": normalization_policy,
             },
             script_file="episode_1.json",
             task_id="task-storyboard",
@@ -145,6 +154,7 @@ class TestGenerationTasks:
         assert checkpoint.artifact_currency is not None
         assert submitted["metadata"]["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
         assert call["formal_output"] is True
+        assert call["video_output_normalization"] == normalization_policy
         assert submitted["metadata"]["execution_request_digest"] == checkpoint.request_digest
         assert manifest.read_bytes() == manifest_before
         assert not (project_path / ".arcreel" / "tasks" / "task-storyboard" / "provider_media").exists()

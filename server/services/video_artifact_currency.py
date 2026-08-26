@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import os
+import shutil
+import tempfile
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
@@ -18,7 +21,7 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.asset_types import asset_name_comparison_key
-from lib.async_thread import EventLoopBridge, run_noninterruptible_async
+from lib.async_thread import EventLoopBridge, run_noninterruptible_async, run_noninterruptible_sync
 from lib.generation_admission import generation_admission_lock, generation_admission_lock_sync
 from lib.generation_queue import CompensableGenerationResult
 from lib.json_io import atomic_write_bytes
@@ -35,6 +38,11 @@ from lib.speech_composition import SpeechMode, SpeechPreparation
 from lib.version_manager import PaidVersionCommit, VersionManager
 from lib.video_artifact_commit import commit_paid_video_artifact
 from lib.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
+from lib.video_output_normalization import (
+    VideoOutputNormalizationPolicy,
+    VideoOutputNormalizationReceipt,
+    normalize_video_output,
+)
 from server.services.narration_delivery_tasks import (
     CurrentTtsSettingsResolver,
     validate_generated_video_covers_tts_duration,
@@ -122,6 +130,8 @@ class VideoArtifactCommitter:
         self._tts_settings_bridge: EventLoopBridge | None = None
         self._restore_blocker: str | None = None
         self._admission_guard: AbstractAsyncContextManager[None] | None = None
+        self._provider_raw_file: Path | None = None
+        self._normalization_receipt: VideoOutputNormalizationReceipt | None = None
 
     async def prepare_selection(
         self,
@@ -150,6 +160,44 @@ class VideoArtifactCommitter:
             self._admission_guard = guard
 
         raw_narration = version_metadata.get("execution_narration")
+        raw_normalization = version_metadata.get("video_output_normalization")
+        if raw_normalization is not None:
+            try:
+                policy = VideoOutputNormalizationPolicy.from_dict(raw_normalization)
+                raw_fd, raw_name = tempfile.mkstemp(
+                    prefix=f".{staged_file.stem}.",
+                    suffix=f".provider-raw{staged_file.suffix}",
+                    dir=staged_file.parent,
+                )
+                os.close(raw_fd)
+                normalized_fd, normalized_name = tempfile.mkstemp(
+                    prefix=f".{staged_file.stem}.",
+                    suffix=f".normalized{staged_file.suffix}",
+                    dir=staged_file.parent,
+                )
+                os.close(normalized_fd)
+                raw_file = Path(raw_name)
+                normalized_file = Path(normalized_name)
+                try:
+                    shutil.copy2(staged_file, raw_file)
+                    receipt = await run_noninterruptible_sync(
+                        normalize_video_output,
+                        raw_file,
+                        normalized_file,
+                        policy,
+                    )
+                    os.replace(normalized_file, staged_file)
+                except BaseException:
+                    raw_file.unlink(missing_ok=True)
+                    normalized_file.unlink(missing_ok=True)
+                    raise
+                self._provider_raw_file = raw_file
+                self._normalization_receipt = receipt
+            except (Exception, asyncio.CancelledError) as exc:
+                self.selection_error = exc
+                self._restore_blocker = "output_normalization_failed"
+                return
+
         if not isinstance(raw_narration, Mapping) or raw_narration.get("delivery") != "use_tts":
             return
         self._tts_settings_bridge = EventLoopBridge.capture()
@@ -179,9 +227,19 @@ class VideoArtifactCommitter:
 
         guard = self._admission_guard
         if guard is None:
+            raw_file = self._provider_raw_file
+            self._provider_raw_file = None
+            if raw_file is not None:
+                raw_file.unlink(missing_ok=True)
             return
         self._admission_guard = None
-        await guard.__aexit__(None, None, None)
+        try:
+            await guard.__aexit__(None, None, None)
+        finally:
+            raw_file = self._provider_raw_file
+            self._provider_raw_file = None
+            if raw_file is not None:
+                raw_file.unlink(missing_ok=True)
 
     def __call__(
         self,
@@ -192,6 +250,29 @@ class VideoArtifactCommitter:
     ) -> PaidVersionCommit:
         snapshot: dict[str, dict[str, Any] | None] = {"project": None, "script": None}
         metadata = dict(version_metadata)
+        normalization_receipt = self._normalization_receipt
+        provider_raw_file = self._provider_raw_file
+        if normalization_receipt is not None and provider_raw_file is not None:
+            raw_metadata = {
+                **metadata,
+                "video_output_role": "provider-raw",
+                "video_output_normalization_receipt": normalization_receipt.to_dict(),
+            }
+            self._versions.commit_staged_paid_version(
+                self._resource_type,
+                self._resource_id,
+                self._prompt,
+                staged_file=provider_raw_file,
+                current_file=current_file,
+                select_current=False,
+                duration_seconds=duration_seconds,
+                **raw_metadata,
+            )
+            self._provider_raw_file = None
+            metadata["video_output_role"] = "normalized-candidate"
+            metadata["video_output_normalization_receipt"] = normalization_receipt.to_dict()
+        elif version_metadata.get("video_output_normalization") is not None:
+            metadata["video_output_role"] = "provider-raw"
         if self._restore_blocker is not None:
             metadata[VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD] = self._restore_blocker
         script_file = metadata.get("execution_script_file")

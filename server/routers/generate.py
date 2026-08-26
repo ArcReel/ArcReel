@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.artifact_activation import (
@@ -94,6 +94,29 @@ class GenerateStoryboardRequest(BaseModel):
     script_file: str
 
 
+class VideoDimensionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+
+class VideoCropRequest(VideoDimensionsRequest):
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+
+
+class VideoOutputNormalizationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1]
+    kind: Literal["safe_frame_crop"]
+    input: VideoDimensionsRequest
+    crop: VideoCropRequest
+    output: VideoDimensionsRequest
+    scale_filter: Literal["lanczos"]
+
+
 class GenerateVideoRequest(BaseModel):
     prompt: str | dict
     script_file: str
@@ -105,6 +128,7 @@ class GenerateVideoRequest(BaseModel):
     # 时长基准的批量入口与由模型推断参数的 Agent 视频工具上。
     narration_delivery: NarrationDelivery = POST_PRODUCTION
     confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
+    video_output_normalization: VideoOutputNormalizationRequest | None = None
 
 
 class GenerateTtsRequest(BaseModel):
@@ -364,6 +388,8 @@ async def generate_video(
     }
     if req.narration_delivery != USE_TTS:
         extra_payload["duration_seconds"] = req.duration_seconds
+    if req.video_output_normalization is not None:
+        extra_payload["video_output_normalization"] = req.video_output_normalization.model_dump(mode="json")
     spec = TaskSpec.from_request(
         task_type="video",
         media_type="video",

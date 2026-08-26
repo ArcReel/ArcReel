@@ -128,6 +128,7 @@ from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import PaidVersionCommit
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_backends.base import VideoCapabilityError
+from lib.video_output_normalization import VideoOutputNormalizationPolicy
 from lib.video_visual_provenance import (
     build_storyboard_video_visual_basis,
     build_text_video_visual_basis,
@@ -2315,6 +2316,12 @@ async def execute_video_task(
     video_input_mode = payload.get("video_input_mode", "storyboard")
     if video_input_mode not in {"storyboard", "text"}:
         raise ValueError("video_input_mode must be 'storyboard' or 'text'")
+    raw_output_normalization = payload.get("video_output_normalization")
+    output_normalization = (
+        VideoOutputNormalizationPolicy.from_dict(raw_output_normalization).to_dict()
+        if raw_output_normalization is not None
+        else None
+    )
     # lane 归桶按项目生成模式求值，与提交入口（``generate_video``）同源：入口挡掉参考生视频后
     # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免生成模式口径分叉。
     execution_payload = without_video_execution_identity(payload) if task_id is not None else payload
@@ -2713,6 +2720,9 @@ async def execute_video_task(
         if task_id is not None
         else None
     )
+    normalization_metadata: dict[str, Any] = {}
+    if output_normalization is not None:
+        normalization_metadata["video_output_normalization"] = output_normalization
     try:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
         output_path, version, _, video_uri = await generator.generate_video_async(
@@ -2733,6 +2743,7 @@ async def execute_video_task(
             service_tier=service_tier,
             visual_basis_digest=visual_basis_digest,
             generate_audio=ctx.video.requested_generate_audio,
+            **normalization_metadata,
         )
 
         async def _finalize() -> dict[str, Any]:

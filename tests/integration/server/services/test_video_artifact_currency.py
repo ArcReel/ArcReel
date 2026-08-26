@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -38,6 +39,30 @@ from server.services.video_artifact_currency import (
 )
 
 
+def _write_safe_frame_test_video(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=white:s=720x1280:d=0.4:r=5",
+            "-vf",
+            "drawbox=x=620:y=1100:w=80:h=80:color=red:t=fill",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(path),
+        ],
+        check=True,
+    )
+
+
 def _currency(
     label: str,
     *,
@@ -69,6 +94,103 @@ def _currency(
         reference_image_limit=None,
         parent_version=parent_version,
     )
+
+
+@pytest.mark.asyncio
+async def test_declared_safe_frame_normalization_archives_raw_and_normalized_versions(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "demo"
+    staged = project_path / "videos" / ".scene_E1S01.task.mp4"
+    current = project_path / "videos" / "scene_E1S01.mp4"
+    _write_safe_frame_test_video(staged)
+    versions = VersionManager(project_path)
+    committer = VideoArtifactCommitter(
+        project_manager=MagicMock(),
+        project_name="demo",
+        project_path=project_path,
+        versions=versions,
+        resource_type="videos",
+        resource_id="E1S01",
+        prompt="safe frame",
+    )
+    metadata = {
+        "execution_narration": {"delivery": "post_production"},
+        "video_output_normalization": {
+            "schema_version": 1,
+            "kind": "safe_frame_crop",
+            "input": {"width": 720, "height": 1280},
+            "crop": {"x": 0, "y": 0, "width": 612, "height": 1088},
+            "output": {"width": 720, "height": 1280},
+            "scale_filter": "lanczos",
+        },
+    }
+
+    await committer.prepare_selection(staged, 1, metadata)
+    outcome = committer(staged, current, 1, metadata)
+
+    assert outcome.selected is False
+    history = versions.get_versions("videos", "E1S01")
+    assert history["current_version"] == 0
+    assert [record["video_output_role"] for record in history["versions"]] == [
+        "provider-raw",
+        "normalized-candidate",
+    ]
+    raw_record, normalized_record = history["versions"]
+    raw_receipt = raw_record["video_output_normalization_receipt"]
+    normalized_receipt = normalized_record["video_output_normalization_receipt"]
+    assert raw_receipt == normalized_receipt
+    assert (project_path / raw_record["file"]).read_bytes() != (
+        project_path / normalized_record["file"]
+    ).read_bytes()
+    assert raw_receipt["raw_sha256"] != raw_receipt["normalized_sha256"]
+    assert not staged.exists()
+    assert not current.exists()
+
+
+@pytest.mark.asyncio
+async def test_declared_safe_frame_normalization_failure_archives_provider_raw_only(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "demo"
+    staged = project_path / "videos" / ".scene_E1S01.task.mp4"
+    current = project_path / "videos" / "scene_E1S01.mp4"
+    _write_safe_frame_test_video(staged)
+    versions = VersionManager(project_path)
+    committer = VideoArtifactCommitter(
+        project_manager=MagicMock(),
+        project_name="demo",
+        project_path=project_path,
+        versions=versions,
+        resource_type="videos",
+        resource_id="E1S01",
+        prompt="safe frame",
+    )
+    metadata = {
+        "execution_narration": {"delivery": "post_production"},
+        "video_output_normalization": {
+            "schema_version": 1,
+            "kind": "safe_frame_crop",
+            "input": {"width": 1080, "height": 1920},
+            "crop": {"x": 0, "y": 0, "width": 918, "height": 1632},
+            "output": {"width": 1080, "height": 1920},
+            "scale_filter": "lanczos",
+        },
+    }
+
+    await committer.prepare_selection(staged, 1, metadata)
+    outcome = committer(staged, current, 1, metadata)
+
+    assert outcome.selected is False
+    assert committer.selection_error is not None
+    history = versions.get_versions("videos", "E1S01")
+    assert history["current_version"] == 0
+    assert len(history["versions"]) == 1
+    record = history["versions"][0]
+    assert record["video_output_role"] == "provider-raw"
+    assert record[VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD] == "output_normalization_failed"
+    assert not staged.exists()
+    assert not current.exists()
 
 
 @pytest.mark.asyncio

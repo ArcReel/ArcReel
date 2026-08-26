@@ -197,6 +197,44 @@ def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True):
 
 
 class TestGenerateRouter:
+    def test_video_enqueue_preserves_declared_output_normalization(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        policy = {
+            "schema_version": 1,
+            "kind": "safe_frame_crop",
+            "input": {"width": 720, "height": 1280},
+            "crop": {"x": 0, "y": 0, "width": 612, "height": 1088},
+            "output": {"width": 720, "height": 1280},
+            "scale_filter": "lanczos",
+        }
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "prompt": "Slow pan across the field",
+                    "video_output_normalization": policy,
+                },
+            )
+
+        assert response.status_code == 200, response.text
+        assert fake_queue.calls[0]["payload"]["video_output_normalization"] == policy
+
+        with client:
+            invalid = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "prompt": "Slow pan across the field",
+                    "video_output_normalization": {**policy, "unreviewed_filter": "blur"},
+                },
+            )
+        assert invalid.status_code == 422
+
     def test_tts_regeneration_rejects_an_active_use_tts_video(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
