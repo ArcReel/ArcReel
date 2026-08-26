@@ -112,6 +112,14 @@ _LOCAL_ORIGINS = [
 ]
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
+_REMOTE_DURABLE_BATCH_MEDIA_TOOLS = frozenset(
+    {"generate_assets", "generate_storyboards", "generate_grid", "edit_images"}
+)
+_REMOTE_DURABLE_BATCH_DESCRIPTION = (
+    " Remote MCP generation submissions return durable admission and durable generation_batch state immediately; "
+    "follow poll_after_seconds "
+    "by calling get_generation_batch until done=true, then read the terminal requested / succeeded / failed / blocked result."
+)
 
 
 class ArcApiKeyVerifier(TokenVerifier):
@@ -214,6 +222,17 @@ def _remote_media_schema(definition: ToolDefinition) -> dict[str, Any]:
     return schema
 
 
+def _remote_media_description(definition: ToolDefinition) -> str:
+    if definition.name in _REMOTE_DURABLE_BATCH_MEDIA_TOOLS:
+        description = definition.description + _REMOTE_DURABLE_BATCH_DESCRIPTION
+        if definition.name == "generate_grid":
+            description += (
+                " For list_only=true, the preview returns immediately without a generation_batch; do not poll."
+            )
+        return description
+    return definition.description
+
+
 MediaDefinitionFactory = Callable[[ToolContext], ToolDefinition]
 MediaInvoker = Callable[[str, MediaDefinitionFactory, dict[str, Any]], Awaitable[CallToolResult]]
 
@@ -252,7 +271,7 @@ def _remote_media_tool(
         fn=unused,
         name=definition.name,
         title=None,
-        description=definition.description,
+        description=_remote_media_description(definition),
         parameters=_remote_media_schema(definition),
         fn_metadata=metadata.fn_metadata,
         is_async=True,
