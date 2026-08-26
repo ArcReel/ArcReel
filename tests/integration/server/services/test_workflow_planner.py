@@ -12,6 +12,8 @@ from lib.generation_batch import GenerationBatchRequestedItem, GenerationBatchRe
 from lib.generation_queue import GenerationQueue
 from lib.generation_queue_client import TaskSpec
 from lib.generation_result import GenerationSelectionMode
+from lib.grid.models import GridGeneration
+from lib.grid_manager import GridManager
 from lib.narration_delivery import POST_PRODUCTION
 from lib.project_manager import ProjectManager
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -309,6 +311,176 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
         "poll_after_seconds": 10,
         "max_poll_attempts": 30,
     }
+
+
+async def test_grid_storyboard_plan_waits_for_active_grid_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project_path = _project_dir(tmp_path)
+    pm = _ProjectManager(project_path, _script())
+    status = _status(state="STORYBOARD", action="generate_grid").model_copy(
+        update={
+            "project": WorkflowProject(
+                content_mode="narration",
+                generation_mode="storyboard",
+                grid_storyboard=True,
+            )
+        }
+    )
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: status)
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S01"],
+        rows=1,
+        cols=1,
+        grid_size="1x1",
+        provider="",
+        model="",
+        video_aspect_ratio="9:16",
+    )
+    GridManager(project_path).save(grid)
+
+    async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
+        if kwargs["task_type"] != "grid":
+            return []
+        assert kwargs["resource_ids"] == [grid.id]
+        return [
+            {
+                "task_id": "grid-task",
+                "resource_id": grid.id,
+                "task_type": "grid",
+                "status": "running",
+            }
+        ]
+
+    monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
+
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())  # type: ignore[arg-type]
+
+    assert next(step for step in plan.steps if step.id == "storyboard").state is WorkflowStepState.ACTIVE
+    assert plan.next_action.type == "wait_for_task"
+    assert plan.next_action.args["task_ids"] == ["grid-task"]
+
+
+async def test_asset_sheet_plan_waits_for_active_asset_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pm = _ProjectManager(_project_dir(tmp_path), _script())
+    monkeypatch.setattr(
+        pm,
+        "load_project_readonly",
+        lambda _project: {
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "characters": {"张三": {"description": "黑衣剑客"}},
+        },
+    )
+    monkeypatch.setattr(
+        workflow_planner.WorkflowStateService,
+        "get_status",
+        lambda *_args: _status(state="ASSET_SHEETS", action="generate_asset_sheets"),
+    )
+
+    async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
+        if kwargs["task_type"] != "character":
+            return []
+        assert kwargs["resource_ids"] == ["张三"]
+        return [
+            {
+                "task_id": "character-task",
+                "batch_id": "asset-batch",
+                "resource_id": "张三",
+                "task_type": "character",
+                "status": "running",
+            }
+        ]
+
+    monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
+
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())  # type: ignore[arg-type]
+
+    step = next(item for item in plan.steps if item.id == "asset_sheets")
+    assert step.state is WorkflowStepState.ACTIVE
+    assert [task.task_id for task in step.tasks] == ["character-task"]
+    assert plan.next_action.type == "wait_for_task"
+    assert plan.next_action.args["batch_ids"] == ["asset-batch"]
+
+
+async def test_product_task_replanning_returns_its_durable_handle_without_crossing_callers(
+    tmp_path: Path, db_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_path = _project_dir(tmp_path)
+    queue_pm = ProjectManager(project_path.parent)
+    planner_pm = _ProjectManager(project_path, _script())
+    monkeypatch.setattr(
+        planner_pm,
+        "load_project_readonly",
+        lambda _project: {
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "products": {"杯子": {"description": "透明杯"}},
+        },
+    )
+
+    class ProductWorkflowStateService:
+        def __init__(self, project_manager: object):
+            assert project_manager is planner_pm
+
+        def get_status(self, *_args: object) -> WorkflowStatus:
+            return _status(state="STORYBOARD", action="generate_storyboards")
+
+    monkeypatch.setattr(workflow_planner, "WorkflowStateService", ProductWorkflowStateService)
+    queue = GenerationQueue(session_factory=db_factory, project_manager=queue_pm)
+    caller = "caller-a"
+    batch_id = await queue.create_generation_batch(
+        project_name="demo",
+        operation="generate_assets",
+        requested=GenerationBatchRequestSnapshot(
+            selection=GenerationSelectionMode.EXPLICIT,
+            requested=[GenerationBatchRequestedItem(unit_id="product/杯子")],
+        ),
+        blocked=[],
+        source="mcp",
+        user_id=caller,
+    )
+    task = await queue.enqueue_task(
+        project_name="demo",
+        task_type="product",
+        media_type="image",
+        resource_id="杯子",
+        source="mcp",
+        user_id=caller,
+        provider_id="test-provider",
+        batch_id=batch_id,
+        batch_unit_id="product/杯子",
+    )
+    claimed = await queue.claim_next_task("image")
+    assert claimed is not None and claimed["task_id"] == task["task_id"]
+    other_task = await queue.enqueue_task(
+        project_name="demo",
+        task_type="product",
+        media_type="image",
+        resource_id="杯子",
+        source="mcp",
+        user_id="caller-b",
+        provider_id="test-provider",
+    )
+
+    planner = workflow_planner.WorkflowPlanner(planner_pm)  # type: ignore[arg-type]
+    plan = await planner.get_plan("demo", WorkflowPlanRequest(), user_id=caller, queue=queue)
+    other_plan = await planner.get_plan("demo", WorkflowPlanRequest(), user_id="caller-b", queue=queue)
+
+    step = next(item for item in plan.steps if item.id == "asset_sheets")
+    assert step.state is WorkflowStepState.ACTIVE
+    assert [item.task_id for item in step.tasks] == [task["task_id"]]
+    assert plan.next_action.type == "wait_for_task"
+    assert plan.next_action.args == {
+        "task_ids": [task["task_id"]],
+        "batch_ids": [batch_id],
+        "poll_after_seconds": 10,
+        "max_poll_attempts": 30,
+    }
+    assert other_plan.next_action.type == "wait_for_task"
+    assert other_plan.next_action.args["task_ids"] == [other_task["task_id"]]
 
 
 async def test_recovery_checkpoint_without_provider_job_remains_visible(

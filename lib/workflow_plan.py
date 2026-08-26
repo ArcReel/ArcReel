@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from lib.asset_types import ASSET_SPECS
 from lib.generation_result import GenerationAction, GenerationProblem, ProviderCheckpoint
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationDelivery
 from lib.workflow_rules import WorkflowStepRule, workflow_rule
@@ -125,6 +126,7 @@ _TASK_STEP: dict[str, str] = {
     "text_narration_step1": "step1_content",
     "text_reference_step1": "step1_content",
     "text_episode_script": "final_script",
+    **{asset_type: "asset_sheets" for asset_type in ASSET_SPECS},
     "storyboard": "storyboard",
     "grid": "storyboard",
     "tts": "narration_delivery",
