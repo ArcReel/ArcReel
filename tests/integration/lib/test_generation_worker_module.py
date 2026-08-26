@@ -926,6 +926,50 @@ class TestCapacityTable:
 
 class TestGenerationWorker:
     @pytest.mark.asyncio
+    async def test_wake_claims_task_without_waiting_for_poll_interval(self):
+        task = {"task_id": "wake-task", "media_type": "text", "provider_id": "text"}
+        queue = _FakeQueue()
+        idle = asyncio.Event()
+        completed = asyncio.Event()
+
+        async def claim_next_task(media_type, **_kwargs):
+            assert media_type == "text"
+            if idle.is_set():
+                return task
+            idle.set()
+            return None
+
+        queue.claim_next_task = claim_next_task
+
+        async def mark_task_succeeded(task_id, result):
+            queue.succeeded.append((task_id, result))
+            completed.set()
+            return 1
+
+        queue.mark_task_succeeded = mark_task_succeeded
+
+        async def execute(_task, *, claimed_provider_id):
+            assert claimed_provider_id == "text"
+            return {"ok": True}
+
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
+            provider_projection=lambda _task: asyncio.sleep(0, result="text"),
+            executor=execute,
+            lanes=("text",),
+        )
+        worker.poll_interval = 60
+        await worker.start()
+        try:
+            await asyncio.wait_for(idle.wait(), timeout=1)
+            worker.wake()
+            await asyncio.wait_for(completed.wait(), timeout=1)
+            assert queue.succeeded == [("wake-task", {"ok": True})]
+        finally:
+            await worker.stop()
+
+    @pytest.mark.asyncio
     async def test_process_task_success_and_failure(self, monkeypatch):
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
