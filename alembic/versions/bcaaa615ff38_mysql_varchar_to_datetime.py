@@ -50,8 +50,7 @@ def _convert_mysql_timestamps_to_datetime() -> None:
     # Step 0: Set session timezone to UTC to ensure consistent conversion.
     bind.execute(sa.text("SET SESSION time_zone = '+00:00'"))
 
-    # Step 1: normalize textual values. Handle trailing Z, T separator, and
-    # empty strings. CHAR_LENGTH(TRIM(...)) = 0 catches any whitespace-only.
+    # Step 1: normalize textual values.
     for table, columns in _TIMESTAMP_TABLES.items():
         for col in columns:
             stmt = sa.text(
@@ -66,8 +65,7 @@ def _convert_mysql_timestamps_to_datetime() -> None:
             )
             bind.execute(stmt)
 
-    # Step 2: ALTER the column type using MySQL-specific DATETIME(fsp=6) so we
-    # keep microsecond precision.
+    # Step 2: ALTER the column type using MySQL-specific DATETIME(fsp=6).
     for table, columns in _TIMESTAMP_TABLES.items():
         for col in columns:
             nullable = (table, col) in _NULLABLE_TIMESTAMPS
@@ -91,7 +89,7 @@ def _revert_mysql_timestamps_to_varchar() -> None:
 
     bind = op.get_bind()
 
-    # Step 0: Reset session timezone to UTC for downgrade consistency.
+    # Reset session timezone to UTC for downgrade consistency.
     bind.execute(sa.text("SET SESSION time_zone = '+00:00'"))
 
     for table, columns in _TIMESTAMP_TABLES.items():
@@ -105,14 +103,12 @@ def _revert_mysql_timestamps_to_varchar() -> None:
                     existing_nullable=nullable,
                     existing_server_default=None,
                 )
-
-            # Restore original string values from DATETIME format
+            # Re-format as ISO-8601 with Z, preserving microseconds.
             stmt = sa.text(
                 f"UPDATE `{table}` SET `{col}` = "
                 f"CASE "
-                f"  WHEN `{col}` IS NOT NULL THEN "
-                f"    CONCAT(DATE_FORMAT(`{col}`, '%Y-%m-%d %H:%i:%s'), 'Z') "
-                f"  ELSE NULL "
+                f"  WHEN `{col}` IS NULL OR CHAR_LENGTH(TRIM(`{col}`)) = 0 THEN NULL "
+                f"  ELSE CONCAT(DATE_FORMAT(`{col}`, '%Y-%m-%d %H:%i:%s.%f'), 'Z') "
                 f"END"
             )
             bind.execute(stmt)
