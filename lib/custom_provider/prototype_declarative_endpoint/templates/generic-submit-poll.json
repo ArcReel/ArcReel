@@ -44,6 +44,7 @@
     "timeout_seconds": 900,
     "success_status_codes": [200],
     "retry_status_codes": [429, 500, 502, 503, 504],
+    "expired_status_codes": [404],
     "extract": {
       "status": ["$.status"],
       "video_url": ["$.video_url"],

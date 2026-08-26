@@ -36,10 +36,10 @@
     "submit": { "$ref": "#/$defs/submitRequest" },
     "poll": { "$ref": "#/$defs/pollRequest" },
     "status_map": {
-      "description": "供应商状态串 → 四档 canonical 状态。查表前原值先字符串化（整数状态码可用）、lowercase + strip。本表叠加在内置同义词表之上（本表优先）；两表都未登记的串按 running 继续轮询。内置表把 expired / timeout 折为 failed，声明式不产生第五档。",
+      "description": "供应商状态串 → ProviderJobStatus 五个字面量。查表前原值先字符串化（整数状态码可用）、lowercase + strip。本表叠加在内置同义词表之上（本表优先）；两表都未登记的串按 running 继续轮询。运行时只区分四个结果：queued / running 都是「继续轮询」（仅影响 UI 文案）；succeeded 取 video_url；failed 取 error；expired 表示 provider 端已不认识这个任务（过期 / 不存在）——任务本身没有缺陷，运行时据此在重启接续（ADR 0007）时给出「可重试、不重扣费」而不是普通失败。timeout_seconds 耗尽由运行时自行产出 expired，不经本表。",
       "type": "object",
       "propertyNames": { "type": "string", "minLength": 1 },
-      "additionalProperties": { "enum": ["queued", "running", "succeeded", "failed"] }
+      "additionalProperties": { "enum": ["queued", "running", "succeeded", "failed", "expired"] }
     },
     "capabilities": { "$ref": "#/$defs/capabilities" }
   },
@@ -193,7 +193,7 @@
               "items": { "$ref": "#/$defs/jsonpath" }
             },
             "source": {
-              "description": "路径求值的根：body（默认）或 headers（键小写）。HTTP 状态码不走 JSONPath：submit 用 success_status_codes，poll 用 success_status_codes + retry_status_codes。",
+              "description": "路径求值的根：body（默认）或 headers（键小写）。HTTP 状态码不走 JSONPath：submit 用 success_status_codes，poll 用 success_status_codes + retry_status_codes + expired_status_codes。",
               "enum": ["body", "headers"],
               "default": "body"
             }
@@ -262,7 +262,12 @@
               "items": { "type": "integer", "minimum": 200, "maximum": 299 }
             },
             "retry_status_codes": {
-              "description": "视为瞬时错误、保持上一状态继续轮询的 HTTP 状态码；缺省 429 / 500 / 502 / 503 / 504。既不在 success 也不在 retry 的码 ⇒ 任务失败，错误信息按 extract.error 取（Segmind 式 422）。",
+              "description": "视为瞬时错误、保持上一状态继续轮询的 HTTP 状态码；缺省 429 / 500 / 502 / 503 / 504。既不在 success / retry / expired 任一表的码 ⇒ 任务失败，错误信息按 extract.error 取（Segmind 式 422）。",
+              "type": "array",
+              "items": { "type": "integer", "minimum": 400, "maximum": 599 }
+            },
+            "expired_status_codes": {
+              "description": "视为 provider 端任务已过期 / 不存在的 HTTP 状态码；缺省 404。语义同 status_map 的 expired。",
               "type": "array",
               "items": { "type": "integer", "minimum": 400, "maximum": 599 }
             },

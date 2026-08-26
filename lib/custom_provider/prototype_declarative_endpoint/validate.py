@@ -53,7 +53,8 @@ def main() -> int:
         ("poll.extract 缺 video_url", variant(lambda d: d["poll"]["extract"].pop("video_url"))),
         ("JSONPath 含 .. 递归", variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["$..url"]))),
         ("JSONPath 无 $ 前缀", variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["video_url"]))),
-        ("status_map 映射到 expired", variant(lambda d: d["status_map"].__setitem__("expired", "expired"))),
+        ("status_map 映射到 pending（非五个字面量）", variant(lambda d: d["status_map"].__setitem__("pending", "pending"))),
+        ("poll.expired_status_codes 含 200", variant(lambda d: d["poll"].__setitem__("expired_status_codes", [200]))),
         ("enum_maps 对 prompt 做映射", variant(lambda d: d["enum_maps"].__setitem__("prompt", {"a": "b"}))),
         (
             "$each 同时给 item 与 key",
@@ -117,6 +118,7 @@ def main() -> int:
             variant(lambda d: d["poll"]["extract"].__setitem__("video_url", ["$.data[?@.fileType == 'mp4'].fileUrl"])),
         ),
         ("无鉴权端点", variant(lambda d: d.__setitem__("auth", {}))),
+        ("status_map 映射到 expired（第五个字面量）", variant(lambda d: d["status_map"].__setitem__("gone", "expired"))),
         ("poll 无 retry_status_codes（空表：任何非成功码即失败）", variant(lambda d: d["poll"].__setitem__("retry_status_codes", []))),
     ]
     print()
