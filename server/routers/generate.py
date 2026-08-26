@@ -12,6 +12,7 @@
 import asyncio
 import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -96,6 +97,7 @@ class GenerateStoryboardRequest(BaseModel):
 class GenerateVideoRequest(BaseModel):
     prompt: str | dict
     script_file: str
+    input_mode: Literal["storyboard", "text"] = "storyboard"
     duration_seconds: int | None = Field(default=None, gt=0)
     seed: int | None = None
     # 单目标入口保留后期配音默认（docs/adr/0061）：请求由用户在这一段的界面上直接触发，
@@ -287,20 +289,21 @@ async def generate_video(
             raise HTTPException(status_code=409, detail=admission.to_dict())
         # 字段值来自磁盘剧本 JSON，不可信任；路径校验和 schema 激活后的显式绑定要求
         # 与 worker / 当前基线重建共用同一解析器。
-        try:
-            resolve_usable_storyboard_video_inputs(
-                project_path=project_path,
-                project=project,
-                episode=artifact_episode,
-                resource_id=segment_id,
-                item=resolved[0],
-            )
-        except EndFrameImageUnavailable:
-            raise BadRequestError("invalid_end_frame_image_path", segment_id=segment_id) from None
-        except StoryboardImageUnavailable:
-            raise BadRequestError("generate_storyboard_first", segment_id=segment_id) from None
-        except ValueError:
-            raise BadRequestError("invalid_storyboard_image_path", segment_id=segment_id) from None
+        if req.input_mode == "storyboard":
+            try:
+                resolve_usable_storyboard_video_inputs(
+                    project_path=project_path,
+                    project=project,
+                    episode=artifact_episode,
+                    resource_id=segment_id,
+                    item=resolved[0],
+                )
+            except EndFrameImageUnavailable:
+                raise BadRequestError("invalid_end_frame_image_path", segment_id=segment_id) from None
+            except StoryboardImageUnavailable:
+                raise BadRequestError("generate_storyboard_first", segment_id=segment_id) from None
+            except ValueError:
+                raise BadRequestError("invalid_storyboard_image_path", segment_id=segment_id) from None
         return project, project_path, script, resolved[0]
 
     project, project_path, script, item = await asyncio.to_thread(_sync)
@@ -356,6 +359,7 @@ async def generate_video(
     # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）。
     extra_payload: dict[str, object] = {
         "seed": req.seed,
+        "video_input_mode": req.input_mode,
         "narration_delivery_options": delivery_options.to_payload(),
     }
     if req.narration_delivery != USE_TTS:

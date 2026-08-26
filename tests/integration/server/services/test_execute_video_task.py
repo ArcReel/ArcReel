@@ -149,6 +149,61 @@ class TestGenerationTasks:
         assert manifest.read_bytes() == manifest_before
         assert not (project_path / ".arcreel" / "tasks" / "task-storyboard" / "provider_media").exists()
 
+    async def test_text_video_worker_checkpoints_without_staged_media(self, monkeypatch, tmp_path):
+        from lib.reference_video.execution_checkpoint import TextVideoSubmissionCheckpoint
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        item = fake_pm.script["segments"][0]
+        item["novel_text"] = "A cat crosses into another world."
+        item["video_prompt"] = {
+            "action": "A cat crosses a luminous portal into a neon city",
+            "camera_motion": "Dolly In",
+        }
+        item["duration_seconds"] = 8
+
+        class _CheckpointingGenerator(_FakeGenerator):
+            async def generate_video_async(self, **kwargs):
+                self.video_calls.append(kwargs)
+                assert kwargs["start_image"] is None
+                assert kwargs["end_image"] is None
+                await kwargs["before_submit"](42)
+                from lib.version_manager import PaidVersionCommit
+
+                kwargs["commit_formal_output"].outcome = PaidVersionCommit(version=2, selected=True)
+                return project_path / "videos" / "scene_E1S01.mp4", 2, "ref", "uri"
+
+        fake_generator = _CheckpointingGenerator()
+        fake_queue = type("Queue", (), {})()
+        fake_queue.persist_execution_checkpoint = AsyncMock()
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12)),
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "video_input_mode": "text",
+                "duration_seconds": 8,
+            },
+            task_id="task-text-video",
+        )
+
+        raw = fake_queue.persist_execution_checkpoint.await_args.args[1]
+        checkpoint = TextVideoSubmissionCheckpoint.from_json(raw)
+        assert checkpoint.capability == "i2v"
+        assert checkpoint.media == ()
+        assert checkpoint.artifact_currency is not None
+        assert checkpoint.artifact_currency.visual_basis.kind == "artifact-visual/video-text"
+        assert not (project_path / ".arcreel" / "tasks" / "task-text-video" / "provider_media").exists()
+
     async def test_execute_video_task_lane_bucket_follows_project_route(self, monkeypatch, tmp_path):
         """lane 归桶按项目生成模式求值，与提交入口使用同一口径。"""
         project_path = _prepare_files(tmp_path)

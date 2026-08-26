@@ -394,6 +394,40 @@ def build_reference_video_artifact_visual_basis(
     )
 
 
+def build_text_video_artifact_visual_basis(
+    *,
+    resource_id: str,
+    visual_prompt: object,
+    aspect_ratio: str,
+) -> ArtifactBasis:
+    """Describe text-driven video content with no implied frame dependency."""
+
+    if isinstance(visual_prompt, str):
+        visual_text = visual_prompt.strip()
+        if not visual_text:
+            raise ValueError("visual_prompt must not be empty")
+        projected_prompt: object = visual_text
+    elif isinstance(visual_prompt, Mapping):
+        action = str(visual_prompt.get("action") or "").strip()
+        if not action:
+            raise ValueError("visual_prompt.action must be a non-empty string")
+        projected_prompt = {
+            "action": action,
+            "camera_motion": str(visual_prompt.get("camera_motion") or "Static"),
+        }
+    else:
+        raise ValueError("visual_prompt must be a string or structured object")
+    return ArtifactBasis.build(
+        "artifact-visual/video-text",
+        kind_version=1,
+        inputs={
+            "resource_id": _require_non_empty("resource_id", resource_id),
+            "visual_prompt": projected_prompt,
+            "canvas": {"aspect_ratio": _require_non_empty("aspect_ratio", aspect_ratio)},
+        },
+    )
+
+
 def _reference_visual_lines(text: str) -> list[str]:
     """产物依据只取画面描述：剥掉全部发声记号后剩下的文本。
 
@@ -510,6 +544,7 @@ __all__ = [
     "build_reference_video_artifact_visual_basis",
     "build_storyboard_image_visual_basis",
     "build_storyboard_video_artifact_visual_basis",
+    "build_text_video_artifact_visual_basis",
     "snapshot_visual_references",
     "visual_references_match_snapshot",
     "visual_file_digest",

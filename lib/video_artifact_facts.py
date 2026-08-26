@@ -13,6 +13,7 @@ from lib.speech_artifact_provenance import build_video_duration_basis
 
 _SCHEMA_VERSION = 1
 _STORYBOARD_VISUAL_KIND = "artifact-visual/video-storyboard"
+_TEXT_VISUAL_KIND = "artifact-visual/video-text"
 _REFERENCE_VISUAL_KIND = "artifact-visual/video-reference"
 _SPEECH_KIND = "artifact-speech/video"
 _VIDEO_KIND = "artifact-components/video"
@@ -72,7 +73,7 @@ class VideoArtifactCurrencyFacts:
                 raise TypeError(f"{field} must be an ArtifactBasis")
             if value.kind_version != 1:
                 raise ValueError(f"{field} must use the supported kind version")
-        if self.visual_basis.kind not in {_STORYBOARD_VISUAL_KIND, _REFERENCE_VISUAL_KIND}:
+        if self.visual_basis.kind not in {_STORYBOARD_VISUAL_KIND, _TEXT_VISUAL_KIND, _REFERENCE_VISUAL_KIND}:
             raise ValueError("visual_basis does not describe a supported video route")
         _validate_visual_inputs(self.visual_basis)
         if self.speech_basis.kind != _SPEECH_KIND:
@@ -103,9 +104,9 @@ class VideoArtifactCurrencyFacts:
         ):
             raise ValueError("duration_tiers must be sorted positive tiers containing the paid request tier")
         limit = self.reference_image_limit
-        if self.visual_basis.kind == _STORYBOARD_VISUAL_KIND:
+        if self.visual_basis.kind in {_STORYBOARD_VISUAL_KIND, _TEXT_VISUAL_KIND}:
             if limit is not None:
-                raise ValueError("storyboard video facts cannot carry a reference-image limit")
+                raise ValueError("non-reference video facts cannot carry a reference-image limit")
         elif limit is not None and (type(limit) is not int or limit < 0):
             raise ValueError("reference video facts require an unlimited or non-negative reference-image limit")
         if type(self.parent_version) is not int or self.parent_version < 0:
@@ -202,9 +203,12 @@ def _canvas_is_valid(value: object) -> bool:
 
 def _validate_visual_inputs(basis: ArtifactBasis) -> None:
     inputs = _basis_inputs(basis)
-    if basis.kind == _STORYBOARD_VISUAL_KIND:
-        if set(inputs) != {"resource_id", "visual_prompt", "canvas", "frames"}:
-            raise ValueError("storyboard visual basis has invalid canonical inputs")
+    if basis.kind in {_STORYBOARD_VISUAL_KIND, _TEXT_VISUAL_KIND}:
+        expected_fields = {"resource_id", "visual_prompt", "canvas"}
+        if basis.kind == _STORYBOARD_VISUAL_KIND:
+            expected_fields.add("frames")
+        if set(inputs) != expected_fields:
+            raise ValueError("non-reference visual basis has invalid canonical inputs")
         prompt = inputs["visual_prompt"]
         prompt_valid = (_nonempty(prompt)) or (
             isinstance(prompt, Mapping)
@@ -212,6 +216,10 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
             and _nonempty(prompt["action"])
             and isinstance(prompt["camera_motion"], str)
         )
+        if not _nonempty(inputs["resource_id"]) or not prompt_valid or not _canvas_is_valid(inputs["canvas"]):
+            raise ValueError("non-reference visual basis has invalid canonical inputs")
+        if basis.kind == _TEXT_VISUAL_KIND:
+            return
         frames = inputs["frames"]
         frames_valid = (
             isinstance(frames, list)
@@ -226,8 +234,6 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
                 for frame in frames
             )
         )
-        if not _nonempty(inputs["resource_id"]) or not prompt_valid or not _canvas_is_valid(inputs["canvas"]):
-            raise ValueError("storyboard visual basis has invalid canonical inputs")
         if not frames_valid:
             raise ValueError("storyboard visual basis has invalid frame evidence")
         return

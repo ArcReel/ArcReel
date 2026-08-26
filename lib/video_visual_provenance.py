@@ -129,8 +129,53 @@ def build_reference_video_visual_basis(
     )
 
 
+def build_text_video_visual_basis(
+    *,
+    prompt: object,
+    aspect_ratio: object,
+    provider_id: str,
+    model_id: str,
+    resolution: str | None,
+    seed: object,
+    requested_generate_audio: bool,
+    content_mode: str,
+    utterances: object,
+    has_utterances: bool,
+    voice_characters: object,
+) -> ArtifactBasis:
+    """Describe an exact text-to-video request without manufacturing frame inputs."""
+
+    effective_prompt = prompt
+    if isinstance(prompt, dict):
+        effective_prompt = strip_voice_profiles(prompt)
+        if content_mode == "drama":
+            characters = voice_characters if isinstance(voice_characters, dict) else None
+            effective_prompt = (
+                build_drama_video_prompt(effective_prompt, utterances, characters=characters)
+                if has_utterances
+                else build_drama_video_prompt_from_legacy_dialogue(effective_prompt, characters=characters)
+            )
+    return _build_video_visual_basis(
+        "text",
+        semantics={
+            "prompt": normalize_video_prompt(effective_prompt),
+            "aspect_ratio": aspect_ratio,
+            "request_context": {
+                "provider_id": provider_id,
+                "model_id": model_id,
+                "resolution": resolution,
+                "seed": seed,
+                "requested_generate_audio": requested_generate_audio,
+            },
+            "content_mode": content_mode,
+        },
+        files=(),
+    )
+
+
 __all__ = [
     "build_reference_video_visual_basis",
     "build_storyboard_video_visual_basis",
+    "build_text_video_visual_basis",
     "resolve_video_aspect_ratio",
 ]

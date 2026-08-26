@@ -34,6 +34,7 @@ _VISUAL_BASIS_SCHEMA_VERSION = 2
 _LEGACY_SCHEMA_VERSION = 1
 _CHECKPOINT_KIND = "reference_video_submit"
 _STORYBOARD_CHECKPOINT_KIND = "storyboard_video_submit"
+_TEXT_VIDEO_CHECKPOINT_KIND = "text_video_submit"
 _STAGING_MANIFEST_VERSION = 1
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _HEX_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -686,7 +687,7 @@ class _VideoSubmissionCheckpoint:
                     raise ValueError("reference_audio_targets do not match staged audio identities")
                 if any(target >= image_count for target in self.reference_audio_targets):
                     raise ValueError("reference audio target_index must address a staged reference image")
-        else:
+        elif self.kind == _STORYBOARD_CHECKPOINT_KIND:
             roles = tuple(item.role for item in self.media)
             if roles.count("start_image") != 1 or roles.count("end_image") > 1:
                 raise ValueError("storyboard checkpoint requires one start image and at most one end image")
@@ -694,6 +695,11 @@ class _VideoSubmissionCheckpoint:
                 raise ValueError("storyboard checkpoint contains reference media")
             if self.reference_audio_targets is not None:
                 raise ValueError("storyboard checkpoint cannot have reference_audio_targets")
+        else:
+            if self.media:
+                raise ValueError("text video checkpoint cannot contain provider media")
+            if self.reference_audio_targets is not None:
+                raise ValueError("text video checkpoint cannot have reference_audio_targets")
         _require_digest(self.request_digest, "request_digest")
         if self.request_digest != canonical_json_digest(self._request_digest_payload()):
             raise ValueError("request_digest does not match checkpoint request")
@@ -930,7 +936,17 @@ class StoryboardSubmissionCheckpoint(_VideoSubmissionCheckpoint):
     ARTIFACT_VISUAL_BASIS_KIND = "artifact-visual/video-storyboard"
 
 
-VideoSubmissionCheckpoint = ReferenceSubmissionCheckpoint | StoryboardSubmissionCheckpoint
+class TextVideoSubmissionCheckpoint(_VideoSubmissionCheckpoint):
+    """Immutable submit identity for a text-to-video unit."""
+
+    __slots__ = ()
+    CHECKPOINT_KIND = _TEXT_VIDEO_CHECKPOINT_KIND
+    ARTIFACT_VISUAL_BASIS_KIND = "artifact-visual/video-text"
+
+
+VideoSubmissionCheckpoint = (
+    ReferenceSubmissionCheckpoint | StoryboardSubmissionCheckpoint | TextVideoSubmissionCheckpoint
+)
 
 
 def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[str, object]:
@@ -978,12 +994,17 @@ def load_task_video_checkpoint(task: dict[str, Any]) -> VideoSubmissionCheckpoin
     except json.JSONDecodeError as exc:
         raise ValueError("execution checkpoint is not valid JSON") from exc
     kind = decoded.get("kind") if isinstance(decoded, dict) else None
-    checkpoint_type: type[ReferenceSubmissionCheckpoint] | type[StoryboardSubmissionCheckpoint]
+    checkpoint_type: (
+        type[ReferenceSubmissionCheckpoint] | type[StoryboardSubmissionCheckpoint] | type[TextVideoSubmissionCheckpoint]
+    )
     if kind == _CHECKPOINT_KIND:
         checkpoint_type = ReferenceSubmissionCheckpoint
         expected_task_type = "reference_video"
     elif kind == _STORYBOARD_CHECKPOINT_KIND:
         checkpoint_type = StoryboardSubmissionCheckpoint
+        expected_task_type = "video"
+    elif kind == _TEXT_VIDEO_CHECKPOINT_KIND:
+        checkpoint_type = TextVideoSubmissionCheckpoint
         expected_task_type = "video"
     else:
         raise ValueError("unsupported video submission checkpoint kind")
@@ -1042,6 +1063,7 @@ __all__ = [
     "ReferenceExecutionIdentityError",
     "ReferenceSubmissionCheckpoint",
     "StoryboardSubmissionCheckpoint",
+    "TextVideoSubmissionCheckpoint",
     "VideoResumeState",
     "VideoSubmissionCheckpoint",
     "StagedProviderMedia",

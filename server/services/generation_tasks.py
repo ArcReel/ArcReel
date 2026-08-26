@@ -106,6 +106,7 @@ from lib.reference_video.execution_checkpoint import (
     ProviderMediaInput,
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
+    TextVideoSubmissionCheckpoint,
     checkpoint_version_metadata,
     cleanup_staged_provider_media,
     stage_provider_media_for_task,
@@ -127,7 +128,11 @@ from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import PaidVersionCommit
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_backends.base import VideoCapabilityError
-from lib.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
+from lib.video_visual_provenance import (
+    build_storyboard_video_visual_basis,
+    build_text_video_visual_basis,
+    resolve_video_aspect_ratio,
+)
 from lib.visual_artifact_provenance import (
     GridStoryboardVisual,
     VisualReference,
@@ -135,6 +140,7 @@ from lib.visual_artifact_provenance import (
     build_grid_composite_visual_basis,
     build_storyboard_image_visual_basis,
     build_storyboard_video_artifact_visual_basis,
+    build_text_video_artifact_visual_basis,
 )
 from server.services.generation_context import (
     AudioLaneRequest,
@@ -2306,6 +2312,9 @@ async def execute_video_task(
         raise ValueError("current script unit is missing video_prompt")
     requested_visual_prompt = copy.deepcopy(prompt)
     delivery_options = NarrationDeliveryRequestOptions.from_payload(payload)
+    video_input_mode = payload.get("video_input_mode", "storyboard")
+    if video_input_mode not in {"storyboard", "text"}:
+        raise ValueError("video_input_mode must be 'storyboard' or 'text'")
     # lane 归桶按项目生成模式求值，与提交入口（``generate_video``）同源：入口挡掉参考生视频后
     # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免生成模式口径分叉。
     execution_payload = without_video_execution_identity(payload) if task_id is not None else payload
@@ -2331,35 +2340,45 @@ async def execute_video_task(
     artifact_episode = script_input.episode
     formal_input_claims: list[ArtifactInputClaim] = [script_input.claim]
     currency_resolver = active_artifact_currency_resolver(project_path, project)
-    storyboard_file, end_image = resolve_usable_storyboard_video_inputs(
-        project_path=project_path,
-        project=project,
-        episode=artifact_episode,
-        resource_id=resource_id,
-        item=item,
-        resolver=currency_resolver,
-        claims=formal_input_claims,
-    )
+    storyboard_file: Path | None = None
+    end_image: Path | None = None
+    if video_input_mode == "storyboard":
+        storyboard_file, end_image = resolve_usable_storyboard_video_inputs(
+            project_path=project_path,
+            project=project,
+            episode=artifact_episode,
+            resource_id=resource_id,
+            item=item,
+            resolver=currency_resolver,
+            claims=formal_input_claims,
+        )
     aspect_ratio = get_aspect_ratio(project, "videos")
     seed = payload.get("seed")
 
-    def _visual_basis_digest_for(storyboard_image: Path, end_frame_image: Path | None) -> str:
-        return build_storyboard_video_visual_basis(
-            prompt=requested_visual_prompt,
-            storyboard_image=storyboard_image,
-            end_frame_image=end_frame_image,
-            aspect_ratio=aspect_ratio,
-            provider_id=registry_provider_id,
-            model_id=model_name,
-            resolution=resolution,
-            seed=seed,
-            requested_generate_audio=ctx.video.requested_generate_audio,
-            content_mode=content_mode,
-            utterances=item.get("utterances") if content_mode == "drama" else None,
-            has_utterances=content_mode == "drama" and "utterances" in item,
-            voice_characters=(None if ctx.video.is_silent else project.get("characters"))
+    def _visual_basis_digest_for(storyboard_image: Path | None, end_frame_image: Path | None) -> str:
+        common = {
+            "prompt": requested_visual_prompt,
+            "aspect_ratio": aspect_ratio,
+            "provider_id": registry_provider_id,
+            "model_id": model_name,
+            "resolution": resolution,
+            "seed": seed,
+            "requested_generate_audio": ctx.video.requested_generate_audio,
+            "content_mode": content_mode,
+            "utterances": item.get("utterances") if content_mode == "drama" else None,
+            "has_utterances": content_mode == "drama" and "utterances" in item,
+            "voice_characters": (None if ctx.video.is_silent else project.get("characters"))
             if content_mode == "drama"
             else None,
+        }
+        if video_input_mode == "text":
+            return build_text_video_visual_basis(**common).digest
+        if storyboard_image is None:
+            raise ValueError("storyboard video input is missing its start image")
+        return build_storyboard_video_visual_basis(
+            storyboard_image=storyboard_image,
+            end_frame_image=end_frame_image,
+            **common,
         ).digest
 
     def _current_visual_basis_digest() -> str:
@@ -2547,57 +2566,73 @@ async def execute_video_task(
                 }
             )
         )
-        media_inputs = [
-            ProviderMediaInput(
-                path=storyboard_file,
-                role="start_image",
-                logical_type="storyboard",
-                logical_name=resource_id,
-                kind="first_frame",
-            )
-        ]
-        if end_image is not None:
+        media_inputs: list[ProviderMediaInput] = []
+        if video_input_mode == "storyboard":
+            if storyboard_file is None:
+                raise ValueError("storyboard video input is missing its start image")
             media_inputs.append(
                 ProviderMediaInput(
-                    path=end_image,
-                    role="end_image",
+                    path=storyboard_file,
+                    role="start_image",
                     logical_type="storyboard",
                     logical_name=resource_id,
-                    kind="last_frame",
+                    kind="first_frame",
                 )
             )
-        staged_media = await stage_provider_media_for_task(project_path, task_id, tuple(media_inputs))
+            if end_image is not None:
+                media_inputs.append(
+                    ProviderMediaInput(
+                        path=end_image,
+                        role="end_image",
+                        logical_type="storyboard",
+                        logical_name=resource_id,
+                        kind="last_frame",
+                    )
+                )
         try:
-            formal_input_claims = list(
-                bind_artifact_input_claims_to_content_digests(
-                    resolver=currency_resolver,
-                    claims=formal_input_claims,
-                    content_digests={media.source_locator: media.sha256 for media in staged_media},
+            if media_inputs:
+                staged_media = await stage_provider_media_for_task(project_path, task_id, tuple(media_inputs))
+                formal_input_claims = list(
+                    bind_artifact_input_claims_to_content_digests(
+                        resolver=currency_resolver,
+                        claims=formal_input_claims,
+                        content_digests={media.source_locator: media.sha256 for media in staged_media},
+                    )
                 )
-            )
-            provider_start_image = safe_join(
-                project_path,
-                next(media.staged_locator for media in staged_media if media.role == "start_image"),
-                require_file=True,
-            )
-            staged_end = next((media for media in staged_media if media.role == "end_image"), None)
-            provider_end_image = (
-                safe_join(project_path, staged_end.staged_locator, require_file=True)
-                if staged_end is not None
-                else None
-            )
+                provider_start_image = safe_join(
+                    project_path,
+                    next(media.staged_locator for media in staged_media if media.role == "start_image"),
+                    require_file=True,
+                )
+                staged_end = next((media for media in staged_media if media.role == "end_image"), None)
+                provider_end_image = (
+                    safe_join(project_path, staged_end.staged_locator, require_file=True)
+                    if staged_end is not None
+                    else None
+                )
             visual_basis_digest = await asyncio.to_thread(
                 _visual_basis_digest_for, provider_start_image, provider_end_image
             )
-            artifact_visual_basis = await asyncio.to_thread(
-                lambda: build_storyboard_video_artifact_visual_basis(
-                    resource_id=resource_id,
-                    visual_prompt=requested_visual_prompt,
-                    storyboard_image=provider_start_image,
-                    end_frame_image=provider_end_image,
-                    aspect_ratio=aspect_ratio,
+            if video_input_mode == "text":
+                artifact_visual_basis = await asyncio.to_thread(
+                    lambda: build_text_video_artifact_visual_basis(
+                        resource_id=resource_id,
+                        visual_prompt=requested_visual_prompt,
+                        aspect_ratio=aspect_ratio,
+                    )
                 )
-            )
+            else:
+                if provider_start_image is None:
+                    raise ValueError("storyboard video input is missing its staged start image")
+                artifact_visual_basis = await asyncio.to_thread(
+                    lambda: build_storyboard_video_artifact_visual_basis(
+                        resource_id=resource_id,
+                        visual_prompt=requested_visual_prompt,
+                        storyboard_image=provider_start_image,
+                        end_frame_image=provider_end_image,
+                        aspect_ratio=aspect_ratio,
+                    )
+                )
             artifact_video_basis = compose_video_artifact_basis(
                 visual=artifact_visual_basis,
                 speech=artifact_speech.basis,
@@ -2626,7 +2661,10 @@ async def execute_video_task(
                     reference_image_limit=None,
                     parent_version=generator.versions.get_current_version("videos", resource_id),
                 )
-                checkpoint = StoryboardSubmissionCheckpoint.create(
+                checkpoint_type = (
+                    TextVideoSubmissionCheckpoint if video_input_mode == "text" else StoryboardSubmissionCheckpoint
+                )
+                checkpoint = checkpoint_type.create(
                     task_id=task_id,
                     project_name=project_name,
                     script_file=script_file,

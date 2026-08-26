@@ -330,6 +330,33 @@ class TestGenerateRouter:
             assert call["media_type"] == "video"
             assert call["payload"]["duration_seconds"] == 5
 
+    def test_text_video_enqueue_does_not_require_a_storyboard(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["generated_assets"] = {}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue, register_storyboards=False)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "input_mode": "text",
+                    "duration_seconds": 5,
+                    "prompt": {
+                        "action": "A cat crosses a portal into a neon city",
+                        "camera_motion": "Dolly In",
+                    },
+                },
+            )
+
+        assert video.status_code == 200, video.text
+        assert video.json()["success"] is True
+        call = fake_queue.calls[0]
+        assert call["task_type"] == "video"
+        assert call["payload"]["video_input_mode"] == "text"
+
     def test_video_use_tts_requires_fresh_audio_without_enqueuing_tts(self, tmp_path, monkeypatch):
         from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
         from lib.narration_delivery import (
