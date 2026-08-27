@@ -22,6 +22,7 @@ from lib.config.resolver import (
     VideoCapability,
     builtin_video_audio_track,
     get_provider_fallback,
+    video_capability_satisfied,
 )
 from lib.narration_delivery import (
     POST_PRODUCTION as POST_PRODUCTION,
@@ -139,6 +140,8 @@ class ProviderProjectionCandidate:
     voice_consistency: str = "soft"
     max_reference_audio_count: int = 0
     reference_audio_per_image: bool = False
+    first_frame: bool = True
+    text_to_video: bool = True
 
     @property
     def pair_key(self) -> str:
@@ -547,6 +550,8 @@ class ConfigReferenceCapabilityProjection:
             voice_consistency=str(caps.get("voice_consistency") or "soft"),
             max_reference_audio_count=int(caps.get("max_reference_audio_count") or 0),
             reference_audio_per_image=bool(caps.get("reference_audio_per_image") or False),
+            first_frame=bool(caps.get("first_frame")),
+            text_to_video=bool(caps.get("text_to_video", True)),
         )
         return candidate
 
@@ -577,6 +582,7 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     "reference_capability_unavailable": ("configure_video_model", (("text",),)),
     "video_capability_missing_i2v": ("configure_video_model", (("text",),)),
     "video_capability_missing_r2v": ("configure_video_model", (("text",),)),
+    "video_capability_missing_t2v": ("configure_video_model", (("text",),)),
 }
 
 
@@ -686,6 +692,25 @@ class ReferenceUnitRequestProjector:
 
         request_assets = available
         if candidate is not None:
+            if (
+                hydrated_capability == "i2v"
+                and not available
+                and not video_capability_satisfied(
+                    capability=hydrated_capability,
+                    first_frame=candidate.first_frame,
+                    max_reference_images=candidate.max_reference_images or 0,
+                    text_to_video=candidate.text_to_video,
+                    has_image=False,
+                )
+            ):
+                problems.append(
+                    _problem(
+                        "video_capability_missing_t2v",
+                        blocking=True,
+                        provider=candidate.provider_id,
+                        model=candidate.model_id,
+                    )
+                )
             request_assets = clamp_reference_assets(available, candidate.max_reference_images)
             if len(request_assets) < len(available):
                 problems.append(

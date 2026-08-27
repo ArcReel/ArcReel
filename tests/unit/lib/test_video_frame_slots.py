@@ -143,6 +143,21 @@ class TestSlotAssembly:
         assert plan.end_index == 0
 
 
+class TestTextToVideoGating:
+    def test_text_only_request_on_image_only_model_raises(self):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(VideoCapabilities(text_to_video=False))
+
+        assert exc.value.code == "video_capability_missing_t2v"
+        assert exc.value.params == {"provider": "acme", "model": "acme-v1"}
+
+    def test_image_request_on_image_only_model_passes(self):
+        assert _gate(VideoCapabilities(text_to_video=False), has_image=True) is None
+
+    def test_text_only_request_on_default_model_passes(self):
+        assert _gate(VideoCapabilities()) is None
+
+
 class TestResolveVideoCapabilities:
     def test_prefers_tier_aware_query(self):
         """后端实现 video_capabilities_for_tier 时按实际档位收窄，而非读保守属性。"""

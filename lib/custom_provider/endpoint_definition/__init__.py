@@ -23,10 +23,11 @@ from .template_engine import (
     encode_inputs,
     render_request,
 )
-from .validator import CURRENT_SCHEMA_VERSION, load_schema, validate_definition
+from .validator import CURRENT_SCHEMA_VERSION, IMAGE_INPUT_SOURCES, load_schema, validate_definition
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
+    "IMAGE_INPUT_SOURCES",
     "MESSAGE_KEY_PREFIX",
     "ROOT_PATH",
     "DefinitionDiagnostics",

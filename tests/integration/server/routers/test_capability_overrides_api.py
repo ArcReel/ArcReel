@@ -118,6 +118,7 @@ class TestModelListExposesCapabilities:
 
         models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["system_capabilities"] == {
+            "text_to_video": True,
             "first_frame": True,
             "last_frame": False,
             "max_reference_images": 1,
@@ -137,6 +138,7 @@ class TestModelListExposesCapabilities:
         models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         expected = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
         assert models[0]["system_capabilities"] == {
+            "text_to_video": expected.text_to_video,
             "first_frame": expected.first_frame,
             "last_frame": expected.last_frame,
             "max_reference_images": expected.max_reference_images,

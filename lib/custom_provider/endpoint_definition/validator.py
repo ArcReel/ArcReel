@@ -22,7 +22,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
 from lib.validation_messages import MessageRef
-from lib.video_backends.base import ProviderJobStatus
+from lib.video_backends.base import ProviderJobStatus, ReferenceAudioMode, audio_capability_pair_is_coherent
 
 from .errors import ROOT_PATH, DefinitionDiagnostics, DefinitionErrorCode, DefinitionIssue, join_path
 from .jsonpath_subset import JsonPathSubsetError, parse_json_path
@@ -53,6 +53,12 @@ ENUM_MAP_VARIABLES = frozenset({"duration", "aspect_ratio", "resolution", "gener
 
 #: 列表型素材来源：只能经 ``$each`` 展开，直接内插会把整个列表串化进请求。
 LIST_INPUT_SOURCES = frozenset({"reference_images", "reference_audio_files"})
+
+#: 图片型素材来源（``inputs.*.source`` 枚举中除参考音频外的全部）。声明为必需的图输入意味着该
+#: 请求形状必须带图，``capabilities.text_to_video`` 由这份集合推导；校验器与
+#: :mod:`lib.custom_provider.capabilities` 的合成共用同一份，两处不得各存一份——集合漂移会让
+#: 保存期放行的声明在合成期得出相反的 ``text_to_video``。
+IMAGE_INPUT_SOURCES = frozenset({"start_image", "end_image", "reference_images"})
 
 #: 声明式能产出的状态档位。``expired`` 不由声明式产生，过期语义映射到 ``failed``。
 CANONICAL_STATUSES = frozenset(
@@ -500,6 +506,44 @@ class _SemanticChecker:
                     DefinitionErrorCode.CAPABILITY_INPUT_WITHOUT_DECLARATION,
                     capability=capability,
                     source=source,
+                )
+
+        mode = capabilities.get("reference_audio_mode", ReferenceAudioMode.NONE.value)
+        count = capabilities.get("max_reference_audio_count", 0)
+        if not audio_capability_pair_is_coherent(mode=mode, count=count):
+            self._error(
+                "capabilities.reference_audio_mode",
+                DefinitionErrorCode.CAPABILITY_INCOHERENT,
+                capability="reference_audio_mode",
+                requirement="max_reference_audio_count > 0",
+            )
+        if capabilities.get("reference_audio_per_image") is True and mode != ReferenceAudioMode.DIRECT.value:
+            self._error(
+                "capabilities.reference_audio_per_image",
+                DefinitionErrorCode.CAPABILITY_INCOHERENT,
+                capability="reference_audio_per_image",
+                requirement="reference_audio_mode = direct",
+            )
+        if capabilities.get("first_frame_ratio_adaptive_only") is True and capabilities.get("first_frame") is not True:
+            self._error(
+                "capabilities.first_frame_ratio_adaptive_only",
+                DefinitionErrorCode.CAPABILITY_INCOHERENT,
+                capability="first_frame_ratio_adaptive_only",
+                requirement="first_frame = true",
+            )
+
+        declared_t2v = capabilities.get("text_to_video")
+        if isinstance(declared_t2v, bool):
+            requires_image = any(
+                declaration.get("required") is True and declaration.get("source") in IMAGE_INPUT_SOURCES
+                for declaration in self._inputs.values()
+            )
+            if declared_t2v is requires_image:
+                self._error(
+                    "capabilities.text_to_video",
+                    DefinitionErrorCode.CAPABILITY_INCOHERENT,
+                    capability="text_to_video",
+                    requirement=f"text_to_video = {str(not requires_image).lower()}",
                 )
 
 

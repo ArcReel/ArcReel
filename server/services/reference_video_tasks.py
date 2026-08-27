@@ -428,6 +428,7 @@ async def execute_reference_video_task(
                 voice_consistency=video.voice_consistency,
                 max_reference_audio_count=video.max_reference_audio_count,
                 reference_audio_per_image=video.reference_audio_per_image,
+                text_to_video=video.text_to_video,
             )
 
     tts_in_progress = (

@@ -943,20 +943,21 @@ class MediaGenerator:
             and video_caps.max_reference_audio_total_seconds is not None
             else None
         )
+        slot_plan = plan_frame_slots(
+            start_image=start_image,
+            end_image=end_image,
+            reference_images=reference_images,
+        )
         gate_video_request(
             caps=video_caps,
             provider=self._video_backend.name,
             model=model_name,
             prompt=prompt,
+            has_image=bool(slot_plan.specs),
             end_image=end_image,
             reference_images=reference_images,
             reference_audio_files=reference_audio_files,
             reference_audio_total_seconds=reference_audio_total_seconds,
-        )
-        slot_plan = plan_frame_slots(
-            start_image=start_image,
-            end_image=end_image,
-            reference_images=reference_images,
         )
         # 仅声明 first_frame_ratio_adaptive_only 的后端受影响；下发值与调用方持有的原始
         # aspect_ratio（记账、分镜图生成沿用）分离，不回写覆盖上游变量。

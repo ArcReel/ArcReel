@@ -21,6 +21,7 @@ class TestOverrideFieldSchema:
     def test_schema_covers_every_video_capabilities_field(self):
         """覆盖 schema 通用支持 VideoCapabilities 全部字段，键名严格对齐 dataclass。"""
         assert set(CAPABILITY_OVERRIDE_FIELDS) == {
+            "text_to_video",
             "first_frame",
             "last_frame",
             "max_reference_images",
@@ -34,6 +35,7 @@ class TestOverrideFieldSchema:
             "reference_route_audio_track",
         }
         assert CAPABILITY_OVERRIDE_FIELDS["last_frame"] is bool
+        assert CAPABILITY_OVERRIDE_FIELDS["text_to_video"] is bool
         assert CAPABILITY_OVERRIDE_FIELDS["max_reference_images"] is int
         assert CAPABILITY_OVERRIDE_FIELDS["reference_audio_mode"] is ReferenceAudioMode
         assert CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_count"] is int
@@ -55,6 +57,92 @@ class TestOverrideFieldSchema:
         from server.routers.custom_providers import CAPABILITY_OVERRIDE_ALLOWLIST
 
         assert not CAPABILITY_OVERRIDE_ALLOWLIST & {"audio_track", "reference_route_audio_track"}
+
+    def test_text_to_video_is_not_open_to_users(self):
+        from server.routers.custom_providers import CAPABILITY_OVERRIDE_ALLOWLIST
+
+        assert "text_to_video" not in CAPABILITY_OVERRIDE_ALLOWLIST
+
+
+class TestCapabilitiesFromDefinition:
+    """声明式定义的协议能力：显式声明照收，``text_to_video`` 由必需图输入机械推导。"""
+
+    @staticmethod
+    def _definition(*, source: str = "start_image", required: bool | None = None, **capabilities: object) -> dict:
+        declaration: dict[str, object] = {"source": source, "encoding": "data_uri"}
+        if required is not None:
+            declaration["required"] = required
+        return {"inputs": {"asset": declaration}, "capabilities": capabilities}
+
+    def test_required_image_input_yields_no_text_to_video(self):
+        caps = synthesize_video_capabilities(
+            endpoint="ce-test",
+            model_id="image-only",
+            overrides=None,
+            definition=self._definition(required=True, first_frame=True, text_to_video=False),
+        )
+        assert caps.text_to_video is False
+        assert caps.first_frame is True
+
+    def test_optional_image_input_keeps_text_to_video(self):
+        caps = synthesize_video_capabilities(
+            endpoint="ce-test",
+            model_id="optional-image",
+            overrides=None,
+            definition=self._definition(required=False, first_frame=True, text_to_video=True),
+        )
+        assert caps.text_to_video is True
+
+    def test_undeclared_required_defaults_to_optional(self):
+        """``required`` 缺省即可选：缺席的键不该被当成「必需」而误关文生能力。"""
+        caps = synthesize_video_capabilities(
+            endpoint="ce-test",
+            model_id="optional-image",
+            overrides=None,
+            definition=self._definition(first_frame=True),
+        )
+        assert caps.text_to_video is True
+
+    def test_required_audio_input_does_not_close_text_to_video(self):
+        """只有图输入参与推导：必需的参考音频不改变纯文生请求的可行性。"""
+        caps = synthesize_video_capabilities(
+            endpoint="ce-test",
+            model_id="audio-only",
+            overrides=None,
+            definition=self._definition(
+                source="reference_audio_files",
+                required=True,
+                reference_audio_mode="direct",
+                max_reference_audio_count=2,
+            ),
+        )
+        assert caps.text_to_video is True
+
+    def test_definition_without_first_frame_declaration_does_not_inherit_dataclass_default(self):
+        """``VideoCapabilities`` 的 first_frame 默认真值不适用于声明式：未声明即不支持。"""
+        caps = synthesize_video_capabilities(
+            endpoint="ce-test",
+            model_id="text-only",
+            overrides=None,
+            definition={"inputs": {}, "capabilities": {}},
+        )
+        assert caps.first_frame is False
+        assert caps.text_to_video is True
+
+    @pytest.mark.parametrize(
+        "capabilities",
+        [{"not_a_capability": True}, {"max_reference_images": -1}, {"first_frame": "yes"}],
+        ids=["unknown-key", "negative-count", "wrong-type"],
+    )
+    def test_invalid_capability_declaration_raises(self, capabilities: dict[str, object]):
+        """定义里的能力节不走覆盖那套「丢弃脏键继续跑」：定义是唯一真相源，脏声明必须炸。"""
+        with pytest.raises(ValueError, match="invalid capability"):
+            synthesize_video_capabilities(
+                endpoint="ce-test",
+                model_id="bogus",
+                overrides=None,
+                definition={"inputs": {}, "capabilities": capabilities},
+            )
 
 
 class TestOptionalDimensionSchema:

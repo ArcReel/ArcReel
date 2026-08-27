@@ -55,6 +55,7 @@ def _wire_context(
     reference_audio_per_image: bool = False,
     requested_generate_audio: bool = True,
     generate_audio: bool = False,
+    text_to_video: bool = True,
     seen_lane_requests: list[dict[str, Any]] | None = None,
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
@@ -103,6 +104,7 @@ def _wire_context(
         reference_audio_per_image=reference_audio_per_image,
         requested_generate_audio=requested_generate_audio,
         generate_audio=generate_audio,
+        text_to_video=text_to_video,
     )
 
     async def _fake_resolve(*_args, **kwargs):
@@ -330,6 +332,51 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
     assert captured["video"].capability == expected_capability
     assert "video_provider_i2v" not in captured["payload"]
     assert "video_provider_r2v" not in captured["payload"]
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_rechecks_text_to_video_capability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    proj_dir = _write_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["text"] = "空镜头，推门而入"
+    script["video_units"][0]["duration_seconds"] = 6
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from lib.reference_video.request_projection import ReferenceProjectionBlockedError
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda _name, _filename: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock()
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="minimax",
+        backend_model="MiniMax-Hailuo-2.3-Fast",
+        supported_durations=(6,),
+        text_to_video=False,
+    )
+
+    with pytest.raises(ReferenceProjectionBlockedError) as exc:
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+
+    assert exc.value.code == "video_capability_missing_t2v"
+    fake_generator.generate_video_async.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -287,6 +287,7 @@ MESSAGES = {
         "submit tham chiếu tư liệu {source} nhưng không khai báo {capability}, "
         "tư liệu vẫn được gửi đi trong khi giao diện không mở năng lực đó"
     ),
+    "val_ce_capability_incoherent": "Năng lực {capability} mâu thuẫn với nhóm khai báo; yêu cầu: {requirement}",
     "val_ce_jsonpath_not_a_string": "Đường dẫn trích xuất phải là chuỗi: {path_expression}",
     "val_ce_jsonpath_surrounding_whitespace": (
         "Đường dẫn trích xuất không được có khoảng trắng ở hai đầu: {path_expression}"

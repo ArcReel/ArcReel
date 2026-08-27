@@ -643,6 +643,26 @@ class VideoAudioMode(StrEnum):
     ALWAYS_OFF = "always_off"
 
 
+def audio_capability_pair_is_coherent(*, mode: object, count: int) -> bool:
+    """音频两维的合并后不变式：声明支持音色输入就必须给出正的段数上限。
+
+    两维各自合法、合起来无意义的组合只有这一种（``direct`` ⊕ 上限 0）：自定义供应商的稀疏覆盖
+    只写其中一维就能凑出——覆盖 ``reference_audio_mode=direct`` 而不动系统判定的 0，或反过来把
+    ``max_reference_audio_count`` 压成 0 而模式仍是系统判定的 ``direct``；声明式定义则可以两维
+    直接写成这个组合。反向组合（``none`` ⊕ 正上限）不算违约：模式为 ``none`` 时上限本就不参与
+    判定，且"关掉音色输入"是正当意图，判违约反会把用户明确关掉的能力顶回开启。
+
+    不修正这组的后果是 ``gate_video_request`` 先过模式判定、再撞上限 0，把"该模型不支持参考
+    音频"报成"最多支持 0 段参考音频"——用户按提示去减角色数量，减到零段也过不了。
+
+    三处消费方共用此判定，不得各写一份：自定义供应商的写入侧
+    （``server/routers/custom_providers.py``）、能力合成侧
+    （``lib/custom_provider/capabilities.py``）与声明式定义的保存期校验器
+    （``lib/custom_provider/endpoint_definition/validator.py``）。
+    """
+    return mode in {ReferenceAudioMode.NONE, ReferenceAudioMode.NONE.value} or count > 0
+
+
 #: 视频执行路径（任务类型桶）：``i2v`` 覆盖文生与图生首帧，``r2v`` 是参考生视频。
 #: 与 ``lib.config.resolver.VideoCapability`` 同一份词汇表，因分层契约（config 是最底层，
 #: backend 不得反向导入）而各层各声明一次，取值一致由
@@ -653,6 +673,9 @@ VideoRoute = Literal["i2v", "r2v"]
 @dataclass
 class VideoCapabilities:
     """Declares what a video backend supports.
+
+    ``text_to_video`` 表示不带任何图片素材的纯文生视频请求是否可用。默认 True 保持既有
+    backend 的兼容语义；必须带图的 model 显式声明 False。
 
     ``first_frame`` / ``last_frame`` 描述图生视频路径的首帧与尾帧槽位。
     ``max_reference_images`` 描述参考生视频路径：后端接受 ``reference_images`` 请求字段
@@ -711,6 +734,7 @@ class VideoCapabilities:
     元数据沿用后者）。
     """
 
+    text_to_video: bool = True
     first_frame: bool = True
     last_frame: bool = False
     max_reference_images: int = 0

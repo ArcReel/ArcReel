@@ -290,11 +290,13 @@ class FakeReferenceCapabilityProjection:
         provider_id: str = "fake",
         model_id: str = "fake-model",
         max_reference_images: int | None = 9,
+        text_to_video: bool = True,
     ) -> None:
         self.durations = durations
         self.provider_id = provider_id
         self.model_id = model_id
         self.max_reference_images = max_reference_images
+        self.text_to_video = text_to_video
 
     async def resolve_candidate(self, project: dict, capability):
         from lib.reference_video.request_projection import ProviderProjectionCandidate
@@ -311,6 +313,7 @@ class FakeReferenceCapabilityProjection:
             requested_generate_audio=True,
             has_audio_track=True,
             audio_switch_controllable=True,
+            text_to_video=self.text_to_video,
         )
 
 
@@ -320,6 +323,7 @@ def fake_reference_request_projector(
     provider_id: str = "fake",
     model_id: str = "fake-model",
     max_reference_images: int | None = 9,
+    text_to_video: bool = True,
     capabilities: FakeReferenceCapabilityProjection | None = None,
 ):
     """构造使用真实资产水合与投影规则、仅替换 provider 能力查询的 async 测试入口。"""
@@ -333,7 +337,13 @@ def fake_reference_request_projector(
     )
 
     if capabilities is not None:
-        if durations is not None or provider_id != "fake" or model_id != "fake-model" or max_reference_images != 9:
+        if (
+            durations is not None
+            or provider_id != "fake"
+            or model_id != "fake-model"
+            or max_reference_images != 9
+            or text_to_video is not True
+        ):
             raise ValueError("capabilities cannot be combined with candidate construction fields")
         projection_capabilities = capabilities
     else:
@@ -344,6 +354,7 @@ def fake_reference_request_projector(
             provider_id=provider_id,
             model_id=model_id,
             max_reference_images=max_reference_images,
+            text_to_video=text_to_video,
         )
 
     async def _project(
