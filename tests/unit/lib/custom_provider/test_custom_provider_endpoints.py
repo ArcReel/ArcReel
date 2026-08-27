@@ -42,7 +42,13 @@ class TestRegistry:
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video", "audio"}
             assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax", "kling"}
-            assert spec.display_name_key.startswith("endpoint_")
+            # 显示名两种来源恰有其一：Python 内置走 i18n key，声明式端点走定义里的 meta.name。
+            if spec.kind == "declarative":
+                assert spec.display_name_key == ""
+                assert spec.display_name
+            else:
+                assert spec.display_name_key.startswith("endpoint_")
+                assert spec.display_name is None
             assert callable(spec.build_backend)
             assert spec.request_method == "POST"
             assert spec.request_path_template.startswith("/")
@@ -55,7 +61,10 @@ class TestRegistry:
             "key": "openai-chat",
             "media_type": "text",
             "family": "openai",
+            "kind": "python",
             "display_name_key": "endpoint_openai_chat_display",
+            # 显示名只有声明式端点从定义里带出，Python 内置按 display_name_key 取 i18n 文案
+            "display_name": None,
             "request_method": "POST",
             "request_path_template": "/v1/chat/completions",
             "image_capabilities": None,

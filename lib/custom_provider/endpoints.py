@@ -1,6 +1,8 @@
 """ENDPOINT_REGISTRY — 自定义供应商可用 endpoint 单一真相源。
 
 每条 endpoint 是一个 EndpointSpec，绑定 media_type、family、HTTP 调用形态与 build_backend 闭包。
+实现形态有两种：Python backend，或随版声明式定义（``builtin_endpoints/*.json``，import 期经
+builtin_definitions 装入本注册表，用 EndpointSpec.definition 与前者区分）。两者共用同一键域。
 factory.create_custom_backend 通过 endpoint 字符串查表派发；
 server.routers.custom_providers 通过 GET /custom-providers/endpoints 把目录暴露给前端，
 让前端的下拉选项、路径展示完全派生自此真相源。
@@ -9,9 +11,10 @@ server.routers.custom_providers 通过 GET /custom-providers/endpoints 把目录
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from lib.audio_backends.openai import OpenAIAudioBackend
@@ -22,6 +25,15 @@ from lib.custom_provider.backends import (
     CustomTextBackend,
     CustomVideoBackend,
 )
+from lib.custom_provider.builtin_definitions import (
+    DECLARATIVE_MEDIA_TYPE,
+    BuiltinDefinitionError,
+    declarative_display_name,
+    declarative_family,
+    declarative_request_path,
+    declarative_video_capabilities,
+    load_builtin_definitions,
+)
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
@@ -31,7 +43,7 @@ from lib.image_backends.openai import OpenAIImageBackend
 from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
-from lib.video_backends.base import VideoCapabilities
+from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
 from lib.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.minimax import MiniMaxVideoBackend
@@ -79,6 +91,19 @@ class EndpointSpec:
     # VideoGenerationRequest.reference_audio_files 并组装进供应商请求。仅 video 类有意义；
     # False 时把 reference_audio_mode 覆盖为 direct 只会让能力声明失真，执行层照旧不带音色输入。
     reference_audio_capable: bool = False
+    # 随版声明式定义的整份 JSON；Python 实现的 endpoint 为 None。非 None 即该 endpoint 的调用形态
+    # 由这份定义描述，上面各字段都是从它派生出来的镜像，取值一律以本字段为准。
+    definition: Mapping[str, Any] | None = None
+
+    @property
+    def kind(self) -> str:
+        """实现形态：``declarative``（随版定义）或 ``python``（backend 代码）。"""
+        return "declarative" if self.definition is not None else "python"
+
+    @property
+    def display_name(self) -> str | None:
+        """声明式端点的显示名（取 ``meta.name``）；Python 内置为 None，按 display_name_key 取文案。"""
+        return None if self.definition is None else declarative_display_name(self.definition)
 
 
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
@@ -433,6 +458,58 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
 }
 
 
+def _build_declarative_video(
+    definition: Mapping[str, Any],
+) -> Callable[[CustomProvider, str], CustomVideoBackend]:
+    """随版声明式端点的 backend 构造闭包，通用声明式运行时的唯一挂接点。
+
+    运行时未接入，构造一律抛 :class:`NotImplementedError`。
+    """
+
+    def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
+        raise NotImplementedError(f"declarative endpoint runtime not wired: model={model_id!r}")
+
+    return build
+
+
+def declarative_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSpec:
+    """把一份随版定义派生成 EndpointSpec。
+
+    能力由定义显式全量声明，与 model 无关，故走 video_caps_for_model 这条「四字段全量声明」的
+    通路（返回同一份常量），而不是只能表达参考图上限的 video_max_reference_images。
+    """
+    caps = declarative_video_capabilities(definition)
+    return EndpointSpec(
+        key=key,
+        media_type=DECLARATIVE_MEDIA_TYPE,
+        family=declarative_family(key),
+        # 声明式端点的显示名取 meta.name，不进 i18n 目录（见 EndpointSpec.display_name）。
+        display_name_key="",
+        request_method=definition["submit"]["method"],
+        request_path_template=declarative_request_path(definition),
+        build_backend=_build_declarative_video(definition),
+        video_caps_for_model=lambda _model_id: caps,
+        end_image_capable=caps.last_frame,
+        reference_audio_capable=caps.reference_audio_mode is not ReferenceAudioMode.NONE,
+        definition=definition,
+    )
+
+
+def merge_builtin_definitions(registry: dict[str, EndpointSpec], directory: Path | None = None) -> None:
+    """把随版声明式定义并入注册表。键与 Python 内置同一命名空间，重复即拒。
+
+    定义不合法、目录缺失、键冲突在 import 期一律抛错——装载失败让进程起不来，好过带着一个装不出
+    backend 的 endpoint 跑到用户发起生成那一刻。
+    """
+    for key, definition in load_builtin_definitions(directory).items():
+        if key in registry:
+            raise BuiltinDefinitionError(f"随版定义 {key}.json 的内置键与已有 endpoint 重复")
+        registry[key] = declarative_endpoint_spec(key, definition)
+
+
+merge_builtin_definitions(ENDPOINT_REGISTRY)
+
+
 ENDPOINT_KEYS_BY_MEDIA_TYPE: dict[str, tuple[str, ...]] = {
     media_type: tuple(k for k, s in ENDPOINT_REGISTRY.items() if s.media_type == media_type)
     for media_type in {s.media_type for s in ENDPOINT_REGISTRY.values()}
@@ -510,6 +587,10 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     data = asdict(spec)
     data.pop("build_backend", None)
     data.pop("video_caps_for_model", None)  # 同 build_backend：callable 不可 JSON 化，剥掉
+    # catalog 不内嵌定义：整份 JSON 由 GET /custom-providers/endpoints/{key}/definition 单独取。
+    data.pop("definition", None)
+    data["kind"] = spec.kind
+    data["display_name"] = spec.display_name
     if spec.image_capabilities is not None:
         data["image_capabilities"] = sorted(c.value for c in spec.image_capabilities)
     else:

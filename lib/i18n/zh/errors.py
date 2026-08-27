@@ -191,6 +191,7 @@ MESSAGES = {
     "discovery_failed": "模型发现失败: {err_msg}",
     "anthropic_discovery_no_key": "未配置 API Key，无法发现模型",
     "unknown_endpoint": "未知 endpoint: {endpoint}",
+    "endpoint_definition_not_found": "调用端点 {endpoint} 没有可取的声明式定义",
     "unknown_discovery_format": "不支持的 discovery_format: {discovery_format}",
     "endpoint_required": "已启用的模型必须填写 endpoint",
     "endpoint_media_type_mismatch": "模型 endpoint 与媒体类型不一致: {detail}",

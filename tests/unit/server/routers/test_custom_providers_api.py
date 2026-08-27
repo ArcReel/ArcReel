@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -17,13 +19,23 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.config.service import ConfigService
-from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, declarative_endpoint_spec
 from lib.db import get_async_session
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.http_capture import capture_http, only_request
+
+_EXAMPLE_TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[4] / "frontend" / "src" / "data" / "example-templates" / "generic-submit-poll.json"
+)
+
+
+def _example_template_definition() -> dict[str, Any]:
+    """随版分发的示例模板，本文件借它当一份合法的声明式定义用。"""
+    return json.loads(_EXAMPLE_TEMPLATE_PATH.read_text(encoding="utf-8"))
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -222,7 +234,9 @@ class TestEndpointCatalog:
                 "key",
                 "media_type",
                 "family",
+                "kind",
                 "display_name_key",
+                "display_name",
                 "request_method",
                 "request_path_template",
                 "image_capabilities",
@@ -230,6 +244,23 @@ class TestEndpointCatalog:
             }
             assert entry["request_method"] == "POST"
             assert entry["request_path_template"].startswith("/")
+
+    def test_endpoints_expose_kind_and_display_name(self, custom_providers_client: TestClient):
+        """kind 区分两种实现形态：前端按它决定「复制为我的 / 查看定义」是否可见。
+
+        声明式端点的显示名取定义里的 meta.name，Python 内置照旧走 display_name_key 的 i18n 文案。
+        """
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints")
+        assert resp.status_code == 200
+        by_key = {e["key"]: e for e in resp.json()["endpoints"]}
+        for key, spec in ENDPOINT_REGISTRY.items():
+            entry = by_key[key]
+            assert entry["kind"] == spec.kind
+            assert entry["display_name"] == spec.display_name
+            if spec.kind == "declarative":
+                assert entry["display_name_key"] == ""
+            else:
+                assert entry["display_name_key"]
 
     def test_endpoints_expose_end_image_capable(self, custom_providers_client: TestClient):
         """catalog 带出 end_image_capable：前端据此禁用不下传尾帧的 endpoint 的 last_frame 强制开，
@@ -259,6 +290,27 @@ class TestEndpointCatalog:
         """回归：/endpoints 必须先于 /{provider_id} 注册，不能被解析为整型 provider_id。"""
         resp = custom_providers_client.get("/api/v1/custom-providers/endpoints")
         assert resp.status_code == 200, resp.text
+
+
+class TestEndpointDefinition:
+    """GET /endpoints/{key}/definition 取内置声明式定义，供「复制为我的」原样提交成副本。"""
+
+    def test_returns_the_definition_verbatim(
+        self, custom_providers_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        definition = _example_template_definition()
+        monkeypatch.setitem(ENDPOINT_REGISTRY, "demo-video", declarative_endpoint_spec("demo-video", definition))
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints/demo-video/definition")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == definition
+
+    def test_python_endpoint_has_no_definition(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints/newapi-video/definition")
+        assert resp.status_code == 404
+
+    def test_unknown_key_returns_404(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints/nope/definition")
+        assert resp.status_code == 404
 
 
 class TestGetProvider:

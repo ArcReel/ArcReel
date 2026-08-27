@@ -206,6 +206,7 @@ MESSAGES = {
     "discovery_failed": "Model discovery failed: {err_msg}",
     "anthropic_discovery_no_key": "API Key not configured, cannot discover models",
     "unknown_endpoint": "Unknown endpoint: {endpoint}",
+    "endpoint_definition_not_found": "Endpoint {endpoint} has no declarative definition",
     "unknown_discovery_format": "Unsupported discovery_format: {discovery_format}",
     "endpoint_required": "Enabled models must specify endpoint",
     "endpoint_media_type_mismatch": "Endpoint media_type mismatch: {detail}",
