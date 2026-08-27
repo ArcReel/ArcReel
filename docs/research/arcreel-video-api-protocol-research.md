@@ -440,6 +440,8 @@ ArcReel 已在 `2026-04-26-custom-provider-model-endpoint-design` 中明确确�
 
 ## 7. 自定义供应商接入方案选型（结论）
 
+> **修订注（2026-08）**：本章选型已由 `docs/adr/0067` 取代：自定义调用端点采用声明式 JSON 定义，定位为「JSON in/out + 提交/轮询」流派的统一形态——覆盖长尾聚合站，并收编可整体表达的 HTTP 式内置 backend 为随版声明式定义（首批 newapi / v2_video_generations / minimax）；签名类鉴权、SDK 式接入等不可表达协议仍留 Python 内置 endpoint。7.1–7.2 以「表达全部协议」为标尺的结论不再作为决策依据；7.5 的运行时 plugin 路线不受影响（归 #872）。本章正文保留原貌。
+
 ### 7.1 选型对比
 
 经过详细评估，**Plugin（Python 代码扩展）方案优于声明式 YAML 方案**：
