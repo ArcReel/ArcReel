@@ -95,7 +95,7 @@ def _patches(client: _RecordingClient, download: AsyncMock):
     return (
         patch("httpx.AsyncClient", return_value=client),
         patch("lib.video_backends.dashscope.download_video", download),
-        patch("lib.video_backends.dashscope.DASHSCOPE_POLL_INTERVAL_SECONDS", 0.0),
+        bounded_poll_clock(),
     )
 
 

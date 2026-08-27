@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from lib.generation_worker import (
     CapacityTable,
     GenerationWorker,
     SlotTable,
+    _execute_task,
     _extract_provider,
     _read_int_env,
 )
@@ -615,6 +617,56 @@ class TestExtractProviderAlignsWithExecution:
         worker_provider = await _extract_provider(task)
         resolved = await ConfigResolver(async_session_factory).resolve_video_backend(project, {}, capability="i2v")
         assert worker_provider == resolved.provider_id == "ark"
+
+
+class TestExecuteTaskPollTimeout:
+    """派发时读一次全局轮询超时并写进任务字典下传；只有视频两条 lane 需要它。"""
+
+    @pytest.fixture()
+    def _patch_settings_db(self, db_factory, monkeypatch):
+        @contextlib.asynccontextmanager
+        async def _safe_session_factory():
+            async with db_factory() as session:
+                yield session
+
+        monkeypatch.setattr("lib.db.safe_session_factory", _safe_session_factory)
+        return db_factory
+
+    @staticmethod
+    def _capture_dispatch(monkeypatch) -> dict[str, Any]:
+        captured: dict[str, Any] = {}
+
+        async def _fake_execute(task: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+            captured.update(task)
+            return {"ok": True}
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _fake_execute)
+        return captured
+
+    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    async def test_video_lanes_carry_configured_timeout(self, _patch_settings_db, monkeypatch, task_type):
+        from lib.config.service import ConfigService
+
+        async with _patch_settings_db() as session:
+            await ConfigService(session).set_video_poll_timeout_seconds(7200)
+            await session.commit()
+
+        captured = self._capture_dispatch(monkeypatch)
+        await _execute_task({"task_type": task_type})
+
+        assert captured["video_poll_timeout_seconds"] == 7200
+
+    async def test_defaults_when_setting_absent(self, _patch_settings_db, monkeypatch):
+        captured = self._capture_dispatch(monkeypatch)
+        await _execute_task({"task_type": "video"})
+
+        assert captured["video_poll_timeout_seconds"] == 3600
+
+    async def test_non_video_lane_is_not_stamped(self, _patch_settings_db, monkeypatch):
+        captured = self._capture_dispatch(monkeypatch)
+        await _execute_task({"task_type": "storyboard"})
+
+        assert "video_poll_timeout_seconds" not in captured
 
 
 class TestCapacityTable:

@@ -18,7 +18,7 @@ from lib.providers import PROVIDER_MINIMAX
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.minimax import MiniMaxVideoBackend, _safe_body_for_log
 from lib.video_frame_slots import resolve_first_frame_aspect_ratio
-from tests.fakes import captured_provider_job_ids
+from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 
 
@@ -88,7 +88,7 @@ def _minimax_routes(
         query_route = _mock(router.get(url__regex=r"https://[^/]+/v[12]/query/video_generation.*"), query)
         retrieve_route = _mock(router.get(url__regex=r"https://[^/]+/v1/files/retrieve.*"), retrieve)
         with (
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            bounded_poll_clock(),
             patch("lib.video_backends.minimax.download_video", new=AsyncMock()) as download,
         ):
             yield _MiniMaxRoutes(submit=submit_route, query=query_route, retrieve=retrieve_route, download=download)

@@ -44,9 +44,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "kling-v1"
 
-_POLL_INTERVAL_SECONDS = 5.0
-_MIN_POLL_TIMEOUT_SECONDS = 600
-_POLL_TIMEOUT_PER_SECOND = 30
 
 # 超过此阈值的起始图会触发 warning，NewAPI 聚合后端常见 4MB 请求体上限
 _LARGE_IMAGE_WARN_BYTES = 4 * 1024 * 1024
@@ -199,8 +196,7 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
             poll_fn=_gated_poll,
             is_done=lambda state: _task_status(state) in TERMINAL_PROVIDER_STATUSES,
             is_failed=_extract_failure,
-            poll_interval=_POLL_INTERVAL_SECONDS,
-            max_wait=self._max_wait(request.duration_seconds),
+            max_wait=request.poll_timeout_seconds,
             retry_if=should_retry_poll,
             label="NewAPI",
         )
@@ -273,10 +269,6 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
-
-    @staticmethod
-    def _max_wait(duration_seconds: int) -> float:
-        return max(_MIN_POLL_TIMEOUT_SECONDS, duration_seconds * _POLL_TIMEOUT_PER_SECOND)
 
 
 def _extract_failure(state: dict) -> str | None:

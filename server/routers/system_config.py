@@ -33,7 +33,7 @@ from lib.capability_buckets import (
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
-from lib.config.service import ConfigService
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
 from lib.db import get_async_session
 from lib.httpx_shared import get_http_client
 from lib.i18n import Translator
@@ -274,6 +274,7 @@ class SystemConfigPatchRequest(BaseModel):
     narration_voice: str | None = None
     narration_speed: float | None = None
     video_generate_audio: bool | None = None
+    video_poll_timeout_seconds: int | None = None
     anthropic_api_key: str | None = None
     anthropic_base_url: str | None = None
     anthropic_model: str | None = None
@@ -348,6 +349,9 @@ async def get_system_config(
         "narration_voice": all_s.get("narration_voice", ""),
         "narration_speed": narration_speed,
         "video_generate_audio": video_generate_audio,
+        "video_poll_timeout_seconds": ConfigService.parse_video_poll_timeout_seconds(
+            all_s.get("video_poll_timeout_seconds") or str(DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS)
+        ),
         "anthropic_api_key": {
             "is_set": bool(anthropic_key),
             "masked": mask_secret(anthropic_key) if anthropic_key else None,
@@ -483,6 +487,12 @@ async def patch_system_config(
     # Boolean settings
     if "video_generate_audio" in patch and patch["video_generate_audio"] is not None:
         await svc.set_setting("video_generate_audio", "true" if patch["video_generate_audio"] else "false")
+
+    if "video_poll_timeout_seconds" in patch and patch["video_poll_timeout_seconds"] is not None:
+        try:
+            await svc.set_video_poll_timeout_seconds(patch["video_poll_timeout_seconds"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=_t("video_poll_timeout_minimum")) from exc
 
     # Anthropic API key (secret)
     if "anthropic_api_key" in patch:

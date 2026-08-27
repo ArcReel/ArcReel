@@ -23,6 +23,7 @@ const CONFIG = {
     text_backend_simple: "",
     text_backend_complex: "",
     video_generate_audio: false,
+    video_poll_timeout_seconds: 3600,
   },
 };
 
@@ -68,6 +69,19 @@ describe("MediaModelSection", () => {
     expect(sections.every((d) => !d.open)).toBe(true);
     // 界面文案不出现内部术语
     expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
+  });
+
+  it("saves the global video polling timeout", async () => {
+    const user = userEvent.setup();
+    const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(CONFIG as never);
+    render(<MediaModelSection />);
+
+    const timeout = await screen.findByRole("spinbutton", { name: "视频轮询超时（秒）" });
+    await user.clear(timeout);
+    await user.type(timeout, "7200");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_poll_timeout_seconds: 7200 }));
   });
 
   it("keeps configured global sub-fields visible when the candidate fetch fails", async () => {

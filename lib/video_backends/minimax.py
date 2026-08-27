@@ -29,7 +29,6 @@ import httpx
 from lib.config.registry import model_info_for
 from lib.logging_utils import format_kwargs_for_log
 from lib.minimax_shared import (
-    MINIMAX_VIDEO_POLL_INTERVAL_SECONDS,
     extract_minimax_download_url,
     extract_minimax_file_id,
     extract_minimax_v2_download_url,
@@ -86,8 +85,6 @@ _SUBMIT_ENDPOINT = "/video_generation"
 _QUERY_ENDPOINT = "/query/video_generation"
 _RETRIEVE_ENDPOINT = "/files/retrieve"
 
-_MIN_POLL_TIMEOUT_SECONDS = 900.0
-_POLL_TIMEOUT_PER_SECOND = 60.0
 
 # 无首帧的文生视频不是各档通用：2.3-Fast 仅图生视频；S2V-01 由 subject_reference 驱动
 # （参考图路径经 VideoCapabilities.max_reference_images 表达），两者都不接受纯文本请求。
@@ -487,8 +484,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
             poll_fn=lambda: self._poll_query(client, task_id),
             is_done=is_minimax_v2_video_terminal if is_v2 else is_minimax_video_terminal,
             is_failed=minimax_v2_video_failure_reason if is_v2 else minimax_video_failure_reason,
-            poll_interval=MINIMAX_VIDEO_POLL_INTERVAL_SECONDS,
-            max_wait=self._max_wait(request.duration_seconds),
+            max_wait=request.poll_timeout_seconds,
             retry_if=should_retry_poll,
             label="MiniMax",
             on_progress=lambda v, elapsed: logger.info(
@@ -525,7 +521,3 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
     )
     async def _download_with_retry(download_url: str, output_path: Path) -> None:
         await download_video(download_url, output_path)
-
-    @staticmethod
-    def _max_wait(duration_seconds: int) -> float:
-        return max(_MIN_POLL_TIMEOUT_SECONDS, duration_seconds * _POLL_TIMEOUT_PER_SECOND)

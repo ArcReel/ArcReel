@@ -12,6 +12,7 @@ export interface SystemConfigSettings {
   text_backend_simple: string;
   text_backend_complex: string;
   video_generate_audio: boolean;
+  video_poll_timeout_seconds: number;
   anthropic_api_key: { is_set: boolean; masked: string | null };
   anthropic_base_url: string;
   anthropic_model: string;
@@ -88,6 +89,7 @@ export interface SystemConfigPatch {
   text_backend_simple?: string;
   text_backend_complex?: string;
   video_generate_audio?: boolean;
+  video_poll_timeout_seconds?: number;
   anthropic_api_key?: string;
   anthropic_base_url?: string;
   anthropic_model?: string;
