@@ -189,6 +189,43 @@ async def test_a_unit_that_cannot_be_enqueued_is_refused_with_its_own_code(monke
     assert admission.tickets[0].problems[0].code == GenerationProblemCode.UNIT_REQUEST_INVALID
 
 
+async def test_text_only_unit_on_image_only_model_blocks_the_whole_batch(monkeypatch, tmp_path: Path):
+    from tests.fakes import fake_reference_request_projector
+
+    _stub_state(monkeypatch)
+
+    async def _options(*, options, **_kwargs):
+        return options
+
+    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _options)
+    monkeypatch.setattr(
+        admission_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(3,), text_to_video=False),
+    )
+
+    admission = await admit_reference_video_batch(
+        project_name="demo",
+        project={},
+        project_path=tmp_path,
+        script={"video_units": []},
+        script_file="episode_1.json",
+        units=[
+            {"unit_id": "E1U1", "text": "空镜头一", "duration_seconds": 3},
+            {"unit_id": "E1U2", "text": "空镜头二", "duration_seconds": 3},
+        ],
+        request_options=ReferenceRequestOptions(),
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+    )
+
+    assert admission.decision is BatchAdmissionDecision.BLOCKED
+    assert [ticket.problems[0].code for ticket in admission.tickets] == [
+        "video_capability_missing_t2v",
+        "video_capability_missing_t2v",
+    ]
+
+
 async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
     """调用方在准入前就判死的目标（不存在的 ID、坏 unit）与本批共用一个结论。"""
 

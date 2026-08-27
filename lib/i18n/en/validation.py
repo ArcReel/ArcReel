@@ -281,6 +281,7 @@ MESSAGES = {
         "submit references a {source} asset without declaring {capability}, "
         "so the asset is sent while the UI hides the capability"
     ),
+    "val_ce_capability_incoherent": "Capability {capability} conflicts with its group; required: {requirement}",
     "val_ce_jsonpath_not_a_string": "An extraction path must be a string: {path_expression}",
     "val_ce_jsonpath_surrounding_whitespace": "An extraction path may not be padded with whitespace: {path_expression}",
     "val_ce_jsonpath_missing_root": "An extraction path must start with $: {path_expression}",

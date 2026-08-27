@@ -321,15 +321,25 @@ def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
     return None
 
 
-def video_capability_satisfied(*, capability: VideoCapability, first_frame: bool, max_reference_images: int) -> bool:
+def video_capability_satisfied(
+    *,
+    capability: VideoCapability,
+    first_frame: bool,
+    max_reference_images: int,
+    text_to_video: bool = True,
+    has_image: bool = True,
+) -> bool:
     """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
 
     解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.capability_buckets``）共用本
-    函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。取标量参数而非
+    函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。``has_image`` 区分
+    i2v 桶内的纯文生与带首帧请求。取标量参数而非
     ``VideoCapabilities``，一是不在 lib.config 层导入 lib.video_backends.base（分层契约），二是让
     内置（backend 声明）与自定义供应商（endpoint ⊕ 模型级覆盖的合成）两条来源都能直接喂进来。
     """
-    return first_frame if capability == "i2v" else max_reference_images > 0
+    if capability == "i2v":
+        return first_frame if has_image else text_to_video
+    return max_reference_images > 0
 
 
 def builtin_video_audio_track(provider_id: str, model_id: str, *, capability: VideoCapability) -> str | None:
@@ -1263,6 +1273,7 @@ class ConfigResolver:
             capability=capability,
             first_frame=caps.first_frame,
             max_reference_images=caps.max_reference_images,
+            text_to_video=caps.text_to_video,
         )
         if not satisfied:
             raise _video_bucket_capability_missing(capability, provider_id, model_id)
@@ -1415,6 +1426,7 @@ class ConfigResolver:
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             max_reference_images = caps.max_reference_images
+            text_to_video = caps.text_to_video
             first_frame = caps.first_frame
             last_frame = caps.last_frame
             reference_audio_mode = caps.reference_audio_mode
@@ -1458,6 +1470,7 @@ class ConfigResolver:
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             max_reference_images = builtin_caps.max_reference_images
+            text_to_video = builtin_caps.text_to_video
             first_frame = builtin_caps.first_frame
             last_frame = builtin_caps.last_frame
             reference_audio_mode = builtin_caps.reference_audio_mode
@@ -1518,6 +1531,7 @@ class ConfigResolver:
             "supported_durations": supported_durations,
             "max_duration": max_duration,
             "max_reference_images": max_reference_images,
+            "text_to_video": text_to_video,
             "first_frame": first_frame,
             "last_frame": last_frame,
             "generate_audio": generate_audio,

@@ -219,6 +219,7 @@ MESSAGES = {
     "val_ce_capability_input_without_declaration": (
         "submit 引用了 {source} 素材，却没有声明 {capability}，素材会发出去而界面不开放该能力"
     ),
+    "val_ce_capability_incoherent": "能力 {capability} 与同组声明矛盾，须满足：{requirement}",
     "val_ce_jsonpath_not_a_string": "取值路径必须是字符串：{path_expression}",
     "val_ce_jsonpath_surrounding_whitespace": "取值路径首尾不得有空白：{path_expression}",
     "val_ce_jsonpath_missing_root": "取值路径必须以 $ 开头：{path_expression}",

@@ -23,7 +23,6 @@ from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
-    audio_capability_pair_is_coherent,
     capability_type_name,
     capability_value_matches,
     filter_valid_overrides,
@@ -43,7 +42,7 @@ from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
-from lib.video_backends.base import ReferenceAudioMode
+from lib.video_backends.base import ReferenceAudioMode, audio_capability_pair_is_coherent
 
 
 def _validate_endpoint(value: str) -> str:

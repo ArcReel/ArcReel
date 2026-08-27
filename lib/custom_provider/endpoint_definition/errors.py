@@ -67,6 +67,7 @@ class DefinitionErrorCode(StrEnum):
     STATUS_MAP_TARGET_INVALID = "status_map_target_invalid"
     CAPABILITY_DECLARED_WITHOUT_INPUT = "capability_declared_without_input"
     CAPABILITY_INPUT_WITHOUT_DECLARATION = "capability_input_without_declaration"
+    CAPABILITY_INCOHERENT = "capability_incoherent"
 
     # ---- JSONPath 子集 ----
     JSONPATH_NOT_A_STRING = "jsonpath_not_a_string"

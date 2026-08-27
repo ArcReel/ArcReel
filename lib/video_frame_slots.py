@@ -108,6 +108,7 @@ def gate_video_request(
     provider: str,
     model: str,
     prompt: str | None = None,
+    has_image: bool = False,
     end_image: Path | None = None,
     reference_images: "list[Path] | None" = None,
     reference_audio_files: "list[Path] | None" = None,
@@ -115,10 +116,12 @@ def gate_video_request(
 ) -> None:
     """统一的请求期能力前置校验：违约抛 ``VideoCapabilityError``，通过则静默返回。
 
-    三条可选输入路径（尾帧 / 参考图 / 参考音频）在这里一处判定，而不是散在各 backend 的
+    纯文生能力与三条可选输入路径（尾帧 / 参考图 / 参考音频）在这里一处判定，而不是散在各 backend 的
     payload 组装里各写一套——散写的后果是同一种违约在不同供应商下有的硬失败、有的静默截断，
     用户拿到照常扣费但与意图不符的结果却无从得知。故本函数只做拒绝，不做降级：
     能力不支持一律抛错，由上层渲染成用户可读错误（文案见 ``lib/i18n/*/errors.py``）。
+
+    ``has_image`` 由调用方按实际下发的图片槽位填写；为 False 时检查纯文生能力。
 
     ``caps`` 为 None 表示调用方未查询后端能力——三条路径都不走时能力声明不影响任何结果，
     调用方可省去这次查询。传 None 却带任一路径的输入一律按不支持拒绝，而不是放行：占位一份
@@ -147,6 +150,9 @@ def gate_video_request(
             limit=prompt_limit,
             count=len(prompt),
         )
+
+    if caps is not None and not has_image and not caps.text_to_video:
+        raise VideoCapabilityError("video_capability_missing_t2v", provider=provider, model=model)
 
     if end_image is not None and (caps is None or not caps.last_frame):
         raise VideoCapabilityError("video_last_frame_unsupported", provider=provider, model=model)

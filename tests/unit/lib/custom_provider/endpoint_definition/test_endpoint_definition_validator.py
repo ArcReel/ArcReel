@@ -47,6 +47,43 @@ def custom_endpoint_definition() -> dict[str, Any]:
     }
 
 
+@pytest.mark.parametrize(("required", "declared_t2v"), [(True, False), (False, True)])
+def test_text_to_video_declaration_matching_required_inputs_is_accepted(required: bool, declared_t2v: bool):
+    definition = custom_endpoint_definition()
+    definition["inputs"]["first_frame"]["required"] = required
+    definition["capabilities"]["text_to_video"] = declared_t2v
+
+    assert validate_definition(definition).valid
+
+
+@pytest.mark.parametrize(("required", "declared_t2v"), [(True, True), (False, False)])
+def test_declared_text_to_video_must_match_required_inputs(required: bool, declared_t2v: bool):
+    """显式位与必需图输入两向一致：声明支持文生却要求图、声明不支持却不要求图都是错。"""
+    definition = custom_endpoint_definition()
+    definition["inputs"]["first_frame"]["required"] = required
+    definition["capabilities"]["text_to_video"] = declared_t2v
+
+    assert ("capabilities.text_to_video", "capability_incoherent") in _codes(validate_definition(definition))
+
+
+@pytest.mark.parametrize(
+    ("changes", "path"),
+    [
+        ({"reference_audio_mode": "direct", "max_reference_audio_count": 0}, "capabilities.reference_audio_mode"),
+        ({"reference_audio_per_image": True}, "capabilities.reference_audio_per_image"),
+        (
+            {"first_frame": False, "first_frame_ratio_adaptive_only": True},
+            "capabilities.first_frame_ratio_adaptive_only",
+        ),
+    ],
+)
+def test_capability_group_rejects_incoherent_combinations(changes: dict[str, object], path: str):
+    definition = custom_endpoint_definition()
+    definition["capabilities"].update(changes)
+
+    assert (path, "capability_incoherent") in _codes(validate_definition(definition))
+
+
 def _codes(diagnostics: DefinitionDiagnostics) -> list[tuple[str, str]]:
     return [(issue.path, issue.code.value) for issue in diagnostics.errors]
 

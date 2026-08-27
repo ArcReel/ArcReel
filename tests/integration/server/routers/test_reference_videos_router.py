@@ -676,6 +676,35 @@ def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
     assert checked == ["i2v"]
 
 
+def test_generate_unit_rejects_text_only_request_for_image_only_model(
+    reference_videos_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"] = [{"unit_id": "E1U1", "text": "空镜头", "duration_seconds": 3}]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.routers import reference_videos as router_mod
+
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(3, 6, 9), text_to_video=False),
+    )
+    enqueue = AsyncMock()
+    monkeypatch.setattr(
+        router_mod,
+        "get_generation_queue",
+        lambda: type("Queue", (), {"enqueue_task": enqueue})(),
+    )
+
+    response = reference_videos_client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["problems"][0]["code"] == "video_capability_missing_t2v"
+    enqueue.assert_not_awaited()
+
+
 def test_generate_unit_rejects_blank_prompt(reference_videos_client: TestClient, tmp_path: Path):
     """正文全空白的 unit 在入队时被守卫点拒绝（400），不漏到执行层失败。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"

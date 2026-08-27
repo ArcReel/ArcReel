@@ -195,6 +195,7 @@ class ViduVideoBackend:
         first_frame = model in _ENDPOINT_MODELS["/img2video"]
         last_frame = model in _ENDPOINT_MODELS["/start-end2video"]
         return VideoCapabilities(
+            text_to_video=model in _ENDPOINT_MODELS["/text2video"],
             first_frame=first_frame,
             last_frame=last_frame,
             max_reference_images=_MAX_REFERENCE_IMAGES if reference_images else 0,

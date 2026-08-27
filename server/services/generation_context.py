@@ -194,7 +194,8 @@ class ImageLaneResult:
 class VideoLaneResult:
     """video lane 解析产物。
 
-    能力字段（``supported_durations`` / ``max_duration`` / ``max_reference_images``）在能力
+    能力字段（``supported_durations`` / ``max_duration`` / ``max_reference_images`` /
+    ``text_to_video``）在能力
     查询失败时降级为空值（空元组 / None）放行：能力是已选定 provider/model 的元数据，缺失
     不代表不可调用，守卫遇空值不施加限制、把决策推给 backend。``resolution_or_fallback``
     供需要非空档位的调用方（参考生视频路径），其余语义同 :class:`ImageLaneResult`。
@@ -208,6 +209,7 @@ class VideoLaneResult:
     supported_durations: tuple[int, ...]
     max_duration: int | None
     max_reference_images: int | None
+    text_to_video: bool = True
     # 费用与实际 provider 出账口径的有声档位，直接来自 video capabilities。
     # 它与下方的 requested_generate_audio（用户开关意图）不等价。
     generate_audio: bool = False
@@ -366,6 +368,7 @@ async def resolve_generation_context(
             supported_durations: tuple[int, ...] = ()
             max_duration: int | None = None
             max_reference_images: int | None = None
+            text_to_video = True
             generate_audio = False
             voice_consistency: VoiceConsistency = "soft"
             max_reference_audio_count = 0
@@ -382,6 +385,7 @@ async def resolve_generation_context(
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
+                text_to_video = bool(caps.get("text_to_video", True))
                 generate_audio = bool(caps.get("generate_audio"))
                 voice_consistency = caps.get("voice_consistency") or "soft"
                 max_reference_audio_count = int(caps.get("max_reference_audio_count") or 0)
@@ -402,6 +406,7 @@ async def resolve_generation_context(
                 supported_durations=supported_durations,
                 max_duration=max_duration,
                 max_reference_images=max_reference_images,
+                text_to_video=text_to_video,
                 generate_audio=generate_audio,
                 voice_consistency=voice_consistency,
                 requested_generate_audio=requested_generate_audio,

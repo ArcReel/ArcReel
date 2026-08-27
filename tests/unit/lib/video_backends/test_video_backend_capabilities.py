@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from lib.video_backends.base import (
     ReferenceAudioMode,
     VideoAudioMode,
@@ -11,6 +13,7 @@ from lib.video_backends.base import (
 class TestVideoCapabilities:
     def test_defaults(self):
         caps = VideoCapabilities()
+        assert caps.text_to_video is True
         assert caps.first_frame is True
         assert caps.last_frame is False
         assert caps.max_reference_images == 0
@@ -130,6 +133,38 @@ class TestVideoCapabilitiesForModel:
         assert caps.max_reference_audio_count == 3
         assert caps.max_prompt_chars == 7000
         assert caps.first_frame_ratio_adaptive_only is True
+
+    @pytest.mark.parametrize(
+        ("model", "expected"),
+        [
+            ("MiniMax-Hailuo-2.3", True),
+            ("MiniMax-Hailuo-2.3-Fast", False),
+            ("S2V-01", False),
+            ("MiniMax-H3", True),
+        ],
+    )
+    def test_minimax_declares_text_to_video(self, model: str, expected: bool):
+        from lib.video_backends.minimax import MiniMaxVideoBackend
+
+        assert MiniMaxVideoBackend.video_capabilities_for_model(model).text_to_video is expected
+
+    @pytest.mark.parametrize(
+        ("model", "expected"),
+        [("kling-v3", True), ("kling-video-o1", False)],
+    )
+    def test_kling_declares_text_to_video(self, model: str, expected: bool):
+        from lib.video_backends.kling import KlingVideoBackend
+
+        assert KlingVideoBackend.video_capabilities_for_model(model).text_to_video is expected
+
+    @pytest.mark.parametrize(
+        ("model", "expected"),
+        [("viduq3-pro", True), ("viduq3-pro-fast", False), ("vidu2.0", False)],
+    )
+    def test_vidu_declares_text_to_video(self, model: str, expected: bool):
+        from lib.video_backends.vidu import ViduVideoBackend
+
+        assert ViduVideoBackend.video_capabilities_for_model(model).text_to_video is expected
 
     def test_v2_returns_four(self):
         from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend

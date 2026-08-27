@@ -179,7 +179,6 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         self._is_v2 = _is_h3_model(self._model)
         self._base_url = minimax_video_v2_base_url(base_url) if self._is_v2 else minimax_video_base_url(base_url)
         self._http_timeout = http_timeout
-        self._supports_text_to_video = _supports_text_to_video(self._model)
 
     @property
     def name(self) -> str:
@@ -205,7 +204,12 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         故这里不存在开关可控的型号。
         """
         if model == _S2V:
-            return VideoCapabilities(first_frame=False, max_reference_images=1, audio_track=VideoAudioMode.ALWAYS_OFF)
+            return VideoCapabilities(
+                text_to_video=False,
+                first_frame=False,
+                max_reference_images=1,
+                audio_track=VideoAudioMode.ALWAYS_OFF,
+            )
         if _is_h3_model(model):
             return VideoCapabilities(
                 first_frame=True,
@@ -219,7 +223,11 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
                 first_frame_ratio_adaptive_only=True,
                 audio_track=VideoAudioMode.ALWAYS_ON,
             )
-        return VideoCapabilities(first_frame=True, audio_track=VideoAudioMode.ALWAYS_OFF)
+        return VideoCapabilities(
+            text_to_video=_supports_text_to_video(model),
+            first_frame=True,
+            audio_track=VideoAudioMode.ALWAYS_OFF,
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
@@ -259,7 +267,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         has_start_image = isinstance(request.start_image, (str, Path)) and str(request.start_image)
 
         # 无首帧 = 文生视频意图；模型不支持 t2v（如 Fast）即拒绝。
-        if not has_start_image and not self._supports_text_to_video:
+        if not has_start_image and not self.video_capabilities.text_to_video:
             raise VideoCapabilityError("video_capability_missing_t2v", provider=self.name, model=self._model)
 
         allowed_durations = _RESOLUTION_DURATIONS.get(resolution, set())

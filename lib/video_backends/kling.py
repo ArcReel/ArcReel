@@ -243,6 +243,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # 真实执行结果，与未登记 model 回落保守默认同一原则。
         caps = _lookup_video_caps(model)
         return VideoCapabilities(
+            text_to_video=caps.text_to_video,
             first_frame=True,
             last_frame=caps.last_frame and not caps.last_frame_requires_pro,
             max_reference_images=caps.max_reference_images,
@@ -282,6 +283,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         mode = self._resolve_mode_from(resolution, service_tier)
         last_frame = caps.last_frame and (not caps.last_frame_requires_pro or mode == "pro")
         return VideoCapabilities(
+            text_to_video=caps.text_to_video,
             first_frame=True,
             last_frame=last_frame,
             max_reference_images=caps.max_reference_images,

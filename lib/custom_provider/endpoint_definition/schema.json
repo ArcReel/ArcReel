@@ -189,6 +189,11 @@
         "encoding": {
           "description": "素材编码方式：data_uri 或裸 base64。素材格式不做白名单，由供应商在提交时拒绝。",
           "enum": ["data_uri", "base64"]
+        },
+        "required": {
+          "description": "该素材是否是此请求形状的必需输入。缺省 false 表示可选；必需图输入会让 text_to_video 推导为 false。",
+          "type": "boolean",
+          "default": false
         }
       }
     },
@@ -348,6 +353,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "text_to_video": { "type": "boolean", "default": true },
         "first_frame": { "type": "boolean", "default": false },
         "last_frame": { "type": "boolean", "default": false },
         "max_reference_images": { "type": "integer", "minimum": 0, "default": 0 },
