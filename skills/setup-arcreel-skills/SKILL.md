@@ -14,7 +14,7 @@ description: 将当前 Agent 宿主连接到 ArcReel 远程 MCP 服务并验证�
 - 以 `/mcp` 结尾的 ArcReel MCP 端点 URL。
 - 在 **设置 → API Key** 中创建的 `arc-` API Key。ArcReel 只在创建时完整显示一次新密钥。
 
-把 API Key 视为秘密：不出现在回复、shell 历史、项目文件或提交的配置中，只发送给用户提供的 MCP 端点。
+用户可以把 API Key 提供给其明确选择且信任的当前 Agent。接收后只用于配置 ArcReel MCP：不在回复中复述，不写入 shell 历史、项目文件或提交的配置，并且仅发送给用户提供的 MCP 端点。
 
 ## 接线
 
