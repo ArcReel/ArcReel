@@ -21,6 +21,7 @@ import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageStatsSection } from "./settings/UsageStatsSection";
+import { EndpointSettingsPrototype } from "./settings/prototype/EndpointSettingsPrototype";
 import {
   SUPPORTED_LANGUAGES,
   LANGUAGE_DISPLAY_LABELS,
@@ -34,7 +35,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys" | "about";
+type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys" | "about" | "endpoints-prototype";
 
 /** 引导第 5/6 步指向的侧栏入口——只有这两项挂锚点，其余小节不在当前引导覆盖范围内。 */
 const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
@@ -64,6 +65,10 @@ const SECTION_GROUPS: SectionGroup[] = [
       { id: "providers", labelKey: "dashboard:providers", Icon: Plug },
       { id: "agent", labelKey: "dashboard:agents", Icon: Bot },
       { id: "media", labelKey: "dashboard:models", Icon: Film },
+      // PROTOTYPE — wayfinder #2129，仅开发构建可见；t() 缺 key 时原样回显该字符串。
+      ...(import.meta.env.DEV
+        ? [{ id: "endpoints-prototype" as const, labelKey: "调用端点 · 原型", Icon: Plug }]
+        : []),
     ],
   },
   {
@@ -95,6 +100,7 @@ export function SystemConfigPage() {
     if (section === "usage") return "usage";
     if (section === "api-keys") return "api-keys";
     if (section === "about") return "about";
+    if (section === "endpoints-prototype" && import.meta.env.DEV) return "endpoints-prototype";
     return "providers";
   }, [search]);
 
@@ -269,6 +275,8 @@ export function SystemConfigPage() {
         <main className="min-w-0 flex-1 overflow-y-auto">
           {activeSection === "providers" ? (
             <ProviderSection />
+          ) : activeSection === "endpoints-prototype" ? (
+            <EndpointSettingsPrototype />
           ) : (
             <div className="mx-auto max-w-4xl px-8 py-8">
               {/* Quick alert for config issues */}
