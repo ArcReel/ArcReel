@@ -205,4 +205,94 @@ MESSAGES = {
     "arch_project_name_conflict": (
         "Project ID '{name}' already exists. Choose to overwrite the existing project or import under a new name."
     ),
+    # ---- Custom endpoint definition validation ----
+    "val_ce_missing_field": "Missing required field: {field}",
+    "val_ce_unknown_field": "Unknown field: {field}",
+    "val_ce_removed_field": "Field removed from the format: {field} - {reason}",
+    "val_ce_invalid_type": "Wrong type; expected {expected}",
+    "val_ce_invalid_enum_value": "Value is not allowed here; allowed: {allowed}",
+    "val_ce_invalid_value": "Value does not match the format: {detail}",
+    "val_ce_schema_violation": "Does not match the definition format: {detail}",
+    "val_ce_removed_reason_request_query": (
+        "static and dynamic query parameters belong in the url template, credential query in auth.query"
+    ),
+    "val_ce_removed_reason_status_codes": (
+        "HTTP status handling is a runtime policy: 2xx succeeds, 429 and 5xx retry, everything else fails"
+    ),
+    "val_ce_removed_reason_polling_policy": "polling interval and timeout are runtime policy, not part of a definition",
+    "val_ce_removed_reason_extract_source": "extraction always starts at the response body; HTTP status is not a path",
+    "val_ce_removed_reason_extract_usage_keys": "usage now lives under poll.extract.usage",
+    "val_ce_removed_reason_mime_types": "asset formats are not allow-listed; the provider rejects what it cannot take",
+    "val_ce_removed_reason_media_type": "video is the only media type in this release",
+    "val_ce_undeclared_variable": "Placeholder {name} references a variable that is not declared",
+    "val_ce_api_key_outside_auth": (
+        "api_key may only appear in the auth section: credentials stay out of the body and URL, "
+        "and out of definitions you share"
+    ),
+    "val_ce_auth_without_api_key": (
+        "The auth section is not empty but never references api_key: leave it empty for a credential-free API, "
+        "otherwise make it write the credential"
+    ),
+    "val_ce_auth_header_conflict": (
+        "{header} collides with auth.headers (case-insensitive): only the auth section may write credential headers"
+    ),
+    "val_ce_auth_query_conflict": (
+        "The URL already carries the query parameter {param} declared in auth.query: "
+        "only the auth section may write credential query parameters"
+    ),
+    "val_ce_task_id_out_of_scope": "task_id is only available in the poll and result sections",
+    "val_ce_result_id_out_of_scope": "result_id is only available in the result section",
+    "val_ce_result_id_without_extract": "result_id is referenced but poll.extract does not declare result_id",
+    "val_ce_input_out_of_scope": (
+        "Asset {name} may only be referenced from submit: poll and result requests carry no assets"
+    ),
+    "val_ce_list_input_requires_each": "{name} is a list asset; expand it with $each instead of interpolating it",
+    "val_ce_each_in_not_list_input": "$each.in points at {name}, which is not a declared list asset",
+    "val_ce_each_shape_invalid": (
+        "$each takes either item, to spread array elements, or both key and value, to spread object entries; "
+        "the two forms cannot be mixed"
+    ),
+    "val_ce_when_unknown_input": "$when points at {name}, which is not a declared asset",
+    "val_ce_input_not_referenced": (
+        "The asset is declared but never referenced from submit: it is never sent, and cannot back a capability"
+    ),
+    "val_ce_enum_map_variable_not_allowed": "{variable} cannot be mapped; mappable variables: {allowed}",
+    "val_ce_status_map_target_invalid": "Status {target} is outside {allowed}; map expiry semantics to failed",
+    "val_ce_capability_declared_without_input": (
+        "{capability} is declared but submit references no {source} asset, so the capability would lie"
+    ),
+    "val_ce_capability_input_without_declaration": (
+        "submit references a {source} asset without declaring {capability}, "
+        "so the asset is sent while the UI hides the capability"
+    ),
+    "val_ce_jsonpath_not_a_string": "An extraction path must be a string: {path_expression}",
+    "val_ce_jsonpath_surrounding_whitespace": "An extraction path may not be padded with whitespace: {path_expression}",
+    "val_ce_jsonpath_missing_root": "An extraction path must start with $: {path_expression}",
+    "val_ce_jsonpath_recursive_descent": (
+        "Recursive descent is not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_union": (
+        "Union selectors are not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_slice_step": (
+        "Slice steps are not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_function_extension": (
+        "Function extensions are not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_filter_root_reference": (
+        "A filter may not reference the root node (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_filter_non_singular": (
+        "A filter may only use singular queries (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_regex_operator": (
+        "The regex match operator is not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_syntax": "Extraction path syntax error (at character {position}): {path_expression}",
+    "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
+    "val_ce_jsonpath_wildcard_order": (
+        "{path_expression} uses a wildcard: an object wildcard takes the first member only, "
+        "and key order may differ between the preview and the backend"
+    ),
 }
