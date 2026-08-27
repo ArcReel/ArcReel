@@ -10,7 +10,7 @@ import {
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { formatDate } from "@/utils/date-format";
 import { Link, useLocation } from "wouter";
-import { AlertTriangle, Cable, Library, Loader2, Plus, Search, Settings, Upload } from "lucide-react";
+import { AlertTriangle, Bot, Library, Loader2, Plus, Search, Settings, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { API } from "@/api";
@@ -496,7 +496,7 @@ function TopBar({
             title={t("dashboard:external_agent_guide")}
             aria-label={t("dashboard:external_agent_guide")}
           >
-            <Cable className="h-4 w-4" aria-hidden />
+            <Bot className="h-4 w-4" aria-hidden />
           </button>
           <button
             type="button"

@@ -1,5 +1,5 @@
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
-import { ArrowUpRight, Cable } from "lucide-react";
+import { ArrowUpRight, Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
@@ -40,7 +40,7 @@ export function AgentPageIntro({ onOpenExternalGuide }: AgentPageIntroProps) {
 
         <div className="flex gap-3.5 p-4">
           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[8px] border border-accent/25 bg-accent-dim text-accent-2">
-            <Cable className="h-4 w-4" aria-hidden />
+            <Bot className="h-4 w-4" aria-hidden />
           </div>
           <div className="min-w-0">
             <h3 className="text-[13.5px] font-medium text-text">{t("external_agent")}</h3>

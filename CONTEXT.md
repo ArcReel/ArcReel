@@ -415,6 +415,10 @@ _Avoid_: 用它替代目标集的制作状态。
 在 ArcReel 中理解创作者要求、协助组织内容并调用创作能力完成工作的对话式 AI。中文产品命名写「ArcReel Agent」；其他中文说明可写「Agent」或「智能体」。
 _Avoid_: 助手、创作助手、Copilot。
 
+**外部 Agent 接入（external Agent integration）**：
+把运行在 ArcReel 之外的受信任 Agent 连接到 ArcReel 的过程，包括安装公开 skills、配置远程 MCP 与 API Key，并验证连通。
+_Avoid_: 仅称为 skills 安装、与 ArcReel Agent 配置混为一谈。
+
 **子智能体（subagent）**：
 Agent 为实现一个聚焦目标而委派的一段工作，运行时由下级 Agent 执行；主对话只展示其目标、状态和结果。
 _Avoid_: 子任务、子 Agent。
