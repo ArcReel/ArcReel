@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "kind": {
-      "description": "容器类型。声明式定义恒为 declarative；其余 kind 由后续 ADR 定义，遇到未知 kind 直接拒绝。",
+      "description": "容器类型。只接受 declarative，未知 kind 直接拒绝。",
       "enum": ["declarative"]
     },
     "schema_version": {
@@ -44,10 +44,23 @@
     },
     "capabilities": { "$ref": "#/$defs/capabilities" }
   },
+  "allOf": [
+    {
+      "$comment": "产物地址必须有出处：没有二次取件节时由轮询取，有则由 result 节取（result.extract 自带该必填）。",
+      "if": { "not": { "required": ["result"] } },
+      "then": {
+        "properties": {
+          "poll": { "properties": { "extract": { "required": ["video_url"] } } }
+        }
+      }
+    }
+  ],
   "$defs": {
     "semver": {
       "type": "string",
-      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+      "$comment": "这份 schema 前后端共用，pattern 只写两个运行时都成立的构造：用 [0-9] 而非 \\d（Python 的 \\d 含 Unicode 十进制数字），另加禁换行的 not（Python 的 $ 还匹配末尾换行前的位置，而 ECMA-262 没有 \\Z）。",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "not": { "pattern": "\\n" }
     },
     "identifier": {
       "type": "string",
@@ -57,6 +70,11 @@
     "template": {
       "description": "字符串模板。占位符写作双花括号包裹的变量名；整串只有一个占位符时保留变量的原生类型，混合文本一律串化。值为 null 的整串占位符会删掉所在键或数组元素。",
       "type": "string"
+    },
+    "urlTemplate": {
+      "description": "请求 URL 模板：至少一个非空白字符。没有请求目标的定义在保存时即拒，不留到运行时发请求才失败。",
+      "$ref": "#/$defs/template",
+      "pattern": "\\S"
     },
     "jsonTemplate": {
       "description": "JSON 结构模板：任意 JSON 值，其中字符串按 template 渲染；对象里的 $each 键与数组里的 $each 元素按 eachDirective 展开；对象里的 $when 是可选守卫。",
@@ -99,9 +117,19 @@
       ]
     },
     "headerMap": {
+      "description": "请求头模板。键取 HTTP 字段名的 tchar 集（RFC 9110 §5.6.2），下划线等合法记号不拦。",
       "type": "object",
-      "propertyNames": { "type": "string", "pattern": "^[A-Za-z0-9-]+$" },
-      "additionalProperties": { "$ref": "#/$defs/template" }
+      "$comment": "`$` 在 Python 的 re 里还匹配末尾换行前的位置，而 ECMA-262 没有 \\Z——这份 schema 前端也要用，故另加一条禁换行的 not 而不是换锚点。",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$",
+        "not": { "pattern": "\\n" }
+      },
+      "additionalProperties": {
+        "description": "头值模板：不得含 CR/LF——字段值里的换行是另起一个头，HTTP 客户端本就会拒。",
+        "$ref": "#/$defs/template",
+        "not": { "pattern": "[\\r\\n]" }
+      }
     },
     "queryMap": {
       "type": "object",
@@ -117,13 +145,13 @@
         "author": { "type": "string", "minLength": 1, "maxLength": 80 },
         "version": { "$ref": "#/$defs/semver" },
         "description": { "type": "string", "maxLength": 2000 },
-        "homepage": { "type": "string", "format": "uri" },
+        "homepage": { "type": "string", "format": "uri", "pattern": "^https?://[^\\s/?#]+\\S*$" },
         "hints": {
           "description": "随定义分发的提示，导入时展示并由用户确认，不携带凭证。",
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "base_url": { "type": "string", "format": "uri" },
+            "base_url": { "type": "string", "format": "uri", "pattern": "^https?://[^\\s/?#]+\\S*$" },
             "suggested_models": {
               "type": "array",
               "items": {
@@ -159,7 +187,7 @@
           "enum": ["start_image", "end_image", "reference_images", "reference_audio_files"]
         },
         "encoding": {
-          "description": "首期只有 data_uri 与裸 base64；素材格式不做白名单，由供应商在提交时拒绝。",
+          "description": "素材编码方式：data_uri 或裸 base64。素材格式不做白名单，由供应商在提交时拒绝。",
           "enum": ["data_uri", "base64"]
         }
       }
@@ -218,7 +246,7 @@
         "method": { "enum": ["GET", "POST", "PUT"] },
         "url": {
           "description": "URL 模板；路径与 query 内的占位符值不做 percent-encoding。静态与动态 query 都写进本模板，凭证 query 归 auth.query。",
-          "$ref": "#/$defs/template"
+          "$ref": "#/$defs/urlTemplate"
         },
         "headers": { "$ref": "#/$defs/headerMap" },
         "body": { "$ref": "#/$defs/jsonTemplate" }
@@ -265,7 +293,7 @@
             "extract": {
               "description": "轮询间隔、超时与瞬时错误重试都是运行时策略，不进定义。2xx 之下按 status 查状态；429 与 5xx 保持上一状态继续轮询；其余码即任务失败，错误按 error 取。",
               "type": "object",
-              "required": ["status", "video_url"],
+              "required": ["status"],
               "additionalProperties": false,
               "properties": {
                 "status": { "$ref": "#/$defs/extractSpec" },
@@ -297,7 +325,7 @@
       "additionalProperties": false,
       "properties": {
         "method": { "enum": ["GET", "POST", "PUT"] },
-        "url": { "$ref": "#/$defs/template" },
+        "url": { "$ref": "#/$defs/urlTemplate" },
         "headers": { "$ref": "#/$defs/headerMap" },
         "extract": {
           "type": "object",
@@ -325,7 +353,7 @@
         "max_reference_images": { "type": "integer", "minimum": 0, "default": 0 },
         "reference_audio_mode": { "enum": ["none", "direct"], "default": "none" },
         "max_reference_audio_count": { "type": "integer", "minimum": 0, "default": 0 },
-        "max_reference_audio_total_seconds": { "type": ["number", "null"], "default": null },
+        "max_reference_audio_total_seconds": { "type": ["number", "null"], "minimum": 0, "default": null },
         "reference_audio_per_image": { "type": "boolean", "default": false },
         "max_prompt_chars": { "type": ["integer", "null"], "minimum": 1, "default": null },
         "first_frame_ratio_adaptive_only": { "type": "boolean", "default": false },

@@ -370,6 +370,24 @@ class TestPollWithRetry:
 
         assert clock.sleeps == [3, 6]
 
+    async def test_backoff_never_sleeps_past_the_deadline(self):
+        """退避等待受剩余预算限制：第二次退避要 10 秒而只剩 5 秒，睡 5 秒后即到截止时刻。"""
+        poll_fn = AsyncMock(side_effect=[ConnectionError("a"), ConnectionError("b"), ConnectionError("c")])
+        clock = _FakeClock([0.0, 0.0, 55.0, 60.0])
+
+        with pytest.raises(TimeoutError, match="超时"):
+            await poll_with_retry(
+                poll_fn=poll_fn,
+                is_done=lambda r: r == "done",
+                is_failed=lambda _r: None,
+                max_wait=60,
+                poll_interval=5,
+                clock=clock,
+            )
+
+        assert clock.sleeps == [5, 5]
+        assert poll_fn.await_count == 3
+
 
 class TestNormalizeProviderStatus:
     """跨厂商状态串归一：OpenAI 兼容代理会把底层厂商的状态串原样透传。"""

@@ -25,8 +25,12 @@ class TestAcceptedPaths:
             "$.data[?@.score == -1.5e3].url",
             "$.data[1:2:]",
             "$.data [0] .url",
+            "$.data[?@.a .b == 1].url",
+            "$.data[?@ ['a'] == 1].url",
             "$",
             "$.数据.地址",
+            "$['a\\uD83D\\uDE00b']",
+            "$.foo\u00a0",
         ],
     )
     def test_subset_forms_parse(self, source: str):
@@ -61,13 +65,23 @@ class TestRejectedConstructs:
             ("$.data[?@.id == $.want]", DefinitionErrorCode.JSONPATH_FILTER_ROOT_REFERENCE),
             ("$.data[?@.*]", DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR),
             ("$.data[?@['a'][*]]", DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR),
+            ("$.data[?@[0:1]]", DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR),
+            ("$.data[?@[0,1]]", DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR),
+            ("$.data[?@['a','b']]", DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR),
             ("$.data[?@.url =~ 'mp4']", DefinitionErrorCode.JSONPATH_REGEX_OPERATOR),
             ("video_url", DefinitionErrorCode.JSONPATH_MISSING_ROOT),
             (" $.url", DefinitionErrorCode.JSONPATH_SURROUNDING_WHITESPACE),
+            ("$['a\\uD800b']", DefinitionErrorCode.JSONPATH_SYNTAX),
+            ("$['a\\uDC00b']", DefinitionErrorCode.JSONPATH_SYNTAX),
+            ("$['a\ud800b']", DefinitionErrorCode.JSONPATH_SYNTAX),
+            ("$.a\ud800b", DefinitionErrorCode.JSONPATH_SYNTAX),
+            ("$.foo\v.bar", DefinitionErrorCode.JSONPATH_SYNTAX),
+            ("$.foo\f.bar", DefinitionErrorCode.JSONPATH_SYNTAX),
             ("$.data[", DefinitionErrorCode.JSONPATH_SYNTAX),
             ("$.data.", DefinitionErrorCode.JSONPATH_SYNTAX),
             ("$data", DefinitionErrorCode.JSONPATH_SYNTAX),
             ("$.data[01]", DefinitionErrorCode.JSONPATH_SYNTAX),
+            ("$[١]", DefinitionErrorCode.JSONPATH_SYNTAX),
             ("$.data[?@.size == 01]", DefinitionErrorCode.JSONPATH_SYNTAX),
             ("$.data[?!@.ready == true]", DefinitionErrorCode.JSONPATH_SYNTAX),
             ("$.data[?@.name == 'a\\\"b']", DefinitionErrorCode.JSONPATH_SYNTAX),
@@ -78,6 +92,12 @@ class TestRejectedConstructs:
             parse_json_path(source)
         assert excinfo.value.code is code
         assert excinfo.value.source == source
+
+    def test_non_ascii_digit_never_reads_as_a_number(self):
+        """RFC 的下标与数字字面量只认 ASCII 数字。过滤器里它落到名字位，按未知函数名拒。"""
+        with pytest.raises(JsonPathSubsetError) as excinfo:
+            parse_json_path("$.data[?@.x == ١].url")
+        assert excinfo.value.code is DefinitionErrorCode.JSONPATH_FUNCTION_EXTENSION
 
     def test_position_counts_characters_from_one(self):
         with pytest.raises(JsonPathSubsetError) as excinfo:

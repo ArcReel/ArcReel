@@ -23,6 +23,10 @@ _ESCAPES = frozenset({"n", "t", "r", "b", "f", "/", "\\"})
 _COMPARISON_OPERATORS = ("==", "!=", "<=", ">=", "<", ">")
 _LITERAL_KEYWORDS = ("true", "false", "null")
 
+#: RFC 9535 的 ``S``：只有空格、制表、LF、CR。`str.isspace` 还认 ``\v`` / ``\f`` / ``\xa0``，
+#: 用它当闸门会放行符合实现的求值器要拒的路径。
+_RFC_BLANK = frozenset({" ", "\t", "\n", "\r"})
+
 
 class SegmentKind(StrEnum):
     NAME = "name"
@@ -63,17 +67,29 @@ def parse_json_path(source: object) -> ParsedJsonPath:
     """解析一条路径，越出子集即抛 :class:`JsonPathSubsetError`。"""
     if not isinstance(source, str):
         raise JsonPathSubsetError(DefinitionErrorCode.JSONPATH_NOT_A_STRING, 1, str(source))
-    if source != source.strip():
+    # 首尾只按 RFC 的 S 判定：`str.strip` 还剥 U+00A0 / U+0085，而它们是合法的成员名字符，
+    # 以 `$.foo ` 结尾的路径会被误报成首尾带空白。
+    if source and (source[0] in _RFC_BLANK or source[-1] in _RFC_BLANK):
         raise JsonPathSubsetError(DefinitionErrorCode.JSONPATH_SURROUNDING_WHITESPACE, 1, source)
     return _Parser(source).parse()
 
 
+def _is_ascii_digit(char: str) -> bool:
+    """RFC 9535 的下标与数字字面量只认 ASCII 数字；`str.isdigit` 还认阿拉伯-印度数字等。"""
+    return "0" <= char <= "9"
+
+
+def _is_extended(char: str) -> bool:
+    """RFC 9535 名字里的 ``%x80-10FFFF``：代理码位不在其中，落单时不是合法码点。"""
+    return ord(char) > 127 and not 0xD800 <= ord(char) <= 0xDFFF
+
+
 def _is_name_start(char: str) -> bool:
-    return char.isalpha() or char == "_" or ord(char) > 127
+    return char.isalpha() or char == "_" or _is_extended(char)
 
 
 def _is_name_char(char: str) -> bool:
-    return char.isalnum() or char == "_" or ord(char) > 127
+    return char.isalnum() or char == "_" or _is_extended(char)
 
 
 class _Parser:
@@ -93,7 +109,7 @@ class _Parser:
         return self._source[index] if index < len(self._source) else ""
 
     def _skip_whitespace(self) -> None:
-        while not self._eof() and self._peek().isspace():
+        while not self._eof() and self._peek() in _RFC_BLANK:
             self._pos += 1
 
     def _fail(self, code: DefinitionErrorCode) -> JsonPathSubsetError:
@@ -140,7 +156,7 @@ class _Parser:
         elif char == "?":
             self._pos += 1
             segment = self._parse_filter()
-        elif char == ":" or char == "-" or char.isdigit():
+        elif char == ":" or char == "-" or _is_ascii_digit(char):
             segment = self._parse_index_or_slice(char)
         else:
             raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
@@ -160,13 +176,13 @@ class _Parser:
             return PathSegment(SegmentKind.INDEX)
         self._pos += 1
         self._skip_whitespace()
-        if self._peek() == "-" or self._peek().isdigit():
+        if self._peek() == "-" or _is_ascii_digit(self._peek()):
             self._read_int()
             self._skip_whitespace()
         if self._peek() == ":":
             self._pos += 1
             self._skip_whitespace()
-            if self._peek() == "-" or self._peek().isdigit():
+            if self._peek() == "-" or _is_ascii_digit(self._peek()):
                 raise self._fail(DefinitionErrorCode.JSONPATH_SLICE_STEP)
         return PathSegment(SegmentKind.SLICE)
 
@@ -185,7 +201,8 @@ class _Parser:
         self._pos += 1
         while not self._eof() and self._peek() != quote:
             if self._peek() != "\\":
-                if self._peek() < " ":
+                # 落单的代理码位不是合法码点：JSON 解码后它以裸字符到达，转义检查看不到。
+                if self._peek() < " " or "\ud800" <= self._peek() <= "\udfff":
                     raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
                 self._pos += 1
                 continue
@@ -193,24 +210,40 @@ class _Parser:
             escape = self._peek()
             self._pos += 1
             if escape == "u":
-                digits = self._source[self._pos : self._pos + 4]
-                if len(digits) < 4 or any(char not in "0123456789abcdefABCDEF" for char in digits):
-                    raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
-                self._pos += 4
+                self._read_unicode_escape()
             elif escape not in allowed:
                 raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
         if self._eof():
             raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
         self._pos += 1
 
+    def _read_unicode_escape(self) -> None:
+        """``\\uXXXX``：高代理必须紧跟低代理的转义，落单的任一半都不是合法码点。"""
+        code = self._read_four_hex()
+        if 0xDC00 <= code <= 0xDFFF:
+            raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
+        if 0xD800 <= code <= 0xDBFF:
+            if self._source[self._pos : self._pos + 2] != "\\u":
+                raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
+            self._pos += 2
+            if not 0xDC00 <= self._read_four_hex() <= 0xDFFF:
+                raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
+
+    def _read_four_hex(self) -> int:
+        digits = self._source[self._pos : self._pos + 4]
+        if len(digits) < 4 or any(char not in "0123456789abcdefABCDEF" for char in digits):
+            raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
+        self._pos += 4
+        return int(digits, 16)
+
     def _read_int(self) -> None:
         """下标与切片端点：``-`` 可选，除单个 ``0`` 外不得有前导零，``-0`` 不是合法下标。"""
         start = self._pos
         if self._peek() == "-":
             self._pos += 1
-        if self._eof() or not self._peek().isdigit():
+        if self._eof() or not _is_ascii_digit(self._peek()):
             raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
-        while not self._eof() and self._peek().isdigit():
+        while not self._eof() and _is_ascii_digit(self._peek()):
             self._pos += 1
         digits = self._source[start : self._pos].lstrip("-")
         if self._source[start] == "-" and digits == "0" or len(digits) > 1 and digits.startswith("0"):
@@ -220,7 +253,7 @@ class _Parser:
         """过滤器里的数字字面量：整数部分同样禁前导零，小数点与指数后必须跟数字。"""
         if self._peek() == "-":
             self._pos += 1
-        if self._eof() or not self._peek().isdigit():
+        if self._eof() or not _is_ascii_digit(self._peek()):
             raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
         if self._peek() == "0":
             self._pos += 1
@@ -236,9 +269,9 @@ class _Parser:
             self._read_digits()
 
     def _read_digits(self) -> None:
-        if self._eof() or not self._peek().isdigit():
+        if self._eof() or not _is_ascii_digit(self._peek()):
             raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
-        while not self._eof() and self._peek().isdigit():
+        while not self._eof() and _is_ascii_digit(self._peek()):
             self._pos += 1
 
     # ---- 过滤器 ----
@@ -304,6 +337,13 @@ class _Parser:
     def _parse_singular_query(self) -> None:
         self._pos += 1
         while True:
+            # RFC 的 `singular-query-segments = *(S (name-segment / index-segment))`：段前允许空白。
+            # 不是段起始时把游标退回去，后面的空白归调用方处理（比较运算符前的那一段）。
+            before_blank = self._pos
+            self._skip_whitespace()
+            if self._peek() not in {".", "["}:
+                self._pos = before_blank
+                return
             if self._peek() == ".":
                 if self._peek(1) == ".":
                     raise self._fail(DefinitionErrorCode.JSONPATH_RECURSIVE_DESCENT)
@@ -317,23 +357,24 @@ class _Parser:
                 self._skip_whitespace()
                 if self._peek() in {"'", '"'}:
                     self._read_quoted()
-                elif self._peek() == "-" or self._peek().isdigit():
+                elif self._peek() == "-" or _is_ascii_digit(self._peek()):
                     self._read_int()
                 else:
                     raise self._fail(DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR)
                 self._skip_whitespace()
+                # 名字/下标之后的 `:` 是切片、`,` 是联合，两者都产出多值，与 `@.*` 同属非单值。
+                if self._peek() in {":", ","}:
+                    raise self._fail(DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR)
                 if self._peek() != "]":
                     raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
                 self._pos += 1
-                continue
-            return
 
     def _parse_literal(self) -> None:
         char = self._peek()
         if char in {"'", '"'}:
             self._read_quoted()
             return
-        if char == "-" or char.isdigit():
+        if char == "-" or _is_ascii_digit(char):
             self._read_number()
             return
         for keyword in _LITERAL_KEYWORDS:

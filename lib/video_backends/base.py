@@ -475,7 +475,11 @@ async def poll_with_retry[T](
     连续可重试错误（其间无一次成功响应）满 `VIDEO_POLL_MAX_CONSECUTIVE_FAILURES` 次即抛
     RuntimeError 终态失败，任一成功响应清零。重试等待按 `poll_interval × 2^k` 退避、封顶
     `VIDEO_POLL_MAX_BACKOFF_SECONDS`；响应带整数秒且不超过该封顶的 `Retry-After` 时优先采用。
-    失败预算管「供应商不可达」，`max_wait` 管「供应商可达但慢」。
+    失败预算管「供应商不可达」，`max_wait` 管「供应商可达但慢」。任何一次等待都截到 `max_wait`
+    的截止时刻，故最后一次轮询发出时必定仍在预算内。
+
+    失败预算对全部消费方生效，视频与图片两条通道同此一份：图片侧的 `lib/image_backends/vidu.py`
+    与 `lib/kling_backend_base.py` 同样在连续失败满额时终止，不会用满各自的 `max_wait` 窗口。
 
     Args:
         poll_fn: 每次轮询调用的异步函数，返回最新状态。
@@ -529,9 +533,11 @@ async def poll_with_retry[T](
                 on_progress(result, active_clock.monotonic() - start)
             wait_time = poll_interval
 
-        if active_clock.monotonic() - start >= max_wait:
+        remaining = max_wait - (active_clock.monotonic() - start)
+        if remaining <= 0:
             raise TimeoutError(f"{prefix}任务超时（{max_wait:.0f}秒）")
-        await active_clock.sleep(wait_time)
+        # 等待不越过剩余预算：下一次轮询必定发在 max_wait 截止时刻或之前。
+        await active_clock.sleep(min(wait_time, remaining))
 
 
 def _retry_after_seconds(exc: Exception) -> int | None:

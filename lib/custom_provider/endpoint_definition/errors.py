@@ -41,10 +41,12 @@ class DefinitionErrorCode(StrEnum):
     SCHEMA_VIOLATION = "schema_violation"
 
     # ---- 占位符作用域 ----
+    MALFORMED_PLACEHOLDER = "malformed_placeholder"
     UNDECLARED_VARIABLE = "undeclared_variable"
     API_KEY_OUTSIDE_AUTH = "api_key_outside_auth"
     AUTH_WITHOUT_API_KEY = "auth_without_api_key"
     AUTH_HEADER_CONFLICT = "auth_header_conflict"
+    HEADER_NAME_DUPLICATE = "header_name_duplicate"
     AUTH_QUERY_CONFLICT = "auth_query_conflict"
     TASK_ID_OUT_OF_SCOPE = "task_id_out_of_scope"
     RESULT_ID_OUT_OF_SCOPE = "result_id_out_of_scope"
@@ -55,6 +57,8 @@ class DefinitionErrorCode(StrEnum):
     LIST_INPUT_REQUIRES_EACH = "list_input_requires_each"
     EACH_IN_NOT_LIST_INPUT = "each_in_not_list_input"
     EACH_SHAPE_INVALID = "each_shape_invalid"
+    EACH_POSITION_MISMATCH = "each_position_mismatch"
+    EACH_ALIAS_RESERVED = "each_alias_reserved"
     WHEN_UNKNOWN_INPUT = "when_unknown_input"
     INPUT_NOT_REFERENCED = "input_not_referenced"
 
