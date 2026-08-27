@@ -115,6 +115,7 @@ MESSAGES = {
     "video_shorter_than_tts": "Video đã tạo dài {video_duration:.1f}s, ngắn hơn âm thanh thuyết minh {tts_duration:.1f}s; hãy tạo lại mà không cắt hoặc tăng tốc lời nói",
     "audio_provider_not_configured": "Vui lòng cấu hình nhà cung cấp âm thanh trước: thêm nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói trong Cài đặt → Nhà cung cấp",
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
+    "video_poll_timeout_minimum": "Thời gian chờ thăm dò video phải ít nhất 60 giây",
     "speech_rate_out_of_range": "Nhịp đọc phải nằm trong khoảng {min} đến {max} (ký tự hoặc từ mỗi giây)",
     "character_not_found": "Nhân vật '{name}' không tồn tại",
     "character_task_submitted": "Đã gửi tác vụ tạo hình tài sản nhân vật cho '{name}'",

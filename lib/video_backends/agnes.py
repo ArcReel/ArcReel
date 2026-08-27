@@ -91,10 +91,6 @@ _SUBMIT_TIMEOUT_SECONDS = 300.0
 # 轮询 / 下载用较短超时（幂等 GET 正常秒级返回）。
 _POLL_HTTP_TIMEOUT_SECONDS = 60.0
 
-_POLL_INTERVAL_SECONDS = 5.0
-_MIN_POLL_TIMEOUT_SECONDS = 900.0
-_POLL_TIMEOUT_PER_SECOND = 60.0
-
 _KEYFRAMES_MODE = "keyframes"
 
 # 失败终态集合：除文档化的 failed 外，纳入 error / cancelled / canceled，避免上游以非标准失败态
@@ -509,8 +505,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             poll_fn=_gated_poll,
             is_done=lambda state: state.get("status") in ("completed", "failed"),
             is_failed=_failure_reason,
-            poll_interval=_POLL_INTERVAL_SECONDS,
-            max_wait=self._max_wait(request.duration_seconds),
+            max_wait=request.poll_timeout_seconds,
             retry_if=should_retry_poll,
             label="Agnes",
             on_progress=lambda v, elapsed: logger.info(
@@ -548,7 +543,3 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
         """下载成片 URL（幂等 GET），独立的下载重试范围，不回退到重跑生成 POST。"""
         await download_video(video_url, output_path)
-
-    @staticmethod
-    def _max_wait(duration_seconds: int) -> float:
-        return max(_MIN_POLL_TIMEOUT_SECONDS, duration_seconds * _POLL_TIMEOUT_PER_SECOND)

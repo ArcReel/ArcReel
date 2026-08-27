@@ -75,6 +75,13 @@ def _make_mock_svc(
     svc.get_all_settings = AsyncMock(side_effect=_get_all_settings)
     svc.set_setting = AsyncMock(side_effect=_set_setting)
 
+    async def _set_video_poll_timeout_seconds(value: int) -> None:
+        if isinstance(value, bool) or value < 60:
+            raise ValueError("video poll timeout must be an integer of at least 60 seconds")
+        _settings["video_poll_timeout_seconds"] = str(value)
+
+    svc.set_video_poll_timeout_seconds = AsyncMock(side_effect=_set_video_poll_timeout_seconds)
+
     ready = set(ready_providers or [])
 
     async def _get_all_providers_status():
@@ -136,6 +143,7 @@ class TestGetSystemConfig:
             "default_image_backend_i2i",
             "default_text_backend",
             "video_generate_audio",
+            "video_poll_timeout_seconds",
             "anthropic_api_key",
             "anthropic_base_url",
             "anthropic_model",
@@ -268,6 +276,12 @@ class TestGetSystemConfig:
             res = client.get("/api/v1/system/config")
         settings = res.json()["settings"]
         assert settings["video_generate_audio"] is True
+
+    def test_video_poll_timeout_defaults_to_3600_on_empty_db(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        assert res.json()["settings"]["video_poll_timeout_seconds"] == 3600
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +420,19 @@ class TestPatchSystemConfig:
             )
         assert res.status_code == 200
         assert res.json()["settings"]["video_generate_audio"] is False
+
+    def test_patch_sets_video_poll_timeout(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch("/api/v1/system/config", json={"video_poll_timeout_seconds": 7200})
+        assert res.status_code == 200
+        assert res.json()["settings"]["video_poll_timeout_seconds"] == 7200
+
+    def test_patch_rejects_video_poll_timeout_below_60_seconds(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch("/api/v1/system/config", json={"video_poll_timeout_seconds": 59})
+        assert res.status_code == 422
 
     def test_patch_sets_model_fields(self):
         mock_svc = _make_mock_svc()

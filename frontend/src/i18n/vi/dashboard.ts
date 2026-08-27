@@ -332,6 +332,8 @@ export default {
   'reading_unit_word_per_second': 'từ/giây',
   'no_audio_providers_hint': 'Không có nhà cung cấp âm thanh khả dụng, vui lòng cấu hình khóa API tại "Nhà cung cấp" trước.',
   'generate_audio': 'Tạo video có âm thanh',
+  'video_poll_timeout_label': 'Thời gian chờ thăm dò video (giây)',
+  'video_poll_timeout_hint': 'Ít nhất 60 giây; thay đổi chỉ áp dụng cho tác vụ video mới được phân phối',
   'audio_support_hint': '(Chỉ một số nhà cung cấp hỗ trợ)',
   'audio_switch_locked_always_on': 'Mô hình này luôn tạo ra âm thanh nên không thể đổi công tắc',
   'audio_switch_locked_always_off': 'Mô hình này không tạo ra âm thanh nên không thể đổi công tắc',

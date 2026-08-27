@@ -41,9 +41,6 @@ from lib.vidu_shared import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "viduq3-turbo"
-_POLL_INTERVAL_SECONDS = 5.0
-_MIN_POLL_TIMEOUT_SECONDS = 900.0
-_POLL_TIMEOUT_PER_SECOND = 90.0
 _MAX_REFERENCE_IMAGES = 7
 _PROMPT_MAX_TEXT2VIDEO = 5000
 _PROMPT_MAX_REFERENCE2VIDEO = 2000
@@ -230,7 +227,6 @@ class ViduVideoBackend:
         endpoint, body = self._build_request(request)
         # _build_request 已把 duration 归一化到 body["duration"]，统一使用以避免 None 崩溃及结果不一致。
         coerced_duration = int(body["duration"])
-        max_wait = max(_MIN_POLL_TIMEOUT_SECONDS, float(coerced_duration) * _POLL_TIMEOUT_PER_SECOND)
 
         async with create_vidu_client(api_key=self._api_key, base_url=self._base_url) as client:
             payload = await self._create_task(client, endpoint, body)
@@ -250,8 +246,7 @@ class ViduVideoBackend:
                 poll_fn=lambda: fetch_vidu_task(client, task_id),
                 is_done=is_vidu_done,
                 is_failed=vidu_failure_reason,
-                poll_interval=_POLL_INTERVAL_SECONDS,
-                max_wait=max_wait,
+                max_wait=request.poll_timeout_seconds,
                 retryable_errors=VIDU_RETRYABLE_ERRORS,
                 label="Vidu",
                 on_progress=lambda v, elapsed: logger.info(

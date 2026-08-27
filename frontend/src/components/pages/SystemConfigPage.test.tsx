@@ -22,6 +22,7 @@ function makeConfigResponse(
       text_backend_simple: "",
       text_backend_complex: "",
       video_generate_audio: true,
+      video_poll_timeout_seconds: 3600,
       anthropic_api_key: { is_set: true, masked: "sk-ant-***" },
       anthropic_base_url: "",
       anthropic_model: "",

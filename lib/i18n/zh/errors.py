@@ -110,6 +110,7 @@ MESSAGES = {
     "video_shorter_than_tts": "生成视频仅 {video_duration:.1f}s，短于 {tts_duration:.1f}s 旁白配音；请重新生成；不要截断或加速语音",
     "audio_provider_not_configured": "请先配置音频供应商：在「全局设置 → 供应商」页面配置支持语音合成的供应商",
     "narration_speed_must_be_positive": "旁白语速必须是正数",
+    "video_poll_timeout_minimum": "视频轮询超时不能少于 60 秒",
     "speech_rate_out_of_range": "语速需在 {min} 到 {max} 之间（字或词/秒）",
     "character_not_found": "角色「{name}」不存在",
     "character_task_submitted": "角色「{name}」资产图生成任务已提交",

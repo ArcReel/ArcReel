@@ -58,6 +58,12 @@ def _http_status_error(status_code: int, *, text: str = "boom") -> httpx.HTTPSta
     return httpx.HTTPStatusError(f"error '{status_code}'", request=request, response=response)
 
 
+def _http_status_error_with_headers(status_code: int, headers: dict[str, str]) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "https://relay.example/tasks/1")
+    response = httpx.Response(status_code, request=request, headers=headers)
+    return httpx.HTTPStatusError(f"error '{status_code}'", request=request, response=response)
+
+
 class TestVideoGenerationRequest:
     def test_defaults(self):
         req = VideoGenerationRequest(prompt="test", output_path=Path("/tmp/out.mp4"))
@@ -67,6 +73,7 @@ class TestVideoGenerationRequest:
         assert req.start_image is None
         assert req.generate_audio is True
         assert req.reference_audio_files is None
+        assert req.poll_timeout_seconds == 3600
         assert req.service_tier == "default"
         assert req.seed is None
 
@@ -283,6 +290,85 @@ class TestPollWithRetry:
 
         assert result == "done"
         assert poll_fn.await_count == 2
+
+    async def test_ten_consecutive_retryable_failures_exhaust_budget(self):
+        poll_fn = AsyncMock(side_effect=[ConnectionError(f"failure-{n}") for n in range(1, 11)])
+        clock = _FakeClock(step=0)
+
+        with pytest.raises(RuntimeError, match="failure-10"):
+            await poll_with_retry(
+                poll_fn=poll_fn,
+                is_done=lambda _r: False,
+                is_failed=lambda _r: None,
+                max_wait=3600,
+                clock=clock,
+            )
+
+        assert poll_fn.await_count == 10
+        assert clock.sleeps == [5, 10, 20, 40, 60, 60, 60, 60, 60]
+
+    async def test_successful_response_resets_failure_backoff(self):
+        poll_fn = AsyncMock(side_effect=[ConnectionError("first"), "pending", ConnectionError("second"), "done"])
+        clock = _FakeClock(step=0)
+
+        result = await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done",
+            is_failed=lambda _r: None,
+            max_wait=3600,
+            clock=clock,
+        )
+
+        assert result == "done"
+        assert clock.sleeps == [5, 5, 5]
+
+    async def test_retry_after_integer_seconds_takes_precedence(self):
+        poll_fn = AsyncMock(side_effect=[_http_status_error_with_headers(429, {"Retry-After": "37"}), "done"])
+        clock = _FakeClock(step=0)
+
+        result = await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done",
+            is_failed=lambda _r: None,
+            max_wait=3600,
+            retry_if=should_retry_poll,
+            clock=clock,
+        )
+
+        assert result == "done"
+        assert clock.sleeps == [37]
+
+    @pytest.mark.parametrize("retry_after", ["61", "Wed, 21 Oct 2015 07:28:00 GMT", "invalid"])
+    async def test_invalid_retry_after_falls_back_to_exponential_backoff(self, retry_after: str):
+        poll_fn = AsyncMock(side_effect=[_http_status_error_with_headers(429, {"Retry-After": retry_after}), "done"])
+        clock = _FakeClock(step=0)
+
+        await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done",
+            is_failed=lambda _r: None,
+            max_wait=3600,
+            retry_if=should_retry_poll,
+            clock=clock,
+        )
+
+        assert clock.sleeps == [5]
+
+    async def test_backoff_base_follows_caller_poll_interval(self):
+        """图片通道等调用方自带节奏：退避以调用方的 poll_interval 为基数，不是视频通道的 5 秒。"""
+        poll_fn = AsyncMock(side_effect=[ConnectionError("a"), ConnectionError("b"), "done"])
+        clock = _FakeClock(step=0)
+
+        await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done",
+            is_failed=lambda _r: None,
+            max_wait=3600,
+            poll_interval=3,
+            clock=clock,
+        )
+
+        assert clock.sleeps == [3, 6]
 
 
 class TestNormalizeProviderStatus:

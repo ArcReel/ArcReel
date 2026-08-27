@@ -62,6 +62,20 @@ async def test_system_settings(config_service: ConfigService):
     assert val == "gemini-vertex/veo-3.1-fast-generate-001"
 
 
+async def test_video_poll_timeout_defaults_and_round_trips(config_service: ConfigService):
+    assert await config_service.get_video_poll_timeout_seconds() == 3600
+
+    await config_service.set_video_poll_timeout_seconds(7200)
+
+    assert await config_service.get_video_poll_timeout_seconds() == 7200
+
+
+@pytest.mark.parametrize("value", [True, 0, 59, 60.5])
+async def test_video_poll_timeout_rejects_values_below_minimum(config_service: ConfigService, value: object):
+    with pytest.raises(ValueError, match="at least 60"):
+        await config_service.set_video_poll_timeout_seconds(value)  # pyright: ignore[reportArgumentType]
+
+
 async def test_get_default_video_backend(config_service: ConfigService):
     await config_service.set_setting("default_video_backend", "ark/doubao-seedance-1-5-pro-251215")
     provider_id, model_id = await config_service.get_default_video_backend()

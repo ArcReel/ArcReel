@@ -36,6 +36,7 @@ from lib.retry import (
     with_retry_async,
 )
 from lib.video_backends.base import (
+    VIDEO_POLL_INTERVAL_SECONDS,
     poll_with_retry,
     should_retry_poll,
     should_retry_submit,
@@ -135,8 +136,8 @@ class KlingBackendBase:
         self,
         poll_fn: Callable[[], Awaitable[dict]],
         *,
-        poll_interval: float,
         max_wait: float,
+        poll_interval: float = VIDEO_POLL_INTERVAL_SECONDS,
     ) -> dict:
         """轮询至终态（succeed/failed）：复用 base.poll_with_retry，注入 Kling 终态/失败/重试谓词。"""
         return await poll_with_retry(

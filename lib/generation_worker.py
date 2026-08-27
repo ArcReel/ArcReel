@@ -459,8 +459,17 @@ async def _execute_task(task: dict[str, Any], *, claimed_provider_id: str | None
     from server.services.generation_tasks import execute_generation_task
 
     if task.get("task_type") in ("video", "reference_video"):
+        task["video_poll_timeout_seconds"] = await _read_video_poll_timeout_seconds()
         return await execute_generation_task(task, claimed_provider_id=claimed_provider_id)
     return await execute_generation_task(task)
+
+
+async def _read_video_poll_timeout_seconds() -> int:
+    from lib.config.service import ConfigService
+    from lib.db import safe_session_factory
+
+    async with safe_session_factory() as session:
+        return await ConfigService(session).get_video_poll_timeout_seconds()
 
 
 class GenerationWorker:
@@ -1233,6 +1242,10 @@ class GenerationWorker:
 
         if resumable_by_provider:
             total = sum(len(v) for v in resumable_by_provider.values())
+            poll_timeout_seconds = await _read_video_poll_timeout_seconds()
+            for tasks in resumable_by_provider.values():
+                for task in tasks:
+                    task["video_poll_timeout_seconds"] = poll_timeout_seconds
             logger.info(
                 "孤儿扫描 fast path 完成：%d 个可 resume video 任务交后台分批 dispatch",
                 total,

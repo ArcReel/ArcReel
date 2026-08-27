@@ -25,7 +25,6 @@ from typing import Literal
 import httpx
 
 from lib.dashscope_shared import (
-    DASHSCOPE_POLL_INTERVAL_SECONDS,
     dashscope_failure_reason,
     dashscope_headers,
     dashscope_native_base_url,
@@ -100,8 +99,6 @@ DEFAULT_MODEL = "happyhorse-1.1-i2v"
 
 _VIDEO_ENDPOINT = "/services/aigc/video-generation/video-synthesis"
 
-_MIN_POLL_TIMEOUT_SECONDS = 900.0
-_POLL_TIMEOUT_PER_SECOND = 60.0
 
 # wan2.7-r2v 的 reference_voice 逐段挂在参考素材项上，故音频段数上限等同参考素材总数上限
 # （官方：参考图像 + 参考视频 ≤ 5）。
@@ -761,8 +758,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             poll_fn=_gated_poll,
             is_done=is_dashscope_terminal,
             is_failed=dashscope_failure_reason,
-            poll_interval=DASHSCOPE_POLL_INTERVAL_SECONDS,
-            max_wait=self._max_wait(request.duration_seconds),
+            max_wait=request.poll_timeout_seconds,
             retry_if=should_retry_poll,
             label="DashScope",
             on_progress=lambda v, elapsed: logger.info(
@@ -805,7 +801,3 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
     )
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
         await download_video(video_url, output_path)
-
-    @staticmethod
-    def _max_wait(duration_seconds: int) -> float:
-        return max(_MIN_POLL_TIMEOUT_SECONDS, duration_seconds * _POLL_TIMEOUT_PER_SECOND)

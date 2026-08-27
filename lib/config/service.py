@@ -19,6 +19,8 @@ _DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
 # 旁白默认音色（DashScope 预设）；可被 project.json 顶层 narration_voice 或全局 setting 覆盖
 # （与 video_backend 等同走顶层 key，非 settings 子字典）。
 _DEFAULT_NARRATION_VOICE = "Cherry"
+DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS = 3600
+MIN_VIDEO_POLL_TIMEOUT_SECONDS = 60
 
 # 参考上传副本的保守通用请求体上限（ArcReel 侧安全策略常量，非任一供应商的真实字节限；
 # 被动 413 兜底负责自我纠正）。可经 per-provider 配置 key 覆盖。
@@ -202,6 +204,28 @@ class ConfigService:
 
     async def set_setting(self, key: str, value: str) -> None:
         await self._setting_repo.set(key, value)
+
+    async def get_video_poll_timeout_seconds(self) -> int:
+        raw = await self._setting_repo.get(
+            "video_poll_timeout_seconds",
+            str(DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS),
+        )
+        return self.parse_video_poll_timeout_seconds(raw)
+
+    @staticmethod
+    def parse_video_poll_timeout_seconds(raw: str) -> int:
+        try:
+            value = int(raw)
+        except ValueError:
+            return DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
+        return value if value >= MIN_VIDEO_POLL_TIMEOUT_SECONDS else DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
+
+    async def set_video_poll_timeout_seconds(self, value: int) -> None:
+        if not isinstance(value, int) or isinstance(value, bool) or value < MIN_VIDEO_POLL_TIMEOUT_SECONDS:
+            raise ValueError(
+                f"video poll timeout must be an integer of at least {MIN_VIDEO_POLL_TIMEOUT_SECONDS} seconds"
+            )
+        await self._setting_repo.set("video_poll_timeout_seconds", str(value))
 
     async def get_default_video_backend(self) -> tuple[str, str]:
         raw = await self._setting_repo.get("default_video_backend", _DEFAULT_VIDEO_BACKEND)

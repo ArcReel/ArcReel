@@ -20,6 +20,7 @@ from lib.config.resolver import (
     constrain_durations,
     get_provider_fallback,
 )
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import (
@@ -313,6 +314,7 @@ async def execute_reference_video_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
     claimed_provider_id: str | None = None,
+    poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
     stage_media_for_task: Callable[
         [Path, str, tuple[ProviderMediaInput, ...]], Awaitable[tuple[StagedProviderMedia, ...]]
     ]
@@ -774,6 +776,7 @@ async def execute_reference_video_task(
             commit_formal_output=artifact_committer,
             visual_basis_digest=visual_basis_digest,
             generate_audio=video.requested_generate_audio,
+            poll_timeout_seconds=poll_timeout_seconds,
         )
 
         async def _finalize() -> dict[str, Any]:

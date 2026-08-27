@@ -57,6 +57,7 @@ from lib.audio_utils import (
 )
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import (
     CompensableGenerationResult,
@@ -2284,6 +2285,7 @@ async def execute_video_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
     claimed_provider_id: str | None = None,
+    poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     payload_script_file = payload.get("script_file")
     if script_file is None and isinstance(payload_script_file, str):
@@ -2714,6 +2716,7 @@ async def execute_video_task(
             service_tier=service_tier,
             visual_basis_digest=visual_basis_digest,
             generate_audio=ctx.video.requested_generate_audio,
+            poll_timeout_seconds=poll_timeout_seconds,
         )
 
         async def _finalize() -> dict[str, Any]:
@@ -3486,6 +3489,7 @@ async def _execute_reference_video_task_proxy(
     user_id: str,
     task_id: str | None = None,
     claimed_provider_id: str | None = None,
+    poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Lazy proxy to avoid circular import: reference_video_tasks imports from this module."""
     from server.services.reference_video_tasks import execute_reference_video_task
@@ -3498,6 +3502,7 @@ async def _execute_reference_video_task_proxy(
         user_id=user_id,
         task_id=task_id,
         claimed_provider_id=claimed_provider_id,
+        poll_timeout_seconds=poll_timeout_seconds,
     )
 
 
@@ -3537,6 +3542,8 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
     payload = task.get("payload") or {}
     user_id = task.get("user_id", DEFAULT_USER_ID)
     queue_task_id = task.get("task_id")
+    # worker 派发时把当下的全局设置写进任务字典；非 worker 调用方（测试 / 直生）落回缺省。
+    video_poll_timeout_seconds = int(task.get("video_poll_timeout_seconds", DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS))
 
     if not project_name:
         raise ValueError("task.project_name is required")
@@ -3564,6 +3571,7 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
                 user_id=user_id,
                 task_id=queue_task_id,
                 claimed_provider_id=claimed_provider_id,
+                poll_timeout_seconds=video_poll_timeout_seconds,
             )
         elif task_type == "video":
             result = await executor(
@@ -3574,6 +3582,7 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
                 user_id=user_id,
                 task_id=queue_task_id,
                 claimed_provider_id=claimed_provider_id,
+                poll_timeout_seconds=video_poll_timeout_seconds,
             )
         else:
             result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
