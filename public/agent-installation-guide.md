@@ -14,7 +14,7 @@ npx skills add ArcReel/skills
 
 ## 2. 获取接入信息
 
-让用户打开 [ArcReel 设置页]({{BASE_URL}}/app/settings?section=api-keys)，创建并保存一个 `arc-` 前缀的 API Key。完整密钥只显示一次；把它存入宿主支持的安全凭证位置，只发送给下方 ArcReel MCP 端点。
+让用户打开 [ArcReel 设置页]({{BASE_URL}}/app/settings?section=api-keys)，创建并保存一个 `arc-` 前缀的 API Key。完整密钥只显示一次；把它存入宿主支持的安全凭证位置，只发送给下方 ArcReel MCP 端点。不要把密钥写入对话输出、shell 历史、项目文件或提交的配置。
 
 MCP 端点：
 

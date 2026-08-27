@@ -25,7 +25,7 @@ describe("ExternalAgentModal", () => {
     );
     const prompt = `帮我接入 ArcReel。请阅读并执行 ${window.location.origin}/agent-installation-guide.md`;
     expect(screen.getByText(prompt)).toBeInTheDocument();
-    expect(prompt).not.toContain("arc-");
+    expect(screen.getByRole("tabpanel")).not.toHaveTextContent("arc-");
     expect(screen.queryByRole("link", { name: "查看完整安装指引" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "复制提示词" }));
@@ -52,6 +52,7 @@ describe("ExternalAgentModal", () => {
 
     await user.click(screen.getByRole("button", { name: "复制 MCP 端点" }));
     expect(copyText).toHaveBeenLastCalledWith(`${window.location.origin}/mcp`);
+    expect(screen.getByRole("status")).toHaveTextContent("MCP 端点已复制");
   });
 
   it("switches tabs with arrow keys", async () => {

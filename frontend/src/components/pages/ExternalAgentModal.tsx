@@ -22,7 +22,7 @@ const SETUP_COMMAND = "/setup-arcreel-skills";
 const INSTALL_GUIDE_URL = `${window.location.origin}/agent-installation-guide.md`;
 
 type InstallTab = "manual" | "agent";
-type CopyTarget = "endpoint" | "install" | "setup" | "prompt";
+type CopyTarget = "mcp_endpoint" | "install" | "setup" | "prompt";
 
 export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -279,16 +279,16 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
                 </code>
                 <button
                   type="button"
-                  onClick={() => handleCopy("endpoint", MCP_ENDPOINT)}
+                  onClick={() => handleCopy("mcp_endpoint", MCP_ENDPOINT)}
                   className={GHOST_BTN_CLS}
                   aria-label={t("dashboard:external_agent_copy_mcp_endpoint")}
                 >
-                  {copied === "endpoint" ? (
+                  {copied === "mcp_endpoint" ? (
                     <Check className="h-3 w-3 text-good" aria-hidden />
                   ) : (
                     <Copy className="h-3 w-3" aria-hidden />
                   )}
-                  {copied === "endpoint" ? t("common:copied") : t("common:copy")}
+                  {copied === "mcp_endpoint" ? t("common:copied") : t("common:copy")}
                 </button>
               </div>
             </div>
