@@ -16,6 +16,8 @@ import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 interface EndpointOption {
   value: EndpointKey;
   labelKey: string;
+  /** 声明式端点自带的显示名，优先于 labelKey 的 i18n 文案；Python 内置为 null。 */
+  displayName: string | null;
   mediaType: MediaType;
   method: string;
   path: string;
@@ -68,6 +70,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
           ordered.push({
             value: e.key,
             labelKey: e.display_name_key,
+            displayName: e.display_name,
             mediaType: e.media_type,
             method: e.request_method,
             path: e.request_path_template,
@@ -113,7 +116,9 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
     ? selected.path.replace(/^\/v1beta\/models\//, "/").replace(/^\/v1/, "")
     : "";
   // 已选 endpoint 不在当前 catalog（数据漂移或后端临时移除）：用原始 key 兜底显示。
-  const triggerLabel = selected ? t(selected.labelKey) : value || t("endpoint_catalog_loading");
+  const triggerLabel = selected
+    ? (selected.displayName ?? t(selected.labelKey))
+    : value || t("endpoint_catalog_loading");
 
   const handleSelect = useCallback(
     (next: EndpointKey) => {
@@ -277,7 +282,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
                           <div
                             className={`truncate text-sm ${isSelected ? "text-text" : "text-text-2"}`}
                           >
-                            {t(opt.labelKey)}
+                            {opt.displayName ?? t(opt.labelKey)}
                           </div>
                           <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-[11px] leading-none">
                             <span className="text-text-4">{opt.method}</span>

@@ -204,6 +204,7 @@ MESSAGES = {
     "discovery_failed": "Phát hiện mô hình thất bại: {err_msg}",
     "anthropic_discovery_no_key": "API Key chưa được cấu hình, không thể phát hiện mô hình",
     "unknown_endpoint": "Endpoint không xác định: {endpoint}",
+    "endpoint_definition_not_found": "Endpoint {endpoint} không có định nghĩa khai báo",
     "unknown_discovery_format": "discovery_format không hỗ trợ: {discovery_format}",
     "endpoint_required": "Mô hình đã bật phải chỉ định endpoint",
     "endpoint_media_type_mismatch": "media_type của endpoint không khớp: {detail}",

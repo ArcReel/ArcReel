@@ -11,7 +11,11 @@ export interface EndpointDescriptor {
   key: string;
   media_type: MediaType;
   family: string;
+  /** 实现形态：python = backend 代码，declarative = 随版声明式定义。 */
+  kind: "python" | "declarative";
   display_name_key: string;
+  /** 声明式端点的显示名（定义里的 meta.name，专有名词不翻译）；Python 内置为 null，取 display_name_key 的文案。 */
+  display_name: string | null;
   request_method: string;
   request_path_template: string;
   /** image 类 endpoint 填能力数组，其他媒体类型为 null。 */

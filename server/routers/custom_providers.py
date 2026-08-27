@@ -296,7 +296,13 @@ class EndpointDescriptor(BaseModel):
     key: str
     media_type: str
     family: str
+    # 实现形态："python"（backend 代码）| "declarative"（随版声明式定义）。前端据此决定
+    # 「复制为我的 / 查看定义」是否可见——这两项只对声明式端点成立。
+    kind: str
     display_name_key: str
+    # 声明式端点的显示名（定义里的 meta.name，专有名词不翻译）；Python 内置为 None，
+    # 由前端按 display_name_key 取 i18n 文案。两者恰有其一，前端取名时先看本字段。
+    display_name: str | None = None
     request_method: str
     request_path_template: str
     image_capabilities: list[str] | None = None  # image 类填能力字符串列表，其他为 None
@@ -613,6 +619,19 @@ async def list_endpoint_catalog() -> EndpointCatalogResponse:
     return EndpointCatalogResponse(
         endpoints=[EndpointDescriptor(**endpoint_spec_to_dict(spec)) for spec in ENDPOINT_REGISTRY.values()],
     )
+
+
+@router.get("/endpoints/{endpoint_key}/definition")
+async def get_endpoint_definition(endpoint_key: str, _t: Translator) -> dict[str, Any]:
+    """取内置声明式端点的定义 JSON，供「复制为我的」原样 POST 成 ce-<id> 副本。
+
+    Python 实现的内置端点没有定义可取，与未知键一并回 404。返回体是定义原样（零封套），
+    与导入导出的文件格式同一份东西。
+    """
+    spec = ENDPOINT_REGISTRY.get(endpoint_key)
+    if spec is None or spec.definition is None:
+        raise HTTPException(status_code=404, detail=_t("endpoint_definition_not_found", endpoint=endpoint_key))
+    return dict(spec.definition)
 
 
 @router.post("", status_code=201)
