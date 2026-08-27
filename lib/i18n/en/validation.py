@@ -224,6 +224,11 @@ MESSAGES = {
     "val_ce_removed_reason_extract_usage_keys": "usage now lives under poll.extract.usage",
     "val_ce_removed_reason_mime_types": "asset formats are not allow-listed; the provider rejects what it cannot take",
     "val_ce_removed_reason_media_type": "video is the only media type in this release",
+    "val_ce_malformed_placeholder": (
+        "{fragment} is not a valid placeholder: only bare variables are supported "
+        "(such as prompt or inputs.first_frame) — no filters, indexes or expressions, "
+        "and every opening brace must be closed"
+    ),
     "val_ce_undeclared_variable": "Placeholder {name} references a variable that is not declared",
     "val_ce_api_key_outside_auth": (
         "api_key may only appear in the auth section: credentials stay out of the body and URL, "
@@ -235,6 +240,10 @@ MESSAGES = {
     ),
     "val_ce_auth_header_conflict": (
         "{header} collides with auth.headers (case-insensitive): only the auth section may write credential headers"
+    ),
+    "val_ce_header_name_duplicate": (
+        "{header} differs from {first} in the same map only by case: HTTP header names are case-insensitive, "
+        "so both would be sent"
     ),
     "val_ce_auth_query_conflict": (
         "The URL already carries the query parameter {param} declared in auth.query: "
@@ -251,6 +260,13 @@ MESSAGES = {
     "val_ce_each_shape_invalid": (
         "$each takes either item, to spread array elements, or both key and value, to spread object entries; "
         "the two forms cannot be mixed"
+    ),
+    "val_ce_each_position_mismatch": (
+        "The $each form does not match its position: use item in an array position to spread elements, "
+        "and key with value in an object position to spread entries"
+    ),
+    "val_ce_each_alias_reserved": (
+        "{name} is a reserved variable inside the loop body and cannot be used as the $each element alias"
     ),
     "val_ce_when_unknown_input": "$when points at {name}, which is not a declared asset",
     "val_ce_input_not_referenced": (

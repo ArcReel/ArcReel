@@ -330,7 +330,7 @@ export default {
   'no_audio_providers_hint': '暂无可用音频供应商，请先在「供应商」页面配置 API 密钥',
   'generate_audio': '生成有声视频',
   'video_poll_timeout_label': '视频轮询超时（秒）',
-  'video_poll_timeout_hint': '至少 60 秒；修改后只影响新派发的视频任务',
+  'video_poll_timeout_hint': '至少 60 秒；修改后对之后开始处理的任务生效',
   'audio_support_hint': '（仅部分供应商支持）',
   'audio_switch_locked_always_on': '该模型的成片始终带声音，音频开关不可调整',
   'audio_switch_locked_always_off': '该模型的成片没有声音，音频开关不可调整',

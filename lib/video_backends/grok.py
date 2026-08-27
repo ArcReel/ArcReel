@@ -115,7 +115,8 @@ class GrokVideoBackend:
             "model": self._model,
             "duration": request.duration_seconds,
             "aspect_ratio": request.aspect_ratio,
-            "timeout": timedelta(minutes=15),
+            # 轮询在 SDK 内部，仍按请求快照里的全局超时收口，否则该设置独独对 Grok 不生效。
+            "timeout": timedelta(seconds=request.poll_timeout_seconds),
             "interval": timedelta(seconds=5),
         }
         if request.resolution is not None:

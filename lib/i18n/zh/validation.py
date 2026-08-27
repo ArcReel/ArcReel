@@ -190,10 +190,15 @@ MESSAGES = {
     "val_ce_removed_reason_extract_usage_keys": "用量改挂 poll.extract.usage",
     "val_ce_removed_reason_mime_types": "素材格式不做白名单，由供应商在提交时拒绝",
     "val_ce_removed_reason_media_type": "首期只有视频一种媒体类型",
+    "val_ce_malformed_placeholder": (
+        "{fragment} 不是合法占位符：只支持裸变量（如 prompt、inputs.first_frame），"
+        "没有过滤器、下标与表达式，开括号也必须闭合"
+    ),
     "val_ce_undeclared_variable": "占位符 {name} 引用了未声明的变量",
     "val_ce_api_key_outside_auth": "api_key 只能出现在 auth 节：凭证不进请求体与 URL，分享出去的定义也不该带上它",
     "val_ce_auth_without_api_key": "auth 节非空却没有引用 api_key：无凭证接口请把这一节留空，否则让它写入凭证",
     "val_ce_auth_header_conflict": "{header} 与 auth.headers 同名（不区分大小写）：凭证 header 只能由 auth 节写入",
+    "val_ce_header_name_duplicate": "{header} 与同表里的 {first} 只差大小写：HTTP 头名不区分大小写，两条会一起发出去",
     "val_ce_auth_query_conflict": "URL 自带的 query 参数 {param} 与 auth.query 同名：凭证 query 只能由 auth 节写入",
     "val_ce_task_id_out_of_scope": "task_id 只在 poll 与 result 节可用",
     "val_ce_result_id_out_of_scope": "result_id 只在 result 节可用",
@@ -202,6 +207,10 @@ MESSAGES = {
     "val_ce_list_input_requires_each": "{name} 是列表型素材，只能经 $each 展开，不能直接内插",
     "val_ce_each_in_not_list_input": "$each.in 指向的 {name} 不是已声明的列表型素材",
     "val_ce_each_shape_invalid": "$each 要么写 item 铺成数组元素，要么同时写 key 与 value 铺成键值对，两种写法不能混用",
+    "val_ce_each_position_mismatch": (
+        "$each 的写法与所在位置不符：数组位置写 item 铺成元素，对象位置写 key 与 value 铺成键值对"
+    ),
+    "val_ce_each_alias_reserved": "{name} 是循环体内的保留变量，不能用作 $each 的元素别名",
     "val_ce_when_unknown_input": "$when 指向的 {name} 不是已声明的素材",
     "val_ce_input_not_referenced": "声明了素材却没有在 submit 里引用：既不会发给供应商，也不能据此声明能力",
     "val_ce_enum_map_variable_not_allowed": "{variable} 不支持枚举映射，可映射的变量：{allowed}",

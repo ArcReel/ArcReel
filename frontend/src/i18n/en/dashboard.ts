@@ -330,7 +330,7 @@ export default {
   'no_audio_providers_hint': 'No audio providers available, please configure API keys in "Providers" first.',
   'generate_audio': 'Generate Video with Audio',
   'video_poll_timeout_label': 'Video polling timeout (seconds)',
-  'video_poll_timeout_hint': 'At least 60 seconds; changes apply only to newly dispatched video tasks',
+  'video_poll_timeout_hint': 'At least 60 seconds; applies to tasks that start processing afterwards',
   'audio_support_hint': '(Supported by some providers only)',
   'audio_switch_locked_always_on': "This model always produces audio, so the switch can't be changed",
   'audio_switch_locked_always_off': "This model produces no audio, so the switch can't be changed",

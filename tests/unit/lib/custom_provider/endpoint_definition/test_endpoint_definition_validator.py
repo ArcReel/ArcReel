@@ -103,6 +103,13 @@ class TestAcceptedDefinitions:
         assert diagnostics.valid, _codes(diagnostics)
         assert not diagnostics.warnings
 
+    def test_secondary_retrieval_may_be_the_only_source_of_the_video_url(self):
+        """产物地址由 result 节取时，轮询不必再编一条 video_url 路径。"""
+        definition = _full_featured()
+        del definition["poll"]["extract"]["video_url"]
+        diagnostics = validate_definition(definition)
+        assert diagnostics.valid, _codes(diagnostics)
+
 
 class TestStructuralIssues:
     def test_missing_required_field_points_at_its_container(self):
@@ -112,6 +119,16 @@ class TestStructuralIssues:
             "meta",
             "missing_field",
         )
+
+    @pytest.mark.parametrize("field", ["schema_version", "meta_version"])
+    def test_version_with_trailing_newline_is_rejected(self, field: str):
+        """Python 的 `$` 会放过末尾换行，semver 另有一条禁换行的判定兜住。"""
+        definition = custom_endpoint_definition()
+        if field == "schema_version":
+            definition["schema_version"] = "1.0.0\n"
+        else:
+            definition["meta"]["version"] = "0.1.0\n"
+        assert validate_definition(definition).errors
 
     def test_unknown_kind_is_rejected(self):
         definition = custom_endpoint_definition()
@@ -138,6 +155,40 @@ class TestStructuralIssues:
             section,
             "removed_field",
         )
+
+    @pytest.mark.parametrize("section", ["submit", "poll"])
+    @pytest.mark.parametrize("url", ["", " ", "\t", "\n"])
+    def test_blank_request_url_is_rejected(self, section: str, url: str):
+        """全空白的 URL 没有请求目标，保存时就该拒，不留到运行时发请求才失败。"""
+        definition = custom_endpoint_definition()
+        definition[section]["url"] = url
+        assert validate_definition(definition).errors, f"{section}.url 为 {url!r} 应被结构层拦下"
+
+    @pytest.mark.parametrize("header", ["X_API_KEY", "X.Foo", "X~Foo"])
+    def test_tchar_header_names_are_accepted(self, header: str):
+        """键取 HTTP 字段名的 tchar 集：下划线等合法记号是真实供应商在用的写法，不该拦。"""
+        definition = custom_endpoint_definition()
+        definition["submit"]["headers"] = {header: "arcreel"}
+        assert not validate_definition(definition).errors
+
+    @pytest.mark.parametrize("value", ["ok\r\nInjected: yes", "ok\nInjected: yes"])
+    def test_header_value_with_line_break_is_rejected(self, value: str):
+        """字段值里的换行是另起一个头；HTTP 客户端本就会拒，保存时先拦下。"""
+        definition = custom_endpoint_definition()
+        definition["submit"]["headers"] = {"X-Client": value}
+        assert validate_definition(definition).errors
+
+    def test_header_name_with_trailing_newline_is_rejected(self):
+        """换行不是 tchar；Python 的 `$` 会放过末尾换行，故另有一条禁换行的判定。"""
+        definition = custom_endpoint_definition()
+        definition["submit"]["headers"] = {"X-Client\n": "arcreel"}
+        assert validate_definition(definition).errors
+
+    def test_poll_must_extract_the_video_url_without_secondary_retrieval(self):
+        """没有 result 节时产物地址只能从轮询响应取，缺了就无处可取。"""
+        definition = custom_endpoint_definition()
+        del definition["poll"]["extract"]["video_url"]
+        assert _first(validate_definition(definition), DefinitionErrorCode.MISSING_FIELD)[0] == "poll.extract"
 
     def test_removed_extract_source_is_named(self):
         definition = custom_endpoint_definition()
@@ -169,6 +220,60 @@ class TestStructuralIssues:
         diagnostics = validate_definition(definition)
         assert _first(diagnostics, code)[0].startswith("submit.body.images[0].$each")
 
+    @pytest.mark.parametrize(
+        ("body_value", "directive"),
+        [
+            ({"$each": {"in": "inputs.refs", "as": "ref", "item": "{{ ref }}"}}, "对象位置写了 item"),
+            (
+                [{"$each": {"in": "inputs.refs", "as": "ref", "key": "{{ index }}", "value": "{{ ref }}"}}],
+                "数组位置写了 key/value",
+            ),
+        ],
+    )
+    def test_each_form_must_match_its_position(self, body_value: object, directive: str):
+        """数组位置铺元素、对象位置铺键值对：写反了没有可执行的展开语义。"""
+        definition = custom_endpoint_definition()
+        definition["inputs"]["refs"] = {"source": "reference_images", "encoding": "base64"}
+        definition["capabilities"]["max_reference_images"] = 4
+        definition["submit"]["body"]["images"] = body_value
+        diagnostics = validate_definition(definition)
+        assert _first(diagnostics, DefinitionErrorCode.EACH_POSITION_MISMATCH)[0].endswith("$each"), directive
+
+    def test_each_alias_may_not_shadow_index(self):
+        """`index` 在循环体内恒为序号：拿它当元素别名，两个值就再也分不开。"""
+        definition = custom_endpoint_definition()
+        definition["inputs"]["refs"] = {"source": "reference_images", "encoding": "base64"}
+        definition["capabilities"]["max_reference_images"] = 4
+        definition["submit"]["body"]["images"] = [
+            {"$each": {"in": "inputs.refs", "as": "index", "item": "{{ index }}"}}
+        ]
+        diagnostics = validate_definition(definition)
+        assert _first(diagnostics, DefinitionErrorCode.EACH_ALIAS_RESERVED)[0].endswith("$each.as")
+
+    @pytest.mark.parametrize("hint", ["http://", "http:// bad", "not a uri", "https://api.example ", "https://a b"])
+    def test_unusable_base_url_hint_is_rejected(self, hint: str):
+        definition = custom_endpoint_definition()
+        definition["meta"]["hints"] = {"base_url": hint}
+        assert validate_definition(definition).errors, f"{hint} 应被结构层拦下"
+
+    def test_negative_reference_audio_budget_is_rejected(self):
+        """负的音频总时长上限会让每个非空音频请求都超限，端点接受了却什么也生成不了。"""
+        definition = custom_endpoint_definition()
+        definition["capabilities"]["max_reference_audio_total_seconds"] = -1
+        diagnostics = validate_definition(definition)
+        assert diagnostics.errors, "负的时长上限应被结构层拦下"
+
+    @pytest.mark.parametrize("field_path", [("meta", "homepage"), ("meta", "hints", "base_url")])
+    def test_non_http_url_hint_is_rejected(self, field_path: tuple[str, ...]):
+        """`format: uri` 在 jsonschema 里只是注解（未装 uri 检查器时恒为真），闸门是同处的 pattern。"""
+        definition = custom_endpoint_definition()
+        container: Any = definition
+        for key in field_path[:-1]:
+            container = container.setdefault(key, {})
+        container[field_path[-1]] = "not a uri"
+        diagnostics = validate_definition(definition)
+        assert diagnostics.errors, f"{'.'.join(field_path)} 非 http(s) 应被结构层拦下"
+
 
 class TestCredentialWriteSite:
     def test_api_key_may_not_leave_the_auth_section(self):
@@ -195,6 +300,30 @@ class TestCredentialWriteSite:
             "submit.url",
             "auth_query_conflict",
         )
+
+    def test_percent_encoded_url_query_still_collides(self):
+        """按服务端解析后的名字比对：`%74oken` 解码即 `token`，同一参数会被写两遍。"""
+        definition = custom_endpoint_definition()
+        definition["auth"] = {"query": {"token": "{{ api_key }}"}}
+        definition["submit"]["url"] = "{{ base_url }}/v1/video/create?%74oken=inline"
+        assert _first(validate_definition(definition), DefinitionErrorCode.AUTH_QUERY_CONFLICT)[0] == "submit.url"
+
+    def test_plus_encoded_url_query_still_collides(self):
+        """查询串里的 `+` 解析为空格：`api+key` 与 `api key` 是同一个参数。"""
+        definition = custom_endpoint_definition()
+        definition["auth"] = {"query": {"api key": "{{ api_key }}"}}
+        definition["submit"]["url"] = "{{ base_url }}/v1/video/create?api+key=inline"
+        assert _first(validate_definition(definition), DefinitionErrorCode.AUTH_QUERY_CONFLICT)[0] == "submit.url"
+
+    @pytest.mark.parametrize("path", ["auth", "submit"])
+    def test_case_colliding_header_names_are_rejected(self, path: str):
+        """HTTP 头名不区分大小写：同一张表里写两种大小写，两条会一起发出去。"""
+        definition = custom_endpoint_definition()
+        if path == "auth":
+            definition["auth"] = {"headers": {"Authorization": "Bearer {{ api_key }}", "authorization": "x"}}
+        else:
+            definition["submit"]["headers"] = {"X-Client": "arcreel", "x-client": "dup"}
+        assert _first(validate_definition(definition), DefinitionErrorCode.HEADER_NAME_DUPLICATE)[0].startswith(path)
 
     def test_non_empty_auth_must_write_the_credential(self):
         definition = custom_endpoint_definition()
@@ -244,6 +373,22 @@ class TestCapabilityConsistency:
 
 
 class TestPlaceholderScope:
+    @pytest.mark.parametrize(
+        "template",
+        [
+            "{{ prompt | upper }}",
+            "{{ inputs.first_frame[0] }}",
+            "{{ prompt",
+            "{{ 'literal' }}",
+        ],
+    )
+    def test_malformed_placeholder_is_reported(self, template: str):
+        """格式只认裸变量：写成 Jinja 那样不会被当占位符，不报就会原样发给供应商。"""
+        definition = custom_endpoint_definition()
+        definition["submit"]["body"]["prompt"] = template
+        diagnostics = validate_definition(definition)
+        assert _first(diagnostics, DefinitionErrorCode.MALFORMED_PLACEHOLDER)[0] == "submit.body.prompt"
+
     def test_unknown_variable_is_named(self):
         definition = custom_endpoint_definition()
         definition["submit"]["body"]["tier"] = "{{ service_tier }}"

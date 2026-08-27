@@ -16,6 +16,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from functools import cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
@@ -28,7 +29,7 @@ from .jsonpath_subset import JsonPathSubsetError, parse_json_path
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
 
-#: 定义格式自身的版本；写入时不改写文件里的 ``schema_version``，首期也没有迁移。
+#: 定义格式自身的版本；写入时不改写文件里的 ``schema_version``，校验器也不做定义迁移。
 CURRENT_SCHEMA_VERSION = "1.0.0"
 
 #: 请求模板里随时可用的保留变量。``width`` / ``height`` 由比例与分辨率派生，不接受参数。
@@ -71,7 +72,7 @@ CAPABILITY_SOURCE_PAIRS: tuple[tuple[str, str], ...] = (
     ("reference_audio_mode", "reference_audio_files"),
 )
 
-#: 曾经出现过、现已从格式里移除的字段：单独报「字段已移除」并给出去处，比笼统的「未知字段」好用。
+#: 格式不接受、但写定义的人容易写出来的字段名 → 其去处：单独报「字段已移除」比笼统的「未知字段」好用。
 REMOVED_FIELD_REASONS: Mapping[str, str] = {
     "query": "val_ce_removed_reason_request_query",
     "success_status_codes": "val_ce_removed_reason_status_codes",
@@ -86,6 +87,10 @@ REMOVED_FIELD_REASONS: Mapping[str, str] = {
 }
 
 _PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
+
+#: 模板里每一处 ``{{``。不落在 ``_PLACEHOLDER`` 起点上的即写法不合法：格式只认裸变量，
+#: 过滤器、下标、表达式与未闭合的开括号都不是占位符，渲染时会原样发给供应商。
+_PLACEHOLDER_OPEN = re.compile(r"\{\{")
 
 _ENUM_KEYWORDS = frozenset({"enum", "const"})
 
@@ -282,6 +287,7 @@ class _SemanticChecker:
         for group, values in (("headers", headers), ("query", query)):
             for name, template in values.items():
                 self._scan_template(template, join_path(join_path("auth", group), name), scope)
+        self._check_header_names(join_path("auth", "headers"), headers)
         if not headers and not query:
             return
         if not any("api_key" in _placeholder_names(str(value)) for value in (*headers.values(), *query.values())):
@@ -296,12 +302,21 @@ class _SemanticChecker:
         self._scan_template(url, join_path(section, "url"), scope)
         for name, template in (request.get("headers") or {}).items():
             self._scan_template(template, join_path(join_path(section, "headers"), name), scope)
+        self._check_header_names(join_path(section, "headers"), request.get("headers") or {})
         if "body" in request:
             self._scan_node(request["body"], join_path(section, "body"), scope)
         self._check_auth_collisions(section, request, url)
         self._check_extract(section, request.get("extract") or {})
         if section == "poll" and "task_id" not in _placeholder_names(json.dumps(request, ensure_ascii=False)):
             self._warn("poll", DefinitionErrorCode.POLL_WITHOUT_TASK_ID)
+
+    def _check_header_names(self, path: str, headers: Mapping[str, Any]) -> None:
+        """同一张头表里不得有大小写不同的同名键：HTTP 头名不区分大小写，两条会一起发出去。"""
+        seen: dict[str, str] = {}
+        for name in headers:
+            first = seen.setdefault(name.lower(), name)
+            if first != name:
+                self._error(join_path(path, name), DefinitionErrorCode.HEADER_NAME_DUPLICATE, header=name, first=first)
 
     def _check_auth_collisions(self, section: str, request: Mapping[str, Any], url: object) -> None:
         auth_headers = {name.lower() for name in (self._auth.get("headers") or {})}
@@ -349,13 +364,13 @@ class _SemanticChecker:
 
     # ---- 模板扫描 ----
 
-    def _scan_node(self, node: object, path: str, scope: _Scope) -> None:
+    def _scan_node(self, node: object, path: str, scope: _Scope, *, in_array: bool = False) -> None:
         if isinstance(node, str):
             self._scan_template(node, path, scope)
             return
         if isinstance(node, list):
             for index, item in enumerate(node):
-                self._scan_node(item, join_path(path, index), scope)
+                self._scan_node(item, join_path(path, index), scope, in_array=True)
             return
         if not isinstance(node, dict):
             return
@@ -367,11 +382,17 @@ class _SemanticChecker:
                     self._error(join_path(path, key), DefinitionErrorCode.INPUT_OUT_OF_SCOPE, name=str(value))
                 continue
             if key == "$each":
-                self._scan_each(value, join_path(path, key), scope)
+                self._scan_each(value, join_path(path, key), scope, in_array=in_array)
                 continue
             self._scan_node(value, join_path(path, key), scope)
 
-    def _scan_each(self, directive: Mapping[str, Any], path: str, scope: _Scope) -> None:
+    def _scan_each(self, directive: Mapping[str, Any], path: str, scope: _Scope, *, in_array: bool) -> None:
+        # 数组位置铺元素、对象位置铺键值对：两种展开的产物形状不同，写反了没有可执行语义。
+        if in_array != ("item" in directive):
+            self._error(path, DefinitionErrorCode.EACH_POSITION_MISMATCH)
+        # 循环体内 `index` 恒为序号：拿它当元素别名，两个值就再也分不开。
+        if directive.get("as") == "index":
+            self._error(join_path(path, "as"), DefinitionErrorCode.EACH_ALIAS_RESERVED, name="index")
         name = str(directive.get("in", "")).removeprefix("inputs.")
         if name not in self._list_inputs:
             self._error(join_path(path, "in"), DefinitionErrorCode.EACH_IN_NOT_LIST_INPUT, name=name)
@@ -387,6 +408,8 @@ class _SemanticChecker:
     def _scan_template(self, template: object, path: str, scope: _Scope) -> None:
         if not isinstance(template, str):
             return
+        for fragment in _malformed_placeholders(template):
+            self._error(path, DefinitionErrorCode.MALFORMED_PLACEHOLDER, fragment=fragment)
         for name in _placeholder_names(template):
             self._check_variable(name, path, scope)
 
@@ -492,8 +515,22 @@ def _placeholder_names(text: str) -> list[str]:
     return _PLACEHOLDER.findall(text)
 
 
+def _malformed_placeholders(text: str) -> list[str]:
+    """所有不构成合法占位符的 ``{{`` 片段，取到最近的 ``}}``（没有就到串尾）。"""
+    valid_starts = {match.start() for match in _PLACEHOLDER.finditer(text)}
+    fragments: list[str] = []
+    for match in _PLACEHOLDER_OPEN.finditer(text):
+        if match.start() in valid_starts:
+            continue
+        closing = text.find("}}", match.start())
+        fragments.append(text[match.start() : closing + 2] if closing != -1 else text[match.start() :])
+    return fragments
+
+
 def _url_query_names(url: object) -> set[str]:
     if not isinstance(url, str) or "?" not in url:
         return set()
     query = url.split("?", 1)[1].split("#", 1)[0]
-    return {pair.split("=", 1)[0] for pair in query.split("&") if pair}
+    # 按服务端解析后的名字比对：`%74oken`、`api+key` 与 `token`、`api key` 分别是同一个参数，
+    # 原样比对会漏掉重名。解码口径取 parse_qsl，与查询串的通行解析一致。
+    return {name for name, _ in parse_qsl(query, keep_blank_values=True)}

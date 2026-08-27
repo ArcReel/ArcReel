@@ -228,6 +228,11 @@ MESSAGES = {
         "định dạng tư liệu không có danh sách cho phép; nhà cung cấp sẽ từ chối định dạng không nhận"
     ),
     "val_ce_removed_reason_media_type": "giai đoạn này chỉ có một loại phương tiện là video",
+    "val_ce_malformed_placeholder": (
+        "{fragment} không phải là chỗ giữ hợp lệ: chỉ hỗ trợ biến trần "
+        "(như prompt hoặc inputs.first_frame) — không có bộ lọc, chỉ số hay biểu thức, "
+        "và mọi dấu ngoặc mở đều phải được đóng"
+    ),
     "val_ce_undeclared_variable": "Chỗ giữ {name} tham chiếu tới một biến chưa được khai báo",
     "val_ce_api_key_outside_auth": (
         "api_key chỉ được xuất hiện trong mục auth: thông tin xác thực không đi vào thân yêu cầu hay URL, "
@@ -239,6 +244,10 @@ MESSAGES = {
     ),
     "val_ce_auth_header_conflict": (
         "{header} trùng tên với auth.headers (không phân biệt hoa thường): chỉ mục auth mới được ghi header xác thực"
+    ),
+    "val_ce_header_name_duplicate": (
+        "{header} chỉ khác {first} trong cùng một bảng ở chữ hoa chữ thường: tên header HTTP không phân biệt "
+        "hoa thường nên cả hai đều được gửi đi"
     ),
     "val_ce_auth_query_conflict": (
         "URL đã mang tham số query {param} trùng với auth.query: chỉ mục auth mới được ghi query xác thực"
@@ -254,6 +263,13 @@ MESSAGES = {
     "val_ce_each_shape_invalid": (
         "$each hoặc dùng item để trải thành phần tử mảng, hoặc dùng đồng thời key và value để trải thành cặp "
         "khóa – giá trị; không được trộn hai cách viết"
+    ),
+    "val_ce_each_position_mismatch": (
+        "Cách viết $each không khớp với vị trí: ở vị trí mảng dùng item để trải thành phần tử, "
+        "ở vị trí đối tượng dùng key cùng value để trải thành cặp khóa – giá trị"
+    ),
+    "val_ce_each_alias_reserved": (
+        "{name} là biến dành riêng bên trong thân vòng lặp, không thể dùng làm bí danh phần tử của $each"
     ),
     "val_ce_when_unknown_input": "$when trỏ tới {name}, không phải tư liệu đã khai báo",
     "val_ce_input_not_referenced": (
