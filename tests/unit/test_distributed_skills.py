@@ -35,6 +35,14 @@ def test_setup_skill_is_explicit_only_for_claude_and_codex() -> None:
     assert _frontmatter(skill_dir / "SKILL.md")["disable-model-invocation"] is True
     openai = yaml.safe_load((skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8"))
     assert openai["policy"]["allow_implicit_invocation"] is False
+    assert "/setup-arcreel-skills" in openai["interface"]["default_prompt"]
+    assert "$setup-arcreel-skills" not in openai["interface"]["default_prompt"]
+
+
+def test_public_skills_subtree_is_mit_licensed() -> None:
+    license_text = (SKILLS_ROOT / "LICENSE").read_text(encoding="utf-8")
+
+    assert license_text.startswith("MIT License")
 
 
 def test_setup_skill_sends_bearer_keys_only_over_tls_or_loopback() -> None:

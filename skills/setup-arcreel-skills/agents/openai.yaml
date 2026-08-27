@@ -1,6 +1,6 @@
 interface:
   display_name: "Set up ArcReel"
   short_description: "Connect ArcReel MCP and verify access"
-  default_prompt: "Use $setup-arcreel-skills to connect this agent to my ArcReel server."
+  default_prompt: "Use /setup-arcreel-skills to connect this agent to my ArcReel server."
 policy:
   allow_implicit_invocation: false

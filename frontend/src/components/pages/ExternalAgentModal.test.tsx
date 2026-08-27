@@ -1,8 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Router } from "wouter";
-import { memoryLocation } from "wouter/memory-location";
 
 import { ExternalAgentModal } from "@/components/pages/ExternalAgentModal";
 import { copyText } from "@/utils/clipboard";
@@ -16,28 +14,71 @@ describe("ExternalAgentModal", () => {
     vi.mocked(copyText).mockResolvedValue(undefined);
   });
 
-  it("shows and copies the MCP endpoint and both skill installation commands", async () => {
+  it("defaults to AI Agent setup and copies an Agent-facing prompt without credentials", async () => {
     const user = userEvent.setup();
     render(<ExternalAgentModal onClose={vi.fn()} />);
 
     expect(screen.getByRole("dialog", { name: "外部智能体接入" })).toBeInTheDocument();
-    expect(screen.getByText(`${window.location.origin}/mcp`)).toBeInTheDocument();
-    expect(screen.getByText(/ArcReel\/ArcReel@setup-arcreel-skills/)).toBeInTheDocument();
-    expect(screen.getByText(/ArcReel\/ArcReel@video-workflow/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "查看完整安装指引" })).toHaveAttribute(
-      "href",
-      `${window.location.origin}/agent-installation-guide.md`,
+    expect(screen.getByRole("tab", { name: "通过 AI Agent 接入" })).toHaveAttribute(
+      "aria-selected",
+      "true",
     );
+    const prompt = `帮我接入 ArcReel。请阅读并执行 ${window.location.origin}/agent-installation-guide.md`;
+    expect(screen.getByText(prompt)).toBeInTheDocument();
+    expect(prompt).not.toContain("arc-");
+    expect(screen.queryByRole("link", { name: "查看完整安装指引" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "复制提示词" }));
+
+    expect(copyText).toHaveBeenLastCalledWith(prompt);
+    expect(screen.getByRole("status")).toHaveTextContent("提示词已复制");
+  });
+
+  it("shows the single-repository install flow on the manual tab", async () => {
+    const user = userEvent.setup();
+    render(<ExternalAgentModal onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole("tab", { name: "手动接入" }));
+
+    expect(screen.getByText("npx skills add ArcReel/skills")).toBeInTheDocument();
+    expect(screen.getByText("/setup-arcreel-skills")).toBeInTheDocument();
+    expect(screen.getByText(`${window.location.origin}/mcp`)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "复制安装命令" }));
+    expect(copyText).toHaveBeenLastCalledWith("npx skills add ArcReel/skills");
+
+    await user.click(screen.getByRole("button", { name: "复制 setup 命令" }));
+    expect(copyText).toHaveBeenLastCalledWith("/setup-arcreel-skills");
 
     await user.click(screen.getByRole("button", { name: "复制 MCP 端点" }));
     expect(copyText).toHaveBeenLastCalledWith(`${window.location.origin}/mcp`);
-    expect(screen.getByRole("status")).toHaveTextContent("MCP 端点已复制");
+  });
 
-    await user.click(screen.getByRole("button", { name: "复制两条安装命令" }));
-    expect(copyText).toHaveBeenLastCalledWith(
-      "npx skills add ArcReel/ArcReel@setup-arcreel-skills\nnpx skills add ArcReel/ArcReel@video-workflow",
+  it("switches tabs with arrow keys", async () => {
+    const user = userEvent.setup();
+    render(<ExternalAgentModal onClose={vi.fn()} />);
+
+    const agentTab = screen.getByRole("tab", { name: "通过 AI Agent 接入" });
+    agentTab.focus();
+    await user.keyboard("{ArrowLeft}");
+
+    expect(screen.getByRole("tab", { name: "手动接入" })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "手动接入" })).toHaveAttribute(
+      "aria-selected",
+      "true",
     );
-    expect(screen.getByRole("status")).toHaveTextContent("两条安装命令已复制");
+  });
+
+  it("keeps the modal open when API Key management opens in a new tab", () => {
+    const onClose = vi.fn();
+    render(<ExternalAgentModal onClose={onClose} />);
+
+    expect(screen.getByRole("link", { name: "创建 API Key" })).toHaveAttribute(
+      "href",
+      "/app/settings?section=api-keys",
+    );
+    expect(screen.getByRole("link", { name: "创建 API Key" })).toHaveAttribute("target", "_blank");
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("reports clipboard failures with a recovery action", async () => {
@@ -45,24 +86,8 @@ describe("ExternalAgentModal", () => {
     const user = userEvent.setup();
     render(<ExternalAgentModal onClose={vi.fn()} />);
 
-    await user.click(screen.getByRole("button", { name: "复制 MCP 端点" }));
+    await user.click(screen.getByRole("button", { name: "复制提示词" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("复制失败，请手动选择并复制上方内容。");
-  });
-
-  it("opens API Key management through the existing creation and copy flow", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    const location = memoryLocation({ path: "/app/projects", record: true });
-    render(
-      <Router hook={location.hook}>
-        <ExternalAgentModal onClose={onClose} />
-      </Router>,
-    );
-
-    await user.click(screen.getByRole("button", { name: "生成或复制 API Key" }));
-
-    expect(onClose).toHaveBeenCalledOnce();
-    expect(location.history?.at(-1)).toBe("/app/settings?section=api-keys");
+    expect(await screen.findByRole("alert")).toHaveTextContent("复制失败，请手动选择并复制内容。");
   });
 });
