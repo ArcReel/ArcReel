@@ -29,12 +29,12 @@ def test_public_skill_selectors_are_independently_installable() -> None:
         assert _frontmatter(skill_file)["name"] == selector
 
 
-def test_setup_skill_is_explicit_only_for_claude_and_codex() -> None:
+def test_setup_skill_is_model_invocable_for_agent_onboarding() -> None:
     skill_dir = SKILLS_ROOT / "setup-arcreel-skills"
 
-    assert _frontmatter(skill_dir / "SKILL.md")["disable-model-invocation"] is True
+    assert "disable-model-invocation" not in _frontmatter(skill_dir / "SKILL.md")
     openai = yaml.safe_load((skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8"))
-    assert openai["policy"]["allow_implicit_invocation"] is False
+    assert openai.get("policy", {}).get("allow_implicit_invocation", True) is True
 
 
 def test_video_workflow_skill_has_portable_relative_references() -> None:

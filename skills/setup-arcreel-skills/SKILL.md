@@ -1,7 +1,6 @@
 ---
 name: setup-arcreel-skills
 description: 将当前 Agent 宿主连接到 ArcReel 远程 MCP 服务并验证访问。
-disable-model-invocation: true
 ---
 
 # 接入 ArcReel
