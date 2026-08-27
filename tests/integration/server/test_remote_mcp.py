@@ -389,6 +389,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     assert "remote MCP" in narration_description
     assert "get_generation_batch" in narration_description
     assert "poll_after_seconds" in narration_description
+    assert "done=true" in narration_description
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
