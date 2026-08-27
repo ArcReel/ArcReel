@@ -29,6 +29,13 @@ def test_public_skill_selectors_are_independently_installable() -> None:
         assert _frontmatter(skill_file)["name"] == selector
 
 
+def test_public_skill_descriptions_are_chinese() -> None:
+    for selector in PUBLIC_SKILL_SELECTORS:
+        description = _frontmatter(SKILLS_ROOT / selector / "SKILL.md")["description"]
+        assert isinstance(description, str)
+        assert re.search(r"[\u4e00-\u9fff]", description)
+
+
 def test_setup_skill_is_explicit_only_for_claude_and_codex() -> None:
     skill_dir = SKILLS_ROOT / "setup-arcreel-skills"
 
@@ -48,8 +55,8 @@ def test_public_skills_subtree_is_mit_licensed() -> None:
 def test_setup_skill_sends_bearer_keys_only_over_tls_or_loopback() -> None:
     skill = (SKILLS_ROOT / "setup-arcreel-skills" / "SKILL.md").read_text(encoding="utf-8")
 
-    assert "uses `https`" in skill
-    assert "Permit `http` only for a loopback endpoint" in skill
+    assert "端点使用 `https`" in skill
+    assert "回环端点可以使用 `http`" in skill
 
 
 def test_video_workflow_skill_has_portable_relative_references() -> None:
@@ -66,8 +73,8 @@ def test_video_workflow_skill_has_portable_relative_references() -> None:
 def test_video_workflow_hands_final_export_to_an_arcreel_host() -> None:
     skill = (SKILLS_ROOT / "video-workflow" / "SKILL.md").read_text(encoding="utf-8")
 
-    assert "remote MCP does not compose or export the final video" in skill
-    assert "WebUI or embedded host" in skill
+    assert "远程 MCP 不负责合成或导出成片" in skill
+    assert "WebUI 或内嵌宿主" in skill
 
 
 def test_video_workflow_polls_batches_and_allows_migration_recovery() -> None:
@@ -75,6 +82,6 @@ def test_video_workflow_polls_batches_and_allows_migration_recovery() -> None:
     skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     plan_safety = (skill_dir / "references" / "plan-safety.md").read_text(encoding="utf-8")
 
-    assert "call `get_generation_batch` at each returned `poll_after_seconds`" in skill
-    assert "until it reports `done: true`" in skill
-    assert "`retry_project_migration` is the permitted migration recovery" in plan_safety
+    assert "按每次返回的 `poll_after_seconds` 调用 `get_generation_batch`" in skill
+    assert "直到结果为 `done: true`" in skill
+    assert "`retry_project_migration` 只允许恢复迁移" in plan_safety
