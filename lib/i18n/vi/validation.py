@@ -203,4 +203,104 @@ MESSAGES = {
     "arch_project_name_conflict": (
         "Mã dự án '{name}' đã tồn tại. Hãy chọn ghi đè dự án hiện có hoặc nhập với tên mới."
     ),
+    # ---- Kiểm tra định nghĩa điểm cuối tùy chỉnh ----
+    "val_ce_missing_field": "Thiếu trường bắt buộc: {field}",
+    "val_ce_unknown_field": "Trường không xác định: {field}",
+    "val_ce_removed_field": "Trường đã bị loại khỏi định dạng: {field} - {reason}",
+    "val_ce_invalid_type": "Sai kiểu dữ liệu, cần {expected}",
+    "val_ce_invalid_enum_value": "Giá trị không được phép, các giá trị hợp lệ: {allowed}",
+    "val_ce_invalid_value": "Giá trị không đúng định dạng: {detail}",
+    "val_ce_schema_violation": "Không khớp định dạng định nghĩa: {detail}",
+    "val_ce_removed_reason_request_query": (
+        "tham số query tĩnh và động đều viết trong mẫu url, query chứa thông tin xác thực thuộc về auth.query"
+    ),
+    "val_ce_removed_reason_status_codes": (
+        "chính sách mã HTTP thuộc về thời gian chạy: 2xx thành công, 429 và 5xx thử lại, còn lại là thất bại"
+    ),
+    "val_ce_removed_reason_polling_policy": (
+        "chu kỳ và thời gian chờ khi hỏi trạng thái là chính sách thời gian chạy, không nằm trong định nghĩa"
+    ),
+    "val_ce_removed_reason_extract_source": (
+        "việc trích xuất luôn bắt đầu từ thân phản hồi; mã trạng thái HTTP không đi qua JSONPath"
+    ),
+    "val_ce_removed_reason_extract_usage_keys": "mức sử dụng nay nằm trong poll.extract.usage",
+    "val_ce_removed_reason_mime_types": (
+        "định dạng tư liệu không có danh sách cho phép; nhà cung cấp sẽ từ chối định dạng không nhận"
+    ),
+    "val_ce_removed_reason_media_type": "giai đoạn này chỉ có một loại phương tiện là video",
+    "val_ce_undeclared_variable": "Chỗ giữ {name} tham chiếu tới một biến chưa được khai báo",
+    "val_ce_api_key_outside_auth": (
+        "api_key chỉ được xuất hiện trong mục auth: thông tin xác thực không đi vào thân yêu cầu hay URL, "
+        "và cũng không nằm trong định nghĩa bạn chia sẻ"
+    ),
+    "val_ce_auth_without_api_key": (
+        "Mục auth không rỗng nhưng không tham chiếu api_key: hãy để trống nếu API không cần thông tin xác thực, "
+        "nếu không hãy để mục này ghi thông tin xác thực"
+    ),
+    "val_ce_auth_header_conflict": (
+        "{header} trùng tên với auth.headers (không phân biệt hoa thường): chỉ mục auth mới được ghi header xác thực"
+    ),
+    "val_ce_auth_query_conflict": (
+        "URL đã mang tham số query {param} trùng với auth.query: chỉ mục auth mới được ghi query xác thực"
+    ),
+    "val_ce_task_id_out_of_scope": "task_id chỉ dùng được trong mục poll và result",
+    "val_ce_result_id_out_of_scope": "result_id chỉ dùng được trong mục result",
+    "val_ce_result_id_without_extract": "Đã tham chiếu result_id nhưng poll.extract không khai báo result_id",
+    "val_ce_input_out_of_scope": (
+        "Tư liệu {name} chỉ được tham chiếu trong mục submit: yêu cầu hỏi trạng thái và lấy kết quả không mang tư liệu"
+    ),
+    "val_ce_list_input_requires_each": "{name} là tư liệu dạng danh sách, phải khai triển bằng $each thay vì chèn thẳng",
+    "val_ce_each_in_not_list_input": "$each.in trỏ tới {name}, không phải tư liệu dạng danh sách đã khai báo",
+    "val_ce_each_shape_invalid": (
+        "$each hoặc dùng item để trải thành phần tử mảng, hoặc dùng đồng thời key và value để trải thành cặp "
+        "khóa – giá trị; không được trộn hai cách viết"
+    ),
+    "val_ce_when_unknown_input": "$when trỏ tới {name}, không phải tư liệu đã khai báo",
+    "val_ce_input_not_referenced": (
+        "Tư liệu được khai báo nhưng không được tham chiếu trong submit: nó không bao giờ được gửi đi "
+        "và cũng không thể làm cơ sở cho một năng lực"
+    ),
+    "val_ce_enum_map_variable_not_allowed": "{variable} không hỗ trợ ánh xạ, các biến ánh xạ được: {allowed}",
+    "val_ce_status_map_target_invalid": (
+        "Trạng thái {target} nằm ngoài {allowed}; hãy ánh xạ ngữ nghĩa hết hạn về failed"
+    ),
+    "val_ce_capability_declared_without_input": (
+        "Đã khai báo {capability} nhưng submit không tham chiếu tư liệu {source} nào, năng lực sẽ sai sự thật"
+    ),
+    "val_ce_capability_input_without_declaration": (
+        "submit tham chiếu tư liệu {source} nhưng không khai báo {capability}, "
+        "tư liệu vẫn được gửi đi trong khi giao diện không mở năng lực đó"
+    ),
+    "val_ce_jsonpath_not_a_string": "Đường dẫn trích xuất phải là chuỗi: {path_expression}",
+    "val_ce_jsonpath_surrounding_whitespace": (
+        "Đường dẫn trích xuất không được có khoảng trắng ở hai đầu: {path_expression}"
+    ),
+    "val_ce_jsonpath_missing_root": "Đường dẫn trích xuất phải bắt đầu bằng $: {path_expression}",
+    "val_ce_jsonpath_recursive_descent": (
+        "Đường dẫn trích xuất không cho phép duyệt đệ quy (tại ký tự {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_union": (
+        "Đường dẫn trích xuất không cho phép bộ chọn hợp (tại ký tự {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_slice_step": (
+        "Đường dẫn trích xuất không cho phép bước nhảy khi cắt lát (tại ký tự {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_function_extension": (
+        "Đường dẫn trích xuất không cho phép hàm mở rộng (tại ký tự {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_filter_root_reference": (
+        "Bộ lọc không được tham chiếu nút gốc (tại ký tự {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_filter_non_singular": (
+        "Bộ lọc chỉ được dùng truy vấn đơn trị (tại ký tự {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_regex_operator": (
+        "Đường dẫn trích xuất không cho phép toán tử khớp biểu thức chính quy (tại ký tự {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_syntax": "Lỗi cú pháp đường dẫn trích xuất (tại ký tự {position}): {path_expression}",
+    "val_ce_poll_without_task_id": "Yêu cầu hỏi trạng thái không tham chiếu task_id; hãy xác nhận đây là chủ ý",
+    "val_ce_jsonpath_wildcard_order": (
+        "{path_expression} dùng ký tự đại diện: với đối tượng chỉ lấy thành viên đầu tiên, "
+        "và thứ tự khóa có thể khác nhau giữa bản xem trước và phía máy chủ"
+    ),
 }
