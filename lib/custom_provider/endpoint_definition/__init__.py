@@ -14,6 +14,15 @@ from .errors import (
     message_key,
 )
 from .jsonpath_subset import JsonPathSubsetError, ParsedJsonPath, parse_json_path
+from .response_extractor import extract_value, map_status
+from .template_engine import (
+    AssetData,
+    RenderedRequest,
+    TemplateRenderError,
+    build_context,
+    encode_inputs,
+    render_request,
+)
 from .validator import CURRENT_SCHEMA_VERSION, load_schema, validate_definition
 
 __all__ = [
@@ -23,10 +32,18 @@ __all__ = [
     "DefinitionDiagnostics",
     "DefinitionErrorCode",
     "DefinitionIssue",
+    "AssetData",
     "JsonPathSubsetError",
     "ParsedJsonPath",
+    "RenderedRequest",
+    "TemplateRenderError",
+    "build_context",
+    "encode_inputs",
+    "extract_value",
     "load_schema",
     "message_key",
+    "map_status",
     "parse_json_path",
+    "render_request",
     "validate_definition",
 ]

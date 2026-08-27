@@ -24,7 +24,7 @@
       "additionalProperties": { "$ref": "#/$defs/inputDecl" }
     },
     "enum_maps": {
-      "description": "枚举参数字典：键是 ArcReel 侧的值（字符串化后查表），值是写进请求的供应商侧值。可映射的变量由校验器限定。",
+      "description": "枚举参数字典：键是 ArcReel 侧的值（字符串化后查表），值是写进请求的供应商侧值。可映射的变量由校验器限定。映射对 URL、请求头、auth.query 与请求体各节一致生效；查表未命中即报错、不发请求。",
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/identifier" },
       "additionalProperties": {
