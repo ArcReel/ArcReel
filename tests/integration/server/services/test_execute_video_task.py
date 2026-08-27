@@ -159,6 +159,65 @@ class TestGenerationTasks:
         assert manifest.read_bytes() == manifest_before
         assert not (project_path / ".arcreel" / "tasks" / "task-storyboard" / "provider_media").exists()
 
+    async def test_storyboard_worker_preserves_request_authority_prompt_and_duration(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
+        item = fake_pm.script["segments"][0]
+        item["novel_text"] = "旁白正文"
+        item["video_prompt"] = {
+            "action": "mutable script prompt",
+            "camera_motion": "Static",
+            "dialogue": [],
+        }
+        item["duration_seconds"] = 8
+
+        class _CheckpointingGenerator(_FakeGenerator):
+            async def generate_video_async(self, **kwargs):
+                self.video_calls.append(kwargs)
+                await kwargs["before_submit"](42)
+                from lib.version_manager import PaidVersionCommit
+
+                kwargs["commit_formal_output"].outcome = PaidVersionCommit(version=2, selected=True)
+                return project_path / "videos" / "scene_E1S01.mp4", 2, "ref", "uri"
+
+        fake_generator = _CheckpointingGenerator()
+        fake_queue = type("Queue", (), {})()
+        fake_queue.persist_execution_checkpoint = AsyncMock()
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12)),
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {
+                    "action": "exact approved request prompt",
+                    "camera_motion": "Static",
+                    "dialogue": [],
+                },
+                "duration_seconds": 4,
+                "execution_input_authority": "request",
+            },
+            task_id="task-request-authority",
+        )
+
+        call = fake_generator.video_calls[0]
+        assert "exact approved request prompt" in call["prompt"]
+        assert "mutable script prompt" not in call["prompt"]
+        assert call["duration_seconds"] == 4
+
     async def test_text_video_worker_checkpoints_without_staged_media(self, monkeypatch, tmp_path):
         from lib.reference_video.execution_checkpoint import TextVideoSubmissionCheckpoint
 

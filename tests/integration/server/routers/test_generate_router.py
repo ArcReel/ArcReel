@@ -235,6 +235,26 @@ class TestGenerateRouter:
             )
         assert invalid.status_code == 422
 
+    def test_video_enqueue_preserves_explicit_request_input_authority(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "prompt": "Exact externally approved prompt",
+                    "duration_seconds": 4,
+                    "execution_input_authority": "request",
+                },
+            )
+
+        assert response.status_code == 200, response.text
+        assert fake_queue.calls[0]["payload"]["execution_input_authority"] == "request"
+
     def test_tts_regeneration_rejects_an_active_use_tts_video(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

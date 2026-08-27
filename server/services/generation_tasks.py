@@ -2305,10 +2305,15 @@ async def execute_video_task(
         )
 
     project, project_path, item, content_mode, script_kind, script, script_input = await asyncio.to_thread(_load)
-    # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
-    # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
+    execution_input_authority = payload.get("execution_input_authority", "current-script")
+    if execution_input_authority not in {"current-script", "request"}:
+        raise ValueError("execution_input_authority must be 'current-script' or 'request'")
+    request_authoritative = task_id is None or execution_input_authority == "request"
+    # Interactive queue execution re-materializes mutable visual intent from the current script unit. Exact
+    # external requests opt into their queued prompt and duration so a later script edit cannot replace approved
+    # provider inputs before the worker reaches the paid effect boundary.
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
-    prompt = current_prompt if task_id is not None else payload.get("prompt", current_prompt)
+    prompt = payload.get("prompt", current_prompt) if request_authoritative else current_prompt
     if prompt is None:
         raise ValueError("current script unit is missing video_prompt")
     requested_visual_prompt = copy.deepcopy(prompt)
@@ -2426,9 +2431,11 @@ async def execute_video_task(
     # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
     # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
     duration_seconds = (
-        item.get("duration_seconds")
-        if task_id is not None and isinstance(item, dict)
-        else payload.get("duration_seconds")
+        payload.get("duration_seconds")
+        if request_authoritative
+        else item.get("duration_seconds")
+        if isinstance(item, dict)
+        else None
     )
     if duration_seconds is None:
         duration_seconds = project.get("default_duration")

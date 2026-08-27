@@ -121,6 +121,7 @@ class GenerateVideoRequest(BaseModel):
     prompt: str | dict
     script_file: str
     input_mode: Literal["storyboard", "text"] = "storyboard"
+    execution_input_authority: Literal["current-script", "request"] = "current-script"
     duration_seconds: int | None = Field(default=None, gt=0)
     seed: int | None = None
     # 单目标入口保留后期配音默认（docs/adr/0061）：请求由用户在这一段的界面上直接触发，
@@ -384,6 +385,7 @@ async def generate_video(
     extra_payload: dict[str, object] = {
         "seed": req.seed,
         "video_input_mode": req.input_mode,
+        "execution_input_authority": req.execution_input_authority,
         "narration_delivery_options": delivery_options.to_payload(),
     }
     if req.narration_delivery != USE_TTS:
