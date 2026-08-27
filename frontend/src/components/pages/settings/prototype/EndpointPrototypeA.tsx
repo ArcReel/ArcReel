@@ -4,7 +4,7 @@
 //  * 状态对照演示多对一映射（pending→排队中、expired→失败）。
 //  * 测试连接：测试模型可输入；密钥来源选「临时输入」时出现密钥输入框。
 //  * 离线测试卡不再标注「免费」，仅「测试连接」保留计费提示。
-//  * 头部常驻「创建供应商」按钮（新建供应商并预选该端点、预填默认接口地址）。
+//  * 头部常驻「新建供应商并使用此端点」按钮（预填默认接口地址、预选该端点）。
 //  * 访问凭证节支持「该接口无需凭证」（空 auth 节）。
 import { useState } from "react";
 import {
@@ -369,9 +369,9 @@ export function EndpointPrototypeA() {
                 )}
               </div>
             </div>
-            <button type="button" className={GHOST_BTN_CLS} title="新建供应商并使用该端点，自动填入默认接口地址">
+            <button type="button" className={GHOST_BTN_CLS} title="自动填入默认接口地址并预选该端点">
               <Plus className="h-3.5 w-3.5" />
-              创建供应商
+              新建供应商并使用此端点
             </button>
             {selected.kind === "custom" ? (
               <>
