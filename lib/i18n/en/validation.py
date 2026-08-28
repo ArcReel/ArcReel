@@ -307,6 +307,7 @@ MESSAGES = {
         "The regex match operator is not allowed in extraction paths (at character {position}): {path_expression}"
     ),
     "val_ce_jsonpath_syntax": "Extraction path syntax error (at character {position}): {path_expression}",
+    "val_ce_template_render_failed": "Could not render the request template: {detail}",
     "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} uses a wildcard: an object wildcard takes the first member only, "

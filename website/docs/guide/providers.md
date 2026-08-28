@@ -379,7 +379,7 @@ ArcReel 可以按供应商和媒体类型记录费用，但需要注意：
 
 ## 13. 故障排查 {#troubleshooting}
 
-### 连接测试失败 {#connection-test-failed}
+### 连通性检查失败 {#connection-test-failed}
 
 检查：
 

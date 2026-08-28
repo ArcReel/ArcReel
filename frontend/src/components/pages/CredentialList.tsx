@@ -23,7 +23,7 @@ import {
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
-import type { CredentialSecretField, ProviderCredential, ProviderTestResult } from "@/types";
+import type { CredentialSecretField, ProviderCredential, ConnectivityCheckResult } from "@/types";
 
 // 单 secret provider 的默认凭证字段，供未显式传 secretFields 的调用方兜底（行为同旧版 api_key 表单）。
 const DEFAULT_SECRET_FIELDS: CredentialSecretField[] = [{ key: "api_key", label: "API Key" }];
@@ -69,7 +69,7 @@ const CredentialRow = memo(function CredentialRow({
   const { t } = useTranslation("dashboard");
   const [editing, setEditing] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
+  const [testResult, setTestResult] = useState<ConnectivityCheckResult | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -95,7 +95,7 @@ const CredentialRow = memo(function CredentialRow({
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await API.testProviderConnection(providerId, cred.id);
+      const result = await API.checkProviderConnectivity(providerId, cred.id);
       setTestResult(result);
     } catch (e) {
       setTestResult({ success: false, available_models: [], message: errMsg(e) });
@@ -216,7 +216,7 @@ const CredentialRow = memo(function CredentialRow({
             type="button"
             onClick={voidPromise(handleTest)}
             disabled={testing}
-            aria-label={t("test_credential", { name: cred.name })}
+            aria-label={t("check_credential_connectivity", { name: cred.name })}
             className={ICON_BTN_CLS}
           >
             {testing ? (

@@ -61,13 +61,71 @@ class DeclarativeRuntimeError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class _ProviderState:
+class ProviderState:
+    """一次供应商响应按定义读出的结果：状态、产物地址、错误、二次取件 id 与计费时长。"""
+
     body: object
     status: ProviderJobStatus
     video_url: str | None
     error: str | None
     result_id: str | None
     duration_seconds: int | None
+
+
+def extract_provider_state(
+    body: object,
+    extract: Mapping[str, Any],
+    *,
+    status_map: Mapping[str, str] | None = None,
+    status: ProviderJobStatus | None = None,
+) -> ProviderState:
+    """按一节 ``extract`` 读一份响应体。运行时与验证响应共用的唯一判读实现。
+
+    验证响应之所以能替代真花钱的调用，全靠它给出的判定与运行时逐字一致；两处各读一遍
+    ``extract``，只要有一处对 ``failure`` 或状态回落的处理稍有出入，验证就会在用户最信任它的
+    场合给出反的结论。
+    """
+    try:
+        failure = extract_value(extract["failure"], body) if "failure" in extract else None
+        mapped = status or map_status(extract_value(extract.get("status"), body), status_map)
+        if failure is not None:
+            mapped = ProviderJobStatus.FAILED
+        return ProviderState(
+            body=body,
+            status=mapped,
+            video_url=extract_text(extract.get("video_url"), body),
+            error=extract_text(extract.get("error"), body),
+            result_id=extract_text(extract.get("result_id"), body),
+            duration_seconds=extract_duration((extract.get("usage") or {}).get("duration_seconds"), body),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
+
+
+def text_or_none(value: object | None) -> str | None:
+    """把取到的值收成文案：空白与缺席一律 ``None``。"""
+    if value is None:
+        return None
+    return str(value).strip() or None
+
+
+def extract_text(spec: object | None, body: object) -> str | None:
+    """按一条提取规则取字符串；无命中或空白一律 ``None``。"""
+    if spec is None:
+        return None
+    return text_or_none(extract_value(spec, body))
+
+
+def extract_duration(spec: object | None, body: object) -> int | None:
+    """按 ``usage.duration_seconds`` 取计费时长：half-up 取整后越界即视为未回报。"""
+    if spec is None:
+        return None
+    raw = extract_value(spec, body)
+    try:
+        value = int(Decimal(str(raw)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return value if 0 < value <= MAX_BILLED_DURATION_SECONDS else None
 
 
 class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
@@ -239,7 +297,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         body = await self._response_body(response, request)
         try:
             job_id = extract_value(section["extract"]["task_id"], body)
-            error = self._extract_text(section["extract"].get("error"), body)
+            error = extract_text(section["extract"].get("error"), body)
         except (TypeError, ValueError) as exc:
             raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
         # accept="scalar" 的定义可以命中数字或布尔，格式说明的口径是「按字符串化交给下游」；
@@ -305,7 +363,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             trusted_origins.add(self._endpoint_origin(section, section_context))
             return await self._response_body(response, request)
 
-        async def poll_once() -> _ProviderState:
+        async def poll_once() -> ProviderState:
             return self._extract_state(
                 await fetch(self._definition["poll"], poll_context, expire_on_404=True),
                 self._definition["poll"]["extract"],
@@ -383,43 +441,8 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         extract: Mapping[str, Any],
         *,
         status: ProviderJobStatus | None = None,
-    ) -> _ProviderState:
-        try:
-            failure = extract_value(extract["failure"], body) if "failure" in extract else None
-            mapped = status or map_status(
-                extract_value(extract.get("status"), body), self._definition.get("status_map")
-            )
-            if failure is not None:
-                mapped = ProviderJobStatus.FAILED
-            duration = self._duration((extract.get("usage") or {}).get("duration_seconds"), body)
-            return _ProviderState(
-                body=body,
-                status=mapped,
-                video_url=self._extract_text(extract.get("video_url"), body),
-                error=self._extract_text(extract.get("error"), body),
-                result_id=self._extract_text(extract.get("result_id"), body),
-                duration_seconds=duration,
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
-
-    @staticmethod
-    def _extract_text(spec: object | None, body: object) -> str | None:
-        if spec is None:
-            return None
-        value = extract_value(spec, body)
-        return str(value).strip() if value is not None and str(value).strip() else None
-
-    @staticmethod
-    def _duration(spec: object | None, body: object) -> int | None:
-        if spec is None:
-            return None
-        raw = extract_value(spec, body)
-        try:
-            value = int(Decimal(str(raw)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-        except (InvalidOperation, TypeError, ValueError):
-            return None
-        return value if 0 < value <= MAX_BILLED_DURATION_SECONDS else None
+    ) -> ProviderState:
+        return extract_provider_state(body, extract, status_map=self._definition.get("status_map"), status=status)
 
     @staticmethod
     async def _response_body(response: httpx.Response, request: VideoGenerationRequest) -> object:

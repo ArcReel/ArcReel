@@ -469,11 +469,9 @@ async def _execute_task(task: dict[str, Any], *, claimed_provider_id: str | None
 
 
 async def _read_video_poll_timeout_seconds() -> int:
-    from lib.config.service import ConfigService
-    from lib.db import safe_session_factory
+    from lib.config.service import read_video_poll_timeout_seconds
 
-    async with safe_session_factory() as session:
-        return await ConfigService(session).get_video_poll_timeout_seconds()
+    return await read_video_poll_timeout_seconds()
 
 
 class GenerationWorker:

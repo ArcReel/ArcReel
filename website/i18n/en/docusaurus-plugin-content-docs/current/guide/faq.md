@@ -118,7 +118,7 @@ These messages mean that the Agent process did not start normally or could not i
 3. Confirm that the Agent sandbox passes its startup checks in Docker, WSL, or the local environment.
 4. Download diagnostic logs from the About section of Settings and inspect the specific upstream status code near the time of the error.
 
-A successful connection test proves only that a minimal request succeeded. Long sessions may still be affected by quotas, context limits, rate limits, or proxy timeouts.
+A successful connectivity check proves only that a minimal request succeeded. Long sessions may still be affected by quotas, context limits, rate limits, or proxy timeouts.
 
 ## Providers, models, and APIs {#providers-models-api}
 
@@ -142,7 +142,7 @@ If the response is `404 page not found`, usually you should verify:
 
 Add a custom provider in Settings, enter its Base URL, API Key, and model-discovery protocol, then fetch the model list. If discovery fails, you can add models manually, but you must still verify each model's media type and call endpoint before enabling it and selecting it as a global or project model.
 
-The model-discovery protocol is used only to list models and perform basic connection tests. Actual runtime calls use the call endpoint configured for each model. A third-party service that can return a model list does not necessarily implement the complete protocol for images, videos, reference images, asynchronous polling, or structured output. ArcReel does not guarantee that every service claiming compatibility with a protocol will work.
+The model-discovery protocol is used only to list models and perform basic connectivity checks. Actual runtime calls use the call endpoint configured for each model. A third-party service that can return a model list does not necessarily implement the complete protocol for images, videos, reference images, asynchronous polling, or structured output. ArcReel does not guarantee that every service claiming compatibility with a protocol will work.
 
 ### What should I do if model discovery fails or I see `model_not_found`? {#model-list-failure}
 
@@ -156,9 +156,9 @@ Check the following in order:
 
 Some compatible services do not implement a model-list endpoint. In that case, you can register the model manually. If the actual call still returns 404, ask the service provider to verify routing and permissions.
 
-### Why can generation fail even when the connection test succeeds? {#connection-ok-generation-fails}
+### Why can generation fail even when the connectivity check succeeds? {#connection-ok-generation-fails}
 
-The connection test mainly verifies credentials, networking, and model discovery. It does not complete an actual paid image or video generation, so it cannot cover:
+The connectivity check mainly verifies credentials, networking, and model discovery. It does not complete an actual paid image or video generation, so it cannot cover:
 
 - Model generation permissions, balance, and concurrency quotas
 - Reference-image, end-frame, resolution, aspect-ratio, and duration limits

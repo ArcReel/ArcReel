@@ -24,7 +24,7 @@ _DECLARATIVE_STATUSES = frozenset(
 
 def extract_value(spec: object, response_body: object) -> object | None:
     """按优先级返回第一项可接受的首个命中；全部无命中时返回 ``None``。"""
-    paths, accept = _normalize_spec(spec)
+    paths, accept = normalize_extract_spec(spec)
     for item in paths:
         if isinstance(item, str):
             hit = _first_acceptable(item, response_body, accept)
@@ -55,7 +55,13 @@ def map_status(raw: object, status_map: Mapping[str, str] | None = None) -> Prov
     return ProviderJobStatus.FAILED if fallback is ProviderJobStatus.EXPIRED else fallback
 
 
-def _normalize_spec(spec: object) -> tuple[Sequence[object], str]:
+def normalize_extract_spec(spec: object) -> tuple[Sequence[object], str]:
+    """把提取规则拆成「路径项序列 + 可接受类型」。
+
+    公开而非私有：验证响应要逐条报告命中与否，那份逐条求值必须与 :func:`extract_value` 读同一
+    份归一化结果——两处各自解析简写与对象两种形态，简写默认的 ``accept`` 一旦漂移，报告里的
+    「命中」就会与运行时实际取到的值不同。
+    """
     if isinstance(spec, list):
         return spec, "string"
     if not isinstance(spec, Mapping):

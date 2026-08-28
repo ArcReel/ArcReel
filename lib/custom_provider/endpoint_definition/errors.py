@@ -82,6 +82,9 @@ class DefinitionErrorCode(StrEnum):
     JSONPATH_REGEX_OPERATOR = "jsonpath_regex_operator"
     JSONPATH_SYNTAX = "jsonpath_syntax"
 
+    # ---- 渲染期（端点测试按同一份诊断结构下发）----
+    TEMPLATE_RENDER_FAILED = "template_render_failed"
+
     # ---- warning ----
     POLL_WITHOUT_TASK_ID = "poll_without_task_id"
     JSONPATH_WILDCARD_ORDER = "jsonpath_wildcard_order"

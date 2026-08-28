@@ -315,6 +315,7 @@ MESSAGES = {
         "Đường dẫn trích xuất không cho phép toán tử khớp biểu thức chính quy (tại ký tự {position}): {path_expression}"
     ),
     "val_ce_jsonpath_syntax": "Lỗi cú pháp đường dẫn trích xuất (tại ký tự {position}): {path_expression}",
+    "val_ce_template_render_failed": "Không dựng được mẫu yêu cầu: {detail}",
     "val_ce_poll_without_task_id": "Yêu cầu hỏi trạng thái không tham chiếu task_id; hãy xác nhận đây là chủ ý",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} dùng ký tự đại diện: với đối tượng chỉ lấy thành viên đầu tiên, "

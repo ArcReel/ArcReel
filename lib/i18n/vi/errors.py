@@ -179,10 +179,10 @@ MESSAGES = {
     "vertex_json_too_large": "Tệp thông tin xác thực quá lớn",
     "vertex_json_invalid": "Tệp thông tin xác thực JSON không hợp lệ",
     "vertex_json_missing_project_id": "Tệp thông tin xác thực thiếu project_id",
-    "connection_success": "Kết nối thành công",
-    "connection_timeout": "Kết nối hết thời gian, vui lòng kiểm tra mạng hoặc cấu hình API",
-    "connection_failed": "Kết nối thất bại: {err_msg}",
-    "unsupported_test": "Nhà cung cấp {provider_id} hiện chưa hỗ trợ kiểm tra kết nối",
+    "connectivity_check_ok": "Kết nối được",
+    "connectivity_check_timeout": "Kiểm tra kết nối quá hạn, vui lòng kiểm tra mạng hoặc cấu hình API",
+    "connectivity_check_failed": "Kiểm tra kết nối thất bại: {err_msg}",
+    "connectivity_check_unsupported": "Nhà cung cấp {provider_id} hiện chưa hỗ trợ kiểm tra kết nối",
     "missing_credentials": "Thiếu cấu hình thông tin xác thực, vui lòng thêm khóa trước",
     "credential_group_ambiguous": (
         "Lần gửi này chứa các trường thuộc nhiều nhóm thông tin xác thực loại trừ lẫn nhau, không "
@@ -207,6 +207,17 @@ MESSAGES = {
     "custom_endpoint_not_found": "Endpoint không tồn tại",
     "custom_endpoint_definition_invalid": "Định nghĩa endpoint không qua được kiểm tra, hãy sửa các lỗi được báo rồi thử lại",
     "custom_endpoint_referenced_by_models": "Endpoint này đang được {count} mô hình sử dụng, hãy gỡ các tham chiếu đó trước khi xóa",
+    # ---- Kiểm thử endpoint ----
+    "endpoint_test_payload_required": "Thiếu trường payload: khi tải tệp lên, hãy đặt JSON của yêu cầu vào trường biểu mẫu payload",
+    "endpoint_test_payload_invalid": "Không phân tích được nội dung yêu cầu, hãy kiểm tra định dạng JSON và kiểu dữ liệu",
+    "endpoint_test_asset_too_large": "Tệp {name} vượt quá giới hạn {limit_mb} MB",
+    "endpoint_test_credentials_required": "Chạy thử cần thông tin xác thực: hãy chọn một nhà cung cấp, hoặc nhập địa chỉ API và API Key",
+    "endpoint_test_provider_not_custom": "{provider_id} không phải nhà cung cấp tùy chỉnh nên không đọc được thông tin xác thực",
+    "endpoint_test_definition_or_model_ref_required": "Hãy cung cấp một định nghĩa endpoint, hoặc chỉ định mô hình cần chạy thử",
+    "model_not_found": "Không tìm thấy mô hình",
+    "trial_run_already_running": "Đã có một lần chạy thử đang diễn ra, hãy đợi nó kết thúc hoặc hủy trước",
+    "trial_run_not_found": "Không tìm thấy bản ghi chạy thử hoặc bản ghi đã hết hạn",
+    "trial_run_artifact_not_found": "Lần chạy thử này không có sản phẩm để phát",
     "at_least_one_field_required": "Phải cung cấp ít nhất một trường để cập nhật",
     "discovery_failed": "Phát hiện mô hình thất bại: {err_msg}",
     "anthropic_discovery_no_key": "API Key chưa được cấu hình, không thể phát hiện mô hình",
@@ -216,7 +227,7 @@ MESSAGES = {
     "endpoint_required": "Mô hình đã bật phải chỉ định endpoint",
     "endpoint_media_type_mismatch": "media_type của endpoint không khớp: {detail}",
     "backend_creation_failed": "Tạo backend thất bại: {err_msg}",
-    "unsupported_discovery_format": "Kiểm tra kết nối không hỗ trợ với {discovery_format}",
+    "connectivity_check_unsupported_format": "Không hỗ trợ kiểm tra kết nối với {discovery_format}",
     "capability_overrides_video_only": (
         "Endpoint {endpoint} của mô hình {model_id} không phải loại video; không hỗ trợ ghi đè năng lực"
     ),
