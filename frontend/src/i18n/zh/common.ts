@@ -50,4 +50,5 @@ export default {
   'not_found_title': '页面未找到',
   'not_found_back': '返回首页',
   'recommended': '推荐',
+  'unexpected_error': '出现了意外错误',
 } satisfies Record<keyof typeof enCommon, string>;

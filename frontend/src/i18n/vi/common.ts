@@ -50,4 +50,5 @@ export default {
   'not_found_title': 'Không tìm thấy trang',
   'not_found_back': 'Về trang chủ',
   'recommended': 'Được khuyến nghị',
+  'unexpected_error': 'Đã xảy ra lỗi không mong muốn',
 } satisfies Record<keyof typeof enCommon, string>;
