@@ -1,5 +1,4 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 
 interface Props {
   children: ReactNode;
@@ -43,13 +42,12 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 
 function ErrorFallback({ error, onReset }: { error: Error | null; onReset: () => void }) {
-  const { t } = useTranslation("common");
   return (
     <div
       role="alert"
       className="flex min-h-[240px] flex-col items-center justify-center gap-3 p-8 text-center"
     >
-      <p className="text-[13px] font-medium text-text-2">{t("common:unexpected_error") ?? "Something went wrong"}</p>
+      <p className="text-[13px] font-medium text-text-2">Something went wrong</p>
       {error && <p className="max-w-md font-mono text-[11px] text-text-4">{error.message}</p>}
       <button
         type="button"
@@ -59,7 +57,7 @@ function ErrorFallback({ error, onReset }: { error: Error | null; onReset: () =>
         }}
         className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-white"
       >
-        {t("common:retry") ?? "Retry"}
+        Retry
       </button>
     </div>
   );
