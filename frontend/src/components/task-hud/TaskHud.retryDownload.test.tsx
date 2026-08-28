@@ -43,6 +43,61 @@ describe("TaskHud artifact download retry", () => {
     expect(screen.queryByRole("button", { name: "重试下载" })).not.toBeInTheDocument();
   });
 
+  it("keeps each row's retry pending until its own request settles", async () => {
+    const failed = (id: string) =>
+      makeTask({
+        task_id: id,
+        status: "failed",
+        error_message: "download failed",
+        error_code: "artifact_download_failed",
+      });
+    const first = failed("download-a");
+    const second = failed("download-b");
+    let settleFirst: (value: { task: ReturnType<typeof makeTask> }) => void = () => {};
+    vi.spyOn(API, "retryTaskDownload").mockImplementation((taskId: string) =>
+      taskId === "download-a"
+        ? new Promise((resolve) => {
+          settleFirst = resolve;
+        })
+        : Promise.resolve({ task: { ...second, status: "running" as const } })
+    );
+    openHudWith([first, second]);
+
+    const buttons = await screen.findAllByRole("button", { name: "重试下载" });
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+
+    // 后点的那条已返回、先点的那条仍在途时，先点的那条的按钮仍禁着：每一行的在途状态
+    // 只由它自己的请求决定。判据落在加载态上——任务状态看不出这一位。
+    await waitFor(() => {
+      expect(useTasksStore.getState().tasks.map((task) => task.status)).toEqual(["failed", "running"]);
+    });
+    expect(buttons[0]).toBeDisabled();
+    settleFirst({ task: { ...first, status: "running" as const } });
+    await waitFor(() => {
+      expect(useTasksStore.getState().tasks.map((task) => task.status)).toEqual(["running", "running"]);
+    });
+  });
+
+  it("tells the user when the retry could not be started", async () => {
+    const failed = makeTask({
+      task_id: "download-3",
+      status: "failed",
+      error_message: "download failed",
+      error_code: "artifact_download_failed",
+    });
+    vi.spyOn(API, "retryTaskDownload").mockRejectedValue(new Error("task is no longer eligible"));
+    openHudWith([failed]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "重试下载" }));
+
+    // 失败时这一行看不出任何变化，回执只能来自 toast。
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.text).toBe("重试下载没能开始，请展开任务查看最新状态");
+    });
+    expect(useAppStore.getState().toast?.tone).toBe("error");
+  });
+
   it("offers the action only on artifact download failures", () => {
     openHudWith([
       makeTask({

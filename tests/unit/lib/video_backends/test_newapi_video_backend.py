@@ -326,6 +326,41 @@ class TestNewAPIVideoBackend:
             # 不应被 retry 框架重试多次（应仅 1 次 GET 调用立即抛错）
             assert routes.poll.call_count == 1, "404 应一击转 ResumeExpiredError，不该被 retry"
 
+    async def test_submit_failure_response_is_recorded(self, tmp_path: Path):
+        """建任务失败发生在轮询开始之前，不在提交边界留痕就永远记不到。"""
+        recorded: list[object] = []
+
+        async def _record(body: object) -> None:
+            recorded.append(body)
+
+        with _newapi() as routes:
+            routes.submit.mock(return_value=_json({"error": "quota exceeded"}, status_code=400))
+
+            with pytest.raises(httpx.HTTPStatusError):
+                await _backend().generate(
+                    _request(tmp_path, output_path=tmp_path / "out.mp4", on_provider_response=_record)
+                )
+
+        assert recorded == [{"error": "quota exceeded"}]
+
+    async def test_resume_404_response_is_recorded_before_it_becomes_resume_expired(self, tmp_path: Path):
+        """过期任务最需要供应商响应做诊断：留痕必须早于 404 → ResumeExpiredError 的转换。"""
+        recorded: list[object] = []
+
+        async def _record(body: object) -> None:
+            recorded.append(body)
+
+        with _newapi() as routes:
+            routes.poll.mock(return_value=_json({"error": "task not found"}, status_code=404))
+
+            with pytest.raises(ResumeExpiredError):
+                await _backend().resume_video(
+                    "task-404",
+                    _request(tmp_path, output_path=tmp_path / "out.mp4", on_provider_response=_record),
+                )
+
+        assert recorded == [{"error": "task not found"}]
+
     async def test_generate_expired_status_raises_runtime_error_not_resume_expired(self, tmp_path: Path):
         """generate 路径下 status='expired' 抛 RuntimeError，不带 [resume_expired] 语义。"""
         with _newapi() as routes:

@@ -51,6 +51,32 @@ class TestTaskRepository:
         assert calls["items"][0]["id"] == call_id
         assert calls["items"][0]["status"] == "pending"
 
+    async def test_retry_artifact_download_reopens_api_call_left_pending_by_resume(self, db_session):
+        # 落 artifact_download_failed 的任务，其 ApiCall 停在 pending 时同样受理重试；
+        # 不受理就意味着产物只能整单重跑、重扣一次费。
+        usage = UsageRepository(db_session)
+        call_id = await usage.start_call(project_name="demo", call_type="video", model="m")
+        repo = TaskRepository(db_session)
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S03",
+            payload={"api_call_id": call_id},
+            provider_id="custom-1",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(task["task_id"], "job-44", endpoint="ce-1")
+        await repo.mark_failed(task["task_id"], encode_failure("artifact_download_failed", detail="403"))
+
+        retried = await repo.retry_artifact_download(task["task_id"])
+
+        assert retried["status"] == "running"
+        calls = await usage.get_calls(project_name="demo")
+        assert calls["total"] == 1
+        assert calls["items"][0]["id"] == call_id
+        assert calls["items"][0]["status"] == "pending"
+
     async def test_retry_artifact_download_leaves_undispatchable_task_failed(self, db_session):
         usage = UsageRepository(db_session)
         call_id = await usage.start_call(project_name="demo", call_type="video", model="m")

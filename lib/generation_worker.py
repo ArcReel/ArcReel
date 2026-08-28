@@ -237,7 +237,7 @@ class CapacityTable:
         """从 ConfigService + PROVIDER_REGISTRY + 自定义供应商加载容量表。"""
         from lib.config.registry import PROVIDER_REGISTRY
         from lib.config.service import ConfigService
-        from lib.custom_provider.endpoints import endpoint_to_media_type
+        from lib.custom_provider.endpoints import static_media_type
         from lib.db import safe_session_factory
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
@@ -268,7 +268,9 @@ class CapacityTable:
             repo = CustomProviderRepository(session)
             for provider, models in await repo.list_providers_with_models():
                 pid = provider.provider_id  # "custom-{id}"
-                media_types = {endpoint_to_media_type(m.endpoint) for m in models if m.is_enabled}
+                # 自定义供应商的模型行可以挂 ce- 端点：按内置注册表查会抛 ValueError，
+                # 让整张容量表的刷新一起作废，该供应商停在 video 容量 0 上收不了任务。
+                media_types = {static_media_type(m.endpoint) for m in models if m.is_enabled}
                 # 自定义供应商不在内置注册表，无声明默认层 → 两层回退：列有值取列值，
                 # 列为 NULL 走全局默认。投影仍交给 _lane_limits 统一处理不支持的 lane。
                 image_max = provider.image_max_workers if provider.image_max_workers is not None else default_image
@@ -511,6 +513,9 @@ class GenerationWorker:
         # Orphan dispatcher 句柄持久化：shutdown 时 await 它跑完；lease 切换重夺时
         # 第二次进 _handle_orphan_tasks_on_start，旧句柄未 done 不能直接覆盖。
         self._orphan_dispatcher_task: asyncio.Task | None = None
+        # 「重试下载」的派发是即发即忘的：不持强引用的话，事件循环之外无人引用该 task，
+        # 它可能在挂起点被 GC 静默回收。完成即从集合摘除。
+        self._retry_dispatch_tasks: set[asyncio.Task] = set()
         # 一次性扫描开关：单 lease 互斥架构下，进程一旦扫过 orphan 就不再重扫；
         # 配合 _lease_lost_monotonic 阈值在「真切换 owner」时清零、「短 flap」不清零。
         self._orphan_handled_once: bool = False
@@ -820,6 +825,11 @@ class GenerationWorker:
             except Exception:
                 logger.exception("orphan dispatcher 在 shutdown 等待时异常")
 
+        # 「重试下载」的 dispatcher 同理：任务在派发之前就已经被翻成 running，dispatcher 还没
+        # 登记 sub-task 就退出的话，这一笔要等到下次启动的孤儿扫描才被接手。
+        if retry_dispatchers := [t for t in self._retry_dispatch_tasks if not t.done()]:
+            await asyncio.gather(*retry_dispatchers, return_exceptions=True)
+
         active_tasks = self._slots.all_active_tasks()
         if not active_tasks:
             return
@@ -988,10 +998,14 @@ class GenerationWorker:
                 if checkpoint is not None:
                     await asyncio.shield(self._cleanup_video_staging(task))
 
+        # 续跑不开新的记账括号（账是提交时记的），任何终态出口都要顺手结算那条 pending 的
+        # ApiCall，否则用量报表里留下永不终态的行。「重试下载」把调用重开成 pending 之后，
+        # 下面每一条出口都变得可达。``resume_failed`` 带 WHERE status='pending'，重复调用无副作用。
         try:
             result = await _execute_with_video_cleanup()
         except asyncio.CancelledError:
             await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            await asyncio.shield(self._settle_unresumable_call(task))
             raise
         except NotImplementedError as exc:
             logger.warning("resume 不支持 task %s: %s", task_id, exc)
@@ -1000,6 +1014,7 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            await asyncio.shield(self._settle_unresumable_call(task))
             return
         except ResumeEndpointChangedError as exc:
             logger.warning("resume endpoint 已变更 task %s: %s", task_id, exc)
@@ -1008,6 +1023,7 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            await asyncio.shield(self._settle_unresumable_call(task))
             return
         except ResumeExpiredError as exc:
             logger.warning("resume 已过期 task %s: %s", task_id, exc)
@@ -1016,12 +1032,14 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            await asyncio.shield(self._settle_unresumable_call(task))
             return
         except Exception as exc:
             logger.exception("resume 失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
             rows = await asyncio.shield(self.queue.mark_task_failed(task_id, _encode_task_failure_message(exc)))
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            await asyncio.shield(self._settle_unresumable_call(task))
             return
 
         try:
@@ -1298,16 +1316,45 @@ class GenerationWorker:
         await asyncio.gather(*sub_tasks, return_exceptions=True)
         logger.info("孤儿后台 dispatcher 完成")
 
-    async def retry_artifact_download(self, task: dict[str, Any]) -> None:
+    async def read_video_poll_timeout_seconds(self) -> int:
+        """派发前解析全局轮询超时。
+
+        调用方在翻任务状态之前先取它：状态一旦提交就没有回滚点，派发侧此后再抛错任务就永久
+        停在 running 上无人接手（与 ``provider_id`` 同为资格条件，见 ``retry_artifact_download``）。
+        """
+        return await _read_video_poll_timeout_seconds()
+
+    async def retry_artifact_download(self, task: dict[str, Any], *, poll_timeout_seconds: int) -> None:
         """按原 provider job 派发一次下载恢复，不重新提交供应商任务。"""
         provider_id = task.get("provider_id")
         if not isinstance(provider_id, str) or not provider_id:
             raise ValueError("retry-download task has no provider_id")
-        task["video_poll_timeout_seconds"] = await _read_video_poll_timeout_seconds()
-        asyncio.create_task(
+        task["video_poll_timeout_seconds"] = poll_timeout_seconds
+        dispatch = asyncio.create_task(
             self._dispatch_resume_orphans_background({provider_id: [task]}),
             name=f"retry-download-{task['task_id']}",
         )
+        self._retry_dispatch_tasks.add(dispatch)
+        dispatch.add_done_callback(self._retry_dispatch_tasks.discard)
+
+    async def _settle_unresumable_call(self, task: dict[str, Any]) -> None:
+        """任务在派发前就被判死时，把它那条 pending 的 ApiCall 一并翻 failed（零费用）。
+
+        续跑路径不开新的记账括号——账是提交时记的。派发侧终态失败若只翻任务不结算调用，
+        那条 pending 会永久留在用量报表里；重试下载尤其明显：它刚把调用重开成 pending。
+        """
+        payload = task.get("payload")
+        call_id = payload.get("api_call_id") if isinstance(payload, dict) else None
+        if not isinstance(call_id, int):
+            return
+        from lib.ledger import Ledger
+
+        try:
+            await Ledger().resume_failed(call_id=call_id)
+        except Exception:
+            logger.warning(
+                "pending ApiCall 结算失败 task_id=%s call_id=%s", task.get("task_id"), call_id, exc_info=True
+            )
 
     async def _dispatch_provider_bucket(
         self,
@@ -1341,6 +1388,7 @@ class GenerationWorker:
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(t["task_id"], cancelled_by="user")
+                await self._settle_unresumable_call(t)
                 await self._cleanup_video_staging(t)
             return
 

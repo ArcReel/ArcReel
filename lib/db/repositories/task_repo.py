@@ -620,9 +620,12 @@ class TaskRepository(BaseRepository):
         call_id = payload.get("api_call_id") if isinstance(payload, dict) else None
         if not isinstance(call_id, int):
             raise ValueError(f"task has no api_call_id for artifact download retry: {task_id}")
+        # 落 artifact_download_failed 的任务，其调用可能停在 failed（首次下载耗尽后已结算），
+        # 也可能停在 pending（续跑路径下载耗尽，结算与任务翻状态之间有窗口）。两种都受理并
+        # 原地翻回 pending：仍是同一条调用，不新增计费行。
         call_update = await self.session.execute(
             update(ApiCall)
-            .where(ApiCall.id == call_id, ApiCall.status == "failed")
+            .where(ApiCall.id == call_id, ApiCall.status.in_(("failed", "pending")))
             .values(status="pending", finished_at=None, error_message=None)
         )
         if rowcount(call_update) != 1:
@@ -632,7 +635,9 @@ class TaskRepository(BaseRepository):
         task_update = await self.session.execute(
             update(Task)
             .where(Task.task_id == task_id, Task.status == "failed")
-            .values(status="running", error_message=None, finished_at=None, updated_at=now)
+            # started_at 一并刷新：重试是新的一段执行，留着首次提交的时间会让面板上的
+            # 耗时按上一段的起点算。
+            .values(status="running", error_message=None, finished_at=None, started_at=now, updated_at=now)
         )
         if rowcount(task_update) != 1:
             await self.session.rollback()

@@ -42,11 +42,19 @@ class _RetryQueue:
 
 
 class _RetryWorker:
-    def __init__(self):
+    def __init__(self, *, timeout_error: Exception | None = None):
         self.tasks = []
+        self.poll_timeouts = []
+        self._timeout_error = timeout_error
 
-    async def retry_artifact_download(self, task):
+    async def read_video_poll_timeout_seconds(self) -> int:
+        if self._timeout_error is not None:
+            raise self._timeout_error
+        return 3600
+
+    async def retry_artifact_download(self, task, *, poll_timeout_seconds: int):
         self.tasks.append(task)
+        self.poll_timeouts.append(poll_timeout_seconds)
 
 
 class TestRetryArtifactDownload:
@@ -73,6 +81,21 @@ class TestRetryArtifactDownload:
         assert response.status_code == 200
         assert queue.calls == ["task-1"]
         assert worker.tasks == [{"task_id": "task-1", "status": "running", "error_message": None}]
+        assert worker.poll_timeouts == [3600]
+
+    def test_unresolvable_poll_timeout_leaves_task_retryable(self, monkeypatch):
+        # 轮询超时读的是配置库。它在翻状态之后失败就没有回滚点，任务会永久停在 running：
+        # 既不被队列认领，也不再满足 retry-download 的资格条件。故必须先读再翻。
+        queue = _RetryQueue()
+        worker = _RetryWorker(timeout_error=RuntimeError("config database unavailable"))
+        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+
+        with TestClient(self._app(queue, worker), raise_server_exceptions=False) as client:
+            response = client.post("/api/v1/tasks/task-1/retry-download")
+
+        assert response.status_code == 500
+        assert queue.calls == []
+        assert worker.tasks == []
 
     def test_unavailable_worker_does_not_transition_task(self, monkeypatch):
         queue = _RetryQueue()

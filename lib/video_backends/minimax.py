@@ -59,8 +59,8 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    notify_provider_response,
     poll_with_retry,
+    recording_poll,
     reference_audio_to_data_uri,
     should_retry_poll,
     should_retry_submit,
@@ -240,7 +240,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
             format_kwargs_for_log(_safe_body_for_log(payload)),
         )
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            task_id = await self._create_task(client, payload)
+            task_id = await self._create_task(client, payload, request)
             logger.info("MiniMax 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             await self._persist_provider_job_id(request, task_id, provider=PROVIDER_MINIMAX)
             return await self._poll_and_build(client, task_id, request)
@@ -439,7 +439,9 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
         retry_if=should_retry_submit,
     )
-    async def _create_task(self, client: httpx.AsyncClient, payload: dict) -> str:
+    async def _create_task(
+        self, client: httpx.AsyncClient, payload: dict, request: VideoGenerationRequest | None = None
+    ) -> str:
         # 非幂等的「建任务 + 计费」POST：submit_post 把歧义传输错误转 AmbiguousSubmitError
         # 终态失败，避免重试重复建任务 + 重复计费；>=400 抛 HTTPStatusError 交 should_retry_submit
         # 按状态码分流（4xx fail-fast、5xx/429 重试）。
@@ -450,6 +452,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
                 headers=minimax_headers(self._api_key),
             ),
             provider=PROVIDER_MINIMAX,
+            request=request,
         )
         return extract_minimax_video_task_id(resp.json())
 
@@ -487,7 +490,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
     ) -> VideoGenerationResult:
         is_v2 = self._is_v2
         final = await poll_with_retry(
-            poll_fn=lambda: self._poll_query(client, task_id),
+            poll_fn=recording_poll(lambda: self._poll_query(client, task_id), request),
             is_done=is_minimax_v2_video_terminal if is_v2 else is_minimax_video_terminal,
             is_failed=minimax_v2_video_failure_reason if is_v2 else minimax_video_failure_reason,
             max_wait=request.poll_timeout_seconds,
@@ -499,7 +502,6 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
                 int(elapsed),
             ),
         )
-        await notify_provider_response(request, final)
 
         if is_v2:
             # v2 查询响应直接带限时下载地址，没有 file_id → files/retrieve 这一步。

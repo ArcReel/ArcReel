@@ -57,6 +57,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "confirm_request_duration",
   "configure_provider",
   "repair_artifact_state",
+  "retry_artifact_download",
 ] as const;
 
 export type WorkflowActionType = (typeof WORKFLOW_ACTION_TYPES)[number];

@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -39,10 +38,13 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     notify_provider_response,
     poll_with_retry,
+    redacted_status_error,
+    request_with_scoped_credentials,
     should_retry_poll,
     should_retry_submit,
     stream_to_file,
     submit_post,
+    url_origin,
     with_artifact_retry,
 )
 
@@ -100,10 +102,12 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         return video_capabilities_from_definition(self._definition)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        context = self._request_context(request)
+        context = self._request_context(request, require_declared_inputs=True)
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             job_id = await self._submit(client, context, request)
-            await self._persist_provider_job_id(request, job_id, provider=self._provider)
+            # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
+            # 把一笔已付费的任务误判成过期丢掉。
+            await self._persist_provider_job_id(request, job_id, provider=self._provider, endpoint=self._base_url)
             return await self._poll_download(client, job_id, request, context=context, is_resume=False)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
@@ -111,20 +115,43 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             return await self._poll_download(client, job_id, request, context=context, is_resume=True)
 
-    def _request_context(self, request: VideoGenerationRequest) -> dict[str, object]:
-        assets: dict[str, AssetData | list[AssetData] | None] = {
-            "start_image": self._asset(request.start_image),
-            "end_image": self._asset(request.end_image),
-            "reference_images": self._assets(request.reference_images),
-            "reference_audio_files": self._assets(request.reference_audio_files),
-        }
+    def _request_context(
+        self, request: VideoGenerationRequest, *, require_declared_inputs: bool = False
+    ) -> dict[str, object]:
+        """构造模板上下文。
+
+        ``require_declared_inputs`` 只在提交路径为真：素材是提交的输入，续跑的请求本就不带
+        素材（校验器也禁止 poll / result 模板引用 inputs），在续跑上查必需项会把每一笔
+        「必需图输入」端点的已付费任务判死在第一次轮询之前。
+        """
         declarations = self._definition.get("inputs") or {}
         try:
+            # 素材读盘也在守卫内：文件在任务准备与执行之间被删掉时抛的是 OSError，落在守卫外
+            # 就会绕过稳定错误码，让 worker 存下一段没有译文的裸文本。
+            assets: dict[str, AssetData | list[AssetData] | None] = {
+                "start_image": self._asset(request.start_image),
+                "end_image": self._asset(request.end_image),
+                "reference_images": self._assets(request.reference_images),
+                "reference_audio_files": self._assets(request.reference_audio_files),
+            }
             encoded = encode_inputs(declarations, assets)
+            # 声明为必需的素材缺席时就地失败：模板会把整串占位符的键直接删掉，请求照样发得出去，
+            # 于是供应商收到一个残缺请求、照常建任务照常计费。
+            missing = (
+                [name for name, value in encoded.items() if declarations[name].get("required") and not value]
+                if require_declared_inputs
+                else []
+            )
+            if missing:
+                raise DeclarativeRuntimeError(
+                    "declarative_template_render_failed",
+                    detail=f"required inputs are missing: {', '.join(sorted(missing))}",
+                )
             return build_context(
                 {
                     "api_key": self._api_key,
-                    "base_url": self._base_url,
+                    # 续跑回放提交时的域名（提交路径恒 None）：域名是连接维度，不是协议维度。
+                    "base_url": request.submitted_base_url or self._base_url,
                     "model": self._model,
                     "prompt": request.prompt,
                     "duration": request.duration_seconds,
@@ -165,6 +192,16 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         except (KeyError, TypeError, ValueError, TemplateRenderError) as exc:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=str(exc)) from exc
 
+    def _endpoint_origin(
+        self, section: Mapping[str, Any], context: Mapping[str, object]
+    ) -> tuple[str, str, int | None]:
+        """该节渲染出的请求地址的源——凭证实际发往的那个。
+
+        取的是渲染结果而不是响应上的 URL：后者是跟随重定向之后的终点，跨源跳转时凭证早已
+        被卸掉，把它当可信源等于把凭证发给一个从没验证过的第三方主机。
+        """
+        return url_origin(self._render(section, context).url)
+
     async def _send(
         self,
         client: httpx.AsyncClient,
@@ -172,7 +209,10 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         context: Mapping[str, object],
     ) -> httpx.Response:
         response = await self._send_without_status(client, section, context)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise redacted_status_error(exc) from None
         return response
 
     async def _submit(
@@ -202,12 +242,15 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             error = self._extract_text(section["extract"].get("error"), body)
         except (TypeError, ValueError) as exc:
             raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
-        if not isinstance(job_id, str) or not job_id.strip():
+        # accept="scalar" 的定义可以命中数字或布尔，格式说明的口径是「按字符串化交给下游」；
+        # 这里按 str 收，与产物地址、result_id 的取值口径一致。
+        task_id = str(job_id).strip() if job_id is not None and not isinstance(job_id, (list, dict)) else ""
+        if not task_id:
             raise DeclarativeRuntimeError(
                 "declarative_response_extract_failed",
                 detail=error or "submit response did not contain a provider task id",
             )
-        return job_id.strip()
+        return task_id
 
     async def _send_without_status(
         self,
@@ -216,11 +259,14 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         context: Mapping[str, object],
     ) -> httpx.Response:
         rendered = self._render(section, context)
-        return await client.request(
+        # 提交 / 轮询 / 二次取件都带着渲染出的 auth 节：重定向必须自己逐跳跟随，跨源卸凭证。
+        return await request_with_scoped_credentials(
+            client,
             rendered.method,
             rendered.url,
             headers=rendered.headers,
             json=rendered.body if rendered.body is not None else None,
+            auth_query=rendered.auth_query,
         )
 
     async def _poll_download(
@@ -233,23 +279,46 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         is_resume: bool,
     ) -> VideoGenerationResult:
         poll_context = {**context, "task_id": job_id}
+        # 定义可以把端点写在与 base_url 不同的主机上，产物地址往往就出自那台主机。凡是
+        # 已携带凭证访问过的源，产物同源时照样附凭证；其余（对象存储 / CDN）裸请求。
+        trusted_origins = {url_origin(str(context.get("base_url") or self._base_url))}
 
-        async def poll_once() -> _ProviderState:
+        async def fetch(
+            section: Mapping[str, Any],
+            section_context: Mapping[str, object],
+            *,
+            expire_on_404: bool,
+        ) -> object:
+            """取件一次，失败响应一律留痕。
+
+            只有轮询端点的 404 意味着「远端任务没了」：那是任务本身的地址。result 端点的
+            404 说的是产物还没就绪，续跑期把它判成过期会永久丢掉一条已经成功的付费任务，
+            它该留给取件预算去重试。
+            """
             try:
-                response = await self._send(client, self._definition["poll"], poll_context)
+                response = await self._send(client, section, section_context)
             except httpx.HTTPStatusError as exc:
                 await self._record_response(exc.response, request)
-                if is_resume and exc.response.status_code == 404:
+                if expire_on_404 and is_resume and exc.response.status_code == 404:
                     raise ResumeExpiredError(job_id=job_id, provider=self._provider) from exc
                 raise
+            trusted_origins.add(self._endpoint_origin(section, section_context))
+            return await self._response_body(response, request)
+
+        async def poll_once() -> _ProviderState:
             return self._extract_state(
-                await self._response_body(response, request), self._definition["poll"]["extract"]
+                await fetch(self._definition["poll"], poll_context, expire_on_404=True),
+                self._definition["poll"]["extract"],
             )
 
         final = await poll_with_retry(
             poll_fn=poll_once,
             is_done=lambda state: state.status is ProviderJobStatus.SUCCEEDED,
-            is_failed=lambda state: state.error if state.status is ProviderJobStatus.FAILED else None,
+            # 终态失败必须给出非空理由：返回 None 会让 poll_with_retry 认为任务仍在进行，
+            # 一路轮询到 max_wait 才超时，而供应商早已判负。
+            is_failed=lambda state: (
+                (state.error or "provider reported failure") if state.status is ProviderJobStatus.FAILED else None
+            ),
             max_wait=request.poll_timeout_seconds,
             retry_if=should_retry_poll,
             label=self._provider,
@@ -258,9 +327,27 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         duration = final.duration_seconds
         if "result" in self._definition:
             result_context = {**poll_context, "result_id": final.result_id}
-            response = await self._send(client, self._definition["result"], result_context)
+
+            async def fetch_result() -> object:
+                return await fetch(self._definition["result"], result_context, expire_on_404=False)
+
+            # 走到这里供应商任务已经成功、钱已经花了，二次取件与产物下载同属「任务已建成后的
+            # 幂等取件」：共用同一份预算，别让一次 429 / 5xx / 尚未收敛的 404 直接废掉成片。
+            # 预算耗尽同样落 artifact_download_failed——「重试下载」走 resume 会重跑轮询与二次
+            # 取件，恢复路径与下载失败完全一致，不必重新提交。
+            try:
+                result_body = await with_artifact_retry(
+                    fetch_result,
+                    label=f"{self._provider} result",
+                    retry_if=should_retry_poll,
+                    max_wait=request.poll_timeout_seconds,
+                )
+            except (ResumeExpiredError, DeclarativeRuntimeError):
+                raise
+            except Exception as exc:
+                raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
             result_state = self._extract_state(
-                await self._response_body(response, request),
+                result_body,
                 self._definition["result"]["extract"],
                 status=ProviderJobStatus.SUCCEEDED,
             )
@@ -272,7 +359,14 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 "declarative_response_extract_failed",
                 detail=final.error or "provider reported success but no video URL matched the definition",
             )
-        await self._download(client, video_url, request.output_path, context, request.poll_timeout_seconds)
+        await self._download(
+            client,
+            video_url,
+            request.output_path,
+            context,
+            request.poll_timeout_seconds,
+            trusted_origins=trusted_origins,
+        )
         return VideoGenerationResult(
             video_path=request.output_path,
             provider=self._provider,
@@ -332,6 +426,9 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         try:
             body = response.json()
         except ValueError as exc:
+            # 2xx 但不是 JSON（网关的 HTML 错误页、被截断的响应）：原文先留痕再抛。诊断字段
+            # 若停在上一次轮询的响应上，正好在最需要看到这次响应的场合给出误导。
+            await notify_provider_response(request, response.text)
             raise DeclarativeRuntimeError(
                 "declarative_response_extract_failed", detail="provider response was not valid JSON"
             ) from exc
@@ -340,7 +437,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     @staticmethod
     async def _record_response(response: httpx.Response, request: VideoGenerationRequest) -> None:
-        """留痕失败响应；非 JSON 体按 #2126 存截断字符串，不因此让任务多失败一种方式。"""
+        """留痕失败响应；非 JSON 体存截断后的原文，不因此让任务多失败一种方式。"""
         try:
             body: object = response.json()
         except ValueError:
@@ -354,13 +451,14 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         output_path: Path,
         context: Mapping[str, object],
         max_wait: float,
+        trusted_origins: set[tuple[str, str, int | None]],
     ) -> None:
-        # 同源才按 auth 节渲染凭证；异源（对象存储 / CDN 签名 URL）裸请求，附带凭证会破坏
-        # 签名、并把 query 凭证写进第三方访问日志。
+        # 与已携带凭证访问过的某个源同源，才按 auth 节渲染凭证；其余（对象存储 / CDN 的
+        # 签名 URL）裸请求——附带凭证会破坏签名、并把 query 凭证写进第三方访问日志。
+        # 凭证的作用域取产物地址自身的源，一路带到重定向跟随处，换源即卸。
+        credential_origin = url_origin(url)
         rendered = (
-            self._render({"method": "GET", "url": url}, context)
-            if self._origin(url) == self._origin(self._base_url)
-            else None
+            self._render({"method": "GET", "url": url}, context) if credential_origin in trusted_origins else None
         )
 
         async def download_once() -> None:
@@ -369,6 +467,8 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 rendered.url if rendered is not None else url,
                 output_path,
                 headers=rendered.headers if rendered is not None else None,
+                credential_origin=credential_origin if rendered is not None else None,
+                auth_query=rendered.auth_query if rendered is not None else None,
             )
 
         try:
@@ -379,9 +479,3 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             )
         except Exception as exc:
             raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
-
-    @staticmethod
-    def _origin(url: str) -> tuple[str, str, int | None]:
-        parts = urlsplit(url)
-        port = parts.port or (443 if parts.scheme == "https" else 80 if parts.scheme == "http" else None)
-        return parts.scheme.lower(), (parts.hostname or "").lower(), port

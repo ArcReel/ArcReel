@@ -464,6 +464,7 @@ export default {
   'cancel_this_task': 'Cancel this task',
   'cancel_btn': 'Cancel',
   'retry_download': 'Retry download',
+  'retry_download_failed': "Retry download couldn't start; expand the task to see its current state",
   'retrying_download': 'Retrying…',
   'cancel_running_warning': 'Already-submitted provider requests are not refundable',
   'cascade_label': 'cascaded',

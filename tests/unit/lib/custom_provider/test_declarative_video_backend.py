@@ -7,7 +7,11 @@ import pytest
 
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
 from lib.custom_provider.endpoint_definition import validate_definition
-from lib.video_backends.base import ResumeExpiredError, VideoGenerationRequest
+from lib.video_backends.base import (
+    VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
+    ResumeExpiredError,
+    VideoGenerationRequest,
+)
 from tests.factories import custom_endpoint_definition
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, request_json
@@ -103,6 +107,334 @@ class TestDeclarativeVideoBackend:
         assert "Authorization" not in request.headers
         # 签名 URL 的 query 是签名的一部分，附带 auth 节的 query 凭证会直接破坏它。
         assert request.url.query == b"sig=abc"
+
+    async def test_redirect_to_another_origin_drops_custom_auth_headers(self, tmp_path: Path):
+        """同源产物地址跳到 CDN 时，自定义头名的凭证同样不许跟过去。
+
+        httpx 跨源只摘 Authorization，而 auth 节可以用任意头名。
+        """
+        definition = _definition()
+        definition["auth"] = {"headers": {"X-API-Key": "{{ api_key }}"}}
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                )
+            )
+            origin = router.get("https://relay.test/files/job-42.mp4").mock(
+                return_value=httpx.Response(302, headers={"location": "https://cdn.example/signed/job-42.mp4"})
+            )
+            cdn = router.get("https://cdn.example/signed/job-42.mp4").mock(
+                return_value=httpx.Response(200, content=b"video")
+            )
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert origin.calls.last.request.headers["X-API-Key"] == "secret"
+        assert "X-API-Key" not in cdn.calls.last.request.headers
+
+    async def test_submit_redirect_to_another_origin_drops_custom_auth_headers(self, tmp_path: Path):
+        """提交 / 轮询 / 二次取件同样带着 auth 节，跨源跳转时凭证不许跟过去。"""
+        definition = _definition()
+        definition["auth"] = {"headers": {"X-API-Key": "{{ api_key }}"}}
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock():
+            submit = router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(307, headers={"location": "https://elsewhere.test/v1/video/create"})
+            )
+            moved = router.post("https://elsewhere.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert submit.calls.last.request.headers["X-API-Key"] == "secret"
+        assert "X-API-Key" not in moved.calls.last.request.headers
+
+    async def test_submit_302_does_not_replay_the_creation_payload(self, tmp_path: Path):
+        """302 后按 GET 跟随、丢掉请求体：原样重放创建请求会在跳转目标上再建一个付费任务。"""
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(302, headers={"location": "https://relay.test/v1/video/created"})
+            )
+            replayed = router.post("https://relay.test/v1/video/created")
+            followed = router.get("https://relay.test/v1/video/created").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=_definition(),
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert replayed.call_count == 0
+        assert followed.call_count == 1
+        assert followed.calls.last.request.read() == b""
+
+    async def test_poll_on_another_host_keeps_credentials_but_scopes_them_there(self, tmp_path: Path):
+        """定义可以把轮询端点写在与 base_url 不同的主机上：凭证按该请求自己的源判作用域。"""
+        definition = _definition()
+        definition["auth"] = {"headers": {"X-API-Key": "{{ api_key }}"}}
+        definition["poll"]["url"] = "https://status.test/v1/video/fetch/{{ task_id }}"
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            poll = router.get("https://status.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(302, headers={"location": "https://elsewhere.test/fetch/job-42"})
+            )
+            moved = router.get("https://elsewhere.test/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        # 定义指名的主机拿得到凭证；服务端把它引去的第三方主机拿不到。
+        assert poll.calls.last.request.headers["X-API-Key"] == "secret"
+        assert "X-API-Key" not in moved.calls.last.request.headers
+
+    async def test_same_origin_redirect_keeps_query_credentials(self, tmp_path: Path):
+        """按 query 传的凭证在同源续跳上要补回：Location 会整体替换查询串。
+
+        一次 `/fetch/job-42` → `/fetch/job-42/` 的规范化跳转就足以丢掉 api_key。
+        """
+        definition = _definition()
+        definition["auth"] = {"query": {"key": "{{ api_key }}"}}
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(302, headers={"location": "/v1/video/fetch/job-42/"})
+            )
+            followed = router.get("https://relay.test/v1/video/fetch/job-42/").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert followed.calls.last.request.url.params["key"] == "secret"
+
+    async def test_same_origin_redirect_keeps_the_location_query_too(self, tmp_path: Path):
+        """凭证要合并进 Location 自带的查询串，而不是整串替换掉它。"""
+        definition = _definition()
+        definition["auth"] = {"query": {"key": "{{ api_key }}"}}
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(302, headers={"location": "/v1/video/fetch/job-42/?region=us"})
+            )
+            followed = router.get("https://relay.test/v1/video/fetch/job-42/").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        params = followed.calls.last.request.url.params
+        assert params["key"] == "secret"
+        assert params["region"] == "us"
+
+    async def test_artifact_on_the_poll_host_gets_credentials(self, tmp_path: Path):
+        """定义可以把端点写在别的主机上，产物地址往往就出自那台主机。
+
+        只按 base_url 判同源会让这类下载裸请求、认证失败。
+        """
+        definition = _definition()
+        definition["poll"]["url"] = "https://status.test/v1/video/fetch/{{ task_id }}"
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://status.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://status.test/files/job-42.mp4"},
+                )
+            )
+            download = router.get("https://status.test/files/job-42.mp4").mock(
+                return_value=httpx.Response(200, content=b"video")
+            )
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert download.calls.last.request.headers["Authorization"] == "Bearer secret"
+
+    async def test_redirect_target_does_not_become_a_trusted_artifact_origin(self, tmp_path: Path):
+        """轮询被跨源重定向后，终点主机不算「访问过的可信源」。
+
+        凭证在那一跳早已被卸掉；把终点当可信源，等于让产物下载把 key 送给一个从没验证过
+        的第三方主机。
+        """
+        definition = _definition()
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(302, headers={"location": "https://evil.test/fetch/job-42"})
+            )
+            router.get("https://evil.test/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://evil.test/files/job-42.mp4"},
+                )
+            )
+            download = router.get("https://evil.test/files/job-42.mp4").mock(
+                return_value=httpx.Response(200, content=b"video")
+            )
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert "Authorization" not in download.calls.last.request.headers
+
+    async def test_cross_origin_redirect_drops_query_credentials(self, tmp_path: Path):
+        definition = _definition()
+        definition["auth"] = {"query": {"key": "{{ api_key }}"}}
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(302, headers={"location": "https://elsewhere.test/fetch/job-42"})
+            )
+            moved = router.get("https://elsewhere.test/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert "key" not in moved.calls.last.request.url.params
+
+    async def test_same_origin_redirect_keeps_credentials(self, tmp_path: Path):
+        definition = _definition()
+        definition["auth"] = {"headers": {"X-API-Key": "{{ api_key }}"}}
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(
+                return_value=httpx.Response(302, headers={"location": "/files/job-42-v2.mp4"})
+            )
+            final = router.get("https://relay.test/files/job-42-v2.mp4").mock(
+                return_value=httpx.Response(200, content=b"video")
+            )
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert final.calls.last.request.headers["X-API-Key"] == "secret"
 
     async def test_succeeded_without_video_prefers_extracted_error(self, tmp_path: Path):
         with capture_http() as router:
@@ -244,3 +576,331 @@ class TestDeclarativeVideoBackend:
 
         assert submit.call_count == 0
         assert result.video_path.read_bytes() == b"resumed"
+
+    async def test_submitted_base_url_is_replayed_on_resume(self, tmp_path: Path):
+        """用户在途改了供应商域名：续跑仍按提交时的域名轮询，不把旧任务误判成过期。"""
+        with capture_http() as router:
+            old_host = router.get("https://old.relay.test/v1/video/fetch/job-old").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://old.relay.test/files/job-old.mp4"},
+                )
+            )
+            new_host = router.get("https://new.relay.test/v1/video/fetch/job-old")
+            download = router.get("https://old.relay.test/files/job-old.mp4").mock(
+                return_value=httpx.Response(200, content=b"resumed")
+            )
+
+            result = await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://new.relay.test",
+                model="video-x",
+                definition=_definition(),
+                provider="custom-1",
+            ).resume_video("job-old", _request(tmp_path, submitted_base_url="https://old.relay.test"))
+
+        assert old_host.call_count == 1
+        assert new_host.call_count == 0
+        assert result.video_path.read_bytes() == b"resumed"
+        # 同源判定跟着回放的域名走，凭证照常附上。
+        assert download.calls.last.request.headers["Authorization"] == "Bearer secret"
+
+    async def test_submit_persists_the_base_url_it_used(self, tmp_path: Path):
+        from tests.fakes import captured_provider_job_ids
+
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids() as persisted:
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"v"))
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=_definition(),
+                provider="custom-1",
+            ).generate(_request(tmp_path, task_id="task-1"))
+
+        assert persisted[-1]["base_url"] == "https://relay.test"
+
+    async def test_unreadable_input_asset_fails_with_the_stable_code(self, tmp_path: Path):
+        """素材在任务准备与执行之间消失时也要落稳定错误码，而不是没有译文的裸 OSError 文本。"""
+        with capture_http() as router:
+            submit = router.post("https://relay.test/v1/video/create")
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=_definition(),
+                    provider="custom-1",
+                ).generate(_request(tmp_path, start_image=tmp_path / "vanished.png"))
+
+        assert caught.value.code == "declarative_template_render_failed"
+        assert submit.call_count == 0
+
+    async def test_non_json_success_response_is_recorded(self, tmp_path: Path):
+        """2xx 却不是 JSON（网关 HTML 错误页、被截断的响应）时，原文也要留痕。"""
+        recorded: list[object] = []
+
+        async def _record(body: object) -> None:
+            recorded.append(body)
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, text="<html>gateway timeout</html>")
+            )
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=_definition(),
+                    provider="custom-1",
+                ).generate(_request(tmp_path, on_provider_response=_record))
+
+        assert caught.value.code == "declarative_response_extract_failed"
+        assert recorded[-1] == "<html>gateway timeout</html>"
+
+    async def test_missing_required_input_fails_before_submitting(self, tmp_path: Path):
+        """声明为必需的素材缺席时不许发请求：模板会把该键整个删掉，供应商照样建任务照常计费。"""
+        definition = _definition()
+        definition["inputs"]["first_frame"]["required"] = True
+        assert validate_definition(definition).valid
+
+        with capture_http() as router:
+            submit = router.post("https://relay.test/v1/video/create")
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=definition,
+                    provider="custom-1",
+                ).generate(_request(tmp_path))
+
+        assert caught.value.code == "declarative_template_render_failed"
+        assert "first_frame" in caught.value.params["detail"]
+        assert submit.call_count == 0
+
+    async def test_resume_does_not_require_submit_assets(self, tmp_path: Path):
+        """续跑的请求本就不带素材（校验器也禁止 poll/result 模板引用 inputs）。
+
+        在续跑上查必需项，会把每一笔「必需图输入」端点的已付费任务判死在第一次轮询之前。
+        """
+        definition = _definition()
+        definition["inputs"]["first_frame"]["required"] = True
+
+        with capture_http() as router:
+            submit = router.post("https://relay.test/v1/video/create")
+            router.get("https://relay.test/v1/video/fetch/job-old").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/job-old.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/job-old.mp4").mock(
+                return_value=httpx.Response(200, content=b"resumed")
+            )
+
+            result = await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).resume_video("job-old", _request(tmp_path))
+
+        assert submit.call_count == 0
+        assert result.video_path.read_bytes() == b"resumed"
+
+    async def test_numeric_provider_task_id_is_accepted(self, tmp_path: Path):
+        """accept=scalar 的定义可以命中数字，格式口径是按字符串化交给下游。"""
+        definition = _definition()
+        definition["submit"]["extract"]["task_id"] = {"paths": ["$.task_id"], "accept": "scalar"}
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": 12345})
+            )
+            poll = router.get("https://relay.test/v1/video/fetch/12345").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "completed", "video_url": "https://relay.test/files/12345.mp4"},
+                )
+            )
+            router.get("https://relay.test/files/12345.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            result = await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert result.task_id == "12345"
+        assert poll.call_count == 1
+
+    async def test_failed_status_without_error_still_fails_immediately(self, tmp_path: Path):
+        """供应商判负却没给理由时也必须立刻终态，不是一路轮询到超时。"""
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            poll = router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(200, json={"status": "failed"})
+            )
+
+            with pytest.raises(RuntimeError, match="provider reported failure"):
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=_definition(),
+                    provider="custom-1",
+                ).generate(_request(tmp_path))
+
+        assert poll.call_count == 1
+
+    async def test_result_request_404_on_resume_is_retried_not_expired(self, tmp_path: Path):
+        """只有轮询端点的 404 是「远端任务没了」。
+
+        result 端点的 404 说的是产物还没就绪；续跑期把它判成过期会永久丢掉一条已经成功的
+        付费任务，它该留给取件预算重试。
+        """
+        definition = _definition()
+        definition["poll"]["extract"] = {"status": ["$.status"], "result_id": ["$.result_id"]}
+        definition["result"] = {
+            "method": "GET",
+            "url": "{{ base_url }}/v1/video/result/{{ result_id }}",
+            "extract": {"video_url": ["$.video_url"]},
+        }
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock():
+            router.get("https://relay.test/v1/video/fetch/job-old").mock(
+                return_value=httpx.Response(200, json={"status": "completed", "result_id": "r-9"})
+            )
+            result = router.get("https://relay.test/v1/video/result/r-9").mock(
+                side_effect=[
+                    httpx.Response(404, json={"error": "not ready"}),
+                    httpx.Response(200, json={"video_url": "https://relay.test/files/job-old.mp4"}),
+                ]
+            )
+            router.get("https://relay.test/files/job-old.mp4").mock(
+                return_value=httpx.Response(200, content=b"resumed")
+            )
+
+            outcome = await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).resume_video("job-old", _request(tmp_path))
+
+        assert result.call_count == 2
+        assert outcome.video_path.read_bytes() == b"resumed"
+
+    async def test_poll_404_on_resume_still_expires(self, tmp_path: Path):
+        definition = _definition()
+        definition["poll"]["extract"] = {"status": ["$.status"], "result_id": ["$.result_id"]}
+        definition["result"] = {
+            "method": "GET",
+            "url": "{{ base_url }}/v1/video/result/{{ result_id }}",
+            "extract": {"video_url": ["$.video_url"]},
+        }
+
+        with capture_http() as router:
+            poll = router.get("https://relay.test/v1/video/fetch/job-old").mock(
+                return_value=httpx.Response(404, json={"error": "gone"})
+            )
+
+            with pytest.raises(ResumeExpiredError):
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=definition,
+                    provider="custom-1",
+                ).resume_video("job-old", _request(tmp_path))
+
+        assert poll.call_count == 1
+
+    async def test_query_credentials_are_not_in_the_failure_text(self, tmp_path: Path):
+        """auth 节按 query 传凭证时，HTTP 错误的消息会落进 task.error_message 与日志。"""
+        definition = _definition()
+        definition["auth"] = {"query": {"key": "{{ api_key }}"}}
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(400, json={"error": "bad request"})
+            )
+
+            with pytest.raises(httpx.HTTPStatusError) as caught:
+                await DeclarativeVideoBackend(
+                    api_key="super-secret-key",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=definition,
+                    provider="custom-1",
+                ).generate(_request(tmp_path))
+
+        assert "super-secret-key" not in str(caught.value)
+        assert caught.value.response.status_code == 400
+
+    async def test_result_request_failure_body_is_recorded(self, tmp_path: Path):
+        definition = _definition()
+        definition["poll"]["extract"] = {"status": ["$.status"], "result_id": ["$.result_id"]}
+        definition["result"] = {
+            "method": "GET",
+            "url": "{{ base_url }}/v1/video/result/{{ result_id }}",
+            "extract": {"video_url": ["$.video_url"]},
+        }
+        assert validate_definition(definition).valid
+        recorded: list[object] = []
+
+        async def _record(body: object) -> None:
+            recorded.append(body)
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(200, json={"status": "completed", "result_id": "r-9"})
+            )
+            result = router.get("https://relay.test/v1/video/result/r-9").mock(
+                return_value=httpx.Response(500, json={"error": "result exploded"})
+            )
+
+            # 任务已成功、钱已花：二次取件的瞬态失败共用产物取件预算，耗尽后落可恢复的
+            # artifact_download_failed，而不是就地废掉一条已付费的成片。
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=definition,
+                    provider="custom-1",
+                ).generate(_request(tmp_path, on_provider_response=_record))
+
+        assert caught.value.code == "artifact_download_failed"
+        assert result.call_count == VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
+        assert recorded[-1] == {"error": "result exploded"}

@@ -393,7 +393,7 @@ function ChannelSection({
   filter,
   onCancel,
   onRetryDownload,
-  retryingDownloadId,
+  retryingDownloadIds,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
@@ -401,7 +401,7 @@ function ChannelSection({
   filter: TaskFilter;
   onCancel?: (taskId: string) => void;
   onRetryDownload?: (taskId: string) => void;
-  retryingDownloadId?: string | null;
+  retryingDownloadIds?: ReadonlySet<string>;
 }) {
   const { t } = useTranslation("dashboard");
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -461,7 +461,7 @@ function ChannelSection({
             onToggleDetail={toggleDetail}
             onCancel={onCancel}
             onRetryDownload={onRetryDownload}
-            retryingDownload={retryingDownloadId === task.task_id}
+            retryingDownload={retryingDownloadIds?.has(task.task_id) ?? false}
           />
         ))}
       </AnimatePresence>
@@ -612,7 +612,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
     projectName?: string;
   } | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  const [retryingDownloadId, setRetryingDownloadId] = useState<string | null>(null);
+  const [retryingDownloadIds, setRetryingDownloadIds] = useState<ReadonlySet<string>>(new Set());
   const [filter, setFilter] = useState<TaskFilter>("all");
 
   const handleCancelSingle = useCallback(async (taskId: string) => {
@@ -651,17 +651,30 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
     }
   }, [cancelConfirm]);
 
+  // 按 task_id 分别记在途状态：多条下载失败的任务可以同时重试，用单个 id 会让先返回的那条
+  // 把后点的那条的加载态一并清掉。
+  const markRetrying = useCallback((taskId: string, retrying: boolean) => {
+    setRetryingDownloadIds((prev) => {
+      const next = new Set(prev);
+      if (retrying) next.add(taskId);
+      else next.delete(taskId);
+      return next;
+    });
+  }, []);
+
   const handleRetryDownload = useCallback(async (taskId: string) => {
-    setRetryingDownloadId(taskId);
+    markRetrying(taskId, true);
     try {
       const { task } = await API.retryTaskDownload(taskId);
-      setTasks(
-        useTasksStore.getState().tasks.map((current) => current.task_id === taskId ? task : current),
-      );
+      setTasks((current) => current.map((row) => row.task_id === taskId ? task : row));
+    } catch {
+      // 失败时这一行看不出任何变化（任务仍是失败态、按钮恢复可用），不给回执用户无从判断
+      // 究竟是没点上还是被拒了。属「用户在场、可立即重试的同步失败」，按 store 的分工走 toast。
+      useAppStore.getState().pushToast(t("retry_download_failed"), "error");
     } finally {
-      setRetryingDownloadId(null);
+      markRetrying(taskId, false);
     }
-  }, [setTasks]);
+  }, [markRetrying, setTasks, t]);
 
   useEscapeClose(() => setCancelConfirm(null), Boolean(cancelConfirm));
 
@@ -785,7 +798,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             filter={filter}
             onCancel={voidPromise(handleCancelSingle)}
             onRetryDownload={voidPromise(handleRetryDownload)}
-            retryingDownloadId={retryingDownloadId}
+            retryingDownloadIds={retryingDownloadIds}
           />
           <div
             className="h-px"
@@ -798,7 +811,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             filter={filter}
             onCancel={voidPromise(handleCancelSingle)}
             onRetryDownload={voidPromise(handleRetryDownload)}
-            retryingDownloadId={retryingDownloadId}
+            retryingDownloadIds={retryingDownloadIds}
           />
           {audioTasks.length > 0 && (
             <>
@@ -813,7 +826,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
                 filter={filter}
                 onCancel={voidPromise(handleCancelSingle)}
                 onRetryDownload={voidPromise(handleRetryDownload)}
-                retryingDownloadId={retryingDownloadId}
+                retryingDownloadIds={retryingDownloadIds}
               />
             </>
           )}

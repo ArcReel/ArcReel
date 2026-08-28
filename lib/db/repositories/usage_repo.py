@@ -25,17 +25,32 @@ MAX_BILLED_DURATION_SECONDS = 86400
 MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024
 
 
+def _persisted_size(value: object) -> int:
+    """该值落进 JSON 列时占的字节数。
+
+    量的必须是 SQLAlchemy 真正写出去的那份文本，因此这里逐项对齐它的缺省：引擎没有配
+    ``json_serializer``，用的就是裸 ``json.dumps``——``ensure_ascii=True`` 把非 ASCII escape 成
+    ``\\uXXXX``，分隔符带空白。任一项按更紧凑的口径去量，上限都会被真实写入体量突破。
+    """
+    try:
+        return len(json.dumps(value, default=str).encode("utf-8"))
+    except (TypeError, ValueError, RecursionError):
+        return len(str(value).encode("utf-8"))
+
+
 def bound_provider_response(body: object) -> object:
     """把最后一次供应商响应限制在 64 KiB；超限保留可诊断前缀与截断标记。"""
-    try:
-        serialized = json.dumps(body, ensure_ascii=False, separators=(",", ":"), default=str)
-    except (TypeError, ValueError, RecursionError):
-        serialized = str(body)
-    encoded = serialized.encode("utf-8")
-    if len(encoded) <= MAX_PROVIDER_RESPONSE_BYTES:
+    if _persisted_size(body) <= MAX_PROVIDER_RESPONSE_BYTES:
         return body
-    # 原 JSON 文本作为字符串再编码时，反斜杠与引号最多再翻一倍；预留一半保证包装后仍严格小于上限。
-    prefix = encoded[: (MAX_PROVIDER_RESPONSE_BYTES - 256) // 2].decode("utf-8", errors="ignore")
+    try:
+        text = json.dumps(body, ensure_ascii=False, separators=(",", ":"), default=str)
+    except (TypeError, ValueError, RecursionError):
+        text = str(body)
+    # 逐次减半到包装后的写出体量真正落进上限内：escape 的膨胀率随内容而变（CJK 2 倍、
+    # 表情符号 3 倍），按固定比例预留兜不住最坏情形。
+    prefix = text[: MAX_PROVIDER_RESPONSE_BYTES // 2]
+    while prefix and _persisted_size({"truncated": True, "body": prefix}) > MAX_PROVIDER_RESPONSE_BYTES:
+        prefix = prefix[: len(prefix) // 2]
     return {"truncated": True, "body": prefix}
 
 

@@ -457,6 +457,7 @@ export default {
   'cancel_this_task': 'Hủy tác vụ này',
   'cancel_btn': 'Hủy',
   'retry_download': 'Thử tải lại',
+  'retry_download_failed': 'Không thể bắt đầu tải lại; hãy mở tác vụ để xem trạng thái hiện tại',
   'retrying_download': 'Đang thử lại…',
   'cancel_running_warning': 'Các yêu cầu đã gửi tới nhà cung cấp sẽ không được hoàn tiền',
   'cascade_label': 'liên đới',
