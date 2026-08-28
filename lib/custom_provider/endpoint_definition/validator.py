@@ -60,6 +60,23 @@ LIST_INPUT_SOURCES = frozenset({"reference_images", "reference_audio_files"})
 #: 保存期放行的声明在合成期得出相反的 ``text_to_video``。
 IMAGE_INPUT_SOURCES = frozenset({"start_image", "end_image", "reference_images"})
 
+
+def requires_image_input(inputs: Mapping[str, Any] | None) -> bool:
+    """该定义描述的请求形状是否必须带图——``capabilities.text_to_video`` 的推导来源。
+
+    校验器的一致性检查、能力合成与 spec 投影三处共读本函数：``text_to_video`` 是从请求形状推导
+    出来的位，定义里的显式声明只是一份冗余断言（不一致时保存期即报 ``capability_incoherent``）。
+    任一消费方改从 ``capabilities`` 节直接取值，就会对不声明该位的合法定义得出与请求形状相反的
+    结论。
+    """
+    return any(
+        isinstance(declaration, Mapping)
+        and declaration.get("required") is True
+        and declaration.get("source") in IMAGE_INPUT_SOURCES
+        for declaration in (inputs or {}).values()
+    )
+
+
 #: 声明式能产出的状态档位。``expired`` 不由声明式产生，过期语义映射到 ``failed``。
 CANONICAL_STATUSES = frozenset(
     {
@@ -534,10 +551,7 @@ class _SemanticChecker:
 
         declared_t2v = capabilities.get("text_to_video")
         if isinstance(declared_t2v, bool):
-            requires_image = any(
-                declaration.get("required") is True and declaration.get("source") in IMAGE_INPUT_SOURCES
-                for declaration in self._inputs.values()
-            )
+            requires_image = requires_image_input(self._inputs)
             if declared_t2v is requires_image:
                 self._error(
                     "capabilities.text_to_video",

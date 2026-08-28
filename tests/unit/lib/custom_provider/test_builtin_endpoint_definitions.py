@@ -159,6 +159,23 @@ def test_declarative_capabilities_follow_the_definition():
     assert spec.reference_audio_capable is False
 
 
+@pytest.mark.parametrize(
+    ("required", "expected_text_to_video"),
+    [(True, False), (False, True)],
+)
+def test_text_to_video_is_derived_from_required_image_inputs(required: bool, expected_text_to_video: bool):
+    """该位不取 schema 缺省：定义可以合法地只声明必需图输入而不声明 ``text_to_video``，
+    照缺省取值会让 spec 宣称支持纯文生，准入闸据此放行一个渲染不出来的请求形状。"""
+    document = _example_template()
+    document["inputs"]["start_image"]["required"] = required
+    document["capabilities"].pop("text_to_video", None)
+
+    spec = declarative_endpoint_spec("demo-video", document)
+
+    assert spec.video_caps_for_model is not None
+    assert spec.video_caps_for_model("any-model").text_to_video is expected_text_to_video
+
+
 def test_undeclared_capabilities_take_the_schema_defaults_not_the_dataclass_ones():
     """格式契约是「能力全显式声明」：省略 capabilities 即无素材输入，不是 dataclass 的首帧默认开。"""
     document = _example_template()

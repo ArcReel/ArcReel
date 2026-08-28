@@ -4,8 +4,9 @@ import re
 
 CUSTOM_PROVIDER_PREFIX = "custom-"
 
-#: 用户自定义调用端点的键前缀（``ce-<id>``）。内置端点键不得占用该前缀——两套键共享模型行的
-#: ``endpoint`` 列与端点查表入口，前缀是唯一的分流依据。
+#: 用户自定义调用端点的键前缀（``ce-<id>``）。内置端点键不得占用该前缀（``lib.custom_provider.
+#: endpoints`` 在导入期校验）——两套键共享模型行的 ``endpoint`` 列与端点查表入口，前缀划分出两个
+#: 永不重叠的命名空间，查表走哪一侧由它唯一决定。
 CUSTOM_ENDPOINT_KEY_PREFIX = "ce-"
 
 
@@ -26,11 +27,6 @@ def parse_provider_id(provider_id: str) -> int:
 def is_custom_provider(provider_id: str) -> bool:
     """判断是否为自定义供应商的 provider_id。"""
     return provider_id.startswith(CUSTOM_PROVIDER_PREFIX)
-
-
-#: 自定义调用端点键的前缀。内置注册表的键不得以此开头（``lib.custom_provider.endpoints``
-#: 在导入期校验），两个命名空间因此按前缀划分、永不重叠，查表顺序由前缀唯一决定。
-CUSTOM_ENDPOINT_KEY_PREFIX = "ce-"
 
 
 def make_endpoint_key(db_id: int) -> str:
