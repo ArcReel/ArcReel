@@ -15,6 +15,7 @@
     "ref_audio": {"source": "reference_audio_files", "encoding": "data_uri"}
   },
   "enum_maps": {"resolution": {"768p": "768P", "2k": "2K"}},
+  "defaults": {"resolution": "768p"},
   "submit": {
     "method": "POST",
     "url": "{{ base_url }}/v2/video_generation",
@@ -58,6 +59,7 @@
   "poll": {
     "method": "GET",
     "url": "{{ base_url }}/v2/query/video_generation/{{ task_id }}",
+    "expire_on_404": false,
     "extract": {
       "status": ["$.task.status"],
       "video_url": ["$.task.content.url"],

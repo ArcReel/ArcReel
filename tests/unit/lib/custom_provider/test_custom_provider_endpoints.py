@@ -6,6 +6,7 @@ import pytest
 
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
+    declarative_requires_base_url,
     endpoint_spec_to_dict,
     endpoint_to_media_type,
     get_endpoint_spec,
@@ -266,6 +267,24 @@ class TestHelpers:
         text = list_endpoints_by_media_type("text")
         assert {s.key for s in text} == {"openai-chat", "gemini-generate"}
 
+    @pytest.mark.parametrize(
+        ("definition", "required"),
+        [
+            ({"submit": {"url": "{{ base_url }}/v1/video"}}, True),
+            # 提交写死绝对地址、轮询才引用 base_url：只查提交会放行到付费提交之后才失败。
+            (
+                {"submit": {"url": "https://fixed.test/v1/video"}, "poll": {"url": "{{ base_url }}/v1/task"}},
+                True,
+            ),
+            ({"submit": {"url": "https://fixed.test/v1/video"}, "result": {"url": "{{ base_url }}/v1/file"}}, True),
+            ({"submit": {"url": "https://fixed.test/v1/video"}, "poll": {"url": "https://fixed.test/v1/task"}}, False),
+            # 写死的地址里恰好含 base_url 字样，不是占位符。
+            ({"submit": {"url": "https://fixed.test/base_url/video"}}, False),
+        ],
+    )
+    def test_declarative_requires_base_url_scans_every_request_section(self, definition, required):
+        assert declarative_requires_base_url(definition) is required
+
 
 class TestInferEndpoint:
     @pytest.mark.parametrize(
@@ -368,8 +387,24 @@ class TestInferEndpoint:
                 "openai",
                 "minimax-hailuo-v1",
             ),
+            # Fast × 非 Fast 前缀碰撞：Fast 只认精确型号名（剥离命名空间前缀后比较）。
+            # 非精确的 Fast 形态别名上游是不是 Fast 无从确知，落通用海螺键（无输入要求），
+            # 不落首帧必需的 Fast 定义——与迁移 8c2b1e7d4a90 同一口径。
+            ("proxy/MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
+            ("proxy/MiniMax-Hailuo-2.3", "openai", "minimax-hailuo-v1"),
+            ("vendor:MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
+            # 多层命名空间同样剥到末段：承担判定的是末段逐字等于官方型号 id
+            ("openrouter/minimax/MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
+            ("proxy/vendor:S2V-01", "openai", "minimax-s2v-01"),
+            ("MiniMax-Hailuo-2.3-Fast-preview", "openai", "minimax-hailuo-v1"),
+            ("hailuo-fast", "openai", "minimax-hailuo-v1"),
             ("S2V-01", "openai", "minimax-s2v-01"),
             ("minimax-s2v-01", "openai", "minimax-s2v-01"),
+            ("proxy/S2V-01", "openai", "minimax-s2v-01"),
+            # 非精确的 s2v 形态不再被误吞成参考图必需的 MiniMax S2V 协议
+            ("wan2.7-s2v", "openai", "openai-video"),
+            ("wan-2.2-s2v", "openai", "openai-video"),
+            ("vendor-s2v-custom", "openai", "openai-chat"),
             ("MiniMax-H3", "openai", "minimax-h3"),
             ("minimax-h3", "openai", "minimax-h3"),
             ("h3", "openai", "openai-chat"),  # 裸 "h3" 不应匹配——防止退化成过于宽松的子串

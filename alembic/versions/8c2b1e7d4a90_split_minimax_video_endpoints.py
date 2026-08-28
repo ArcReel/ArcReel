@@ -25,7 +25,12 @@ _NEW_ENDPOINTS = ("minimax-hailuo-v1", "minimax-hailuo-v1-fast", "minimax-s2v-01
 
 
 def _endpoint_for_model(model_id: object) -> str:
-    """模型名 → 新键；与迁移落地时的 `_minimax_video_endpoint` / `infer_endpoint` 同口径。
+    """模型名 → 新键，每档的宽度各自固定。
+
+    H3 按 `"minimax-h3" in lowered` 判，容忍大小写与命名空间前缀；Fast 与 S2V 按精确型号名
+    判（`MiniMax-Hailuo-2.3-Fast` / `S2V-01`），`proxy/MiniMax-Hailuo-2.3-Fast` 一类中转别名
+    因此落通用海螺键，而不是首帧必需的 Fast 定义——中转别名的上游是不是 Fast 无从确知，迁移
+    不替用户判定；要改判由用户在模型行上自己换端点。
 
     迁移是时点快照，字面量在此各存一份而不 import 应用代码：日后路由改口径也不该改写
     已迁移过的历史行。
@@ -36,7 +41,7 @@ def _endpoint_for_model(model_id: object) -> str:
         return "minimax-s2v-01"
     if "minimax-h3" in lowered:
         return "minimax-h3"
-    if "hailuo" in lowered and "fast" in lowered:
+    if model == "MiniMax-Hailuo-2.3-Fast":
         return "minimax-hailuo-v1-fast"
     return "minimax-hailuo-v1"
 
@@ -62,7 +67,11 @@ def _rewrite_checkpoints(*, upgrading: bool) -> None:
         )
     )
     for task_id, raw in rows:
-        checkpoint = json.loads(raw)
+        # 坏掉的 checkpoint 是单条任务的身份问题（运行时按不可恢复处理），不该让整个迁移中止。
+        try:
+            checkpoint = json.loads(raw)
+        except ValueError:
+            continue
         if not isinstance(checkpoint, dict):
             continue
         endpoint = checkpoint.get("endpoint_guard")

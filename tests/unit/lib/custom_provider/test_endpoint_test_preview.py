@@ -48,6 +48,24 @@ class TestPreviewRequest:
         assert preview.submit.body["duration"] == 5
         assert preview.result is None
 
+    def test_a_versioned_base_url_previews_the_same_url_the_runtime_would_send(self):
+        """定义带显式版本段时，配置末尾的版本段被剥掉——与运行时 backend 同一份归一化。"""
+        credentials = EndpointTestCredentials(base_url="https://api.example.com/v1", api_key="sk-secret-key-1234")
+
+        preview = preview_request(custom_endpoint_definition(), PARAMETERS, credentials=credentials)
+
+        assert preview.submit.url == "https://api.example.com/v1/video/create"
+
+    def test_a_versioned_poll_url_strips_the_configured_version_segment_too(self):
+        """提交写死绝对地址、只有轮询引用带版本段的 base_url：剥版本段的判定看整份定义。"""
+        definition = custom_endpoint_definition()
+        definition["submit"] = {**definition["submit"], "url": "https://fixed.example.com/video/create"}
+        credentials = EndpointTestCredentials(base_url="https://api.example.com/v1", api_key="sk-secret-key-1234")
+
+        preview = preview_request(definition, PARAMETERS, credentials=credentials)
+
+        assert preview.poll.url == "https://api.example.com/v1/video/fetch/{{ task_id }}"
+
     def test_masks_the_api_key_everywhere_it_was_rendered(self):
         preview = preview_request(custom_endpoint_definition(), PARAMETERS, credentials=CREDENTIALS)
 
@@ -60,6 +78,21 @@ class TestPreviewRequest:
         preview = preview_request(definition, PARAMETERS, credentials=CREDENTIALS)
 
         assert preview.submit.url.endswith("key=****1234")
+
+    def test_a_short_key_does_not_rewrite_matching_substrings_elsewhere(self):
+        """打码值渲染前就落在凭证注入点上：host / model / prompt 里恰好相同的子串不得被改写。"""
+        credentials = EndpointTestCredentials(base_url="https://test.example.com", api_key="test")
+        parameters = EndpointTestParameters(
+            model="test-model", prompt="test prompt", duration_seconds=5, aspect_ratio="9:16"
+        )
+
+        preview = preview_request(custom_endpoint_definition(), parameters, credentials=credentials)
+
+        assert preview.submit.headers["Authorization"] == "Bearer ****"
+        assert preview.submit.url == "https://test.example.com/v1/video/create"
+        assert isinstance(preview.submit.body, dict)
+        assert preview.submit.body["model"] == "test-model"
+        assert preview.submit.body["prompt"] == "test prompt"
 
     def test_keeps_task_id_unrendered_in_the_polling_request(self):
         preview = preview_request(custom_endpoint_definition(), PARAMETERS, credentials=CREDENTIALS)
@@ -82,6 +115,15 @@ class TestPreviewRequest:
 
         assert isinstance(preview.submit.body, dict)
         assert preview.submit.body["image"] == "<data:image/png;base64, 2048 bytes>"
+
+    def test_missing_assets_can_render_like_the_runtime(self):
+        """测试连接的结果体记录真发形状：缺席的可选素材按运行时口径整字段省略，不放占位摘要。"""
+        preview = preview_request(
+            custom_endpoint_definition(), PARAMETERS, credentials=CREDENTIALS, placeholder_missing_assets=False
+        )
+
+        assert isinstance(preview.submit.body, dict)
+        assert "image" not in preview.submit.body
 
     def test_missing_assets_still_show_the_field(self):
         """占位摘要不能省：留空会让整串占位符把字段删掉，预览出的形状就与真发时不同。"""

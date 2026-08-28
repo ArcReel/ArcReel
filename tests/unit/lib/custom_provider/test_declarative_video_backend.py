@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 import httpx
@@ -107,6 +108,62 @@ class TestDeclarativeVideoBackend:
         assert "Authorization" not in request.headers
         # 签名 URL 的 query 是签名的一部分，附带 auth 节的 query 凭证会直接破坏它。
         assert request.url.query == b"sig=abc"
+
+    async def test_artifact_on_the_fixed_submit_host_gets_credentials(self, tmp_path: Path):
+        """信任集来自渲染出的请求源：提交写死绝对地址时，提交主机上的产物照样附凭证下载。"""
+        definition = _definition()
+        definition["submit"] = {**definition["submit"], "url": "https://submit.test/v1/video/create"}
+        definition["poll"] = {**definition["poll"], "url": "https://poll.test/v1/video/fetch/{{ task_id }}"}
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://submit.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://poll.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200, json={"status": "completed", "video_url": "https://submit.test/files/job-42.mp4"}
+                )
+            )
+            download = router.get("https://submit.test/files/job-42.mp4").mock(
+                return_value=httpx.Response(200, content=b"video")
+            )
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert download.calls.last.request.headers["Authorization"] == "Bearer secret"
+
+    async def test_an_unused_configured_base_origin_is_not_trusted_for_artifacts(self, tmp_path: Path):
+        """配置了却从未被请求的 base_url 源不进信任集：产物落在那个源上按裸请求下载。"""
+        definition = _definition()
+        definition["submit"] = {**definition["submit"], "url": "https://submit.test/v1/video/create"}
+        definition["poll"] = {**definition["poll"], "url": "https://submit.test/v1/video/fetch/{{ task_id }}"}
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://submit.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://submit.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200, json={"status": "completed", "video_url": "https://unused.test/files/job-42.mp4"}
+                )
+            )
+            download = router.get("https://unused.test/files/job-42.mp4").mock(
+                return_value=httpx.Response(200, content=b"video")
+            )
+
+            await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://unused.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        assert "Authorization" not in download.calls.last.request.headers
 
     async def test_redirect_to_another_origin_drops_custom_auth_headers(self, tmp_path: Path):
         """同源产物地址跳到 CDN 时，自定义头名的凭证同样不许跟过去。
@@ -932,7 +989,141 @@ class TestDeclarativeVideoBackend:
                 provider="custom-1",
             ).generate(_request(tmp_path))
 
-        # 只看本模块自己写的那条：httpx 的 `HTTP Request:` 行记完整 URL，是另一条既有议题。
+        # 断言范围限本模块写入的日志；httpx 自己的 `HTTP Request:` 行不在其内。
+        logged = "\n".join(
+            record.getMessage() for record in caplog.records if record.name == "lib.custom_provider.declarative_backend"
+        )
+        assert "声明式视频请求" in logged
+        assert "sk-super-secret" not in logged
+
+    async def test_request_log_summarizes_raw_base64_assets(self, tmp_path: Path, caplog):
+        """``encoding: "base64"`` 渲染出的是裸 base64 串，没有 data URI 前缀可识别；日志按形状摘要。"""
+        definition = _definition()
+        definition["inputs"] = {"first_frame": {"source": "start_image", "encoding": "base64"}}
+        assert validate_definition(definition).valid
+        frame = tmp_path / "frame.png"
+        frame.write_bytes(b"\x89PNG" + b"x" * 1024)
+        encoded_prefix = base64.b64encode(frame.read_bytes()).decode("ascii")[:64]
+
+        with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200, json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"}
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="sk-super-secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path, start_image=frame))
+
+        logged = "\n".join(
+            record.getMessage() for record in caplog.records if record.name == "lib.custom_provider.declarative_backend"
+        )
+        assert "声明式视频请求" in logged
+        assert encoded_prefix not in logged
+
+    async def test_request_log_summarizes_assets_shorter_than_the_shape_threshold(self, tmp_path: Path, caplog):
+        """小到编不出摘要阈值长度的素材（如 1×1 PNG）照样是用户媒体：按来源摘，不按体积。"""
+        definition = _definition()
+        definition["inputs"] = {"first_frame": {"source": "start_image", "encoding": "base64"}}
+        assert validate_definition(definition).valid
+        frame = tmp_path / "frame.png"
+        frame.write_bytes(b"\x89PNG tiny")
+        encoded = base64.b64encode(frame.read_bytes()).decode("ascii")
+
+        with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200, json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"}
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="sk-super-secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path, start_image=frame))
+
+        logged = "\n".join(
+            record.getMessage() for record in caplog.records if record.name == "lib.custom_provider.declarative_backend"
+        )
+        assert len(encoded) < 256
+        assert encoded not in logged
+
+    async def test_request_log_summarizes_assets_embedded_in_mixed_text(self, tmp_path: Path, caplog):
+        """定义可以把素材拼进 ``"prefix{{ inputs.first_frame }}"``：既不等值也过不了纯 base64 兜底。"""
+        definition = _definition()
+        definition["inputs"] = {"first_frame": {"source": "start_image", "encoding": "base64"}}
+        definition["submit"]["body"]["image"] = "prefix:{{ inputs.first_frame }}"
+        assert validate_definition(definition).valid
+        frame = tmp_path / "frame.png"
+        frame.write_bytes(b"\x89PNG tiny")
+        encoded = base64.b64encode(frame.read_bytes()).decode("ascii")
+
+        with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200, json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"}
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="sk-super-secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path, start_image=frame))
+
+        logged = "\n".join(
+            record.getMessage() for record in caplog.records if record.name == "lib.custom_provider.declarative_backend"
+        )
+        assert "prefix:" in logged
+        assert encoded not in logged
+
+    async def test_request_log_masks_arbitrary_auth_header_names(self, tmp_path: Path, caplog):
+        """通用敏感词表认不出 ``Ocp-Apim-Subscription-Key`` 这类名字；按定义 ``auth.headers`` 的键名遮。"""
+        definition = _definition()
+        definition["auth"] = {"headers": {"Ocp-Apim-Subscription-Key": "{{ api_key }}"}}
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200, json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"}
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await DeclarativeVideoBackend(
+                api_key="sk-super-secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
         logged = "\n".join(
             record.getMessage() for record in caplog.records if record.name == "lib.custom_provider.declarative_backend"
         )

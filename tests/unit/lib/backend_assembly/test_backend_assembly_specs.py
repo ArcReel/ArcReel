@@ -552,3 +552,17 @@ class TestValidateProviderSpecs:
             assert spec.registry_backend in registered[media], (
                 f"{spec.registry_backend!r} 未注册到 {media} backend registry"
             )
+
+
+class TestBuiltinEffectiveGenerateAudio:
+    """声明式内置模型的计价 ``generate_audio`` 与定义声明的成片音轨同源。"""
+
+    def test_an_always_off_declarative_model_reports_no_audio(self):
+        from lib.backend_assembly.specs import builtin_effective_generate_audio_for_model
+
+        assert builtin_effective_generate_audio_for_model("minimax", "MiniMax-Hailuo-2.3") is False
+
+    def test_an_always_on_declarative_model_reports_audio(self):
+        from lib.backend_assembly.specs import builtin_effective_generate_audio_for_model
+
+        assert builtin_effective_generate_audio_for_model("minimax", "MiniMax-H3") is True

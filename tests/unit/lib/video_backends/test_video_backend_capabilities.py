@@ -138,7 +138,7 @@ class TestVideoCapabilitiesForModel:
         ("model", "expected"),
         [
             ("MiniMax-Hailuo-2.3", True),
-            # Fast 仅图生视频：收编后由 minimax-hailuo-v1-fast 定义的必需首帧承担这条收窄。
+            # Fast 仅图生视频：这条收窄由 minimax-hailuo-v1-fast 定义里必需的首帧输入承担。
             ("MiniMax-Hailuo-2.3-Fast", False),
             ("S2V-01", False),
             ("MiniMax-H3", True),

@@ -313,8 +313,9 @@ def _minimax_video_per_second_pricing(model_id: str, rates: dict[str, float]) ->
         default_model=model_id,
         dimensions="resolution_only",
         currency="CNY",
-        # H3 未显式指定分辨率（Auto）时，_build_v2_payload 实际下发 768P（无 720P 档位），
-        # 结算须跟随同一默认，否则回落 720P 会因该档不存在而落空至 0。
+        # H3 未显式指定分辨率（Auto）时实际下发 768P（无 720P 档位）——真相源是
+        # builtin_endpoints/minimax-h3.json 的 defaults.resolution。结算须跟随同一默认，
+        # 否则回落 720P 会因该档不存在而落空至 0。
         default_resolution="768p",
     )
 

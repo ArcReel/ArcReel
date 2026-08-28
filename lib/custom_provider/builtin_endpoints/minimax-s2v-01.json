@@ -27,6 +27,7 @@
   "poll": {
     "method": "GET",
     "url": "{{ base_url }}/v1/query/video_generation?task_id={{ task_id }}",
+    "expire_on_404": false,
     "extract": {
       "status": ["$.status"],
       "error": ["$.base_resp.status_msg"],

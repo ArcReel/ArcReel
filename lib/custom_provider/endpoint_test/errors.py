@@ -15,7 +15,7 @@ from lib.custom_provider.endpoint_definition import (
 
 
 class EndpointTestDefinitionError(Exception):
-    """这份定义无法执行本次测试，携带与保存接口同构的诊断。"""
+    """这份定义无法执行所请求的测试，携带与保存接口同构的诊断。"""
 
     def __init__(self, diagnostics: DefinitionDiagnostics) -> None:
         self.diagnostics = diagnostics

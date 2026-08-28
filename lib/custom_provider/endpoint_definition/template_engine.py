@@ -60,9 +60,17 @@ def encode_inputs(
 def build_context(
     parameters: Mapping[str, object],
     inputs: Mapping[str, object] | None = None,
+    defaults: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """补齐模板保留变量；宽高只由比例与分辨率派生。"""
+    """补齐模板保留变量；宽高只由比例与分辨率派生。
+
+    ``defaults`` 在这里生效，早于整值占位符的删字段判断与宽高派生：调用方没给的参数取定义
+    声明的缺省值，请求里该字段照常出现，派生出的宽高也跟着这个值走。
+    """
     context = dict(parameters)
+    for name, value in (defaults or {}).items():
+        if context.get(name) is None:
+            context[name] = value
     context["inputs"] = dict(inputs or {})
     aspect_ratio = context.get("aspect_ratio")
     if isinstance(aspect_ratio, str):
@@ -135,6 +143,11 @@ def _lookup(context: Mapping[str, object], name: str) -> object:
     return current
 
 
+def enum_map_key(value: object) -> str:
+    """值到 ``enum_maps`` 查表键的转换。校验器用它判缺省值是否在表内，与渲染同一条口径。"""
+    return str(value).lower() if isinstance(value, bool) else str(value)
+
+
 def _resolve(
     name: str,
     context: Mapping[str, object],
@@ -144,7 +157,7 @@ def _resolve(
     if name not in enum_maps or value is None:
         return value
     mapping = enum_maps[name]
-    key = str(value).lower() if isinstance(value, bool) else str(value)
+    key = enum_map_key(value)
     if key not in mapping:
         raise TemplateRenderError(f"enum_maps.{name} 缺少 {key!r}")
     return mapping[key]

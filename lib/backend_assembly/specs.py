@@ -15,7 +15,7 @@ provider_name 计费归因）各挂专属闭包；文本侧别名映射（dashsc
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -123,6 +123,26 @@ def _minimax_video_endpoint(model_id: str | None) -> str:
     if "hailuo" in model and "fast" in model:
         return "minimax-hailuo-v1-fast"
     return "minimax-hailuo-v1"
+
+
+def builtin_declarative_video_diagnostics(
+    provider_id: str, model_id: str, config: Mapping[str, str]
+) -> tuple[Mapping[str, Any], str, str] | None:
+    """内置模型行走声明式装配时，测试连接诊断用的 ``(definition, base_url, api_key)``。
+
+    该 (provider, model) 由 Python backend 实现时返回 None。端点判定与凭证回落与
+    :func:`_build_minimax_declarative_video` 同一份——诊断里渲出的请求必须与真发的一致。
+    调用方须先按各自的凭证闸确认 ``api_key`` 非空（空值在此处会 fail-loud）。
+    """
+    if provider_id != "minimax":
+        return None
+    from lib.custom_provider.endpoints import get_endpoint_spec
+    from lib.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
+
+    definition = get_endpoint_spec(_minimax_video_endpoint(model_id)).definition
+    if definition is None:
+        return None
+    return definition, config.get("base_url") or MINIMAX_BASE_URL, resolve_minimax_api_key(config.get("api_key"))
 
 
 def _build_minimax_declarative_video(config: LoadedConfig, model_id: str | None) -> Any:
@@ -486,7 +506,10 @@ def builtin_video_capabilities_for_model(provider_id: str, model_id: str) -> Vid
 def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) -> bool:
     spec = get_provider_spec(provider_id, "video")
     if spec.registry_backend == "declarative":
-        return True
+        # 计价口径与能力声明同源：定义声明成片恒无音轨时，默认执行档不可能产出人声。
+        from lib.video_backends.base import VideoAudioMode
+
+        return builtin_video_capabilities_for_model(provider_id, model_id).audio_track is not VideoAudioMode.ALWAYS_OFF
     from lib.video_backends.registry import effective_generate_audio_for_model
 
     return effective_generate_audio_for_model(spec.registry_backend, model_id)
