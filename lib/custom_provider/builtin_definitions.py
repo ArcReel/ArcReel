@@ -20,7 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
-from lib.custom_provider.endpoint_definition import DefinitionIssue, load_schema, validate_definition
+from lib.custom_provider.endpoint_definition import (
+    DefinitionIssue,
+    load_schema,
+    requires_image_input,
+    validate_definition,
+)
 from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
 
 #: 随版定义所在目录。文件名（不含 ``.json``）即内置端点键。
@@ -113,6 +118,11 @@ def declarative_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabi
     未声明的位取 ``schema.json`` 里的 ``default`` 而非 :class:`VideoCapabilities` 的字段缺省
     ——两者在 ``first_frame`` 上并不相同（格式默认无素材输入，dataclass 默认支持首帧），照 schema
     取值才与「能力全显式声明」的格式契约一致。
+
+    ``text_to_video`` 是唯一的例外：它由 ``inputs`` 的必需图输入推导（见
+    :func:`~lib.custom_provider.endpoint_definition.requires_image_input`），不取 schema 缺省。
+    该位在格式里是可选的冗余断言，声明为必需图输入却不声明该位的定义完全合法，照 schema 缺省
+    取值会得出 ``text_to_video=True``，让准入闸放行一个渲染不出来的纯文生请求。
     """
     declared: Mapping[str, Any] = definition.get("capabilities") or {}
     properties: Mapping[str, Any] = load_schema()["$defs"]["capabilities"]["properties"]
@@ -121,4 +131,5 @@ def declarative_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabi
         raw = declared.get(name, prop.get("default"))
         enum_type = _CAPABILITY_ENUM_TYPES.get(name)
         values[name] = enum_type(raw) if enum_type is not None and raw is not None else raw
+    values["text_to_video"] = not requires_image_input(definition.get("inputs"))
     return VideoCapabilities(**values)

@@ -15,7 +15,7 @@ from enum import Enum
 from types import UnionType
 from typing import get_args, get_type_hints
 
-from lib.custom_provider.endpoint_definition import IMAGE_INPUT_SOURCES
+from lib.custom_provider.endpoint_definition import requires_image_input
 from lib.custom_provider.endpoints import get_endpoint_spec
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, audio_capability_pair_is_coherent
 
@@ -111,15 +111,9 @@ def video_capabilities_from_definition(definition: Mapping[str, object]) -> Vide
         applied[key] = value
 
     raw_inputs = definition.get("inputs")
-    inputs = raw_inputs if isinstance(raw_inputs, Mapping) else {}
-    requires_image = any(
-        isinstance(declaration, Mapping)
-        and declaration.get("source") in IMAGE_INPUT_SOURCES
-        and declaration.get("required") is True
-        for declaration in inputs.values()
-    )
+    inputs = raw_inputs if isinstance(raw_inputs, Mapping) else None
     caps = merge_overrides(VideoCapabilities(first_frame=False), applied)
-    return replace(caps, text_to_video=not requires_image)
+    return replace(caps, text_to_video=not requires_image_input(inputs))
 
 
 def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | None) -> dict[str, object]:

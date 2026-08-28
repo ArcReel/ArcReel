@@ -153,7 +153,9 @@ class TestReadAndList:
         assert [item["display_name"] for item in resp.json()["endpoints"]] == ["示例端点", "另一个"]
 
     def test_missing_endpoint_returns_404(self, endpoints_client: TestClient):
-        assert endpoints_client.get("/api/v1/custom-endpoints/404").status_code == 404
+        resp = endpoints_client.get("/api/v1/custom-endpoints/404")
+
+        assert resp.status_code == 404
 
 
 class TestUpdate:
@@ -187,8 +189,11 @@ class TestDelete:
     def test_deletes_unreferenced_endpoint(self, endpoints_client: TestClient):
         created = _create(endpoints_client, custom_endpoint_definition())
 
-        assert endpoints_client.delete(f"/api/v1/custom-endpoints/{created['id']}").status_code == 204
-        assert endpoints_client.get(f"/api/v1/custom-endpoints/{created['id']}").status_code == 404
+        deleted = endpoints_client.delete(f"/api/v1/custom-endpoints/{created['id']}")
+        fetched = endpoints_client.get(f"/api/v1/custom-endpoints/{created['id']}")
+
+        assert deleted.status_code == 204
+        assert fetched.status_code == 404
 
     async def test_referenced_endpoint_returns_409_with_reference_list(
         self, endpoints_client: TestClient, attach_model
@@ -216,10 +221,14 @@ class TestDelete:
             await CustomProviderRepository(session).delete_model(model_id)
             await session.commit()
 
-        assert endpoints_client.delete(f"/api/v1/custom-endpoints/{created['id']}").status_code == 204
+        resp = endpoints_client.delete(f"/api/v1/custom-endpoints/{created['id']}")
+
+        assert resp.status_code == 204
 
     def test_missing_endpoint_returns_404(self, endpoints_client: TestClient):
-        assert endpoints_client.delete("/api/v1/custom-endpoints/404").status_code == 404
+        resp = endpoints_client.delete("/api/v1/custom-endpoints/404")
+
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

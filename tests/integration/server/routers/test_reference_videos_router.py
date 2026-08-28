@@ -692,17 +692,20 @@ def test_generate_unit_rejects_text_only_request_for_image_only_model(
         fake_reference_request_projector(durations=(3, 6, 9), text_to_video=False),
     )
     enqueue = AsyncMock()
-    monkeypatch.setattr(
-        router_mod,
-        "get_generation_queue",
-        lambda: type("Queue", (), {"enqueue_task": enqueue})(),
-    )
+
+    class _FakeQueue:
+        enqueue_task = enqueue
+
+    def _fake_generation_queue() -> _FakeQueue:
+        return _FakeQueue()
+
+    monkeypatch.setattr(router_mod, "get_generation_queue", _fake_generation_queue)
 
     response = reference_videos_client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
 
     assert response.status_code == 400
     assert response.json()["detail"]["problems"][0]["code"] == "video_capability_missing_t2v"
-    enqueue.assert_not_awaited()
+    enqueue.assert_not_called()
 
 
 def test_generate_unit_rejects_blank_prompt(reference_videos_client: TestClient, tmp_path: Path):

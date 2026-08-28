@@ -23,7 +23,13 @@ from .template_engine import (
     encode_inputs,
     render_request,
 )
-from .validator import CURRENT_SCHEMA_VERSION, IMAGE_INPUT_SOURCES, load_schema, validate_definition
+from .validator import (
+    CURRENT_SCHEMA_VERSION,
+    IMAGE_INPUT_SOURCES,
+    load_schema,
+    requires_image_input,
+    validate_definition,
+)
 from .versioning import (
     SchemaVersionLevel,
     VersionRelation,
@@ -56,6 +62,7 @@ __all__ = [
     "parse_json_path",
     "parse_semver",
     "render_request",
+    "requires_image_input",
     "schema_version_level",
     "validate_definition",
     "version_relation",
