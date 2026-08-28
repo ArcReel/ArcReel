@@ -14,7 +14,9 @@ from lib.media_generator import (
     task_video_staging_path,
 )
 from lib.version_manager import PaidVersionCommit
-from tests.fakes import FakeConfigResolver, select_formal_video
+from tests.factories import custom_endpoint_definition
+from tests.fakes import FakeConfigResolver, bounded_poll_clock, select_formal_video
+from tests.http_capture import capture_http
 
 
 class _FakeImageBackend:
@@ -111,7 +113,11 @@ class _FakeLedger:
     def __init__(self):
         self.started = []
         self.outcomes = []
+        self.provider_responses = []
         self._n = 0
+
+    async def record_provider_response(self, *, call_id, body):
+        self.provider_responses.append((call_id, body))
 
     @asynccontextmanager
     async def record(self, **kwargs):
@@ -194,6 +200,60 @@ class TestMediaGenerator:
         assert gen._get_output_path("reference_videos", "E1U1").name == "E1U1.mp4"
         with pytest.raises(ValueError):
             gen._get_output_path("bad", "x")
+
+    async def test_declarative_video_submit_poll_download_and_accounting(self, tmp_path):
+        from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
+
+        definition = custom_endpoint_definition()
+        definition["poll"]["extract"]["usage"] = {
+            "duration_seconds": {"paths": ["$.usage.duration"], "accept": "scalar"}
+        }
+        gen = _build_generator(tmp_path)
+        gen._video_provider_id = "custom-1"
+        gen._video_backend = DeclarativeVideoBackend(
+            api_key="secret",
+            base_url="https://relay.test",
+            model="video-x",
+            definition=definition,
+            provider="custom-1",
+        )
+
+        with capture_http() as router, bounded_poll_clock():
+            submit = router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "status": "completed",
+                        "video_url": "https://relay.test/files/job-42.mp4",
+                        "usage": {"duration": 7.5},
+                    },
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            output, _version, _ref, uri = await gen.generate_video_async(
+                prompt="paper boat",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                duration_seconds=5,
+            )
+
+        assert output.read_bytes() == b"video"
+        assert uri == "https://relay.test/files/job-42.mp4"
+        assert submit.call_count == 1
+        assert gen.ledger.outcomes[0]["status"] == "success"
+        assert gen.ledger.outcomes[0]["result"].duration_seconds == 8
+        assert gen.ledger.provider_responses[-1] == (
+            1,
+            {
+                "status": "completed",
+                "video_url": "https://relay.test/files/job-42.mp4",
+                "usage": {"duration": 7.5},
+            },
+        )
 
     async def test_cancelled_formal_image_generation_never_replaces_the_canonical_file(self, tmp_path):
         gen = _build_generator(tmp_path)

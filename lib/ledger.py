@@ -161,6 +161,11 @@ class Ledger:
         """resume 过期/失败补账：翻 pending → failed，零费用不重扣（幂等 0/1）。"""
         return await self._finalize(call_id=call_id, status="failed", settlement=SettlementInput(cost_amount=0.0))
 
+    async def record_provider_response(self, *, call_id: int, body: object) -> None:
+        """覆盖保存该供应商调用最后一次收到的响应体。"""
+        async with self._session_factory() as session:
+            await UsageRepository(session).update_last_provider_response(call_id, body)
+
     async def backfill(
         self,
         *,

@@ -57,9 +57,8 @@ RETRYABLE_STATUS_PATTERNS = (
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS: tuple[int, ...] = (2, 4, 8)
 
-# 下载阶段重试配置（比生成阶段更宽容，因为下载失败不会浪费生成额度）
-DOWNLOAD_MAX_ATTEMPTS = 5
-DOWNLOAD_BACKOFF_SECONDS: tuple[int, ...] = (5, 10, 20, 40)
+# 下载阶段没有独立的重试配置：产物取件与轮询同属「供应商任务已建成后的幂等取件」，共用
+# lib.video_backends.base.with_artifact_retry 的失败预算与退避。
 
 
 class AsyncClock(Protocol):

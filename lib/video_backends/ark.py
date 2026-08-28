@@ -13,7 +13,7 @@ import httpx
 from lib.ark_shared import create_ark_client
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_ARK
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ReferenceAudioMode,
@@ -25,6 +25,7 @@ from lib.video_backends.base import (
     download_video,
     poll_with_retry,
     reference_audio_to_data_uri,
+    should_retry_download,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,17 @@ _SEEDANCE_2_5_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 30.0
 # 与 dashscope 侧的同名表刻意各存一份：mp3 在这里按官方示例写 audio/mp3，dashscope 走标准
 # 的 audio/mpeg——供应商各自的接受口径，合并成一张共享表会让其中一家收到没验证过的 MIME。
 _REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mp3"}
+
+
+def _retry_ark_download(exc: Exception) -> bool:
+    """产物下载共用谓词 ⊕ Ark 特有的「任务已成功但产物未就绪」形态（400 video_not_ready）。"""
+    if (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code == 400
+        and "video_not_ready" in str(exc.response.text)
+    ):
+        return True
+    return should_retry_download(exc)
 
 
 def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]:
@@ -398,22 +410,13 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         return create_result.id
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=lambda e: (
-            isinstance(e, httpx.HTTPStatusError)
-            and e.response.status_code == 400
-            and "video_not_ready" in str(e.response.text)
-        ),
-    )
     async def _download_video_with_retry(video_url: str, output_path) -> None:
         """单独重试视频下载，避免下载失败导致重新生成视频而浪费额度。
 
-        Ark 的视频 URL 在任务 succeeded 后可能仍未就绪（返回 400 video_not_ready），
-        仅针对该瞬态状态重试；其余 HTTP 错误及网络瞬态错误由内层 download_video 处理。
+        Ark 的视频 URL 在任务 succeeded 后可能仍未就绪，此时返回的是 400 video_not_ready
+        而非产物通道常见的 403/404，故在共用谓词之上补这一条。
         """
-        await download_video(video_url, output_path)
+        await download_video(video_url, output_path, label="Ark", retry_if=_retry_ark_download)
 
     async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""

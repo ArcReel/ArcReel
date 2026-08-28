@@ -463,6 +463,8 @@ export default {
   'cancel_task': 'Cancel task',
   'cancel_this_task': 'Cancel this task',
   'cancel_btn': 'Cancel',
+  'retry_download': 'Retry download',
+  'retrying_download': 'Retrying…',
   'cancel_running_warning': 'Already-submitted provider requests are not refundable',
   'cascade_label': 'cascaded',
   'cancel_all': 'Cancel All',

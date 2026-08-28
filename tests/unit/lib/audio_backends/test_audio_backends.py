@@ -220,9 +220,10 @@ class TestDashScopeAudioBackend:
         assert out.read_bytes() == b"ok"
 
     async def test_empty_download_retried_then_rejected_no_file(self, tmp_path: Path, poll_clock):
-        # 200 但空体视为瞬态：重试到下载上限后失败，不写 0 字节 wav，合成 POST 不被重跑。
+        # 200 但空体视为瞬态：重试到共用的下载失败预算耗尽后失败，不写 0 字节 wav，
+        # 合成 POST 不被重跑。
         from lib.audio_backends.dashscope import DashScopeAudioBackend
-        from lib.retry import DOWNLOAD_MAX_ATTEMPTS
+        from lib.video_backends.base import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 
         with _dashscope_audio_routes(download=httpx.Response(200, content=b"")) as routes:
             b = DashScopeAudioBackend(api_key="sk")
@@ -231,7 +232,7 @@ class TestDashScopeAudioBackend:
                 await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
         assert routes.synthesize.call_count == 1
-        assert routes.download.call_count == DOWNLOAD_MAX_ATTEMPTS
+        assert routes.download.call_count == VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
         assert not out.exists()
 
     async def test_empty_download_transient_recovers(self, tmp_path: Path, poll_clock):

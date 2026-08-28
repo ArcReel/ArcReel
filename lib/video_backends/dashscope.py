@@ -43,8 +43,6 @@ from lib.providers import PROVIDER_DASHSCOPE
 from lib.retry import (
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
     with_retry_async,
 )
 from lib.video_backends.base import (
@@ -57,8 +55,8 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
+    notify_provider_response,
     poll_with_retry,
-    should_retry_download,
     should_retry_poll,
     should_retry_submit,
     submit_post,
@@ -767,6 +765,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 int(elapsed),
             ),
         )
+        await notify_provider_response(request, final)
 
         if is_dashscope_expired(final):
             if is_resume:
@@ -794,10 +793,5 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         )
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_download,
-    )
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
-        await download_video(video_url, output_path)
+        await download_video(video_url, output_path, label="DashScope")

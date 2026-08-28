@@ -14,7 +14,7 @@ from pathlib import Path
 
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_VIDU
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     VideoAudioMode,
     VideoCapabilities,
@@ -22,6 +22,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
+    notify_provider_response,
     poll_with_retry,
     should_retry_submit,
     submit_post,
@@ -254,6 +255,7 @@ class ViduVideoBackend:
                     "Vidu 视频生成中... state=%s elapsed=%ds", v.get("state"), int(elapsed)
                 ),
             )
+            await notify_provider_response(request, final)
             url = extract_vidu_url(final)
             # credits=0 是合法值，不能用 `or` 合并；显式判 None 兜底为顶层 credits。
             final_credits = final.get("credits")
@@ -383,13 +385,8 @@ class ViduVideoBackend:
             raise RuntimeError(f"Vidu 视频任务创建响应缺少 task_id: {data}")
         return data
 
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=VIDU_RETRYABLE_ERRORS,
-    )
     async def _download_video(self, url: str, output_path: Path) -> None:
-        await download_video(url, output_path)
+        await download_video(url, output_path, label="Vidu", retry_if=None, retryable_errors=VIDU_RETRYABLE_ERRORS)
 
 
 def _coerce_duration(model: str, endpoint: str, requested: int | None) -> int:

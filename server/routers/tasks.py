@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, cast
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.asset_types import localize_asset_type
@@ -186,6 +186,20 @@ async def cancel_task(task_id: str, _t: Translator):
     for key in ("cancelled", "skipped_terminal"):
         result[key] = [_localize_task(task, _t) for task in result.get(key, [])]
     return result
+
+
+@router.post("/tasks/{task_id}/retry-download")
+async def retry_artifact_download(task_id: str, request: Request, _t: Translator):
+    queue = get_task_queue()
+    worker = getattr(request.app.state, "generation_worker", None)
+    if worker is None:
+        raise BadRequestError("task_retry_download_unavailable", id=task_id)
+    try:
+        task = await queue.retry_artifact_download(task_id)
+        await worker.retry_artifact_download(task)
+    except ValueError as exc:
+        raise BadRequestError("task_retry_download_unavailable", id=task_id) from exc
+    return {"task": _localize_task(task, _t)}
 
 
 @router.get("/projects/{project_name}/tasks/cancel-all-preview")

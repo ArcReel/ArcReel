@@ -17,8 +17,6 @@ from lib.providers import PROVIDER_NEWAPI
 from lib.retry import (
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
     with_retry_async,
 )
 from lib.video_backends.base import (
@@ -34,6 +32,7 @@ from lib.video_backends.base import (
     first_mapping_by_paths,
     first_str_by_paths,
     normalize_provider_status,
+    notify_provider_response,
     poll_with_retry,
     should_retry_poll,
     should_retry_submit,
@@ -200,6 +199,7 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
             retry_if=should_retry_poll,
             label="NewAPI",
         )
+        await notify_provider_response(request, final)
 
         if _task_status(final) is ProviderJobStatus.EXPIRED:
             if is_resume:
@@ -258,14 +258,9 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
         return resp.json()
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_poll,
-    )
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
-        """对齐 OpenAI/Ark 的下载重试策略（5 次、5/10/20/40 秒），与生成阶段独立。"""
-        await download_video(video_url, output_path)
+        """下载成片 URL，走与轮询共用的产物下载预算。"""
+        await download_video(video_url, output_path, label="NewAPI")
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}

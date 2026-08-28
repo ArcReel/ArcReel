@@ -766,6 +766,10 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             return await repo.get(task_id)
 
+    async def retry_artifact_download(self, task_id: str) -> dict[str, Any]:
+        async with self._task_repo() as repo:
+            return await repo.retry_artifact_download(task_id)
+
     async def list_tasks(
         self,
         *,

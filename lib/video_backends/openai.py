@@ -10,7 +10,7 @@ from lib.aspect_size import VIDEO_TIER_SHORT_EDGE, parse_aspect_ratio, resolutio
 from lib.logging_utils import format_kwargs_for_log
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     TERMINAL_PROVIDER_STATUSES,
@@ -23,6 +23,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     normalize_provider_status,
     poll_with_retry,
+    with_artifact_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -270,14 +271,18 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
             ),
         )
 
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=OPENAI_RETRYABLE_ERRORS,
-    )
     async def _download_content_with_retry(self, video_id: str):
-        """单独重试内容下载，避免因下载失败重新触发视频生成。"""
-        return await self._client.videos.download_content(video_id)
+        """单独重试内容下载，避免因下载失败重新触发视频生成。
+
+        SDK 取件抛的不是 ``HTTPStatusError``，故退到按 ``OPENAI_RETRYABLE_ERRORS`` 判定，
+        终止条件仍是共用的产物下载预算。
+        """
+        return await with_artifact_retry(
+            lambda: self._client.videos.download_content(video_id),
+            label="OpenAI",
+            retry_if=None,
+            retryable_errors=OPENAI_RETRYABLE_ERRORS,
+        )
 
 
 def _encode_start_image(image_path: Path) -> tuple[str, bytes, str]:

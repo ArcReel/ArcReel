@@ -39,6 +39,7 @@ MESSAGES = {
     "invalid_encoding": "文件编码错误，请使用 UTF-8 编码的文本文件",
     "unauthorized": "用户名或密码错误",
     "task_not_found": "任务 '{id}' 不存在",
+    "task_retry_download_unavailable": "任务 '{id}' 当前不可重试下载",
     # 任务失败原因（GenerationWorker 写入错误码 + 参数，tasks API 读取时按语言渲染）
     "task_fail_provider_unsupported_media": "供应商 {provider_id} 不支持 {media_type} 生成",
     "task_fail_dispatch_provider_requeue_failed": "任务供应商从 {claimed_provider_id} 变为 {actual_provider_id}，但无法回队重新认领，请重试",
@@ -54,6 +55,9 @@ MESSAGES = {
     "task_fail_resume_unsupported_detail": "任务无法接续：{detail}",
     "task_fail_resume_expired_detail": "任务接续凭据已过期：{detail}",
     "task_fail_resume_endpoint_changed_detail": "该模型的接口已更换，无法接续提交前发起的生成：{detail}",
+    "task_fail_declarative_template_render_failed": "调用端点请求渲染失败：{detail}",
+    "task_fail_declarative_response_extract_failed": "调用端点响应提取失败：{detail}",
+    "task_fail_artifact_download_failed": "视频生成任务已成功但下载失败，可重试下载：{detail}",
     "task_fail_cascade_blocked_dependency": "因依赖任务 {dependency_task_id} 失败而被阻塞：{reason}",
     "prompt_must_be_string_or_scene_object": "prompt 必须是字符串或包含 scene/composition 的对象",
     "prompt_scene_empty": "prompt.scene 不能为空",

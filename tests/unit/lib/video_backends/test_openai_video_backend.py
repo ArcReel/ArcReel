@@ -290,7 +290,8 @@ class TestOpenAIVideoBackend:
                 output_path=output_path,
                 duration_seconds=8,
             )
-            with pytest.raises(InternalServerError):
+            # 共用的产物下载预算耗尽后抛的是带最后一次原错误的 RuntimeError。
+            with pytest.raises(RuntimeError, match="Failed to resolve Vertex video URL"):
                 await backend.generate(request)
 
         # 即使下载重试耗尽，也只创建 1 次任务

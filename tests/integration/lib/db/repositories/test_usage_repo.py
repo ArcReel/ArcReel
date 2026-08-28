@@ -1,10 +1,12 @@
 """Tests for UsageRepository."""
 
+import json
+
 import pytest
 from sqlalchemy import update
 
 from lib.db.models.api_call import ApiCall
-from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.db.repositories.usage_repo import MAX_PROVIDER_RESPONSE_BYTES, SettlementInput, UsageRepository
 
 
 class TestUsageRepository:
@@ -72,6 +74,16 @@ class TestUsageRepository:
 
         page2 = await repo.get_calls(page=2, page_size=2)
         assert len(page2["items"]) == 2
+
+    async def test_last_provider_response_is_bounded(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+
+        await repo.update_last_provider_response(call_id, {"payload": "x" * (MAX_PROVIDER_RESPONSE_BYTES + 1)})
+
+        stored = (await repo.get_calls(project_name="demo"))["items"][0]["last_provider_response"]
+        assert stored["truncated"] is True
+        assert len(json.dumps(stored, ensure_ascii=False).encode()) < MAX_PROVIDER_RESPONSE_BYTES
 
 
 class TestClassifyAssetOutputPath:

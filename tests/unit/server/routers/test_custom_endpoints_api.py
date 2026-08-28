@@ -107,6 +107,33 @@ class TestCreate:
 
         assert body["definition"] == definition
 
+    def test_custom_endpoint_key_can_be_attached_to_provider_model(self, endpoints_client: TestClient):
+        endpoint = _create(endpoints_client, custom_endpoint_definition())
+
+        response = endpoints_client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Relay",
+                "discovery_format": "openai",
+                "base_url": "https://relay.test",
+                "api_key": "secret",
+                "models": [
+                    {
+                        "model_id": "video-x",
+                        "display_name": "Video X",
+                        "endpoint": endpoint["key"],
+                        "is_default": True,
+                    }
+                ],
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        model = response.json()["models"][0]
+        assert model["endpoint"] == endpoint["key"]
+        assert model["system_capabilities"]["first_frame"] is True
+        assert model["system_capabilities"]["text_to_video"] is True
+
     def test_invalid_definition_returns_diagnostics(self, endpoints_client: TestClient):
         definition = custom_endpoint_definition()
         definition["auth"] = {"headers": {"Authorization": "Bearer sk-live-1234"}}

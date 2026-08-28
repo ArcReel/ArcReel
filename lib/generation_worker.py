@@ -41,6 +41,7 @@ _ORPHAN_RESCAN_LEASE_LOST_MULT = 3
 
 from lib.api_errors import ApiError
 from lib.config.resolver import VideoBucketCapabilityError
+from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
 from lib.generation_queue import (
     TASK_POLL_INTERVAL_SEC,
     TASK_WORKER_HEARTBEAT_SEC,
@@ -117,7 +118,8 @@ def _encode_task_failure_message(exc: Exception) -> str:
         | VideoBucketCapabilityError
         | ReferenceProjectionBlockedError
         | NarratedVideoDurationBlockedError
-        | ReferenceExecutionIdentityError,
+        | ReferenceExecutionIdentityError
+        | DeclarativeRuntimeError,
     ):
         # 结构化执行拒绝没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
         # 非结构化文本在读侧原样透传，不会丢失原因。
@@ -1295,6 +1297,17 @@ class GenerationWorker:
         ]
         await asyncio.gather(*sub_tasks, return_exceptions=True)
         logger.info("孤儿后台 dispatcher 完成")
+
+    async def retry_artifact_download(self, task: dict[str, Any]) -> None:
+        """按原 provider job 派发一次下载恢复，不重新提交供应商任务。"""
+        provider_id = task.get("provider_id")
+        if not isinstance(provider_id, str) or not provider_id:
+            raise ValueError("retry-download task has no provider_id")
+        task["video_poll_timeout_seconds"] = await _read_video_poll_timeout_seconds()
+        asyncio.create_task(
+            self._dispatch_resume_orphans_background({provider_id: [task]}),
+            name=f"retry-download-{task['task_id']}",
+        )
 
     async def _dispatch_provider_bucket(
         self,

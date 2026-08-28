@@ -27,6 +27,7 @@ from lib.video_backends.base import (
     poll_with_retry,
     should_retry_download,
     should_retry_poll,
+    should_retry_signed_download,
     should_retry_submit,
     submit_post,
 )
@@ -598,12 +599,13 @@ class TestRetryPredicates:
 
 
 class TestShouldRetryDownload:
-    """should_retry_download 下载阶段谓词：4xx（含 404）fail-fast、5xx/传输错误重试。"""
+    """should_retry_download 下载阶段谓词：403/404 未就绪及瞬态错误重试。"""
 
-    def test_all_4xx_including_404_fail_fast(self):
-        # 预签发的结果 URL 4xx 是确定性错误：与 poll 不同，404 也 fail-fast。
-        for code in (400, 401, 403, 404, 413, 422):
+    def test_download_retries_not_ready_403_and_404(self):
+        for code in (400, 401, 413, 422):
             assert should_retry_download(_http_status_error(code)) is False
+        for code in (403, 404):
+            assert should_retry_download(_http_status_error(code)) is True
 
     def test_transient_http_retries(self):
         for code in (408, 425, 429, 500, 502, 503, 504):
@@ -625,6 +627,23 @@ class TestShouldRetryDownload:
         assert should_retry_download(httpx.LocalProtocolError("bad")) is False
         # 普通异常即便消息含状态码子串也不重试（绕开字符串误判）。
         assert should_retry_download(ValueError("503 in message")) is False
+
+
+class TestShouldRetrySignedDownload:
+    """should_retry_signed_download：预签发 URL 的 4xx 一律确定性失败，瞬态码照常重试。"""
+
+    def test_all_client_errors_fail_fast(self):
+        for code in (400, 401, 403, 404, 413, 422):
+            assert should_retry_signed_download(_http_status_error(code)) is False
+
+    def test_transient_codes_still_retry(self):
+        # 429/408/425 是限流与瞬态，不属于「签名 URL 确定性失败」，与 5xx 同样重试。
+        for code in (408, 425, 429, 500, 503):
+            assert should_retry_signed_download(_http_status_error(code)) is True
+
+    def test_transport_errors_retry_and_local_protocol_errors_fail_fast(self):
+        assert should_retry_signed_download(httpx.ConnectError("refused")) is True
+        assert should_retry_signed_download(httpx.UnsupportedProtocol("scheme")) is False
 
 
 class TestSubmitPost:

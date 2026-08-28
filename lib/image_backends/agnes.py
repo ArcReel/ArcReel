@@ -26,8 +26,8 @@ from lib.image_backends.base import (
 )
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_AGNES
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
-from lib.video_backends.base import should_retry_download, should_retry_submit, submit_post
+from lib.retry import with_retry_async
+from lib.video_backends.base import should_retry_submit, submit_post, with_artifact_retry
 
 logger = logging.getLogger(__name__)
 
@@ -219,17 +219,12 @@ class AgnesImageBackend:
         )
         raise RuntimeError("Agnes 图像响应缺少 url/b64_json")
 
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_download,
-    )
     async def _download_result(self, url: str, output_path: Path) -> None:
-        """下载已签发的结果图 URL（幂等 GET），独立的下载重试范围。
+        """下载已签发的结果图 URL（幂等 GET），走共用的产物下载预算。
 
-        瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST；4xx 快速失败。
+        瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST；确定性 4xx 快速失败。
         """
-        await download_image_to_path(url, output_path)
+        await with_artifact_retry(lambda: download_image_to_path(url, output_path), label="Agnes 图像")
 
 
 async def _write_base64_image(b64: str, output_path: Path) -> None:

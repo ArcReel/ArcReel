@@ -2144,6 +2144,12 @@ class API {
     });
   }
 
+  static async retryTaskDownload(taskId: string): Promise<{ task: TaskItem }> {
+    return this.request(`/tasks/${encodeURIComponent(taskId)}/retry-download`, {
+      method: "POST",
+    });
+  }
+
   static async cancelAllPreview(
     projectName: string
   ): Promise<{ queued_count: number }> {

@@ -32,6 +32,59 @@ class TestTasksRouter:
             assert "不存在" in resp.json()["detail"]
 
 
+class _RetryQueue:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    async def retry_artifact_download(self, task_id: str):
+        self.calls.append(task_id)
+        return {"task_id": task_id, "status": "running", "error_message": None}
+
+
+class _RetryWorker:
+    def __init__(self):
+        self.tasks = []
+
+    async def retry_artifact_download(self, task):
+        self.tasks.append(task)
+
+
+class TestRetryArtifactDownload:
+    @staticmethod
+    def _app(queue: _RetryQueue, worker: _RetryWorker | None) -> FastAPI:
+        app = FastAPI()
+        app.state.generation_worker = worker
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
+            id="default", sub="testuser", role="admin"
+        )
+        app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        return app
+
+    def test_dispatches_existing_task_without_creating_another(self, monkeypatch):
+        queue = _RetryQueue()
+        worker = _RetryWorker()
+        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+
+        with TestClient(self._app(queue, worker)) as client:
+            response = client.post("/api/v1/tasks/task-1/retry-download")
+
+        assert response.status_code == 200
+        assert queue.calls == ["task-1"]
+        assert worker.tasks == [{"task_id": "task-1", "status": "running", "error_message": None}]
+
+    def test_unavailable_worker_does_not_transition_task(self, monkeypatch):
+        queue = _RetryQueue()
+        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+
+        with TestClient(self._app(queue, None)) as client:
+            response = client.post("/api/v1/tasks/task-1/retry-download")
+
+        assert response.status_code == 400
+        assert queue.calls == []
+
+
 class _RenderQueue:
     """Queue stub serving fresh task copies per call so in-place rendering does not leak."""
 

@@ -290,20 +290,31 @@ def should_retry_poll(exc: Exception) -> bool:
     return isinstance(exc, (httpx.RequestError, *BASE_RETRYABLE_ERRORS))
 
 
-def should_retry_download(exc: Exception) -> bool:
-    """下载阶段（幂等 GET 取 provider 任务成功后签发的结果 URL）重试谓词。
+def should_retry_signed_download(exc: Exception) -> bool:
+    """预签发 URL 下载重试谓词：4xx 一律确定性失败。
 
-    与 ``should_retry_poll`` 的唯一区别在 404：下载 URL 由 provider 直接签发，4xx（404 不存在 /
-    403 过期 / 413 等）是确定性错误，重试到 max 也不会变好，故 ``retry_not_found=False`` 让 404
-    随其余 4xx 一并 fail-fast（轮询的 404 才是"任务短暂未就绪"该重试）。5xx/408/425/429 与传输/
-    网络错误（幂等 GET 重试无副作用）重试。HTTPStatusError 按 status_code 显式闸门，绕开字符串
-    兜底对结果 URL 中 "503"/"timeout" 等子串的误判。
+    签名 URL 在签发那一刻即完整可用，403/404 只可能是签名错误或对象不存在，重试到 max
+    也不会变好。只重试 5xx/408/425/429 与传输/网络错误（幂等 GET 重试无副作用）。
+    HTTPStatusError 按 status_code 显式闸门，绕开字符串兜底对结果 URL 中 "503"/"timeout"
+    等子串的误判。
     """
     if isinstance(exc, httpx.HTTPStatusError):
         return is_retryable_http_status(exc.response.status_code, retry_not_found=False)
     if isinstance(exc, _NON_RETRYABLE_LOCAL_ERRORS):
         return False
     return isinstance(exc, (httpx.RequestError, *BASE_RETRYABLE_ERRORS))
+
+
+def should_retry_download(exc: Exception) -> bool:
+    """视频产物下载重试谓词（幂等 GET 取 provider 任务成功后签发的结果 URL）。
+
+    在 :func:`should_retry_signed_download` 之上额外重试 403/404：终态后产物尚未就绪、
+    CDN 未同步是抽样中的真实形态（ark ``video_not_ready``），URL 本身写错由端点测试在保存
+    前兜住。
+    """
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (403, 404):
+        return True
+    return should_retry_signed_download(exc)
 
 
 async def submit_post(
@@ -552,28 +563,103 @@ def _retry_after_seconds(exc: Exception) -> int | None:
     return seconds if 0 <= seconds <= VIDEO_POLL_MAX_BACKOFF_SECONDS else None
 
 
-@with_retry_async()
-async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> None:
-    """从 URL 流式下载视频到本地文件（含瞬态错误重试）。"""
+async def stream_to_file(
+    client: httpx.AsyncClient,
+    url: str,
+    output_path: Path,
+    *,
+    timeout: int = 120,
+    headers: Mapping[str, str] | None = None,
+    params: Mapping[str, str] | None = None,
+) -> None:
+    """把 URL 内容流式写入本地文件，不含重试——重试由 :func:`with_artifact_retry` 统一承担。"""
     await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
-    async with httpx.AsyncClient() as http_client:
-        async with http_client.stream("GET", url, timeout=timeout) as resp:
-            if resp.status_code >= 400:
-                # 流式模式下需先读取响应体，否则 HTTPStatusError.response.text 不可用
-                await resp.aread()
-            resp.raise_for_status()
-            # 异步流式读取所有 chunk，然后一次 to_thread 完成整段写入，
-            # 避免对每个 64KB 分片调度一次线程池任务。
-            chunks: list[bytes] = []
-            async for chunk in resp.aiter_bytes(chunk_size=65536):
-                chunks.append(chunk)
+    async with client.stream("GET", url, timeout=timeout, headers=headers, params=params) as resp:
+        if resp.status_code >= 400:
+            # 流式模式下需先读取响应体，否则 HTTPStatusError.response.text 不可用
+            await resp.aread()
+        resp.raise_for_status()
+        # 异步流式读取所有 chunk，然后一次 to_thread 完成整段写入，
+        # 避免对每个 64KB 分片调度一次线程池任务。
+        chunks: list[bytes] = []
+        async for chunk in resp.aiter_bytes(chunk_size=65536):
+            chunks.append(chunk)
 
-            def _write_all() -> None:
-                with open(output_path, "wb") as f:
-                    for chunk in chunks:
-                        f.write(chunk)
+        def _write_all() -> None:
+            with open(output_path, "wb") as f:
+                for chunk in chunks:
+                    f.write(chunk)
 
-            await asyncio.to_thread(_write_all)
+        await asyncio.to_thread(_write_all)
+
+
+#: 产物下载的墙钟上限。终止主要由失败预算负责（连续 10 次 + 退避封顶 60s，累计约 435s），
+#: 本值只兜住「每次都连得上、只是慢」的情形。视频通道传 `poll_timeout_seconds` 覆盖它，
+#: 图片 / 音频通道没有该维度，用本缺省。
+ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS = 1800
+
+
+async def with_artifact_retry[T](
+    attempt: Callable[[], Awaitable[T]],
+    *,
+    label: str,
+    retry_if: Callable[[Exception], bool] | None = should_retry_download,
+    retryable_errors: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS,
+    max_wait: float = ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
+) -> T:
+    """按与轮询共用的预算重试一次产物取件。
+
+    产物下载与轮询同属「供应商任务已建成后的幂等取件」，故用同一套终止条件：连续失败满
+    ``VIDEO_POLL_MAX_CONSECUTIVE_FAILURES`` 次即终态失败、指数退避封顶
+    ``VIDEO_POLL_MAX_BACKOFF_SECONDS``、响应带 ``Retry-After`` 时优先采用。全部调用通道
+    （内置视频 / 图片 / 音频与声明式运行时）共用本入口，不再各持一份下载重试常量。
+
+    HTTP 式通道用缺省的 ``should_retry_download`` 按 status_code 闸门；SDK 式通道的下载
+    异常不是 ``HTTPStatusError``，传 ``retry_if=None`` 退到按 ``retryable_errors`` 判定。
+    """
+
+    # 单元素元组包住取件结果：`poll_with_retry` 按 is_done 判终态，而取件只要没抛异常就是
+    # 成功，结果本身（None、空 bytes 等）不参与判定。
+    async def once() -> tuple[T]:
+        return (await attempt(),)
+
+    fetched = await poll_with_retry(
+        poll_fn=once,
+        is_done=lambda _fetched: True,
+        is_failed=lambda _fetched: None,
+        max_wait=max_wait,
+        retryable_errors=retryable_errors,
+        retry_if=retry_if,
+        label=label,
+    )
+    return fetched[0]
+
+
+async def download_video(
+    url: str,
+    output_path: Path,
+    *,
+    label: str = "",
+    timeout: int = 120,
+    headers: Mapping[str, str] | None = None,
+    params: Mapping[str, str] | None = None,
+    retry_if: Callable[[Exception], bool] | None = should_retry_download,
+    retryable_errors: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS,
+    max_wait: float = ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
+) -> None:
+    """从 URL 流式下载视频到本地文件，重试走共用的产物下载预算。
+
+    ``headers`` / ``params`` 承载与产物 URL 同源时按 auth 节渲染出的凭证；跨源时调用方不传，
+    跳转跨源后的 ``Authorization`` 由 ``follow_redirects`` 下的 httpx 自行剥离。
+    """
+
+    async def attempt() -> None:
+        async with httpx.AsyncClient(follow_redirects=True) as http_client:
+            await stream_to_file(http_client, url, output_path, timeout=timeout, headers=headers, params=params)
+
+    await with_artifact_retry(
+        attempt, label=label, retry_if=retry_if, retryable_errors=retryable_errors, max_wait=max_wait
+    )
 
 
 class VideoCapabilityError(RuntimeError):
@@ -796,6 +882,9 @@ class VideoGenerationRequest:
     # call whose failure cannot prove that the provider rejected the request before accepting a paid job.
     on_provider_resubmit_unsafe: Callable[[], None] | None = None
 
+    # 收到供应商 JSON 响应时覆盖写入当前 ApiCall 的诊断留痕。非账本调用保持 None。
+    on_provider_response: Callable[[object], Awaitable[None]] | None = None
+
     # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的协议标识，与 job_id
     # 一并持久化到 `tasks.provider_endpoint`，记录本笔供应商任务的协议归属。内置供应商无此维度，
     # 保持 None。续跑比对协议读的是 checkpoint 的 endpoint_guard，不读该列。
@@ -825,6 +914,12 @@ class VideoGenerationResult:
     usage_tokens: int | None = None
     task_id: str | None = None
     generate_audio: bool | None = None
+
+
+async def notify_provider_response(request: VideoGenerationRequest, body: object) -> None:
+    """把 HTTP 式调用通道最后一次供应商响应送到可选账本回调。"""
+    if request.on_provider_response is not None:
+        await request.on_provider_response(body)
 
 
 class VideoBackend(Protocol):
