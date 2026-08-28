@@ -237,6 +237,7 @@ class TestEndpointCatalog:
                 "kind",
                 "display_name_key",
                 "display_name",
+                "source",
                 "request_method",
                 "request_path_template",
                 "image_capabilities",

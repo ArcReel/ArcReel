@@ -30,6 +30,7 @@ from lib.custom_provider.capabilities import (
     strip_incoherent_audio_overrides,
     system_video_capabilities,
 )
+from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
     endpoint_spec_to_dict,
@@ -39,6 +40,7 @@ from lib.custom_provider.endpoints import (
 )
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
+from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
@@ -295,9 +297,12 @@ class EndpointDescriptor(BaseModel):
     key: str
     media_type: str
     family: str
-    # 实现形态："python"（backend 代码）| "declarative"（随版声明式定义）。前端据此决定
+    # 实现形态："python"（backend 代码）| "declarative"（声明式定义）。前端据此决定
     # 「复制为我的 / 查看定义」是否可见——这两项只对声明式端点成立。
     kind: str
+    # 端点来源：内置（随版发布，不可编辑删除）或用户自定义（落 custom_endpoint 表）。
+    # 前端据此分组，并只对 custom 开放编辑与删除。
+    source: Literal["builtin", "custom"] = "builtin"
     display_name_key: str
     # 声明式端点的显示名（定义里的 meta.name，专有名词不翻译）；Python 内置为 None，
     # 由前端按 display_name_key 取 i18n 文案。两者恰有其一，前端取名时先看本字段。
@@ -613,10 +618,23 @@ async def list_providers(
 
 # /endpoints 必须先于 /{provider_id} 注册，否则 FastAPI 会把字符串 "endpoints" 当作 provider_id。
 @router.get("/endpoints", response_model=EndpointCatalogResponse)
-async def list_endpoint_catalog() -> EndpointCatalogResponse:
-    """暴露 ENDPOINT_REGISTRY 作为前端单一真相源：渲染下拉、显示路径与分组都派生自此返回值。"""
+async def list_endpoint_catalog(
+    session: AsyncSession = Depends(get_async_session),
+) -> EndpointCatalogResponse:
+    """暴露两个命名空间的 endpoint 作为前端单一真相源：渲染下拉、显示路径与分组都派生自此返回值。
+
+    内置取自 ENDPOINT_REGISTRY，自定义由 custom_endpoint 表的定义现构造——不做启动时全量装载，
+    定义原地改完、目录下次拉取即是新的。单行定义构造不出 spec（只可能来自手工改库）时跳过并
+    告警，而不是让整份目录失败：一条坏定义不该把端点下拉整个打空。
+    """
+    specs = list(ENDPOINT_REGISTRY.values())
+    for row in await CustomEndpointRepository(session).list_all():
+        try:
+            specs.append(endpoint_spec_from_row(row))
+        except (KeyError, TypeError, ValueError):
+            logger.warning("自定义调用端点定义无法构造 spec，已跳过: id=%s", row.id, exc_info=True)
     return EndpointCatalogResponse(
-        endpoints=[EndpointDescriptor(**endpoint_spec_to_dict(spec)) for spec in ENDPOINT_REGISTRY.values()],
+        endpoints=[EndpointDescriptor(**endpoint_spec_to_dict(spec)) for spec in specs],
     )
 
 
