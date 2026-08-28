@@ -138,8 +138,26 @@ def test_declarative_spec_derives_catalog_fields():
     assert "definition" not in descriptor
 
 
-def test_python_endpoints_stay_python_in_the_catalog():
-    descriptor = endpoint_spec_to_dict(ENDPOINT_REGISTRY["newapi-video"])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "newapi-video",
+        "v2-video-generations",
+        "minimax-hailuo-v1",
+        "minimax-hailuo-v1-fast",
+        "minimax-s2v-01",
+        "minimax-h3",
+    ],
+)
+def test_migrated_builtin_endpoints_are_declarative(key: str):
+    descriptor = endpoint_spec_to_dict(ENDPOINT_REGISTRY[key])
+    assert descriptor["kind"] == "declarative"
+    assert descriptor["display_name"]
+    assert descriptor["display_name_key"] == ""
+
+
+def test_unmigrated_endpoints_stay_python_in_the_catalog():
+    descriptor = endpoint_spec_to_dict(ENDPOINT_REGISTRY["openai-video"])
     assert descriptor["kind"] == "python"
     assert descriptor["display_name"] is None
     assert descriptor["display_name_key"]
@@ -217,7 +235,7 @@ def test_family_is_the_first_key_segment(key: str, expected: str):
     [
         ("{{ base_url }}/v1/video/generations", "/v1/video/generations"),
         ("{{base_url}}/v1/video/generations", "/v1/video/generations"),
-        ("https://vendor.example/v1/video", "https://vendor.example/v1/video"),
+        ("https://vendor.example/v1/video?mode=fast", "/v1/video?mode=fast"),
     ],
 )
 def test_request_path_strips_the_base_url_placeholder(url: str, expected: str):

@@ -1218,7 +1218,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["768p", "2k"],
                 pricing=_minimax_video_per_second_pricing("MiniMax-H3", {"768p": 0.50, "2k": 0.80}),
             ),
-            # 1080P 仅 6s（10s 仅 768P）；细粒度越界由 MiniMaxVideoBackend 抛 VideoCapabilityError，
+            # 1080P 仅 6s（10s 仅 768P）；细粒度越界由通用能力校验抛 VideoCapabilityError，
             # duration_resolution_constraints 同步给前端做下拉门控。
             "MiniMax-Hailuo-2.3": ModelInfo(
                 display_name="MiniMax Hailuo 2.3",
@@ -1245,7 +1245,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # S2V-01：单张人脸驱动整段视频角色一致性（subject_reference 单脸 R2V）。固定输出
-            # 720P/6s，请求不接受 resolution/duration（MiniMaxVideoBackend 走专门的 subject_reference
+            # 720P/6s，请求不接受 resolution/duration（声明式端点走专门的 subject_reference
             # 路径，忽略这两项）；supported_durations=[6] 仅供编排层时长守卫与档价口径。
             # 定价单档约 ¥3（资源包 1.5 积分近似，半核实）；键到 minimax 缺省档 768P/6s 求精确命中，
             # 任意分辨率漂移由 per_video_bucket 最近档回落到唯一档。

@@ -18,6 +18,7 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
 from lib.custom_provider.endpoint_definition import DefinitionIssue, validate_definition
@@ -90,13 +91,16 @@ def declarative_request_path(definition: Mapping[str, Any]) -> str:
     """提交 URL 模板去掉 ``{{ base_url }}`` 前缀后的部分，供 catalog 展示调用路径。
 
     定义里的 URL 是完整模板，而 catalog 的 ``request_path_template`` 与 Python 内置一样只呈现
-    base_url 之后的路径；模板不以 base_url 起头时（供应商域名写死在定义里）原样返回。
+    路径；模板不以 base_url 起头但写死供应商域名时，也丢掉 scheme / authority。
     """
     url: str = definition["submit"]["url"]
     stripped = url.strip()
     for prefix in ("{{base_url}}", "{{ base_url }}"):
         if stripped.startswith(prefix):
             return stripped[len(prefix) :]
+    parsed = urlsplit(stripped)
+    if parsed.scheme and parsed.netloc:
+        return parsed.path + (f"?{parsed.query}" if parsed.query else "") or "/"
     return stripped
 
 

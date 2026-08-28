@@ -32,7 +32,7 @@ from lib.artifact_provenance import (
     project_ad_episode_script_inputs,
 )
 from lib.async_thread import run_sync_transaction
-from lib.backend_assembly.specs import get_provider_spec
+from lib.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import (
     ConfigResolver,
@@ -113,7 +113,6 @@ from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
-from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -960,8 +959,7 @@ class ScriptGenerator:
             model_info = provider_meta.models.get(model_id) if provider_meta else None
             if model_info is not None and model_info.media_type == "video":
                 try:
-                    spec = get_provider_spec(provider_id, "video")
-                    backend_caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+                    backend_caps = builtin_video_capabilities_for_model(provider_id, model_id)
                 except ValueError:
                     return None
                 if backend_caps.max_reference_images:

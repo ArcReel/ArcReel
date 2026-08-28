@@ -1,0 +1,54 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "NewAPI Video",
+    "author": "ArcReel",
+    "version": "1.0.0",
+    "hints": {"suggested_models": [{"id": "kling-v1"}]}
+  },
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {"first_frame": {"source": "start_image", "encoding": "data_uri"}},
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/v1/video/generations",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "width": "{{ width }}",
+      "height": "{{ height }}",
+      "duration": "{{ duration }}",
+      "n": 1,
+      "seed": "{{ seed }}",
+      "image": "{{ inputs.first_frame }}"
+    },
+    "extract": {
+      "task_id": ["$.task_id"],
+      "error": ["$.error.message", "$.error", "$.message"]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/v1/video/generations/{{ task_id }}",
+    "extract": {
+      "status": ["$.status", "$.data.status"],
+      "video_url": ["$.url", "$.result_url", "$.data.url", "$.data.result_url"],
+      "error": [
+        "$.error.message",
+        "$.error.name",
+        "$.error",
+        "$.data.error.message",
+        "$.data.error.name",
+        "$.data.error"
+      ],
+      "usage": {
+        "duration_seconds": {
+          "paths": ["$.metadata.duration", "$.data.metadata.duration"],
+          "accept": "scalar"
+        }
+      }
+    }
+  },
+  "status_map": {"expired": "failed"},
+  "capabilities": {"first_frame": true, "max_reference_images": 0}
+}

@@ -144,6 +144,9 @@ def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
         return obj
 
     if isinstance(obj, str):
+        data_uri = re.match(r"^data:([^;,]+);base64,(.*)$", obj, re.DOTALL)
+        if data_uri:
+            return f"<data-uri:mime={data_uri.group(1)},chars={len(data_uri.group(2))}>"
         return _truncate_str(obj)
 
     if isinstance(obj, bytes | bytearray):

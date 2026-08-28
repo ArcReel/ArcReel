@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
 from lib.app_data_dir import app_data_dir
-from lib.backend_assembly.specs import get_provider_spec
+from lib.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import VoiceConsistency, builtin_video_audio_track, derive_voice_consistency
@@ -32,7 +32,6 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
 from lib.i18n import Translator
 from lib.video_backends.base import VideoAudioMode
-from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 from server.dependencies import get_config_service
 
 if TYPE_CHECKING:
@@ -357,8 +356,7 @@ def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
     lib 包）不受 lib.config 分层契约约束，可直接读 backend 声明。
     """
     try:
-        spec = get_provider_spec(provider_id, "video")
-        caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+        caps = builtin_video_capabilities_for_model(provider_id, model_id)
     except ValueError:
         return "none"
     return caps.reference_audio_mode.value

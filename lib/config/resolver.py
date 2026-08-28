@@ -22,7 +22,10 @@ if TYPE_CHECKING:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.backend_assembly.specs import get_provider_spec
+from lib.backend_assembly.specs import (
+    builtin_effective_generate_audio_for_model,
+    builtin_video_capabilities_for_model,
+)
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     default_model_for_provider,
@@ -42,10 +45,6 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import get_project_manager
 from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
-from lib.video_backends.registry import (
-    effective_generate_audio_for_model as builtin_effective_generate_audio_for_model,
-)
-from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -362,8 +361,7 @@ def builtin_video_audio_track(provider_id: str, model_id: str, *, capability: Vi
     if model_info is None or model_info.media_type != "video":
         return None
     try:
-        spec = get_provider_spec(provider_id, "video")
-        caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+        caps = builtin_video_capabilities_for_model(provider_id, model_id)
     except ValueError:
         return None
     return caps.audio_track_for_route(capability).value
@@ -1271,8 +1269,7 @@ class ConfigResolver:
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
         else:
             try:
-                spec = get_provider_spec(provider_id, "video")
-                caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+                caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
         satisfied = video_capability_satisfied(
@@ -1482,8 +1479,7 @@ class ConfigResolver:
             # 也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
             # （`lib.capability_buckets`）的口径，展示层与执行层因此严格同源。
             try:
-                spec = get_provider_spec(provider_id, "video")
-                builtin_caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             max_reference_images = builtin_caps.max_reference_images
@@ -1497,9 +1493,7 @@ class ConfigResolver:
             # 路线无音轨的子路径（可灵 v3-omni 多图主体）据此如实派生出 voice_consistency=none。
             has_audio = builtin_caps.audio_track_for_route(capability) != "always_off"
             try:
-                default_tier_generates_audio = builtin_effective_generate_audio_for_model(
-                    spec.registry_backend, model_id
-                )
+                default_tier_generates_audio = builtin_effective_generate_audio_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise ValueError(
                     f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"

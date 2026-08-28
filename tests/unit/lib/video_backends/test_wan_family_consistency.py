@@ -218,7 +218,7 @@ def test_minimax_s2v_routing_survives_incidental_wan_substring(model_id: str) ->
     """MiniMax S2V 二级路由的 wan 排除只认版本号相邻的 wan token，不认任意含 "wan" 子串的单词——
     "swan" 只是恰好含 "wan" 子串的无关词形，即便后面粘连数字（"swan2"）也不构成版本号形态，
     不应被误判成 wan 家族而错过 MiniMax 路由。"""
-    assert infer_endpoint(model_id, "openai") == "minimax-video"
+    assert infer_endpoint(model_id, "openai") == "minimax-s2v-01"
 
 
 @pytest.mark.parametrize("model_id", ["wan2-s2v", "wan-2-s2v", "wan_2-s2v"])

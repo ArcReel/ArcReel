@@ -904,3 +904,37 @@ class TestDeclarativeVideoBackend:
         assert caught.value.code == "artifact_download_failed"
         assert result.call_count == VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
         assert recorded[-1] == {"error": "result exploded"}
+
+    async def test_request_log_drops_auth_query_credentials(self, tmp_path: Path, caplog):
+        """请求日志按键名遮蔽，遮不到拼进 URL 查询串里的 ``auth.query`` 凭证。"""
+        definition = _definition()
+        definition["auth"] = {"query": {"key": "{{ api_key }}"}}
+        assert validate_definition(definition).valid
+
+        with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
+            router.post(url__regex=r"^https://relay\.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get(url__regex=r"^https://relay\.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(
+                    200, json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"}
+                )
+            )
+            router.get(url__regex=r"^https://relay\.test/files/job-42\.mp4").mock(
+                return_value=httpx.Response(200, content=b"video")
+            )
+
+            await DeclarativeVideoBackend(
+                api_key="sk-super-secret",
+                base_url="https://relay.test",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+            ).generate(_request(tmp_path))
+
+        # 只看本模块自己写的那条：httpx 的 `HTTP Request:` 行记完整 URL，是另一条既有议题。
+        logged = "\n".join(
+            record.getMessage() for record in caplog.records if record.name == "lib.custom_provider.declarative_backend"
+        )
+        assert "声明式视频请求" in logged
+        assert "sk-super-secret" not in logged

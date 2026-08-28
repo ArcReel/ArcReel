@@ -16,7 +16,6 @@ from types import UnionType
 from typing import TYPE_CHECKING, get_args, get_type_hints
 
 from lib.custom_provider.endpoint_definition import requires_image_input
-from lib.custom_provider.endpoints import get_endpoint_spec
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, audio_capability_pair_is_coherent
 
 logger = logging.getLogger(__name__)
@@ -76,7 +75,11 @@ def system_video_capabilities(
     Raises:
         ValueError: endpoint 不存在、非 video 类、或两种声明都缺失 / 上限为负。
     """
-    spec = endpoint_spec or get_endpoint_spec(endpoint)
+    if endpoint_spec is None:
+        from lib.custom_provider.endpoints import get_endpoint_spec
+
+        endpoint_spec = get_endpoint_spec(endpoint)
+    spec = endpoint_spec
     if spec.media_type != "video":
         raise ValueError(f"endpoint {endpoint!r} is {spec.media_type}, not video")
 
@@ -133,6 +136,8 @@ def filter_valid_overrides(
     无入口删除，回显隐去它以保证 GET 与写入落库的键集合一致。不校验 endpoint / media_type
     合法性，调用方已各自处理（见 :func:`system_video_capabilities` 与 ``_system_capabilities_for``）。
     """
+    from lib.custom_provider.endpoints import get_endpoint_spec
+
     if overrides is None:
         return {}
     if not isinstance(overrides, dict):
