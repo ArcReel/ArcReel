@@ -288,8 +288,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
                 poll_fn=lambda: self._client.aio.operations.get(operation),
                 is_done=lambda op: op.done,
                 is_failed=lambda op: None,  # Gemini 在轮询完成后检查失败
-                poll_interval=20,  # 与 Google 官方推荐一致
-                max_wait=600,
+                max_wait=request.poll_timeout_seconds,
                 label="Gemini",
                 on_progress=lambda op, elapsed: logger.info(
                     "视频生成中... 已等待 %.0f 秒 (operation=%s)", elapsed, op_name

@@ -165,11 +165,6 @@ def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
     return _KLING_VIDEO_CAPS.get(key, _DEFAULT_VIDEO_CAPS)
 
 
-_MIN_POLL_TIMEOUT_SECONDS = 900.0
-_POLL_TIMEOUT_PER_SECOND = 60.0
-_KLING_VIDEO_POLL_INTERVAL_SECONDS = 10.0
-
-
 def _encode_job_id(subpath: str, task_id: str, *, generate_audio: bool) -> str:
     """把生成类型子路径 + 有声标志编进持久化 job_id（``subpath:task_id:audio``）。
 
@@ -479,8 +474,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     ) -> VideoGenerationResult:
         final = await self._poll_until_terminal(
             lambda: self._poll_query(client, f"videos/{subpath}/{task_id}"),
-            poll_interval=_KLING_VIDEO_POLL_INTERVAL_SECONDS,
-            max_wait=self._max_wait(request.duration_seconds),
+            max_wait=request.poll_timeout_seconds,
         )
 
         download_url = extract_kling_video_url(final)
@@ -506,7 +500,3 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     )
     async def _download_with_retry(download_url: str, output_path: Path) -> None:
         await download_video(download_url, output_path)
-
-    @staticmethod
-    def _max_wait(duration_seconds: int) -> float:
-        return max(_MIN_POLL_TIMEOUT_SECONDS, duration_seconds * _POLL_TIMEOUT_PER_SECOND)

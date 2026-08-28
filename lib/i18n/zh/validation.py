@@ -175,4 +175,63 @@ MESSAGES = {
     "arch_extract_path_traversal": "解压路径越界: {path}",
     "arch_conflict_detected": "检测到项目编号冲突",
     "arch_project_name_conflict": "项目编号 '{name}' 已存在，请选择覆盖现有项目或自动重命名导入。",
+    # ---- 自定义调用端点 · 定义校验 ----
+    "val_ce_missing_field": "缺少必填字段：{field}",
+    "val_ce_unknown_field": "不认识的字段：{field}",
+    "val_ce_removed_field": "字段已移除：{field}——{reason}",
+    "val_ce_invalid_type": "类型不符，应为 {expected}",
+    "val_ce_invalid_enum_value": "取值不在允许范围内，可选：{allowed}",
+    "val_ce_invalid_value": "取值不符合格式约定：{detail}",
+    "val_ce_schema_violation": "不符合定义格式：{detail}",
+    "val_ce_removed_reason_request_query": "静态与动态 query 都写进 url 模板，凭证 query 归 auth.query",
+    "val_ce_removed_reason_status_codes": "HTTP 码策略归运行时：2xx 成功、429 与 5xx 重试、其余失败",
+    "val_ce_removed_reason_polling_policy": "轮询间隔与超时是运行时策略，不进定义",
+    "val_ce_removed_reason_extract_source": "取值根一律是响应体，HTTP 状态码不走 JSONPath",
+    "val_ce_removed_reason_extract_usage_keys": "用量改挂 poll.extract.usage",
+    "val_ce_removed_reason_mime_types": "素材格式不做白名单，由供应商在提交时拒绝",
+    "val_ce_removed_reason_media_type": "首期只有视频一种媒体类型",
+    "val_ce_malformed_placeholder": (
+        "{fragment} 不是合法占位符：只支持裸变量（如 prompt、inputs.first_frame），"
+        "没有过滤器、下标与表达式，开括号也必须闭合"
+    ),
+    "val_ce_undeclared_variable": "占位符 {name} 引用了未声明的变量",
+    "val_ce_api_key_outside_auth": "api_key 只能出现在 auth 节：凭证不进请求体与 URL，分享出去的定义也不该带上它",
+    "val_ce_auth_without_api_key": "auth 节非空却没有引用 api_key：无凭证接口请把这一节留空，否则让它写入凭证",
+    "val_ce_auth_header_conflict": "{header} 与 auth.headers 同名（不区分大小写）：凭证 header 只能由 auth 节写入",
+    "val_ce_header_name_duplicate": "{header} 与同表里的 {first} 只差大小写：HTTP 头名不区分大小写，两条会一起发出去",
+    "val_ce_auth_query_conflict": "URL 自带的 query 参数 {param} 与 auth.query 同名：凭证 query 只能由 auth 节写入",
+    "val_ce_task_id_out_of_scope": "task_id 只在 poll 与 result 节可用",
+    "val_ce_result_id_out_of_scope": "result_id 只在 result 节可用",
+    "val_ce_result_id_without_extract": "引用了 result_id，但 poll.extract 没有声明 result_id",
+    "val_ce_input_out_of_scope": "素材 {name} 只能在 submit 节引用：轮询与取件请求不携带素材",
+    "val_ce_list_input_requires_each": "{name} 是列表型素材，只能经 $each 展开，不能直接内插",
+    "val_ce_each_in_not_list_input": "$each.in 指向的 {name} 不是已声明的列表型素材",
+    "val_ce_each_shape_invalid": "$each 要么写 item 铺成数组元素，要么同时写 key 与 value 铺成键值对，两种写法不能混用",
+    "val_ce_each_position_mismatch": (
+        "$each 的写法与所在位置不符：数组位置写 item 铺成元素，对象位置写 key 与 value 铺成键值对"
+    ),
+    "val_ce_each_alias_reserved": "{name} 是循环体内的保留变量，不能用作 $each 的元素别名",
+    "val_ce_when_unknown_input": "$when 指向的 {name} 不是已声明的素材",
+    "val_ce_input_not_referenced": "声明了素材却没有在 submit 里引用：既不会发给供应商，也不能据此声明能力",
+    "val_ce_enum_map_variable_not_allowed": "{variable} 不支持枚举映射，可映射的变量：{allowed}",
+    "val_ce_status_map_target_invalid": "状态档位 {target} 不在 {allowed} 之内，过期语义请映射到 failed",
+    "val_ce_capability_declared_without_input": "声明了 {capability}，但 submit 没有引用任何 {source} 素材，能力会撒谎",
+    "val_ce_capability_input_without_declaration": (
+        "submit 引用了 {source} 素材，却没有声明 {capability}，素材会发出去而界面不开放该能力"
+    ),
+    "val_ce_jsonpath_not_a_string": "取值路径必须是字符串：{path_expression}",
+    "val_ce_jsonpath_surrounding_whitespace": "取值路径首尾不得有空白：{path_expression}",
+    "val_ce_jsonpath_missing_root": "取值路径必须以 $ 开头：{path_expression}",
+    "val_ce_jsonpath_recursive_descent": "取值路径禁用递归下降（第 {position} 个字符）：{path_expression}",
+    "val_ce_jsonpath_union": "取值路径禁用联合选择器（第 {position} 个字符）：{path_expression}",
+    "val_ce_jsonpath_slice_step": "取值路径禁用切片步长（第 {position} 个字符）：{path_expression}",
+    "val_ce_jsonpath_function_extension": "取值路径禁用函数扩展（第 {position} 个字符）：{path_expression}",
+    "val_ce_jsonpath_filter_root_reference": "过滤器内不得引用根节点（第 {position} 个字符）：{path_expression}",
+    "val_ce_jsonpath_filter_non_singular": "过滤器内只允许单值查询（第 {position} 个字符）：{path_expression}",
+    "val_ce_jsonpath_regex_operator": "取值路径禁用正则匹配运算符（第 {position} 个字符）：{path_expression}",
+    "val_ce_jsonpath_syntax": "取值路径语法错误（第 {position} 个字符）：{path_expression}",
+    "val_ce_poll_without_task_id": "轮询请求没有引用 task_id，请确认这是有意的",
+    "val_ce_jsonpath_wildcard_order": (
+        "{path_expression} 含通配：对象通配只取首个，键序在前端预览与后端执行之间可能不同"
+    ),
 }

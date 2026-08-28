@@ -1,0 +1,368 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arcreel.dev/schemas/custom-endpoint/1.0.0.json",
+  "title": "ArcReel 自定义调用端点 · 声明式定义",
+  "description": "「JSON in/out + 提交/轮询」流派的完整协议描述。JSON Schema 只管结构；占位符引用、JSONPath 子集、api_key 作用域、能力一致性等语义规则由 lib.custom_provider.endpoint_definition.validator 检查——两者合起来才是完整闸门。",
+  "type": "object",
+  "required": ["kind", "schema_version", "meta", "auth", "submit", "poll"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "description": "容器类型。只接受 declarative，未知 kind 直接拒绝。",
+      "enum": ["declarative"]
+    },
+    "schema_version": {
+      "description": "本定义遵循的格式版本（semver）。入库保留原值，不做迁移。",
+      "$ref": "#/$defs/semver"
+    },
+    "meta": { "$ref": "#/$defs/meta" },
+    "auth": { "$ref": "#/$defs/auth" },
+    "inputs": {
+      "description": "素材输入声明：把请求里的素材编码成模板可引用的值。模板里以 inputs.<名字> 引用；列表型素材只能经 $each 展开。",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/inputDecl" }
+    },
+    "enum_maps": {
+      "description": "枚举参数字典：键是 ArcReel 侧的值（字符串化后查表），值是写进请求的供应商侧值。可映射的变量由校验器限定。",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": { "$ref": "#/$defs/scalar" }
+      }
+    },
+    "submit": { "$ref": "#/$defs/submitRequest" },
+    "poll": { "$ref": "#/$defs/pollRequest" },
+    "result": { "$ref": "#/$defs/resultRequest" },
+    "status_map": {
+      "description": "供应商状态串到 queued / running / succeeded / failed 的映射（与 ProviderJobStatus 同名）。查表前原值字符串化并转小写。expired 不由声明式产生，过期语义映射到 failed。",
+      "type": "object",
+      "propertyNames": { "type": "string", "minLength": 1 },
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "capabilities": { "$ref": "#/$defs/capabilities" }
+  },
+  "allOf": [
+    {
+      "$comment": "产物地址必须有出处：没有二次取件节时由轮询取，有则由 result 节取（result.extract 自带该必填）。",
+      "if": { "not": { "required": ["result"] } },
+      "then": {
+        "properties": {
+          "poll": { "properties": { "extract": { "required": ["video_url"] } } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "$comment": "这份 schema 前后端共用，pattern 只写两个运行时都成立的构造：用 [0-9] 而非 \\d（Python 的 \\d 含 Unicode 十进制数字），另加禁换行的 not（Python 的 $ 还匹配末尾换行前的位置，而 ECMA-262 没有 \\Z）。",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "not": { "pattern": "\\n" }
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "scalar": { "type": ["string", "number", "boolean"] },
+    "template": {
+      "description": "字符串模板。占位符写作双花括号包裹的变量名；整串只有一个占位符时保留变量的原生类型，混合文本一律串化。值为 null 的整串占位符会删掉所在键或数组元素。",
+      "type": "string"
+    },
+    "urlTemplate": {
+      "description": "请求 URL 模板：至少一个非空白字符。没有请求目标的定义在保存时即拒，不留到运行时发请求才失败。",
+      "$ref": "#/$defs/template",
+      "pattern": "\\S"
+    },
+    "jsonTemplate": {
+      "description": "JSON 结构模板：任意 JSON 值，其中字符串按 template 渲染；对象里的 $each 键与数组里的 $each 元素按 eachDirective 展开；对象里的 $when 是可选守卫。",
+      "anyOf": [
+        { "$ref": "#/$defs/template" },
+        { "type": ["number", "boolean", "null"] },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonTemplate" } },
+        {
+          "type": "object",
+          "properties": {
+            "$each": { "$ref": "#/$defs/eachDirective" },
+            "$when": {
+              "description": "对象级守卫：所指素材缺席时删除整个对象（数组元素或键值对）。取值须是已声明的 inputs 名。",
+              "$ref": "#/$defs/identifier"
+            }
+          },
+          "additionalProperties": { "$ref": "#/$defs/jsonTemplate" }
+        }
+      ]
+    },
+    "eachDirective": {
+      "description": "唯一的铺字段构造。数组位置写 item（展开为若干元素）；对象位置写 key 与 value（展开为若干键值对并入所在对象）。循环体内可用 as 命名的元素变量与 index（0 起）。展开为零项时删除所在键或数组元素。",
+      "type": "object",
+      "$comment": "each_shape",
+      "required": ["in", "as"],
+      "additionalProperties": false,
+      "properties": {
+        "in": { "type": "string", "pattern": "^inputs\\.[a-z][a-z0-9_]*$" },
+        "as": { "$ref": "#/$defs/identifier" },
+        "item": { "$ref": "#/$defs/jsonTemplate" },
+        "key": { "$ref": "#/$defs/template" },
+        "value": { "$ref": "#/$defs/jsonTemplate" }
+      },
+      "oneOf": [
+        {
+          "required": ["item"],
+          "not": { "anyOf": [{ "required": ["key"] }, { "required": ["value"] }] }
+        },
+        { "required": ["key", "value"], "not": { "required": ["item"] } }
+      ]
+    },
+    "headerMap": {
+      "description": "请求头模板。键取 HTTP 字段名的 tchar 集（RFC 9110 §5.6.2），下划线等合法记号不拦。",
+      "type": "object",
+      "$comment": "`$` 在 Python 的 re 里还匹配末尾换行前的位置，而 ECMA-262 没有 \\Z——这份 schema 前端也要用，故另加一条禁换行的 not 而不是换锚点。",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$",
+        "not": { "pattern": "\\n" }
+      },
+      "additionalProperties": {
+        "description": "头值模板：不得含 CR/LF——字段值里的换行是另起一个头，HTTP 客户端本就会拒。",
+        "$ref": "#/$defs/template",
+        "not": { "pattern": "[\\r\\n]" }
+      }
+    },
+    "queryMap": {
+      "type": "object",
+      "propertyNames": { "type": "string", "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/template" }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["name", "author", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "author": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "version": { "$ref": "#/$defs/semver" },
+        "description": { "type": "string", "maxLength": 2000 },
+        "homepage": { "type": "string", "format": "uri", "pattern": "^https?://[^\\s/?#]+\\S*$" },
+        "hints": {
+          "description": "随定义分发的提示，导入时展示并由用户确认，不携带凭证。",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "base_url": { "type": "string", "format": "uri", "pattern": "^https?://[^\\s/?#]+\\S*$" },
+            "suggested_models": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id"],
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": "string", "minLength": 1 },
+                  "label": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "auth": {
+      "description": "鉴权：header 名加值模板，或 query 参数。api_key 占位符只允许出现在这一节，且非空 auth 至少引用一次；签名类鉴权不支持。整节可为空对象（无凭证接口）。",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headers": { "$ref": "#/$defs/headerMap" },
+        "query": { "$ref": "#/$defs/queryMap" }
+      }
+    },
+    "inputDecl": {
+      "type": "object",
+      "required": ["source", "encoding"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "对应 VideoGenerationRequest 的素材字段。",
+          "enum": ["start_image", "end_image", "reference_images", "reference_audio_files"]
+        },
+        "encoding": {
+          "description": "素材编码方式：data_uri 或裸 base64。素材格式不做白名单，由供应商在提交时拒绝。",
+          "enum": ["data_uri", "base64"]
+        }
+      }
+    },
+    "jsonpath": {
+      "description": "RFC 9535 JSONPath 的受限子集：$ 起头；只允许 child segment；过滤器只允许 @ 单值查询、字面量比较与逻辑与、逻辑或、取反。禁用递归下降、联合、切片 step、函数扩展。子集由校验器逐条解析，schema 只做粗筛。",
+      "type": "string",
+      "pattern": "^[$]([.\\[].*)?$"
+    },
+    "pathItem": {
+      "description": "提取路径项：JSONPath 字符串，或 JSON-in-string 后缀形态（path 加 json_decode 加 then）。后缀不嵌套。",
+      "oneOf": [
+        { "$ref": "#/$defs/jsonpath" },
+        {
+          "type": "object",
+          "required": ["path", "json_decode"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "$ref": "#/$defs/jsonpath" },
+            "json_decode": {
+              "description": "命中值是字符串时先 JSON 解析，再按 then 继续取值；命中值非字符串、解码失败或 then 无命中都按该条无命中跳下一条。",
+              "const": true
+            },
+            "then": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/jsonpath" }
+            }
+          }
+        }
+      ]
+    },
+    "extractSpec": {
+      "description": "响应取值：路径项优先级数组，逐条求值，第一条产生可接受命中的路径胜出，取其第一个节点。简写形式即路径项数组（accept 取 string）。$ 一律指向解析后的响应体；HTTP 码不走 JSONPath。",
+      "oneOf": [
+        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pathItem" } },
+        {
+          "type": "object",
+          "required": ["paths"],
+          "additionalProperties": false,
+          "properties": {
+            "paths": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pathItem" } },
+            "accept": {
+              "description": "可接受的命中类型：string（默认；跳过数组、对象、null 与数字）、scalar（字符串、数字、布尔，数字与布尔按字符串化交给下游）。",
+              "enum": ["string", "scalar"],
+              "default": "string"
+            }
+          }
+        }
+      ]
+    },
+    "requestBase": {
+      "type": "object",
+      "required": ["method", "url"],
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT"] },
+        "url": {
+          "description": "URL 模板；路径与 query 内的占位符值不做 percent-encoding。静态与动态 query 都写进本模板，凭证 query 归 auth.query。",
+          "$ref": "#/$defs/urlTemplate"
+        },
+        "headers": { "$ref": "#/$defs/headerMap" },
+        "body": { "$ref": "#/$defs/jsonTemplate" }
+      }
+    },
+    "submitRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestBase" },
+        {
+          "type": "object",
+          "required": ["extract"],
+          "additionalProperties": false,
+          "properties": {
+            "method": true,
+            "url": true,
+            "headers": true,
+            "body": true,
+            "extract": {
+              "description": "任何 2xx 视为提交成功；成功码之下 task_id 无命中即提交失败，错误信息按 error 取。",
+              "type": "object",
+              "required": ["task_id"],
+              "additionalProperties": false,
+              "properties": {
+                "task_id": { "$ref": "#/$defs/extractSpec" },
+                "error": { "$ref": "#/$defs/extractSpec" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "pollRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestBase" },
+        {
+          "type": "object",
+          "required": ["extract"],
+          "additionalProperties": false,
+          "properties": {
+            "method": true,
+            "url": true,
+            "headers": true,
+            "body": true,
+            "extract": {
+              "description": "轮询间隔、超时与瞬时错误重试都是运行时策略，不进定义。2xx 之下按 status 查状态；429 与 5xx 保持上一状态继续轮询；其余码即任务失败，错误按 error 取。",
+              "type": "object",
+              "required": ["status"],
+              "additionalProperties": false,
+              "properties": {
+                "status": { "$ref": "#/$defs/extractSpec" },
+                "video_url": { "$ref": "#/$defs/extractSpec" },
+                "error": { "$ref": "#/$defs/extractSpec" },
+                "failure": {
+                  "description": "状态串之外的失败判据：任一路径产生可接受命中即判 failed，错误信息按 error 取。",
+                  "$ref": "#/$defs/extractSpec"
+                },
+                "result_id": {
+                  "description": "二次取件用的产物 id，供 result 节的 result_id 占位符引用。",
+                  "$ref": "#/$defs/extractSpec"
+                },
+                "usage": {
+                  "type": "object",
+                  "propertyNames": { "$ref": "#/$defs/identifier" },
+                  "additionalProperties": { "$ref": "#/$defs/extractSpec" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "resultRequest": {
+      "description": "可选的二次取件节：轮询到 succeeded 后再发一次请求取产物。URL 模板可用 task_id 与 result_id 占位符。",
+      "type": "object",
+      "required": ["method", "url", "extract"],
+      "additionalProperties": false,
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT"] },
+        "url": { "$ref": "#/$defs/urlTemplate" },
+        "headers": { "$ref": "#/$defs/headerMap" },
+        "extract": {
+          "type": "object",
+          "required": ["video_url"],
+          "additionalProperties": false,
+          "properties": {
+            "video_url": { "$ref": "#/$defs/extractSpec" },
+            "error": { "$ref": "#/$defs/extractSpec" },
+            "usage": {
+              "type": "object",
+              "propertyNames": { "$ref": "#/$defs/identifier" },
+              "additionalProperties": { "$ref": "#/$defs/extractSpec" }
+            }
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "description": "协议级能力声明，与 lib/video_backends/base.py 的 VideoCapabilities 同名同义，是能力的唯一来源；模型行沿用 capability_overrides 覆盖。校验器与 submit 实际引用到的 inputs 做两向一致性检查。整节可省略（全部取默认值，即无素材输入）。",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "first_frame": { "type": "boolean", "default": false },
+        "last_frame": { "type": "boolean", "default": false },
+        "max_reference_images": { "type": "integer", "minimum": 0, "default": 0 },
+        "reference_audio_mode": { "enum": ["none", "direct"], "default": "none" },
+        "max_reference_audio_count": { "type": "integer", "minimum": 0, "default": 0 },
+        "max_reference_audio_total_seconds": { "type": ["number", "null"], "minimum": 0, "default": null },
+        "reference_audio_per_image": { "type": "boolean", "default": false },
+        "max_prompt_chars": { "type": ["integer", "null"], "minimum": 1, "default": null },
+        "first_frame_ratio_adaptive_only": { "type": "boolean", "default": false },
+        "audio_track": { "enum": ["controllable", "always_on", "always_off"], "default": "controllable" },
+        "reference_route_audio_track": {
+          "enum": ["controllable", "always_on", "always_off", null],
+          "default": null
+        }
+      }
+    }
+  }
+}

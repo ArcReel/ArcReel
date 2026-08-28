@@ -25,10 +25,6 @@ from lib.video_backends.base import (
     poll_with_retry,
 )
 
-_POLL_INTERVAL_SECONDS = 5.0
-_MIN_POLL_TIMEOUT_SECONDS = 600.0
-_POLL_TIMEOUT_PER_SECOND = 30.0
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "sora-2"
@@ -189,7 +185,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         # submit 成功立即持久化 job_id；持久化失败抛 → finally mark_failed。
         # 非 worker 路径（grid / 直生 / 测试）request.task_id 为 None，统一点内跳过持久化。
         await self._persist_provider_job_id(request, video.id, provider=PROVIDER_OPENAI)
-        final = await self._poll_until_complete(video.id, request.duration_seconds)
+        final = await self._poll_until_complete(video.id, request.poll_timeout_seconds)
 
         # generate 路径下 expired 是「provider 异常 / 输入参数过期」类失败，
         # 抛 RuntimeError 让 worker mark_failed（不带 [resume_expired] 前缀）。
@@ -201,7 +197,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 OpenAI job：仅 poll + 下载，不调 videos.create。"""
         try:
-            final = await self._poll_until_complete(job_id, request.duration_seconds)
+            final = await self._poll_until_complete(job_id, request.poll_timeout_seconds)
         except Exception as exc:
             if _is_openai_not_found(exc):
                 raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_OPENAI) from exc
@@ -246,14 +242,12 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         """仅创建视频任务（带重试）；轮询交由 _poll_until_complete 自管。"""
         return await self._client.videos.create(**kwargs)
 
-    async def _poll_until_complete(self, video_id: str, duration_seconds: int):
+    async def _poll_until_complete(self, video_id: str, poll_timeout_seconds: int):
         """轮询任务直到状态归一到终态。
 
         不复用 SDK 的 client.videos.poll：它仅识别 in_progress/queued/completed/failed，
         对接返回非标状态（如 NOT_START）的 OpenAI 兼容网关时会提前退出，导致下载未就绪任务。
         """
-        max_wait = max(_MIN_POLL_TIMEOUT_SECONDS, float(duration_seconds) * _POLL_TIMEOUT_PER_SECOND)
-
         # is_done 是纯谓词：成功 / 失败 / 过期三档都视为「已终态」让 poll 返回。
         # caller (generate / resume_video) 拿到 result 后再分流：
         #   - succeeded → 下载
@@ -268,8 +262,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
                 if _video_status(v) is ProviderJobStatus.FAILED
                 else None
             ),
-            poll_interval=_POLL_INTERVAL_SECONDS,
-            max_wait=max_wait,
+            max_wait=poll_timeout_seconds,
             retryable_errors=OPENAI_RETRYABLE_ERRORS,
             label="OpenAI",
             on_progress=lambda v, elapsed: logger.info(

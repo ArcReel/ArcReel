@@ -11,6 +11,7 @@ import asyncio
 import logging
 from typing import Any
 
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.project_change_hints import project_change_source
 from lib.reference_video.execution_checkpoint import (
     ReferenceExecutionIdentityError,
@@ -88,7 +89,11 @@ def _submitted_base_url(task: dict[str, Any]) -> str | None:
     return None
 
 
-async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dict[str, Any]:
+async def execute_resume_video_task(
+    task: dict[str, Any],
+    *,
+    job_id: str,
+) -> dict[str, Any]:
     """重启自愈入口：worker `_process_resume_task` 直接调。
 
     1. 解析项目 + 构造 MediaGenerator（受 task["provider_id"] 锁定 payload.video_provider）
@@ -102,6 +107,7 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
     project_name = task["project_name"]
     resource_id = str(task["resource_id"])
     task_id = task["task_id"]
+    poll_timeout_seconds = int(task.get("video_poll_timeout_seconds", DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS))
     user_id = task.get("user_id", DEFAULT_USER_ID)
 
     if task_type not in ("video", "reference_video"):
@@ -176,6 +182,7 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
                 submitted_base_url=_submitted_base_url(task),
                 seed=seed,
                 service_tier=service_tier,
+                poll_timeout_seconds=poll_timeout_seconds,
                 before_formal_commit=artifact_committer.prepare_selection,
                 commit_formal_output=artifact_committer,
                 **optional_kwargs,

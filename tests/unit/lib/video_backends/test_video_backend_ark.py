@@ -518,51 +518,20 @@ class TestArkModelCapabilities:
 
 
 class TestArkPollBudget:
-    """长时长任务的轮询上限：固定 600s 只够到 10 秒档。"""
-
-    @pytest.mark.parametrize(
-        ("duration", "expected_max_wait"),
-        [(5, 600), (10, 600), (15, 900), (30, 1800)],
-    )
-    async def test_default_tier_max_wait_scales_with_duration(self, ark_backend, tmp_path, duration, expected_max_wait):
+    async def test_uses_request_poll_timeout(self, ark_backend, tmp_path):
         request = VideoGenerationRequest(
-            prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=duration, service_tier="default"
+            prompt="p",
+            output_path=tmp_path / "out.mp4",
+            duration_seconds=30,
+            service_tier="flex",
+            poll_timeout_seconds=7200,
         )
         with patch("lib.video_backends.ark.poll_with_retry", new_callable=AsyncMock) as poll:
             poll.side_effect = RuntimeError("stop")
             with pytest.raises(RuntimeError):
                 await ark_backend._poll_until_done("task-1", request)
-        assert poll.call_args.kwargs["max_wait"] == expected_max_wait
-        assert poll.call_args.kwargs["poll_interval"] == 10
-
-    async def test_flex_tier_keeps_hour_long_budget(self, ark_backend, tmp_path):
-        """flex 队列本就按小时级排队，不随时长缩放。"""
-        request = VideoGenerationRequest(
-            prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=30, service_tier="flex"
-        )
-        with patch("lib.video_backends.ark.poll_with_retry", new_callable=AsyncMock) as poll:
-            poll.side_effect = RuntimeError("stop")
-            with pytest.raises(RuntimeError):
-                await ark_backend._poll_until_done("task-1", request)
-        assert poll.call_args.kwargs["max_wait"] == 3600
-        assert poll.call_args.kwargs["poll_interval"] == 60
-
-    @pytest.mark.parametrize("model", ["doubao-seedance-2-0-260128", "doubao-seedance-2-5-260628"])
-    async def test_tier_stripped_model_polls_on_default_cadence(self, mock_ark_client, tmp_path, model):
-        """不下传 service_tier 的型号按默认档建任务，轮询节奏须跟着走默认档而非请求里残留的 flex。"""
-        with patch("lib.video_backends.ark.create_ark_client", return_value=mock_ark_client):
-            b = ArkVideoBackend(api_key="test-ark-key", model=model)
-        b._client = mock_ark_client
-        assert b._supports_service_tier is False
-        request = VideoGenerationRequest(
-            prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=30, service_tier="flex"
-        )
-        with patch("lib.video_backends.ark.poll_with_retry", new_callable=AsyncMock) as poll:
-            poll.side_effect = RuntimeError("stop")
-            with pytest.raises(RuntimeError):
-                await b._poll_until_done("task-1", request)
-        assert poll.call_args.kwargs["poll_interval"] == 10
-        assert poll.call_args.kwargs["max_wait"] == 1800
+        assert poll.call_args.kwargs["max_wait"] == 7200
+        assert "poll_interval" not in poll.call_args.kwargs
 
 
 class TestArkServiceTierParam:

@@ -50,6 +50,7 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
         user_id,
         task_id=None,
         claimed_provider_id=None,
+        poll_timeout_seconds=3600,
     ):
         captured.update(
             project_name=project_name,
@@ -59,6 +60,7 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
             user_id=user_id,
             task_id=task_id,
             claimed_provider_id=claimed_provider_id,
+            poll_timeout_seconds=poll_timeout_seconds,
         )
         return {"ok": True}
 
@@ -77,6 +79,7 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
             "payload": {"script_file": "episode_1.json"},
             "script_file": "scripts/frozen.json",
             "user_id": "u1",
+            "video_poll_timeout_seconds": 7200,
         },
         claimed_provider_id="ark",
     )
@@ -84,6 +87,7 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
     assert result == {"ok": True}
     assert captured["claimed_provider_id"] == "ark"
     assert captured["script_file"] == "scripts/frozen.json"
+    assert captured["poll_timeout_seconds"] == 7200
 
 
 @pytest.mark.asyncio

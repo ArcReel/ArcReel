@@ -459,8 +459,17 @@ async def _execute_task(task: dict[str, Any], *, claimed_provider_id: str | None
     from server.services.generation_tasks import execute_generation_task
 
     if task.get("task_type") in ("video", "reference_video"):
+        task["video_poll_timeout_seconds"] = await _read_video_poll_timeout_seconds()
         return await execute_generation_task(task, claimed_provider_id=claimed_provider_id)
     return await execute_generation_task(task)
+
+
+async def _read_video_poll_timeout_seconds() -> int:
+    from lib.config.service import ConfigService
+    from lib.db import safe_session_factory
+
+    async with safe_session_factory() as session:
+        return await ConfigService(session).get_video_poll_timeout_seconds()
 
 
 class GenerationWorker:
@@ -495,6 +504,7 @@ class GenerationWorker:
 
         self._main_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
+        self._wake_event = asyncio.Event()
         self._owns_lease = False
         # Orphan dispatcher 句柄持久化：shutdown 时 await 它跑完；lease 切换重夺时
         # 第二次进 _handle_orphan_tasks_on_start，旧句柄未 done 不能直接覆盖。
@@ -533,13 +543,27 @@ class GenerationWorker:
         if self._main_task and not self._main_task.done():
             return
         self._stop_event.clear()
+        self._wake_event.clear()
         self._main_task = asyncio.create_task(self._run_loop(), name="generation-worker")
 
     async def stop(self) -> None:
         self._stop_event.set()
+        self.wake()
         if self._main_task:
             await self._main_task
             self._main_task = None
+
+    def wake(self) -> None:
+        """Wake the local worker without changing cross-process polling."""
+        self._wake_event.set()
+
+    async def _wait_for_wake(self, timeout: float) -> None:
+        try:
+            await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
+        except TimeoutError:
+            # No local wake is normal; cross-process work is discovered on the polling timeout.
+            pass
+        self._wake_event.clear()
 
     # ------------------------------------------------------------------
     # Main loop
@@ -585,7 +609,7 @@ class GenerationWorker:
                     self._orphan_handled_once = True
 
                 if not self._owns_lease:
-                    await asyncio.sleep(self.heartbeat_interval)
+                    await self._wait_for_wake(self.heartbeat_interval)
                     continue
 
                 claimed_any = await self._claim_tasks()
@@ -593,7 +617,7 @@ class GenerationWorker:
                 if claimed_any:
                     await asyncio.sleep(0.05)
                 else:
-                    await asyncio.sleep(self.poll_interval)
+                    await self._wait_for_wake(self.poll_interval)
 
             await self._wait_inflight_completion()
         finally:
@@ -1218,6 +1242,10 @@ class GenerationWorker:
 
         if resumable_by_provider:
             total = sum(len(v) for v in resumable_by_provider.values())
+            poll_timeout_seconds = await _read_video_poll_timeout_seconds()
+            for tasks in resumable_by_provider.values():
+                for task in tasks:
+                    task["video_poll_timeout_seconds"] = poll_timeout_seconds
             logger.info(
                 "孤儿扫描 fast path 完成：%d 个可 resume video 任务交后台分批 dispatch",
                 total,

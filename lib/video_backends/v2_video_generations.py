@@ -52,9 +52,6 @@ logger = logging.getLogger(__name__)
 PROVIDER_V2_VIDEO = "v2-video-generations"
 
 _SUBMIT_PATH = "/v2/video/generations"
-_POLL_INTERVAL_SECONDS = 5.0
-_MIN_POLL_TIMEOUT_SECONDS = 600
-_POLL_TIMEOUT_PER_SECOND = 30
 
 # generic 端点跨多模型，参考图上限无单一供应商真相；取保守默认，由 resolver 在 endpoint
 # cap 未声明（None）时 fallthrough 读取。非供应商核实值，用户按所选模型对齐。
@@ -308,8 +305,7 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
             poll_fn=_gated_poll,
             is_done=lambda s: normalize_status(first_str_by_paths(s, _STATUS_PATHS)) is ProviderJobStatus.SUCCEEDED,
             is_failed=_extract_failure,
-            poll_interval=_POLL_INTERVAL_SECONDS,
-            max_wait=self._max_wait(request.duration_seconds),
+            max_wait=request.poll_timeout_seconds,
             retry_if=should_retry_poll,
             label="V2",
         )
@@ -341,7 +337,3 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
-
-    @staticmethod
-    def _max_wait(duration_seconds: int) -> float:
-        return max(_MIN_POLL_TIMEOUT_SECONDS, duration_seconds * _POLL_TIMEOUT_PER_SECOND)

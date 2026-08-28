@@ -13,6 +13,7 @@ from typing import Literal, Protocol
 import httpx
 from sqlalchemy.exc import InterfaceError, OperationalError
 
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.data_uri import file_to_data_uri
 from lib.retry import BASE_RETRYABLE_ERRORS, AsyncClock, SystemClock, _should_retry, with_retry_async
 
@@ -22,6 +23,10 @@ from lib.retry import BASE_RETRYABLE_ERRORS, AsyncClock, SystemClock, _should_re
 # 显式传 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 关掉兜底。
 
 logger = logging.getLogger(__name__)
+
+VIDEO_POLL_INTERVAL_SECONDS = 5.0
+VIDEO_POLL_MAX_CONSECUTIVE_FAILURES = 10
+VIDEO_POLL_MAX_BACKOFF_SECONDS = 60.0
 
 
 # DB 瞬态错误集合：sqlite "database is locked"、pg "could not connect" / 连接已关闭。
@@ -457,8 +462,8 @@ async def poll_with_retry[T](
     poll_fn: Callable[[], Awaitable[T]],
     is_done: Callable[[T], bool],
     is_failed: Callable[[T], str | None],
-    poll_interval: float,
     max_wait: float,
+    poll_interval: float = VIDEO_POLL_INTERVAL_SECONDS,
     retryable_errors: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS,
     retry_if: Callable[[Exception], bool] | None = None,
     label: str = "",
@@ -467,12 +472,21 @@ async def poll_with_retry[T](
 ) -> T:
     """通用异步轮询辅助函数，带瞬态错误重试和超时控制。
 
+    连续可重试错误（其间无一次成功响应）满 `VIDEO_POLL_MAX_CONSECUTIVE_FAILURES` 次即抛
+    RuntimeError 终态失败，任一成功响应清零。重试等待按 `poll_interval × 2^k` 退避、封顶
+    `VIDEO_POLL_MAX_BACKOFF_SECONDS`；响应带整数秒且不超过该封顶的 `Retry-After` 时优先采用。
+    失败预算管「供应商不可达」，`max_wait` 管「供应商可达但慢」。任何一次等待都截到 `max_wait`
+    的截止时刻，故最后一次轮询发出时必定仍在预算内。
+
+    失败预算对全部消费方生效，视频与图片两条通道同此一份：图片侧的 `lib/image_backends/vidu.py`
+    与 `lib/kling_backend_base.py` 同样在连续失败满额时终止，不会用满各自的 `max_wait` 窗口。
+
     Args:
         poll_fn: 每次轮询调用的异步函数，返回最新状态。
         is_done: 判断轮询结果是否表示任务完成。
         is_failed: 判断轮询结果是否表示任务失败，返回错误信息或 None。
-        poll_interval: 两次轮询之间的间隔（秒）。
         max_wait: 最大等待时间（秒），超时抛出 TimeoutError。
+        poll_interval: 成功响应后的轮询间隔，同时是失败退避的基数；视频调用通道统一用默认 5 秒。
         retryable_errors: 可重试的异常类型元组（未指定 retry_if 时生效）。
         retry_if: 自定义重试谓词，指定时替代默认的 `_should_retry`，让调用方精确控制
             哪些异常应当重试（如按 HTTP status_code 区分确定性 4xx 与瞬态 5xx）。
@@ -484,6 +498,7 @@ async def poll_with_retry[T](
     start = active_clock.monotonic()
     prefix = f"{label} " if label else ""
     predicate = retry_if if retry_if is not None else (lambda e: _should_retry(e, retryable_errors))
+    consecutive_failures = 0
 
     # 先查询再等待：已完成/缓存命中的任务立刻返回，不被 poll_interval 白等一轮。
     while True:
@@ -492,8 +507,23 @@ async def poll_with_retry[T](
         except Exception as e:
             if not predicate(e):
                 raise
+            consecutive_failures += 1
             logger.warning("%s轮询异常（将重试）: %s - %s", prefix, type(e).__name__, str(e)[:200])
+            if consecutive_failures >= VIDEO_POLL_MAX_CONSECUTIVE_FAILURES:
+                raise RuntimeError(
+                    f"{prefix}连续轮询失败 {VIDEO_POLL_MAX_CONSECUTIVE_FAILURES} 次，最后错误: {e}"
+                ) from e
+            retry_after = _retry_after_seconds(e)
+            wait_time = (
+                retry_after
+                if retry_after is not None
+                else min(
+                    poll_interval * 2 ** (consecutive_failures - 1),
+                    VIDEO_POLL_MAX_BACKOFF_SECONDS,
+                )
+            )
         else:
+            consecutive_failures = 0
             error_msg = is_failed(result)
             if error_msg is not None:
                 raise RuntimeError(error_msg)
@@ -501,10 +531,25 @@ async def poll_with_retry[T](
                 return result
             if on_progress is not None:
                 on_progress(result, active_clock.monotonic() - start)
+            wait_time = poll_interval
 
-        if active_clock.monotonic() - start >= max_wait:
+        remaining = max_wait - (active_clock.monotonic() - start)
+        if remaining <= 0:
             raise TimeoutError(f"{prefix}任务超时（{max_wait:.0f}秒）")
-        await active_clock.sleep(poll_interval)
+        # 等待不越过剩余预算：下一次轮询必定发在 max_wait 截止时刻或之前。
+        await active_clock.sleep(min(wait_time, remaining))
+
+
+def _retry_after_seconds(exc: Exception) -> int | None:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    raw = headers.get("Retry-After")
+    if not isinstance(raw, str) or not raw.isdigit():
+        return None
+    seconds = int(raw)
+    return seconds if 0 <= seconds <= VIDEO_POLL_MAX_BACKOFF_SECONDS else None
 
 
 @with_retry_async()
@@ -712,6 +757,7 @@ class VideoGenerationRequest:
     # 不构成契约，编排层（reference_video 渲染管线）必须显式提供。
     reference_audio_targets: list[int] | None = None
     generate_audio: bool = True
+    poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 
     # 项目上下文（用于构建文件服务 URL 等）
     project_name: str | None = None

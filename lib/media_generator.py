@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 from lib.async_thread import run_noninterruptible_sync
 from lib.audio_utils import probe_reference_audio_total_seconds
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
 from lib.ledger import Ledger
@@ -789,6 +790,7 @@ class MediaGenerator:
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
+        poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """
@@ -826,6 +828,7 @@ class MediaGenerator:
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
+                poll_timeout_seconds=poll_timeout_seconds,
                 **version_metadata,
             )
         )
@@ -843,6 +846,7 @@ class MediaGenerator:
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
+        poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         task_id: str | None = None,
         before_submit: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None,
         formal_output: bool = False,
@@ -1050,6 +1054,7 @@ class MediaGenerator:
                         # reference_images 下标算出的 targets 对压缩后的 ref_arg 同样有效。
                         reference_audio_targets=reference_audio_targets,
                         generate_audio=effective_generate_audio,
+                        poll_timeout_seconds=poll_timeout_seconds,
                         project_name=self.project_name,
                         task_id=task_id,
                         on_provider_resubmit_unsafe=_mark_provider_resubmit_unsafe,
@@ -1117,6 +1122,7 @@ class MediaGenerator:
         task_id: str | None = None,
         api_call_id: int | None = None,
         submitted_base_url: str | None = None,
+        poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         formal_output: bool = False,
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
@@ -1176,6 +1182,7 @@ class MediaGenerator:
             duration_seconds=duration_int,
             resolution=resolution,
             generate_audio=effective_generate_audio,
+            poll_timeout_seconds=poll_timeout_seconds,
             project_name=self.project_name,
             task_id=task_id,
             service_tier=version_metadata.get("service_tier", "default"),

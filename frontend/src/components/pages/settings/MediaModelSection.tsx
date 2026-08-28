@@ -162,6 +162,8 @@ export function MediaModelSection() {
   const currentImageT2I = draft.default_image_backend_t2i ?? settings.default_image_backend_t2i ?? "";
   const currentImageI2I = draft.default_image_backend_i2i ?? settings.default_image_backend_i2i ?? "";
   const currentAudio = draft.video_generate_audio ?? settings.video_generate_audio ?? false;
+  const currentPollTimeout =
+    draft.video_poll_timeout_seconds ?? settings.video_poll_timeout_seconds;
 
   // 全局层是解析链的基准，细分项留空即回退全局默认模型；默认模型也留空时是自动推断，
   // 前端算不出具体模型，故不显示生效值（下拉里显示「自动选择」）。
@@ -357,6 +359,29 @@ export function MediaModelSection() {
             }}
           />
         )}
+        <div className="mt-4">
+          <label
+            htmlFor="video-poll-timeout-input"
+            className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+          >
+            {t("video_poll_timeout_label")}
+          </label>
+          <input
+            id="video-poll-timeout-input"
+            type="number"
+            min={60}
+            step={1}
+            value={currentPollTimeout}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              if (Number.isInteger(next)) {
+                setDraft((prev) => ({ ...prev, video_poll_timeout_seconds: next }));
+              }
+            }}
+            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          />
+          <p className="mt-1 text-[11px] text-text-4">{t("video_poll_timeout_hint")}</p>
+        </div>
       </SectionCard>
 
       {/* Image */}
