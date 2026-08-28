@@ -188,8 +188,10 @@ def _render_node(
         return _render_string(node, context, enum_maps)
     if isinstance(node, list):
         rendered: list[object] = []
+        expanded_each = False
         for item in node:
             if isinstance(item, dict) and "$each" in item:
+                expanded_each = True
                 guard = item.get("$when")
                 if guard is not None and not _input_present(context, guard):
                     continue
@@ -205,7 +207,7 @@ def _render_node(
                 result = _render_node(item, context, enum_maps)
                 if result is not _DROP:
                     rendered.append(result)
-        return rendered
+        return _DROP if expanded_each and not rendered else rendered
     if not isinstance(node, dict):
         return node
 

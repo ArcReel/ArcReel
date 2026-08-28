@@ -8,17 +8,21 @@
 
 from __future__ import annotations
 
+import logging
 import mimetypes
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from lib.custom_provider.endpoint_definition import (
     AssetData,
+    RenderedRequest,
     TemplateRenderError,
     build_context,
     encode_inputs,
@@ -27,6 +31,7 @@ from lib.custom_provider.endpoint_definition import (
     render_request,
 )
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
+from lib.logging_utils import format_kwargs_for_log
 from lib.retry import retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
@@ -49,6 +54,23 @@ from lib.video_backends.base import (
 )
 
 _HTTP_TIMEOUT_SECONDS = 60
+logger = logging.getLogger(__name__)
+
+
+def _url_without_auth_query(rendered: RenderedRequest) -> str:
+    """日志用 URL：``auth.query`` 的凭证是明文参数，写进日志前整段摘掉。
+
+    ``format_kwargs_for_log`` 按键名遮蔽，URL 是单个字符串遮不到里面的凭证；渲染结果
+    单列了 ``auth_query``，据此把这些参数从查询串里删掉再入日志。
+    """
+    if not rendered.auth_query:
+        return rendered.url
+    head, separator, query = rendered.url.partition("?")
+    if not separator:
+        return rendered.url
+    secrets = {quote(name, safe="") for name in rendered.auth_query}
+    kept = [item for item in query.split("&") if item.partition("=")[0] not in secrets]
+    return f"{head}?{'&'.join(kept)}" if kept else head
 
 
 class DeclarativeRuntimeError(RuntimeError):
@@ -139,10 +161,18 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         provider: str,
     ) -> None:
         self._api_key = api_key
-        self._base_url = base_url.rstrip("/")
+        self._base_url = self._normalize_base_url(base_url, str(definition["submit"]["url"]))
         self._model = model
         self._definition = definition
         self._provider = provider
+
+    @staticmethod
+    def _normalize_base_url(base_url: str, submit_url: str) -> str:
+        """显式版本路径属于定义；剥配置末尾版本段，避免拼成 ``/v1/v2``。"""
+        stripped = base_url.strip().rstrip("/")
+        if re.match(r"^\s*{{\s*base_url\s*}}/v\d", submit_url):
+            return re.sub(r"/v\d+(?:\.\d+)?[a-zA-Z]*$", "", stripped)
+        return stripped
 
     @property
     def name(self) -> str:
@@ -317,6 +347,17 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         context: Mapping[str, object],
     ) -> httpx.Response:
         rendered = self._render(section, context)
+        logger.info(
+            "声明式视频请求: %s",
+            format_kwargs_for_log(
+                {
+                    "method": rendered.method,
+                    "url": _url_without_auth_query(rendered),
+                    "headers": rendered.headers,
+                    "body": rendered.body,
+                }
+            ),
+        )
         # 提交 / 轮询 / 二次取件都带着渲染出的 auth 节：重定向必须自己逐跳跟随，跨源卸凭证。
         return await request_with_scoped_credentials(
             client,

@@ -26,18 +26,16 @@ _ENDPOINT_BACKEND_CLASSES = (
     "ArkVideoBackend",
     "DashScopeImageBackend",
     "DashScopeVideoBackend",
+    "DeclarativeVideoBackend",
     "GeminiImageBackend",
     "GeminiTextBackend",
     "KlingImageBackend",
     "KlingVideoBackend",
     "MiniMaxImageBackend",
-    "MiniMaxVideoBackend",
-    "NewAPIVideoBackend",
     "OpenAIAudioBackend",
     "OpenAIImageBackend",
     "OpenAITextBackend",
     "OpenAIVideoBackend",
-    "V2VideoGenerationsBackend",
     "ViduVideoBackend",
 )
 
@@ -130,24 +128,17 @@ class TestEndpointDispatch:
 
     def test_newapi_video(self):
         _result, built = _built(_make_provider(), "kling-v2", "newapi-video")
-        assert built == {
-            "backend": "NewAPIVideoBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.example.com/v1", "model": "kling-v2"},
-        }
+        assert built["backend"] == "DeclarativeVideoBackend"
+        assert built["kwargs"]["model"] == "kling-v2"
+        assert built["kwargs"]["provider"] == "custom-42"
 
     def test_v2_video_generations(self):
         provider = _make_provider(base_url="https://api.aimlapi.com")
         result, built = _built(provider, "bytedance/seedance-1-0-lite-i2v", "v2-video-generations")
         assert isinstance(result, CustomVideoBackend)
-        # base_url 原样下传，归一化由 V2VideoGenerationsBackend 内部处理
-        assert built == {
-            "backend": "V2VideoGenerationsBackend",
-            "kwargs": {
-                "api_key": "sk-test",
-                "base_url": "https://api.aimlapi.com",
-                "model": "bytedance/seedance-1-0-lite-i2v",
-            },
-        }
+        assert built["backend"] == "DeclarativeVideoBackend"
+        assert built["kwargs"]["base_url"] == "https://api.aimlapi.com"
+        assert built["kwargs"]["model"] == "bytedance/seedance-1-0-lite-i2v"
 
     def test_ark_seedance(self):
         provider = _make_provider(base_url="https://relay.example.com")
@@ -211,17 +202,11 @@ class TestEndpointDispatch:
 
     def test_minimax_video(self):
         provider = _make_provider(base_url="https://api.minimaxi.com/v1")
-        result, built = _built(provider, "MiniMax-Hailuo-2.3", "minimax-video")
+        result, built = _built(provider, "MiniMax-Hailuo-2.3", "minimax-hailuo-v1")
         assert isinstance(result, CustomVideoBackend)
         assert result.model == "MiniMax-Hailuo-2.3"
-        assert built == {
-            "backend": "MiniMaxVideoBackend",
-            "kwargs": {
-                "api_key": "sk-test",
-                "base_url": "https://api.minimaxi.com/v1",
-                "model": "MiniMax-Hailuo-2.3",
-            },
-        }
+        assert built["backend"] == "DeclarativeVideoBackend"
+        assert built["kwargs"]["base_url"] == "https://api.minimaxi.com/v1"
 
     def test_kling_image(self):
         provider = _make_provider(base_url="https://relay.example.com/v1")
@@ -354,8 +339,8 @@ class TestVideoEndpointRecorded:
         result, _built_record = _built(
             _make_provider(),
             "MiniMax-Hailuo-02",
-            "minimax-video",
+            "minimax-hailuo-v1",
             capability_overrides={"last_frame": True},
         )
         assert isinstance(result, CustomVideoBackend)
-        assert result.endpoint == "minimax-video"
+        assert result.endpoint == "minimax-hailuo-v1"

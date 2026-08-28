@@ -878,10 +878,9 @@ class TestResolverReturnsEffectiveCapabilities:
 
     async def test_builtin_boolean_caps_come_from_backend(self, db_session: AsyncSession):
         """内置分支的布尔位来自 backend 纯函数，注册表不存第二份。"""
-        from lib.backend_assembly.specs import get_provider_spec
+        from lib.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.config.resolver import ConfigResolver
         from lib.config.service import ConfigService
-        from lib.video_backends.registry import video_capabilities_for_model
 
         factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
         resolver = ConfigResolver(factory, _bound_session=db_session)
@@ -889,8 +888,7 @@ class TestResolverReturnsEffectiveCapabilities:
             ConfigService(db_session), db_session, "openai", "sora-2", None
         )
 
-        spec = get_provider_spec("openai", "video")
-        backend_caps = video_capabilities_for_model(spec.registry_backend, "sora-2")
+        backend_caps = builtin_video_capabilities_for_model("openai", "sora-2")
         assert caps["source"] == "registry"
         assert caps["first_frame"] is backend_caps.first_frame
         assert caps["last_frame"] is backend_caps.last_frame
@@ -900,18 +898,16 @@ class TestBuiltinBackendsDeclareCapabilityFunction:
     """每个能承载视频模型的内置 provider 都要能被纯函数问出布尔能力位。"""
 
     def test_every_builtin_video_provider_resolvable(self):
-        from lib.backend_assembly.specs import get_provider_spec
+        from lib.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.config.registry import PROVIDER_REGISTRY
         from lib.video_backends.base import VideoCapabilities
-        from lib.video_backends.registry import video_capabilities_for_model
 
         for provider_id, meta in PROVIDER_REGISTRY.items():
             video_models = [mid for mid, mi in meta.models.items() if mi.media_type == "video"]
             if not video_models:
                 continue
-            spec = get_provider_spec(provider_id, "video")
             for model_id in video_models:
-                caps = video_capabilities_for_model(spec.registry_backend, model_id)
+                caps = builtin_video_capabilities_for_model(provider_id, model_id)
                 assert isinstance(caps, VideoCapabilities), f"{provider_id}/{model_id}"
 
     def test_unknown_backend_name_fails_loud(self):

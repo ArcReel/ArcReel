@@ -48,10 +48,7 @@ from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
 from lib.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.video_backends.kling import KlingVideoBackend
-from lib.video_backends.minimax import MiniMaxVideoBackend
-from lib.video_backends.newapi import NewAPIVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
-from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
 from lib.video_backends.vidu import ViduVideoBackend
 
 if TYPE_CHECKING:
@@ -186,14 +183,6 @@ def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_newapi_video(provider, model_id: str) -> CustomVideoBackend:
-    base_url = ensure_openai_base_url(provider.base_url)
-    if not base_url:
-        raise ValueError("NewAPI 视频后端需要 base_url")
-    delegate = NewAPIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
-    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
-
-
 def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     """补全协议已知挂载路径（ark /api/v3、vidu /ent/v2、kling /v1）；
     已带对应协议路径则原样信任，避免重复叠加。供 ark/vidu/kling 闭包复用。
@@ -208,14 +197,6 @@ def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     if urlsplit(normalized).path.rstrip("/").endswith(suffix):
         return normalized
     return normalized + suffix
-
-
-def _build_v2_video_generations(provider, model_id: str) -> CustomVideoBackend:
-    if not provider.base_url:
-        raise ValueError("v2-video-generations 端点需要 base_url")
-    # base_url 归一化（去版本段 + 拼 /v2/video/generations）由 V2VideoGenerationsBackend 内部处理
-    delegate = V2VideoGenerationsBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
-    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_ark_seedance(provider, model_id: str) -> CustomVideoBackend:
@@ -245,12 +226,6 @@ def _build_minimax_image(provider, model_id: str) -> CustomImageBackend:
     # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
     delegate = MiniMaxImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
-
-
-def _build_minimax_video(provider, model_id: str) -> CustomVideoBackend:
-    # 两步取 URL（submit→轮询 file_id→retrieve download_url）由 MiniMaxVideoBackend 内部处理
-    delegate = MiniMaxVideoBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
-    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_kling_image(provider, model_id: str) -> CustomImageBackend:
@@ -342,28 +317,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # OpenAI Sora input_reference 为单张首帧图。
         video_max_reference_images=1,
     ),
-    "newapi-video": EndpointSpec(
-        key="newapi-video",
-        media_type="video",
-        family="newapi",
-        display_name_key="endpoint_newapi_video_display",
-        request_method="POST",
-        request_path_template="/v1/video/generations",
-        build_backend=_build_newapi_video,
-        video_max_reference_images=0,
-    ),
-    "v2-video-generations": EndpointSpec(
-        key="v2-video-generations",
-        media_type="video",
-        family="v2",
-        display_name_key="endpoint_v2_video_generations_display",
-        request_method="POST",
-        request_path_template="/v2/video/generations",
-        build_backend=_build_v2_video_generations,
-        # 多 model 共享端点、容量不同 → endpoint 维度不声明，按 model 读 backend caps（不构造 client）
-        video_caps_for_model=V2VideoGenerationsBackend.video_capabilities_for_model,
-        end_image_capable=True,
-    ),
     "ark-seedance": EndpointSpec(
         key="ark-seedance",
         media_type="video",
@@ -431,18 +384,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_minimax_image,
     ),
-    "minimax-video": EndpointSpec(
-        key="minimax-video",
-        media_type="video",
-        family="minimax",
-        display_name_key="endpoint_minimax_video_display",
-        request_method="POST",
-        request_path_template="/video_generation",
-        build_backend=_build_minimax_video,
-        # 多 model 容量异质（S2V-01 单脸参考 max_ref=1 / 海螺系列走首帧 no-ref）→ endpoint 维度不
-        # 声明 int cap，按 model 读 backend caps（不构造 client）。
-        video_caps_for_model=MiniMaxVideoBackend.video_capabilities_for_model,
-    ),
     "kling-image": EndpointSpec(
         key="kling-image",
         media_type="image",
@@ -463,7 +404,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
         build_backend=_build_kling_video,
         # 参考图上限随 model 异质（v3-omni / video-o1 多图主体 R2V max=4，其余首尾帧无参考为 0）→ 不在
-        # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数（与 minimax-video 同构）。
+        # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数。
         video_caps_for_model=KlingVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
     ),
@@ -516,6 +457,8 @@ def _build_declarative_video(
     """声明式端点的 backend 构造闭包。"""
 
     def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
+        if "base_url" in str(definition["submit"]["url"]) and not provider.base_url:
+            raise ValueError("声明式调用端点需要 base_url")
         delegate = DeclarativeVideoBackend(
             api_key=provider.api_key,
             base_url=provider.base_url,
@@ -702,7 +645,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        classify_wan_model 的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v 等）
        落到下方 5) 的通用视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现
        请求构造，同样排除出原生路由（见 classify_wan_model 的 is_videoedit 处的说明）。
-    2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
+    2) MiniMax 原生 token → 海螺（Fast 与非 Fast 各一键）/ S2V / H3 分别走各自声明式端点，
+       image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
        语义但本质是视频）；其余含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
@@ -776,12 +720,14 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 而非 contains_wan_token/is_wan_family 做门槛：前者会把 "minimax-s2v-swan" 这类只是恰好含
     # "swan" 子串的 MiniMax id 误判成 wan 家族而错过 MiniMax 路由，后者的严格边界又会漏判
     # "wan-2.2-s2v" 一类版本号相邻但未满足家族边界的 id。
-    if (
-        "hailuo" in lowered
-        or ("s2v" in lowered and not _WAN_VERSION_TOKEN_PATTERN.search(lowered))
-        or "minimax-h3" in lowered
-    ):
-        return "minimax-video"
+    if "hailuo" in lowered:
+        # Fast 只接受图生视频，端点级能力据此分居两键（见 backend_assembly.specs
+        # ._minimax_video_endpoint 的同源口径），不能与 2.3 共用一个定义。
+        return "minimax-hailuo-v1-fast" if "fast" in lowered else "minimax-hailuo-v1"
+    if "s2v" in lowered and not _WAN_VERSION_TOKEN_PATTERN.search(lowered):
+        return "minimax-s2v-01"
+    if "minimax-h3" in lowered:
+        return "minimax-h3"
     if "image-01" in lowered:
         return "minimax-image"
 

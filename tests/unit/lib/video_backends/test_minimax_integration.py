@@ -212,20 +212,19 @@ class TestVideoRegistry:
         assert models["MiniMax-Hailuo-2.3-Fast"].capabilities == []
 
     def test_s2v01_registered_with_single_reference_cap(self):
+        from lib.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.config.registry import PROVIDER_REGISTRY
-        from lib.video_backends.minimax import MiniMaxVideoBackend
 
         s2v = PROVIDER_REGISTRY[PROVIDER_MINIMAX].models["S2V-01"]
         assert s2v.media_type == "video"
         # 固定 6s 输出。
         assert s2v.supported_durations == [6]
-        # 单脸参考生视频：编排层据 backend 声明只取 1 张（参考图上限的唯一声明处）。
-        assert MiniMaxVideoBackend.video_capabilities_for_model("S2V-01").max_reference_images == 1
+        assert builtin_video_capabilities_for_model(PROVIDER_MINIMAX, "S2V-01").max_reference_images == 1
 
-    def test_video_backend_registered(self):
-        from lib.video_backends import get_registered_backends
+    def test_video_backend_uses_declarative_provider_spec(self):
+        from lib.backend_assembly.specs import get_provider_spec
 
-        assert PROVIDER_MINIMAX in get_registered_backends()
+        assert get_provider_spec(PROVIDER_MINIMAX, "video").registry_backend == "declarative"
 
 
 class TestProviderConstantsDistinct:

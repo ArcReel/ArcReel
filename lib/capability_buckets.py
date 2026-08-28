@@ -21,13 +21,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lib.backend_assembly.specs import get_provider_spec
+from lib.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.config.registry import ModelInfo
 from lib.config.resolver import video_capability_satisfied
 from lib.custom_provider.capabilities import synthesize_video_capabilities
 from lib.custom_provider.endpoints import EndpointSpec, endpoint_to_image_capabilities, endpoint_to_media_type
 from lib.image_backends.base import ImageCapability
-from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
 CapabilityBucket = Literal["t2i", "i2i", "i2v", "r2v"]
 
@@ -66,8 +65,7 @@ def builtin_model_buckets(provider_id: str, model_id: str, model_info: ModelInfo
         return frozenset()
 
     try:
-        spec = get_provider_spec(provider_id, "video")
-        caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+        caps = builtin_video_capabilities_for_model(provider_id, model_id)
     except ValueError:
         return frozenset()
     return _video_buckets(caps.first_frame, caps.max_reference_images)

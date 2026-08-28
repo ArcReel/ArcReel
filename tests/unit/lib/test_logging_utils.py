@@ -126,6 +126,11 @@ def test_bytes_summarized():
     assert json.loads(out) == {"image": "<bytes:4>"}
 
 
+def test_data_uri_is_summarized_without_expanding_base64():
+    out = format_kwargs_for_log({"image": "data:image/png;base64,TOPSECRETBASE64"})
+    assert json.loads(out) == {"image": "<data-uri:mime=image/png,chars=15>"}
+
+
 def test_bytearray_summarized():
     out = format_kwargs_for_log({"image": bytearray(b"\x00\x01\x02\x03\x04")})
     assert json.loads(out) == {"image": "<bytes:5>"}

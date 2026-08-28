@@ -177,11 +177,24 @@ def test_empty_each_drops_its_parent_key():
     assert request.body == {}
 
 
+def test_empty_array_each_drops_its_parent_key():
+    request = render_request(
+        {
+            "method": "POST",
+            "url": "https://example.test",
+            "body": {"images": [{"$each": {"in": "inputs.refs", "as": "ref", "item": "{{ ref }}"}}]},
+        },
+        build_context({}, {"refs": []}),
+    )
+
+    assert request.body == {}
+
+
 @pytest.mark.parametrize(
     ("assets", "expected"),
     [
-        ({"reference_images": [AssetData("image/png", b"a")]}, ["YQ=="]),
-        ({}, []),
+        ({"reference_images": [AssetData("image/png", b"a")]}, {"images": ["YQ=="]}),
+        ({}, {}),
     ],
 )
 def test_array_each_honours_sibling_when_guard(assets, expected):
@@ -195,4 +208,4 @@ def test_array_each_honours_sibling_when_guard(assets, expected):
         build_context({}, inputs),
     )
 
-    assert request.body == {"images": expected}
+    assert request.body == expected

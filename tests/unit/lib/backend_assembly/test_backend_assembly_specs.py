@@ -20,6 +20,8 @@ from lib.backend_assembly.specs import (
     get_provider_spec,
 )
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
+from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 from tests.fakes import captured_backend_construction
 
 
@@ -37,6 +39,26 @@ def _built(spec: ProviderSpec, config: LoadedConfig, model: str | None) -> dict[
         spec.build_backend(config, model)
     assert len(records) == 1
     return records[0]
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "model", "endpoint"),
+    [
+        ("minimax", "MiniMax-Hailuo-2.3", "minimax-hailuo-v1"),
+        ("minimax", "MiniMax-Hailuo-2.3-Fast", "minimax-hailuo-v1-fast"),
+        ("minimax", "S2V-01", "minimax-s2v-01"),
+        ("minimax", "proxy/minimax-h3", "minimax-h3"),
+    ],
+)
+def test_migrated_builtin_video_providers_use_shipped_definitions(provider_id: str, model: str, endpoint: str):
+    backend = get_provider_spec(provider_id, "video").build_backend(
+        _loaded(credentials={"api_key": "sk-test"}, provider_id=provider_id), model
+    )
+
+    assert isinstance(backend, DeclarativeVideoBackend)
+    assert backend.model == model
+    assert backend.name == provider_id
+    assert backend._definition is ENDPOINT_REGISTRY[endpoint].definition
 
 
 class TestBuildSimpleBaseUrlPriority:
@@ -525,6 +547,8 @@ class TestValidateProviderSpecs:
             "text": set(text_names()),
         }
         for (_provider, media), spec in PROVIDER_SPEC_REGISTRY.items():
+            if spec.registry_backend == "declarative":
+                continue
             assert spec.registry_backend in registered[media], (
                 f"{spec.registry_backend!r} 未注册到 {media} backend registry"
             )

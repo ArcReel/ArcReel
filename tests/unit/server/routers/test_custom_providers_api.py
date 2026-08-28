@@ -220,7 +220,10 @@ class TestEndpointCatalog:
             "dashscope-image",
             "dashscope-async-video",
             "minimax-image",
-            "minimax-video",
+            "minimax-hailuo-v1",
+            "minimax-hailuo-v1-fast",
+            "minimax-s2v-01",
+            "minimax-h3",
             "kling-image",
             "kling-video",
             "openai-tts",
@@ -306,7 +309,7 @@ class TestEndpointDefinition:
         assert resp.json() == definition
 
     def test_python_endpoint_has_no_definition(self, custom_providers_client: TestClient):
-        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints/newapi-video/definition")
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints/openai-video/definition")
         assert resp.status_code == 404
 
     def test_unknown_key_returns_404(self, custom_providers_client: TestClient):
