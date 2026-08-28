@@ -39,8 +39,8 @@ from lib.video_backends.base import (
     extract_provider_error_message,
     first_str_by_paths,
     normalize_provider_status,
-    notify_provider_response,
     poll_with_retry,
+    recording_poll,
     should_retry_poll,
     should_retry_submit,
     submit_post,
@@ -245,7 +245,7 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
         logger.info("调用 %s 视频接口 payload=%s", self.name, _log_fields(self._model, request))
 
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            generation_id = await self._create_task(client, body)
+            generation_id = await self._create_task(client, body, request)
             logger.info("V2 任务创建: generation_id=%s", generation_id)
             await self._persist_provider_job_id(request, generation_id, provider=PROVIDER_V2_VIDEO)
             return await self._poll_and_build(client, generation_id, request, is_resume=False)
@@ -260,10 +260,13 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
         retry_if=should_retry_submit,
     )
-    async def _create_task(self, client: httpx.AsyncClient, body: dict) -> str:
+    async def _create_task(
+        self, client: httpx.AsyncClient, body: dict, request: VideoGenerationRequest | None = None
+    ) -> str:
         resp = await submit_post(
             lambda: client.post(f"{self._root}{_SUBMIT_PATH}", json=body, headers=self._headers()),
             provider=PROVIDER_V2_VIDEO,
+            request=request,
         )
         payload = resp.json()
         generation_id = first_str_by_paths(payload, _TASK_ID_PATHS)
@@ -292,9 +295,12 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
         # "短暂未就绪"重试，对已过期的 resume 任务会一直重到 max_wait 超时、永不落
         # [resume_expired]，故在此一击转终态异常。非 resume 的 4xx 重新抛出，交 should_retry_poll
         # 按 status_code 分流（确定性 4xx 快速失败，404/429/5xx 重试）。
+        # 留痕包在闸门里侧：闸门把 404 换成 ResumeExpiredError，包在外侧就再也看不到那个响应。
+        recorded_poll = recording_poll(lambda: self._poll_once(client, generation_id), request)
+
         async def _gated_poll() -> dict:
             try:
-                return await self._poll_once(client, generation_id)
+                return await recorded_poll()
             except httpx.HTTPStatusError as exc:
                 if is_resume and exc.response.status_code == 404:
                     raise ResumeExpiredError(job_id=generation_id, provider=PROVIDER_V2_VIDEO) from exc
@@ -308,7 +314,6 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
             retry_if=should_retry_poll,
             label="V2",
         )
-        await notify_provider_response(request, final)
 
         video_url = first_str_by_paths(final, _VIDEO_URL_PATHS)
         if not video_url:

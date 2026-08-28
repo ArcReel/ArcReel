@@ -32,8 +32,8 @@ from lib.video_backends.base import (
     first_mapping_by_paths,
     first_str_by_paths,
     normalize_provider_status,
-    notify_provider_response,
     poll_with_retry,
+    recording_poll,
     should_retry_poll,
     should_retry_submit,
     submit_post,
@@ -159,7 +159,7 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
         logger.info("调用 %s 视频 SDK payload=%s", self.name, format_kwargs_for_log(payload))
 
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            provider_task_id = await self._create_task(client, payload)
+            provider_task_id = await self._create_task(client, payload, request)
             logger.info("NewAPI 任务创建: task_id=%s", provider_task_id)
             await self._persist_provider_job_id(request, provider_task_id, provider=PROVIDER_NEWAPI)
             return await self._poll_and_build(client, provider_task_id, request, is_resume=False)
@@ -183,9 +183,13 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
         # 轮询 404 当作"短暂未就绪"重试，对已过期的 resume 任务会一直重到 max_wait 超时、
         # 永不落 [resume_expired]，对应 pending ApiCall 也不走 failed/cost=0 路径，故在此一击
         # 转终态异常。非 resume 的 4xx 重新抛出，交 should_retry_poll 按 status_code 分流。
+        # 留痕包在闸门里侧：闸门把 404 换成 ResumeExpiredError，包在外侧就再也看不到那个响应，
+        # 而过期任务恰恰最需要它。
+        recorded_poll = recording_poll(lambda: self._poll_once(client, task_id), request)
+
         async def _gated_poll() -> dict:
             try:
-                return await self._poll_once(client, task_id)
+                return await recorded_poll()
             except httpx.HTTPStatusError as exc:
                 if is_resume and exc.response.status_code == 404:
                     raise ResumeExpiredError(job_id=task_id, provider=PROVIDER_NEWAPI) from exc
@@ -199,7 +203,6 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
             retry_if=should_retry_poll,
             label="NewAPI",
         )
-        await notify_provider_response(request, final)
 
         if _task_status(final) is ProviderJobStatus.EXPIRED:
             if is_resume:
@@ -234,7 +237,9 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
         retry_if=should_retry_submit,
     )
-    async def _create_task(self, client: httpx.AsyncClient, payload: dict) -> str:
+    async def _create_task(
+        self, client: httpx.AsyncClient, payload: dict, request: VideoGenerationRequest | None = None
+    ) -> str:
         resp = await submit_post(
             lambda: client.post(
                 f"{self._base_url}/video/generations",
@@ -242,6 +247,7 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
                 headers=self._headers(),
             ),
             provider=PROVIDER_NEWAPI,
+            request=request,
         )
         body = resp.json()
         task_id = body.get("task_id")

@@ -134,6 +134,7 @@ class WorkflowActionType(StrEnum):
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
+    RETRY_ARTIFACT_DOWNLOAD = "retry_artifact_download"
 
 
 class WorkflowNextAction(BaseModel):

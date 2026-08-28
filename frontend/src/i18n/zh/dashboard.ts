@@ -464,6 +464,7 @@ export default {
   'cancel_this_task': '取消此任务',
   'cancel_btn': '取消',
   'retry_download': '重试下载',
+  'retry_download_failed': '重试下载没能开始，请展开任务查看最新状态',
   'retrying_download': '正在重试…',
   'cancel_running_warning': '已发出的供应商请求费用不会退还',
   'cascade_label': '级联',

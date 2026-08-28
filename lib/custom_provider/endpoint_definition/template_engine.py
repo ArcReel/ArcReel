@@ -6,7 +6,7 @@ import base64
 import json
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
@@ -35,6 +35,9 @@ class RenderedRequest:
     url: str
     headers: dict[str, str]
     body: object | None = None
+    #: auth 节按 query 渲染出的凭证，已经拼在 ``url`` 上；单列一份是因为重定向会用
+    #: ``Location`` 整体替换查询串，同源续跳时要把它们重新贴回去。
+    auth_query: dict[str, str] = field(default_factory=dict)
 
 
 def encode_inputs(
@@ -102,13 +105,15 @@ def render_request(
         if rendered is not _DROP:
             headers[name] = _stringify(rendered)
 
-    url = _append_auth_query(url, auth.get("query", {}), context, maps)
+    auth_query = _render_auth_query(auth.get("query", {}), context, maps)
+    url = _append_auth_query(url, auth_query)
     body = _render_node(request.get("body", _DROP), context, maps)
     return RenderedRequest(
         method=request["method"],
         url=url,
         headers=headers,
         body=None if body is _DROP else body,
+        auth_query=auth_query,
     )
 
 
@@ -243,26 +248,29 @@ def _input_present(context: Mapping[str, object], name: str) -> bool:
     return isinstance(inputs, Mapping) and name in inputs and inputs[name] is not None and inputs[name] != []
 
 
-def _append_auth_query(
-    url: str,
+def _render_auth_query(
     query_templates: Mapping[str, str],
     context: Mapping[str, object],
     enum_maps: Mapping[str, Mapping[str, object]],
-) -> str:
-    """把 auth.query 追加到原串尾；URL 自带的 query 原样保留，只有追加项做百分号编码。"""
-    if not query_templates:
-        return url
-    parts = urlsplit(url)
-    existing = {name for name, _ in parse_qsl(parts.query, keep_blank_values=True)}
-    overlap = existing & query_templates.keys()
-    if overlap:
-        raise TemplateRenderError(f"URL 与 auth.query 重复参数：{sorted(overlap)[0]}")
-    appended = []
+) -> dict[str, str]:
+    """渲染 auth.query 的键值；整串占位符解析为 null 的项照常删掉。"""
+    rendered_pairs: dict[str, str] = {}
     for name, template in query_templates.items():
         rendered = _render_string(template, context, enum_maps)
         if rendered is not _DROP:
-            appended.append(f"{quote(name, safe='')}={quote(_stringify(rendered), safe='')}")
-    if not appended:
+            rendered_pairs[name] = _stringify(rendered)
+    return rendered_pairs
+
+
+def _append_auth_query(url: str, auth_query: Mapping[str, str]) -> str:
+    """把 auth.query 追加到原串尾；URL 自带的 query 原样保留，只有追加项做百分号编码。"""
+    if not auth_query:
         return url
+    parts = urlsplit(url)
+    existing = {name for name, _ in parse_qsl(parts.query, keep_blank_values=True)}
+    overlap = existing & auth_query.keys()
+    if overlap:
+        raise TemplateRenderError(f"URL 与 auth.query 重复参数：{sorted(overlap)[0]}")
+    appended = [f"{quote(name, safe='')}={quote(value, safe='')}" for name, value in auth_query.items()]
     query = "&".join([parts.query, *appended]) if parts.query else "&".join(appended)
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))

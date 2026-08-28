@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy.exc import InterfaceError, OperationalError
@@ -321,6 +323,7 @@ async def submit_post(
     post_fn: Callable[[], Awaitable[httpx.Response]],
     *,
     provider: str,
+    request: VideoGenerationRequest | None = None,
 ) -> httpx.Response:
     """create/提交阶段（非幂等 POST）统一包装：按「请求是否确定送达」给失败分流。
 
@@ -335,6 +338,9 @@ async def submit_post(
 
     与 ``with_retry_async(retry_if=should_retry_submit)`` 配套使用：装饰器负责重试，
     本包装负责把歧义态在重试前转成不可重试的终态异常。
+
+    传了 ``request`` 就把收到的响应体留痕。建任务失败发生在轮询开始之前，不在这里记就永远
+    记不到——而那正是最需要供应商原文的一类失败。
     """
     try:
         resp = await post_fn()
@@ -344,9 +350,14 @@ async def submit_post(
         if isinstance(exc, (*_NOT_SENT_TRANSPORT_ERRORS, *_NON_RETRYABLE_LOCAL_ERRORS)):
             raise
         raise AmbiguousSubmitError(provider=provider) from exc
+    if request is not None:
+        await notify_provider_response(request, _response_body_or_text(resp))
     if resp.status_code >= 400:
         logger.warning("%s create 返回 %s: %s", provider, resp.status_code, resp.text[:500])
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise redacted_status_error(exc) from None
     return resp
 
 
@@ -563,6 +574,119 @@ def _retry_after_seconds(exc: Exception) -> int | None:
     return seconds if 0 <= seconds <= VIDEO_POLL_MAX_BACKOFF_SECONDS else None
 
 
+def url_origin(url: str) -> tuple[str, str, int | None]:
+    """(scheme, host, port) 三元组；端口按 scheme 补默认值，供同源判定使用。"""
+    parts = urlsplit(url)
+    port = parts.port or (443 if parts.scheme == "https" else 80 if parts.scheme == "http" else None)
+    return parts.scheme.lower(), (parts.hostname or "").lower(), port
+
+
+#: 手动跟随重定向时的跳数上限，与 httpx 的缺省一致。
+_MAX_REDIRECTS = 20
+
+
+def _redirect_location(response: httpx.Response) -> str | None:
+    return response.headers.get("location") if response.is_redirect else None
+
+
+def _rewrites_to_get(status_code: int, method: str) -> bool:
+    """跟随重定向时该不该把方法改写成 GET 并丢掉请求体（与 httpx / RFC 9110 同规则）。
+
+    303 对除 HEAD 外的一切方法改写；301 / 302 只改写 POST——PUT 等方法在这两档上保留方法
+    与请求体，改写它们会让端点收到一个语义完全不同的请求。307 / 308 一律原样重发。
+    """
+    if status_code == 303:
+        return method != "HEAD"
+    if status_code in (301, 302):
+        return method == "POST"
+    return False
+
+
+def _without_query(url: str) -> str:
+    """去掉查询串的 URL：按 query 传的凭证与签名都在那里，不该进错误消息与日志。"""
+    return str(httpx.URL(url).copy_with(query=None))
+
+
+def redacted_status_error(exc: httpx.HTTPStatusError) -> httpx.HTTPStatusError:
+    """同一个响应，换一条不含查询串的消息。
+
+    ``raise_for_status`` 把整条请求 URL 写进异常消息，而按 query 传凭证的通道会把 api_key
+    渲染在那条 URL 里；该消息经 ``str(exc)`` 落进 ``task.error_message``、日志与 API 响应。
+    类型与 ``response`` 原样保留，重试谓词照常按 status_code 判定。
+    """
+    url = exc.request.url.copy_with(query=None)
+    message = f"{exc.response.status_code} response for {url}"
+    return httpx.HTTPStatusError(message, request=exc.request, response=exc.response)
+
+
+@dataclass(frozen=True)
+class _Hop:
+    """一次请求的目标与随行凭证。跨源跳转时把凭证整个卸掉。"""
+
+    url: str
+    headers: Mapping[str, str] | None
+    params: Mapping[str, str] | None = None
+    #: 按 query 传的凭证。``Location`` 会整体替换查询串，同源续跳时要重新贴回去。
+    auth_query: Mapping[str, str] | None = None
+
+    def redirected_to(self, location: str, credential_origin: tuple[str, str, int | None]) -> _Hop:
+        target = httpx.URL(self.url).join(location)
+        if url_origin(str(target)) != credential_origin:
+            # 跨源：请求头、查询凭证与原请求的 params 一并卸掉。
+            return _Hop(str(target), None, None, None)
+        # 同源：凭证仍在作用域内。原请求的 params 不重放（重定向目标自带查询串），但按 query
+        # 传的凭证必须补回——否则一次 `/jobs` → `/jobs/` 的规范化跳转就会丢掉 api_key。
+        # 合并进目标 URL 的查询串而不是走 params：后者会整串替换，把 Location 自带的参数冲掉。
+        if self.auth_query:
+            target = target.copy_merge_params(dict(self.auth_query))
+        return _Hop(str(target), self.headers, None, self.auth_query)
+
+
+async def request_with_scoped_credentials(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    headers: Mapping[str, str] | None,
+    json: object | None,
+    auth_query: Mapping[str, str] | None = None,
+) -> httpx.Response:
+    """发一次请求并自行逐跳跟随重定向，跳出本请求的源时卸掉 ``headers`` 里的凭证。
+
+    httpx 的 ``follow_redirects`` 跨源只摘 ``Authorization``，自定义头名（``X-API-Key`` 之类）
+    会原样送到重定向目标。凡是携带渲染出的 auth 节的请求都要走这里，而不是交给客户端自动跟随。
+
+    凭证的作用域取 ``url`` 自己的源，而不是某个外部基准：调用方指定的地址就是凭证的去处，
+    需要防的是服务端用 ``Location`` 把它引到别处。
+    """
+    credential_origin = url_origin(url)
+    # 首跳的 auth.query 已经拼在 url 上，params 不重复带；只在同源续跳时补回。
+    hop = _Hop(url, headers, None, auth_query)
+    current_method = method.upper()
+    current_json = json
+    for _ in range(_MAX_REDIRECTS + 1):
+        response = await client.request(
+            current_method,
+            hop.url,
+            headers=hop.headers,
+            params=hop.params,
+            json=current_json,
+            follow_redirects=False,
+        )
+        location = _redirect_location(response)
+        if location is None:
+            return response
+        if _rewrites_to_get(response.status_code, current_method):
+            current_method = "GET"
+            current_json = None
+        hop = hop.redirected_to(location, credential_origin)
+    raise RuntimeError(f"request exceeded {_MAX_REDIRECTS} redirects: {_without_query(url)}")
+
+
+#: 产物落盘的攒批阈值：驻留内存的上界，同时把线程池调度摊薄到每 8 MiB 一次。
+_WRITE_BUFFER_BYTES = 8 * 1024 * 1024
+
+
 async def stream_to_file(
     client: httpx.AsyncClient,
     url: str,
@@ -571,26 +695,81 @@ async def stream_to_file(
     timeout: int = 120,
     headers: Mapping[str, str] | None = None,
     params: Mapping[str, str] | None = None,
+    credential_origin: tuple[str, str, int | None] | None = None,
+    auth_query: Mapping[str, str] | None = None,
 ) -> None:
-    """把 URL 内容流式写入本地文件，不含重试——重试由 :func:`with_artifact_retry` 统一承担。"""
+    """把 URL 内容流式写入本地文件，不含重试——重试由 :func:`with_artifact_retry` 统一承担。
+
+    ``credential_origin`` 给出 ``headers`` 里的凭证只许发往哪个源。给了它就自行逐跳跟随
+    重定向，跳到别的源时把 ``headers`` 整个丢掉：httpx 跨源只摘 ``Authorization``，而端点
+    定义的 auth 节可以用 ``X-API-Key`` 之类的任意头名，交给 ``follow_redirects`` 会把这些
+    凭证原样送到重定向目标（对象存储 / CDN）去。
+    """
     await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
-    async with client.stream("GET", url, timeout=timeout, headers=headers, params=params) as resp:
+
+    async def _write(resp: httpx.Response) -> None:
         if resp.status_code >= 400:
             # 流式模式下需先读取响应体，否则 HTTPStatusError.response.text 不可用
             await resp.aread()
-        resp.raise_for_status()
-        # 异步流式读取所有 chunk，然后一次 to_thread 完成整段写入，
-        # 避免对每个 64KB 分片调度一次线程池任务。
-        chunks: list[bytes] = []
-        async for chunk in resp.aiter_bytes(chunk_size=65536):
-            chunks.append(chunk)
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # 产物地址的查询串可能是签名，也可能是按 query 传的凭证——都不该进日志与任务记录。
+            raise redacted_status_error(exc) from None
+        # 先落同目录临时文件、成功后原子改名：下载中途失败不会在产物路径上留下截断的文件。
+        partial_path = output_path.with_name(f"{output_path.name}.part")
+        try:
+            with open(partial_path, "wb") as handle:
+                # 攒够 _WRITE_BUFFER_BYTES 再一次 to_thread 落盘：既不为每个 64KB 分片调度一次
+                # 线程池任务，也不把整段产物留在内存里——大成片会把 worker 的驻留内存顶上去。
+                buffered: list[bytes] = []
+                buffered_bytes = 0
 
-        def _write_all() -> None:
-            with open(output_path, "wb") as f:
-                for chunk in chunks:
-                    f.write(chunk)
+                async def flush() -> None:
+                    nonlocal buffered, buffered_bytes
+                    if not buffered:
+                        return
+                    payload = b"".join(buffered)
+                    buffered = []
+                    buffered_bytes = 0
+                    await asyncio.to_thread(handle.write, payload)
 
-        await asyncio.to_thread(_write_all)
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    buffered.append(chunk)
+                    buffered_bytes += len(chunk)
+                    if buffered_bytes >= _WRITE_BUFFER_BYTES:
+                        await flush()
+                await flush()
+            await asyncio.to_thread(os.replace, partial_path, output_path)
+        except BaseException:
+            await asyncio.to_thread(partial_path.unlink, True)
+            raise
+
+    if credential_origin is None:
+        async with client.stream("GET", url, timeout=timeout, headers=headers, params=params) as resp:
+            await _write(resp)
+        return
+
+    hop = _Hop(url, headers, params, auth_query)
+    for _ in range(_MAX_REDIRECTS + 1):
+        async with client.stream(
+            "GET",
+            hop.url,
+            timeout=timeout,
+            headers=hop.headers,
+            params=hop.params,
+            follow_redirects=False,
+        ) as resp:
+            location = _redirect_location(resp)
+            if location is None:
+                # 3xx 没给 Location 就无处可跳：raise_for_status 放行 3xx，直接落盘会把跳转
+                # 响应体当成产物存下来。抛错交给重试预算。
+                if resp.is_redirect:
+                    raise RuntimeError(f"redirect without a Location header: {_without_query(hop.url)}")
+                await _write(resp)
+                return
+        hop = hop.redirected_to(location, credential_origin)
+    raise RuntimeError(f"artifact download exceeded {_MAX_REDIRECTS} redirects: {_without_query(url)}")
 
 
 #: 产物下载的墙钟上限。终止主要由失败预算负责（连续 10 次 + 退避封顶 60s，累计约 435s），
@@ -623,15 +802,18 @@ async def with_artifact_retry[T](
     async def once() -> tuple[T]:
         return (await attempt(),)
 
-    fetched = await poll_with_retry(
-        poll_fn=once,
-        is_done=lambda _fetched: True,
-        is_failed=lambda _fetched: None,
-        max_wait=max_wait,
-        retryable_errors=retryable_errors,
-        retry_if=retry_if,
-        label=label,
-    )
+    # 墙钟上限套在整个重试之外：`poll_with_retry` 只在每次 poll_fn 返回后才比对 max_wait，
+    # 而一次取件本身就可能长时间不返回（连得上、只是慢），那正是本上限要兜的情形。
+    async with asyncio.timeout(max_wait):
+        fetched = await poll_with_retry(
+            poll_fn=once,
+            is_done=lambda _fetched: True,
+            is_failed=lambda _fetched: None,
+            max_wait=max_wait,
+            retryable_errors=retryable_errors,
+            retry_if=retry_if,
+            label=label,
+        )
     return fetched[0]
 
 
@@ -917,9 +1099,47 @@ class VideoGenerationResult:
 
 
 async def notify_provider_response(request: VideoGenerationRequest, body: object) -> None:
-    """把 HTTP 式调用通道最后一次供应商响应送到可选账本回调。"""
-    if request.on_provider_response is not None:
+    """把 HTTP 式调用通道最后一次供应商响应送到可选账本回调。
+
+    留痕是诊断数据，不参与业务解析：写入失败只记日志，不让一笔已被供应商受理（多半已计费）
+    的生成因为诊断列写不进去而失败。
+    """
+    if request.on_provider_response is None:
+        return
+    try:
         await request.on_provider_response(body)
+    except Exception:
+        logger.warning("供应商响应留痕写入失败 task_id=%s", request.task_id, exc_info=True)
+
+
+def recording_poll[T](
+    poll_fn: Callable[[], Awaitable[T]], request: VideoGenerationRequest
+) -> Callable[[], Awaitable[T]]:
+    """包一层轮询取件：每收到一次供应商响应就留痕，早于状态与错误解读。
+
+    终态失败由 ``is_failed`` 谓词在 :func:`poll_with_retry` 内部抛出、HTTP 错误响应则从
+    ``poll_fn`` 自己抛出，两者都发生在 ``poll_with_retry`` 返回之前。留痕若放在轮询之后，
+    恰好只在成功调用上留下，最需要诊断的失败调用反而为空。
+    """
+
+    async def once() -> T:
+        try:
+            body = await poll_fn()
+        except httpx.HTTPStatusError as exc:
+            await notify_provider_response(request, _response_body_or_text(exc.response))
+            raise
+        await notify_provider_response(request, body)
+        return body
+
+    return once
+
+
+def _response_body_or_text(response: httpx.Response) -> object:
+    """响应体：能解析成 JSON 就存结构，否则存原文（截断由留痕边界统一负责）。"""
+    try:
+        return response.json()
+    except ValueError:
+        return response.text
 
 
 class VideoBackend(Protocol):

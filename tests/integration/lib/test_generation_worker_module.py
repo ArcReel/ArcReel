@@ -803,6 +803,26 @@ class TestCapacityTable:
         # 不支持的 lane（无 audio 模型）投影为 0
         assert table.get("custom-1", "audio") == 0
 
+    async def test_from_db_custom_endpoint_model_gets_video_capacity(self, monkeypatch):
+        """模型行挂 ce- 端点：按内置注册表查会抛 ValueError 拖垮整表，该供应商停在 video 容量 0。"""
+        self._stub_from_db_sources(
+            monkeypatch,
+            {},
+            custom_providers=[
+                self._fake_custom_provider(
+                    "custom-2",
+                    image=None,
+                    video=4,
+                    endpoints=("ce-7",),
+                )
+            ],
+        )
+
+        table = await CapacityTable.from_db()
+
+        assert table.get("custom-2", "video") == 4
+        assert table.get("custom-2", "image") == 0
+
     async def test_from_db_custom_provider_null_falls_back_to_global_default(self, monkeypatch):
         """自定义供应商：列为 None → 回退全局默认（两层回退，无声明默认层）。"""
         self._stub_from_db_sources(
@@ -2335,6 +2355,43 @@ class TestDispatcherFailFastAndPendingTracking:
 
         assert {tid for tid, _ in queue.failed} == {"orphan-0", "orphan-1", "orphan-2"}
         assert all("[resume_unsupported_capacity_zero]" in msg for _, msg in queue.failed)
+
+    @pytest.mark.asyncio
+    async def test_capacity_zero_settles_the_pending_call(self, worker_db, monkeypatch):
+        """派发前就判死时那条 pending 的 ApiCall 也要翻 failed（零费用）。
+
+        续跑不开新记账括号，只翻任务不结算调用会在用量报表里留一条永不终态的行；
+        「重试下载」尤其明显——它刚把这条调用重开成 pending。
+        """
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+        from lib.db.repositories.usage_repo import UsageRepository
+
+        # Ledger 在导入期绑定 session factory，与 worker_db patch 的那个不是同一处引用。
+        monkeypatch.setattr("lib.ledger.safe_session_factory", worker_db)
+
+        async with worker_db() as session:
+            provider = await CustomProviderRepository(session).create_provider(
+                display_name="no-models",
+                discovery_format="openai",
+                base_url="https://example.invalid",
+                api_key="k",
+            )
+            call_id = await UsageRepository(session).start_call(project_name="demo", call_type="video", model="m")
+            await session.commit()
+        provider_key = f"custom-{provider.id}"
+
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue, capacity=_cap({provider_key: {"image": 0, "video": 0}}))
+
+        await worker._dispatch_provider_bucket(
+            provider_key,
+            [{"task_id": "retry-1", "provider_id": provider_key, "payload": {"api_call_id": call_id}}],
+        )
+
+        async with worker_db() as session:
+            stored = await UsageRepository(session).get_calls(project_name="demo")
+        assert stored["items"][0]["status"] == "failed"
+        assert stored["items"][0]["cost_amount"] == 0
 
     @pytest.mark.asyncio
     async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch, staged_project):

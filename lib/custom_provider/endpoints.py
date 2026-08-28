@@ -613,6 +613,24 @@ def endpoint_to_media_type(endpoint: str) -> str:
     return get_endpoint_spec(endpoint).media_type
 
 
+def static_media_type(endpoint: str) -> str:
+    """不读库判定端点媒体类型：自定义端点的键前缀已蕴含 video，其余走内置查表。
+
+    模型行的 endpoint 列既可能是内置键，也可能是 ``ce-`` 键，凡是按端点分媒体类型的地方
+    都要走这里；只查内置注册表会让带自定义端点的供应商整个判失败。
+
+    Raises:
+        ValueError: 既非自定义端点键，内置注册表里也没有该键。
+    """
+    # 延迟导入：builtin_definitions 消费本模块的注册表，模块级导入会成环。
+    from lib.custom_provider import is_custom_endpoint
+    from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
+
+    if is_custom_endpoint(endpoint):
+        return DECLARATIVE_MEDIA_TYPE
+    return endpoint_to_media_type(endpoint)
+
+
 def endpoint_to_image_capabilities(endpoint: str) -> frozenset[ImageCapability]:
     """返回 image 类 endpoint 的 capability 集合。非 image 类抛 ValueError。"""
     spec = get_endpoint_spec(endpoint)

@@ -37,8 +37,8 @@ from lib.custom_provider.endpoints import (
     EndpointSpec,
     endpoint_spec_to_dict,
     endpoint_to_image_capabilities,
-    endpoint_to_media_type,
     get_endpoint_spec,
+    static_media_type,
 )
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
@@ -54,17 +54,6 @@ def _validate_endpoint(value: str) -> str:
     if value not in ENDPOINT_REGISTRY and not is_custom_endpoint(value):
         raise ValueError(f"unknown endpoint: {value!r}")
     return value
-
-
-def _static_media_type(endpoint: str) -> str:
-    """不读库判定端点媒体类型：声明式端点的键前缀已蕴含 video，其余走内置查表。
-
-    Raises:
-        ValueError: 既非声明式键，内置注册表里也没有该键。
-    """
-    if is_custom_endpoint(endpoint):
-        return DECLARATIVE_MEDIA_TYPE
-    return endpoint_to_media_type(endpoint)
 
 
 # 写入路径上的 endpoint 字段统一走运行时校验，键集合自动跟随 ENDPOINT_REGISTRY；
@@ -196,7 +185,7 @@ class ModelInput(BaseModel):
 
         d = self.model_dump()
         durations = self.supported_durations
-        is_video = _static_media_type(self.endpoint) == DECLARATIVE_MEDIA_TYPE
+        is_video = static_media_type(self.endpoint) == DECLARATIVE_MEDIA_TYPE
         # video endpoint：把 [] 当作缺省（下游/前端都不接受空列表），交给 preset 兜底
         if is_video and durations is not None and len(durations) == 0:
             durations = None
@@ -349,7 +338,7 @@ def _system_capabilities_for(
     以为它对自定义模型生效——那正是本口径要避免的分裂。
     """
     try:
-        media_type = endpoint_spec.media_type if endpoint_spec is not None else endpoint_to_media_type(endpoint)
+        media_type = endpoint_spec.media_type if endpoint_spec is not None else static_media_type(endpoint)
         if media_type != "video":
             return None
         caps = asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec))
@@ -646,7 +635,7 @@ def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> 
         if not m.is_default:
             continue
         try:
-            mt = _static_media_type(m.endpoint)
+            mt = static_media_type(m.endpoint)
         except ValueError:
             continue  # endpoint 已在 ModelInput validator 校验，此处跳过未知值
         if mt != "image":

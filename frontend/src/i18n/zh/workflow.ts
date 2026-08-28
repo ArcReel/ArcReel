@@ -122,6 +122,7 @@ export default {
   'action_confirm_request_duration': '确认申请的时长档位',
   'action_configure_provider': '到设置里选定视频或音频模型',
   'action_repair_artifact_state': '修复这个单元的产物状态',
+  'action_retry_artifact_download': '重新下载已生成的产物，不重新生成',
   'action_repair_project_data': '请 Agent 修复损坏的项目文件',
   'action_collect_project_input': '补齐故事原文与项目设置',
   'action_analyze_assets': '从原文中分析角色、场景与道具',

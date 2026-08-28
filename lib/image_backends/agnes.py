@@ -222,7 +222,8 @@ class AgnesImageBackend:
     async def _download_result(self, url: str, output_path: Path) -> None:
         """下载已签发的结果图 URL（幂等 GET），走共用的产物下载预算。
 
-        瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST；确定性 4xx 快速失败。
+        瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST。共用谓词把 403/404 也算作
+        可重试：终态刚签发的产物地址可能尚未在对象存储侧传播。其余 4xx 确定性失败。
         """
         await with_artifact_retry(lambda: download_image_to_path(url, output_path), label="Agnes 图像")
 
