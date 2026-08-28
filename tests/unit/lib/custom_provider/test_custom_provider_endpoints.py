@@ -11,6 +11,7 @@ from lib.custom_provider.endpoints import (
     get_endpoint_spec,
     infer_endpoint,
     list_endpoints_by_media_type,
+    validate_video_caps_declaration,
 )
 
 
@@ -42,6 +43,8 @@ class TestRegistry:
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video", "audio"}
             assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax", "kling"}
+            # 注册表里的都是内置端点，来源恒为 builtin；用户端点不进注册表，由 ce- 键现构造。
+            assert spec.source == "builtin"
             # 显示名两种来源恰有其一：Python 内置走 i18n key，声明式端点走定义里的 meta.name。
             if spec.kind == "declarative":
                 assert spec.display_name_key == ""
@@ -65,6 +68,7 @@ class TestRegistry:
             "display_name_key": "endpoint_openai_chat_display",
             # 显示名只有声明式端点从定义里带出，Python 内置按 display_name_key 取 i18n 文案
             "display_name": None,
+            "source": "builtin",
             "request_method": "POST",
             "request_path_template": "/v1/chat/completions",
             "image_capabilities": None,
@@ -92,7 +96,7 @@ class TestRegistry:
     def test_video_caps_declaration_bindings(self):
         """每个 video endpoint 选对了上限来源：None-cap 的绑 caps_fn、显式 int 的不绑。
 
-        全注册表 XOR/非负不变式由 endpoints.py 的 module-load `_validate_video_caps_declarations()`
+        全注册表 XOR/非负不变式由 endpoints.py 的 module-load `_validate_registry()`
         在 import 期保证（违反则本文件根本 import 不进来），故此处只断言「具体哪个 endpoint 选了哪条
         路径」——这是 XOR 校验抓不到的（换机制仍满足 XOR），是真正的回归护栏。"""
         # None-cap 的 video endpoint 必须绑定纯 caps 函数
@@ -156,25 +160,20 @@ class TestRegistry:
             assert unknown.max_reference_images == 0
             assert unknown.max_reference_images == 0
 
-    def test_negative_int_cap_rejected_at_validation(self, monkeypatch: pytest.MonkeyPatch):
+    def test_negative_int_cap_rejected_at_validation(self):
         """import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。"""
         import dataclasses
-
-        from lib.custom_provider.endpoints import _validate_video_caps_declarations
 
         bad = dataclasses.replace(
             ENDPOINT_REGISTRY["openai-video"], video_max_reference_images=-1, video_caps_for_model=None
         )
-        monkeypatch.setitem(ENDPOINT_REGISTRY, "openai-video", bad)
         with pytest.raises(ValueError, match="negative video_max_reference_images"):
-            _validate_video_caps_declarations()
+            validate_video_caps_declaration(bad)
 
-    def test_non_callable_caps_fn_rejected_at_validation(self, monkeypatch: pytest.MonkeyPatch):
+    def test_non_callable_caps_fn_rejected_at_validation(self):
         """import 期不变式拒绝非 callable 的 video_caps_for_model：否则误填字符串/整数会放行到
         request 期才在 resolver `caps_fn(model_id)` 处炸，违背 fail-fast 初衷。"""
         import dataclasses
-
-        from lib.custom_provider.endpoints import _validate_video_caps_declarations
 
         # 非 callable 真值（字符串）冒充 caps_fn；同时清掉 int cap 避免先撞 XOR 校验
         bad = dataclasses.replace(
@@ -182,20 +181,16 @@ class TestRegistry:
             video_max_reference_images=None,
             video_caps_for_model="not-callable",
         )
-        monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance", bad)
         with pytest.raises(ValueError, match="non-callable video_caps_for_model"):
-            _validate_video_caps_declarations()
+            validate_video_caps_declaration(bad)
 
-    def test_non_video_endpoint_declaring_reference_audio_rejected(self, monkeypatch: pytest.MonkeyPatch):
+    def test_non_video_endpoint_declaring_reference_audio_rejected(self):
         """import 期不变式：reference_audio_capable 只对 video 类有意义，非 video 类声明即 misconfig。"""
         import dataclasses
 
-        from lib.custom_provider.endpoints import _validate_video_caps_declarations
-
         bad = dataclasses.replace(ENDPOINT_REGISTRY["openai-chat"], reference_audio_capable=True)
-        monkeypatch.setitem(ENDPOINT_REGISTRY, "openai-chat", bad)
         with pytest.raises(ValueError, match="must not declare reference_audio_capable"):
-            _validate_video_caps_declarations()
+            validate_video_caps_declaration(bad)
 
     def test_audio_capable_endpoints_match_backends_that_send_audio(self):
         """运输声明与 backend 实现同步：声明 True 的 endpoint 必须真的组装参考音频。"""

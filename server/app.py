@@ -53,6 +53,7 @@ from server.routers import (
     assistant,
     characters,
     cost_estimation,
+    custom_endpoints,
     custom_providers,
     end_frames,
     files,
@@ -635,6 +636,9 @@ app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_
 app.include_router(agent_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 配置"])
 app.include_router(
     custom_providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义供应商"]
+)
+app.include_router(
+    custom_endpoints.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义调用端点"]
 )
 app.include_router(
     cost_estimation.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用估算"]

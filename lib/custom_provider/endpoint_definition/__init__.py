@@ -24,6 +24,13 @@ from .template_engine import (
     render_request,
 )
 from .validator import CURRENT_SCHEMA_VERSION, IMAGE_INPUT_SOURCES, load_schema, validate_definition
+from .versioning import (
+    SchemaVersionLevel,
+    VersionRelation,
+    parse_semver,
+    schema_version_level,
+    version_relation,
+)
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
@@ -37,7 +44,9 @@ __all__ = [
     "JsonPathSubsetError",
     "ParsedJsonPath",
     "RenderedRequest",
+    "SchemaVersionLevel",
     "TemplateRenderError",
+    "VersionRelation",
     "build_context",
     "encode_inputs",
     "extract_value",
@@ -45,6 +54,9 @@ __all__ = [
     "message_key",
     "map_status",
     "parse_json_path",
+    "parse_semver",
     "render_request",
+    "schema_version_level",
     "validate_definition",
+    "version_relation",
 ]

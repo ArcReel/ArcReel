@@ -6,33 +6,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
-import pytest
 import sqlalchemy as sa
 from alembic.config import Config
 
 from alembic import command
 
-
-@pytest.fixture
-def migration_revisions() -> tuple[str, str]:
-    """读出本迁移的 (revision, down_revision)，便于按名锁定。"""
-    repo_root = Path(__file__).resolve().parents[5]
-    versions_dir = repo_root / "alembic" / "versions"
-    matches = list(versions_dir.glob("*_add_resource_type_column_to_tasks_for_.py"))
-    assert len(matches) == 1, f"找到 {len(matches)} 个迁移文件，期望 1"
-    text = matches[0].read_text(encoding="utf-8")
-    revision: str | None = None
-    down_revision: str | None = None
-    for line in text.splitlines():
-        if line.startswith("revision: str ="):
-            revision = line.split("=")[1].strip().strip('"').strip("'")
-        elif line.startswith("down_revision:"):
-            down_revision = line.split("=")[1].strip().strip('"').strip("'")
-    if not revision or not down_revision:
-        raise RuntimeError("未在迁移文件中找到 revision / down_revision")
-    return revision, down_revision
+_MIGRATION = "*_add_resource_type_column_to_tasks_for_.py"
 
 
 def _insert_task(
@@ -66,10 +48,10 @@ def _insert_task(
 
 
 def test_downgrade_collapses_conflicting_active_tasks(
-    alembic_cfg: tuple[Config, Path], migration_revisions: tuple[str, str]
+    alembic_cfg: tuple[Config, Path], migration_revisions: Callable[[str], tuple[str, str]]
 ):
     """升级后允许并存的跨 resource_type 同名活动任务，降级前应被软取消到唯一一条。"""
-    revision_id, parent_revision_id = migration_revisions
+    revision_id, parent_revision_id = migration_revisions(_MIGRATION)
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, revision_id)
 
@@ -127,10 +109,10 @@ def test_downgrade_collapses_conflicting_active_tasks(
 
 
 def test_downgrade_without_conflict_is_noop_for_active_tasks(
-    alembic_cfg: tuple[Config, Path], migration_revisions: tuple[str, str]
+    alembic_cfg: tuple[Config, Path], migration_revisions: Callable[[str], tuple[str, str]]
 ):
     """无跨 resource_type 撞键时，降级不应改动任何活动任务的状态。"""
-    revision_id, parent_revision_id = migration_revisions
+    revision_id, parent_revision_id = migration_revisions(_MIGRATION)
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, revision_id)
 

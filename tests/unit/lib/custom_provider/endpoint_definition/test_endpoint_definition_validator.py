@@ -14,37 +14,7 @@ from lib.custom_provider.endpoint_definition import (
 )
 from lib.custom_provider.endpoint_definition.validator import REMOVED_FIELD_REASONS
 from lib.i18n import MESSAGES, SUPPORTED_LOCALES
-from tests.factories import make_translator
-
-
-def custom_endpoint_definition() -> dict[str, Any]:
-    """最小可用定义：单张首帧、提交 + 轮询、扁平取值，校验零错误零警告。用例就地改出反例。"""
-    return {
-        "kind": "declarative",
-        "schema_version": "1.0.0",
-        "meta": {"name": "示例端点", "author": "ArcReel", "version": "0.1.0"},
-        "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
-        "inputs": {"first_frame": {"source": "start_image", "encoding": "data_uri"}},
-        "enum_maps": {"duration": {"5": 5, "10": 10}},
-        "submit": {
-            "method": "POST",
-            "url": "{{ base_url }}/v1/video/create",
-            "body": {
-                "model": "{{ model }}",
-                "prompt": "{{ prompt }}",
-                "image": "{{ inputs.first_frame }}",
-                "duration": "{{ duration }}",
-            },
-            "extract": {"task_id": ["$.task_id"], "error": ["$.error.message"]},
-        },
-        "poll": {
-            "method": "GET",
-            "url": "{{ base_url }}/v1/video/fetch/{{ task_id }}",
-            "extract": {"status": ["$.status"], "video_url": ["$.video_url"], "error": ["$.error"]},
-        },
-        "status_map": {"pending": "queued", "processing": "running", "completed": "succeeded", "failed": "failed"},
-        "capabilities": {"first_frame": True},
-    }
+from tests.factories import custom_endpoint_definition, make_translator
 
 
 @pytest.mark.parametrize(("required", "declared_t2v"), [(True, False), (False, True)])
