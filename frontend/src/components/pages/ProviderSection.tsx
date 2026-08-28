@@ -95,6 +95,15 @@ export function ProviderSection() {
     [search, location, navigate],
   );
 
+  // 从「调用端点」小节的「新建供应商并使用此端点」接线过来的预填。
+  const prefill = useMemo(() => {
+    const params = new URLSearchParams(search);
+    return {
+      baseUrl: params.get("base_url") ?? undefined,
+      endpoint: params.get("endpoint") ?? undefined,
+    };
+  }, [search]);
+
   const refreshPreset = useCallback(async () => {
     const res = await API.getProviders();
     setProviders(res.providers);
@@ -249,6 +258,8 @@ export function ProviderSection() {
         )}
         {selection?.kind === "new-custom" && (
           <CustomProviderForm
+            initialBaseUrl={prefill.baseUrl}
+            initialEndpoint={prefill.endpoint}
             onSaved={() => {
               void API.listCustomProviders()
                 .then((res) => {

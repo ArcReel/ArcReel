@@ -6,7 +6,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { uid } from "@/utils/id";
-import { errMsg } from "@/utils/async";
+import { errMsg, voidCall } from "@/utils/async";
 import type {
   CapabilityOverrides,
   CustomProviderInfo,
@@ -291,11 +291,21 @@ function DurationsInputRow({
 
 interface CustomProviderFormProps {
   existing?: CustomProviderInfo | null;
+  /** 从「调用端点」小节接线过来的预填接口地址（定义里的 meta.hints.base_url）。 */
+  initialBaseUrl?: string;
+  /** 接线时预选的调用端点：新建表单据此起一行模型。 */
+  initialEndpoint?: EndpointKey;
   onSaved: () => void;
   onCancel: () => void;
 }
 
-export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProviderFormProps) {
+export function CustomProviderForm({
+  existing,
+  initialBaseUrl,
+  initialEndpoint,
+  onSaved,
+  onCancel,
+}: CustomProviderFormProps) {
   const { t } = useTranslation("dashboard");
   const isEdit = !!existing;
 
@@ -311,11 +321,17 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   // --- Form state ---
   const [displayName, setDisplayName] = useState(existing?.display_name ?? "");
   const [discoveryFormat, setDiscoveryFormat] = useState<DiscoveryFormat>(existing?.discovery_format ?? "openai");
-  const [baseUrl, setBaseUrl] = useState(existing?.base_url ?? "");
+  const [baseUrl, setBaseUrl] = useState(existing?.base_url ?? initialBaseUrl ?? "");
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
-  const [models, setModels] = useState<ModelRow[]>(
-    existing ? existing.models.map(existingToRow) : [],
+  // 「该供应商无需密钥」：本地部署等无凭证接口保存空密钥，同时解除新建时的必填校验。
+  const [noApiKey, setNoApiKey] = useState(false);
+  const [models, setModels] = useState<ModelRow[]>(() =>
+    existing
+      ? existing.models.map(existingToRow)
+      : initialEndpoint
+        ? [newModelRow({ endpoint: initialEndpoint })]
+        : [],
   );
   const [imageMaxWorkers, setImageMaxWorkers] = useState(workersToStr(existing?.image_max_workers));
   const [videoMaxWorkers, setVideoMaxWorkers] = useState(workersToStr(existing?.video_max_workers));
@@ -340,6 +356,46 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     [filteredModels],
   );
 
+  // 勾选「无需密钥」后才需要知道哪些端点其实要密钥，因而只在那时拉一次自定义端点列表。
+  // 内置端点一律按需要密钥处理：它们的定义都带 auth 节，无凭证接口只可能是用户自建的。
+  const [authFreeEndpoints, setAuthFreeEndpoints] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!noApiKey) return;
+    const controller = new AbortController();
+    voidCall(
+      API.listCustomEndpoints({ signal: controller.signal })
+        .then((res) => {
+          if (controller.signal.aborted) return;
+          setAuthFreeEndpoints(
+            new Set(
+              res.endpoints
+                .filter((e) => {
+                  const auth = e.definition?.auth;
+                  return (
+                    Object.keys(auth?.headers ?? {}).length === 0 &&
+                    Object.keys(auth?.query ?? {}).length === 0
+                  );
+                })
+                .map((e) => e.key),
+            ),
+          );
+        })
+        .catch(() => {
+          // 拉不到时不提示：联动提示是辅助信息，缺失好过误报。
+        }),
+    );
+    return () => controller.abort();
+  }, [noApiKey]);
+
+  /** 标了无需密钥、却仍引用需要密钥的端点的模型行。 */
+  const keyRequiringModels = useMemo(
+    () =>
+      models
+        .filter((m) => m.is_enabled && m.model_id.trim() && !authFreeEndpoints.has(m.endpoint))
+        .map((m) => m.model_id),
+    [models, authFreeEndpoints],
+  );
+
   // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新 key 走明文路径，
   // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
   const baseUrlChanged = !!existing && baseUrl.trim() !== existing.base_url.trim();
@@ -353,7 +409,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("fill_base_url_first"));
       return;
     }
-    if (!useStoredCredential && !apiKey) {
+    if (!useStoredCredential && !noApiKey && !apiKey) {
       showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
       return;
     }
@@ -375,7 +431,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setDiscovering(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, noApiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {
@@ -385,7 +441,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("fill_base_url_first"));
       return;
     }
-    if (!useStoredCredential && !apiKey) {
+    if (!useStoredCredential && !noApiKey && !apiKey) {
       showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
       return;
     }
@@ -400,7 +456,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setTesting(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, noApiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -413,7 +469,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("fill_base_url"));
       return;
     }
-    if (!isEdit && !apiKey.trim()) {
+    if (!isEdit && !noApiKey && !apiKey.trim()) {
       showError(t("fill_api_key"));
       return;
     }
@@ -456,7 +512,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         await API.fullUpdateCustomProvider(existing.id, {
           display_name: displayName,
           base_url: baseUrl,
-          ...(apiKey ? { api_key: apiKey } : {}),
+          ...(noApiKey ? { api_key: "" } : apiKey ? { api_key: apiKey } : {}),
           models: payloadModels,
           image_max_workers: imageMax,
           video_max_workers: videoMax,
@@ -467,7 +523,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           display_name: displayName,
           discovery_format: discoveryFormat,
           base_url: baseUrl,
-          api_key: apiKey,
+          api_key: noApiKey ? "" : apiKey,
           models: payloadModels,
           image_max_workers: imageMax,
           video_max_workers: videoMax,
@@ -486,6 +542,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   }, [
     displayName,
     discoveryFormat,
+    noApiKey,
     baseUrl,
     apiKey,
     models,
@@ -577,28 +634,47 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
         {/* API Key */}
         <div>
-          <FieldLabel htmlFor="cp-key" required={!isEdit}>
+          <FieldLabel htmlFor="cp-key" required={!isEdit && !noApiKey}>
             {t("api_key_label")}
           </FieldLabel>
-          <div className="relative">
+          {!noApiKey && (
+            <div className="relative">
+              <input
+                id="cp-key"
+                type={showApiKey ? "text" : "password"}
+                autoComplete="off"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={isEdit ? existing?.api_key_masked ?? t("keep_existing_key_hint") : t("enter_api_key_placeholder")}
+                className={`${INPUT_CLS} pr-10`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-label={showApiKey ? t("common:hide") : t("common:show")}
+              >
+                {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          )}
+          <label className="mt-2 flex items-center gap-2 text-[12.5px] text-text-2">
             <input
-              id="cp-key"
-              type={showApiKey ? "text" : "password"}
-              autoComplete="off"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={isEdit ? existing?.api_key_masked ?? t("keep_existing_key_hint") : t("enter_api_key_placeholder")}
-              className={`${INPUT_CLS} pr-10`}
+              type="checkbox"
+              checked={noApiKey}
+              onChange={(e) => {
+                setNoApiKey(e.target.checked);
+                if (e.target.checked) setApiKey("");
+              }}
+              className="h-3.5 w-3.5 accent-[var(--color-accent)]"
             />
-            <button
-              type="button"
-              onClick={() => setShowApiKey((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              aria-label={showApiKey ? t("common:hide") : t("common:show")}
-            >
-              {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            </button>
-          </div>
+            {t("cp_no_api_key")}
+          </label>
+          {noApiKey && keyRequiringModels.length > 0 && (
+            <p className="mt-1.5 text-[12px] leading-[1.55] text-warm-bright">
+              {t("cp_no_api_key_conflict", { models: keyRequiringModels.join("、") })}
+            </p>
+          )}
         </div>
 
         {/* Discovery format (de-emphasized) */}
