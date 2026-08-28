@@ -277,6 +277,9 @@ MESSAGES = {
         "và cũng không thể làm cơ sở cho một năng lực"
     ),
     "val_ce_enum_map_variable_not_allowed": "{variable} không hỗ trợ ánh xạ, các biến ánh xạ được: {allowed}",
+    "val_ce_default_variable_not_allowed": "{variable} không hỗ trợ giá trị mặc định, các biến khai báo được: {allowed}",
+    "val_ce_default_value_type_invalid": "Giá trị mặc định của {variable} phải thuộc kiểu {expected}",
+    "val_ce_default_value_not_in_enum_map": "Giá trị mặc định {value} của {variable} không có trong enum_maps, các giá trị dùng được: {allowed}",
     "val_ce_status_map_target_invalid": (
         "Trạng thái {target} nằm ngoài {allowed}; hãy ánh xạ ngữ nghĩa hết hạn về failed"
     ),

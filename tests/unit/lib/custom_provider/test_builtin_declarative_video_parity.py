@@ -8,7 +8,7 @@ import pytest
 from lib.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, infer_endpoint
-from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
+from lib.video_backends.base import ResumeExpiredError, VideoCapabilityError, VideoGenerationRequest
 from lib.video_frame_slots import gate_video_request
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, request_json
@@ -32,11 +32,11 @@ def _hailuo_body(*, model: str = "MiniMax-Hailuo-2.3", resolution: str = "768P",
     return body
 
 
-def _h3_body(*content: dict, ratio: str = "16:9") -> dict:
+def _h3_body(*content: dict, resolution: str = "768P", ratio: str = "16:9") -> dict:
     return {
         "model": "MiniMax-H3",
         "content": [{"type": "text", "text": "a cat"}, *content],
-        "resolution": "768P",
+        "resolution": resolution,
         "duration": 6,
         "ratio": ratio,
     }
@@ -91,6 +91,30 @@ CASES = [
         "https://cdn.test/mm/final.mp4",
         None,
         id="minimax/hailuo-i2v",
+    ),
+    pytest.param(
+        # 未指定分辨率（Auto）：定义的 defaults.resolution 在渲染前生效，请求照旧带 768P。
+        # 计价矩阵的 default_resolution 按同一个值结算，字段被整个删掉会让那条假设悬空。
+        "minimax-hailuo-v1",
+        "MiniMax-Hailuo-2.3",
+        {"start_image": True, "resolution": None},
+        {"task_id": "t-1"},
+        [{"status": "Success", "file_id": "file-9"}],
+        _hailuo_body(image=START_URI),
+        "https://cdn.test/mm/final.mp4",
+        None,
+        id="minimax/hailuo-default-resolution",
+    ),
+    pytest.param(
+        "minimax-hailuo-v1-fast",
+        "MiniMax-Hailuo-2.3-Fast",
+        {"start_image": True, "resolution": None},
+        {"task_id": "t-1"},
+        [{"status": "Success", "file_id": "file-9"}],
+        _hailuo_body(model="MiniMax-Hailuo-2.3-Fast", image=START_URI),
+        "https://cdn.test/mm/final.mp4",
+        None,
+        id="minimax/hailuo-fast-default-resolution",
     ),
     pytest.param(
         # Fast 与 2.3 请求形状一致、能力不同（仅图生视频），故独立成键；这里钉住形状一致。
@@ -154,6 +178,29 @@ CASES = [
         "https://cdn.test/mm/h3.mp4",
         None,
         id="minimax/h3-t2v",
+    ),
+    pytest.param(
+        "minimax-h3",
+        "MiniMax-H3",
+        {"resolution": None},
+        {"task_id": "t-1"},
+        [{"task": {"status": "succeeded", "content": {"url": "https://cdn.test/mm/h3.mp4"}}}],
+        _h3_body(),
+        "https://cdn.test/mm/h3.mp4",
+        None,
+        id="minimax/h3-default-resolution",
+    ),
+    pytest.param(
+        # 显式指定时缺省值不得插手：请求带的是调用方选的档位，经 enum_maps 映射为供应商侧字面。
+        "minimax-h3",
+        "MiniMax-H3",
+        {"resolution": "2k"},
+        {"task_id": "t-1"},
+        [{"task": {"status": "succeeded", "content": {"url": "https://cdn.test/mm/h3.mp4"}}}],
+        _h3_body(resolution="2K"),
+        "https://cdn.test/mm/h3.mp4",
+        None,
+        id="minimax/h3-explicit-resolution-overrides-default",
     ),
     pytest.param(
         "minimax-h3",
@@ -434,7 +481,7 @@ async def test_builtin_declarative_runtime_matches_python_backend_fixtures(
 
 @pytest.mark.parametrize("base_url", ["https://x", "https://x/", "https://x/v1"])
 async def test_newapi_reaches_v1_path_whether_or_not_the_stored_base_url_carries_it(tmp_path: Path, base_url: str):
-    """存量 newapi 自定义供应商的 base_url 可带可不带 ``/v1``，收编后调用路径不得漂移。"""
+    """newapi 供应商的 base_url 带不带 ``/v1`` 都归一到同一条调用路径。"""
     definition = ENDPOINT_REGISTRY["newapi-video"].definition
     assert definition is not None
     backend = DeclarativeVideoBackend(
@@ -448,6 +495,31 @@ async def test_newapi_reaches_v1_path_whether_or_not_the_stored_base_url_carries
             return_value=httpx.Response(200, json={"status": "completed", "url": "https://cdn.test/na/out.mp4"})
         )
         router.get("https://cdn.test/na/out.mp4").mock(return_value=httpx.Response(200, content=b"mp4"))
+
+        await backend.generate(
+            VideoGenerationRequest(prompt="cat", output_path=tmp_path / "out.mp4", aspect_ratio="9:16")
+        )
+
+    assert submit.called
+
+
+async def test_v2_host_only_base_url_gains_the_https_scheme(tmp_path: Path):
+    """存量 v2 供应商允许配纯域名（如 ``api.aimlapi.com``）；缺协议的 URL httpx 直接拒收。"""
+    definition = ENDPOINT_REGISTRY["v2-video-generations"].definition
+    assert definition is not None
+    backend = DeclarativeVideoBackend(
+        api_key="K", base_url="api.aimlapi.com", model="m", definition=definition, provider="v2"
+    )
+    with capture_http() as router, bounded_poll_clock():
+        submit = router.post("https://api.aimlapi.com/v2/video/generations").mock(
+            return_value=httpx.Response(200, json={"id": "task-42"})
+        )
+        router.get(url__regex=r"^https://api\.aimlapi\.com/v2/video/generations").mock(
+            return_value=httpx.Response(
+                200, json={"status": "completed", "video": {"url": "https://cdn.test/v2/out.mp4"}}
+            )
+        )
+        router.get("https://cdn.test/v2/out.mp4").mock(return_value=httpx.Response(200, content=b"mp4"))
 
         await backend.generate(
             VideoGenerationRequest(prompt="cat", output_path=tmp_path / "out.mp4", aspect_ratio="9:16")
@@ -511,6 +583,62 @@ async def test_existing_newapi_and_v2_endpoint_keys_resume_in_flight_jobs(
 
     assert result.video_path.read_bytes() == b"mp4"
     assert poll.called
+
+
+async def test_minimax_resume_retries_a_transient_poll_404_instead_of_expiring(tmp_path: Path):
+    """minimax 定义声明 ``expire_on_404: false``：续跑期瞬态 404 按瞬态错误重试，不一击判过期废掉已付费任务。"""
+    definition = ENDPOINT_REGISTRY["minimax-hailuo-v1"].definition
+    assert definition is not None
+    backend = DeclarativeVideoBackend(
+        api_key="K",
+        base_url="https://api.minimaxi.com",
+        model="MiniMax-Hailuo-2.3",
+        definition=definition,
+        provider="minimax",
+    )
+    with capture_http() as router, bounded_poll_clock():
+        poll = router.get(url__regex=r"^https://api\.minimaxi\.com/v1/query/video_generation").mock(
+            side_effect=[
+                httpx.Response(404, json={"base_resp": {"status_code": 1004}}),
+                httpx.Response(
+                    200,
+                    json={
+                        "status": "Success",
+                        "file_id": "f-1",
+                        "base_resp": {"status_code": 0},
+                    },
+                ),
+            ]
+        )
+        router.get(url__regex=r"^https://api\.minimaxi\.com/v1/files/retrieve").mock(
+            return_value=httpx.Response(
+                200, json={"file": {"download_url": "https://cdn.test/resumed.mp4"}, "base_resp": {"status_code": 0}}
+            )
+        )
+        router.get("https://cdn.test/resumed.mp4").mock(return_value=httpx.Response(200, content=b"mp4"))
+
+        result = await backend.resume_video("job-old", _request(tmp_path))
+
+    assert result.video_path.read_bytes() == b"mp4"
+    assert poll.call_count == 2
+
+
+async def test_newapi_resume_poll_404_expires_immediately(tmp_path: Path):
+    """newapi 保持一击判过期：404 即任务已不存在，续跑立即落 ResumeExpiredError 而非重试到超时。"""
+    definition = ENDPOINT_REGISTRY["newapi-video"].definition
+    assert definition is not None
+    backend = DeclarativeVideoBackend(
+        api_key="K", base_url="https://x/v1", model="model", definition=definition, provider="newapi"
+    )
+    with capture_http() as router, bounded_poll_clock():
+        poll = router.get("https://x/v1/video/generations/job-old").mock(
+            return_value=httpx.Response(404, json={"error": "not found"})
+        )
+
+        with pytest.raises(ResumeExpiredError):
+            await backend.resume_video("job-old", _request(tmp_path))
+
+    assert poll.call_count == 1
 
 
 def _request(tmp_path: Path) -> VideoGenerationRequest:

@@ -28,6 +28,7 @@ from .trial_run import (
     declarative_target,
     model_ref_target,
     provider_from_base_url,
+    shutdown_trial_runs,
     stage_report_payload,
     trial_run_manager,
 )
@@ -57,6 +58,7 @@ __all__ = [
     "parse_response_body",
     "preview_request",
     "provider_from_base_url",
+    "shutdown_trial_runs",
     "stage_report_payload",
     "trial_run_manager",
 ]

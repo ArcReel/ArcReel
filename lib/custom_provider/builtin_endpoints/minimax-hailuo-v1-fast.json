@@ -10,6 +10,7 @@
   "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
   "inputs": {"first_frame": {"source": "start_image", "encoding": "data_uri", "required": true}},
   "enum_maps": {"resolution": {"768p": "768P", "1080p": "1080P"}},
+  "defaults": {"resolution": "768p"},
   "submit": {
     "method": "POST",
     "url": "{{ base_url }}/v1/video_generation",
@@ -25,6 +26,7 @@
   "poll": {
     "method": "GET",
     "url": "{{ base_url }}/v1/query/video_generation?task_id={{ task_id }}",
+    "expire_on_404": false,
     "extract": {
       "status": ["$.status"],
       "error": ["$.base_resp.status_msg"],

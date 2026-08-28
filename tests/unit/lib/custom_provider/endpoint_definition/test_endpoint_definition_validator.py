@@ -471,6 +471,49 @@ class TestDictionaries:
             "enum_map_variable_not_allowed",
         )
 
+    def test_only_caller_optional_parameters_may_have_defaults(self):
+        definition = custom_endpoint_definition()
+        definition["defaults"] = {"prompt": "a cat"}
+        assert _first(validate_definition(definition), DefinitionErrorCode.DEFAULT_VARIABLE_NOT_ALLOWED) == (
+            "defaults.prompt",
+            "default_variable_not_allowed",
+        )
+
+    def test_a_default_of_the_wrong_type_is_rejected(self):
+        """缺省值渲染前原样进上下文：数值型 aspect_ratio 会让宽高派生拿不到档位。"""
+        definition = custom_endpoint_definition()
+        definition["defaults"] = {"aspect_ratio": 16}
+        assert _first(validate_definition(definition), DefinitionErrorCode.DEFAULT_VALUE_TYPE_INVALID) == (
+            "defaults.aspect_ratio",
+            "default_value_type_invalid",
+        )
+
+    def test_a_bool_default_cannot_impersonate_an_int(self):
+        """bool 是 int 的子类，True 不得冒充合法的 duration。"""
+        definition = custom_endpoint_definition()
+        definition["defaults"] = {"duration": True}
+        assert _first(validate_definition(definition), DefinitionErrorCode.DEFAULT_VALUE_TYPE_INVALID) == (
+            "defaults.duration",
+            "default_value_type_invalid",
+        )
+
+    def test_a_default_outside_the_enum_map_is_rejected(self):
+        """缺省值写的是 ArcReel 侧的值，渲染时照常查表：查不到就等于每次不指定该参数都渲染失败。"""
+        definition = custom_endpoint_definition()
+        definition["enum_maps"] = {"resolution": {"768p": "768P"}}
+        definition["defaults"] = {"resolution": "1080p"}
+        assert _first(validate_definition(definition), DefinitionErrorCode.DEFAULT_VALUE_NOT_IN_ENUM_MAP) == (
+            "defaults.resolution",
+            "default_value_not_in_enum_map",
+        )
+
+    def test_a_default_within_the_enum_map_passes(self):
+        definition = custom_endpoint_definition()
+        definition["enum_maps"] = {"resolution": {"768p": "768P"}}
+        definition["defaults"] = {"resolution": "768p"}
+
+        assert validate_definition(definition).valid
+
     def test_expired_is_not_a_declarative_status(self):
         definition = custom_endpoint_definition()
         definition["status_map"]["gone"] = "expired"

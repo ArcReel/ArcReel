@@ -214,11 +214,11 @@ def test_wan27_image_variant_not_upgraded_by_s2v_v2v_decoration_before_marker(mo
 
 
 @pytest.mark.parametrize("model_id", ["minimax-s2v-swan", "minimax-s2v-swan2"])
-def test_minimax_s2v_routing_survives_incidental_wan_substring(model_id: str) -> None:
-    """MiniMax S2V 二级路由的 wan 排除只认版本号相邻的 wan token，不认任意含 "wan" 子串的单词——
-    "swan" 只是恰好含 "wan" 子串的无关词形，即便后面粘连数字（"swan2"）也不构成版本号形态，
-    不应被误判成 wan 家族而错过 MiniMax 路由。"""
-    assert infer_endpoint(model_id, "openai") == "minimax-s2v-01"
+def test_minimax_s2v_routing_requires_the_exact_model_name(model_id: str) -> None:
+    """MiniMax S2V 只认精确型号名（S2V-01 / minimax-s2v-01，剥离命名空间前缀后比较）：其余含
+    s2v 子串的词形无从确知上游协议，不被误吞成参考图必需的 S2V 协议——这两个 id 恰含 "wan"
+    子串，命中通用视频家族正则，落 openai-video。"""
+    assert infer_endpoint(model_id, "openai") == "openai-video"
 
 
 @pytest.mark.parametrize("model_id", ["wan2-s2v", "wan-2-s2v", "wan_2-s2v"])

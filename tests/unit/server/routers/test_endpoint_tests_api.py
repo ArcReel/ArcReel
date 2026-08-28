@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import time
 from collections.abc import Generator
 from typing import Any
 
@@ -17,6 +16,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.config.resolver import ConfigResolver
+from lib.config.service import ConfigService
 from lib.custom_provider import make_endpoint_key, make_provider_id
 from lib.custom_provider.endpoint_test import TrialRunManager
 from lib.db import get_async_session
@@ -107,6 +107,25 @@ class TestPreviewRequest:
         assert body["poll"]["url"].endswith("{{ task_id }}")
         assert body["result"] is None
 
+    def test_a_fixed_url_definition_previews_with_only_an_api_key(self, client: TestClient):
+        """三节 URL 都写死绝对地址时，只带 api_key 的凭证不得被丢弃成占位符。"""
+        definition = custom_endpoint_definition()
+        definition["submit"] = {**definition["submit"], "url": "https://fixed.test/v1/video/create"}
+        definition["poll"] = {**definition["poll"], "url": "https://fixed.test/v1/video/fetch/{{ task_id }}"}
+
+        resp = _post(
+            client,
+            "preview-request",
+            {
+                "definition": definition,
+                "parameters": PARAMETERS,
+                "credentials": {"api_key": "sk-secret-key-1234"},
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["submit"]["headers"]["Authorization"] == "Bearer ****1234"
+
     def test_reads_credentials_from_a_stored_provider(self, client: TestClient, stored_provider):
         resp = _post(
             client,
@@ -138,6 +157,48 @@ class TestPreviewRequest:
 
         assert resp.status_code == 200, resp.text
         assert resp.json()["submit"]["body"]["image"] == "<data:image/png;base64, 1024 bytes>"
+
+
+class TestAssetLimits:
+    def test_more_files_than_the_cap_are_rejected(self, client: TestClient):
+        files = [("reference_images", (f"r{i}.png", b"x", "image/png")) for i in range(17)]
+        resp = client.post(
+            "/api/v1/custom-endpoints/preview-request",
+            data={
+                "payload": json.dumps(
+                    {
+                        "definition": custom_endpoint_definition(),
+                        "parameters": PARAMETERS,
+                        "credentials": INLINE_CREDENTIALS,
+                    }
+                )
+            },
+            files=files,
+        )
+
+        assert resp.status_code == 400
+        # 响应体是渲染后的产品文案（错误码不下发）；断言上限数字在场，锁住命中的是数量上限而非别的 400。
+        assert "16" in resp.json()["detail"]
+
+    def test_files_under_unknown_field_names_still_count(self, client: TestClient):
+        """换个字段名的文件同样已被解析缓冲；不数进去，上限就是换个 key 即可绕开的摆设。"""
+        files = [(f"junk_{i}", (f"r{i}.png", b"x", "image/png")) for i in range(17)]
+        resp = client.post(
+            "/api/v1/custom-endpoints/preview-request",
+            data={
+                "payload": json.dumps(
+                    {
+                        "definition": custom_endpoint_definition(),
+                        "parameters": PARAMETERS,
+                        "credentials": INLINE_CREDENTIALS,
+                    }
+                )
+            },
+            files=files,
+        )
+
+        assert resp.status_code == 400
+        assert "16" in resp.json()["detail"]
 
 
 class TestCheckResponse:
@@ -229,7 +290,7 @@ class TestTrialRuns:
             )
             assert created.status_code == 201, created.text
             run_id = created.json()["id"]
-            _drain(trial_runs, run_id)
+            _drain(client, trial_runs, run_id)
 
         fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}")
         assert fetched.json()["status"] == "succeeded"
@@ -261,7 +322,11 @@ class TestTrialRuns:
             cancelled = client.post(f"/api/v1/custom-endpoints/trial-runs/{run_id}/cancel")
             assert cancelled.status_code == 204
             # 取消后名额让出，同一份定义可以再发一次。
-            assert _post(client, "trial-runs", payload).status_code == 201
+            third = _post(client, "trial-runs", payload)
+            assert third.status_code == 201
+            # 这一笔也要在离开 http 替身与时钟替身之前停掉，否则它会带着真实网络继续轮询。
+            third_id = third.json()["id"]
+            assert client.post(f"/api/v1/custom-endpoints/trial-runs/{third_id}/cancel").status_code == 204
 
     def test_a_cancelled_run_leaves_nothing_to_read(self, client: TestClient, trial_runs: TrialRunManager):
         with capture_http() as router, bounded_poll_clock():
@@ -289,6 +354,118 @@ class TestTrialRuns:
         resp = _post(client, "trial-runs", {"definition": custom_endpoint_definition(), "parameters": PARAMETERS})
 
         assert resp.status_code == 400
+
+    def test_a_definition_with_fixed_urls_runs_without_a_base_url(
+        self, client: TestClient, trial_runs: TrialRunManager
+    ):
+        """三节 URL 都写死绝对地址的定义没有一处会用到接口地址，不必逼调用方编一个假地址。"""
+        definition = custom_endpoint_definition()
+        definition["submit"] = {**definition["submit"], "url": "https://fixed.test/v1/video/create"}
+        definition["poll"] = {**definition["poll"], "url": "https://fixed.test/v1/video/fetch/{{ task_id }}"}
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://fixed.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://fixed.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(200, json={"status": "processing"})
+            )
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": definition,
+                    "parameters": PARAMETERS,
+                    "credentials": {"api_key": "sk-secret-key-1234"},
+                },
+            )
+            assert created.status_code == 201, created.text
+            # 内联凭证没有供应商身份，账本落提交地址的 host——这笔钱实际打给谁。
+            assert created.json()["provider"] == "fixed.test"
+            client.post(f"/api/v1/custom-endpoints/trial-runs/{created.json()['id']}/cancel")
+
+    def test_a_credential_free_definition_runs_without_credentials(
+        self, client: TestClient, trial_runs: TrialRunManager
+    ):
+        """auth 为空且三节 URL 全写死绝对地址的定义没有一处用得上凭证，不带凭证即可发起。"""
+        definition = custom_endpoint_definition(auth={})
+        definition["submit"] = {**definition["submit"], "url": "https://fixed.test/v1/video/create"}
+        definition["poll"] = {**definition["poll"], "url": "https://fixed.test/v1/video/fetch/{{ task_id }}"}
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://fixed.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://fixed.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(200, json={"status": "processing"})
+            )
+            created = _post(client, "trial-runs", {"definition": definition, "parameters": PARAMETERS})
+            assert created.status_code == 201, created.text
+            client.post(f"/api/v1/custom-endpoints/trial-runs/{created.json()['id']}/cancel")
+
+    def test_a_model_ref_to_a_builtin_declarative_endpoint_reports_diagnostics(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_builtin_endpoint_model_row: dict[str, Any]
+    ):
+        """定义随版发布不该让结果体缺渲染请求与逐阶段提取——与 ce-* 走同一条诊断路。"""
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/generations").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/generations/job-42").mock(
+                return_value=httpx.Response(
+                    200, json={"status": "succeeded", "url": "https://relay.test/files/job-42.mp4"}
+                )
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "model_ref": {
+                        "provider_id": stored_builtin_endpoint_model_row["provider_id"],
+                        "model_id": stored_builtin_endpoint_model_row["model_id"],
+                    },
+                    "parameters": PARAMETERS,
+                },
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "succeeded", fetched["error"]
+        assert fetched["request"]["url"] == "https://relay.test/v1/video/generations"
+        assert fetched["extractions"]["submit"]["task_id"] == "job-42"
+
+    def test_a_builtin_minimax_model_ref_reports_declarative_diagnostics(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_minimax_config: None
+    ):
+        """内置模型行走声明式装配：结果体同样给出渲染请求与逐阶段提取，不因定义随版发布而缺段。"""
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://api.minimaxi.com/v2/video_generation").mock(
+                return_value=httpx.Response(200, json={"task_id": "t-1"})
+            )
+            router.get("https://api.minimaxi.com/v2/query/video_generation/t-1").mock(
+                return_value=httpx.Response(
+                    200, json={"task": {"status": "succeeded", "content": {"url": "https://cdn.test/mm/h3.mp4"}}}
+                )
+            )
+            router.get("https://cdn.test/mm/h3.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+            created = _post(
+                client,
+                "trial-runs",
+                {"model_ref": {"provider_id": "minimax", "model_id": "MiniMax-H3"}, "parameters": PARAMETERS},
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "succeeded", fetched["error"]
+        assert fetched["request"]["url"] == "https://api.minimaxi.com/v2/video_generation"
+        # 未指定分辨率：定义的 defaults.resolution 渲进请求，结果体的渲染请求里同样可见。
+        assert fetched["request"]["body"]["resolution"] == "768P"
+        assert fetched["extractions"]["submit"]["task_id"] == "t-1"
 
     def test_requires_a_definition_or_a_model_ref(self, client: TestClient, trial_runs: TrialRunManager):
         resp = _post(client, "trial-runs", {"parameters": PARAMETERS, "credentials": INLINE_CREDENTIALS})
@@ -318,6 +495,170 @@ class TestTrialRuns:
 
         assert resp.status_code == 404
 
+    def test_mixed_credential_sources_are_rejected(self, client: TestClient, stored_provider):
+        """provider_id 与内联字段并存时不静默取库里那份——付费目标必须是调用方明确选的。"""
+        resp = _post(
+            client,
+            "preview-request",
+            {
+                "definition": custom_endpoint_definition(),
+                "parameters": PARAMETERS,
+                "credentials": {"provider_id": stored_provider["provider_id"], "api_key": "sk-inline"},
+            },
+        )
+
+        assert resp.status_code == 400
+
+    def test_a_model_ref_run_records_the_referenced_model(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_model_row: dict[str, Any]
+    ):
+        """parameters.model 与 model_ref 不一致时以模型行为准：结果体记录的就是实际执行、记账的那个。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_run(router)
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "model_ref": {
+                        "provider_id": stored_model_row["provider_id"],
+                        "model_id": stored_model_row["model_id"],
+                    },
+                    "parameters": {**PARAMETERS, "model": "some-other-model"},
+                },
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "succeeded", fetched["error"]
+        assert fetched["request"]["body"]["model"] == stored_model_row["model_id"]
+
+    def test_supplying_both_definition_and_model_ref_is_rejected(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_model_row: dict[str, Any]
+    ):
+        """两种目标形态并存时不静默取其一——付费请求不能打到调用方没选中的目标上。"""
+        resp = _post(
+            client,
+            "trial-runs",
+            {
+                "definition": custom_endpoint_definition(),
+                "credentials": INLINE_CREDENTIALS,
+                "model_ref": {
+                    "provider_id": stored_model_row["provider_id"],
+                    "model_id": stored_model_row["model_id"],
+                },
+                "parameters": PARAMETERS,
+            },
+        )
+
+        assert resp.status_code == 400
+
+    def test_a_model_ref_to_a_disabled_model_is_rejected(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_disabled_model_row: dict[str, Any]
+    ):
+        """只查存在不够：禁用行会让装配层回退默认模型，付费测试打到并计费给另一个模型。"""
+        resp = _post(
+            client,
+            "trial-runs",
+            {
+                "model_ref": {
+                    "provider_id": stored_disabled_model_row["provider_id"],
+                    "model_id": stored_disabled_model_row["model_id"],
+                },
+                "parameters": PARAMETERS,
+            },
+        )
+
+        assert resp.status_code == 400
+
+    def test_a_model_ref_without_a_provider_base_url_is_rejected(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_model_row_without_base_url: dict[str, Any]
+    ):
+        """装配层缺 base_url 只抛一句不可翻译的中文，且落在脱离请求的后台任务里；请求线程先拒。"""
+        resp = _post(
+            client,
+            "trial-runs",
+            {
+                "model_ref": {
+                    "provider_id": stored_model_row_without_base_url["provider_id"],
+                    "model_id": stored_model_row_without_base_url["model_id"],
+                },
+                "parameters": PARAMETERS,
+            },
+        )
+
+        assert resp.status_code == 400
+        assert "base_url" in resp.json()["detail"]
+
+    def test_stored_provider_credentials_missing_the_required_api_key_are_rejected(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_provider_without_api_key: dict[str, Any]
+    ):
+        """provider_id 读出的空 api_key 与内联缺字段同判：请求线程上 400，不进后台任务。"""
+        resp = _post(
+            client,
+            "trial-runs",
+            {
+                "definition": custom_endpoint_definition(),
+                "parameters": PARAMETERS,
+                "credentials": {"provider_id": stored_provider_without_api_key["provider_id"]},
+            },
+        )
+
+        assert resp.status_code == 400
+
+    def test_a_model_ref_to_a_provider_without_an_api_key_is_rejected(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_model_row_without_api_key: dict[str, Any]
+    ):
+        """定义的 auth 节非空而供应商没存 api_key：放行会带着空鉴权头付费打一个注定被拒的调用。"""
+        resp = _post(
+            client,
+            "trial-runs",
+            {
+                "model_ref": {
+                    "provider_id": stored_model_row_without_api_key["provider_id"],
+                    "model_id": stored_model_row_without_api_key["model_id"],
+                },
+                "parameters": PARAMETERS,
+            },
+        )
+
+        assert resp.status_code == 400
+
+    def test_a_builtin_model_ref_to_a_non_video_model_is_rejected(
+        self, client: TestClient, trial_runs: TrialRunManager
+    ):
+        """内置供应商的文本档若放行，会被派发到视频端点，付费打给另一个模型。"""
+        resp = _post(
+            client,
+            "trial-runs",
+            {"model_ref": {"provider_id": "minimax", "model_id": "MiniMax-M3"}, "parameters": PARAMETERS},
+        )
+
+        assert resp.status_code == 400
+
+    def test_a_builtin_model_ref_to_an_unregistered_model_is_not_found(
+        self, client: TestClient, trial_runs: TrialRunManager
+    ):
+        """未登记的 model 会让装配层落到该供应商的默认视频模型，同样是付费打给另一个模型。"""
+        resp = _post(
+            client,
+            "trial-runs",
+            {"model_ref": {"provider_id": "minimax", "model_id": "no-such-model"}, "parameters": PARAMETERS},
+        )
+
+        assert resp.status_code == 404
+
+    def test_a_builtin_model_ref_without_credentials_is_rejected(self, client: TestClient, trial_runs: TrialRunManager):
+        """装配层缺凭证时抛的是 backend 自己写的中文句子，且落在后台任务里；请求线程先拒。"""
+        resp = _post(
+            client,
+            "trial-runs",
+            {"model_ref": {"provider_id": "minimax", "model_id": "MiniMax-H3"}, "parameters": PARAMETERS},
+        )
+
+        assert resp.status_code == 400
+
     def test_an_unknown_run_is_not_found(self, client: TestClient, trial_runs: TrialRunManager):
         assert client.get("/api/v1/custom-endpoints/trial-runs/nope").status_code == 404
         assert client.post("/api/v1/custom-endpoints/trial-runs/nope/cancel").status_code == 404
@@ -341,7 +682,7 @@ class TestTrialRuns:
             )
             assert created.status_code == 201, created.text
             run_id = created.json()["id"]
-            _drain(trial_runs, run_id)
+            _drain(client, trial_runs, run_id)
 
         fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
         assert fetched["status"] == "succeeded", fetched["error"]
@@ -388,6 +729,148 @@ async def stored_model_row(db_engine) -> dict[str, Any]:
 
 
 @pytest.fixture()
+async def stored_minimax_config(db_engine) -> None:
+    """内置 minimax 的凭证配置，供内置直连 ``model_ref`` 用例引用。"""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with session_factory() as session:
+        await ConfigService(session).set_provider_config("minimax", "api_key", "sk-minimax-key-0001")
+        await session.commit()
+
+
+@pytest.fixture()
+async def stored_provider_without_api_key(db_engine) -> dict[str, Any]:
+    """一条没存 api_key 的供应商行，供「凭证读库缺字段」用例引用。"""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with session_factory() as session:
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="中转站",
+            discovery_format="openai",
+            base_url="https://relay.test",
+            api_key="",
+            models=[],
+        )
+        await session.commit()
+        return {"provider_id": make_provider_id(provider.id)}
+
+
+@pytest.fixture()
+async def stored_model_row_without_api_key(db_engine) -> dict[str, Any]:
+    """同样的模型行，但供应商没存 api_key——定义的 auth 节非空，空凭证发不出合法请求。"""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with session_factory() as session:
+        endpoint = await CustomEndpointRepository(session).create(
+            definition=custom_endpoint_definition(),
+            kind="declarative",
+            schema_version="1.0.0",
+            media_type="video",
+            display_name="示例端点",
+        )
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="中转站",
+            discovery_format="openai",
+            base_url="https://relay.test",
+            api_key="",
+            models=[
+                {
+                    "model_id": "video-x",
+                    "display_name": "video-x",
+                    "endpoint": make_endpoint_key(endpoint.id),
+                    "is_enabled": True,
+                    "is_default": True,
+                }
+            ],
+        )
+        await session.commit()
+        return {"provider_id": make_provider_id(provider.id), "model_id": "video-x"}
+
+
+@pytest.fixture()
+async def stored_builtin_endpoint_model_row(db_engine) -> dict[str, Any]:
+    """挂内置声明式端点（newapi-video）的模型行：定义随版发布，不落 custom_endpoint 表。"""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with session_factory() as session:
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="中转站",
+            discovery_format="openai",
+            base_url="https://relay.test",
+            api_key="sk-secret-key-1234",
+            models=[
+                {
+                    "model_id": "video-nv",
+                    "display_name": "video-nv",
+                    "endpoint": "newapi-video",
+                    "is_enabled": True,
+                    "is_default": True,
+                }
+            ],
+        )
+        await session.commit()
+        return {"provider_id": make_provider_id(provider.id), "model_id": "video-nv"}
+
+
+@pytest.fixture()
+async def stored_model_row_without_base_url(db_engine) -> dict[str, Any]:
+    """同样的模型行，但供应商没填接口地址——声明式端点的提交 URL 需要它。"""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with session_factory() as session:
+        endpoint = await CustomEndpointRepository(session).create(
+            definition=custom_endpoint_definition(),
+            kind="declarative",
+            schema_version="1.0.0",
+            media_type="video",
+            display_name="示例端点",
+        )
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="中转站",
+            discovery_format="openai",
+            base_url="",
+            api_key="sk-secret-key-1234",
+            models=[
+                {
+                    "model_id": "video-x",
+                    "display_name": "video-x",
+                    "endpoint": make_endpoint_key(endpoint.id),
+                    "is_enabled": True,
+                    "is_default": True,
+                }
+            ],
+        )
+        await session.commit()
+        return {"provider_id": make_provider_id(provider.id), "model_id": "video-x"}
+
+
+@pytest.fixture()
+async def stored_disabled_model_row(db_engine) -> dict[str, Any]:
+    """一条已禁用的视频模型行，供拒绝用例引用。"""
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with session_factory() as session:
+        endpoint = await CustomEndpointRepository(session).create(
+            definition=custom_endpoint_definition(),
+            kind="declarative",
+            schema_version="1.0.0",
+            media_type="video",
+            display_name="示例端点",
+        )
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="中转站",
+            discovery_format="openai",
+            base_url="https://relay.test",
+            api_key="sk-secret-key-1234",
+            models=[
+                {
+                    "model_id": "video-x",
+                    "display_name": "video-x",
+                    "endpoint": make_endpoint_key(endpoint.id),
+                    "is_enabled": False,
+                    "is_default": False,
+                }
+            ],
+        )
+        await session.commit()
+        return {"provider_id": make_provider_id(provider.id), "model_id": "video-x"}
+
+
+@pytest.fixture()
 async def stored_provider(db_engine) -> dict[str, Any]:
     """一条自定义供应商行，供「凭证读库」用例引用。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -403,15 +886,12 @@ async def stored_provider(db_engine) -> dict[str, Any]:
         return {"id": provider.id, "provider_id": make_provider_id(provider.id)}
 
 
-def _drain(trial_runs: TrialRunManager, run_id: str, *, tries: int = 500) -> None:
+def _drain(client: TestClient, trial_runs: TrialRunManager, run_id: str) -> None:
     """等后台 run 走到终态。
 
-    ``TestClient`` 把应用跑在另一个线程的事件循环上，测试线程只能真等——这也正是客户端看到的
-    形态：发起后靠 ``GET`` 轮询。
+    ``TestClient`` 把应用跑在另一个线程的事件循环上；经它的 portal 在那个循环里
+    ``await manager.wait()``，按事件同步而不是按挂钟轮询。
     """
-    for _ in range(tries):
-        run = trial_runs.get(run_id)
-        if run is not None and run.status.value in ("succeeded", "failed"):
-            return
-        time.sleep(0.01)
-    raise AssertionError("测试连接未在预期内到达终态")
+    assert client.portal is not None
+    run = client.portal.call(trial_runs.wait, run_id)
+    assert run is not None and run.status.value in ("succeeded", "failed")

@@ -73,6 +73,92 @@ def _url_without_auth_query(rendered: RenderedRequest) -> str:
     return f"{head}?{'&'.join(kept)}" if kept else head
 
 
+#: 超过该长度且全由 base64 字符组成的字符串按素材摘要处理。真实提示词带空格与标点，不会命中。
+_BASE64_LOG_THRESHOLD = 256
+_BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/=\r\n]+")
+
+
+def _asset_payloads(context: Mapping[str, object]) -> frozenset[str]:
+    """一次渲染编码出的素材值。日志据此按来源摘素材，不靠体积猜——一张 1×1 的 PNG 编出来
+    比任何阈值都短，按长度判会把它整串写进日志。"""
+    inputs = context.get("inputs")
+    if not isinstance(inputs, Mapping):
+        return frozenset()
+    payloads: set[str] = set()
+    for value in inputs.values():
+        candidates = value if isinstance(value, list) else [value]
+        payloads.update(item for item in candidates if isinstance(item, str) and item)
+    return frozenset(payloads)
+
+
+def _body_for_log(value: object, assets: frozenset[str]) -> object:
+    """日志用请求体：``encoding: "base64"`` 的素材渲染出来是裸 base64 串，通用格式化器认不出
+    （data URI 有前缀可识别，裸串没有），截断后仍会把用户媒体的可还原前缀写进日志。
+
+    首选按来源摘：``assets`` 是同一次渲染编码出的素材值，出现在字符串里就整段换掉，与长度无关，
+    也不要求整串相等——定义允许把素材拼进 ``"prefix{{ inputs.first_frame }}"` 这类混合文本，
+    那种形状既不等值也过不了纯 base64 兜底。长的先换，短值才不会先吃掉长值的一段。
+
+    形状兜底留给对不上任何素材值的串（如定义在渲染后又拼接过），真实提示词带空格与标点，
+    不会命中。"""
+    if isinstance(value, str):
+        redacted = value
+        for payload in sorted(assets, key=len, reverse=True):
+            redacted = redacted.replace(payload, f"<asset:{len(payload)} chars>")
+        if redacted != value:
+            return redacted
+        if len(value) >= _BASE64_LOG_THRESHOLD and _BASE64_PATTERN.fullmatch(value):
+            return f"<base64:{len(value)} chars>"
+        return value
+    if isinstance(value, list):
+        return [_body_for_log(item, assets) for item in value]
+    if isinstance(value, dict):
+        return {key: _body_for_log(item, assets) for key, item in value.items()}
+    return value
+
+
+def _headers_with_auth_masked(headers: Mapping[str, str], auth: Mapping[str, Any] | None) -> dict[str, str]:
+    """日志用 headers：``auth.headers`` 允许任意名字（如 ``Ocp-Apim-Subscription-Key``），
+    ``format_kwargs_for_log`` 按通用敏感词遮不到，按定义声明的键名整体遮掉。"""
+    auth_names = {name.lower() for name in (auth or {}).get("headers", {})}
+    return {name: "***" if name.lower() in auth_names else value for name, value in headers.items()}
+
+
+#: 定义里会渲染出 URL 的三节。
+REQUEST_SECTIONS = ("submit", "poll", "result")
+#: 直接以 base_url + 显式版本段起头的 URL 模板。
+_VERSIONED_BASE_URL = re.compile(r"^\s*\{\{\s*base_url\s*\}\}/v\d")
+
+
+def request_urls(definition: Mapping[str, Any]) -> list[str]:
+    """定义里三节请求各自的 URL 模板，缺席的节跳过。
+
+    与 base_url 有关的判定（是否必需、要不要剥版本段）都按整份定义算：提交写死绝对地址、
+    轮询才引用 base_url 的定义是合法的，只看提交会让判定与真正发出去的 URL 脱节。
+    """
+    urls: list[str] = []
+    for section in REQUEST_SECTIONS:
+        node = definition.get(section)
+        if isinstance(node, Mapping):
+            urls.append(str(node.get("url", "")))
+    return urls
+
+
+def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any]) -> str:
+    """补协议 + 去尾斜杠；定义带显式版本路径时剥配置末尾版本段，避免拼成 ``/v1/v2``。
+
+    无 scheme 的纯域名（如 ``api.aimlapi.com``）补 ``https://``——httpx 拒收缺协议的相对
+    URL，而存量自定义供应商的 ``base_url`` 是不受约束的字符串。预览与真发共用这一份归一化：
+    分叉会让预览展示的 URL 与实际提交的不一致。
+    """
+    stripped = base_url.strip().rstrip("/")
+    if stripped and "://" not in stripped:
+        stripped = f"https://{stripped}"
+    if any(_VERSIONED_BASE_URL.match(url) for url in request_urls(definition)):
+        return re.sub(r"/v\d+(?:\.\d+)?[a-zA-Z]*$", "", stripped)
+    return stripped
+
+
 class DeclarativeRuntimeError(RuntimeError):
     """声明式定义执行失败，携带可持久化、本地化的稳定错误码。"""
 
@@ -161,18 +247,10 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         provider: str,
     ) -> None:
         self._api_key = api_key
-        self._base_url = self._normalize_base_url(base_url, str(definition["submit"]["url"]))
+        self._base_url = normalize_declarative_base_url(base_url, definition)
         self._model = model
         self._definition = definition
         self._provider = provider
-
-    @staticmethod
-    def _normalize_base_url(base_url: str, submit_url: str) -> str:
-        """显式版本路径属于定义；剥配置末尾版本段，避免拼成 ``/v1/v2``。"""
-        stripped = base_url.strip().rstrip("/")
-        if re.match(r"^\s*{{\s*base_url\s*}}/v\d", submit_url):
-            return re.sub(r"/v\d+(?:\.\d+)?[a-zA-Z]*$", "", stripped)
-        return stripped
 
     @property
     def name(self) -> str:
@@ -250,6 +328,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                     "seed": request.seed,
                 },
                 encoded,
+                self._definition.get("defaults"),
             )
         except (OSError, TemplateRenderError) as exc:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=str(exc)) from exc
@@ -353,8 +432,8 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 {
                     "method": rendered.method,
                     "url": _url_without_auth_query(rendered),
-                    "headers": rendered.headers,
-                    "body": rendered.body,
+                    "headers": _headers_with_auth_masked(rendered.headers, self._definition.get("auth")),
+                    "body": _body_for_log(rendered.body, _asset_payloads(context)),
                 }
             ),
         )
@@ -378,9 +457,14 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         is_resume: bool,
     ) -> VideoGenerationResult:
         poll_context = {**context, "task_id": job_id}
-        # 定义可以把端点写在与 base_url 不同的主机上，产物地址往往就出自那台主机。凡是
-        # 已携带凭证访问过的源，产物同源时照样附凭证；其余（对象存储 / CDN）裸请求。
-        trusted_origins = {url_origin(str(context.get("base_url") or self._base_url))}
+        # 定义可以把端点写在与 base_url 不同的主机上，产物地址往往就出自那些主机。信任集只收
+        # 真实带凭证访问的请求源：提交源进入轮询前已带凭证访问过（续跑时它同样是任务所在的
+        # 供应商源），轮询与二次取件的源在各自成功取件后加入（见 fetch）。全绝对地址定义下
+        # 配置的 base_url 可能从未被请求，凭配置信任会把凭证发给一个从没验证过的源；其余
+        # （对象存储 / CDN）裸请求。
+        trusted_origins = {
+            url_origin(self._render({"method": "GET", "url": self._definition["submit"]["url"]}, context).url)
+        }
 
         async def fetch(
             section: Mapping[str, Any],
@@ -406,7 +490,13 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
         async def poll_once() -> ProviderState:
             return self._extract_state(
-                await fetch(self._definition["poll"], poll_context, expire_on_404=True),
+                # 缺省 true（404=任务已不存在，续跑一击判过期）；供应商对在跑任务可能瞬时 404 的
+                # 定义写 false，按瞬态错误重试到预算耗尽。
+                await fetch(
+                    self._definition["poll"],
+                    poll_context,
+                    expire_on_404=bool(self._definition["poll"].get("expire_on_404", True)),
+                ),
                 self._definition["poll"]["extract"],
             )
 
