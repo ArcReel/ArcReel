@@ -231,6 +231,7 @@ MESSAGES = {
     "val_ce_jsonpath_filter_non_singular": "过滤器内只允许单值查询（第 {position} 个字符）：{path_expression}",
     "val_ce_jsonpath_regex_operator": "取值路径禁用正则匹配运算符（第 {position} 个字符）：{path_expression}",
     "val_ce_jsonpath_syntax": "取值路径语法错误（第 {position} 个字符）：{path_expression}",
+    "val_ce_template_render_failed": "请求模板渲染失败：{detail}",
     "val_ce_poll_without_task_id": "轮询请求没有引用 task_id，请确认这是有意的",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} 含通配：对象通配只取首个，键序在前端预览与后端执行之间可能不同"

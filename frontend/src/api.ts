@@ -34,7 +34,7 @@ import type {
   CreateApiKeyResponse,
   ProviderInfo,
   ProviderConfigDetail,
-  ProviderTestResult,
+  ConnectivityCheckResult,
   ProviderCredential,
   UsageStatsResponse,
   CustomProviderInfo,
@@ -2533,7 +2533,7 @@ class API {
   }
 
   /** 测试指定 provider 的连接。 */
-  static async testProviderConnection(id: string, credentialId?: number): Promise<ProviderTestResult> {
+  static async checkProviderConnectivity(id: string, credentialId?: number): Promise<ConnectivityCheckResult> {
     const params = credentialId != null ? `?credential_id=${credentialId}` : "";
     return this.request(`/providers/${encodeURIComponent(id)}/test${params}`, {
       method: "POST",
@@ -2685,11 +2685,11 @@ class API {
     return this.request(`/custom-providers/${id}/discover`, { method: "POST" });
   }
 
-  static async testCustomConnection(data: { discovery_format: string; base_url: string; api_key: string }): Promise<{ success: boolean; message: string }> {
+  static async checkCustomConnectivity(data: { discovery_format: string; base_url: string; api_key: string }): Promise<{ success: boolean; message: string }> {
     return this.request("/custom-providers/test", { method: "POST", body: JSON.stringify(data) });
   }
 
-  static async testCustomConnectionById(id: number): Promise<{ success: boolean; message: string }> {
+  static async checkCustomConnectivityById(id: number): Promise<{ success: boolean; message: string }> {
     return this.request(`/custom-providers/${id}/test`, { method: "POST" });
   }
 

@@ -392,11 +392,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     setTesting(true);
     try {
       const res = useStoredCredential
-        ? await API.testCustomConnectionById(existing.id)
-        : await API.testCustomConnection({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
+        ? await API.checkCustomConnectivityById(existing.id)
+        : await API.checkCustomConnectivity({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
       setTestResult(res);
     } catch (e) {
-      setTestResult({ success: false, message: errMsg(e, t("connection_test_failed")) });
+      setTestResult({ success: false, message: errMsg(e, t("connectivity_check_failed")) });
     } finally {
       setTesting(false);
     }
@@ -986,10 +986,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             {testing ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
-                {t("testing_connection")}
+                {t("connectivity_checking")}
               </>
             ) : (
-              t("test_connection")
+              t("connectivity_check")
             )}
           </button>
 

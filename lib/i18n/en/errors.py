@@ -181,10 +181,10 @@ MESSAGES = {
     "vertex_json_too_large": "Credentials file is too large",
     "vertex_json_invalid": "Invalid JSON credentials file",
     "vertex_json_missing_project_id": "Credentials file is missing project_id",
-    "connection_success": "Connection successful",
-    "connection_timeout": "Connection timeout, please check your network or API configuration",
-    "connection_failed": "Connection failed: {err_msg}",
-    "unsupported_test": "Provider {provider_id} does not support connection testing yet",
+    "connectivity_check_ok": "Reachable",
+    "connectivity_check_timeout": "Connectivity check timed out. Check your network or API configuration",
+    "connectivity_check_failed": "Connectivity check failed: {err_msg}",
+    "connectivity_check_unsupported": "Provider {provider_id} does not support connectivity checks yet",
     "missing_credentials": "Missing credential configuration, please add a key first",
     "credential_group_ambiguous": (
         "This submission mixes fields from more than one mutually exclusive credential group, so the "
@@ -209,6 +209,17 @@ MESSAGES = {
     "custom_endpoint_not_found": "Endpoint does not exist",
     "custom_endpoint_definition_invalid": "The endpoint definition failed validation. Fix the reported issues and try again",
     "custom_endpoint_referenced_by_models": "This endpoint is used by {count} model(s). Remove those references before deleting it",
+    # ---- Endpoint tests ----
+    "endpoint_test_payload_required": "Missing payload field: when uploading assets, put the request JSON in the payload form field",
+    "endpoint_test_payload_invalid": "Could not parse the request. Check the JSON format and field types",
+    "endpoint_test_asset_too_large": "Asset {name} exceeds the {limit_mb} MB limit",
+    "endpoint_test_credentials_required": "A trial run needs credentials: pick a provider, or enter a base URL and API key",
+    "endpoint_test_provider_not_custom": "{provider_id} is not a custom provider, so no credentials can be read from it",
+    "endpoint_test_definition_or_model_ref_required": "Provide an endpoint definition, or specify the model to test",
+    "model_not_found": "Model not found",
+    "trial_run_already_running": "A trial run is already in progress. Wait for it to finish or cancel it first",
+    "trial_run_not_found": "Trial run not found or expired",
+    "trial_run_artifact_not_found": "This trial run has no playable output",
     "at_least_one_field_required": "At least one field must be provided for update",
     "discovery_failed": "Model discovery failed: {err_msg}",
     "anthropic_discovery_no_key": "API Key not configured, cannot discover models",
@@ -218,7 +229,7 @@ MESSAGES = {
     "endpoint_required": "Enabled models must specify endpoint",
     "endpoint_media_type_mismatch": "Endpoint media_type mismatch: {detail}",
     "backend_creation_failed": "Backend creation failed: {err_msg}",
-    "unsupported_discovery_format": "Connection test not supported for {discovery_format}",
+    "connectivity_check_unsupported_format": "Connectivity checks are not supported for {discovery_format}",
     "capability_overrides_video_only": (
         "Endpoint {endpoint} of model {model_id} is not a video endpoint; capability overrides are not supported"
     ),

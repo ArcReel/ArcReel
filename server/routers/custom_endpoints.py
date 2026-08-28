@@ -32,8 +32,13 @@ from lib.db.base import dt_to_iso
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository, EndpointReference
 from lib.i18n import Translator
+from server.routers import endpoint_tests
 
 router = APIRouter(prefix="/custom-endpoints", tags=["Custom Endpoints"])
+
+# 端点测试的路由必须先于本模块的 ``/{endpoint_id}`` 注册：FastAPI 按注册序匹配，路径参数解析
+# 失败不会往后回退——``/custom-endpoints/trial-runs`` 撞上 ``endpoint_id: int`` 只会直接 422。
+router.include_router(endpoint_tests.router)
 
 #: 请求体即定义 JSON 原样。刻意不声明成 ``dict``：非对象的输入（数组、裸串）也要经共享校验器
 #: 产出定位到字段的诊断，而不是撞上 FastAPI 自己的一套 422 形状。

@@ -540,7 +540,7 @@ If the container has just started, check whether database migrations are still r
 - Check the Base URL and model name;
 - Check the network and proxy;
 - Check whether the provider is rate-limiting requests;
-- Use a small amount of content for verification. Do not use a complete novel for a connection test.
+- Use a small amount of content for verification. Do not run a complete novel through the whole pipeline on the first attempt.
 
 ### Tasks Remain Queued {#tasks-stuck-in-queue}
 

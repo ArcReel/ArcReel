@@ -293,3 +293,15 @@ class ConfigService:
             return provider_id, model_id
         parts = fallback.split("/", 1)
         return parts[0], parts[1]
+
+
+async def read_video_poll_timeout_seconds() -> int:
+    """自开一个 session 读一次全局视频轮询超时。
+
+    worker 派发与端点测试连接共用这一份：两条路径都在「即将进入一次真实生成」的时点读一次，
+    各自另写一遍就会在超时含义上分叉。口径是「派发时读一次」，不是每次轮询各读各的。
+    """
+    from lib.db import safe_session_factory
+
+    async with safe_session_factory() as session:
+        return await ConfigService(session).get_video_poll_timeout_seconds()

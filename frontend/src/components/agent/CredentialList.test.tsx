@@ -77,7 +77,7 @@ describe("CredentialList", () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /^test$|cred_test_label|连接测试|Kiểm tra/i }),
+      screen.getByRole("button", { name: /^check$|cred_test_label|连通性检查|Kiểm tra/i }),
     );
     expect(onTest).toHaveBeenCalledWith(1);
   });

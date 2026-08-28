@@ -1,7 +1,7 @@
 """
 自定义供应商管理 API。
 
-提供自定义供应商 CRUD、模型管理、模型发现和连接测试端点。
+提供自定义供应商 CRUD、模型管理、模型发现和连通性检查端点。
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/custom-providers", tags=["Custom Providers"])
 
-_CONNECTION_TEST_TIMEOUT = 15  # 秒
+_CONNECTIVITY_CHECK_TIMEOUT = 15  # 秒
 
 # 全局 DB settings 中可能引用自定义供应商的键（删除 provider / 删除 model 时清理悬空引用）
 _BACKEND_SETTING_KEYS = (
@@ -226,8 +226,8 @@ class FullUpdateProviderRequest(BaseModel):
     audio_max_workers: MaxWorkers
 
 
-class ProviderConnectionRequest(BaseModel):
-    # 连接测试故意接受任意字符串，由 _run_connection_test 软失败返回 200 + success=False。
+class ConnectivityCheckRequest(BaseModel):
+    # 连通性检查故意接受任意字符串，由 _run_connectivity_check 软失败返回 200 + success=False。
     discovery_format: str
     base_url: str
     api_key: str
@@ -272,7 +272,7 @@ class ProviderResponse(BaseModel):
     audio_max_workers: int | None = None
 
 
-class ConnectionTestResponse(BaseModel):
+class ConnectivityCheckResponse(BaseModel):
     success: bool
     message: str
     model_count: int = 0
@@ -984,7 +984,7 @@ async def replace_models(
 
 @router.post("/discover")
 async def discover_models_endpoint(
-    body: ProviderConnectionRequest,
+    body: ConnectivityCheckRequest,
     _t: Translator,
 ):
     """模型发现：根据 discovery_format + base_url + api_key 查询可用模型。"""
@@ -1035,22 +1035,24 @@ async def discover_models_by_id(
 
 
 @router.post("/test")
-async def test_connection(
-    body: ProviderConnectionRequest,
+async def check_connectivity(
+    body: ConnectivityCheckRequest,
     _t: Translator,
 ):
-    """连接测试：验证 discovery_format + base_url + api_key 的连通性。"""
-    return await _run_connection_test(body.discovery_format, body.base_url, body.api_key, _t)
+    """连通性检查：验证 discovery_format + base_url + api_key 是否可达。免费探针，不证明任何模型可生成。"""
+    return await _run_connectivity_check(body.discovery_format, body.base_url, body.api_key, _t)
 
 
 @router.post("/{provider_id}/test")
-async def test_connection_by_id(provider_id: int, _t: Translator, session: AsyncSession = Depends(get_async_session)):
-    """使用已存储凭证测试指定供应商的连通性。"""
+async def check_connectivity_by_id(
+    provider_id: int, _t: Translator, session: AsyncSession = Depends(get_async_session)
+):
+    """用已存储凭证对指定供应商做连通性检查。"""
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    return await _run_connection_test(provider.discovery_format, provider.base_url, provider.api_key, _t)
+    return await _run_connectivity_check(provider.discovery_format, provider.base_url, provider.api_key, _t)
 
 
 async def _run_discover(
@@ -1082,56 +1084,56 @@ async def _run_discover(
         raise HTTPException(status_code=502, detail=_t("discovery_failed", err_msg=err_msg))
 
 
-async def _run_connection_test(
+async def _run_connectivity_check(
     discovery_format: str,
     base_url: str,
     api_key: str,
     _t: Callable[..., str],
     *,
-    openai_probe: Callable[[str, str, Callable[..., str]], ConnectionTestResponse] | None = None,
-    google_probe: Callable[[str, str, Callable[..., str]], ConnectionTestResponse] | None = None,
-) -> ConnectionTestResponse:
-    """共用的连接测试逻辑。"""
+    openai_probe: Callable[[str, str, Callable[..., str]], ConnectivityCheckResponse] | None = None,
+    google_probe: Callable[[str, str, Callable[..., str]], ConnectivityCheckResponse] | None = None,
+) -> ConnectivityCheckResponse:
+    """共用的连通性检查逻辑：明文凭证与已存储凭证两条入口共用。"""
     try:
         if discovery_format == "openai":
             result = await asyncio.wait_for(
-                asyncio.to_thread(openai_probe or _test_openai, base_url, api_key, _t),
-                timeout=_CONNECTION_TEST_TIMEOUT,
+                asyncio.to_thread(openai_probe or _check_openai, base_url, api_key, _t),
+                timeout=_CONNECTIVITY_CHECK_TIMEOUT,
             )
         elif discovery_format == "google":
             result = await asyncio.wait_for(
-                asyncio.to_thread(google_probe or _test_google, base_url, api_key, _t),
-                timeout=_CONNECTION_TEST_TIMEOUT,
+                asyncio.to_thread(google_probe or _check_google, base_url, api_key, _t),
+                timeout=_CONNECTIVITY_CHECK_TIMEOUT,
             )
         else:
-            return ConnectionTestResponse(
+            return ConnectivityCheckResponse(
                 success=False,
-                message=_t("unsupported_discovery_format", discovery_format=discovery_format),
+                message=_t("connectivity_check_unsupported_format", discovery_format=discovery_format),
             )
         return result
     except TimeoutError:
-        return ConnectionTestResponse(
+        return ConnectivityCheckResponse(
             success=False,
-            message=_t("connection_timeout"),
+            message=_t("connectivity_check_timeout"),
         )
     except Exception as exc:
         err_msg = str(exc)
         if len(err_msg) > 200:
             err_msg = err_msg[:200] + "..."
-        logger.warning("连接测试失败 [%s]: %s", discovery_format, err_msg)
-        return ConnectionTestResponse(
+        logger.warning("连通性检查失败 [%s]: %s", discovery_format, err_msg)
+        return ConnectivityCheckResponse(
             success=False,
-            message=_t("connection_failed", err_msg=err_msg),
+            message=_t("connectivity_check_failed", err_msg=err_msg),
         )
 
 
-def _test_openai(
+def _check_openai(
     base_url: str,
     api_key: str,
     _t: Callable[..., str],
     *,
     client_factory: Callable[..., Any] | None = None,
-) -> ConnectionTestResponse:
+) -> ConnectivityCheckResponse:
     """通过 models.list() 验证 OpenAI 兼容 API。"""
     from openai import OpenAI
 
@@ -1140,20 +1142,20 @@ def _test_openai(
     client = (client_factory or OpenAI)(api_key=api_key, base_url=ensure_openai_base_url(base_url))
     models = client.models.list()
     count = sum(1 for _ in models)
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
         model_count=count,
     )
 
 
-def _test_google(
+def _check_google(
     base_url: str,
     api_key: str,
     _t: Callable[..., str],
     *,
     client_factory: Callable[..., Any] | None = None,
-) -> ConnectionTestResponse:
+) -> ConnectivityCheckResponse:
     """通过 models.list() 验证 Google genai API。"""
     from google import genai
 
@@ -1164,8 +1166,8 @@ def _test_google(
     client = (client_factory or genai.Client)(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
     pager = client.models.list()
     count = sum(1 for _ in pager)
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
         model_count=count,
     )
