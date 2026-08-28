@@ -44,6 +44,16 @@ import type {
   CustomProviderModelInput,
   DiscoveredModel,
   EndpointDescriptor,
+  CustomEndpointInfo,
+  EndpointDefinition,
+  EndpointValidateResponse,
+  EndpointTestParameters,
+  EndpointTestCredentials,
+  EndpointPreviewResponse,
+  EndpointStageReport,
+  EndpointTestStage,
+  TrialRunInfo,
+  TrialRunModelRef,
   CustomProviderCredentials,
   AnthropicDiscoverRequest,
   AnthropicDiscoverResponse,
@@ -2705,6 +2715,102 @@ class API {
       method: "POST",
       body: JSON.stringify(data),
       signal: options.signal,
+    });
+  }
+
+  // ==================== 自定义调用端点 API ====================
+  // 导入导出零封套：请求体与导出文件都是 definition 原样 JSON，不加封套字段。
+
+  static async listCustomEndpoints(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ endpoints: CustomEndpointInfo[] }> {
+    return this.request("/custom-endpoints", { signal: options.signal });
+  }
+
+  static async createCustomEndpoint(definition: unknown): Promise<CustomEndpointInfo> {
+    return this.request("/custom-endpoints", { method: "POST", body: JSON.stringify(definition) });
+  }
+
+  static async updateCustomEndpoint(id: number, definition: unknown): Promise<CustomEndpointInfo> {
+    return this.request(`/custom-endpoints/${id}`, { method: "PUT", body: JSON.stringify(definition) });
+  }
+
+  static async deleteCustomEndpoint(id: number): Promise<void> {
+    return this.request(`/custom-endpoints/${id}`, { method: "DELETE" });
+  }
+
+  /**
+   * 无状态校验：保存、导入与诊断卡共用同一校验器，永远返回 200，判定在 body 里。
+   * @param excludeId - 覆盖既有定义时排除自身，避免把自己判成重复血统。
+   */
+  static async validateCustomEndpoint(
+    definition: unknown,
+    options: { excludeId?: number; signal?: AbortSignal } = {},
+  ): Promise<EndpointValidateResponse> {
+    const query = options.excludeId === undefined ? "" : `?exclude_id=${options.excludeId}`;
+    return this.request(`/custom-endpoints/validate${query}`, {
+      method: "POST",
+      body: JSON.stringify(definition),
+      signal: options.signal,
+    });
+  }
+
+  /** 内置声明式端点的定义原样 JSON，供「复制为我的」；Python 实现的内置端点 404。 */
+  static async getBuiltinEndpointDefinition(key: string): Promise<EndpointDefinition> {
+    return this.request(`/custom-providers/endpoints/${encodeURIComponent(key)}/definition`);
+  }
+
+  static async previewEndpointRequest(
+    body: {
+      definition: unknown;
+      parameters: EndpointTestParameters;
+      credentials?: EndpointTestCredentials;
+    },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EndpointPreviewResponse> {
+    return this.request("/custom-endpoints/preview-request", {
+      method: "POST",
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
+  }
+
+  static async checkEndpointResponse(
+    body: { definition: unknown; stage: EndpointTestStage; response_body: unknown },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EndpointStageReport> {
+    return this.request("/custom-endpoints/check-response", {
+      method: "POST",
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
+  }
+
+  /** 测试连接：真实调用一次生成，产生费用。definition 与 model_ref 互斥且必居其一。 */
+  static async createTrialRun(body: {
+    definition?: unknown;
+    model_ref?: TrialRunModelRef;
+    parameters: EndpointTestParameters;
+    credentials?: EndpointTestCredentials;
+  }): Promise<TrialRunInfo> {
+    return this.request("/custom-endpoints/trial-runs", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  static async getTrialRun(
+    runId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<TrialRunInfo> {
+    return this.request(`/custom-endpoints/trial-runs/${encodeURIComponent(runId)}`, {
+      signal: options.signal,
+    });
+  }
+
+  static async cancelTrialRun(runId: string): Promise<void> {
+    return this.request(`/custom-endpoints/trial-runs/${encodeURIComponent(runId)}/cancel`, {
+      method: "POST",
     });
   }
 
