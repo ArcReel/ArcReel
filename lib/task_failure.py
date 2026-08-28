@@ -112,6 +112,9 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "resume_unsupported_detail": "task_fail_resume_unsupported_detail",
     "resume_expired_detail": "task_fail_resume_expired_detail",
     "resume_endpoint_changed_detail": "task_fail_resume_endpoint_changed_detail",
+    "declarative_template_render_failed": "task_fail_declarative_template_render_failed",
+    "declarative_response_extract_failed": "task_fail_declarative_response_extract_failed",
+    "artifact_download_failed": "task_fail_artifact_download_failed",
     "restart_lost_checkpoint_no_job_id": "task_fail_restart_lost_checkpoint_no_job_id",
     "execution_identity_unrecoverable": "task_fail_execution_identity_unrecoverable",
     # ScriptEditError.key 本身就是 errors.py 的 key（见 lib/script_editor.py），无需前缀间接层。

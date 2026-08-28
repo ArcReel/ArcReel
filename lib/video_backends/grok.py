@@ -96,7 +96,7 @@ class GrokVideoBackend:
             # 解析失败属预期内回落（SDK 字段未类型化），保留请求时长即可，无需上抛
             logger.debug("Grok 回报的 duration 无法解析: %r，回落请求时长 %s 秒", raw_duration, actual_duration)
 
-        await download_video(video_url, request.output_path)
+        await download_video(video_url, request.output_path, label="Grok")
         logger.info("Grok 视频下载完成: %s", request.output_path)
 
         return VideoGenerationResult(

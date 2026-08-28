@@ -35,6 +35,7 @@ from lib.custom_provider.builtin_definitions import (
     declarative_video_capabilities,
     load_builtin_definitions,
 )
+from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
@@ -512,13 +513,17 @@ def validate_video_caps_declaration(spec: EndpointSpec) -> None:
 def _build_declarative_video(
     definition: Mapping[str, Any],
 ) -> Callable[[CustomProvider, str], CustomVideoBackend]:
-    """随版声明式端点的 backend 构造闭包，通用声明式运行时的唯一挂接点。
-
-    运行时未接入，构造一律抛 :class:`NotImplementedError`。
-    """
+    """声明式端点的 backend 构造闭包。"""
 
     def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
-        raise NotImplementedError(f"declarative endpoint runtime not wired: model={model_id!r}")
+        delegate = DeclarativeVideoBackend(
+            api_key=provider.api_key,
+            base_url=provider.base_url,
+            model=model_id,
+            definition=definition,
+            provider=provider.provider_id,
+        )
+        return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
     return build
 

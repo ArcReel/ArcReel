@@ -195,7 +195,8 @@ async def _enumerate_candidates(
             )
 
     from lib.custom_provider import make_provider_id
-    from lib.custom_provider.endpoints import endpoint_to_media_type
+    from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+    from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
     try:
@@ -203,16 +204,19 @@ async def _enumerate_candidates(
         providers = await repo.list_providers()
         provider_name_map = {p.id: p.display_name for p in providers}
         enabled_models = await repo.list_all_enabled_models()
+        endpoint_repo = CustomEndpointRepository(session)
         for model in enabled_models:
+            endpoint_spec = await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)
             pid = make_provider_id(model.provider_id)
             candidates.append(
                 _ModelCandidate(
                     option=f"{pid}/{model.model_id}",
-                    media_type=endpoint_to_media_type(model.endpoint),
+                    media_type=endpoint_spec.media_type,
                     buckets=custom_model_buckets(
                         endpoint=model.endpoint,
                         model_id=model.model_id,
                         capability_overrides=model.capability_overrides,
+                        endpoint_spec=endpoint_spec,
                     ),
                 )
             )

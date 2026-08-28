@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict
 from typing import Annotated, Any, Literal
 
@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.api_errors import BadRequestError
 from lib.config.repository import mask_secret
-from lib.custom_provider import make_provider_id
+from lib.custom_provider import is_custom_endpoint, make_provider_id
+from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
@@ -30,9 +31,10 @@ from lib.custom_provider.capabilities import (
     strip_incoherent_audio_overrides,
     system_video_capabilities,
 )
-from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
+from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
+    EndpointSpec,
     endpoint_spec_to_dict,
     endpoint_to_image_capabilities,
     endpoint_to_media_type,
@@ -48,10 +50,21 @@ from lib.video_backends.base import ReferenceAudioMode, audio_capability_pair_is
 
 
 def _validate_endpoint(value: str) -> str:
-    """Endpoint 校验：值必须存在于 ENDPOINT_REGISTRY，避免硬编码 Literal 漂移。"""
-    if value not in ENDPOINT_REGISTRY:
+    """Pydantic 层校验内置键或合法的自定义端点键形状；存在性由写入事务异步确认。"""
+    if value not in ENDPOINT_REGISTRY and not is_custom_endpoint(value):
         raise ValueError(f"unknown endpoint: {value!r}")
     return value
+
+
+def _static_media_type(endpoint: str) -> str:
+    """不读库判定端点媒体类型：声明式端点的键前缀已蕴含 video，其余走内置查表。
+
+    Raises:
+        ValueError: 既非声明式键，内置注册表里也没有该键。
+    """
+    if is_custom_endpoint(endpoint):
+        return DECLARATIVE_MEDIA_TYPE
+    return endpoint_to_media_type(endpoint)
 
 
 # 写入路径上的 endpoint 字段统一走运行时校验，键集合自动跟随 ENDPOINT_REGISTRY；
@@ -180,11 +193,10 @@ class ModelInput(BaseModel):
         非视频类 endpoint 保持 None。
         """
         from lib.custom_provider.duration_presets import infer_supported_durations
-        from lib.custom_provider.endpoints import endpoint_to_media_type
 
         d = self.model_dump()
         durations = self.supported_durations
-        is_video = endpoint_to_media_type(self.endpoint) == "video"
+        is_video = _static_media_type(self.endpoint) == DECLARATIVE_MEDIA_TYPE
         # video endpoint：把 [] 当作缺省（下游/前端都不接受空列表），交给 preset 兜底
         if is_video and durations is not None and len(durations) == 0:
             durations = None
@@ -324,7 +336,9 @@ class EndpointCatalogResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] | None:
+def _system_capabilities_for(
+    endpoint: str, model_id: str, endpoint_spec: EndpointSpec | None = None
+) -> dict[str, object] | None:
     """读该 model 的系统判定能力；非 video endpoint 返回 None。
 
     判定失败（endpoint 已下线、注册表声明异常）时降级为 None 而非 500：列表端点要能把
@@ -335,9 +349,10 @@ def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] 
     以为它对自定义模型生效——那正是本口径要避免的分裂。
     """
     try:
-        if endpoint_to_media_type(endpoint) != "video":
+        media_type = endpoint_spec.media_type if endpoint_spec is not None else endpoint_to_media_type(endpoint)
+        if media_type != "video":
             return None
-        caps = asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id))
+        caps = asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec))
         return {k: v for k, v in caps.items() if k not in _AUDIO_TRACK_FIELDS}
     except ValueError:
         logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
@@ -345,7 +360,10 @@ def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] 
 
 
 def _effective_overrides_for_response(
-    endpoint: str, model_id: str, overrides: object | None
+    endpoint: str,
+    model_id: str,
+    overrides: object | None,
+    endpoint_spec: EndpointSpec | None = None,
 ) -> dict[str, object] | None:
     """回显前按写入侧同一判定过滤，剔除执行层不会采用的键值，并收窄至开放白名单。
 
@@ -361,8 +379,20 @@ def _effective_overrides_for_response(
     （direct ⊕ 上限 0）过得了 :func:`filter_valid_overrides`，执行层却会把它降到 ``none``，
     回显原值同样落进本函数要消灭的"界面显示已生效、执行其实忽略"。
     """
-    filtered = _narrow_to_allowlist(filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides))
-    filtered = strip_incoherent_audio_overrides(filtered, endpoint=endpoint, model_id=model_id)
+    filtered = _narrow_to_allowlist(
+        filter_valid_overrides(
+            endpoint=endpoint,
+            model_id=model_id,
+            overrides=overrides,
+            endpoint_spec=endpoint_spec,
+        )
+    )
+    filtered = strip_incoherent_audio_overrides(
+        filtered,
+        endpoint=endpoint,
+        model_id=model_id,
+        endpoint_spec=endpoint_spec,
+    )
     return filtered or None
 
 
@@ -384,11 +414,40 @@ async def _global_bucket_refs_for_provider(session: AsyncSession, provider_id: i
     return _extract_global_bucket_refs(all_settings, provider_id)
 
 
-def _model_to_response(m, global_bucket_refs: list[str] | None = None) -> ModelResponse:
+async def _read_endpoint_specs(
+    session: AsyncSession,
+    models,
+    *,
+    on_unknown: Callable[[str], None] | None = None,
+) -> dict[str, EndpointSpec]:
+    """逐个不同的 endpoint 解析一次 spec，供整批模型共用。
+
+    ``on_unknown`` 决定解析不出来时的去向：回显侧只记日志、把该行按存量脏配置降级渲染；
+    写入侧传入抛 422 的回调，不让一行引用不存在的端点入库。
+    """
+    repo = CustomEndpointRepository(session)
+    specs: dict[str, EndpointSpec] = {}
+    for endpoint in {model.endpoint for model in models}:
+        try:
+            specs[endpoint] = await resolve_endpoint_spec(endpoint, repo.get)
+        except ValueError:
+            if on_unknown is not None:
+                on_unknown(endpoint)
+            logger.warning("无法解析模型 endpoint，按存量脏配置回显: endpoint=%r", endpoint)
+    return specs
+
+
+def _model_to_response(
+    m,
+    global_bucket_refs: list[str] | None = None,
+    endpoint_spec: EndpointSpec | None = None,
+) -> ModelResponse:
     durations = json.loads(m.supported_durations) if m.supported_durations else None
     return ModelResponse(
-        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id),
-        capability_overrides=_effective_overrides_for_response(m.endpoint, m.model_id, m.capability_overrides),
+        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id, endpoint_spec),
+        capability_overrides=_effective_overrides_for_response(
+            m.endpoint, m.model_id, m.capability_overrides, endpoint_spec
+        ),
         id=m.id,
         model_id=m.model_id,
         display_name=m.display_name,
@@ -405,7 +464,12 @@ def _model_to_response(m, global_bucket_refs: list[str] | None = None) -> ModelR
     )
 
 
-def _provider_to_response(provider, models, global_bucket_refs: dict[str, list[str]] | None = None) -> ProviderResponse:
+def _provider_to_response(
+    provider,
+    models,
+    global_bucket_refs: dict[str, list[str]] | None = None,
+    endpoint_specs: Mapping[str, EndpointSpec] | None = None,
+) -> ProviderResponse:
     refs = global_bucket_refs or {}
     return ProviderResponse(
         id=provider.id,
@@ -413,7 +477,14 @@ def _provider_to_response(provider, models, global_bucket_refs: dict[str, list[s
         discovery_format=provider.discovery_format,
         base_url=provider.base_url,
         api_key_masked=mask_secret(provider.api_key),
-        models=[_model_to_response(m, refs.get(m.model_id)) for m in models],
+        models=[
+            _model_to_response(
+                m,
+                refs.get(m.model_id),
+                None if endpoint_specs is None else endpoint_specs.get(m.endpoint),
+            )
+            for m in models
+        ],
         created_at=dt_to_iso(provider.created_at),
         image_max_workers=provider.image_max_workers,
         video_max_workers=provider.video_max_workers,
@@ -461,6 +532,7 @@ def _check_capability_overrides(
     endpoint: str,
     model_id: str,
     _t: Callable[..., str],
+    spec: EndpointSpec | None = None,
 ) -> None:
     """写入侧校验：合成函数对脏值只降级不抛，合法性把关全在这里。
 
@@ -469,7 +541,8 @@ def _check_capability_overrides(
     """
     if not overrides:
         return
-    if endpoint_to_media_type(endpoint) != "video":
+    resolved_spec = spec or get_endpoint_spec(endpoint)
+    if resolved_spec.media_type != "video":
         raise HTTPException(
             status_code=422,
             detail=_t("capability_overrides_video_only", model_id=model_id, endpoint=endpoint),
@@ -490,7 +563,7 @@ def _check_capability_overrides(
             )
         # last_frame 覆盖为 True 时，endpoint 的 delegate.generate() 必须真的会读取
         # end_image 下传尾帧约束——否则覆盖只是让合成层宣称支持，执行层仍静默生成无约束视频。
-        if key == "last_frame" and value is True and not get_endpoint_spec(endpoint).end_image_capable:
+        if key == "last_frame" and value is True and not resolved_spec.end_image_capable:
             raise HTTPException(
                 status_code=422,
                 detail=_t(
@@ -503,7 +576,7 @@ def _check_capability_overrides(
         if (
             key == "reference_audio_mode"
             and value == ReferenceAudioMode.DIRECT.value
-            and not get_endpoint_spec(endpoint).reference_audio_capable
+            and not resolved_spec.reference_audio_capable
         ):
             raise HTTPException(
                 status_code=422,
@@ -518,7 +591,7 @@ def _check_capability_overrides(
     # 而不是留给执行期静默降级——降级后用户会拿到「最多支持 0 段」这种无从遵循的提示。
     # 稀疏覆盖只写其中一维也能凑出该组合，故按系统判定补齐未覆盖的那一维再判。
     if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
-        mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id)
+        mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id, endpoint_spec=resolved_spec)
         if not audio_capability_pair_is_coherent(mode=mode, count=count):
             raise HTTPException(
                 status_code=422,
@@ -526,7 +599,11 @@ def _check_capability_overrides(
             )
 
 
-def _check_model_capability_overrides(models: list[ModelInput], _t: Callable[..., str]) -> None:
+def _check_model_capability_overrides(
+    models: list[ModelInput],
+    _t: Callable[..., str],
+    specs: Mapping[str, EndpointSpec] | None = None,
+) -> None:
     """对整批模型逐个跑覆盖校验（保存模型列表的写入路径，设置页表单的覆盖编辑也走这里）。
 
     每行都按提交上来的 ``(endpoint, 覆盖值)`` 校验：覆盖是否合法随 endpoint 变化
@@ -535,7 +612,26 @@ def _check_model_capability_overrides(models: list[ModelInput], _t: Callable[...
     键不会走到这里——``ModelInput`` 已在解析期把它们剔除。
     """
     for m in models:
-        _check_capability_overrides(m.capability_overrides, m.endpoint, m.model_id, _t)
+        _check_capability_overrides(
+            m.capability_overrides,
+            m.endpoint,
+            m.model_id,
+            _t,
+            None if specs is None else specs[m.endpoint],
+        )
+
+
+async def _resolve_model_endpoint_specs(
+    session: AsyncSession,
+    models: list[ModelInput],
+    _t: Callable[..., str],
+) -> dict[str, EndpointSpec]:
+    """写入侧解析：任一模型行引用的端点不存在即 422，不落库。"""
+
+    def reject(endpoint: str) -> None:
+        raise HTTPException(status_code=422, detail=_t("unknown_endpoint", endpoint=endpoint))
+
+    return await _read_endpoint_specs(session, models, on_unknown=reject)
 
 
 def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> None:
@@ -550,7 +646,7 @@ def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> 
         if not m.is_default:
             continue
         try:
-            mt = endpoint_to_media_type(m.endpoint)
+            mt = _static_media_type(m.endpoint)
         except ValueError:
             continue  # endpoint 已在 ModelInput validator 校验，此处跳过未知值
         if mt != "image":
@@ -609,9 +705,16 @@ async def list_providers(
     from lib.config.service import ConfigService
 
     all_settings = await ConfigService(session).get_all_settings()
+    endpoint_specs = await _read_endpoint_specs(session, [model for _, models in pairs for model in models])
     return {
         "providers": [
-            _provider_to_response(p, models, _extract_global_bucket_refs(all_settings, p.id)) for p, models in pairs
+            _provider_to_response(
+                p,
+                models,
+                _extract_global_bucket_refs(all_settings, p.id),
+                endpoint_specs,
+            )
+            for p, models in pairs
         ]
     }
 
@@ -662,7 +765,8 @@ async def create_provider(
     if body.models:
         _check_duplicate_model_ids(body.models, _t)
         _check_unique_defaults(body.models, _t)
-        _check_model_capability_overrides(body.models, _t)
+        specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+        _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     model_dicts = [m.to_db_dict() for m in body.models] if body.models else None
     provider = await repo.create_provider(
@@ -679,7 +783,12 @@ async def create_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider.id)
-    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider.id))
+    return _provider_to_response(
+        provider,
+        models,
+        await _global_bucket_refs_for_provider(session, provider.id),
+        await _read_endpoint_specs(session, models),
+    )
 
 
 @router.get("/{provider_id}")
@@ -694,7 +803,12 @@ async def get_provider(
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
+    return _provider_to_response(
+        provider,
+        models,
+        await _global_bucket_refs_for_provider(session, provider_id),
+        await _read_endpoint_specs(session, models),
+    )
 
 
 @router.get("/{provider_id}/credentials", response_model=CredentialsResponse)
@@ -747,7 +861,12 @@ async def update_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
+    return _provider_to_response(
+        provider,
+        models,
+        await _global_bucket_refs_for_provider(session, provider_id),
+        await _read_endpoint_specs(session, models),
+    )
 
 
 @router.put("/{provider_id}")
@@ -761,7 +880,8 @@ async def full_update_provider(
     """原子更新供应商元数据 + 模型列表（单一事务）。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
-    _check_model_capability_overrides(body.models, _t)
+    specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+    _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     kwargs: dict = {
         "display_name": body.display_name,
@@ -782,7 +902,12 @@ async def full_update_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
+    return _provider_to_response(
+        provider,
+        models,
+        await _global_bucket_refs_for_provider(session, provider_id),
+        await _read_endpoint_specs(session, models),
+    )
 
 
 @router.delete("/{provider_id}", status_code=204)
@@ -829,7 +954,8 @@ async def replace_models(
     """替换供应商的整个模型列表。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
-    _check_model_capability_overrides(body.models, _t)
+    specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+    _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
@@ -858,7 +984,8 @@ async def replace_models(
     await session.commit()
     await _invalidate_caches(request)
     refs = await _global_bucket_refs_for_provider(session, provider_id)
-    return [_model_to_response(m, refs.get(m.model_id)) for m in new_models]
+    endpoint_specs = await _read_endpoint_specs(session, new_models)
+    return [_model_to_response(m, refs.get(m.model_id), endpoint_specs.get(m.endpoint)) for m in new_models]
 
 
 # ---------------------------------------------------------------------------

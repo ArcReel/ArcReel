@@ -156,6 +156,7 @@ def _expected_row(**overrides: Any) -> dict[str, Any]:
         "image_output_tokens": None,
         "text_input_tokens": None,
         "text_output_tokens": None,
+        "last_provider_response": None,
     }
     row.update(overrides)
     return row

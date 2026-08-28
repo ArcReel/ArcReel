@@ -138,11 +138,15 @@ function TaskRow({
   expandedTaskId,
   onToggleDetail,
   onCancel,
+  onRetryDownload,
+  retryingDownload,
 }: {
   task: TaskItem;
   expandedTaskId: string | null;
   onToggleDetail: (taskId: string) => void;
   onCancel?: (taskId: string) => void;
+  onRetryDownload?: (taskId: string) => void;
+  retryingDownload?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const statusLabel: Record<TaskItem["status"], string> = {
@@ -284,6 +288,23 @@ function TaskRow({
             {t("cancelling_status")}
           </button>
         )}
+        {task.status === "failed"
+          && task.error_code === "artifact_download_failed"
+          && onRetryDownload && (
+          <button
+            type="button"
+            disabled={retryingDownload}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRetryDownload(task.task_id);
+            }}
+            className="focus-ring ml-1 rounded px-1 py-0.5 text-[10.5px]"
+            style={{ color: "var(--color-accent-2)" }}
+            aria-label={t("retry_download")}
+          >
+            {retryingDownload ? t("retrying_download") : t("retry_download")}
+          </button>
+        )}
         {task.status === "cancelled" && task.cancelled_by === "cascade" && (
           <span
             className="ml-1 text-[10.5px]"
@@ -371,12 +392,16 @@ function ChannelSection({
   tasks,
   filter,
   onCancel,
+  onRetryDownload,
+  retryingDownloadId,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   tasks: TaskItem[];
   filter: TaskFilter;
   onCancel?: (taskId: string) => void;
+  onRetryDownload?: (taskId: string) => void;
+  retryingDownloadId?: string | null;
 }) {
   const { t } = useTranslation("dashboard");
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -435,6 +460,8 @@ function ChannelSection({
             expandedTaskId={expandedTaskId}
             onToggleDetail={toggleDetail}
             onCancel={onCancel}
+            onRetryDownload={onRetryDownload}
+            retryingDownload={retryingDownloadId === task.task_id}
           />
         ))}
       </AnimatePresence>
@@ -573,7 +600,7 @@ function StatPill({
 export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
   const { t } = useTranslation("dashboard");
   const { taskHudOpen, setTaskHudOpen } = useAppStore();
-  const { tasks, stats } = useTasksStore();
+  const { tasks, stats, setTasks } = useTasksStore();
 
   const [cancelConfirm, setCancelConfirm] = useState<{
     taskId?: string;
@@ -585,6 +612,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
     projectName?: string;
   } | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [retryingDownloadId, setRetryingDownloadId] = useState<string | null>(null);
   const [filter, setFilter] = useState<TaskFilter>("all");
 
   const handleCancelSingle = useCallback(async (taskId: string) => {
@@ -622,6 +650,18 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
       setCancelConfirm(null);
     }
   }, [cancelConfirm]);
+
+  const handleRetryDownload = useCallback(async (taskId: string) => {
+    setRetryingDownloadId(taskId);
+    try {
+      const { task } = await API.retryTaskDownload(taskId);
+      setTasks(
+        useTasksStore.getState().tasks.map((current) => current.task_id === taskId ? task : current),
+      );
+    } finally {
+      setRetryingDownloadId(null);
+    }
+  }, [setTasks]);
 
   useEscapeClose(() => setCancelConfirm(null), Boolean(cancelConfirm));
 
@@ -744,6 +784,8 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             tasks={imageTasks}
             filter={filter}
             onCancel={voidPromise(handleCancelSingle)}
+            onRetryDownload={voidPromise(handleRetryDownload)}
+            retryingDownloadId={retryingDownloadId}
           />
           <div
             className="h-px"
@@ -755,6 +797,8 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             tasks={videoTasks}
             filter={filter}
             onCancel={voidPromise(handleCancelSingle)}
+            onRetryDownload={voidPromise(handleRetryDownload)}
+            retryingDownloadId={retryingDownloadId}
           />
           {audioTasks.length > 0 && (
             <>
@@ -768,6 +812,8 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
                 tasks={audioTasks}
                 filter={filter}
                 onCancel={voidPromise(handleCancelSingle)}
+                onRetryDownload={voidPromise(handleRetryDownload)}
+                retryingDownloadId={retryingDownloadId}
               />
             </>
           )}

@@ -463,6 +463,8 @@ export default {
   'cancel_task': '取消任务',
   'cancel_this_task': '取消此任务',
   'cancel_btn': '取消',
+  'retry_download': '重试下载',
+  'retrying_download': '正在重试…',
   'cancel_running_warning': '已发出的供应商请求费用不会退还',
   'cascade_label': '级联',
   'cancel_all': '全部取消',

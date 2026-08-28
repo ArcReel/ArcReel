@@ -25,7 +25,7 @@ from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import ModelInfo
 from lib.config.resolver import video_capability_satisfied
 from lib.custom_provider.capabilities import synthesize_video_capabilities
-from lib.custom_provider.endpoints import endpoint_to_image_capabilities, endpoint_to_media_type
+from lib.custom_provider.endpoints import EndpointSpec, endpoint_to_image_capabilities, endpoint_to_media_type
 from lib.image_backends.base import ImageCapability
 from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
@@ -78,15 +78,20 @@ def custom_model_buckets(
     endpoint: str,
     model_id: str,
     capability_overrides: object | None = None,
+    endpoint_spec: EndpointSpec | None = None,
 ) -> frozenset[CapabilityBucket]:
     """自定义供应商模型具备的任务类型桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。"""
     try:
-        media_type = endpoint_to_media_type(endpoint)
+        media_type = endpoint_spec.media_type if endpoint_spec is not None else endpoint_to_media_type(endpoint)
     except ValueError:
         return frozenset()
 
     if media_type == "image":
-        caps = endpoint_to_image_capabilities(endpoint)
+        caps = (
+            endpoint_spec.image_capabilities if endpoint_spec is not None else endpoint_to_image_capabilities(endpoint)
+        )
+        if caps is None:
+            return frozenset()
         return _image_buckets_from_capabilities(
             ImageCapability.TEXT_TO_IMAGE in caps,
             ImageCapability.IMAGE_TO_IMAGE in caps,
@@ -95,7 +100,12 @@ def custom_model_buckets(
         return frozenset()
 
     try:
-        video_caps = synthesize_video_capabilities(endpoint=endpoint, model_id=model_id, overrides=capability_overrides)
+        video_caps = synthesize_video_capabilities(
+            endpoint=endpoint,
+            model_id=model_id,
+            overrides=capability_overrides,
+            endpoint_spec=endpoint_spec,
+        )
     except ValueError:
         return frozenset()
     return _video_buckets(video_caps.first_frame, video_caps.max_reference_images)

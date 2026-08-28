@@ -32,11 +32,6 @@ from lib.kling_shared import (
     image_to_base64,
 )
 from lib.providers import PROVIDER_KLING
-from lib.retry import (
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
-    with_retry_async,
-)
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     VideoAudioMode,
@@ -46,7 +41,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     VideoRoute,
     download_video,
-    should_retry_download,
+    notify_provider_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -478,6 +473,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             lambda: self._poll_query(client, f"videos/{subpath}/{task_id}"),
             max_wait=request.poll_timeout_seconds,
         )
+        await notify_provider_response(request, final)
 
         download_url = extract_kling_video_url(final)
         await self._download_with_retry(download_url, request.output_path)
@@ -495,10 +491,5 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         )
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_download,
-    )
     async def _download_with_retry(download_url: str, output_path: Path) -> None:
-        await download_video(download_url, output_path)
+        await download_video(download_url, output_path, label="Kling")

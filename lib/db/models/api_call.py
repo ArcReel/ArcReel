@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin, UserOwnedMixin
@@ -41,6 +41,7 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     image_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_provider_response: Mapped[object | None] = mapped_column(JSON, nullable=True)
     __table_args__ = (
         Index("idx_api_calls_project_name", "project_name"),
         Index("idx_api_calls_call_type", "call_type"),

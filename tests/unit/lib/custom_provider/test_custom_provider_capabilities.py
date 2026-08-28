@@ -13,6 +13,7 @@ from lib.custom_provider.capabilities import (
     filter_valid_overrides,
     synthesize_video_capabilities,
     system_video_capabilities,
+    video_capabilities_from_definition,
 )
 from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
 
@@ -75,41 +76,27 @@ class TestCapabilitiesFromDefinition:
         return {"inputs": {"asset": declaration}, "capabilities": capabilities}
 
     def test_required_image_input_yields_no_text_to_video(self):
-        caps = synthesize_video_capabilities(
-            endpoint="ce-test",
-            model_id="image-only",
-            overrides=None,
-            definition=self._definition(required=True, first_frame=True, text_to_video=False),
+        caps = video_capabilities_from_definition(
+            self._definition(required=True, first_frame=True, text_to_video=False)
         )
         assert caps.text_to_video is False
         assert caps.first_frame is True
 
     def test_optional_image_input_keeps_text_to_video(self):
-        caps = synthesize_video_capabilities(
-            endpoint="ce-test",
-            model_id="optional-image",
-            overrides=None,
-            definition=self._definition(required=False, first_frame=True, text_to_video=True),
+        caps = video_capabilities_from_definition(
+            self._definition(required=False, first_frame=True, text_to_video=True)
         )
         assert caps.text_to_video is True
 
     def test_undeclared_required_defaults_to_optional(self):
         """``required`` 缺省即可选：缺席的键不该被当成「必需」而误关文生能力。"""
-        caps = synthesize_video_capabilities(
-            endpoint="ce-test",
-            model_id="optional-image",
-            overrides=None,
-            definition=self._definition(first_frame=True),
-        )
+        caps = video_capabilities_from_definition(self._definition(first_frame=True))
         assert caps.text_to_video is True
 
     def test_required_audio_input_does_not_close_text_to_video(self):
         """只有图输入参与推导：必需的参考音频不改变纯文生请求的可行性。"""
-        caps = synthesize_video_capabilities(
-            endpoint="ce-test",
-            model_id="audio-only",
-            overrides=None,
-            definition=self._definition(
+        caps = video_capabilities_from_definition(
+            self._definition(
                 source="reference_audio_files",
                 required=True,
                 reference_audio_mode="direct",
@@ -120,12 +107,7 @@ class TestCapabilitiesFromDefinition:
 
     def test_definition_without_first_frame_declaration_does_not_inherit_dataclass_default(self):
         """``VideoCapabilities`` 的 first_frame 默认真值不适用于声明式：未声明即不支持。"""
-        caps = synthesize_video_capabilities(
-            endpoint="ce-test",
-            model_id="text-only",
-            overrides=None,
-            definition={"inputs": {}, "capabilities": {}},
-        )
+        caps = video_capabilities_from_definition({"inputs": {}, "capabilities": {}})
         assert caps.first_frame is False
         assert caps.text_to_video is True
 
@@ -137,12 +119,7 @@ class TestCapabilitiesFromDefinition:
     def test_invalid_capability_declaration_raises(self, capabilities: dict[str, object]):
         """定义里的能力节不走覆盖那套「丢弃脏键继续跑」：定义是唯一真相源，脏声明必须炸。"""
         with pytest.raises(ValueError, match="invalid capability"):
-            synthesize_video_capabilities(
-                endpoint="ce-test",
-                model_id="bogus",
-                overrides=None,
-                definition={"inputs": {}, "capabilities": capabilities},
-            )
+            video_capabilities_from_definition({"inputs": {}, "capabilities": capabilities})
 
 
 class TestOptionalDimensionSchema:

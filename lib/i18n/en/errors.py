@@ -39,6 +39,7 @@ MESSAGES = {
     "invalid_encoding": "File encoding error, please use UTF-8 encoded text file",
     "unauthorized": "Invalid username or password",
     "task_not_found": "Task '{id}' does not exist",
+    "task_retry_download_unavailable": "Task '{id}' is not eligible for download retry",
     # Task failure reasons (GenerationWorker stores a code + params; tasks API renders per locale on read)
     "task_fail_provider_unsupported_media": "Provider {provider_id} does not support {media_type} generation",
     "task_fail_dispatch_provider_requeue_failed": "The task provider changed from {claimed_provider_id} to {actual_provider_id}, but the task could not be requeued for a new slot; please retry",
@@ -56,6 +57,9 @@ MESSAGES = {
     "task_fail_resume_endpoint_changed_detail": (
         "This model's endpoint has changed, so the generation started earlier cannot be resumed: {detail}"
     ),
+    "task_fail_declarative_template_render_failed": "Endpoint request rendering failed: {detail}",
+    "task_fail_declarative_response_extract_failed": "Endpoint response extraction failed: {detail}",
+    "task_fail_artifact_download_failed": "Video generation succeeded but artifact download failed; retry the download: {detail}",
     "task_fail_cascade_blocked_dependency": "Blocked by failed dependency task {dependency_task_id}: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt must be a string or an object containing scene/composition",
     "prompt_scene_empty": "prompt.scene cannot be empty",

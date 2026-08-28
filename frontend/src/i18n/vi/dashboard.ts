@@ -456,6 +456,8 @@ export default {
   'cancel_task': 'Hủy tác vụ',
   'cancel_this_task': 'Hủy tác vụ này',
   'cancel_btn': 'Hủy',
+  'retry_download': 'Thử tải lại',
+  'retrying_download': 'Đang thử lại…',
   'cancel_running_warning': 'Các yêu cầu đã gửi tới nhà cung cấp sẽ không được hoàn tiền',
   'cascade_label': 'liên đới',
   'cancel_all': 'Hủy tất cả',

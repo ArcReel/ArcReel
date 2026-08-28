@@ -118,7 +118,7 @@ ignore_imports = [
     # lib.config.resolver 直接向上引用自定义供应商装配层（函数体内延迟导入，静态分析仍计入）
     "lib.config.resolver -> lib.custom_provider",
     "lib.config.resolver -> lib.custom_provider.capabilities",
-    "lib.config.resolver -> lib.custom_provider.endpoints",
+    "lib.config.resolver -> lib.custom_provider.endpoint_resolution",
     # lib.config.resolver 直接向上引用 backend 层
     "lib.config.resolver -> lib.text_backends.base",
     "lib.config.resolver -> lib.video_backends.registry",
