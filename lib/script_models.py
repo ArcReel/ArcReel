@@ -271,6 +271,12 @@ class NarrationSegment(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
+    # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
+    # 供工作流按条目判定失效、供增量合并识别未变条目；对 LLM 隐藏，不在任何 PATCH 白名单内。
+    # 存量剧本无此字段（None），按整集 ``script_plan_revision`` 回退判定。
+    script_plan_entry_revision: SkipJsonSchema[str | None] = Field(
+        default=None, description="该条目消费的脚本规划条目内容指纹"
+    )
 
 
 class NovelInfo(BaseModel):
@@ -519,6 +525,12 @@ class DramaScene(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
+    # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
+    # 供工作流按条目判定失效、供增量合并识别未变条目；对 LLM 隐藏，不在任何 PATCH 白名单内。
+    # 存量剧本无此字段（None），按整集 ``script_plan_revision`` 回退判定。
+    script_plan_entry_revision: SkipJsonSchema[str | None] = Field(
+        default=None, description="该条目消费的脚本规划条目内容指纹"
+    )
 
 
 class DramaEpisodeScript(BaseModel):
@@ -845,6 +857,12 @@ class ReferenceVideoUnit(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
+    # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
+    # 供工作流按条目判定失效、供增量合并识别未变条目；对 LLM 隐藏，不在任何 PATCH 白名单内。
+    # 存量剧本无此字段（None），按整集 ``script_plan_revision`` 回退判定。
+    script_plan_entry_revision: SkipJsonSchema[str | None] = Field(
+        default=None, description="该条目消费的脚本规划条目内容指纹"
+    )
 
     @model_validator(mode="after")
     def _validate_replan_shell(self) -> "ReferenceVideoUnit":

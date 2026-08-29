@@ -18,6 +18,7 @@ import logging
 from copy import deepcopy
 from typing import Any
 
+from lib.script_plan_entries import SCRIPT_PLAN_ENTRY_REVISION_FIELD
 from lib.script_skeleton import resolve_kind_items
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,13 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
     if parts[0] == "needs_replan":
         raise ScriptEditError("patch_episode_script 不可直接改重规划标记；修改 unit 规划内容后由系统重算")
+    if parts[0] == SCRIPT_PLAN_ENTRY_REVISION_FIELD:
+        # 条目内容指纹陈述「这一条的视觉层是照着哪份脚本规划内容写的」，由提示词编写落盘时写入。
+        # 放行 patch 等于让 Agent 手改这条陈述，失效条目便能被伪装成未变、逃过重写。
+        raise ScriptEditError(
+            f"patch_episode_script 不可改 {SCRIPT_PLAN_ENTRY_REVISION_FIELD}；"
+            "它由提示词编写落盘时写入，陈述该条目消费的脚本规划内容"
+        )
     if parts[0] == "end_frame_image":
         # 尾帧字段的值是本服务写出的快照相对路径，只由尾帧设置/清除端点写入。放行 patch
         # 会让原样写入的任意字符串绕过快照复制，重新引入悬空引用与越界路径。

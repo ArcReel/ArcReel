@@ -128,7 +128,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_script_plan", 
 重新 open 取得最新 `formal_revision`，合并正式文档修改后 patch，并额外传 `"accept_formal_revision": "<formal_revision>"`，不得直接编辑草稿元数据。
 草稿在场期间，内容确认与 prompt_authoring 生成都被阻塞，处置完才能继续。
 
-**修改必重生 JSON 剧本**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新拆分 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
+**修改必重生失效条目**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script`，否则留下「新拆分 + 旧剧本」的陈旧组合。重生只覆盖内容变化与新增的条目，未变条目的提示词与已生成产物原样保留。在返回摘要中明确提示这一点。
 
 ## 输出格式参考
 
@@ -181,5 +181,5 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_script_plan", 
 **文件已保存**: `drafts/episode_{N}/script_plan_segments.json`
 
 下一步：首次生成（情况 A）→ 主 Agent 可 dispatch `create-episode-script` 子智能体生成 JSON 剧本（prompt_authoring 视觉层）；
-修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
+修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生失效条目。
 ```

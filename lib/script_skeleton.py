@@ -22,13 +22,34 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
 
 from lib.validation_messages import MessageRef, ValidationMessage
 
+logger = logging.getLogger(__name__)
+
 STORYBOARD_ITEM_ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
+
+# 集号前缀：仅匹配 `E{数字}` + 紧随 S/U（segment/scene 用 S，video_unit 用 U），
+# 保留后缀（如 `E1S03_2` → `E2S03_2`）。设计契约见 lib/script_models.py。
+_EPISODE_PREFIX_RE = re.compile(r"^E\d+(?=[SU])")
+
+
+def rewrite_episode_prefix(item_id: object, episode: int) -> object:
+    """把条目 id 中的 ``E{数字}`` 前缀强制改写为 ``E{episode}``；非字符串或无该前缀的原样返回。
+
+    兜底 LLM 在 prompt 已注入集号的情况下仍写错前缀的场景。落盘前的改写与「脚本规划条目
+    指纹按哪个 id 归档」是同一件事，故与骨架的 id 知识同处一室，由生成与时效判定共用。
+    """
+    if not isinstance(item_id, str):
+        return item_id
+    rewritten, count = _EPISODE_PREFIX_RE.subn(f"E{episode}", item_id)
+    if count and rewritten != item_id:
+        logger.warning("episode prefix rewritten: %s → %s", item_id, rewritten)
+    return rewritten
 
 
 @dataclass(frozen=True)

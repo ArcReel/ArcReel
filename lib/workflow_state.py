@@ -36,6 +36,12 @@ from lib.project_migration_failure import (
     load_migration_verdict,
 )
 from lib.script_models import get_generated_assets, script_duration_total
+from lib.script_plan_entries import (
+    ScriptPlanEntryError,
+    evaluate_entry_currency,
+    plan_entries_from_document,
+    plan_entry_revisions,
+)
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton, resolve_kind_items
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 from lib.version_manager import VersionManager
@@ -650,6 +656,58 @@ class WorkflowStateService:
             return False
         matching_docs = [doc for doc in planning_sources if unicodedata.normalize("NFC", doc.rel_path) == canonical_rel]
         return len(matching_docs) == 1 and offset >= len(matching_docs[0].text)
+
+    def _annotate_script_entry_currency(
+        self,
+        project_path: Path,
+        project: dict[str, Any],
+        target: WorkflowTarget,
+        script: dict[str, Any],
+        script_artifact: dict[str, Any],
+        *,
+        whole_plan_revision: str | None,
+    ) -> None:
+        """按条目比对剧本与脚本规划，把失效 / 新增 / 被删条目写进剧本 artifact，并据此收紧 state。
+
+        判定是条目级的：改一条 ``source_text`` 只让那一条失效，其余条目照旧可用——重写的是失效
+        条目，不是整集（stale 的语义见 ``docs/adr/0062``）。存量剧本的条目没有条目指纹，退回
+        整集口径判定，不因升级本身被误报。
+
+        脚本规划读不出或形状不符时什么也不标注：脚本规划自身的状态由 ``artifacts["script_plan"]``
+        回答，此处不重复造一类错误。
+        """
+        plan_kind = script_review.script_plan_kind(project)
+        if plan_kind is None:
+            return
+        script_plan_path = script_review.script_plan_path(project_path, project, target.episode)
+        if script_plan_path is None:
+            return
+        try:
+            document = json.loads(script_plan_path.read_bytes().decode("utf-8"))
+        except (OSError, ValueError):
+            return
+        plan_entries = plan_entries_from_document(plan_kind, document)
+        if not plan_entries:
+            return
+        try:
+            plan_revisions = plan_entry_revisions(plan_kind, plan_entries, episode=target.episode)
+        except ScriptPlanEntryError:
+            return
+        metadata = script.get("metadata")
+        generated_from = (
+            metadata.get(script_review.SCRIPT_PLAN_REVISION_FIELD) if isinstance(metadata, Mapping) else None
+        )
+        currency = evaluate_entry_currency(
+            plan_kind,
+            script=script,
+            plan_revisions=plan_revisions,
+            legacy_entries_current=(whole_plan_revision is not None and generated_from == whole_plan_revision),
+        )
+        script_artifact["stale_entry_ids"] = list(currency.outdated_ids)
+        script_artifact["removed_entry_ids"] = list(currency.removed_ids)
+        script_artifact["entry_order_changed"] = currency.order_changed
+        if currency.is_stale:
+            script_artifact["state"] = ArtifactStatus.STALE.value
 
     def _load_script_artifacts(
         self,
@@ -1439,6 +1497,21 @@ class WorkflowStateService:
                     project_path, project_name, project, target, blockers, currency
                 )
                 artifacts["script"] = script_artifact
+                if mode != "ad" and script_artifact["state"] in {
+                    ArtifactStatus.CURRENT.value,
+                    ArtifactStatus.STALE.value,
+                }:
+                    plan_artifact = artifacts.get("script_plan")
+                    self._annotate_script_entry_currency(
+                        project_path,
+                        project,
+                        target,
+                        script,
+                        script_artifact,
+                        whole_plan_revision=(
+                            plan_artifact.get("revision") if isinstance(plan_artifact, Mapping) else None
+                        ),
+                    )
                 if (
                     currency is None
                     and mode != "ad"
@@ -1460,10 +1533,12 @@ class WorkflowStateService:
                     currency is None and script_artifact["state"] == "stale"
                 ):
                     state = "FINAL_SCRIPT"
+                    stale_entry_ids = script_artifact.get("stale_entry_ids")
                     next_action = _action(
                         WorkflowActionType.GENERATE_SCRIPT,
                         "target episode has no current final script",
-                        args={"episode": target.episode},
+                        args={"episode": target.episode}
+                        | ({"stale_entry_ids": stale_entry_ids} if stale_entry_ids else {}),
                     )
                 else:
                     missing_sheets = [

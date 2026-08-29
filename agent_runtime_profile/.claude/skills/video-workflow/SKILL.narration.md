@@ -139,7 +139,7 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 拿到模型能力与用户偏好；主 Agent 不需要预先注入角色/场景/道具列表或
 `supported_durations` / `max_duration` / `max_reference_images` / `default_duration` 等数据。）
 
-**中间文件变更必重生剧本 JSON**：`prepare_script_plan` 的中间文件被修改或重拆后（无论哪种生成模式、无论首次还是重做），即使 `scripts/episode_{N}.json` 已存在，也必须重新执行 `generate_script`——剧本 JSON 不会自动跟随中间文件更新，跳过会留下"新中间文件 + 旧 JSON"的陈旧组合。
+**中间文件变更必重生失效条目**：`prepare_script_plan` 的中间文件被修改或重拆后（无论哪种生成模式、无论首次还是重做），即使 `scripts/episode_{N}.json` 已存在，也必须重新执行 `generate_script`——剧本 JSON 不会自动跟随中间文件更新，跳过会留下"新中间文件 + 旧 JSON"的陈旧组合。`generate_script` 默认只重写内容变化与新增的条目（工作流状态在 `artifacts.script.stale_entry_ids` 列出它们），未变条目的提示词、备注、尾帧与已生成产物原样保留；要整集重写传 `scope: "all"`，只重做指定几条传 `entry_ids`。
 
 ---
 

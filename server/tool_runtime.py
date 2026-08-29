@@ -112,6 +112,7 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
+from lib.script_plan_entries import SCOPE_STALE
 from lib.script_review import ScriptPlanRebuildCompletionError, complete_stale_script_plan_rebuild, script_plan_kind
 from lib.source_loader import (
     ConflictError,
@@ -551,7 +552,7 @@ async def generate_episode_script(
         task_type=_TEXT_EPISODE_SCRIPT,
         operation="generate_episode_script",
         unit_id=f"episode-{request.value.episode}",
-        payload=asdict(request.value),
+        payload=request.value.to_payload(),
         scope=scope,
         caller=_caller,
         services=services,
@@ -587,7 +588,7 @@ async def generate_script_plan(
         task_type=task_type,
         operation="generate_script_plan",
         unit_id=f"episode-{request.value.episode}",
-        payload=asdict(request.value),
+        payload=request.value.to_payload(),
         scope=scope,
         caller=_caller,
         services=services,
@@ -1877,6 +1878,8 @@ async def execute_queued_text_task(
             source=payload.get("source"),
             instructions=payload.get("instructions"),
             dry_run=bool(payload.get("dry_run")),
+            scope=payload.get("scope") or SCOPE_STALE,
+            entry_ids=tuple(payload.get("entry_ids") or ()),
         )
         handlers = {
             _TEXT_EPISODE_SCRIPT: ("generate_episode_script", generate_episode_script_handler),

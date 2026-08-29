@@ -262,13 +262,9 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
         task_type="text_drama_script_plan",
         media_type="text",
         resource_id="episode-1" if cancel_state == "membership" else "old",
-        payload={
-            "episode": 1,
-            "source": None,
-            "instructions": None,
-            "dry_run": False,
-            "projects_root": str(projects.projects_root),
-        },
+        # payload 取请求对象自己的投影：本用例的 membership 变体要让新提交与这条在跑任务
+        # 判成同一件事，两边的事实必须逐字段相同，写死字面量会随请求字段增删而失效。
+        payload=TextGenerationRequest(episode=1).to_payload() | {"projects_root": str(projects.projects_root)},
         batch_id=historical_batch_id,
         batch_unit_id="episode-1" if cancel_state == "membership" else "old",
     )

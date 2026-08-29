@@ -381,6 +381,10 @@ _Avoid_: step1、内容整理、预处理、内容层。
 在已定稿的脚本规划内容之上补出视觉层提示词、产出最终剧本的制作步骤名。
 _Avoid_: step2、视觉展开、generate-script。
 
+**条目内容指纹（script_plan_entry_revision）**：
+脚本规划单个条目的内容摘要；剧本的每个条目记录它消费的那一个，据此逐条判定失效并只重写失效条目（见 `docs/adr/0041`）。
+_Avoid_: 与整集的 `script_plan_revision` 混用、把它当产物时效的判据。
+
 **内容确认（review gate）**：
 脚本内容已经整理完成、正在等待创作者确认后继续生成的制作步骤名。
 _Avoid_: 审核 gate、门禁、pending。

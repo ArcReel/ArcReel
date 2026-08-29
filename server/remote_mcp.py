@@ -530,20 +530,33 @@ def build_remote_mcp_server(
         episode: PositiveEpisode,
         context: Context,
         instructions: str | None = None,
+        scope: Literal["stale", "all"] = "stale",
+        entry_ids: list[str] | None = None,
         dry_run: bool = False,
     ) -> CallToolResult:
-        """Generate an episode script, or return its prompt when dry_run is true."""
+        """Generate an episode script, or return its prompt when dry_run is true.
+
+        Existing scripts are rewritten incrementally: only entries whose script_plan content
+        changed (``scope="stale"``, the default) or the entries named by ``entry_ids`` are
+        re-authored; every other entry keeps its prompts, note, end frame and generated assets.
+        """
         try:
-            scope = _project_scope(project, projects)
-            request = TextGenerationRequest(episode=episode, instructions=instructions, dry_run=dry_run)
+            project_scope = _project_scope(project, projects)
+            request = TextGenerationRequest(
+                episode=episode,
+                instructions=instructions,
+                scope=scope,
+                entry_ids=tuple(entry_ids or ()),
+                dry_run=dry_run,
+            )
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(scope, services):
+        if problem := await migration_gate(project_scope, services):
             return _to_mcp_result("text_generation", ToolOutcome(problem=problem))
         return _to_long_task_result(
             "text_generation",
             await _with_progress(
-                generate_episode_script(ToolRequest(request), scope, _authenticated_caller(), services),
+                generate_episode_script(ToolRequest(request), project_scope, _authenticated_caller(), services),
                 context,
                 "Generating episode script",
             ),

@@ -1064,7 +1064,9 @@ async def test_prompt_authoring_preserves_output_when_formal_script_changes_duri
     generator.generate = AsyncMock(side_effect=generate)
 
     with pytest.raises(DraftViolation) as excinfo:
-        await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
+        # scope="all"：脚本规划未变，默认的失配范围为空、不会调用模型；本用例测的是整集重写
+        # 期间正式剧本被并发改写的处置。
+        await ScriptGenerator(reference_project, generator=generator).generate(episode=1, scope="all")
 
     assert "formal_revision_conflict" in str(excinfo.value)
     assert _json.loads(formal.read_text(encoding="utf-8"))["title"] == "并发正式标题"
@@ -1092,7 +1094,8 @@ async def test_prompt_authoring_violation_keeps_generation_start_formal_baseline
     generator.generate = AsyncMock(side_effect=generate)
 
     with pytest.raises(DraftViolation):
-        await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
+        # 同上：脚本规划未变，整集重写须显式声明 scope。
+        await ScriptGenerator(reference_project, generator=generator).generate(episode=1, scope="all")
 
     assert _json.loads(formal.read_text(encoding="utf-8"))["title"] == "并发正式标题"
     envelope = _json.loads(_prompt_authoring_quarantine(reference_project).read_text(encoding="utf-8"))
