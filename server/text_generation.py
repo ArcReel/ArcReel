@@ -828,6 +828,7 @@ async def generate_drama_script_plan(
             target_language=cast(str, prompt_inputs["target_language"]),
             source_language=cast(str | None, prompt_inputs["source_language"]),
             speech_rate_override=cast(float | None, prompt_inputs["speech_rate_override"]),
+            episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
         )
         prompt = append_user_instructions(prompt, instructions)
 
@@ -1468,6 +1469,7 @@ async def generate_reference_script_plan(
             target_language=cast(str, prompt_inputs["target_language"]),
             source_language=cast(str | None, prompt_inputs["source_language"]),
             speech_rate_override=cast(float | None, prompt_inputs["speech_rate_override"]),
+            episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
             episode_outline=cast(dict[str, Any] | None, prompt_inputs["episode_outline"]),
             next_episode_outline=cast(dict[str, Any] | None, prompt_inputs["next_episode_outline"]),
         )
@@ -1613,6 +1615,7 @@ async def generate_narration_script_plan(
             supported_durations=supported_durations,
             episode=episode,
             target_language=cast(str, prompt_inputs["target_language"]),
+            episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
         )
         prompt = append_user_instructions(prompt, instructions)
 

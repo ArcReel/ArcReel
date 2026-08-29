@@ -74,6 +74,36 @@ class TestProjectsRouter:
             assert data["default_text_backend"] == "gemini-aistudio/gemini-2.5"
             assert data["default_duration"] == 8
 
+    def test_create_project_persists_episode_target_duration(self, tmp_path, monkeypatch):
+        """单集目标时长在创建向导写入；越界值 422 且不留下半成品项目。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "name": "etd-ok",
+                    "title": "目标时长",
+                    "episode_target_duration": 120,
+                },
+            )
+            assert resp.status_code == 200
+            assert fake_pm.project_data["etd-ok"]["episode_target_duration"] == 120
+
+            rejected = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "name": "etd-bad",
+                    "title": "越界",
+                    "episode_target_duration": 5,
+                },
+            )
+            assert rejected.status_code == 422
+            assert "etd-bad" not in fake_pm.project_data
+
     def test_create_project_with_image_default_layer(self, tmp_path, monkeypatch):
         """项目默认图片模型（default_image_backend）可在创建时写入，不必配桶。"""
         fake_pm = _FakePM(tmp_path)

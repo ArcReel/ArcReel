@@ -23,6 +23,7 @@ from lib import script_review
 from lib.config.resolver import ConfigResolver, resolve_raw_supported_durations
 from lib.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING, quarantine_path, read_quarantine, violation_entries
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
+from lib.episode_target_duration import project_episode_target_duration
 from lib.json_io import load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
@@ -279,6 +280,9 @@ class ScriptReviewService:
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
             "content": content,
             "supported_durations": supported_durations,
+            # 项目级「单集目标时长」偏好（秒），未设时 None。审核面板据它渲染「本集合计 / 目标」
+            # 对比；随 state 一起回传而非让前端另发一次项目请求，面板拿到的合计与目标出自同一次读取。
+            "episode_target_duration": project_episode_target_duration(project),
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:

@@ -155,6 +155,7 @@ export function CreateProjectModal() {
     gridStoryboard: false,
     targetDuration: 60,
     speechRate: null,
+    episodeTargetDuration: null,
   });
 
   const [models, setModels] = useState<ModelConfigValue>({
@@ -316,7 +317,13 @@ export function CreateProjectModal() {
         // ad 不暴露 default_duration（按目标总时长逐个分镜规划），改传 target_duration
         ...(isAd
           ? { target_duration: basics.targetDuration }
-          : { default_duration: models.defaultDuration }),
+          : {
+              default_duration: models.defaultDuration,
+              // 未设目标即不传（服务端不落盘，脚本规划不注入该软约束）
+              ...(basics.episodeTargetDuration !== null
+                ? { episode_target_duration: basics.episodeTargetDuration }
+                : {}),
+            }),
         style_template_id: style.mode === "template" ? style.templateId : null,
         video_backend: models.videoBackend || null,
         default_image_backend: models.imageBackendDefault || null,

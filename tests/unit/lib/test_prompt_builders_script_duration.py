@@ -1,10 +1,15 @@
-"""验证 _format_duration_constraint 按连续性切换文案，且不允许空 supported_durations。"""
+"""script_plan prompt 的时长约束：档位文案、空集守卫与单集目标时长软约束的注入。"""
 
 from __future__ import annotations
 
 import pytest
 
-from lib.prompt_builders_script import _format_duration_constraint
+from lib.prompt_builders_script import (
+    _format_duration_constraint,
+    build_narration_split_prompt,
+    build_normalize_prompt,
+)
+from lib.prompt_rules.episode_target_duration import render_episode_target_duration_rule
 
 
 class TestFormatDurationConstraint:
@@ -42,3 +47,58 @@ class TestBuildersRequireDurations:
     def test_format_constraint_rejects_empty(self):
         with pytest.raises(ValueError, match="supported_durations 不能为空"):
             _format_duration_constraint([], default_duration=None)
+
+
+def _drama_prompt(**overrides) -> str:
+    kwargs = dict(
+        novel_text="text",
+        project_overview={},
+        style="s",
+        characters={},
+        scenes={},
+        props={},
+        default_duration=None,
+        supported_durations=[4, 8],
+        episode=1,
+    )
+    kwargs.update(overrides)
+    return build_normalize_prompt(**kwargs)
+
+
+def _narration_prompt(**overrides) -> str:
+    kwargs = dict(
+        novel_text="text",
+        project_overview={},
+        characters={},
+        scenes={},
+        props={},
+        default_duration=None,
+        supported_durations=[4, 8],
+        episode=1,
+    )
+    kwargs.update(overrides)
+    return build_narration_split_prompt(**kwargs)
+
+
+class TestEpisodeTargetDurationInjection:
+    """单集目标时长非 None 时注入共享软约束句；未设时提示词与不带该参数时逐字相同。"""
+
+    def test_drama_prompt_carries_the_shared_rule(self):
+        prompt = _drama_prompt(episode_target_duration=120)
+        assert render_episode_target_duration_rule(120) in prompt
+
+    def test_narration_prompt_carries_the_shared_rule(self):
+        prompt = _narration_prompt(episode_target_duration=120)
+        assert render_episode_target_duration_rule(120) in prompt
+
+    def test_drama_prompt_is_unchanged_without_a_target(self):
+        assert _drama_prompt(episode_target_duration=None) == _drama_prompt()
+
+    def test_narration_prompt_is_unchanged_without_a_target(self):
+        assert _narration_prompt(episode_target_duration=None) == _narration_prompt()
+
+    def test_the_rule_coexists_with_the_default_duration_preference(self):
+        """两条约束尺度不同（整集体量 vs 单场秒数），须同时呈现而非互相取代。"""
+        prompt = _drama_prompt(default_duration=8, episode_target_duration=120)
+        assert render_episode_target_duration_rule(120) in prompt
+        assert "默认 8 秒" in prompt

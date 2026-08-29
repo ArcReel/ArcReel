@@ -415,6 +415,42 @@ describe("CreateProjectModal ad mode", () => {
     const payload = vi.mocked(API.createProject).mock.calls[0][0];
     expect("target_duration" in payload).toBe(false);
   });
+
+  it("submits the episode target duration typed in the wizard", async () => {
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    fireEvent.change(screen.getByLabelText(/单集目标时长/), { target: { value: "120" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+
+    expect(API.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({ episode_target_duration: 120 })
+    );
+  });
+
+  it("omits the episode target duration when it is left empty", async () => {
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+
+    const payload = vi.mocked(API.createProject).mock.calls[0][0];
+    expect("episode_target_duration" in payload).toBe(false);
+  });
 });
 
 // 供应商名由后端按 Accept-Language 成文，替身按当前语言返回对应译名。

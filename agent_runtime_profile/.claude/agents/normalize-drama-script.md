@@ -43,6 +43,7 @@ mcp__arcreel__get_video_capabilities({})
 解析返回的 JSON，记录：
 - `supported_durations`：单分镜时长允许取值集合
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
+- `episode_target_duration`：用户在项目设置中指定的单集成片目标时长（秒，可能为 null）——本集各单元时长合计的**软目标**，据它决定本集拆多少个单元
 - `max_duration`：当前视频模型单分镜时长上限
 
 **校验**：若 `default_duration` 非 null 但**不在** `supported_durations` 内，按 null 处理（用户配置漂移导致的非法值，下游 `mcp__arcreel__generate_script_plan` / `generate_episode_script` 在调用时也会拒绝这种值）。
@@ -204,6 +205,6 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "bas
 
 - 分镜 ID 格式：E{集数}S{两位序号}；如需拆分同一主分镜，用 E{集数}S{两位序号}_{子序号}（如 `E3S05_1`），与共享模型 `scene_id` 接受的形态一致（集数 = 当前 episode，由调用工具时的 `episode` 参数决定）
 - 每个分镜宜为一个独立的视觉画面，可在指定时长内完成
-- 时长决策序（高到低）：硬约束（取值必须在 Step 0 查得的 `supported_durations` 内，不超过 `max_duration`）> `default_duration` 偏好（非 null 时优先贴近）> 按内容取值（复杂画面如打斗 / 大场面 / 情绪铺陈可取更长值）
+- 时长决策序（高到低）：硬约束（取值必须在 Step 0 查得的 `supported_durations` 内，不超过 `max_duration`）> `default_duration` 偏好（非 null 时优先贴近）与本集体量（本集各单元时长合计向 `episode_target_duration` 靠拢（非 null 时；软目标，内容不足宁少拆、内容需要可超出））> 按内容取值（复杂画面如打斗 / 大场面 / 情绪铺陈可取更长值）
 - segment_break 标记真正的镜头切换点（场景、时间、地点的重大变化）
 - 口播逐字落 `utterances`（dialogue 带 speaker、voiceover 无 speaker）、原文逐字落 `source_text`；`novel` 画外音由语境判断、`screenplay` 逐字保留，泛指群演不进 characters_in_scene

@@ -44,6 +44,7 @@ from lib.config.service import (
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.episode_target_duration import project_episode_target_duration
 from lib.project_manager import get_project_manager
 from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 
@@ -933,6 +934,7 @@ class ConfigResolver:
               "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
+              "episode_target_duration": int | None,  # 用户设置的单集目标时长（秒）软偏好，非模型能力
               "content_mode": str | None,
               "generation_mode": str | None,       # 项目生成模式（无项目上下文时 None）
               "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode × 绑定方式
@@ -1528,6 +1530,10 @@ class ConfigResolver:
 
         default_duration: int | None = None
         content_mode: str | None = None
+        # 单集目标时长不是模型能力，随能力查询一起回传只因它与 default_duration 同为「决定时长时
+        # 要看的项目偏好」：脚本规划子智能体一次 get_video_capabilities 就能拿齐决策所需的全部输入，
+        # 不必为一个偏好字段另开一个工具往返。解析走 lib.episode_target_duration 的读时守卫。
+        episode_target_duration = project_episode_target_duration(project)
         if project is not None:
             raw_default = project.get("default_duration")
             if isinstance(raw_default, int):
@@ -1561,6 +1567,7 @@ class ConfigResolver:
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,
             "default_duration": default_duration,
+            "episode_target_duration": episode_target_duration,
             "content_mode": content_mode,
             "generation_mode": generation_mode,
             "voice_consistency": voice_consistency,

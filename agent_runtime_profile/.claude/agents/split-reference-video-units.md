@@ -55,6 +55,7 @@ mcp__arcreel__get_video_capabilities({})
   仅作参考，取值一律以 `reference_unit_durations` 为准
 - `max_reference_images`：单个视频单元的参考图上限（即正文里去重后的 `@[名称]` 提及数上限）
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
+- `episode_target_duration`：用户在项目设置中指定的单集成片目标时长（秒，可能为 null）——本集各单元时长合计的**软目标**，据它决定本集拆多少个单元
 
 情况 A（首次生成）时由 `mcp__arcreel__generate_script_plan` 自行查询并注入 prompt，子智能体可不直接使用；
 情况 B（修改已有拆分）需参考这些值决定新值。
@@ -143,7 +144,8 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 }
 ```
 
-> 填值规则：`<duration>` 必须取自 Step 0 查得的 `reference_unit_durations` 中该视频单元引用状态对应的那套，宜贴近内容实际需要的长度。
+> 填值规则：`<duration>` 必须取自 Step 0 查得的 `reference_unit_durations` 中该视频单元引用状态对应的那套，宜贴近内容实际需要的长度；
+> `episode_target_duration` 非 null 时按该目标打包本集（本集各单元时长合计向 `episode_target_duration` 靠拢（非 null 时；软目标，内容不足宁少拆、内容需要可超出）），不无条件贴近 `max_duration`。
 > `<集号>` 由 `mcp__arcreel__generate_script_plan` 工具在调用时按当前 episode 注入；本示例用占位符避免误把 `E1` 当硬编码值。
 
 ### 返回摘要

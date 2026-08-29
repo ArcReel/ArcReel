@@ -9,7 +9,7 @@
 
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定（广告/短片默认 9:16 竖屏），无需在 prompt 中指定
-- **时长规划**：广告/短片项目**没有** `default_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
+- **时长规划**：广告/短片项目**没有** `default_duration` 与 `episode_target_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
   - 分镜图生视频：单分镜时长必须取所选视频模型 `supported_durations` 中的值；子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
   - 参考生视频：每个视频单元持有符合剧本模型结构约束的正整数编排时长，视频单元内不单列分镜时长；生成预检会把编排时长投影到供应商申请档位
 - **图片分辨率**：1K

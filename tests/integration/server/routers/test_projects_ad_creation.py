@@ -54,6 +54,18 @@ class TestProjectsRouter:
             )
             assert with_default.status_code == 400
 
+            # ad 不暴露 episode_target_duration（整集体量按 target_duration 预算规划）
+            with_episode_target = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "name": "ad-etd",
+                    "content_mode": "ad",
+                    "episode_target_duration": 120,
+                },
+            )
+            assert with_episode_target.status_code == 400
+
             # ad 不开放宫格分镜
             with_grid = client.post(
                 "/api/v1/projects",
@@ -122,6 +134,8 @@ class TestProjectsRouter:
             assert client.patch("/api/v1/projects/ad-ready", json={"default_duration": 8}).status_code == 400
             # 字段出现即拒绝:null 也不允许(否则会静默删除返回 200,与禁写契约不一致)
             assert client.patch("/api/v1/projects/ad-ready", json={"default_duration": None}).status_code == 400
+            assert client.patch("/api/v1/projects/ad-ready", json={"episode_target_duration": 120}).status_code == 400
+            assert client.patch("/api/v1/projects/ad-ready", json={"episode_target_duration": None}).status_code == 400
             assert client.patch("/api/v1/projects/ad-ready", json={"grid_storyboard": True}).status_code == 400
             assert client.patch("/api/v1/projects/ad-ready", json={"target_duration": None}).status_code == 400
 

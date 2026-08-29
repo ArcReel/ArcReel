@@ -12,6 +12,7 @@ const baseValue = {
   gridStoryboard: false,
   targetDuration: 60,
   speechRate: null,
+  episodeTargetDuration: null,
 };
 
 const GRID_BAR_NAME = "多宫格分镜";
@@ -27,6 +28,42 @@ describe("WizardStep1Basics", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
+  });
+
+  it("hides the episode target duration for ad projects", () => {
+    const { rerender } = render(
+      <WizardStep1Basics
+        value={{ ...baseValue, title: "demo" }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByLabelText(/单集目标时长/)).toBeInTheDocument();
+
+    rerender(
+      <WizardStep1Basics
+        value={{ ...baseValue, title: "demo", contentMode: "ad" }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.queryByLabelText(/单集目标时长/)).not.toBeInTheDocument();
+  });
+
+  it("blocks Next while the episode target duration is out of range", () => {
+    const onNext = vi.fn();
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, title: "demo", episodeTargetDuration: 5 }}
+        onChange={() => {}}
+        onNext={onNext}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    expect(onNext).not.toHaveBeenCalled();
   });
 
   it("blocks Next while the speech rate is out of range", () => {

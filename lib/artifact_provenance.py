@@ -12,6 +12,7 @@ from typing import Literal
 
 from lib.artifact_manifest import ArtifactBasis
 from lib.episode_ledger import episode_outline_context
+from lib.episode_target_duration import project_episode_target_duration
 from lib.speech_rate import project_speech_rate_override, speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
 
@@ -126,6 +127,10 @@ def project_script_plan_prompt_inputs(
         "scenes": _project_script_plan_asset_mapping(project.get("scenes")),
         "props": _project_script_plan_asset_mapping(project.get("props")),
         "target_language": source_language,
+        # 单集目标时长是项目持久化偏好、三条 script_plan 变体共用：设了目标就进 basis，改它
+        # 即让冻结的产出基线失效，因为它改变了下发给模型的拆分口径。未设时为 None，
+        # 由 _freeze_script_plan_prompt_inputs 剔出 basis（提示词此时与不带该参数时相同）。
+        "episode_target_duration": project_episode_target_duration(project),
     }
 
     if variant in {"reference_video", "drama"}:
@@ -196,6 +201,12 @@ def _freeze_script_plan_prompt_inputs(
     if generation_mode == "reference_video":
         for field in ("episode_outline", "next_episode_outline"):
             frozen[field] = _freeze_reference_outline(prompt_inputs.get(field))
+
+    # 未设单集目标时长时该键不进 basis：此时提示词与不带该参数时逐字相同，把 None 写进
+    # digest 会让每个从未用过该设置的存量项目的脚本规划与剧本产物一并判 stale。设了目标
+    # 才进 basis——那时提示词确实变了，冻结的基线就该失效。
+    if frozen.get("episode_target_duration") is None:
+        frozen.pop("episode_target_duration", None)
     return frozen
 
 

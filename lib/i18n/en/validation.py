@@ -8,8 +8,9 @@ MESSAGES = {
     "val_missing_field_at": "{prefix}: missing required field {field}",
     "val_field_type_string": "Field type error: {field} must be a string",
     "val_field_type_bool": "Field type error: {field} must be a boolean",
+    "val_field_type_integer": "Field type error: {field} must be an integer",
     "val_field_type_number": "Field type error: {field} must be a number",
-    "val_speech_rate_out_of_range": "{field} value {value} is out of range; it must be between {min} and {max}",
+    "val_field_out_of_range": "{field} value {value} is out of range; it must be between {min} and {max}",
     "val_field_must_be_string": "{field} must be a string",
     "val_field_must_be_string_typed": "{field} must be a string, got {actual}",
     "val_field_must_be_array": "{field} must be an array",
@@ -56,6 +57,10 @@ MESSAGES = {
     "val_ad_no_default_duration": (
         "Ad/short-film projects do not carry default_duration "
         "(shot durations are budgeted per shot against target_duration)"
+    ),
+    "val_ad_no_episode_target_duration": (
+        "Ad/short-film projects do not carry episode_target_duration "
+        "(overall episode length is budgeted against target_duration)"
     ),
     "val_ad_no_grid_storyboard": "Ad/short-film projects do not support multi-grid storyboards (grid_storyboard)",
     "val_ad_episodes_single": "Ad/short-film projects must always have exactly one episode entry (episode 1)",

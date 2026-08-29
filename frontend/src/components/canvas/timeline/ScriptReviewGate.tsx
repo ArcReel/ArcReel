@@ -14,6 +14,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
+import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import {
   ACCENT_BUTTON_STYLE,
@@ -22,6 +23,7 @@ import {
   GHOST_BTN_CLS,
   GHOST_BTN_LG_CLS,
 } from "@/components/ui/darkroom-tokens";
+import { sumItemDuration } from "@/utils/script-shape";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 
 interface ScriptReviewGateProps {
@@ -377,6 +379,16 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           </button>
         </div>
       </header>
+
+      {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
+      {!quarantined && (
+        <EpisodeDurationSummary
+          totalSeconds={sumItemDuration(
+            draft == null ? [] : "scenes" in draft ? draft.scenes : draft.segments,
+          )}
+          targetSeconds={state?.episode_target_duration ?? null}
+        />
+      )}
 
       {/* 结构化中间态卡片；待修复草稿在场时改为只读的违约面板 */}
       {quarantined ? (

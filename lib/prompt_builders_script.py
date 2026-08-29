@@ -10,6 +10,7 @@
 """
 
 from lib.prompt_rules.episode_pacing import render_pacing_section
+from lib.prompt_rules.episode_target_duration import render_episode_target_duration_rule
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
 
@@ -532,6 +533,7 @@ def build_normalize_prompt(
     target_language: str = "中文",
     source_language: str | None = None,
     speech_rate_override: float | None = None,
+    episode_target_duration: int | None = None,
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
@@ -549,6 +551,10 @@ def build_normalize_prompt(
     ``lib.speech_rate`` 单一真相源，与保存期上界 warning、字幕派生同口径）；缺省 / 未登记回退默认语速。
     ``speech_rate_override`` 是项目级语速覆盖（由调用方经 ``project_speech_rate_override`` 解析），
     ``None`` 即无覆盖、回退语言默认。
+
+    ``episode_target_duration`` 是项目级「单集目标时长」偏好（秒，由调用方经
+    ``project_episode_target_duration`` 解析），驱动模型决定本集拆多少个场景；``None`` 即未设目标、
+    不注入该段。它与 ``default_duration`` 是两个尺度（整集体量 vs 单场默认秒数），同为软偏好。
     """
     char_list = _format_names(characters)
     scene_list = _format_names(scenes)
@@ -621,7 +627,12 @@ def build_normalize_prompt(
         "utterances 为空（纯画面、无口播）的场景没有此下界、按画面自行取值；"
         f"若口播估算已超过最长 {max_dur} 秒，取最长档即可（不删减台词、不强行压进短档），保存时会另有提示"
     )
+    # 单集目标时长（整集体量）与上面两条（单场秒数）尺度不同，缀在同一条时长规则末尾共同呈现：
+    # 模型据它决定拆多少场，据上面两条决定每场多长。未设目标时该段为空、规则退回现状。
+    episode_target_rule = render_episode_target_duration_rule(episode_target_duration)
     duration_rule = f"{base_duration_rule}。{duration_lower_bound_rule}"
+    if episode_target_rule:
+        duration_rule = f"{duration_rule}。{episode_target_rule}"
     pacing_block = render_pacing_section("drama") + "\n\n"
 
     return f"""{task_line}
@@ -696,6 +707,7 @@ def build_narration_split_prompt(
     supported_durations: list[int],
     episode: int,
     target_language: str = "中文",
+    episode_target_duration: int | None = None,
 ) -> str:
     """脚本规划的旁白/解说分镜拆分 prompt：源文 → 结构化分镜表（逐字 novel_text + 时长 + 资产登记）。
 
@@ -708,6 +720,9 @@ def build_narration_split_prompt(
     ``default_duration`` 为单分镜默认秒数偏好；与 ``build_normalize_prompt`` 不同，此处对漂移到
     ``supported_durations`` 之外的 default 按 None 处理（软偏好、可被内容需要覆盖），不 fail-loud——
     与 split-narration-segments 子智能体的「default 非成员按 null」口径一致。
+
+    ``episode_target_duration`` 是项目级「单集目标时长」偏好（秒），驱动模型决定本集拆多少个分镜；
+    ``None`` 即未设目标、不注入该段。与 ``default_duration`` 是两个尺度，同为软偏好。
     """
     normalized_durations = sorted({int(d) for d in supported_durations})
     if not normalized_durations:
@@ -724,6 +739,10 @@ def build_narration_split_prompt(
         )
     else:
         duration_rule = f"按朗读节奏从档位（{durations_str}）中取值（最长 {max_dur} 秒），不强制默认值"
+    # 与 build_normalize_prompt 同口径：整集体量的软目标缀在单分镜秒数规则之后共同呈现。
+    episode_target_rule = render_episode_target_duration_rule(episode_target_duration)
+    if episode_target_rule:
+        duration_rule = f"{duration_rule}。{episode_target_rule}"
     pacing_block = render_pacing_section("narration") + "\n\n"
 
     character_names = list(characters.keys())

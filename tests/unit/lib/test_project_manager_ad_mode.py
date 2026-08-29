@@ -55,6 +55,12 @@ class TestCreateAdProjectMetadata:
         with pytest.raises(ValueError, match="default_duration"):
             pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", default_duration=8)
 
+    def test_ad_rejects_episode_target_duration(self, tmp_path):
+        pm = _pm(tmp_path)
+        pm.create_project("demo-ad", content_mode="ad")
+        with pytest.raises(ValueError, match="episode_target_duration"):
+            pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", episode_target_duration=120)
+
     def test_ad_rejects_non_string_brief(self, tmp_path):
         pm = _pm(tmp_path)
         pm.create_project("demo-ad", content_mode="ad")
@@ -92,3 +98,17 @@ class TestCreateAdProjectMetadata:
         assert "brief" not in project
         assert project["default_duration"] == 4
         assert project["episodes"] == []
+
+    def test_non_ad_persists_episode_target_duration(self, tmp_path):
+        pm = _pm(tmp_path)
+        pm.create_project("demo", content_mode="narration")
+        project = pm.create_project_metadata("demo", "Demo", "Anime", "narration", episode_target_duration=120)
+
+        assert project["episode_target_duration"] == 120
+        assert pm.load_project("demo")["episode_target_duration"] == 120
+
+    def test_out_of_range_episode_target_duration_rejected(self, tmp_path):
+        pm = _pm(tmp_path)
+        pm.create_project("demo", content_mode="narration")
+        with pytest.raises(ValueError, match="episode_target_duration"):
+            pm.create_project_metadata("demo", "Demo", "Anime", "narration", episode_target_duration=5)

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from lib.prompt_rules.episode_target_duration import render_episode_target_duration_rule
 from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
@@ -79,6 +80,7 @@ def build_reference_units_split_prompt(
     target_language: str = "中文",
     source_language: str | None = None,
     speech_rate_override: float | None = None,
+    episode_target_duration: int | None = None,
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
@@ -102,6 +104,9 @@ def build_reference_units_split_prompt(
         source_language: 项目源文语言码（zh / en / vi 或 None），供台词口播时长下界取语速。
         speech_rate_override: 项目级语速覆盖（阅读单位 / 秒，由调用方经
             ``project_speech_rate_override`` 解析）；None 即无覆盖、回退语言默认。
+        episode_target_duration: 项目级「单集目标时长」偏好（秒，由调用方经
+            ``project_episode_target_duration`` 解析）。设了目标时打包效率按该目标组织，
+            未设（None）时按单次生成上限组织，与不设该项的项目行为一致。
         episode_outline / next_episode_outline: 分集账本大纲（``episode_outline_context``
             的返回值），用于约束本集内容边界；为 None 时不插入该段。
     """
@@ -164,6 +169,17 @@ def build_reference_units_split_prompt(
         if max_reference_images is not None
         else ""
     )
+    # 打包效率：未设单集目标时长时按单次生成上限组织（拆得越满，同样内容的生成调用越少）；
+    # 设了目标时改为在目标内组织——无条件贴近上限会把体量本就不大的一集拆成一串满档 unit，
+    # 正是「单集目标时长」要收敛的那个行为。
+    episode_target_rule = render_episode_target_duration_rule(episode_target_duration)
+    if episode_target_rule:
+        packing_rule = (
+            f"在 1-3 之内组织正文内容，按本集目标时长打包——{episode_target_rule}；"
+            f"单个 unit 在目标之内可长可短，不必贴近单次上限 {max_duration} 秒，也不要默认选最短 / 保守值。"
+        )
+    else:
+        packing_rule = f"在 1-3 之内组织正文内容，使 unit 时长贴近 {max_duration} 秒；不要默认选最短 / 保守值。"
     # 语速从 lib.speech_rate 单一真相源取（项目级覆盖优先、否则按 source_language 的语言默认）、
     # 不写死；与工具侧的台词超载后校验同一套换算，prompt 给的下界和校验器判的上界因此是同一把尺。
     source_language = source_language if isinstance(source_language, str) else None
@@ -224,7 +240,7 @@ def build_reference_units_split_prompt(
      取**不低于**这个秒数的档位。这是单向下界——台词永不压进念不完的短档；无台词的 unit 没有此下界。
      台词量超过最长档（{max_duration} 秒）时把该 unit 拆开，不要把台词硬塞进一个 unit。
   3. 默认偏好：{default_rule}。
-  4. 打包效率：在 1-3 之内组织正文内容，使 unit 时长贴近 {max_duration} 秒；不要默认选最短 / 保守值。{max_refs_rule}
+  4. 打包效率：{packing_rule}{max_refs_rule}
 
 # 正文书写语法
 

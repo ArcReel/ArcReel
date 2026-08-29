@@ -16,6 +16,7 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     quarantine: null,
     supported_durations: null,
     duration_tiers: null,
+    episode_target_duration: null,
     content: {
       title: "第一集",
       scenes: [
@@ -49,6 +50,7 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     quarantine: null,
     supported_durations: null,
     duration_tiers: null,
+    episode_target_duration: null,
     content: {
       segments: [
         {
@@ -116,6 +118,32 @@ describe("ScriptReviewGate", () => {
     });
     // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
     expect(baseFingerprint).toBe("fp1");
+  });
+
+  it("compares the episode total against the project target", async () => {
+    // dramaState 只有一个 8 秒场景，目标 30 秒 → 未超出，用中性对比文案
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ episode_target_duration: 30 }));
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("本集合计 8 秒 / 目标 30 秒")).toBeInTheDocument());
+  });
+
+  it("flags an over-target episode without blocking confirmation", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ episode_target_duration: 5 }));
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/本集合计 8 秒，比目标 5 秒多 3 秒/)).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeEnabled();
+  });
+
+  it("shows no comparison when the project has no target", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("E1S01")).toBeInTheDocument());
+    expect(screen.queryByText(/目标/)).not.toBeInTheDocument();
   });
 
   it("renders narration novel_text as editable", async () => {

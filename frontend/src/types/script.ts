@@ -173,6 +173,11 @@ export interface ScriptReviewState {
    * 时为 null，呈现层退回 `supported_durations` 的未收窄全集。
    */
   duration_tiers: { with_references: number[]; without_references: number[] } | null;
+  /**
+   * 项目级「单集目标时长」偏好（秒），未设时 null。审核面板据它渲染「本集合计 / 目标」对比；
+   * 超出目标只提示，不阻断确认与后续生成。
+   */
+  episode_target_duration: number | null;
 }
 
 export interface Composition {

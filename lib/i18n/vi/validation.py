@@ -8,8 +8,9 @@ MESSAGES = {
     "val_missing_field_at": "{prefix}: thiếu trường bắt buộc {field}",
     "val_field_type_string": "Sai kiểu trường: {field} phải là chuỗi",
     "val_field_type_bool": "Sai kiểu trường: {field} phải là boolean",
+    "val_field_type_integer": "Sai kiểu trường: {field} phải là số nguyên",
     "val_field_type_number": "Sai kiểu trường: {field} phải là số",
-    "val_speech_rate_out_of_range": "Giá trị {value} của {field} nằm ngoài phạm vi; phải từ {min} đến {max}",
+    "val_field_out_of_range": "Giá trị {value} của {field} nằm ngoài phạm vi; phải từ {min} đến {max}",
     "val_field_must_be_string": "{field} phải là chuỗi",
     "val_field_must_be_string_typed": "{field} phải là chuỗi, hiện là {actual}",
     "val_field_must_be_array": "{field} phải là mảng",
@@ -56,6 +57,10 @@ MESSAGES = {
     "val_ad_no_default_duration": (
         "Dự án quảng cáo/phim ngắn không có default_duration "
         "(thời lượng từng cảnh quay được hoạch định theo ngân sách target_duration)"
+    ),
+    "val_ad_no_episode_target_duration": (
+        "Dự án quảng cáo/phim ngắn không có episode_target_duration "
+        "(tổng thời lượng mỗi tập được hoạch định theo ngân sách target_duration)"
     ),
     "val_ad_no_grid_storyboard": "Dự án quảng cáo/phim ngắn không hỗ trợ phân cảnh đa lưới (grid_storyboard)",
     "val_ad_episodes_single": "Dự án quảng cáo/phim ngắn phải luôn có đúng một mục tập (tập 1)",
