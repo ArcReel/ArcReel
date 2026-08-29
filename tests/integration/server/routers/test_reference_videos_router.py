@@ -11,8 +11,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
-from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -67,7 +67,7 @@ def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     migrate_v7_to_v8(proj_dir)
-    migrate_v8_to_v9(proj_dir)
+    migrate_project_dir(proj_dir)
 
     # Patch project_manager 的根目录
     from lib.project_manager import ProjectManager

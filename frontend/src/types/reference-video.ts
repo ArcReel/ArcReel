@@ -220,11 +220,11 @@ export interface ScriptPreview {
 }
 
 /**
- * reference_video step1 结构化中间态（内容确认的可审 / 可改对象）。映射后端
- * lib/script_models.py 的 ReferenceStep1Unit / ReferenceStep1Draft：step1 定内容层
- * （unit 边界 + unit 时长 + 单元正文），step2 视觉编排由用户确认后才触发。
+ * reference_video script_plan 结构化中间态（内容确认的可审 / 可改对象）。映射后端
+ * lib/script_models.py 的 ReferenceScriptPlanUnit / ReferenceScriptPlanDraft：script_plan 定内容层
+ * （unit 边界 + unit 时长 + 单元正文），prompt_authoring 视觉编排由用户确认后才触发。
  */
-export interface ReferenceStep1Unit {
+export interface ReferenceScriptPlanUnit {
   unit_id: string;
   /** 单元正文，用 `@[名称]` 引用已登记资产。 */
   text: string;
@@ -234,23 +234,23 @@ export interface ReferenceStep1Unit {
   source_text: string;
 }
 
-export interface ReferenceStep1Draft {
-  units: ReferenceStep1Unit[];
+export interface ReferenceScriptPlanDraft {
+  units: ReferenceScriptPlanUnit[];
 }
 
 /**
- * step1 的扁平草稿结构（草稿装的是这个，不是落盘的 `ReferenceStep1Draft`）：
+ * script_plan 的扁平草稿结构（草稿装的是这个，不是落盘的 `ReferenceScriptPlanDraft`）：
  * `unit_id` 机器派生，落盘前才有——草稿中只有时长 + 原文锚 + 一段引用语法正文。
- * Mirrors lib/script_models.py ReferenceStep1FlatUnit / ReferenceStep1FlatDraft。
+ * Mirrors lib/script_models.py ReferenceScriptPlanFlatUnit / ReferenceScriptPlanFlatDraft。
  */
-export interface ReferenceStep1FlatUnit {
+export interface ReferenceScriptPlanFlatUnit {
   duration_seconds: number;
   source_text: string;
   text: string;
 }
 
-export interface ReferenceStep1FlatDraft {
-  units: ReferenceStep1FlatUnit[];
+export interface ReferenceScriptPlanFlatDraft {
+  units: ReferenceScriptPlanFlatUnit[];
 }
 
 /**
@@ -271,7 +271,7 @@ export interface ScriptReviewViolation {
 }
 
 /**
- * step1 草稿信息（`ScriptReviewState.quarantine`）：草稿在场时才非 null，三条 step1
+ * script_plan 草稿信息（`ScriptReviewState.quarantine`）：草稿在场时才非 null，三条 script_plan
  * 路线都可能出现。`content` 是读时按同一校验器重算后的草稿层内容（校验通过部分已收编，未通过
  * 部分原样呈现 Agent 手改的文本）；`violations` 同样是读时重算的结果，不是草稿里上一轮的报告
  * 快照。

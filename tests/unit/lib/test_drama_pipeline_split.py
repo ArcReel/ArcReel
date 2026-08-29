@@ -1,9 +1,9 @@
-"""drama 两段式流水线切分（step1 内容 / step2 视觉）的模型、合并与校验测试。
+"""drama 两段式流水线切分（script_plan 内容 / prompt_authoring 视觉）的模型、合并与校验测试。
 
 覆盖：
 - DramaScene.source_text 字段
-- step1 内容模型 DramaSceneContent / DramaNormalizedScript（含 duration 枚举硬约束）
-- step2 视觉模型 DramaSceneVisual / DramaVisualScript
+- script_plan 内容模型 DramaSceneContent / DramaNormalizedScript（含 duration 枚举硬约束）
+- prompt_authoring 视觉模型 DramaSceneVisual / DramaVisualScript
 - merge_drama_visual_into_scenes：按 scene_id 合并、唯一性 + 全覆盖校验
 """
 
@@ -103,7 +103,7 @@ class TestDramaSceneContent:
         assert content.scene_description
 
     def test_content_scene_rejects_visual_fields(self):
-        # 视觉字段不属于 step1 内容；extra=forbid 应拒绝
+        # 视觉字段不属于 script_plan 内容；extra=forbid 应拒绝
         with pytest.raises(ValidationError):
             DramaSceneContent.model_validate(_content_scene(image_prompt={"scene": "x"}))
 
@@ -175,13 +175,13 @@ class TestMergeDramaVisualIntoScenes:
         visual = [_visual_scene("E1S02"), _visual_scene("E1S01")]
         merged = merge_drama_visual_into_scenes(content, visual)
         assert [s["scene_id"] for s in merged] == ["E1S01", "E1S02"]  # 保持内容顺序
-        # 每个合并结果都是合法 DramaScene，且携带 step1 的 utterances/source_text
+        # 每个合并结果都是合法 DramaScene，且携带 script_plan 的 utterances/source_text
         for scene in merged:
             DramaScene.model_validate(scene)
             assert scene["utterances"]
             assert scene["source_text"]
             assert "image_prompt" in scene and "video_prompt" in scene
-            # scene_description 是 step1 视觉基底，不进最终 DramaScene
+            # scene_description 是 script_plan 视觉基底，不进最终 DramaScene
             assert "scene_description" not in scene
 
     def test_merge_passes_full_episode_validation(self):
@@ -195,7 +195,7 @@ class TestMergeDramaVisualIntoScenes:
             merge_drama_visual_into_scenes([_content_scene("E1S01"), _content_scene("E1S02")], [_visual_scene("E1S01")])
 
     def test_merge_non_dict_visual_item_raises(self):
-        # step2 校验降级返回原始 scenes 时可能混入非 dict 条目：须 fail-loud 抛 DramaVisualMergeError，
+        # prompt_authoring 校验降级返回原始 scenes 时可能混入非 dict 条目：须 fail-loud 抛 DramaVisualMergeError，
         # 而非对其调用 .get() 触发 AttributeError、绕过合并错误路径
         with pytest.raises(DramaVisualMergeError):
             merge_drama_visual_into_scenes([_content_scene("E1S01")], ["bad", _visual_scene("E1S01")])
@@ -213,12 +213,12 @@ class TestMergeDramaVisualIntoScenes:
             merge_drama_visual_into_scenes([_content_scene("E1S01")], [_visual_scene("E1S01"), _visual_scene("E1S01")])
 
     def test_merge_duplicate_content_scene_id_raises(self):
-        # step1 内容侧重复 scene_id：两个分镜会共用同一视觉、下游产物文件名撞键，须 fail-loud
+        # script_plan 内容侧重复 scene_id：两个分镜会共用同一视觉、下游产物文件名撞键，须 fail-loud
         with pytest.raises(DramaVisualMergeError):
             merge_drama_visual_into_scenes([_content_scene("E1S01"), _content_scene("E1S01")], [_visual_scene("E1S01")])
 
     def test_merge_visual_missing_visual_fields_raises(self):
-        # step2 校验降级返回的半成品视觉条目可能只有 scene_id、缺 image_prompt / video_prompt：
+        # prompt_authoring 校验降级返回的半成品视觉条目可能只有 scene_id、缺 image_prompt / video_prompt：
         # 须在合并阶段 fail-loud，而非写入 None 绕过 DramaVisualMergeError、拖到 save_script 才以通用异常失败
         with pytest.raises(DramaVisualMergeError):
             merge_drama_visual_into_scenes([_content_scene("E1S01")], [{"scene_id": "E1S01"}])
@@ -231,7 +231,7 @@ class TestMergeDramaVisualIntoScenes:
 
 
 class TestEpisodeOutlineContext:
-    """内容抽取前移后，分集大纲（故事节点 / 钩子）作为 step1 内容生成的规划输入。"""
+    """内容抽取前移后，分集大纲（故事节点 / 钩子）作为 script_plan 内容生成的规划输入。"""
 
     def _project(self) -> dict:
         return {
@@ -264,7 +264,7 @@ class TestEpisodeOutlineContext:
         assert cur is not None and cur["story_beats"] == []
 
     def test_non_string_story_beats_items_filtered(self):
-        # list 内非字符串项（手编损坏）一并过滤，避免脏数据原样进 step1 prompt
+        # list 内非字符串项（手编损坏）一并过滤，避免脏数据原样进 script_plan prompt
         project = {"episodes": [{"episode": 1, "hook": "钩子", "outline": {"story_beats": ["下山", 42, None, "遇敌"]}}]}
         cur, _ = episode_outline_context(project, 1)
         assert cur is not None and cur["story_beats"] == ["下山", "遇敌"]

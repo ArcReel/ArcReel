@@ -411,7 +411,7 @@ describe("API", () => {
       await API.getSystemVersion();
       await API.updateSystemConfig({ default_image_backend: "vertex" });
       await API.listFiles("demo");
-      await API.deleteDraft("demo", 1, 2);
+      await API.deleteDraft("demo", 1, "script_plan");
       await API.generateOverview("demo");
       await API.updateOverview("demo", { synopsis: "new" });
 
@@ -741,7 +741,7 @@ describe("API", () => {
       });
     });
 
-    it("covers step1→step2 script-review gate endpoints", async () => {
+    it("covers script_plan→prompt_authoring script-review gate endpoints", async () => {
       const requestSpy = vi.spyOn(API, "request").mockResolvedValue({ status: "pending_review" } as never);
 
       const content = {
@@ -908,8 +908,8 @@ describe("API", () => {
       await expect(API.deleteSourceFile("demo", "source.txt")).resolves.toEqual({
         success: true,
       });
-      await expect(API.getDraftContent("demo", 1, 2)).resolves.toBe("draft content");
-      await expect(API.saveDraft("demo", 1, 2, "draft")).resolves.toEqual({
+      await expect(API.getDraftContent("demo", 1, "script_plan")).resolves.toBe("draft content");
+      await expect(API.saveDraft("demo", 1, "script_plan", "draft")).resolves.toEqual({
         success: true,
       });
 

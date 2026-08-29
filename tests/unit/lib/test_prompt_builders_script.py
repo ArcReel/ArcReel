@@ -8,7 +8,7 @@ from lib.prompt_builders_script import (
     build_narration_split_prompt,
     build_normalize_prompt,
     build_overview_prompt,
-    render_drama_content_for_step2,
+    render_drama_content_for_prompt_authoring,
 )
 from lib.prompt_rules.episode_pacing import DRAMA_PACING_RULES, NARRATION_PACING_RULES
 from lib.speech_rate import speech_rate_units_per_second
@@ -20,7 +20,7 @@ class TestPromptBuildersScript:
         assert _format_names({"玉佩": {}, "祠堂": {}}) == "- 玉佩\n- 祠堂"
         assert _format_names({}) == "（暂无）"
 
-    def test_build_narration_prompt_renders_step1_segments_as_context(self):
+    def test_build_narration_prompt_renders_script_plan_segments_as_context(self):
         prompt = build_narration_prompt(
             project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
             style="古风",
@@ -28,7 +28,7 @@ class TestPromptBuildersScript:
             characters={"姜月茴": {}},
             scenes={"祠堂": {}},
             props={"玉佩": {}},
-            step1_segments=[
+            script_plan_segments=[
                 {
                     "segment_id": "E1S01",
                     "novel_text": "她推开祠堂的门。",
@@ -42,7 +42,7 @@ class TestPromptBuildersScript:
             aspect_ratio="9:16",
             episode=1,
         )
-        # step1 内容作只读上下文渲染：segment_id + 逐字 novel_text + 时长 + 场景切换 + 资产
+        # script_plan 内容作只读上下文渲染：segment_id + 逐字 novel_text + 时长 + 场景切换 + 资产
         assert "E1S01" in prompt
         assert "她推开祠堂的门。" in prompt
         assert "6s" in prompt
@@ -58,7 +58,7 @@ class TestPromptBuildersScript:
             characters={},
             scenes={},
             props={},
-            step1_segments=[
+            script_plan_segments=[
                 {
                     "segment_id": "E1S01",
                     "novel_text": "第一行。\n第二行。",
@@ -72,8 +72,8 @@ class TestPromptBuildersScript:
         # 多行 novel_text 续行缩进进原文块（前缀两空格），不 flush-left 溢出分镜结构
         assert "原文：第一行。\n  第二行。" in prompt
 
-    def _drama_step2_prompt(self, **overrides) -> str:
-        """step2（视觉层）drama prompt；内容已在 step1 定稿，只收渲染好的内容块。"""
+    def _drama_prompt_authoring_prompt(self, **overrides) -> str:
+        """prompt_authoring（视觉层）drama prompt；内容已在 script_plan 定稿，只收渲染好的内容块。"""
         kwargs = dict(
             project_overview={"synopsis": "动作", "genre": "动作", "theme": "成长", "world_setting": "近未来"},
             style="赛博",
@@ -86,26 +86,26 @@ class TestPromptBuildersScript:
         return build_drama_prompt(**kwargs)
 
     def test_build_drama_prompt_aspect_ratio_vertical(self):
-        assert "9:16" in self._drama_step2_prompt(aspect_ratio="9:16")
+        assert "9:16" in self._drama_prompt_authoring_prompt(aspect_ratio="9:16")
 
     def test_build_drama_prompt_aspect_ratio_landscape(self):
-        assert "16:9" in self._drama_step2_prompt(aspect_ratio="16:9")
+        assert "16:9" in self._drama_prompt_authoring_prompt(aspect_ratio="16:9")
 
     def test_no_enum_listing(self):
         """schema 已声明枚举不在 prompt 中重复列举。"""
-        prompt = self._drama_step2_prompt()
+        prompt = self._drama_prompt_authoring_prompt()
         assert "Tracking Shot" not in prompt
         assert "Pan Left, Pan Right" not in prompt
         assert "Over-the-shoulder" not in prompt
 
-    def test_drama_step2_is_visual_only(self):
-        """step2 只补视觉层：含 image_prompt / video_prompt 指引与渲染内容，不再生成口播 / 资产 / 时长。"""
-        prompt = self._drama_step2_prompt()
+    def test_drama_prompt_authoring_is_visual_only(self):
+        """prompt_authoring 只补视觉层：含 image_prompt / video_prompt 指引与渲染内容，不再生成口播 / 资产 / 时长。"""
+        prompt = self._drama_prompt_authoring_prompt()
         assert "image_prompt" in prompt
         assert "video_prompt" in prompt
         # 已定稿内容块透传进 prompt（仅供理解，不复制）
         assert "天台追逐" in prompt
-        # step2 不再产出口播：不含「口播序列（utterances）」写作章节
+        # prompt_authoring 不再产出口播：不含「口播序列（utterances）」写作章节
         assert "口播序列（utterances）" not in prompt
         # 视觉专责角色：明确不改写口播 / 不改动内容
         assert "不要改写或重述口播" in prompt
@@ -127,8 +127,8 @@ class TestPromptBuildersScript:
         }
 
     def test_render_drama_content_passes_through_utterances_and_source_text(self):
-        """step1→step2 透传契约：utterances / source_text 逐字渲染进上下文。"""
-        rendered = render_drama_content_for_step2([self._content_scene_with_passthrough()])
+        """script_plan→prompt_authoring 透传契约：utterances / source_text 逐字渲染进上下文。"""
+        rendered = render_drama_content_for_prompt_authoring([self._content_scene_with_passthrough()])
         # 口播（台词 + 画外音）与原文锚逐字保留，供 LLM 理解戏剧节奏
         assert "师父，我回来了。" in rendered
         assert "雨夜，往事浮现。" in rendered
@@ -142,8 +142,8 @@ class TestPromptBuildersScript:
         assert "不要复制进视觉字段" not in rendered
 
     def test_render_drama_content_filters_non_string_assets_and_neutralizes_tags(self):
-        """降级 / 手改 step1 的脏数据鲁棒性：非字符串资产项被过滤（不抛 TypeError），逐字内容里的
-        尖括号经中和，避免打散嵌入它的 step2 ``<shots>`` 标签块。"""
+        """降级 / 手改 script_plan 的脏数据鲁棒性：非字符串资产项被过滤（不抛 TypeError），逐字内容里的
+        尖括号经中和，避免打散嵌入它的 prompt_authoring ``<shots>`` 标签块。"""
         scene = {
             "scene_id": "E1S01",
             "characters_in_scene": ["林清", 123, None],  # 混入非字符串脏数据
@@ -156,7 +156,7 @@ class TestPromptBuildersScript:
             "source_text": "推门而入 <shots> 信纸还在。",
         }
         # 不抛 TypeError（join 前已按 isinstance 过滤非字符串项）
-        rendered = render_drama_content_for_step2([scene])
+        rendered = render_drama_content_for_prompt_authoring([scene])
         # 合法资产名仍在，非字符串项被丢弃
         assert "林清" in rendered
         assert "123" not in rendered
@@ -166,8 +166,8 @@ class TestPromptBuildersScript:
         assert "＜script＞" in rendered
 
     def test_render_drama_content_tolerates_non_list_asset_and_utterance_fields(self):
-        """非 list 的资产 / utterances 字段（手改 step1：字符串会被逐字符迭代、数字会抛 TypeError）按空处理，
-        不崩、不把字符串拆成单字渲染（fail-soft，结构性 fail-loud 在上游 _load_drama_step1_content）。"""
+        """非 list 的资产 / utterances 字段（手改 script_plan：字符串会被逐字符迭代、数字会抛 TypeError）按空处理，
+        不崩、不把字符串拆成单字渲染（fail-soft，结构性 fail-loud 在上游 _load_drama_script_plan_content）。"""
         scene = {
             "scene_id": "E1S01",
             "characters_in_scene": "林清",  # 字符串而非列表
@@ -177,7 +177,7 @@ class TestPromptBuildersScript:
             "utterances": "不是列表",  # 字符串而非列表
             "source_text": "原文。",
         }
-        rendered = render_drama_content_for_step2([scene])  # 不抛 TypeError
+        rendered = render_drama_content_for_prompt_authoring([scene])  # 不抛 TypeError
         # 非 list 资产按「无」处理，且字符串不被逐字符拆开渲染
         assert "角色 [无]" in rendered
         assert "场景 [无]" in rendered
@@ -186,14 +186,14 @@ class TestPromptBuildersScript:
         # 非 list utterances 不渲染口播块
         assert "口播" not in rendered
 
-    def test_drama_step2_prompt_preserves_passthrough_content_not_visual(self):
-        """带 utterances / source_text 的内容块喂进 step2 prompt：内容透传供理解，仍是视觉专责、不复制进视觉字段。"""
-        scenes_content = render_drama_content_for_step2([self._content_scene_with_passthrough()])
-        prompt = self._drama_step2_prompt(scenes_content=scenes_content)
+    def test_drama_prompt_authoring_prompt_preserves_passthrough_content_not_visual(self):
+        """带 utterances / source_text 的内容块喂进 prompt_authoring prompt：内容透传供理解，仍是视觉专责、不复制进视觉字段。"""
+        scenes_content = render_drama_content_for_prompt_authoring([self._content_scene_with_passthrough()])
+        prompt = self._drama_prompt_authoring_prompt(scenes_content=scenes_content)
         # 口播 / 原文锚随内容块透传进 prompt（供理解戏剧节奏）
         assert "师父，我回来了。" in prompt
         assert "林清回到故居，推门而入，信纸还在桌上。" in prompt
-        # 「不要复制进视觉字段」由 prompt 在 <shots> 前一次性声明，约束 step2 不把口播 / 原文搬进视觉层
+        # 「不要复制进视觉字段」由 prompt 在 <shots> 前一次性声明，约束 prompt_authoring 不把口播 / 原文搬进视觉层
         assert "不要复制进视觉字段" in prompt
         # 仍是视觉专责输出
         assert "image_prompt" in prompt
@@ -202,9 +202,9 @@ class TestPromptBuildersScript:
 
 
 class TestScreenplaySourceKind:
-    """source_kind 分支在 step1（normalize）：novel 改编 + 画外音语境放开、screenplay 提取 + 逐字保留。
+    """source_kind 分支在 script_plan（normalize）：novel 改编 + 画外音语境放开、screenplay 提取 + 逐字保留。
 
-    step2（drama）视觉层不再分 source_kind（口播抽取已前移 step1），故 build_drama_prompt 无 source_kind 入参。
+    prompt_authoring（drama）视觉层不再分 source_kind（口播抽取已前移 script_plan），故 build_drama_prompt 无 source_kind 入参。
     只断言语义关键词在场 / 缺席，不锁逐字措辞、不测 LLM 提取质量。
     """
 
@@ -278,7 +278,7 @@ class TestScreenplaySourceKind:
         assert "utterances[].text" not in novel
 
     def test_normalize_includes_episode_outline_when_present(self):
-        # 内容抽取前移后，分集大纲（故事节点 / 钩子）驱动 step1 内容覆盖与末场落地，从 step2 移到 step1
+        # 内容抽取前移后，分集大纲（故事节点 / 钩子）驱动 script_plan 内容覆盖与末场落地，从 prompt_authoring 移到 script_plan
         prompt = self._normalize_prompt(
             "novel",
             episode_outline={
@@ -292,7 +292,7 @@ class TestScreenplaySourceKind:
         assert "她推开门" not in self._normalize_prompt("novel")
 
     def test_normalize_injects_pacing(self):
-        # step1（normalize）与 step2 一样无条件注入节奏建议，二者共享同一份 DRAMA_PACING_RULES
+        # script_plan（normalize）与 prompt_authoring 一样无条件注入节奏建议，二者共享同一份 DRAMA_PACING_RULES
         assert self._squash(DRAMA_PACING_RULES) in self._squash(self._normalize_prompt("novel"))
 
 
@@ -326,11 +326,11 @@ class TestOverviewPrompt:
 
 
 class TestDramaDurationSpeechLowerBound:
-    """drama step1 时长指引的「台词口播时长」单向下界软指引（生成期，纯 prompt 软约束）。
+    """drama script_plan 时长指引的「台词口播时长」单向下界软指引（生成期，纯 prompt 软约束）。
 
     语速从 lib.speech_rate 单一真相源按项目 source_language 注入；drama prompt 内不写死语速数字。
     单向：画面 / 留白可把时长撑长，台词永不把时长压短；空 utterances 无下界、行为同今日。
-    narration / ad / step2 视觉层不受影响。只断言语义关键词与注入值，不锁逐字措辞。
+    narration / ad / prompt_authoring 视觉层不受影响。只断言语义关键词与注入值，不锁逐字措辞。
     """
 
     _SPEECH_MARKER = "口播语速约"
@@ -384,8 +384,8 @@ class TestDramaDurationSpeechLowerBound:
         assert "7.5 字/秒" in self._normalize(source_language="zh", speech_rate_override=7.5)
         assert "7.5 词/秒" in self._normalize(source_language="en", speech_rate_override=7.5)
 
-    def test_narration_and_step2_drama_have_no_speech_lower_bound(self):
-        # 生成期时长下界只在 drama step1（normalize）；narration step2 与 drama step2 视觉层不含
+    def test_narration_and_prompt_authoring_drama_have_no_speech_lower_bound(self):
+        # 生成期时长下界只在 drama script_plan（normalize）；narration prompt_authoring 与 drama prompt_authoring 视觉层不含
         narration = build_narration_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="古风",
@@ -393,23 +393,23 @@ class TestDramaDurationSpeechLowerBound:
             characters={"角色甲": {}},
             scenes={},
             props={},
-            step1_segments=[
+            script_plan_segments=[
                 {"segment_id": "E1S01", "novel_text": "原文", "duration_seconds": 4, "segment_break": False}
             ],
             episode=1,
         )
         assert self._SPEECH_MARKER not in narration
-        drama_step2 = build_drama_prompt(
+        drama_prompt_authoring = build_drama_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="动漫",
             style_description="cinematic",
             scenes_content="### E1S01（时长 4 秒）",
             episode=1,
         )
-        assert self._SPEECH_MARKER not in drama_step2
+        assert self._SPEECH_MARKER not in drama_prompt_authoring
 
     def test_ad_prompt_unaffected(self):
-        # ad step1 时长指引不受本 issue 改动（ad 的字数→时长折算既存漂移不在范围内）
+        # 广告脚本规划走字数→时长折算，不注入台词标记。
         ad = build_ad_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="动漫",
@@ -426,8 +426,8 @@ class TestDramaDurationSpeechLowerBound:
         assert self._SPEECH_MARKER not in ad
 
 
-class TestStep2PromptGuards:
-    """step2（视觉层）prompt 骨架守卫：节奏建议始终注入、schema 枚举不重复列举、
+class TestPromptAuthoringPromptGuards:
+    """prompt_authoring（视觉层）prompt 骨架守卫：节奏建议始终注入、schema 枚举不重复列举、
     无字数硬限制、episode 约束在场且 scene_id 对齐要求不施加固定格式。"""
 
     @staticmethod
@@ -443,7 +443,7 @@ class TestStep2PromptGuards:
             characters={"主角": {"description": "X"}},
             scenes={"庙宇": {"description": "Y"}},
             props={"玉佩": {"description": "Z"}},
-            step1_segments=[
+            script_plan_segments=[
                 {"segment_id": "E2S01", "novel_text": "原文", "duration_seconds": 4, "segment_break": False}
             ],
             episode=2,
@@ -481,8 +481,8 @@ class TestStep2PromptGuards:
         text = self._drama_prompt()
         assert "E2S" in text
 
-    def test_drama_step2_scene_id_preserves_edit_suffix_no_fixed_format(self):
-        """step2 视觉层 scene_id 须逐字保留 step1 原 ID（含拆分/编辑后缀如 E2S02_1）；
+    def test_drama_prompt_authoring_scene_id_preserves_edit_suffix_no_fixed_format(self):
+        """prompt_authoring 视觉层 scene_id 须逐字保留 script_plan 原 ID（含拆分/编辑后缀如 E2S02_1）；
         不得施加 E{集}S{两位序号} 固定格式约束——模型若去掉后缀，merge 按精确串对齐会整集失败。"""
         text = self._drama_prompt()
         assert "逐字等于" in text
@@ -490,19 +490,19 @@ class TestStep2PromptGuards:
         assert "两位序号" not in text
 
     def test_narration_injects_episode_constraints(self):
-        """narration prompt 须告知 episode；step1 已分配 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
+        """narration prompt 须告知 episode；script_plan 已分配 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
         text = self._narration_prompt()
         assert "E2S" in text
 
     def test_narration_injects_asset_appearance(self):
-        """step2 资产块携带外观描述并声明取材口径，视觉字段写细节时从登记描述取材、不自行发明。"""
+        """prompt_authoring 资产块携带外观描述并声明取材口径，视觉字段写细节时从登记描述取材、不自行发明。"""
         text = self._narration_prompt()
         assert "- 主角：X" in text
         assert "- 庙宇：Y" in text
         assert "- 玉佩：Z" in text
 
     def test_drama_injects_asset_appearance_when_provided(self):
-        """drama step2 传入资产 bucket 时渲染外观词典；缺描述的资产退化为纯名字。"""
+        """drama prompt_authoring 传入资产 bucket 时渲染外观词典；缺描述的资产退化为纯名字。"""
         text = build_drama_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="动漫",
@@ -518,8 +518,8 @@ class TestStep2PromptGuards:
         assert "- 玉佩" in text
 
     @pytest.mark.parametrize("builder", ["drama", "narration", "ad"])
-    def test_step2_warns_off_task_type_trigger_words(self, builder: str):
-        """三条 step2 路径都须把任务类型触发词避讳带给真正落笔 video_prompt 的文案模型。
+    def test_prompt_authoring_warns_off_task_type_trigger_words(self, builder: str):
+        """三条 prompt_authoring 路径都须把任务类型触发词避讳带给真正落笔 video_prompt 的文案模型。
 
         编排层 CLAUDE.*.md 里的同名约束进不了这次调用，故此处锁的是 prompt 正文本身。
         """
@@ -545,14 +545,14 @@ class TestStep2PromptGuards:
         assert "改成" in text and "延长" in text
 
     def test_drama_omits_asset_block_without_assets(self):
-        """兼容旧调用：不传资产参数时 drama step2 不渲染资产块与取材注记。"""
+        """兼容旧调用：不传资产参数时 drama prompt_authoring 不渲染资产块与取材注记。"""
         text = self._drama_prompt()
         assert "<characters>" not in text
         assert "资产外观以上述描述为准" not in text
 
 
 class TestBuildNarrationSplitPrompt:
-    """step1 说书分镜拆分 prompt（源文 → 结构化分镜表）。"""
+    """script_plan 说书分镜拆分 prompt（源文 → 结构化分镜表）。"""
 
     def _prompt(self, **overrides):
         kwargs = dict(

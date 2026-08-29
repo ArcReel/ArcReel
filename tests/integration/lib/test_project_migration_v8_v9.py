@@ -7,11 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME, episode_drafts_dir
+from lib.episode_paths import episode_drafts_dir
 from lib.project_migration_failure import MIGRATION_FAILURE_FILENAME, load_migration_failure
 from lib.project_migrations.runner import MIGRATORS, migrate_project_dir, migrate_project_with_verdict
 from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -97,7 +96,8 @@ def _script(content_mode: str, units: list[dict], *, episode: int = 1) -> dict:
 
 
 def _draft_path(project_dir: Path, episode: int = 1) -> Path:
-    return episode_drafts_dir(project_dir, episode) / REFERENCE_VIDEO_STEP1_FILENAME
+    # v8 项目的脚本规划草稿仍是 v9→v10 改名前的名字。
+    return episode_drafts_dir(project_dir, episode) / "step1_reference_units.json"
 
 
 @pytest.mark.parametrize("content_mode", ["narration", "drama", "ad"])
@@ -119,7 +119,7 @@ def test_shot_text_joins_back_into_one_body_for_every_content_mode(tmp_path: Pat
     units = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
     assert [unit["text"] for unit in units] == ["她推开门\n雨落在石板上\n@[阿离]抬头", "伞收起来"]
     assert all("shots" not in unit for unit in units)
-    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    assert _read_json(project_dir / "project.json")["schema_version"] == 9
 
 
 def test_literal_shot_prefixes_stay_verbatim_in_the_body(tmp_path: Path) -> None:
@@ -172,7 +172,7 @@ def test_references_and_replan_provenance_leave_only_the_replan_flag(tmp_path: P
     assert units[1].get("needs_replan", False) is False
 
 
-def test_step1_draft_migrates_alongside_the_episode_script(tmp_path: Path) -> None:
+def test_script_plan_draft_migrates_alongside_the_episode_script(tmp_path: Path) -> None:
     project_dir = _project(tmp_path, episodes=2)
     for episode in (1, 2):
         _write_json(
@@ -285,7 +285,7 @@ def test_storyboard_project_only_gets_the_version_bump(tmp_path: Path) -> None:
 
     migrate_v8_to_v9(project_dir)
 
-    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    assert _read_json(project_dir / "project.json")["schema_version"] == 9
     assert (project_dir / "scripts/episode_1.json").read_bytes() == script_before
     # 分镜图生视频只改 project.json，备份也只有它那一份。
     backups = sorted(path.name.split(".bak.v8-")[0] for path in project_dir.rglob("*.bak.v8-*"))
@@ -316,3 +316,27 @@ def test_startup_scan_and_archive_import_share_one_migration_entry() -> None:
 
     assert MIGRATORS[8] is migrate_v8_to_v9
     assert project_archive.migrate_project_dir is migrate_project_dir
+
+
+def test_a_v7_project_whose_draft_was_already_renamed_still_gets_its_units_converged(tmp_path: Path) -> None:
+    """起点低于 v8 时草稿在 v7→v8 已改名，本步须按新名找到它，否则草稿停在分镜形状。"""
+
+    project_dir = _project(tmp_path)
+    project = _read_json(project_dir / "project.json")
+    project["schema_version"] = 7
+    _write_json(project_dir / "project.json", project)
+    _write_json(
+        project_dir / "scripts/episode_1.json",
+        _script("narration", [_unit("E1U1", texts=["她推开门", "雨落在石板上"])]),
+    )
+    draft_unit = {
+        "unit_id": "E1U1",
+        "duration_seconds": 8,
+        "shots": [{"shot_id": "E1U1S1", "text": "她推开门"}, {"shot_id": "E1U1S2", "text": "雨落在石板上"}],
+    }
+    _write_json(_draft_path(project_dir), {"units": [draft_unit]})
+
+    assert migrate_project_dir(project_dir) is True
+
+    renamed = episode_drafts_dir(project_dir, 1) / "script_plan_reference_units.json"
+    assert [unit["text"] for unit in _read_json(renamed)["units"]] == ["她推开门\n雨落在石板上"]

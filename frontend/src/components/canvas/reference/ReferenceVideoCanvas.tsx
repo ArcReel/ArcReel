@@ -22,7 +22,7 @@ import { referenceBatchOutcome } from "./batch-outcome";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
-import { ReferenceStep1PreviewPanel } from "@/components/canvas/reference/ReferenceStep1PreviewPanel";
+import { ReferenceScriptPlanPreviewPanel } from "@/components/canvas/reference/ReferenceScriptPlanPreviewPanel";
 import { API } from "@/api";
 import {
   enqueueNarration,
@@ -61,9 +61,9 @@ export interface ReferenceVideoCanvasProps {
   episodeTitle?: string;
   onSaveTitle?: (next: string) => Promise<void>;
   canEditTitle?: boolean;
-  /** step2 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
+  /** prompt_authoring 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
   hasScript?: boolean;
-  /** ad 参考生视频一阶段产出，不展示 step1 内容整理页。 */
+  /** ad 参考生视频一阶段产出，不展示 script_plan 脚本规划页。 */
   showPreprocess?: boolean;
   /** unit 时长为自由正整数，不用供应商档位作为编排限制。 */
   freeDuration?: boolean;
@@ -230,7 +230,7 @@ export function ReferenceVideoCanvas({
   const unitsRevision = useAppStore((s) => s.referenceVideoUnitsRevision);
 
   useEffect(() => {
-    // step2 剧本未生成时 /episodes/{episode}/units 后端会 404（无脚本可拆单元）；
+    // prompt_authoring 剧本未生成时 /episodes/{episode}/units 后端会 404（无脚本可拆单元）；
     // hasScript 转 true 后本 effect 随依赖变化重跑，补上首次拉取。
     if (!hasScript) return;
     void loadUnits(projectName, episode);
@@ -763,7 +763,7 @@ export function ReferenceVideoCanvas({
   }, [selected, drafts, patchUnit, projectName, episode, clearFlushedDraft]);
 
   // Reset tab to units on project/episode change (render-time derived-state pattern).
-  // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
+  // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：prompt_authoring 剧本未生成时（仅 segmented）
   // units 面板无脚本可读、请求会 404，应先落到内容确认。
   const [tab, setTab] = useState<"units" | "preproc">(
     hasScript || !showPreprocess ? "units" : "preproc",
@@ -977,7 +977,7 @@ export function ReferenceVideoCanvas({
       {tab === "preproc" ? (
         <div className="min-h-0 flex-1 overflow-auto bg-[oklch(0.18_0.011_250_/_0.25)]">
           <div className="mx-auto w-full max-w-3xl px-6 py-5">
-            <ReferenceStep1PreviewPanel
+            <ReferenceScriptPlanPreviewPanel
               key={`${projectName}:${episode}`}
               projectName={projectName}
               episode={episode}

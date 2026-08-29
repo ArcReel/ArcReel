@@ -1590,7 +1590,7 @@ class TestRouteSkeletonMismatchValidation:
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
-        assert any("generate_step1" in error for error in result.errors), result.errors
+        assert any("generate_script_plan" in error for error in result.errors), result.errors
 
     def test_reference_route_script_with_residual_segments_is_not_a_mismatch(self, tmp_path):
         """参考生视频剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""

@@ -177,7 +177,7 @@ def test_padded_speaker_uses_registered_character_without_warning():
 
 
 def test_extract_mentions_skips_speaker_position():
-    """两条派生路径（step1 工具与审阅回写）共用的口径出口。"""
+    """两条派生路径（script_plan 工具与审阅回写）共用的口径出口。"""
     text = "@[酒馆] 内景。\n@[张三]：{我来了}\n@[张三] 抬眼。"
     assert extract_mentions(text) == ["酒馆", "张三"]
     assert extract_mentions("@[张三]：{我来了}") == []

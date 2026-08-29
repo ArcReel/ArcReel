@@ -46,11 +46,11 @@ def _plan_one_episode(pm: ProjectManager, project_path: Path, source_text: str) 
     pm.update_project("demo", _plan)
 
 
-def _write_step1(project_path: Path, episode: int = 1) -> None:
+def _write_script_plan(project_path: Path, episode: int = 1) -> None:
     draft_dir = project_path / "drafts" / f"episode_{episode}"
     draft_dir.mkdir(parents=True, exist_ok=True)
     _write_episode_source(project_path, episode)
-    atomic_write_json(draft_dir / "step1_segments.json", {"episode": episode, "segments": []})
+    atomic_write_json(draft_dir / "script_plan_segments.json", {"episode": episode, "segments": []})
 
 
 def _add_character_with_sheet(pm: ProjectManager, project_path: Path, name: str = "小明") -> str:
@@ -68,7 +68,7 @@ def _episode_with_media(pm: ProjectManager, project_path: Path, source_text: str
     """把项目推到「一集脚本已生成、分镜与视频齐备」的状态。"""
 
     _plan_one_episode(pm, project_path, source_text)
-    _write_step1(project_path)
+    _write_script_plan(project_path)
     generated_assets = _complete_episode_media(project_path)
     _write_registered_script(
         project_path,
@@ -99,8 +99,8 @@ def test_planned_episode_without_script_is_in_script_phase(tmp_path: Path) -> No
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
     _plan_one_episode(pm, project_path, source_text)
-    _write_step1(project_path)
-    register_current_artifact(project_path, ArtifactKey.episode_step1(1))
+    _write_script_plan(project_path)
+    register_current_artifact(project_path, ArtifactKey.episode_script_plan(1))
 
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
@@ -115,7 +115,7 @@ def test_script_without_media_is_in_production(tmp_path: Path) -> None:
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
     _plan_one_episode(pm, project_path, source_text)
-    _write_step1(project_path)
+    _write_script_plan(project_path)
     _write_registered_script(
         project_path,
         {
@@ -174,7 +174,7 @@ def test_item_count_reports_the_video_unit_count_on_the_reference_route(tmp_path
     draft_dir = project_path / "drafts" / "episode_1"
     draft_dir.mkdir(parents=True, exist_ok=True)
     _write_episode_source(project_path, 1)
-    atomic_write_json(draft_dir / "step1_reference_units.json", {"units": []})
+    atomic_write_json(draft_dir / "script_plan_reference_units.json", {"units": []})
     _write_registered_script(
         project_path,
         {
@@ -252,7 +252,7 @@ def test_deleting_a_video_drops_the_episode_out_of_completed(tmp_path: Path) -> 
 
 
 def test_stale_ledger_episode_falls_back_to_pending_preprocess(tmp_path: Path) -> None:
-    """重新规划使该集原文范围失效：脚本仍在盘上，但该集回到待内容整理，不计入已生成。"""
+    """重新规划使该集原文范围失效：脚本仍在盘上，但该集回到待脚本规划，不计入已生成。"""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -293,7 +293,7 @@ def test_stale_artifacts_stay_available_and_are_counted_separately(tmp_path: Pat
 def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """列出 N 个项目不该读 N 份小说：整本源文与源文修订号都不进本投影。
 
-    分集原文（``source/episode_N.txt``）是另一回事——它是产物清单重建 step1 基线的输入，
+    分集原文（``source/episode_N.txt``）是另一回事——它是产物清单重建 script_plan 基线的输入，
     每集至多读一次，与工作台比对同一件产物付的代价相同。这条断言把两者分开钉住：
     一旦有人为了算阶段又去读整本源文、或为了修订号做全量 sha256，它就会红。
     """
@@ -317,7 +317,7 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
     # 整本源文（含 source/ 直下其余文件）一次不读，修订号也不算。
     assert revision_calls == []
     assert "novel.txt" not in source_reads
-    # 分集原文每集至多一次：产物清单比对 step1 基线的必需读。
+    # 分集原文每集至多一次：产物清单比对 script_plan 基线的必需读。
     assert source_reads == {"episode_1.txt": 1}
 
 

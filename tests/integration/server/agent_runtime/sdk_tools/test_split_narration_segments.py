@@ -8,7 +8,7 @@ from typing import Any
 
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools.text_generation import (
-    generate_step1_tool,
+    generate_script_plan_tool,
 )
 from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
@@ -29,7 +29,7 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolContext) -> None:
     _nr_source(fake_ctx)
     _use_fake_caps(fake_ctx)
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
@@ -48,7 +48,7 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolConte
     _nr_source(fake_ctx)
     _use_fake_caps(fake_ctx)
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单个分镜出场人物尽量不超过两人"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
@@ -62,7 +62,7 @@ async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolC
 
     _nr_source(fake_ctx)
     _use_fake_caps(fake_ctx)
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
 
     out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "长" * 4001})
     assert out.get("is_error") is True
@@ -77,7 +77,7 @@ async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolC
 
 
 async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    """happy path：结构化分镜 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
+    """happy path：结构化分镜 script_plan 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
     from server import text_generation as mod
 
     _nr_project(fake_ctx)
@@ -92,13 +92,13 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments, captured))
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is not True, out
 
-    step1_path = fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json"
-    assert step1_path.exists()
-    saved = json.loads(step1_path.read_text(encoding="utf-8"))
+    script_plan_path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
+    assert script_plan_path.exists()
+    saved = json.loads(script_plan_path.read_text(encoding="utf-8"))
     assert [s["segment_id"] for s in saved["segments"]] == ["E1S01", "E1S02"]
     # novel_text 逐字保留
     assert saved["segments"][0]["novel_text"] == "张三走向村口。"
@@ -111,7 +111,7 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-    from lib.artifact_provenance import build_step1_basis
+    from lib.artifact_provenance import build_script_plan_basis
     from server import text_generation as mod
 
     project = {
@@ -132,7 +132,7 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
     first_source.write_text("第一段原文。", encoding="utf-8")
     second_source.write_text("第二段原文。", encoding="utf-8")
     frozen_source = "第一段原文。\n\n第二段原文。"
-    expected = build_step1_basis(frozen_source, episode=1, project=project)
+    expected = build_script_plan_basis(frozen_source, episode=1, project=project)
 
     class _Generator:
         async def generate(self, _request, project_name=None):
@@ -156,10 +156,10 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await _call(generate_step1_tool(fake_ctx), {"episode": 1})
+    result = await _call(generate_script_plan_tool(fake_ctx), {"episode": 1})
 
     assert result.get("is_error") is not True, result
-    entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_step1(1))
+    entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_script_plan(1))
     assert entry is not None
     assert entry.basis_digest == expected.digest
 
@@ -173,11 +173,11 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: T
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
     assert "不在模型档位" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -188,11 +188,11 @@ async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: 
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
     assert "segment_id 重复" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -204,12 +204,12 @@ async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolC
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
     assert "novel_text 为空白" in out["content"][0]["text"]
     assert "E1S02" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -219,14 +219,14 @@ async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolCon
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([]))
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolContext, monkeypatch) -> None:
-    """缺资产字段（characters_in_segment 等）由既有分镜 schema（NarrationStep1Segment strict）拦截。"""
+    """缺资产字段（characters_in_segment 等）由既有分镜 schema（NarrationScriptPlanSegment strict）拦截。"""
     from server import text_generation as mod
 
     _nr_source(fake_ctx)
@@ -234,11 +234,11 @@ async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolCont
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([bad]))
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
-    assert "step1 拆分内容结构校验失败" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert "script_plan 拆分内容结构校验失败" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_rejects_unregistered_asset_reference(
@@ -252,12 +252,12 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
     assert "未登记的资产名" in out["content"][0]["text"]
     assert "王五" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form(
@@ -279,10 +279,10 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
-    out = await _call(generate_step1_tool(fake_ctx), {"episode": 1})
+    out = await _call(generate_script_plan_tool(fake_ctx), {"episode": 1})
 
     assert out.get("is_error") is not True, out
-    assert (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: str, segments: list[dict]):
@@ -295,7 +295,7 @@ async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: s
     _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     return await _call(tool_obj, {"episode": 1})
 
 
@@ -309,7 +309,7 @@ async def test_split_narration_segments_rejects_truncated_novel_text(fake_ctx: T
     )
     assert out.get("is_error") is True
     assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -325,7 +325,7 @@ async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: T
     )
     assert out.get("is_error") is True
     assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -341,7 +341,7 @@ async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: T
     )
     assert out.get("is_error") is True
     assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -354,14 +354,14 @@ async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: Too
     )
     assert out.get("is_error") is True
     assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_accepts_unicode_form_difference(fake_ctx: ToolContext, monkeypatch) -> None:
     """源文以 NFD 落盘、模型回写 NFC：纯编码形式差异不是删字改字，覆盖校验不该误判。
 
     带组合附加符的语种（如 vi）两种形式都在真实语料里出现，误判会把一份逐字正确的分镜表
-    挡在正式文件外、连带堵住内容确认与 step2 生成。
+    挡在正式文件外、连带堵住内容确认与 prompt_authoring 生成。
     """
     text = "Ngu\u1eddi \u0111\u00e0n \u00f4ng \u0111i v\u1ec1 ph\u00eda c\u1ed5ng l\u00e0ng."
     out = await _nr_source_and_call(
@@ -371,7 +371,7 @@ async def test_split_narration_segments_accepts_unicode_form_difference(fake_ctx
         [_nr_segment("E1S01", 4, unicodedata.normalize("NFC", text))],
     )
     assert out.get("is_error") is not True, out
-    assert (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -386,8 +386,8 @@ async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ct
         ],
     )
     assert out.get("is_error") is not True, out
-    step1_path = fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json"
-    assert step1_path.exists()
+    script_plan_path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
+    assert script_plan_path.exists()
 
 
 async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
@@ -404,8 +404,8 @@ async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
         ],
     )
     assert out.get("is_error") is not True, out
-    step1_path = fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json"
-    assert step1_path.exists()
+    script_plan_path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
+    assert script_plan_path.exists()
 
 
 async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
@@ -420,11 +420,11 @@ async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
     )
     assert out.get("is_error") is True
     assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_no_source(fake_ctx: ToolContext) -> None:
     _nr_project(fake_ctx)
-    tool_obj = generate_step1_tool(fake_ctx)
+    tool_obj = generate_script_plan_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True

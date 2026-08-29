@@ -210,7 +210,7 @@ A scanned PDF with no extractable text cannot be used directly and must go throu
 
 Usually a prerequisite review or asset is incomplete:
 
-1. For Narration/Commentary and Drama projects, confirm that the screenplay preprocessing result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
+1. For Narration/Commentary and Drama projects, confirm that the script plan result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
 2. Check whether characters, scenes, and props have definitions but no generated design images.
 3. In Storyboard mode, check whether the target shot has a storyboard image.
 4. In Reference-to-video mode, verify that referenced assets in Narration/Commentary and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.

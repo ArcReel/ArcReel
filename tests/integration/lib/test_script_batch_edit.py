@@ -60,9 +60,9 @@ def editor(tmp_path: Path) -> tuple[ProjectManager, ScriptBatchEditor, Path]:
     source = project_dir / "source" / "episode_1.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("风吹过旷野。", encoding="utf-8")
-    step1 = project_dir / "drafts" / "episode_1" / "step1_segments.json"
-    step1.parent.mkdir(parents=True, exist_ok=True)
-    step1.write_text(json.dumps({"segments": [{"segment_id": "E1S01"}]}), encoding="utf-8")
+    script_plan = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
+    script_plan.parent.mkdir(parents=True, exist_ok=True)
+    script_plan.write_text(json.dumps({"segments": [{"segment_id": "E1S01"}]}), encoding="utf-8")
     return pm, ScriptBatchEditor(pm), project_dir
 
 
@@ -121,9 +121,11 @@ def test_multi_operation_commit_updates_manifest_and_returns_revision(
     adapter = ProjectArtifactManifestAdapter(project_dir)
     entry = adapter.get_entry(ArtifactKey.episode_script(1))
     assert entry is not None
-    step1 = json.loads((project_dir / "drafts" / "episode_1" / "step1_segments.json").read_text(encoding="utf-8"))
+    script_plan = json.loads(
+        (project_dir / "drafts" / "episode_1" / "script_plan_segments.json").read_text(encoding="utf-8")
+    )
     project = pm.load_project("demo")
-    assert entry.basis_digest == build_episode_script_basis(step1, project=project).digest
+    assert entry.basis_digest == build_episode_script_basis(script_plan, project=project).digest
     assert entry.artifact_path == "scripts/episode_1.json"
 
 

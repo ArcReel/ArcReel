@@ -6,7 +6,7 @@ from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
 from lib.artifact_provenance import (
     build_ad_episode_script_basis,
     build_episode_script_basis,
-    build_step1_basis,
+    build_script_plan_basis,
 )
 
 
@@ -86,15 +86,15 @@ def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
         "speed": 2.0,
     }
 
-    step1 = build_step1_basis("第一场\n对白", episode=1, project=first_project)
-    same_step1 = build_step1_basis("第一场\n对白", episode=1, project=changed_execution_project)
-    changed_source = build_step1_basis("第一场\n另一句对白", episode=1, project=first_project)
+    script_plan = build_script_plan_basis("第一场\n对白", episode=1, project=first_project)
+    same_script_plan = build_script_plan_basis("第一场\n对白", episode=1, project=changed_execution_project)
+    changed_source = build_script_plan_basis("第一场\n另一句对白", episode=1, project=first_project)
     script = build_episode_script_basis({"scenes": [{"scene_id": "E1S01"}]}, project=first_project)
     same_script = build_episode_script_basis(
         {"scenes": [{"scene_id": "E1S01"}]},
         project=changed_execution_project,
     )
-    changed_step1 = build_episode_script_basis(
+    changed_script_plan = build_episode_script_basis(
         {"scenes": [{"scene_id": "E1S01", "source_text": "changed"}]},
         project=first_project,
     )
@@ -113,10 +113,10 @@ def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
         },
     )
 
-    assert same_step1.digest == step1.digest
-    assert changed_source.digest != step1.digest
+    assert same_script_plan.digest == script_plan.digest
+    assert changed_source.digest != script_plan.digest
     assert same_script.digest == script.digest
-    assert changed_step1.digest != script.digest
+    assert changed_script_plan.digest != script.digest
     assert changed_prompt_context.digest != script.digest
 
 
@@ -198,17 +198,17 @@ def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
     ],
     ids=("style", "overview", "asset-names", "episode-outline", "reference-asset-description"),
 )
-def test_step1_basis_tracks_each_persisted_prompt_context(
+def test_script_plan_basis_tracks_each_persisted_prompt_context(
     project: dict[str, object],
     changed: dict[str, object],
 ) -> None:
-    baseline = build_step1_basis("同一份原文", episode=1, project=project)
-    updated = build_step1_basis("同一份原文", episode=1, project={**project, **changed})
+    baseline = build_script_plan_basis("同一份原文", episode=1, project=project)
+    updated = build_script_plan_basis("同一份原文", episode=1, project={**project, **changed})
 
     assert updated.digest != baseline.digest
 
 
-def test_step1_basis_tracks_rendered_asset_order_but_ignores_unrendered_fields() -> None:
+def test_script_plan_basis_tracks_rendered_asset_order_but_ignores_unrendered_fields() -> None:
     project = {
         "content_mode": "drama",
         "generation_mode": "storyboard",
@@ -224,8 +224,8 @@ def test_step1_basis_tracks_rendered_asset_order_but_ignores_unrendered_fields()
         "episodes": [],
     }
 
-    baseline = build_step1_basis("同一份原文", episode=1, project=project)
-    unrendered_changes = build_step1_basis(
+    baseline = build_script_plan_basis("同一份原文", episode=1, project=project)
+    unrendered_changes = build_script_plan_basis(
         "同一份原文",
         episode=1,
         project={
@@ -237,7 +237,7 @@ def test_step1_basis_tracks_rendered_asset_order_but_ignores_unrendered_fields()
             },
         },
     )
-    reordered = build_step1_basis(
+    reordered = build_script_plan_basis(
         "同一份原文",
         episode=1,
         project={
@@ -253,7 +253,7 @@ def test_step1_basis_tracks_rendered_asset_order_but_ignores_unrendered_fields()
     assert reordered.digest != baseline.digest
 
 
-def test_reference_step1_basis_ignores_asset_fields_not_rendered_by_the_prompt() -> None:
+def test_reference_script_plan_basis_ignores_asset_fields_not_rendered_by_the_prompt() -> None:
     project = {
         "content_mode": "narration",
         "generation_mode": "reference_video",
@@ -266,8 +266,8 @@ def test_reference_step1_basis_ignores_asset_fields_not_rendered_by_the_prompt()
         "episodes": [],
     }
 
-    baseline = build_step1_basis("同一份原文", episode=1, project=project)
-    updated = build_step1_basis(
+    baseline = build_script_plan_basis("同一份原文", episode=1, project=project)
+    updated = build_script_plan_basis(
         "同一份原文",
         episode=1,
         project={
@@ -281,7 +281,7 @@ def test_reference_step1_basis_ignores_asset_fields_not_rendered_by_the_prompt()
     assert updated.digest == baseline.digest
 
 
-def test_reference_step1_basis_preserves_rendered_outline_whitespace() -> None:
+def test_reference_script_plan_basis_preserves_rendered_outline_whitespace() -> None:
     project = {
         "content_mode": "drama",
         "generation_mode": "reference_video",
@@ -292,8 +292,8 @@ def test_reference_step1_basis_preserves_rendered_outline_whitespace() -> None:
         "episodes": [{"episode": 1, "outline": {"story_beats": [" 旧节点 "]}}],
     }
 
-    baseline = build_step1_basis("同一份原文", episode=1, project=project)
-    trimmed = build_step1_basis(
+    baseline = build_script_plan_basis("同一份原文", episode=1, project=project)
+    trimmed = build_script_plan_basis(
         "同一份原文",
         episode=1,
         project={
@@ -332,15 +332,15 @@ def test_episode_script_basis_tracks_each_durable_prompt_context_field(changed: 
         "scenes": {"屋顶": {"description": "晴日"}},
         "props": {"钥匙": {"description": "白银"}},
     }
-    step1 = {"scenes": [{"scene_id": "E1S01"}]}
+    script_plan = {"scenes": [{"scene_id": "E1S01"}]}
 
-    baseline = build_episode_script_basis(step1, project=project)
-    updated = build_episode_script_basis(step1, project={**project, **changed})
+    baseline = build_episode_script_basis(script_plan, project=project)
+    updated = build_episode_script_basis(script_plan, project={**project, **changed})
 
     assert updated.digest != baseline.digest
 
 
-def test_episode_script_basis_ignores_asset_fields_not_rendered_into_step2_prompt() -> None:
+def test_episode_script_basis_ignores_asset_fields_not_rendered_into_prompt_authoring_prompt() -> None:
     project = {
         "content_mode": "narration",
         "generation_mode": "storyboard",
@@ -348,11 +348,11 @@ def test_episode_script_basis_ignores_asset_fields_not_rendered_into_step2_promp
         "scenes": {},
         "props": {},
     }
-    step1 = {"segments": [{"segment_id": "E1S01"}]}
+    script_plan = {"segments": [{"segment_id": "E1S01"}]}
 
-    baseline = build_episode_script_basis(step1, project=project)
+    baseline = build_episode_script_basis(script_plan, project=project)
     updated = build_episode_script_basis(
-        step1,
+        script_plan,
         project={
             **project,
             "characters": {"阿黎": {"description": "蓝衣", "character_sheet": "characters/new.png"}},
@@ -364,7 +364,7 @@ def test_episode_script_basis_ignores_asset_fields_not_rendered_into_step2_promp
 
 def test_structured_basis_rejects_malformed_formal_inputs() -> None:
     with pytest.raises(ValueError, match="content_mode"):
-        build_step1_basis(
+        build_script_plan_basis(
             "source",
             episode=1,
             project={"content_mode": [], "generation_mode": "storyboard"},
@@ -376,29 +376,29 @@ def test_structured_basis_rejects_malformed_formal_inputs() -> None:
         )
 
 
-def test_step1_basis_treats_null_source_kind_as_default() -> None:
+def test_script_plan_basis_treats_null_source_kind_as_default() -> None:
     project = {
         "content_mode": "drama",
         "generation_mode": "storyboard",
         "source_kind": None,
     }
 
-    defaulted = build_step1_basis("source", episode=1, project=project)
-    explicit = build_step1_basis("source", episode=1, project={**project, "source_kind": "novel"})
+    defaulted = build_script_plan_basis("source", episode=1, project=project)
+    explicit = build_script_plan_basis("source", episode=1, project={**project, "source_kind": "novel"})
 
     assert defaulted.digest == explicit.digest
 
 
 @pytest.mark.parametrize("source_language", [None, "", False, 0, [], {}])
-def test_step1_basis_canonicalizes_default_source_language(source_language: object) -> None:
+def test_script_plan_basis_canonicalizes_default_source_language(source_language: object) -> None:
     project = {
         "content_mode": "narration",
         "generation_mode": "storyboard",
         "source_language": source_language,
     }
 
-    defaulted = build_step1_basis("source", episode=1, project=project)
-    explicit = build_step1_basis("source", episode=1, project={**project, "source_language": "中文"})
+    defaulted = build_script_plan_basis("source", episode=1, project=project)
+    explicit = build_script_plan_basis("source", episode=1, project={**project, "source_language": "中文"})
 
     assert defaulted.digest == explicit.digest
 

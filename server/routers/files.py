@@ -31,11 +31,11 @@ from lib.audio_utils import (
 )
 from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
-    REFERENCE_VIDEO_STEP1_FILENAME,
-    REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
-    STEP1_FILENAMES,
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
+    SCRIPT_PLAN_FILENAMES,
     episode_drafts_dir,
-    step1_read_candidates,
+    script_plan_read_candidates,
 )
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
@@ -727,39 +727,51 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator):
 
 # ==================== 草稿文件管理 ====================
 
+#: 草稿端点的阶段路径段。目前只有脚本规划一段走草稿读写；提示词编写没有可直编的中间态。
+_SCRIPT_PLAN_STAGE = "script_plan"
 
-def _get_step_files(content_mode: str, generation_mode: str | None = None) -> dict:
-    """根据 generation_mode / content_mode 获取步骤文件名映射
 
-    ad 不走结构化 step1（与 _resolve_step1_path / script_review.step1_path 同口径显式
-    排除），即便带 reference_video generation_mode 也无 step1，故先于 generation_mode 判断返回空
-    映射，调用方据此给出「无此步骤」而非误落 drama / reference 文件名。reference_video 走
-    generate_step1 工具 → step1_reference_units.json；其他模式回落到 content_mode
-    的结构化 step1 文件名（未知 content_mode 兜底 drama）。结构化文件名取自单一真相源
-    STEP1_FILENAMES，新增 content_mode 自动覆盖。
+def _stage_files(content_mode: str, generation_mode: str | None = None) -> dict[str, str]:
+    """按 generation_mode / content_mode 给出「草稿阶段名 → 文件名」映射
+
+    ad 不走结构化 script_plan（与 _resolve_script_plan_path / script_review.script_plan_path 同口径显式
+    排除），即便带 reference_video generation_mode 也无 script_plan，故先于 generation_mode 判断返回空
+    映射，调用方据此给出「无此阶段」而非误落 drama / reference 文件名。reference_video 走
+    generate_script_plan 工具 → script_plan_reference_units.json；其他模式回落到 content_mode
+    的结构化 script_plan 文件名（未知 content_mode 兜底 drama）。结构化文件名取自单一真相源
+    SCRIPT_PLAN_FILENAMES，新增 content_mode 自动覆盖。
     """
     if content_mode == "ad":
         return {}
     if generation_mode == "reference_video":
-        return {1: REFERENCE_VIDEO_STEP1_FILENAME}
-    return {1: STEP1_FILENAMES.get(content_mode, STEP1_FILENAMES["drama"])}
+        return {_SCRIPT_PLAN_STAGE: REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME}
+    return {_SCRIPT_PLAN_STAGE: SCRIPT_PLAN_FILENAMES.get(content_mode, SCRIPT_PLAN_FILENAMES["drama"])}
 
 
 # 按 primary 文件名分组的优先候选（mode 感知）：先在本模式自家候选里回落，再兜底其他模式遗留文件。
 # 每模式的结构化 .json + 旧版 .md 取自单一真相源；reference_video 优先结构化 .json、再旧版 .md
 # （读取 / 浏览层兼认存量在制品，写盘与生成侧不认——与 narration / drama 的 legacy 语义同口径）。
-_STEP1_FAMILY: dict[str, list[str]] = {
-    STEP1_FILENAMES[mode]: list(step1_read_candidates(mode)) for mode in STEP1_FILENAMES
+_SCRIPT_PLAN_FAMILY: dict[str, list[str]] = {
+    SCRIPT_PLAN_FILENAMES[mode]: list(script_plan_read_candidates(mode)) for mode in SCRIPT_PLAN_FILENAMES
 }
-_STEP1_FAMILY[REFERENCE_VIDEO_STEP1_FILENAME] = [REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_LEGACY_FILENAME]
+_SCRIPT_PLAN_FAMILY[REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME] = [
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
+]
 
-# step1 实际文件候选 —— 主文件不存在时用于 fallback 探测。
+# script_plan 实际文件候选 —— 主文件不存在时用于 fallback 探测。
 # 结构化 .json 与旧 .md 候选均由单一真相源派生；各自保留旧 .md 以便存量在制品仍可浏览。
 # 跨模式遗留回落的探测优先级固定为 reference_video → narration → drama（保持历史 tie-break，
 # 避免收敛后跨模式选到的遗留文件与旧实现不一致）；未登记于此序列的未来 content_mode 附加在后。
-_STEP1_PROBE_ORDER = [REFERENCE_VIDEO_STEP1_FILENAME, STEP1_FILENAMES["narration"], STEP1_FILENAMES["drama"]]
-_STEP1_CANDIDATES = list(
-    dict.fromkeys(name for key in [*_STEP1_PROBE_ORDER, *_STEP1_FAMILY] for name in _STEP1_FAMILY[key])
+_SCRIPT_PLAN_PROBE_ORDER = [
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    SCRIPT_PLAN_FILENAMES["narration"],
+    SCRIPT_PLAN_FILENAMES["drama"],
+]
+_SCRIPT_PLAN_CANDIDATES = list(
+    dict.fromkeys(
+        name for key in [*_SCRIPT_PLAN_PROBE_ORDER, *_SCRIPT_PLAN_FAMILY] for name in _SCRIPT_PLAN_FAMILY[key]
+    )
 )
 
 
@@ -776,36 +788,36 @@ def _load_project_modes(project_name: str) -> tuple[str, str | None]:
     return data.get("content_mode", "drama"), data.get("generation_mode")
 
 
-def _resolve_step1_path(drafts_dir: Path, step_num: int, primary: Path) -> Path:
+def _resolve_script_plan_path(drafts_dir: Path, stage: str, primary: Path) -> Path:
     """主路径不存在时按 primary 所属模式优先回落，再兜底其他模式遗留文件（mode 感知）。
 
-    step_num != 1 或主路径已存在：原样返回 primary；调用方自行 exists() 判定。
+    stage 不是脚本规划或主路径已存在：原样返回 primary；调用方自行 exists() 判定。
     """
-    if step_num != 1 or primary.exists():
+    if stage != _SCRIPT_PLAN_STAGE or primary.exists():
         return primary
-    family = _STEP1_FAMILY.get(primary.name, [primary.name])
-    for candidate in dict.fromkeys([*family, *_STEP1_CANDIDATES]):
+    family = _SCRIPT_PLAN_FAMILY.get(primary.name, [primary.name])
+    for candidate in dict.fromkeys([*family, *_SCRIPT_PLAN_CANDIDATES]):
         alt = drafts_dir / candidate
         if alt.exists():
             return alt
     return primary
 
 
-@router.get("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def get_draft_content(project_name: str, episode: int, step_num: int, _t: Translator):
+@router.get("/projects/{project_name}/drafts/{episode}/{stage}")
+async def get_draft_content(project_name: str, episode: int, stage: str, _t: Translator):
     """获取特定步骤的草稿内容"""
     try:
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
             content_mode, generation_mode = _load_project_modes(project_name)
-            step_files = _get_step_files(content_mode, generation_mode)
+            stage_files = _stage_files(content_mode, generation_mode)
 
-            if step_num not in step_files:
-                raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
+            if stage not in stage_files:
+                raise HTTPException(status_code=400, detail=_t("invalid_draft_stage", stage=stage))
 
             drafts_dir = episode_drafts_dir(project_dir, episode)
-            draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
+            draft_path = _resolve_script_plan_path(drafts_dir, stage, drafts_dir / stage_files[stage])
 
             if not draft_path.exists():
                 raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
@@ -819,11 +831,11 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _t: 
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
-@router.put("/projects/{project_name}/drafts/{episode}/step{step_num}")
+@router.put("/projects/{project_name}/drafts/{episode}/{stage}")
 async def update_draft_content(
     project_name: str,
     episode: int,
-    step_num: int,
+    stage: str,
     _t: Translator,
     content: str = Body(..., media_type="text/plain"),
 ):
@@ -833,22 +845,22 @@ async def update_draft_content(
         def _resolve_target() -> tuple[Path, str, Path]:
             project_dir = get_project_manager().get_project_path(project_name)
             content_mode, generation_mode = _load_project_modes(project_name)
-            step_files = _get_step_files(content_mode, generation_mode)
+            stage_files = _stage_files(content_mode, generation_mode)
 
-            if step_num not in step_files:
-                raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
+            if stage not in stage_files:
+                raise HTTPException(status_code=400, detail=_t("invalid_draft_stage", stage=stage))
 
-            # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 step1）。
-            # 若写入 fallback 到老文件，切模式后后续子智能体读 step_files[step_num] 仍为空，
-            # 导致"前端保存成功但生成报缺少 step1"。
-            return project_dir, content_mode, episode_drafts_dir(project_dir, episode) / step_files[step_num]
+            # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 script_plan）。
+            # 若写入 fallback 到老文件，切模式后后续子智能体读 stage_files[stage] 仍为空，
+            # 导致"前端保存成功但生成报缺少 script_plan"。
+            return project_dir, content_mode, episode_drafts_dir(project_dir, episode) / stage_files[stage]
 
         project_dir, content_mode, draft_path = await asyncio.to_thread(_resolve_target)
 
-        if draft_path.name == REFERENCE_VIDEO_STEP1_FILENAME:
-            # 参考生视频正式 step1 不走本端点的裸文本直写：它的写盘统一收敛在
+        if draft_path.name == REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME:
+            # 参考生视频正式 script_plan 不走本端点的裸文本直写：它的写盘统一收敛在
             # ScriptReviewService.save_content 的单一出口（结构校验、references 重派生、
-            # per-path 锁与 step2 草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
+            # per-path 锁与 prompt_authoring 草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
             # 本端点无基线指纹可传，不做并发基线比对（同其余无基线的直连调用）。
             try:
                 parsed = json.loads(content)
@@ -870,7 +882,7 @@ async def update_draft_content(
         change = {
             "entity_type": "draft",
             "action": action,
-            "entity_id": f"episode_{episode}_step{step_num}",
+            "entity_id": f"episode_{episode}_{stage}",
             **build_change_label(draft_label_key, episode=episode),
             "episode": episode,
             "focus": {
@@ -897,17 +909,17 @@ def _write_plain_draft(
     content: str,
     _t: Translator,
 ) -> bool:
-    """非参考生视频 step1 的草稿落盘（同步主体），返回是否为新建文件。
+    """非参考生视频 script_plan 的草稿落盘（同步主体），返回是否为新建文件。
 
-    drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
+    drama script_plan 落结构化 .json：写入前与 _load_drama_script_plan_content 的读取契约同口径校验
     ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
     非对象分镜项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
-    失败）。按目标文件名而非 content_mode 触发：_get_step_files 对未知模式回落到 drama 的
+    失败）。按目标文件名而非 content_mode 触发：_stage_files 对未知模式回落到 drama 的
     结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration
-    的 step1 落自己的文件名，不匹配此校验。
+    的 script_plan 落自己的文件名，不匹配此校验。
     """
     draft_path.parent.mkdir(parents=True, exist_ok=True)
-    if draft_path.name == STEP1_FILENAMES["drama"]:
+    if draft_path.name == SCRIPT_PLAN_FILENAMES["drama"]:
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError as exc:
@@ -929,28 +941,28 @@ def _write_plain_draft(
     pm = get_project_manager()
     with pm.file_lock(draft_path):
         is_new = not draft_path.exists()
-        with script_review.formal_step1_write_transaction(project_dir, episode, draft_path):
+        with script_review.formal_script_plan_write_transaction(project_dir, episode, draft_path):
             atomic_write_bytes(draft_path, content.encode("utf-8"))
     return is_new
 
 
-@router.delete("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def delete_draft(project_name: str, episode: int, step_num: int, _t: Translator):
+@router.delete("/projects/{project_name}/drafts/{episode}/{stage}")
+async def delete_draft(project_name: str, episode: int, stage: str, _t: Translator):
     """删除草稿文件"""
     try:
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
             content_mode, generation_mode = _load_project_modes(project_name)
-            step_files = _get_step_files(content_mode, generation_mode)
+            stage_files = _stage_files(content_mode, generation_mode)
 
-            if step_num not in step_files:
-                raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
+            if stage not in stage_files:
+                raise HTTPException(status_code=400, detail=_t("invalid_draft_stage", stage=stage))
 
             drafts_dir = episode_drafts_dir(project_dir, episode)
-            draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
+            draft_path = _resolve_script_plan_path(drafts_dir, stage, drafts_dir / stage_files[stage])
 
-            if script_review.delete_step1_file(project_dir, episode, draft_path):
+            if script_review.delete_script_plan_file(project_dir, episode, draft_path):
                 return {"success": True}
             raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
 

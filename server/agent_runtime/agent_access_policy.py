@@ -20,11 +20,11 @@ from typing import Any, ClassVar
 
 from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 from lib.episode_paths import (
-    AGENT_PROTECTED_STEP1_FILENAMES,
-    DRAMA_STEP1_QUARANTINE_FILENAME,
-    NARRATION_STEP1_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+    AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES,
+    DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class ProtectedWriteRule:
     见 ``_build_protected_write_abs_paths``）都从这张表投影，新增一类受保护路径只需加一行，
     两层同步生效——分散声明时漏掉任一处都会留出单层旁路（ADR 0026 的双层前提被破坏）。
 
-    两层的覆盖面允许刻意不对称（如 hook 只拒 ``drafts/`` 下的正式 step1、sandbox 整目录拒），
+    两层的覆盖面允许刻意不对称（如 hook 只拒 ``drafts/`` 下的正式 script_plan、sandbox 整目录拒），
     故谓词与投影是两列独立声明，不从彼此推导。
     """
 
@@ -557,7 +557,7 @@ class AgentAccessPolicy:
 
     def _check_write_access(self, resolved: Path, project_cwd: Path, *, logical_norm: Path) -> tuple[bool, str | None]:
         """Write/Edit 的写入约束：cwd 外一律拒，cwd 内先过 ``PROTECTED_WRITE_RULES`` 规则表
-        （``scripts/*.json`` / ``project.json`` / 正式 step1——只能走收归后的 MCP
+        （``scripts/*.json`` / ``project.json`` / 正式 script_plan——只能走收归后的 MCP
         工具），再拒代码扩展名（Agent 不写代码）。
 
         所有 cwd-relative 判定（cwd 内外、protected 区命中）都按 **base 同时枚举 raw + resolved**
@@ -668,14 +668,14 @@ class AgentAccessPolicy:
                 return True
         return False
 
-    #: 写禁 step1 文件名的归一化形态（与路径比对同一把尺）。类体内不能调 classmethod，
+    #: 写禁 script_plan 文件名的归一化形态（与路径比对同一把尺）。类体内不能调 classmethod，
     #: 故占位声明在此、实际值在 ``PROTECTED_WRITE_RULES`` 之后一并赋。
-    _PROTECTED_STEP1_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
+    _PROTECTED_SCRIPT_PLAN_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
     _PROTECTED_QUARANTINE_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
 
     @classmethod
-    def _is_protected_formal_step1(cls, target: Path, bases: list[Path]) -> bool:
-        """命中受写禁的正式 step1（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_STEP1_FILENAMES``）。
+    def _is_protected_formal_script_plan(cls, target: Path, bases: list[Path]) -> bool:
+        """命中受写禁的正式 script_plan（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES``）。
 
         与 ``scripts/*.json`` / ``project.json`` 同一条理由收进写禁：这些文件各有多条写入路径
         （迁移读改写、Web 端保存、重生成 / 晋升写盘、Agent 修改），除 Agent 外都持
@@ -684,7 +684,7 @@ class AgentAccessPolicy:
         ``open_draft`` → ``patch_draft`` → 晋升，写盘只发生在持锁的晋升侧。
 
         按文件名匹配、不按项目变体解析：写禁在会话装配前就要成立，而项目的 content_mode /
-        generation_mode 运行时可变。多认一两个本项目用不到的 step1 文件名无害——那些文件在
+        generation_mode 运行时可变。多认一两个本项目用不到的 script_plan 文件名无害——那些文件在
         该项目里本就没有合法写入者。
 
         正式文件与 ``.invalid.json`` 草稿均拦截：草稿修改必须走 revisioned MCP 工具，才能与
@@ -702,7 +702,7 @@ class AgentAccessPolicy:
             if (
                 len(parts) == 2
                 and parts[0].startswith("episode_")
-                and parts[1] in cls._PROTECTED_STEP1_FILENAMES_NORM | cls._PROTECTED_QUARANTINE_FILENAMES_NORM
+                and parts[1] in cls._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM | cls._PROTECTED_QUARANTINE_FILENAMES_NORM
             ):
                 return True
         return False
@@ -714,10 +714,10 @@ class AgentAccessPolicy:
 #:
 #: - ``project_json``：「写入口收归」——``scripts/*.json`` 与 ``project.json`` 只能走 MCP
 #:   工具；两层投影同覆盖面（``scripts/`` 整子树 + ``project.json``）。
-#: - ``formal_step1``：「写入口持锁」——正式 step1 另有多条持同一把 per-path 锁的写入
+#: - ``formal_script_plan``：「写入口持锁」——正式 script_plan 另有多条持同一把 per-path 锁的写入
 #:   路径，Write/Edit 取不到锁，直改即丢失更新窗口。两层刻意不对称：sandbox 按 ``drafts/``
 #:   整目录 deny（清单在会话装配期一次性构造，集是运行时增删的，逐文件枚举必然落空；Bash
-#:   本就没有合法写入者），hook 拒正式 step1 与四类 revisioned quarantine 草稿。
+#:   本就没有合法写入者），hook 拒正式 script_plan 与四类 revisioned quarantine 草稿。
 AgentAccessPolicy.PROTECTED_WRITE_RULES = (
     ProtectedWriteRule(
         name="project_json",
@@ -730,11 +730,11 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
         sandbox_subpaths=("scripts", "project.json"),
     ),
     ProtectedWriteRule(
-        name="formal_step1",
-        matches=AgentAccessPolicy._is_protected_formal_step1,
+        name="formal_script_plan",
+        matches=AgentAccessPolicy._is_protected_formal_script_plan,
         deny_message=(
-            "访问被拒绝：正式 step1 与待修复草稿（"
-            + " / ".join(sorted(AGENT_PROTECTED_STEP1_FILENAMES))
+            "访问被拒绝：正式 script_plan 与待修复草稿（"
+            + " / ".join(sorted(AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES))
             + "）不可用 Write/Edit 直改。"
             "这些文件与 Web 端保存、迁移读改写、重生成共享一把文件锁，而 Write/Edit 取不到这把锁，"
             "直改会与并发的保存互相丢失更新。"
@@ -747,15 +747,16 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
 )
 
 #: 写禁文件名的归一化形态（与路径比对同一把尺）。类体内不能引用 classmethod，故在表之后赋值。
-AgentAccessPolicy._PROTECTED_STEP1_FILENAMES_NORM = frozenset(
-    AgentAccessPolicy._normalize_path_for_protected_compare(Path(name)) for name in AGENT_PROTECTED_STEP1_FILENAMES
+AgentAccessPolicy._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM = frozenset(
+    AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
+    for name in AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 )
 AgentAccessPolicy._PROTECTED_QUARANTINE_FILENAMES_NORM = frozenset(
     AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
     for name in (
-        DRAMA_STEP1_QUARANTINE_FILENAME,
-        NARRATION_STEP1_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+        DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
+        NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
     )
 )

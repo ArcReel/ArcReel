@@ -120,12 +120,12 @@ class PlanningCursor(BaseModel):
 def episode_outline_context(
     project: Mapping[str, Any], episode: int
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """从分集账本提取 ``(本集大纲, 下集大纲)`` 作为剧本内容生成（step1）的规划输入。
+    """从分集账本提取 ``(本集大纲, 下集大纲)`` 作为剧本内容生成（script_plan）的规划输入。
 
     大纲 dict 含 ``title`` / ``hook`` / ``story_beats`` / ``next_episode_teaser``。条目无任何
     规划数据（旧式条目，规划工具尚未写入）时对应项为 None；末集无下集，第二项为 None。
-    内容抽取前移后由 step1（normalize）消费——剧本内容（分镜边界 / 口播）须覆盖故事节点、
-    末场落地集尾钩子；step2 仅出视觉、不再需要大纲。
+    内容抽取前移后由 script_plan（normalize）消费——剧本内容（分镜边界 / 口播）须覆盖故事节点、
+    末场落地集尾钩子；prompt_authoring 仅出视觉、不再需要大纲。
     """
 
     def _entry(ep_num: int) -> Mapping[str, Any]:
@@ -139,7 +139,7 @@ def episode_outline_context(
         outline = raw_outline if isinstance(raw_outline, Mapping) else {}
         raw_beats = outline.get("story_beats")
         # 非 list 形状（手编损坏）按缺失处理；list 内非字符串项一并过滤——避免字符串被逐字符渲染、
-        # 或数字 / None 等脏数据原样进 step1 prompt（与 helper 的 fail-soft 同口径）。
+        # 或数字 / None 等脏数据原样进 script_plan prompt（与 helper 的 fail-soft 同口径）。
         story_beats = [beat for beat in raw_beats if isinstance(beat, str)] if isinstance(raw_beats, list) else []
         ctx: dict[str, Any] = {
             "title": entry.get("title"),
@@ -306,7 +306,7 @@ def discover_episode_files(project_dir: Path) -> dict[int, Path]:
 
 
 def discover_product_episode_nums(project_dir: Path) -> set[int]:
-    """枚举磁盘上有下游产物（剧本 JSON / step1 草稿目录）的集号，不依赖账本条目。
+    """枚举磁盘上有下游产物（剧本 JSON / script_plan 草稿目录）的集号，不依赖账本条目。
 
     账本丢失条目（写坏/手工误删）但 ``scripts/episode_N.json`` 或
     ``drafts/episode_N/`` 仍在磁盘时，仅从账本条目与 ``source/episode_N.txt`` 取候选
@@ -324,15 +324,15 @@ def discover_product_episode_nums(project_dir: Path) -> set[int]:
         for path in drafts_dir.iterdir():
             match = _DRAFT_DIR_RE.fullmatch(path.name)
             # 目录存在不等于有产物：files.py::update_draft_content 会在校验草稿内容前
-            # 先建目录，一次被拒绝的无效保存就会留下空目录；只有真正落了 step1_* 才算
+            # 先建目录，一次被拒绝的无效保存就会留下空目录；只有真正落了 script_plan_* 才算
             # 下游产物，与 has_downstream_products() 的口径保持一致
-            if match and path.is_dir() and any(path.glob("step1_*")):
+            if match and path.is_dir() and any(path.glob("script_plan_*")):
                 nums.add(int(match.group(1)))
     return nums
 
 
 def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[str, Any]) -> bool:
-    """该集是否已有下游产物（剧本 JSON / step1 中间文件；媒体必经剧本，剧本存在即覆盖）。
+    """该集是否已有下游产物（剧本 JSON / script_plan 中间文件；媒体必经剧本，剧本存在即覆盖）。
 
     磁盘证据优先于账本状态：账本损坏（状态缺失/错乱）时仍能判定该集是否已被消费。
     """
@@ -342,9 +342,9 @@ def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[
     if (project_dir / episode_script_relpath(episode_num)).is_file():
         return True
     drafts_dir = episode_drafts_dir(project_dir, episode_num)
-    # step1_* 匹配任意格式（结构化 .json / 旧版 .md / reference_units.md），format-agnostic 地
-    # 覆盖所有 content_mode 的 step1 产物：只要拆过段就算已有下游，避免被重规划覆盖。
-    return drafts_dir.is_dir() and any(drafts_dir.glob("step1_*"))
+    # script_plan_* 匹配任意格式（结构化 .json / 旧版 .md / reference_units.md），format-agnostic 地
+    # 覆盖所有 content_mode 的 script_plan 产物：只要拆过段就算已有下游，避免被重规划覆盖。
+    return drafts_dir.is_dir() and any(drafts_dir.glob("script_plan_*"))
 
 
 def register_orphan_episode_entries(project_dir: Path, project: Mapping[str, Any]) -> dict[str, Any]:

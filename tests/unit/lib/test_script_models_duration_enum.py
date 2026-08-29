@@ -179,13 +179,13 @@ class TestConstrainedValidation:
         assert validated.shots[0].duration_seconds == 6
 
 
-class TestReferenceUnitsStep1Model:
-    """build_reference_units_step1_model：扁平产出 + unit 时长枚举硬约束。"""
+class TestReferenceUnitsScriptPlanModel:
+    """build_reference_units_script_plan_model：扁平产出 + unit 时长枚举硬约束。"""
 
     def _model(self):
-        from lib.script_models import build_reference_units_step1_model
+        from lib.script_models import build_reference_units_script_plan_model
 
-        return build_reference_units_step1_model([4, 6, 8])
+        return build_reference_units_script_plan_model([4, 6, 8])
 
     def _unit(self, **overrides) -> dict:
         unit = {"duration_seconds": 6, "source_text": "他起身。", "text": "镜头1：@[甲] 起身"}

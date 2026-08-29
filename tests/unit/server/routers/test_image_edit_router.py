@@ -107,7 +107,7 @@ def _prepare_files(tmp_path: Path) -> Path:
     (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     (project_path / "scripts" / "episode_1.json").write_text(json.dumps(_script_dict()), encoding="utf-8")
     (project_path / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
-    (project_path / "drafts" / "episode_1" / "step1_segments.json").write_text(
+    (project_path / "drafts" / "episode_1" / "script_plan_segments.json").write_text(
         json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
     )
     activate_artifact_target_state(project_path, bump_schema=True)

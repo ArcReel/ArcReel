@@ -1,7 +1,7 @@
 """内容确认领域错误 → HTTP 响应的共享映射。
 
 内容确认的领域错误从两个 router 冒出来：``script_review``（内容确认自身的读写端点）与
-``files``（通用草稿端点对参考生视频 step1 改道 ``ScriptReviewService``）。映射放在两者之外的
+``files``（通用草稿端点对参考生视频 script_plan 改道 ``ScriptReviewService``）。映射放在两者之外的
 共享模块，两个 router 各自从这里取，同一个错误码在不同端点上不会给出不同的状态码或文案。
 """
 
@@ -15,7 +15,7 @@ from server.services.script_review import ScriptReviewError
 # gate 领域错误码 → HTTP 状态。invalid_content / episode_not_found 带参数另行注入。
 _ERROR_STATUS: dict[str, int] = {
     "not_applicable": 409,
-    "no_step1": 409,
+    "no_script_plan": 409,
     "invalid_content": 422,
     "episode_not_found": 404,
     "quarantined": 409,
@@ -25,7 +25,7 @@ _ERROR_STATUS: dict[str, int] = {
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
-    "no_step1": "script_review_no_step1",
+    "no_script_plan": "script_review_no_script_plan",
     "quarantined": "script_review_quarantined",
     "conflict": "script_review_conflict",
 }

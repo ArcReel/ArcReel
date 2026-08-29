@@ -483,15 +483,15 @@ describe("WorkflowPanel 产品语言", () => {
     await renderExpanded(
       makePlan({
         steps: [
-          makeStep({ id: "step1_content", state: "pending" }),
-          makeStep({ id: "step1_review", state: "pending" }),
+          makeStep({ id: "script_plan_content", state: "pending" }),
+          makeStep({ id: "script_plan_review", state: "pending" }),
           makeStep({ id: "asset_sheets", state: "pending" }),
         ],
       }),
     );
-    const step1Row = screen.getByTestId("workflow-step-step1_content");
-    expect(within(step1Row).getByText("内容整理")).toBeInTheDocument();
-    const reviewRow = screen.getByTestId("workflow-step-step1_review");
+    const scriptPlanRow = screen.getByTestId("workflow-step-script_plan_content");
+    expect(within(scriptPlanRow).getByText("脚本规划")).toBeInTheDocument();
+    const reviewRow = screen.getByTestId("workflow-step-script_plan_review");
     expect(within(reviewRow).getByText("内容确认")).toBeInTheDocument();
     const sheetsRow = screen.getByTestId("workflow-step-asset_sheets");
     expect(within(sheetsRow).getByText("资产图")).toBeInTheDocument();

@@ -429,7 +429,7 @@ class EpisodePlanner:
         非空则原样注入规划 prompt 的中性「用户意见」分节，遵循强度由意见正文自行表达。规划按窗口
         分多批、意见不持久化，调用方须在每批 plan 调用都重复带上。
 
-        新提交的集号若在磁盘上已有下游产物（剧本/step1/媒体，见
+        新提交的集号若在磁盘上已有下游产物（剧本/script_plan/媒体，见
         :func:`lib.episode_ledger.has_downstream_products`），说明该集实际已被消费过
         （典型场景：先 ``reset_episode_planning`` 部分重置到更早集号、再带新 ``instructions``
         重新规划，新布局与原消费范围重叠）；这类集提交时直接标 ``stale``（产物不删除），
@@ -567,14 +567,14 @@ class EpisodePlanner:
                 entry = _ledger_entry_from_draft(
                     draft_ep, num=num, source_rel=source_rel, start=prev, end=abs_end, status="planned"
                 )
-                # 新集号若在磁盘上已有剧本/step1/媒体产物（如重置到更早集号后重新规划、
+                # 新集号若在磁盘上已有剧本/script_plan/媒体产物（如重置到更早集号后重新规划、
                 # 新布局与原消费范围重叠），说明该集实际已被消费过；标 stale 提示主 Agent
                 # 需重做下游产物，产物本身不删除
                 if has_downstream_products(self.project_path, num, entry):
                     entry["ledger_status"] = "stale"
-                    step1_path = script_review.step1_path(self.project_path, p, num)
-                    entry[script_review.STALE_STEP1_REVISION_FIELD] = (
-                        script_review.content_fingerprint(step1_path) if step1_path is not None else None
+                    script_plan_path = script_review.script_plan_path(self.project_path, p, num)
+                    entry[script_review.STALE_SCRIPT_PLAN_REVISION_FIELD] = (
+                        script_review.content_fingerprint(script_plan_path) if script_plan_path is not None else None
                     )
                     committed["stale"].append(num)
                 episodes_list.append(entry)

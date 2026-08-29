@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME, episode_drafts_dir
+from lib.episode_paths import REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME, episode_drafts_dir
 from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -183,7 +183,8 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
         },
     )
     _write_json(
-        episode_drafts_dir(project_dir, 1) / REFERENCE_VIDEO_STEP1_FILENAME,
+        # v8 项目的草稿仍是 v9→v10 改名前的名字。
+        episode_drafts_dir(project_dir, 1) / "step1_reference_units.json",
         {
             "episode": 1,
             "units": [
@@ -235,7 +236,7 @@ def test_migrated_body_is_the_only_shape_rest_serves(acceptance: _Acceptance) ->
     assert "shots" not in unit
     assert "references" not in unit
 
-    draft = _read_json(episode_drafts_dir(acceptance.project_dir, 1) / REFERENCE_VIDEO_STEP1_FILENAME)
+    draft = _read_json(episode_drafts_dir(acceptance.project_dir, 1) / REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME)
     assert draft["units"][0]["text"] == "草稿上半\n草稿下半"
     assert "shots" not in draft["units"][0]
 

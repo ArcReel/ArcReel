@@ -1,4 +1,4 @@
-"""参考生视频扁平草稿结构的机械校验（step1 / step2 共用）。"""
+"""参考生视频扁平草稿结构的机械校验（script_plan / prompt_authoring 共用）。"""
 
 import unicodedata
 
@@ -260,39 +260,39 @@ class TestNormativeLines:
 
 
 class TestDialoguePreserved:
-    STEP1 = "镜头1：@[李明] 推门\n@[李明]：{我来了。}"
+    SCRIPT_PLAN = "镜头1：@[李明] 推门\n@[李明]：{我来了。}"
 
     def test_description_expansion_accepted(self):
         assert_dialogue_preserved(
             "unit E1U01",
-            self.STEP1,
+            self.SCRIPT_PLAN,
             "镜头1：中景，平视。@[李明] 推开 @[酒馆] 的门，跨过门槛\n@[李明]：{我来了。}",
         )
 
     def test_unicode_form_difference_not_a_rewrite(self):
-        """step1 存 NFD、step2 回写 NFC 是纯编码差异，不该把已付费的展开判成改词。"""
+        """script_plan 存 NFD、prompt_authoring 回写 NFC 是纯编码差异，不该把已付费的展开判成改词。"""
         line = "Anh ấy mở cửa"
-        step1 = f"镜头1：@[李明] 推门\n@[李明]：{{{unicodedata.normalize('NFD', line)}}}"
-        step2 = f"镜头1：中景。@[李明] 推开木门\n@[李明]：{{{unicodedata.normalize('NFC', line)}}}"
-        assert_dialogue_preserved("unit E1U01", step1, step2)
+        script_plan = f"镜头1：@[李明] 推门\n@[李明]：{{{unicodedata.normalize('NFD', line)}}}"
+        prompt_authoring = f"镜头1：中景。@[李明] 推开木门\n@[李明]：{{{unicodedata.normalize('NFC', line)}}}"
+        assert_dialogue_preserved("unit E1U01", script_plan, prompt_authoring)
 
     def test_rewritten_dialogue_rejected(self):
         with pytest.raises(DraftViolation, match="第 1 条台词被改写"):
-            assert_dialogue_preserved("unit E1U01", self.STEP1, "镜头1：@[李明] 推门\n@[李明]：{我到了。}")
+            assert_dialogue_preserved("unit E1U01", self.SCRIPT_PLAN, "镜头1：@[李明] 推门\n@[李明]：{我到了。}")
 
     def test_speaker_change_rejected(self):
         with pytest.raises(DraftViolation, match="第 1 条台词被改写"):
-            assert_dialogue_preserved("unit E1U01", self.STEP1, "镜头1：@[李明] 推门\n@[王五]：{我来了。}")
+            assert_dialogue_preserved("unit E1U01", self.SCRIPT_PLAN, "镜头1：@[李明] 推门\n@[王五]：{我来了。}")
 
     def test_added_dialogue_rejected(self):
         with pytest.raises(DraftViolation, match="台词条数被改动"):
             assert_dialogue_preserved(
-                "unit E1U01", self.STEP1, "镜头1：@[李明] 推门\n@[李明]：{我来了。}\n{夜色深沉。}"
+                "unit E1U01", self.SCRIPT_PLAN, "镜头1：@[李明] 推门\n@[李明]：{我来了。}\n{夜色深沉。}"
             )
 
     def test_dropped_dialogue_rejected(self):
         with pytest.raises(DraftViolation, match="台词条数被改动"):
-            assert_dialogue_preserved("unit E1U01", self.STEP1, "镜头1：@[李明] 推门")
+            assert_dialogue_preserved("unit E1U01", self.SCRIPT_PLAN, "镜头1：@[李明] 推门")
 
 
 class TestNeutralLayerReexport:

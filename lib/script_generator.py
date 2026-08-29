@@ -1,7 +1,7 @@
 """
 script_generator.py - 剧本生成器
 
-读取 Step 1 结构化中间文件，调用文本生成 Backend 生成最终 JSON 剧本
+读取脚本规划结构化中间文件，调用文本生成 Backend 生成最终 JSON 剧本
 """
 
 import asyncio
@@ -45,10 +45,10 @@ from lib.content_digest import sha256_file
 from lib.db import async_session_factory
 from lib.draft_quarantine import (
     PROMOTE_TOOL_NAME,
-    QUARANTINE_KIND_DRAMA_STEP1,
-    QUARANTINE_KIND_NARRATION_STEP1,
-    QUARANTINE_KIND_STEP1,
-    QUARANTINE_KIND_STEP2,
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+    QUARANTINE_KIND_PROMPT_AUTHORING,
+    QUARANTINE_KIND_SCRIPT_PLAN,
     clear_quarantine,
     draft_revision,
     quarantine_and_report,
@@ -56,10 +56,10 @@ from lib.draft_quarantine import (
     read_quarantine,
 )
 from lib.episode_paths import (
-    REFERENCE_VIDEO_STEP1_FILENAME,
-    REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
-    STEP1_FILENAMES,
-    STEP1_LEGACY_FILENAMES,
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
+    SCRIPT_PLAN_FILENAMES,
+    SCRIPT_PLAN_LEGACY_FILENAMES,
     episode_drafts_dir,
     episode_script_filename,
 )
@@ -71,7 +71,7 @@ from lib.prompt_builders_script import (
     append_user_instructions,
     build_drama_prompt,
     build_narration_prompt,
-    render_drama_content_for_step2,
+    render_drama_content_for_prompt_authoring,
 )
 from lib.reference_video.draft_validation import (
     DraftViolation,
@@ -91,21 +91,21 @@ from lib.script_models import (
     DramaSceneContent,
     DramaVisualScript,
     NarrationEpisodeScript,
-    NarrationStep1Draft,
+    NarrationScriptPlanDraft,
     NarrationVisualEpisodeScript,
-    ReferenceStep1Draft,
-    ReferenceStep2FlatScript,
+    ReferencePromptAuthoringFlatScript,
+    ReferenceScriptPlanDraft,
     ReferenceVideoScript,
     build_episode_script_model,
     merge_drama_visual_into_scenes,
     script_duration_total,
 )
 from lib.script_review import (
-    SCRIPT_STEP1_REVISION_FIELD,
+    SCRIPT_PLAN_REVISION_FIELD,
     content_fingerprint,
     content_fingerprint_of_data,
-    gate_blocks_step2,
-    migrate_step1_draft_in_place,
+    gate_blocks_prompt_authoring,
+    migrate_script_plan_draft_in_place,
 )
 from lib.script_skeleton import resolve_declared_kind, resolve_kind_items
 from lib.speech_composition import admit_script_unit, require_script_unit_admitted, video_unit_replan_problems
@@ -123,7 +123,7 @@ class _UnsetExpectedFingerprint:
 
 _UNSET_EXPECTED_FINGERPRINT = _UnsetExpectedFingerprint()
 
-# drama step1 时长的归一化口径：与 DramaSceneContent.duration_seconds（非 strict int）同一套，
+# drama script_plan 时长的归一化口径：与 DramaSceneContent.duration_seconds（非 strict int）同一套，
 # 避免校验侧与落盘侧对 "4" / 4.0 这类取值判断不一致。默认值也取字段声明，不另写字面量。
 _DURATION_ADAPTER = TypeAdapter(int)
 _DRAMA_DEFAULT_DURATION = DramaSceneContent.model_fields["duration_seconds"].default
@@ -148,7 +148,7 @@ _KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
 
 
 def _units_use_references(units: list[dict] | None) -> bool | None:
-    """本集 step1 是否存在带 ``@[名称]`` 提及的 unit；``units`` 为 None（非参考生视频路径）时返回 None。
+    """本集 script_plan 是否存在带 ``@[名称]`` 提及的 unit；``units`` 为 None（非参考生视频路径）时返回 None。
 
     None 的语义是「交给下游按生成模式近似判定」，与「确定不带参考图」的 False 区分开。
     参考生视频路径允许通用 unit 不带任何引用，执行层与调用通道都只在实际带图时施加
@@ -176,7 +176,7 @@ class ScriptGenerator:
     """
     剧本生成器
 
-    读取 Step 1/2 的 Markdown 中间文件，调用 TextBackend 生成最终 JSON 剧本
+    读取脚本规划 / 提示词编写的 Markdown 中间文件，调用 TextBackend 生成最终 JSON 剧本
     """
 
     # 类属性缺省，绕过 __init__ 构造的实例同样读到 None；解析时按需回退到生产 ConfigResolver。
@@ -200,9 +200,9 @@ class ScriptGenerator:
         self.project_path = Path(project_path)
         self.generator = generator
         self.config_resolver = config_resolver
-        self._step1_revision: str | None = None
+        self._script_plan_revision: str | None = None
         self._artifact_basis: ArtifactBasisDescriptor | None = None
-        self._step1_input_claim: ArtifactInputClaim | None = None
+        self._script_plan_input_claim: ArtifactInputClaim | None = None
 
         # 加载 project.json
         self.project_json = self._load_project_json()
@@ -285,12 +285,12 @@ class ScriptGenerator:
         ):
             raise ValueError(f"output_filename 只接受纯文件名，不允许目录或路径分隔符: {output_filename!r}")
 
-        self._step1_revision = None
+        self._script_plan_revision = None
         self._artifact_basis = None
-        self._step1_input_claim = None
+        self._script_plan_input_claim = None
         gen_mode = self.generation_mode
 
-        # ad 两种生成模式都一键生成、不走 step1；参考生视频直接产出自包含 video_units。
+        # ad 两种生成模式都一键生成、不走 script_plan；参考生视频直接产出自包含 video_units。
         if self.content_mode == "ad":
             prompt, schema = await self._compose_ad(episode, gen_mode)
             prompt = append_user_instructions(prompt, instructions)
@@ -304,12 +304,12 @@ class ScriptGenerator:
                 cancellation_manifest_receipts=cancellation_manifest_receipts,
             )
 
-        # 剧情演绎的分镜图生视频（含宫格装配）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
-        # step2 仅出视觉层（image_prompt / video_prompt），后端按 scene_id 合并回 step1 内容、
+        # 剧情演绎的分镜图生视频（含宫格装配）走两段式（见 ADR 0041）：script_plan 内容已是结构化 JSON，
+        # prompt_authoring 仅出视觉层（image_prompt / video_prompt），后端按 scene_id 合并回 script_plan 内容、
         # 透传 utterances / source_text 等非视觉字段。reference_video 路径不入此分支（用 video_units）；
-        # content_mode 非 narration（drama 或脏值）走 step2 drama 形状。
+        # content_mode 非 narration（drama 或脏值）走 prompt_authoring drama 形状。
         if gen_mode != "reference_video" and self.content_mode != "narration":
-            return await self._generate_drama_step2(
+            return await self._generate_drama_prompt_authoring(
                 episode,
                 output_filename,
                 gen_mode=gen_mode,
@@ -327,27 +327,27 @@ class ScriptGenerator:
         props = self.project_json.get("props")
         props = props if isinstance(props, dict) else {}
 
-        # 参考生视频路径先读 step1：本集是否真的带参考图决定要不要施加「参考图↔时长」约束，
+        # 参考生视频路径先读 script_plan：本集是否真的带参考图决定要不要施加「参考图↔时长」约束，
         # 故此处先按未收窄的全集校验 unit 时长，收窄后的集合在下方按引用情况解析。
-        step1_units = None
+        script_plan_units = None
         if gen_mode == "reference_video":
-            step1_units = await run_sync_transaction(
-                self._load_reference_step1,
+            script_plan_units = await run_sync_transaction(
+                self._load_reference_script_plan,
                 episode,
                 self._resolve_raw_supported_durations(caps),
             )
 
         # 解析一次时长能力：reference 据此构造 duration 枚举硬约束 schema；
-        # narration 两段式用于校验 step1 各分镜时长成员合法（step2 不再产出时长）。
+        # narration 两段式用于校验 script_plan 各分镜时长成员合法（prompt_authoring 不再产出时长）。
         supported_durations = self._resolve_supported_durations(
-            caps, gen_mode=gen_mode, uses_reference_images=_units_use_references(step1_units)
+            caps, gen_mode=gen_mode, uses_reference_images=_units_use_references(script_plan_units)
         )
 
-        # narration 走两段式：step1 结构化分镜透传内容层（novel_text 等），step2 仅产视觉层、
-        # 按 segment_id 合并回 step1。非 narration 走单段（step1 markdown 直喂 LLM）。
-        narration_step1: list[dict] | None = None
+        # narration 走两段式：script_plan 结构化分镜透传内容层（novel_text 等），prompt_authoring 仅产视觉层、
+        # 按 segment_id 合并回 script_plan。非 narration 走单段（script_plan markdown 直喂 LLM）。
+        narration_script_plan: list[dict] | None = None
 
-        if step1_units is not None:
+        if script_plan_units is not None:
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -355,19 +355,19 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                step1_units=step1_units,
+                script_plan_units=script_plan_units,
                 max_refs=self._resolve_max_refs(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
                 target_language=self.project_json.get("source_language") or "中文",
             )
-            # step2 只产引用语法正文：unit_id / 时长机械沿用 step1，参考图执行期从正文派生，
+            # prompt_authoring 只产引用语法正文：unit_id / 时长机械沿用 script_plan，参考图执行期从正文派生，
             # 不进 LLM 输出——没让模型写的字段就没有漂移可校验，故此处无需按能力收窄的动态 schema。
-            schema: type = ReferenceStep2FlatScript
+            schema: type = ReferencePromptAuthoringFlatScript
         else:
-            # narration 两段式：step1 透传内容层（novel_text 等），step2 仅产视觉层、按 segment_id 合并回 step1。
-            # drama 已在前面经 _generate_drama_step2 早返回；reference 走上面分支，故此 else 必为 narration。
-            narration_step1 = self._load_narration_step1(episode, supported_durations)
+            # narration 两段式：script_plan 透传内容层（novel_text 等），prompt_authoring 仅产视觉层、按 segment_id 合并回 script_plan。
+            # drama 已在前面经 _generate_drama_prompt_authoring 早返回；reference 走上面分支，故此 else 必为 narration。
+            narration_script_plan = self._load_narration_script_plan(episode, supported_durations)
             prompt = build_narration_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -375,30 +375,30 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                step1_segments=narration_step1,
+                script_plan_segments=narration_script_plan,
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
-                # 输出语言与 step1 同取项目 source_language，避免非中文项目 step1 透传内容与 step2 视觉割裂（同 drama）
+                # 输出语言与 script_plan 同取项目 source_language，避免非中文项目 script_plan 透传内容与 prompt_authoring 视觉割裂（同 drama）
                 target_language=self.project_json.get("source_language") or "中文",
             )
-            # step2 只产视觉层（image_prompt/video_prompt），按 segment_id 对齐 step1 合并；
-            # novel_text/时长/break 由 step1 透传，不进 LLM 输出，从工程上根除扩写漂移。
+            # prompt_authoring 只产视觉层（image_prompt/video_prompt），按 segment_id 对齐 script_plan 合并；
+            # novel_text/时长/break 由 script_plan 透传，不进 LLM 输出，从工程上根除扩写漂移。
             schema = NarrationVisualEpisodeScript
 
-        # unit 时长的单一真相是 step1 完成内容确认时的值：schema 只把 duration_seconds 枚举约束到
+        # unit 时长的单一真相是 script_plan 完成内容确认时的值：schema 只把 duration_seconds 枚举约束到
         # supported_durations 成员，不会把它钉死在某个具体 unit 已确认的档位上，LLM 因而能在
-        # 合法档位间自由改写——按 unit_id 机械传回 step1 确认值，杜绝该字段被 step2 静默漂移。
+        # 合法档位间自由改写——按 unit_id 机械传回 script_plan 确认值，杜绝该字段被 prompt_authoring 静默漂移。
         #
         # 这里只传未取档的原始确认值：取档按哪套档位算取决于「这个 unit 最终是否带参考图」，
-        # 而正文里的 `@[名称]` 由 LLM 在 step2 输出时决定、可能与 step1 的不同。取档统一放在
+        # 而正文里的 `@[名称]` 由 LLM 在 prompt_authoring 输出时决定、可能与 script_plan 的不同。取档统一放在
         # _add_metadata，按落地后的最终正文逐 unit 重算。
         prompt = append_user_instructions(prompt, instructions)
 
         reference_unit_durations = None
-        if step1_units is not None:
-            self._assert_reference_step1_ready(step1_units, caps=caps, gen_mode=gen_mode)
+        if script_plan_units is not None:
+            self._assert_reference_script_plan_ready(script_plan_units, caps=caps, gen_mode=gen_mode)
             reference_unit_durations = {
-                str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in step1_units
+                str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in script_plan_units
             }
 
         return await self._generate_and_save(
@@ -406,17 +406,17 @@ class ScriptGenerator:
             schema,
             episode,
             output_filename,
-            narration_step1=narration_step1,
-            reference_step1=step1_units,
-            reference_max_refs=self._resolve_max_refs(caps) if step1_units is not None else None,
+            narration_script_plan=narration_script_plan,
+            reference_script_plan=script_plan_units,
+            reference_max_refs=self._resolve_max_refs(caps) if script_plan_units is not None else None,
             reference_unit_durations=reference_unit_durations,
-            caps=caps if step1_units is not None else None,
+            caps=caps if script_plan_units is not None else None,
             before_quarantine_commit=before_quarantine_commit,
             cancellation_file_receipts=cancellation_file_receipts,
             cancellation_manifest_receipts=cancellation_manifest_receipts,
         )
 
-    async def _generate_drama_step2(
+    async def _generate_drama_prompt_authoring(
         self,
         episode: int,
         output_filename: str | None,
@@ -426,26 +426,28 @@ class ScriptGenerator:
         cancellation_file_receipts: list[FormalWriteReceipt] | None = None,
         cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
     ) -> Path:
-        """drama 两段式 step2：读 step1 结构化内容 → LLM 仅出视觉层 → 按 scene_id 合并 → 落盘。
+        """drama 两段式 prompt_authoring：读 script_plan 结构化内容 → LLM 仅出视觉层 → 按 scene_id 合并 → 落盘。
 
-        非视觉字段（utterances / source_text / characters_in_scene / 时长 / 边界）一律取自 step1 内容、
+        非视觉字段（utterances / source_text / characters_in_scene / 时长 / 边界）一律取自 script_plan 内容、
         不进 LLM 输出（工程透传，杜绝 Structured Outputs 漂移）；视觉层缺覆盖 / 悬空 scene_id 由
         ``merge_drama_visual_into_scenes`` fail-loud。
         """
         assert self.generator is not None  # generate() 入口已检查
-        content = self._load_drama_step1_content(episode)
+        content = self._load_drama_script_plan_content(episode)
         raw_scenes = content.get("scenes")
         content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
         for scene in content_scenes:
             require_script_unit_admitted("scenes", scene)
-        await self._assert_drama_step1_durations(content_scenes, episode=episode, gen_mode=gen_mode)
+        await self._assert_drama_script_plan_durations(content_scenes, episode=episode, gen_mode=gen_mode)
         filename = output_filename or episode_script_filename(episode)
         formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
 
-        logger.info("正在生成第 %d 集剧本（drama step2 视觉层）...", episode)
+        logger.info("正在生成第 %d 集剧本（drama prompt_authoring 视觉层）...", episode)
         result = await self._generate_text(
             TextGenerationRequest(
-                prompt=append_user_instructions(self._build_drama_step2_prompt(content_scenes, episode), instructions),
+                prompt=append_user_instructions(
+                    self._build_drama_prompt_authoring_prompt(content_scenes, episode), instructions
+                ),
                 response_schema=DramaVisualScript,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             )
@@ -473,13 +475,15 @@ class ScriptGenerator:
         logger.info("剧本已保存至 %s", output_path)
         return output_path
 
-    async def _assert_drama_step1_durations(self, content_scenes: list, *, episode: int, gen_mode: str | None) -> None:
-        """校验 drama step1 已定分镜时长在当前能力集合内，越界 fail-loud。
+    async def _assert_drama_script_plan_durations(
+        self, content_scenes: list, *, episode: int, gen_mode: str | None
+    ) -> None:
+        """校验 drama script_plan 已定分镜时长在当前能力集合内，越界 fail-loud。
 
-        与 narration（``_load_narration_step1``）、reference_video（``_load_reference_step1``）
-        对称：drama 的时长同样由 step1 定稿、step2 只出视觉层并原样透传，而落盘前的静态校验只
-        要求正整数。缺这道校验时，step1 在某个分辨率下拆好、随后项目切到约束更严的分辨率再跑
-        step2，越界时长会一路存进剧本，直到视频入队才被拒。
+        与 narration（``_load_narration_script_plan``）、reference_video（``_load_reference_script_plan``）
+        对称：drama 的时长同样由 script_plan 定稿、prompt_authoring 只出视觉层并原样透传，而落盘前的静态校验只
+        要求正整数。缺这道校验时，script_plan 在某个分辨率下拆好、随后项目切到约束更严的分辨率再跑
+        prompt_authoring，越界时长会一路存进剧本，直到视频入队才被拒。
 
         取值按**最终 schema 的归一化口径**（``TypeAdapter(int)``，即 ``DramaSceneContent``
         的非 strict ``int`` 字段所用的那套）而非 ``isinstance(..., int)``：后者会把 ``"4"``
@@ -501,12 +505,12 @@ class ScriptGenerator:
         bad = sorted(seen - allowed)
         if bad:
             raise ValueError(
-                f"step1 已定分镜时长非法（不在 {sorted(allowed)} 内）: {bad}；"
-                "当前分辨率与型号下这些时长不可用，请调用 generate_step1 按当前能力规范化"
+                f"script_plan 已定分镜时长非法（不在 {sorted(allowed)} 内）: {bad}；"
+                "当前分辨率与型号下这些时长不可用，请调用 generate_script_plan 按当前能力规范化"
             )
 
-    def _build_drama_step2_prompt(self, content_scenes: list, episode: int) -> str:
-        """构建 drama step2（视觉层）prompt：把 step1 内容渲染为输入，仅求 image_prompt / video_prompt。"""
+    def _build_drama_prompt_authoring_prompt(self, content_scenes: list, episode: int) -> str:
+        """构建 drama prompt_authoring（视觉层）prompt：把 script_plan 内容渲染为输入，仅求 image_prompt / video_prompt。"""
         characters = self.project_json.get("characters")
         characters = characters if isinstance(characters, dict) else {}
         scenes = self.project_json.get("scenes")
@@ -517,10 +521,10 @@ class ScriptGenerator:
             project_overview=self.project_json.get("overview", {}),
             style=self.project_json.get("style", ""),
             style_description=self.project_json.get("style_description", ""),
-            scenes_content=render_drama_content_for_step2(content_scenes),
+            scenes_content=render_drama_content_for_prompt_authoring(content_scenes),
             episode=episode,
             aspect_ratio=self._resolve_aspect_ratio(),
-            # 输出语言与 step1（normalize）同取项目 source_language，避免非中文项目 step1 内容与 step2 视觉割裂
+            # 输出语言与 script_plan（normalize）同取项目 source_language，避免非中文项目 script_plan 内容与 prompt_authoring 视觉割裂
             target_language=self.project_json.get("source_language") or "中文",
             characters=characters,
             scenes=scenes,
@@ -528,7 +532,7 @@ class ScriptGenerator:
         )
 
     def _parse_drama_visual(self, response_text: str) -> list[dict]:
-        """解析 step2 视觉层 LLM 响应为 scene 视觉 dict 列表（scene_id + image_prompt + video_prompt）。
+        """解析 prompt_authoring 视觉层 LLM 响应为 scene 视觉 dict 列表（scene_id + image_prompt + video_prompt）。
 
         校验失败时降级取原始 scenes，由后续 ``merge_drama_visual_into_scenes`` 按覆盖/对齐 fail-loud。
         """
@@ -536,12 +540,12 @@ class ScriptGenerator:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
-            raise ValueError(f"step2 视觉层 JSON 解析失败: {e}")
+            raise ValueError(f"prompt_authoring 视觉层 JSON 解析失败: {e}")
         try:
             validated = DramaVisualScript.model_validate(data)
             return [s.model_dump() for s in validated.scenes]
         except ValidationError as e:
-            logger.warning("step2 视觉层校验警告: %s", e)
+            logger.warning("prompt_authoring 视觉层校验警告: %s", e)
             raw = data.get("scenes") if isinstance(data, dict) else None
             return raw if isinstance(raw, list) else []
 
@@ -552,8 +556,8 @@ class ScriptGenerator:
         episode: int,
         output_filename: str | None,
         *,
-        narration_step1: list[dict] | None = None,
-        reference_step1: list[dict] | None = None,
+        narration_script_plan: list[dict] | None = None,
+        reference_script_plan: list[dict] | None = None,
         reference_max_refs: int | None = None,
         reference_unit_durations: dict[str, int] | None = None,
         caps: dict | None = None,
@@ -563,8 +567,8 @@ class ScriptGenerator:
     ) -> Path:
         """调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存（各创作类型共用尾段）。
 
-        ``narration_step1`` 非 None 时走两段式合并：LLM 输出视觉层，按 segment_id 合并回
-        step1 已定结构（novel_text 等透传）；``reference_step1`` 非 None 时走参考路径的保结构
+        ``narration_script_plan`` 非 None 时走两段式合并：LLM 输出视觉层，按 segment_id 合并回
+        script_plan 已定结构（novel_text 等透传）；``reference_script_plan`` 非 None 时走参考路径的保结构
         合并（LLM 只出引用语法正文，见 ``_merge_reference_visual``）；两者皆 None 时走单段解析
         （drama/ad）。``reference_unit_durations`` 非 None 时（reference_video 路径）按 unit_id
         机械覆盖 ``duration_seconds``（取档用最终输出正文的提及状态重算，见 ``_add_metadata``）；
@@ -574,14 +578,14 @@ class ScriptGenerator:
         assert self.generator is not None  # generate() 入口已检查
         filename = output_filename or episode_script_filename(episode)
         formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
-        step2_draft_baseline = (
-            await asyncio.to_thread(self._reference_step2_draft_revision, episode)
-            if reference_step1 is not None
+        prompt_authoring_draft_baseline = (
+            await asyncio.to_thread(self._reference_prompt_authoring_draft_revision, episode)
+            if reference_script_plan is not None
             else None
         )
-        if step2_draft_baseline is not None:
+        if prompt_authoring_draft_baseline is not None:
             raise DraftViolation(
-                "reference step2 草稿待处置；正式生成已中止，请先晋升或丢弃现有草稿",
+                "reference prompt_authoring 草稿待处置；正式生成已中止，请先晋升或丢弃现有草稿",
                 code="draft_revision_conflict",
             )
         # 调用 TextBackend
@@ -596,25 +600,25 @@ class ScriptGenerator:
         response_text = result.text
 
         # 解析并验证响应
-        if narration_step1 is not None:
+        if narration_script_plan is not None:
             visual_data = self._parse_narration_visual(response_text, episode)
-            script_data = self._merge_narration_visual(narration_step1, visual_data, episode)
-        elif reference_step1 is not None:
+            script_data = self._merge_narration_visual(narration_script_plan, visual_data, episode)
+        elif reference_script_plan is not None:
             # 违约不丢弃：把这次已付费的展开连同逐条报告落待修复草稿，由 Agent 修复后经
-            # promote_reference_step2_draft 重判晋升。重抽既烧钱又不收敛——同一个模型对同一份
-            # step1 大概率再犯同一类错。
+            # promote_reference_prompt_authoring_draft 重判晋升。重抽既烧钱又不收敛——同一个模型对同一份
+            # script_plan 大概率再犯同一类错。
             try:
                 script_data = self._merge_reference_visual(
-                    reference_step1, response_text, episode, max_refs=reference_max_refs
+                    reference_script_plan, response_text, episode, max_refs=reference_max_refs
                 )
             except DraftViolation as exc:
                 raise await run_sync_transaction(
-                    self._quarantine_reference_step2,
+                    self._quarantine_reference_prompt_authoring,
                     episode,
                     response_text,
                     exc,
                     base_fingerprint=formal_baseline,
-                    expected_draft_revision=step2_draft_baseline,
+                    expected_draft_revision=prompt_authoring_draft_baseline,
                     before_commit=before_quarantine_commit,
                 ) from exc
         else:
@@ -632,15 +636,15 @@ class ScriptGenerator:
                 script_data, episode, reference_unit_durations=reference_unit_durations, caps=caps
             )
         except DraftViolation as exc:
-            if reference_step1 is None:
+            if reference_script_plan is None:
                 raise
             raise await run_sync_transaction(
-                self._quarantine_reference_step2,
+                self._quarantine_reference_prompt_authoring,
                 episode,
                 response_text,
                 exc,
                 base_fingerprint=formal_baseline,
-                expected_draft_revision=step2_draft_baseline,
+                expected_draft_revision=prompt_authoring_draft_baseline,
                 before_commit=before_quarantine_commit,
             ) from exc
 
@@ -649,11 +653,11 @@ class ScriptGenerator:
         # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
         pm = ProjectManager(str(self.project_path.parent))
         try:
-            if reference_step1 is not None:
+            if reference_script_plan is not None:
                 output_path = await run_sync_transaction(
-                    self._save_reference_step2_if_draft_unchanged,
+                    self._save_reference_prompt_authoring_if_draft_unchanged,
                     episode,
-                    step2_draft_baseline,
+                    prompt_authoring_draft_baseline,
                     script_data,
                     filename,
                     formal_baseline,
@@ -673,18 +677,18 @@ class ScriptGenerator:
                     cancellation_manifest_receipts=cancellation_manifest_receipts,
                 )
         except ScriptWriteConflict as exc:
-            if reference_step1 is None:
+            if reference_script_plan is None:
                 raise
             raise await run_sync_transaction(
-                self._quarantine_reference_step2,
+                self._quarantine_reference_prompt_authoring,
                 episode,
                 response_text,
                 DraftViolation(
-                    "正式剧本在模型生成期间已变化；本次生成结果已保留为 step2 草稿，请合并最新正式内容后再晋升",
+                    "正式剧本在模型生成期间已变化；本次生成结果已保留为 prompt_authoring 草稿，请合并最新正式内容后再晋升",
                     code="formal_revision_conflict",
                 ),
                 base_fingerprint=formal_baseline,
-                expected_draft_revision=step2_draft_baseline,
+                expected_draft_revision=prompt_authoring_draft_baseline,
                 before_commit=before_quarantine_commit,
             ) from exc
 
@@ -709,7 +713,7 @@ class ScriptGenerator:
         return self._build_ad_prompt(episode, gen_mode, supported), schema
 
     def _build_ad_prompt(self, episode: int, gen_mode: str | None, supported: list[int] | None) -> str:
-        """构建广告/短片 prompt：brief + 商品信息 + 审定配比表，不读 step1 中间文件。
+        """构建广告/短片 prompt：brief + 商品信息 + 审定配比表，不读 script_plan 中间文件。
 
         storyboard 路径把 supported_durations 作为单分镜时长枚举写进 prompt；参考生视频
         直接输出统一引用语法 video unit，八段式只作为内容规划而不持久化。
@@ -749,18 +753,20 @@ class ScriptGenerator:
         """
         gen_mode = self.generation_mode
 
-        # 见 generate() 同位置说明：ad 先于 generation_mode 分派，且不读 step1。
+        # 见 generate() 同位置说明：ad 先于 generation_mode 分派，且不读 script_plan。
         if self.content_mode == "ad":
             prompt, _schema = await self._compose_ad(episode, gen_mode)
             return append_user_instructions(prompt, instructions)
 
-        # 剧情演绎的分镜图生视频（含宫格装配）dry-run 走 step2 视觉层 prompt：读 step1 结构化内容并渲染
+        # 剧情演绎的分镜图生视频（含宫格装配）dry-run 走 prompt_authoring 视觉层 prompt：读 script_plan 结构化内容并渲染
         # （见 generate() 的两段式说明）。reference_video / narration 不入此分支。
         if gen_mode != "reference_video" and self.content_mode != "narration":
-            content = self._load_drama_step1_content(episode)
+            content = self._load_drama_script_plan_content(episode)
             raw_scenes = content.get("scenes")
             content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
-            return append_user_instructions(self._build_drama_step2_prompt(content_scenes, episode), instructions)
+            return append_user_instructions(
+                self._build_drama_prompt_authoring_prompt(content_scenes, episode), instructions
+            )
 
         caps = await self._fetch_video_capabilities()
         characters = self.project_json.get("characters")
@@ -771,10 +777,10 @@ class ScriptGenerator:
         props = props if isinstance(props, dict) else {}
 
         if gen_mode == "reference_video":
-            # unit 时长按全集校验（见 generate() 同位置说明）；step2 不产出时长，prompt
+            # unit 时长按全集校验（见 generate() 同位置说明）；prompt_authoring 不产出时长，prompt
             # 只需参考图上限。
-            step1_units = await run_sync_transaction(
-                self._load_reference_step1,
+            script_plan_units = await run_sync_transaction(
+                self._load_reference_script_plan,
                 episode,
                 self._resolve_raw_supported_durations(caps),
             )
@@ -785,14 +791,14 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                step1_units=step1_units,
+                script_plan_units=script_plan_units,
                 max_refs=self._resolve_max_refs(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
                 target_language=self.project_json.get("source_language") or "中文",
             )
             return append_user_instructions(prompt, instructions)
-        # narration 两段式：step1 透传内容层（novel_text 等），step2 仅产视觉层。
+        # narration 两段式：script_plan 透传内容层（novel_text 等），prompt_authoring 仅产视觉层。
         # drama / ad 已在前面早返回，reference 走上面分支，故此处必为 narration。
         prompt = build_narration_prompt(
             project_overview=self.project_json.get("overview", {}),
@@ -801,7 +807,7 @@ class ScriptGenerator:
             characters=characters,
             scenes=scenes,
             props=props,
-            step1_segments=self._load_narration_step1(
+            script_plan_segments=self._load_narration_script_plan(
                 episode, self._resolve_supported_durations(caps, gen_mode=gen_mode)
             ),
             aspect_ratio=self._resolve_aspect_ratio(),
@@ -856,7 +862,7 @@ class ScriptGenerator:
         不含「分辨率↔时长」「参考图↔时长」两条联动约束。不收窄的话 Veo 项目（兜底分辨率即
         1080p）的剧本会产出 4/6 秒分镜，到视频入队时才被 backend 拒，用户已无统一纠正入口。
 
-        ``uses_reference_images`` 由调用方按本集 step1 的实际引用情况传入；缺省退回按生成模式
+        ``uses_reference_images`` 由调用方按本集 script_plan 的实际引用情况传入；缺省退回按生成模式
         判定（见 ``constrain_durations_for_project``）。
         """
         raw = self._resolve_raw_supported_durations(caps)
@@ -875,7 +881,7 @@ class ScriptGenerator:
     ) -> list[int] | None:
         """时长在带图与不带图两种档位下都出局时返回带图档位，任一合法则返回 None。
 
-        step2 可以给 unit 增删 `@[名称]` 提及，只在其中一种状态下出局的时长仍可能落地合法——
+        prompt_authoring 可以给 unit 增删 `@[名称]` 提及，只在其中一种状态下出局的时长仍可能落地合法——
         提前判死会拦掉本会成功的生成。两种状态都出局才是与参考图无关的必然失败
         （模型或分辨率配置变化所致），可以在付费调用前拦下。
         """
@@ -918,7 +924,7 @@ class ScriptGenerator:
         """单次视频生成最长秒数；派生自 max(收窄后的 supported_durations)。
 
         取收窄后的集合而非 caps 自带的 ``max_duration``：该值是全集最大值，参考生视频下
-        它是 unit 总时长上限，若不随联动约束收窄，step1 会拆出总时长超标的 unit，step2 的
+        它是 unit 总时长上限，若不随联动约束收窄，script_plan 会拆出总时长超标的 unit，prompt_authoring 的
         枚举 schema 再把它判非法——上限与枚举必须描述同一个收窄后的集合。
         """
         try:
@@ -975,34 +981,34 @@ class ScriptGenerator:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
 
-    def _freeze_step1_artifact_basis(self, step1_content: object) -> None:
-        """Freeze the authoritative step1 basis before the provider call."""
-        basis = build_episode_script_basis(step1_content, project=self.project_json)
+    def _freeze_script_plan_artifact_basis(self, script_plan_content: object) -> None:
+        """Freeze the authoritative script_plan basis before the provider call."""
+        basis = build_episode_script_basis(script_plan_content, project=self.project_json)
         self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
 
-    def _freeze_step1_input_claim(self, episode: int, step1_path: Path, *, content_digest: str) -> None:
-        """Bind parsed step1 bytes to their formal identity for provider admission."""
+    def _freeze_script_plan_input_claim(self, episode: int, script_plan_path: Path, *, content_digest: str) -> None:
+        """Bind parsed script_plan bytes to their formal identity for provider admission."""
 
-        artifact_path = step1_path.relative_to(self.project_path).as_posix()
+        artifact_path = script_plan_path.relative_to(self.project_path).as_posix()
         claim = resolve_usable_artifact_input_claim(
             resolver=active_artifact_currency_resolver(self.project_path, self.project_json),
-            key=ArtifactKey.episode_step1(episode),
+            key=ArtifactKey.episode_script_plan(episode),
             artifact_path=artifact_path,
             content_digest=content_digest,
         )
         if claim is None:
-            raise ValueError(f"formal step1 artifact is not registered: {artifact_path}")
-        self._step1_input_claim = claim
+            raise ValueError(f"formal script_plan artifact is not registered: {artifact_path}")
+        self._script_plan_input_claim = claim
 
     async def _generate_text(self, request: TextGenerationRequest) -> Any:
         """Call the paid text provider after one shared formal-input recheck."""
 
         assert self.generator is not None  # generate() 入口已检查
-        if self._step1_input_claim is not None:
+        if self._script_plan_input_claim is not None:
             await asyncio.to_thread(
                 assert_current_artifact_input_claims_usable,
                 self.project_path,
-                (self._step1_input_claim,),
+                (self._script_plan_input_claim,),
             )
         return await self.generator.generate(request, project_name=self.project_path.name)
 
@@ -1011,306 +1017,308 @@ class ScriptGenerator:
         basis = build_ad_episode_script_basis(episode, project=self.project_json)
         self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
 
-    def _load_step1(self, episode: int) -> str:
-        """加载 drama 形状两段式的 Step 1 结构化中间文件原始文本。
+    def _load_script_plan(self, episode: int) -> str:
+        """加载 drama 形状两段式的脚本规划结构化中间文件原始文本。
 
         每种模式只对应一个期望文件，缺失时显式报错并指明期望路径——不降级改读
         其他模式的中间文件（静默 fallback 会让剧本基于错误模式的中间产物生成）。
-        本方法只服务 drama 形状的两段式结构化内容；narration 另经 ``_load_narration_step1``、
-        reference_video 另经 ``_load_reference_step1``。
+        本方法只服务 drama 形状的两段式结构化内容；narration 另经 ``_load_narration_script_plan``、
+        reference_video 另经 ``_load_reference_script_plan``。
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
         # 按 content_mode 取登记的结构化文件名，脏值兜底 drama。
-        step1_path = drafts_path / STEP1_FILENAMES.get(self.content_mode, STEP1_FILENAMES["drama"])
+        script_plan_path = drafts_path / SCRIPT_PLAN_FILENAMES.get(self.content_mode, SCRIPT_PLAN_FILENAMES["drama"])
 
-        if not step1_path.exists():
+        if not script_plan_path.exists():
             raise FileNotFoundError(
-                f"未找到 Step 1 中间文件: {step1_path}；content_mode={self.content_mode} 期望该文件，请先完成本集内容整理"
+                f"未找到脚本规划中间文件: {script_plan_path}；content_mode={self.content_mode} 期望该文件，请先完成本集脚本规划"
             )
 
-        raw = step1_path.read_bytes()
+        raw = script_plan_path.read_bytes()
         text = raw.decode("utf-8")
-        self._freeze_step1_input_claim(episode, step1_path, content_digest=hashlib.sha256(raw).hexdigest())
+        self._freeze_script_plan_input_claim(episode, script_plan_path, content_digest=hashlib.sha256(raw).hexdigest())
         return text
 
-    def _load_reference_step1(
+    def _load_reference_script_plan(
         self,
         episode: int,
         supported_durations: list[int],
         *,
-        _step2_lock_held: bool = False,
+        _prompt_authoring_lock_held: bool = False,
     ) -> list[dict]:
-        """加载并校验 reference_video step1 结构化中间文件 ``step1_reference_units.json``。
+        """加载并校验 reference_video script_plan 结构化中间文件 ``script_plan_reference_units.json``。
 
-        返回 unit dict 列表（unit_id / text / duration_seconds），供 step2 prompt 渲染
-        （``render_reference_units_for_step2``）作唯一基底——step2 不解析自由文本。
-        校验：结构合法（``ReferenceStep1Draft``）、units 非空、unit_id 唯一、
+        返回 unit dict 列表（unit_id / text / duration_seconds），供 prompt_authoring prompt 渲染
+        （``render_reference_units_for_prompt_authoring``）作唯一基底——prompt_authoring 不解析自由文本。
+        校验：结构合法（``ReferenceScriptPlanDraft``）、units 非空、unit_id 唯一、
         unit ``duration_seconds`` ∈ ``supported_durations``（与拆分工具的 response_schema 同口径，
-        防手工编辑漂移出非法时长）。仅存在结构化前的旧 ``step1_reference_units.md`` 时给
+        防手工编辑漂移出非法时长）。仅存在结构化前的旧 ``script_plan_reference_units.md`` 时给
         明确的「重跑拆分」报错——不写 md→json 迁移器（旧 md 产于结构化中间态引入前，
         与 narration 同决策）。
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
-        step1_json = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
-        # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
+        script_plan_json = drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
+        # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 prompt_authoring 等于把一份
         # 待处置的违约产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞；脚本、测试等
         # 直连调用会绕过工具入口，因此在此重复守卫。
-        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP1)
+        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集有待修复草稿（{quarantine}），step2 生成已中止；"
-                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 step1"
+                f"第 {episode} 集有待修复草稿（{quarantine}），prompt_authoring 生成已中止；"
+                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
-        if not step1_json.exists():
-            legacy_md = drafts_path / REFERENCE_VIDEO_STEP1_LEGACY_FILENAME
+        if not script_plan_json.exists():
+            legacy_md = drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME
             if legacy_md.exists():
                 raise FileNotFoundError(
-                    f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {step1_json}；"
-                    f"请调用 generate_step1 产出结构化 {REFERENCE_VIDEO_STEP1_FILENAME}"
+                    f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {script_plan_json}；"
+                    f"请调用 generate_script_plan 产出结构化 {REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME}"
                 )
             raise FileNotFoundError(
-                f"未找到 Step 1 中间文件: {step1_json}；generation_mode=reference_video 期望该文件，"
+                f"未找到脚本规划中间文件: {script_plan_json}；generation_mode=reference_video 期望该文件，"
                 "请先完成 video_unit 拆分"
             )
 
         pm = ProjectManager(str(self.project_path.parent))
         # 与 server.services.script_review / save_content 共享同一把 per-path 锁：
         # 迁移的读改写与 Web 端保存、重拆分写盘相互互斥。
-        step2_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)
-        step2_lock = nullcontext() if _step2_lock_held else pm.file_lock(step2_path)
-        with step2_lock, pm.file_lock(step1_json):
-            # 顺序不变量：内容确认的判定在更早的 step2 工具入口完成，迁移在其后运行且可能
+        prompt_authoring_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
+        prompt_authoring_lock = nullcontext() if _prompt_authoring_lock_held else pm.file_lock(prompt_authoring_path)
+        with prompt_authoring_lock, pm.file_lock(script_plan_json):
+            # 顺序不变量：内容确认的判定在更早的 prompt_authoring 工具入口完成，迁移在其后运行且可能
             # 改写时长。先记下迁移前的放行状态，供迁移后判断放行依据是否已失效。放行状态与
             # 草稿在同一临界区内读取，两者才描述同一时刻——锁外读则并发的保存/确认会让它
             # 描述另一份草稿的内容确认结果。
-            gate_passed_before = not gate_blocks_step2(
+            gate_passed_before = not gate_blocks_prompt_authoring(
                 self.project_path, pm.load_project(self.project_path.name), episode
             )
             try:
-                raw = json.loads(step1_json.read_text(encoding="utf-8"))
+                raw = json.loads(script_plan_json.read_text(encoding="utf-8"))
             except json.JSONDecodeError as e:
-                raise ValueError(f"step1_reference_units.json 解析失败: {e}")
+                raise ValueError(f"script_plan_reference_units.json 解析失败: {e}")
 
             # 存量草稿的 per-shot 时长一次性收编到 unit 级并回写落盘（二次加载不再触发）。
             # 此处持有模型档位，收编结果直接取档，与下方的枚举校验对齐。
-            migrated_project, migration_warnings = migrate_step1_draft_in_place(
+            migrated_project, migration_warnings = migrate_script_plan_draft_in_place(
                 self.project_path,
                 raw,
                 episode=episode,
                 update_project=lambda mutate: pm.update_project(self.project_path.name, mutate),
                 supported_durations=supported_durations,
             )
-            self._step1_revision = content_fingerprint_of_data(raw)
-            self._freeze_step1_artifact_basis(raw)
-            self._freeze_step1_input_claim(
+            self._script_plan_revision = content_fingerprint_of_data(raw)
+            self._freeze_script_plan_artifact_basis(raw)
+            self._freeze_script_plan_input_claim(
                 episode,
-                step1_json,
-                content_digest=sha256_file(step1_json),
+                script_plan_json,
+                content_digest=sha256_file(script_plan_json),
             )
 
         # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、内容确认随之失效。而放行
         # 依据是改写前的状态：不在此处补判，生成就会拿着用户从未过目的秒数走完付费的
-        # step2，落盘之后才在下次加载被拦下。
+        # prompt_authoring，落盘之后才在下次加载被拦下。
         if migration_warnings and migrated_project is not None and gate_passed_before:
-            if gate_blocks_step2(self.project_path, migrated_project, episode):
+            if gate_blocks_prompt_authoring(self.project_path, migrated_project, episode):
                 raise ValueError(
-                    f"第 {episode} 集 step1 时长已按当前模型档位收编改写（"
+                    f"第 {episode} 集 script_plan 时长已按当前模型档位收编改写（"
                     + "；".join(warning.render() for warning in migration_warnings)
-                    + "），改写后的内容尚未完成内容确认，step2 生成已中止；"
-                    "请在 Web 端完成本集 step1 的内容确认后重新生成"
+                    + "），改写后的内容尚未完成内容确认，prompt_authoring 生成已中止；"
+                    "请在 Web 端完成本集 script_plan 的内容确认后重新生成"
                 )
 
         try:
-            draft = ReferenceStep1Draft.model_validate(raw)
+            draft = ReferenceScriptPlanDraft.model_validate(raw)
         except ValidationError as e:
-            raise ValueError(f"step1_reference_units.json 结构校验失败: {e}")
+            raise ValueError(f"script_plan_reference_units.json 结构校验失败: {e}")
 
         units = [u.model_dump() for u in draft.units]
         if not units:
-            raise ValueError("step1_reference_units.json units 为空")
+            raise ValueError("script_plan_reference_units.json units 为空")
 
         ids = [u["unit_id"] for u in units]
         dupes = sorted(uid for uid, count in Counter(ids).items() if count > 1)
         if dupes:
-            raise ValueError(f"step1_reference_units.json unit_id 重复: {dupes}")
+            raise ValueError(f"script_plan_reference_units.json unit_id 重复: {dupes}")
 
         # _add_metadata 落盘前会把 E\d+ 前缀改写成当前 episode：原始 id 互异但改写后可能相撞
         # （E1U01 与 E2U01 在 episode=2 都成 E2U01）。提前 fail-loud，杜绝重复 id 静默落盘。
-        # 与 _load_narration_step1 / _load_drama_step1_content 同口径。
+        # 与 _load_narration_script_plan / _load_drama_script_plan_content 同口径。
         rewritten_ids = [str(_rewrite_episode_prefix(uid, episode)) for uid in ids]
         rewritten_dupes = sorted(uid for uid, count in Counter(rewritten_ids).items() if count > 1)
         if rewritten_dupes:
-            raise ValueError(f"step1_reference_units.json unit_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
+            raise ValueError(
+                f"script_plan_reference_units.json unit_id 改写到 episode={episode} 后重复: {rewritten_dupes}"
+            )
 
         allowed = {int(d) for d in supported_durations}
         bad = sorted({u["duration_seconds"] for u in units if u["duration_seconds"] not in allowed})
         if bad:
-            raise ValueError(f"step1_reference_units.json unit 时长非法（不在 {sorted(allowed)} 内）: {bad}")
+            raise ValueError(f"script_plan_reference_units.json unit 时长非法（不在 {sorted(allowed)} 内）: {bad}")
 
         return units
 
-    def _load_narration_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
-        """加载并校验 narration step1 结构化中间文件 ``step1_segments.json``。
+    def _load_narration_script_plan(self, episode: int, supported_durations: list[int]) -> list[dict]:
+        """加载并校验 narration script_plan 结构化中间文件 ``script_plan_segments.json``。
 
         返回逐字 ``novel_text``、时长、``segment_break`` 等内容字段的分镜列表（dict），
-        供 step2 prompt 渲染与视觉层合并复用——novel_text 由此透传、不经 step2 的 LLM 重出。
+        供 prompt_authoring prompt 渲染与视觉层合并复用——novel_text 由此透传、不经 prompt_authoring 的 LLM 重出。
         校验：结构合法、segment_id 唯一、``duration_seconds`` ∈ ``supported_durations``
-        （duration 约束由原 step2 schema enum 前移到 step1，因 step2 不再产出该字段）。
-        仅存在结构化前的旧 ``step1_segments.md`` 时给明确的「重跑拆分」报错——不写
+        （duration 约束由原 prompt_authoring schema enum 前移到 script_plan，因 prompt_authoring 不再产出该字段）。
+        仅存在结构化前的旧 ``script_plan_segments.md`` 时给明确的「重跑拆分」报错——不写
         md→json 迁移器（旧 md 产于结构化中间态引入前、不含手工编辑）。
         """
-        # 草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
+        # 草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 prompt_authoring 等于把一份
         # 待处置的产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞，这里是直连调用
         # （脚本 / 测试 / 未来的其它入口）的兜底，与另两条路线同口径。
-        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_NARRATION_STEP1)
+        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集 step1 有草稿待处置（{quarantine}），step2 生成已中止；"
-                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 step1"
+                f"第 {episode} 集 script_plan 有草稿待处置（{quarantine}），prompt_authoring 生成已中止；"
+                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         drafts_path = episode_drafts_dir(self.project_path, episode)
-        narration_json = STEP1_FILENAMES["narration"]
-        step1_json = drafts_path / narration_json
-        if not step1_json.exists():
-            legacy_md = drafts_path / STEP1_LEGACY_FILENAMES["narration"][0]
+        narration_json = SCRIPT_PLAN_FILENAMES["narration"]
+        script_plan_json = drafts_path / narration_json
+        if not script_plan_json.exists():
+            legacy_md = drafts_path / SCRIPT_PLAN_LEGACY_FILENAMES["narration"][0]
             if legacy_md.exists():
                 raise FileNotFoundError(
-                    f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {step1_json}；"
-                    f"请调用 generate_step1 产出结构化 {narration_json}"
+                    f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {script_plan_json}；"
+                    f"请调用 generate_script_plan 产出结构化 {narration_json}"
                 )
             raise FileNotFoundError(
-                f"未找到 Step 1 中间文件: {step1_json}；content_mode=narration 期望该文件，请先完成分镜拆分"
+                f"未找到脚本规划中间文件: {script_plan_json}；content_mode=narration 期望该文件，请先完成分镜拆分"
             )
 
-        raw_bytes = step1_json.read_bytes()
+        raw_bytes = script_plan_json.read_bytes()
         try:
             raw = json.loads(raw_bytes.decode("utf-8"))
         except json.JSONDecodeError as e:
-            raise ValueError(f"step1_segments.json 解析失败: {e}")
-        self._step1_revision = content_fingerprint_of_data(raw)
-        self._freeze_step1_artifact_basis(raw)
-        self._freeze_step1_input_claim(
+            raise ValueError(f"script_plan_segments.json 解析失败: {e}")
+        self._script_plan_revision = content_fingerprint_of_data(raw)
+        self._freeze_script_plan_artifact_basis(raw)
+        self._freeze_script_plan_input_claim(
             episode,
-            step1_json,
+            script_plan_json,
             content_digest=hashlib.sha256(raw_bytes).hexdigest(),
         )
 
         try:
-            draft = NarrationStep1Draft.model_validate(raw)
+            draft = NarrationScriptPlanDraft.model_validate(raw)
         except ValidationError as e:
-            raise ValueError(f"step1_segments.json 结构校验失败: {e}")
+            raise ValueError(f"script_plan_segments.json 结构校验失败: {e}")
 
         segments = [s.model_dump() for s in draft.segments]
         if not segments:
-            raise ValueError("step1_segments.json segments 为空")
+            raise ValueError("script_plan_segments.json segments 为空")
 
         ids = [s["segment_id"] for s in segments]
         dupes = sorted(sid for sid, count in Counter(ids).items() if count > 1)
         if dupes:
-            raise ValueError(f"step1_segments.json segment_id 重复: {dupes}")
+            raise ValueError(f"script_plan_segments.json segment_id 重复: {dupes}")
 
         # _add_metadata 落盘前会把 E\d+ 前缀改写成当前 episode：原始 id 互异但改写后可能相撞
         # （E1S02_1 与 E2S02_1 在 episode=2 都成 E2S02_1）。提前 fail-loud，杜绝重复 id 静默落盘。
         rewritten_ids = [str(_rewrite_episode_prefix(sid, episode)) for sid in ids]
         rewritten_dupes = sorted(sid for sid, count in Counter(rewritten_ids).items() if count > 1)
         if rewritten_dupes:
-            raise ValueError(f"step1_segments.json segment_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
+            raise ValueError(f"script_plan_segments.json segment_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
 
         allowed = {int(d) for d in supported_durations}
         bad = sorted({s["duration_seconds"] for s in segments if s["duration_seconds"] not in allowed})
         if bad:
-            raise ValueError(f"step1_segments.json duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
+            raise ValueError(f"script_plan_segments.json duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
 
         return segments
 
-    def _load_drama_step1_content(self, episode: int) -> dict:
-        """加载并解析 drama 的 step1 结构化内容（``step1_normalized_script.json``）。
+    def _load_drama_script_plan_content(self, episode: int) -> dict:
+        """加载并解析 drama 的 script_plan 结构化内容（``script_plan_normalized_script.json``）。
 
-        返回 ``{title, scenes: [...]}`` dict；缺文件抛 FileNotFoundError（_load_step1）、
+        返回 ``{title, scenes: [...]}`` dict；缺文件抛 FileNotFoundError（_load_script_plan）、
         内容非合法 JSON / 顶层非对象 / scenes 非非空列表 / 含非对象分镜项 / scene_id 非非空字符串 /
         scene_id 改写到当前集号后重复，均抛 ValueError。各分镜的内部字段（utterances / source_text 等）
-        由 step2 合并后经 save_script 的结构校验把关，此处只做最外层形状守卫——但 scenes 形状与 scene_id
-        须在此 fail-fast，否则坏 step1 会被当成空剧本静默落盘、scene_id 撞键拖到产物文件名 / 资产键才暴露，
-        或在 render/merge 阶段抛内部异常而非明确的 step1 校验错误。
+        由 prompt_authoring 合并后经 save_script 的结构校验把关，此处只做最外层形状守卫——但 scenes 形状与 scene_id
+        须在此 fail-fast，否则坏 script_plan 会被当成空剧本静默落盘、scene_id 撞键拖到产物文件名 / 资产键才暴露，
+        或在 render/merge 阶段抛内部异常而非明确的 script_plan 校验错误。
         """
-        # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
+        # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 prompt_authoring 等于把一份
         # 待处置的产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞；脚本、测试等
         # 直连调用会绕过工具入口，因此在此重复守卫，与参考生视频同口径。
-        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
+        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集有待修复草稿（{quarantine}），step2 生成已中止；"
-                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 step1"
+                f"第 {episode} 集有待修复草稿（{quarantine}），prompt_authoring 生成已中止；"
+                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
-        raw = self._load_step1(episode)
+        raw = self._load_script_plan(episode)
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Step 1 内容文件不是合法 JSON（drama step1 应为结构化内容）: {e}")
+            raise ValueError(f"脚本规划内容文件不是合法 JSON（drama script_plan 应为结构化内容）: {e}")
         if not isinstance(data, dict):
-            raise ValueError("Step 1 内容文件结构异常：顶层应为对象 {title, scenes}")
-        self._step1_revision = content_fingerprint_of_data(data)
-        self._freeze_step1_artifact_basis(data)
+            raise ValueError("脚本规划内容文件结构异常：顶层应为对象 {title, scenes}")
+        self._script_plan_revision = content_fingerprint_of_data(data)
+        self._freeze_script_plan_artifact_basis(data)
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
-            raise ValueError("Step 1 内容文件结构异常：scenes 必须是非空的分镜对象数组")
+            raise ValueError("脚本规划内容文件结构异常：scenes 必须是非空的分镜对象数组")
         scene_ids: list[str] = []
         for idx, scene in enumerate(scenes):
             if not isinstance(scene, dict):
-                raise ValueError(f"Step 1 内容文件结构异常：scenes[{idx}] 必须是分镜对象")
+                raise ValueError(f"脚本规划内容文件结构异常：scenes[{idx}] 必须是分镜对象")
             scene_id = scene.get("scene_id")
             if not isinstance(scene_id, str) or not scene_id:
-                raise ValueError(f"Step 1 内容文件结构异常：scenes[{idx}].scene_id 必须是非空字符串")
+                raise ValueError(f"脚本规划内容文件结构异常：scenes[{idx}].scene_id 必须是非空字符串")
             scene_ids.append(scene_id)
         # _add_metadata 落盘前会把 E\d+ 前缀改写成当前 episode：原始 id 互异但改写后可能相撞
         # （E1S02_1 与 E2S02_1 在 episode=2 都成 E2S02_1）。提前 fail-loud，杜绝重复 id 静默落盘、
-        # 下游产物文件名 / 资产键撞车。与 _load_narration_step1 同口径。
+        # 下游产物文件名 / 资产键撞车。与 _load_narration_script_plan 同口径。
         rewritten_ids = [str(_rewrite_episode_prefix(sid, episode)) for sid in scene_ids]
         rewritten_dupes = sorted(sid for sid, count in Counter(rewritten_ids).items() if count > 1)
         if rewritten_dupes:
-            raise ValueError(f"Step 1 内容文件 scene_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
+            raise ValueError(f"脚本规划内容文件 scene_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
         return data
 
-    def _assert_reference_step1_ready(
-        self, step1_units: list[dict], *, caps: dict | None, gen_mode: str | None
+    def _assert_reference_script_plan_ready(
+        self, script_plan_units: list[dict], *, caps: dict | None, gen_mode: str | None
     ) -> None:
-        """step2 落盘前对 step1 现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
+        """prompt_authoring 落盘前对 script_plan 现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
 
         产出路径（付费调用前）与晋升路径（待修复草稿重判前）共用这一份：晋升期间用户可能在 Web
-        端改过 step1，两处口径若分叉，就会出现「晋升放行、下次生成被拒」或反过来的死角。
+        端改过 script_plan，两处口径若分叉，就会出现「晋升放行、下次生成被拒」或反过来的死角。
         """
-        for unit in step1_units:
-            # 必然失败的已确认时长在付费调用之前拦下：step1 加载用的是未收窄的档位全集，
+        for unit in script_plan_units:
+            # 必然失败的已确认时长在付费调用之前拦下：script_plan 加载用的是未收窄的档位全集，
             # 联动约束收窄后它可能已出局。放到 _add_metadata 才拦，TextBackend 的费用已经产生。
             off_tiers = self._unit_duration_off_every_tier(unit["duration_seconds"], caps=caps, gen_mode=gen_mode)
             if off_tiers is not None:
                 raise ValueError(
                     f"unit {unit['unit_id']} 已确认时长 {unit['duration_seconds']}s 不在当前生效档位 "
                     f"{sorted(set(off_tiers))} 内；通常是模型或分辨率配置变化让档位收窄导致，"
-                    "请调整配置回原档位，或重新拆分该集 step1 并重新完成内容确认"
+                    "请调整配置回原档位，或重新拆分该集 script_plan 并重新完成内容确认"
                 )
-        # step2 的产出是 step1 正文逐字保留 + 画面展开，step1 正文里的语法违约必然原样复现在
-        # step2 产出上。编辑器侧保存只做结构校验、语法问题仅出 warning（人写的文本有作者意图
-        # 要保护），因此手工编辑过的 step1 可能带着未登记的 @[名称] 或描述行里的花括号进到这里
-        # ——不在调用前判，就会付完 step2 的钱才失败，且错误指向 step2「改坏了」，而真正要改的
-        # 是 step1。故在此按同一把尺预判 step1 正文，违约时指名 step1。
-        self._assert_reference_step1_text_valid(step1_units, max_refs=self._resolve_max_refs(caps))
+        # prompt_authoring 的产出是 script_plan 正文逐字保留 + 画面展开，script_plan 正文里的语法违约必然原样复现在
+        # prompt_authoring 产出上。编辑器侧保存只做结构校验、语法问题仅出 warning（人写的文本有作者意图
+        # 要保护），因此手工编辑过的 script_plan 可能带着未登记的 @[名称] 或描述行里的花括号进到这里
+        # ——不在调用前判，就会付完 prompt_authoring 的钱才失败，且错误指向 prompt_authoring「改坏了」，而真正要改的
+        # 是 script_plan。故在此按同一把尺预判 script_plan 正文，违约时指名 script_plan。
+        self._assert_reference_script_plan_text_valid(script_plan_units, max_refs=self._resolve_max_refs(caps))
 
-    def _assert_reference_step1_text_valid(self, step1_units: list[dict], *, max_refs: int | None) -> None:
-        """按机器产物的严格口径预判 step1 各 unit 正文，违约时把定位与出路指回 step1。
+    def _assert_reference_script_plan_text_valid(self, script_plan_units: list[dict], *, max_refs: int | None) -> None:
+        """按机器产物的严格口径预判 script_plan 各 unit 正文，违约时把定位与出路指回 script_plan。
 
         与 ``_merge_reference_visual`` 用的是同一个 ``validate_unit_text``：同一把尺量两处，
-        避免「step1 放行、step2 必拒」的死角。此处只判、不取派生结果——参考图是执行期从正文
+        避免「script_plan 放行、prompt_authoring 必拒」的死角。此处只判、不取派生结果——参考图是执行期从正文
         派生的，落盘物只有正文本身。
 
         台词口播时长同样在此复判：拆分工具只在产出当时判过一次，内容确认时改短 unit 时长或
-        补写台词都能绕开它，而 step2 逐字保留台词、之后再无口播量校验——不复判就会让念不完的
+        补写台词都能绕开它，而 prompt_authoring 逐字保留台词、之后再无口播量校验——不复判就会让念不完的
         unit 一路落盘。
         """
         source_language = self.project_json.get("source_language")
         speech_rate_override = project_speech_rate_override(self.project_json)
-        for unit in step1_units:
-            label = f"step1 的 unit {unit['unit_id']}"
+        for unit in script_plan_units:
+            label = f"script_plan 的 unit {unit['unit_id']}"
             text = str(unit.get("text") or "")
             try:
                 validate_unit_text(
@@ -1326,8 +1334,8 @@ class ScriptGenerator:
             except DraftViolation as exc:
                 enriched = [
                     DraftViolation(
-                        f"{item}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
-                        "请先在 Web 端修正该 unit 的 step1 正文或时长并重新完成内容确认",
+                        f"{item}；这段正文来自 script_plan（拆分产出或手工编辑），prompt_authoring 会逐字保留它，"
+                        "请先在 Web 端修正该 unit 的 script_plan 正文或时长并重新完成内容确认",
                         code=item.code,
                         label=label,
                         line=item.line,
@@ -1343,22 +1351,22 @@ class ScriptGenerator:
 
     def _merge_reference_visual(
         self,
-        step1_units: list[dict],
+        script_plan_units: list[dict],
         response_text: str,
         episode: int,
         *,
         max_refs: int | None,
     ) -> dict:
-        """参考路径 step2 合并：LLM 只出引用语法正文，其余字段机械沿用 step1 / 从正文派生。
+        """参考路径 prompt_authoring 合并：LLM 只出引用语法正文，其余字段机械沿用 script_plan / 从正文派生。
 
-        保结构 diff 在此落地——unit 数与顺序、台词规范行逐字都由 step1 定稿，
-        step2 只允许把画面描述写详细。任一项被改动即 fail-loud（``DraftViolation``），不静默
-        接受：台词配不上画面时正确的出路是回到 step1 重拆，而不是让 step2 自行改词。
+        保结构 diff 在此落地——unit 数与顺序、台词规范行逐字都由 script_plan 定稿，
+        prompt_authoring 只允许把画面描述写详细。任一项被改动即 fail-loud（``DraftViolation``），不静默
+        接受：台词配不上画面时正确的出路是回到 script_plan 重拆，而不是让 prompt_authoring 自行改词。
 
         逐 unit 的违约收齐后一次抛出（``DraftViolations``），供调用方把整份产出连同报告落到
         待修复草稿——单条抛出会让 Agent 每修一个 unit 就要重跑一次付费的展开。
 
-        ``unit_id`` / ``duration_seconds`` 直接取 step1 的值，参考图不落盘、执行期再从正文
+        ``unit_id`` / ``duration_seconds`` 直接取 script_plan 的值，参考图不落盘、执行期再从正文
         派生——LLM 没写这些字段，也就没有对不上的可能。
         """
         text = strip_json_code_fences(response_text)
@@ -1373,35 +1381,35 @@ class ScriptGenerator:
             if not (isinstance(raw_title, str) and raw_title.strip()):
                 data["title"] = f"第{episode}集"
         try:
-            flat = ReferenceStep2FlatScript.model_validate(data)
+            flat = ReferencePromptAuthoringFlatScript.model_validate(data)
         except ValidationError as e:
-            raise ValueError(f"step2 视觉展开结构校验失败: {e}") from e
+            raise ValueError(f"prompt_authoring 提示词编写结构校验失败: {e}") from e
 
-        if len(flat.units) != len(step1_units):
+        if len(flat.units) != len(script_plan_units):
             raise DraftViolation(
-                f"step2 产出的 unit 数（{len(flat.units)}）与 step1 已确认的（{len(step1_units)}）不一致；"
-                "step2 只做视觉展开，不得合并、拆分或增删 unit",
+                f"prompt_authoring 产出的 unit 数（{len(flat.units)}）与 script_plan 已确认的（{len(script_plan_units)}）不一致；"
+                "prompt_authoring 只做提示词编写，不得合并、拆分或增删 unit",
                 code="unit_count_changed",
             )
 
         video_units: list[dict] = []
         violations: list[DraftViolation] = []
-        for step1_unit, flat_unit in zip(step1_units, flat.units, strict=True):
-            label = f"unit {step1_unit['unit_id']}"
-            step1_text = str(step1_unit.get("text") or "")
+        for script_plan_unit, flat_unit in zip(script_plan_units, flat.units, strict=True):
+            label = f"unit {script_plan_unit['unit_id']}"
+            script_plan_text = str(script_plan_unit.get("text") or "")
             # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，Agent 一轮就能看全要改什么。
             # 一个 unit 内部仍是首个违约即停——正文解析不出时，后续判定都建立在同一个问题上。
             try:
                 validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
-                assert_dialogue_preserved(label, step1_text, flat_unit.text)
+                assert_dialogue_preserved(label, script_plan_text, flat_unit.text)
             except DraftViolation as exc:
                 violations.extend(violation_items(exc))
                 continue
             video_units.append(
                 {
-                    "unit_id": step1_unit["unit_id"],
+                    "unit_id": script_plan_unit["unit_id"],
                     "text": flat_unit.text,
-                    "duration_seconds": step1_unit["duration_seconds"],
+                    "duration_seconds": script_plan_unit["duration_seconds"],
                 }
             )
 
@@ -1409,8 +1417,8 @@ class ScriptGenerator:
             raise DraftViolations(violations)
         return ReferenceVideoScript.model_validate({"title": flat.title, "video_units": video_units}).model_dump()
 
-    def _step2_flat_content(self, response_text: str, episode: int) -> dict:
-        """把 step2 响应还原成待修复草稿要装的扁平形状 ``{title, units: [{text}]}``。
+    def _prompt_authoring_flat_content(self, response_text: str, episode: int) -> dict:
+        """把 prompt_authoring 响应还原成待修复草稿要装的扁平形状 ``{title, units: [{text}]}``。
 
         与 ``_merge_reference_visual`` 的解析前置（去代码围栏 → title 兜底 → schema 校验）
         逐步同口径：待修复草稿装的必须是「schema 已过、只是内容违约」的那份产物，否则 Agent
@@ -1421,9 +1429,9 @@ class ScriptGenerator:
             raw_title = data.get("title")
             if not (isinstance(raw_title, str) and raw_title.strip()):
                 data["title"] = f"第{episode}集"
-        return ReferenceStep2FlatScript.model_validate(data).model_dump()
+        return ReferencePromptAuthoringFlatScript.model_validate(data).model_dump()
 
-    def _quarantine_reference_step2(
+    def _quarantine_reference_prompt_authoring(
         self,
         episode: int,
         response_text: str,
@@ -1433,20 +1441,20 @@ class ScriptGenerator:
         expected_draft_revision: str | None,
         before_commit: Callable[[], None] | None = None,
     ) -> DraftViolation:
-        """把违约的 step2 产出与报告落待修复草稿，返回携带报告的违约异常（由调用方抛出）。
+        """把违约的 prompt_authoring 产出与报告落待修复草稿，返回携带报告的违约异常（由调用方抛出）。
 
         返回而不是自己抛：调用点用 ``raise ... from exc`` 保留原始违约链，异常在此被构造却在
         彼处抛出会让 traceback 指向本函数而非合并逻辑。
         """
-        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)
+        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         formal_path = self.project_path / "scripts" / episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
         with pm.file_lock(draft_path), pm.file_lock(formal_path):
-            current = read_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
+            current = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
             actual_draft_revision = draft_revision(current) if current is not None else None
             if actual_draft_revision != expected_draft_revision:
                 return DraftViolation(
-                    "reference step2 草稿在模型生成期间已变化；本次生成结果未覆盖并发编辑，请先处置现有草稿",
+                    "reference prompt_authoring 草稿在模型生成期间已变化；本次生成结果未覆盖并发编辑，请先处置现有草稿",
                     code="draft_revision_conflict",
                 )
             if before_commit is not None:
@@ -1454,8 +1462,8 @@ class ScriptGenerator:
             report = quarantine_and_report(
                 self.project_path,
                 episode,
-                QUARANTINE_KIND_STEP2,
-                content=self._step2_flat_content(response_text, episode),
+                QUARANTINE_KIND_PROMPT_AUTHORING,
+                content=self._prompt_authoring_flat_content(response_text, episode),
                 violations=violation_items(exc),
                 meta={
                     "base_fingerprint": (
@@ -1467,13 +1475,13 @@ class ScriptGenerator:
             )
         return DraftViolation(report, code="quarantined")
 
-    def _reference_step2_draft_revision(self, episode: int) -> str | None:
-        path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)
+    def _reference_prompt_authoring_draft_revision(self, episode: int) -> str | None:
+        path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         with ProjectManager(str(self.project_path.parent)).file_lock(path):
-            draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
+            draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
             return draft_revision(draft) if draft is not None else None
 
-    def _save_reference_step2_if_draft_unchanged(
+    def _save_reference_prompt_authoring_if_draft_unchanged(
         self,
         episode: int,
         expected_draft_revision: str | None,
@@ -1483,14 +1491,14 @@ class ScriptGenerator:
         cancellation_file_receipts: list[FormalWriteReceipt] | None,
         cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None,
     ) -> Path:
-        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)
+        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         pm = ProjectManager(str(self.project_path.parent))
         with pm.file_lock(draft_path):
-            current = read_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
+            current = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
             actual_draft_revision = draft_revision(current) if current is not None else None
             if actual_draft_revision != expected_draft_revision:
                 raise DraftViolation(
-                    "reference step2 草稿在模型生成期间已变化；本次生成结果未覆盖并发编辑，请先处置现有草稿",
+                    "reference prompt_authoring 草稿在模型生成期间已变化；本次生成结果未覆盖并发编辑，请先处置现有草稿",
                     code="draft_revision_conflict",
                 )
             return pm.save_script(
@@ -1504,27 +1512,27 @@ class ScriptGenerator:
                 cancellation_manifest_receipts=cancellation_manifest_receipts,
             )
 
-    def _promote_reference_step2_draft_sync(
+    def _promote_reference_prompt_authoring_draft_sync(
         self,
         episode: int,
         caps: dict | None,
         output_filename: str | None = None,
         *,
         expected_fingerprint: str | None | _UnsetExpectedFingerprint = _UNSET_EXPECTED_FINGERPRINT,
-        _step2_lock_held: bool = False,
+        _prompt_authoring_lock_held: bool = False,
     ) -> Path:
-        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)
+        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         pm = ProjectManager(str(self.project_path.parent))
-        step2_lock = nullcontext() if _step2_lock_held else pm.file_lock(draft_path)
-        with step2_lock:
-            return self._promote_reference_step2_draft_locked_sync(
+        prompt_authoring_lock = nullcontext() if _prompt_authoring_lock_held else pm.file_lock(draft_path)
+        with prompt_authoring_lock:
+            return self._promote_reference_prompt_authoring_draft_locked_sync(
                 episode,
                 caps,
                 output_filename,
                 expected_fingerprint=expected_fingerprint,
             )
 
-    def _promote_reference_step2_draft_locked_sync(
+    def _promote_reference_prompt_authoring_draft_locked_sync(
         self,
         episode: int,
         caps: dict | None,
@@ -1532,25 +1540,25 @@ class ScriptGenerator:
         *,
         expected_fingerprint: str | None | _UnsetExpectedFingerprint = _UNSET_EXPECTED_FINGERPRINT,
     ) -> Path:
-        draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
+        draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         if draft is None:
             raise FileNotFoundError(
-                f"第 {episode} 集没有可晋升的 step2 待修复草稿"
-                f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)} 缺失或内容不是合法信封）"
+                f"第 {episode} 集没有可晋升的 prompt_authoring 待修复草稿"
+                f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)} 缺失或内容不是合法信封）"
             )
 
-        step1_units = self._load_reference_step1(
+        script_plan_units = self._load_reference_script_plan(
             episode,
             self._resolve_raw_supported_durations(caps),
-            _step2_lock_held=True,
+            _prompt_authoring_lock_held=True,
         )
-        # 与产出路径同一份 step1 预判：草稿在场期间 Web 端可能改过 step1（编辑器对人写正文只出
+        # 与产出路径同一份 script_plan 预判：草稿在场期间 Web 端可能改过 script_plan（编辑器对人写正文只出
         # warning），不复判就会让改短时长后念不完的台词、或未登记的 @[名称] 借晋升一路落盘。
-        self._assert_reference_step1_ready(step1_units, caps=caps, gen_mode="reference_video")
+        self._assert_reference_script_plan_ready(script_plan_units, caps=caps, gen_mode="reference_video")
         max_refs = self._resolve_max_refs(caps)
         try:
             script_data = self._merge_reference_visual(
-                step1_units, json.dumps(draft.content), episode, max_refs=max_refs
+                script_plan_units, json.dumps(draft.content), episode, max_refs=max_refs
             )
             # _add_metadata 一并纳入：它按落地后的最终正文重算生效档位，草稿里新增 /
             # 去掉一个 `@` 引用就会在合并之后才判出档，留在 try 之外会让晋升在这一类上退回
@@ -1559,7 +1567,8 @@ class ScriptGenerator:
                 script_data,
                 episode,
                 reference_unit_durations={
-                    str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in step1_units
+                    str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"]
+                    for u in script_plan_units
                 },
                 caps=caps,
             )
@@ -1568,7 +1577,7 @@ class ScriptGenerator:
                 quarantine_and_report(
                     self.project_path,
                     episode,
-                    QUARANTINE_KIND_STEP2,
+                    QUARANTINE_KIND_PROMPT_AUTHORING,
                     content=draft.content,
                     violations=violation_items(exc),
                     meta=draft.meta,
@@ -1577,16 +1586,16 @@ class ScriptGenerator:
             ) from exc
         except ValueError as exc:
             # schema 层（DraftViolation 是 ValueError 子类，故须排在前）同样只回报告：这条路上
-            # 内容是 Agent 手写的，没有 backend 可重试，与 step1 晋升的 schema_invalid 同口径。
+            # 内容是 Agent 手写的，没有 backend 可重试，与 script_plan 晋升的 schema_invalid 同口径。
             raise DraftViolation(
                 quarantine_and_report(
                     self.project_path,
                     episode,
-                    QUARANTINE_KIND_STEP2,
+                    QUARANTINE_KIND_PROMPT_AUTHORING,
                     content=draft.content,
                     violations=[
                         DraftViolation(
-                            f"待修复草稿的 content 不符合 step2 产出结构：{exc}",
+                            f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}",
                             code="schema_invalid",
                         )
                     ],
@@ -1600,7 +1609,7 @@ class ScriptGenerator:
         if isinstance(expected_fingerprint, _UnsetExpectedFingerprint):
             if "base_fingerprint" not in draft.meta:
                 raise DraftViolation(
-                    "reference step2 草稿缺少生成时的正式剧本基线 base_fingerprint；无法安全晋升",
+                    "reference prompt_authoring 草稿缺少生成时的正式剧本基线 base_fingerprint；无法安全晋升",
                     code="formal_revision_missing",
                 )
             resolved_expected_fingerprint = cast(str | None, draft.meta["base_fingerprint"])
@@ -1615,35 +1624,35 @@ class ScriptGenerator:
             expected_fingerprint=resolved_expected_fingerprint,
         )
         # 落盘成功后才清草稿：写盘失败时草稿还在，重试晋升即可，不会两头皆空。
-        clear_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
+        clear_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         self._quality_probe(script_data, episode)
         return output_path
 
-    async def promote_reference_step2_draft(
+    async def promote_reference_prompt_authoring_draft(
         self,
         episode: int,
         output_filename: str | None = None,
         *,
         expected_fingerprint: str | None | _UnsetExpectedFingerprint = _UNSET_EXPECTED_FINGERPRINT,
-        _step2_lock_held: bool = False,
+        _prompt_authoring_lock_held: bool = False,
     ) -> Path:
-        """按产出时那套校验器全量重判 step2 待修复草稿，通过则晋升为正式剧本并清除草稿。
+        """按产出时那套校验器全量重判 prompt_authoring 待修复草稿，通过则晋升为正式剧本并清除草稿。
 
         重判用的是 ``_merge_reference_visual`` 本身，不是它的简化副本：晋升口径与产出口径必须
-        同一份代码，否则「晋升时放行、下次生成时被拒」这类分叉会重新出现。step1 一并重读——
-        草稿在场期间用户可能在内容确认界面改过 step1，保结构 diff 要对着现值判。
+        同一份代码，否则「晋升时放行、下次生成时被拒」这类分叉会重新出现。script_plan 一并重读——
+        草稿在场期间用户可能在内容确认界面改过 script_plan，保结构 diff 要对着现值判。
 
         仍有违约时刷新草稿里的报告快照后抛出（``DraftViolation``），草稿留在原地供继续修改；
         无收敛轮次上限。
         """
         caps = await self._fetch_video_capabilities()
         return await run_sync_transaction(
-            self._promote_reference_step2_draft_sync,
+            self._promote_reference_prompt_authoring_draft_sync,
             episode,
             caps,
             output_filename,
             expected_fingerprint=expected_fingerprint,
-            _step2_lock_held=_step2_lock_held,
+            _prompt_authoring_lock_held=_prompt_authoring_lock_held,
         )
 
     def _parse_response(self, response_text: str, episode: int) -> dict:
@@ -1728,29 +1737,29 @@ class ScriptGenerator:
         ).model_dump()
 
     def _parse_narration_visual(self, response_text: str, episode: int) -> dict:
-        """解析 step2 视觉层 LLM 响应（NarrationVisualEpisodeScript）。
+        """解析 prompt_authoring 视觉层 LLM 响应（NarrationVisualEpisodeScript）。
 
         严格校验 + model_dump：视觉 schema 的 segment 走 ``extra="forbid"``，LLM 若混入
-        novel_text 等非视觉字段即拒（而非静默携带进合并覆盖 step1 透传值）；dump 后视觉
+        novel_text 等非视觉字段即拒（而非静默携带进合并覆盖 script_plan 透传值）；dump 后视觉
         数据只含 title + segment_id + image_prompt / video_prompt，合并阶段不会污染内容层。
         """
         text = strip_json_code_fences(response_text)
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
-            raise ValueError(f"step2 视觉层 JSON 解析失败: {e}")
+            raise ValueError(f"prompt_authoring 视觉层 JSON 解析失败: {e}")
         try:
             validated = NarrationVisualEpisodeScript.model_validate(data)
         except ValidationError as e:
-            raise ValueError(f"step2 视觉层结构校验失败: {e}")
+            raise ValueError(f"prompt_authoring 视觉层结构校验失败: {e}")
         return validated.model_dump()
 
-    def _merge_narration_visual(self, step1_segments: list[dict], visual_data: dict, episode: int) -> dict:
-        """把 step2 LLM 的视觉层按 segment_id 合并回 step1 已确认的结构。
+    def _merge_narration_visual(self, script_plan_segments: list[dict], visual_data: dict, episode: int) -> dict:
+        """把 prompt_authoring LLM 的视觉层按 segment_id 合并回 script_plan 已确认的结构。
 
-        step1 结构（novel_text、时长、segment_break 等内容字段）是单一真相源，逐字透传；
+        script_plan 结构（novel_text、时长、segment_break 等内容字段）是单一真相源，逐字透传；
         LLM 只产出视觉层，按 segment_id 对齐合并回各分镜——novel_text 永不经 LLM 重出，
-        从工程上根除扩写漂移。校验 segment_id 唯一且与 step1 全覆盖：缺、多、重都 fail-loud，
+        从工程上根除扩写漂移。校验 segment_id 唯一且与 script_plan 全覆盖：缺、多、重都 fail-loud，
         杜绝顺序错配与漏段。
         """
         visual_segments = visual_data["segments"]
@@ -1762,17 +1771,17 @@ class ScriptGenerator:
                 raise ValueError(f"episode {episode} 视觉层 segment_id 重复: {sid}")
             visual_by_id[sid] = item
 
-        step1_ids = [s["segment_id"] for s in step1_segments]
-        step1_id_set = set(step1_ids)
-        missing = [sid for sid in step1_ids if sid not in visual_by_id]
+        script_plan_ids = [s["segment_id"] for s in script_plan_segments]
+        script_plan_id_set = set(script_plan_ids)
+        missing = [sid for sid in script_plan_ids if sid not in visual_by_id]
         if missing:
-            raise ValueError(f"episode {episode} 视觉层缺少 step1 分镜: {missing}")
-        extra = [sid for sid in visual_by_id if sid not in step1_id_set]
+            raise ValueError(f"episode {episode} 视觉层缺少 script_plan 分镜: {missing}")
+        extra = [sid for sid in visual_by_id if sid not in script_plan_id_set]
         if extra:
-            raise ValueError(f"episode {episode} 视觉层含 step1 未定义的 segment_id: {extra}")
+            raise ValueError(f"episode {episode} 视觉层含 script_plan 未定义的 segment_id: {extra}")
 
         merged_segments: list[dict] = []
-        for s1 in step1_segments:
+        for s1 in script_plan_segments:
             sid = s1["segment_id"]
             merged_segments.append({**s1, **visual_by_id[sid]})
 
@@ -1797,7 +1806,7 @@ class ScriptGenerator:
             script_data: 剧本数据
             episode: 剧集编号
             reference_unit_durations: reference_video 路径按 unit_id（改写后）机械覆盖 LLM
-                输出的 unit 时长——step1 确认的原始值，未经取档；取档按下方逐 unit 重算，
+                输出的 unit 时长——script_plan 确认的原始值，未经取档；取档按下方逐 unit 重算，
                 见 ``generate`` 内的构造处注释
             caps: 逐 unit 解析生效档位的能力值；为 None 时按 caps → registry 两级回退解析，
                 不跳过取档校验
@@ -1837,25 +1846,25 @@ class ScriptGenerator:
                 item["needs_replan"] = True
 
         if reference_unit_durations is not None:
-            # unit_id 集合须与 step1 完全一致才覆盖时长：LLM 漏写某个已确认 unit、或输出
-            # step1 之外的陌生 unit_id，都说明输出与 step1 基底脱节，覆盖时长掩盖不了这个
+            # unit_id 集合须与 script_plan 完全一致才覆盖时长：LLM 漏写某个已确认 unit、或输出
+            # script_plan 之外的陌生 unit_id，都说明输出与 script_plan 基底脱节，覆盖时长掩盖不了这个
             # 更根本的问题——与 drama 两段式合并（DramaVisualMergeError）同一套 fail-loud 口径。
             dupes = sorted(uid for uid, count in Counter(rewritten_output_ids).items() if count > 1)
             if dupes:
                 raise ValueError(f"reference_video 输出 unit_id 重复: {dupes}")
             missing = sorted(set(reference_unit_durations) - set(rewritten_output_ids))
             if missing:
-                raise ValueError(f"reference_video 输出缺少 step1 已确认的 unit_id: {missing}")
+                raise ValueError(f"reference_video 输出缺少 script_plan 已确认的 unit_id: {missing}")
             unknown = sorted(set(rewritten_output_ids) - set(reference_unit_durations))
             if unknown:
-                raise ValueError(f"reference_video 输出包含 step1 之外的未知 unit_id: {unknown}")
+                raise ValueError(f"reference_video 输出包含 script_plan 之外的未知 unit_id: {unknown}")
 
             for s in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
                 if not (isinstance(s, dict) and id_field in s):
                     continue
                 target_duration = reference_unit_durations[s[id_field]]
-                # 取档按这个 unit 最终落地的正文算，不是 step1 拆分时的状态：正文里的
-                # `@[名称]` 由 LLM 在 step2 输出时决定，可能与 step1 的不同。caps 为 None
+                # 取档按这个 unit 最终落地的正文算，不是 script_plan 拆分时的状态：正文里的
+                # `@[名称]` 由 LLM 在 prompt_authoring 输出时决定，可能与 script_plan 的不同。caps 为 None
                 # 也不短路——_resolve_supported_durations 自带 caps → registry 两级回退。
                 unit_tiers = self._unit_duration_off_tier(
                     target_duration,
@@ -1872,13 +1881,13 @@ class ScriptGenerator:
                         f"unit {s[id_field]} 已确认时长 {target_duration}s 不在当前生效档位 "
                         f"{sorted(set(unit_tiers))} 内；通常是该次生成给该 unit 新增/去掉了引用"
                         "导致，请调整该 unit 正文里的 `@` 引用使其回到该档位；若引用本就该是这样，"
-                        "说明模型能力已变化，需要重新拆分该集 step1",
+                        "说明模型能力已变化，需要重新拆分该集 script_plan",
                         code="duration_off_tier",
                         label=f"unit {s[id_field]}",
                     )
                 if s.get("duration_seconds") != target_duration:
                     logger.warning(
-                        "unit %s 时长与 step1 确认值不一致（LLM 输出 %s，已按 step1 确认值 %s 覆盖）",
+                        "unit %s 时长与 script_plan 确认值不一致（LLM 输出 %s，已按 script_plan 确认值 %s 覆盖）",
                         s[id_field],
                         s.get("duration_seconds"),
                         target_duration,
@@ -1928,9 +1937,9 @@ class ScriptGenerator:
         script_data["metadata"]["created_at"] = now
         script_data["metadata"]["updated_at"] = now
         script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
-        step1_revision = getattr(self, "_step1_revision", None)
-        if step1_revision is not None:
-            script_data["metadata"][SCRIPT_STEP1_REVISION_FIELD] = step1_revision
+        script_plan_revision = getattr(self, "_script_plan_revision", None)
+        if script_plan_revision is not None:
+            script_data["metadata"][SCRIPT_PLAN_REVISION_FIELD] = script_plan_revision
 
         # 剥离废弃的 episode 级聚合字段：条目数、总时长与角色/场景/道具聚合都是从剧本正文
         # 逐读即得的派生值，由项目摘要读时计算，落盘一份只会与正文漂移。
@@ -1990,7 +1999,7 @@ class ScriptGenerator:
                     sorted(set(short_ids)),
                 )
 
-            # narration 的 novel_text 现由 step1 透传、step2 不再重出，扩写漂移已从结构上
+            # narration 的 novel_text 现由 script_plan 透传、prompt_authoring 不再重出，扩写漂移已从结构上
             # 消除（不存在「LLM 偷偷扩写」的窗口），故不再做 novel_text 漂移探针。
 
             # ad 总时长偏差观察：剧本总时长应贴近 target_duration，但供应商时长枚举的

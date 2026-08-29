@@ -1,6 +1,6 @@
 """参考生视频「引用语法」规范——唯一真相源。
 
-LLM 在 step1 / step2 产出的 unit 正文与人在编辑器里写的是同一种格式，因此语法规范
+LLM 在 script_plan / prompt_authoring 产出的 unit 正文与人在编辑器里写的是同一种格式，因此语法规范
 只能有一份措辞：本模块的 :data:`WRITING_SYNTAX_SPEC` 由两级 prompt builder
 （``build_reference_units_split_prompt`` / ``build_reference_video_prompt``）共同注入，
 agent 侧文档只留概览并指向工具，前端语法提示另走 i18n 三语，均不复制全文。

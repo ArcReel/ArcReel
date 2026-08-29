@@ -377,15 +377,15 @@ def test_confirmed_reset_keeps_downstream_products(tmp_path: Path) -> None:
     script = _write_script(project_dir, 1)
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    step1 = drafts / "step1_segments.json"
-    step1.write_text("{}", encoding="utf-8")
+    script_plan = drafts / "script_plan_segments.json"
+    script_plan.write_text("{}", encoding="utf-8")
 
     result = reset_episode_planning(project_dir, from_episode=1, confirm_consumed=True)
 
     assert isinstance(result, EpisodeResetResult)
     assert result.consumed_episodes == [1]
     assert script.is_file()
-    assert step1.is_file()
+    assert script_plan.is_file()
     project = _load_project(project_dir)
     assert project["episodes"] == []
     assert project["planning_cursor"] is None
@@ -643,11 +643,11 @@ def test_orphan_disk_product_requires_confirmation(tmp_path: Path) -> None:
 
 
 def test_orphan_draft_dir_requires_confirmation(tmp_path: Path) -> None:
-    """账本丢失条目、无对应 source/episode_N.txt，但 drafts/ 下仍有 step1 产物时仍要求确认。"""
+    """账本丢失条目、无对应 source/episode_N.txt，但 drafts/ 下仍有 script_plan 产物时仍要求确认。"""
     project_dir = _write_project(tmp_path)
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_segments.json").write_text("{}", encoding="utf-8")
+    (drafts / "script_plan_segments.json").write_text("{}", encoding="utf-8")
 
     result = reset_episode_planning(project_dir, from_episode=1)
 
@@ -1194,19 +1194,19 @@ def test_partial_reset_removes_all_unbound_episode_claims_and_preserves_retained
     _write_script(project_dir, 1)
     _write_script(project_dir, 2)
     adapter = ProjectArtifactManifestAdapter(project_dir)
-    retained_key = ArtifactKey.episode_step1(1)
+    retained_key = ArtifactKey.episode_script_plan(1)
     _write_claimed_artifact(
         project_dir,
         adapter,
         retained_key,
-        "drafts/episode_1/step1_segments.json",
+        "drafts/episode_1/script_plan_segments.json",
         digest_byte="1",
     )
     removed: dict[ArtifactKey, str] = {
-        ArtifactKey.episode_step1(2): "drafts/episode_2/step1_segments.json",
+        ArtifactKey.episode_script_plan(2): "drafts/episode_2/script_plan_segments.json",
         ArtifactKey.episode_script(2): "scripts/episode_2.json",
         ArtifactKey.episode_grid(2, "grid_000000000002"): "grids/grid_000000000002.png",
-        ArtifactKey.episode_step1(3): "drafts/episode_3/step1_segments.json",
+        ArtifactKey.episode_script_plan(3): "drafts/episode_3/script_plan_segments.json",
     }
     for index, key in enumerate(ArtifactKey.episode_resource_artifacts(2, "E2S01"), start=3):
         removed[key] = f"retained-media/episode-2-{index}.bin"
@@ -1261,8 +1261,8 @@ def test_manifest_failure_restores_reset_project_and_claims_exactly(
     _write_claimed_artifact(
         project_dir,
         adapter,
-        ArtifactKey.episode_step1(1),
-        "drafts/episode_1/step1_segments.json",
+        ArtifactKey.episode_script_plan(1),
+        "drafts/episode_1/script_plan_segments.json",
         digest_byte="a",
     )
     project_before = (project_dir / "project.json").read_bytes()
@@ -1307,8 +1307,8 @@ def test_manifest_failure_restores_symlinked_episode_entry_without_touching_targ
     _write_claimed_artifact(
         project_dir,
         adapter,
-        ArtifactKey.episode_step1(1),
-        "drafts/episode_1/step1_segments.json",
+        ArtifactKey.episode_script_plan(1),
+        "drafts/episode_1/script_plan_segments.json",
         digest_byte="b",
     )
 

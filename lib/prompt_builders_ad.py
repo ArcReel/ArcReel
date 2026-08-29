@@ -197,7 +197,7 @@ def build_ad_prompt(
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
 
     duration_constraint = _shot_duration_constraint(generation_mode, supported_durations)
-    # 口播字数→时长折算从 lib.speech_rate 单一真相源取（与 drama step1 下界、字幕派生同口径）：
+    # 口播字数→时长折算从 lib.speech_rate 单一真相源取（与 drama script_plan 下界、字幕派生同口径）：
     # 项目级覆盖优先，否则按语言默认。语速表按语言代码（zh / en / vi）登记；target_language 是
     # 自由文本（默认「中文」），未登记值回退默认语速（zh 口径），量词（字 / 词）由
     # reading_unit_noun 同源派生。

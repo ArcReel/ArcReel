@@ -1,6 +1,6 @@
-"""step1→step2 内容确认的服务层与纯逻辑测试。
+"""script_plan→prompt_authoring 内容确认的服务层与纯逻辑测试。
 
-只测外部可观察行为：内容确认状态流转（step1 产出 → pending → 阻塞 → 确认 → confirmed → 放行）、
+只测外部可观察行为：内容确认状态流转（script_plan 产出 → pending → 阻塞 → 确认 → confirmed → 放行）、
 适用范围、内容编辑后重新等待确认、结构校验。
 """
 
@@ -15,10 +15,10 @@ from lib import script_review
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.draft_quarantine import (
-    QUARANTINE_KIND_DRAMA_STEP1,
-    QUARANTINE_KIND_NARRATION_STEP1,
-    QUARANTINE_KIND_STEP1,
-    QUARANTINE_KIND_STEP2,
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+    QUARANTINE_KIND_PROMPT_AUTHORING,
+    QUARANTINE_KIND_SCRIPT_PLAN,
     clear_quarantine,
     quarantine_path,
     write_quarantine,
@@ -30,7 +30,7 @@ from lib.reference_video.draft_validation import DraftViolation
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 
-def _drama_step1() -> dict:
+def _drama_script_plan() -> dict:
     return {
         "title": "第一集",
         "scenes": [
@@ -52,7 +52,7 @@ def _drama_step1() -> dict:
     }
 
 
-def _narration_step1() -> dict:
+def _narration_script_plan() -> dict:
     return {
         "episode": 1,
         "segments": [
@@ -69,8 +69,8 @@ def _narration_step1() -> dict:
     }
 
 
-def _rv_step1() -> dict:
-    """reference_video step1 结构化中间态（``step1_reference_units.json`` 形状）。
+def _rv_script_plan() -> dict:
+    """reference_video script_plan 结构化中间态（``script_plan_reference_units.json`` 形状）。
 
     正文是单元的唯一内容真相：参考图由其中的 ``@[名称]`` 读时派生，不落盘。
     """
@@ -155,8 +155,8 @@ def _make_project(
     return pm
 
 
-def _write_step1(pm: ProjectManager, content_mode: str, content: dict) -> Path:
-    filename = "step1_normalized_script.json" if content_mode == "drama" else "step1_segments.json"
+def _write_script_plan(pm: ProjectManager, content_mode: str, content: dict) -> Path:
+    filename = "script_plan_normalized_script.json" if content_mode == "drama" else "script_plan_segments.json"
     drafts = pm.get_project_path("demo") / "drafts" / "episode_1"
     drafts.mkdir(parents=True, exist_ok=True)
     path = drafts / filename
@@ -164,11 +164,11 @@ def _write_step1(pm: ProjectManager, content_mode: str, content: dict) -> Path:
     return path
 
 
-def _write_rv_step1(pm: ProjectManager, content: dict) -> Path:
-    """写出 reference_video 的结构化 step1（``step1_reference_units.json``）。"""
+def _write_rv_script_plan(pm: ProjectManager, content: dict) -> Path:
+    """写出 reference_video 的结构化 script_plan（``script_plan_reference_units.json``）。"""
     drafts = pm.get_project_path("demo") / "drafts" / "episode_1"
     drafts.mkdir(parents=True, exist_ok=True)
-    path = drafts / "step1_reference_units.json"
+    path = drafts / "script_plan_reference_units.json"
     atomic_write_json(path, content)
     return path
 
@@ -184,8 +184,8 @@ def test_content_fingerprint_of_data_matches_path_based_fingerprint(tmp_path: Pa
     assert script_review.content_fingerprint_of_data(data) == script_review.content_fingerprint(path)
 
 
-def _write_step2(pm: ProjectManager) -> Path:
-    """写出 step2 产物（生成的剧本 JSON），模拟「已产 step2」。"""
+def _write_prompt_authoring(pm: ProjectManager) -> Path:
+    """写出 prompt_authoring 产物（生成的剧本 JSON），模拟「已产 prompt_authoring」。"""
     scripts = pm.get_project_path("demo") / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     path = scripts / "episode_1.json"
@@ -215,66 +215,66 @@ def _write_source_text(pm: ProjectManager, filename: str, text: str) -> Path:
 
 
 class TestDramaGateFlow:
-    async def test_no_step1_then_pending_then_confirmed(self, tmp_path):
+    async def test_no_script_plan_then_pending_then_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
 
-        # step1 未产出
-        assert (await svc.get_state("demo", 1))["status"] == "no_step1"
+        # script_plan 未产出
+        assert (await svc.get_state("demo", 1))["status"] == "no_script_plan"
 
-        # step1 产出 → 可审中间态、阻塞
-        _write_step1(pm, "drama", _drama_step1())
+        # script_plan 产出 → 可审中间态、阻塞
+        _write_script_plan(pm, "drama", _drama_script_plan())
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
         assert state["content"]["scenes"][0]["scene_id"] == "E1S01"
         assert state["content"]["scenes"][0]["utterances"][1]["speaker"] == "阿离"
         project_path = pm.get_project_path("demo")
         project = pm.load_project("demo")
-        assert script_review.gate_blocks_step2(project_path, project, 1) is True
+        assert script_review.gate_blocks_prompt_authoring(project_path, project, 1) is True
 
         # 确认 → 放行
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
         project = pm.load_project("demo")
-        assert script_review.gate_blocks_step2(project_path, project, 1) is False
+        assert script_review.gate_blocks_prompt_authoring(project_path, project, 1) is False
 
-    async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
-        """drama 的草稿同样独立阻塞：草稿在场期间确认被拒、step2 被阻塞，即使正式 step1
+    async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path):
+        """drama 的草稿同样独立阻塞：草稿在场期间确认被拒、prompt_authoring 被阻塞，即使正式 script_plan
         早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未看过的上一版内容。"""
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
         project_path = pm.get_project_path("demo")
-        _write_step1(pm, "drama", _drama_step1())
+        _write_script_plan(pm, "drama", _drama_script_plan())
         await svc.confirm("demo", 1)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
         write_quarantine(
             project_path,
             1,
-            QUARANTINE_KIND_DRAMA_STEP1,
+            QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
             content={"title": "第一集", "scenes": []},
             violations=[],
         )
 
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "quarantined"
 
-        clear_quarantine(project_path, 1, QUARANTINE_KIND_DRAMA_STEP1)
+        clear_quarantine(project_path, 1, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
-    async def test_editing_step1_after_confirm_repends(self, tmp_path):
+    async def test_editing_script_plan_after_confirm_repends(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        _write_step1(pm, "drama", _drama_step1())
+        _write_script_plan(pm, "drama", _drama_script_plan())
         await svc.confirm("demo", 1)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
         # 内容变更（指纹漂移）→ 自动重新等待确认
-        edited = _drama_step1()
+        edited = _drama_script_plan()
         edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
         await svc.save_content("demo", 1, edited)
 
@@ -285,9 +285,9 @@ class TestDramaGateFlow:
     async def test_legacy_mixed_scene_allows_metadata_edit_but_rejects_speech_edit_atomically(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        path = _write_step1(pm, "drama", _drama_step1())
+        path = _write_script_plan(pm, "drama", _drama_script_plan())
 
-        metadata_edit = _drama_step1()
+        metadata_edit = _drama_script_plan()
         metadata_edit["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
         await svc.save_content("demo", 1, metadata_edit)
 
@@ -304,9 +304,9 @@ class TestDramaGateFlow:
     async def test_repairing_marked_drama_candidate_clears_replan_marker(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        candidate = _drama_step1()
+        candidate = _drama_script_plan()
         candidate["scenes"][0]["needs_replan"] = True
-        path = _write_step1(pm, "drama", candidate)
+        path = _write_script_plan(pm, "drama", candidate)
 
         repaired = json.loads(json.dumps(candidate, ensure_ascii=False))
         repaired["scenes"][0]["utterances"] = [{"kind": "dialogue", "speaker": "阿离", "text": "你终于回来了。"}]
@@ -318,9 +318,9 @@ class TestDramaGateFlow:
     async def test_metadata_edit_cannot_clear_drama_replan_marker(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        candidate = _drama_step1()
+        candidate = _drama_script_plan()
         candidate["scenes"][0]["needs_replan"] = True
-        path = _write_step1(pm, "drama", candidate)
+        path = _write_script_plan(pm, "drama", candidate)
 
         metadata_edit = json.loads(json.dumps(candidate, ensure_ascii=False))
         metadata_edit["scenes"][0].pop("needs_replan")
@@ -339,11 +339,11 @@ class TestDramaGateFlow:
         """纯键序 / 空白重排不改语义 → 指纹不变、保持 confirmed。"""
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        path = _write_step1(pm, "drama", _drama_step1())
+        path = _write_script_plan(pm, "drama", _drama_script_plan())
         await svc.confirm("demo", 1)
 
         # 同内容、不同缩进 / 键序重写
-        path.write_text(json.dumps(_drama_step1(), ensure_ascii=False, indent=4), encoding="utf-8")
+        path.write_text(json.dumps(_drama_script_plan(), ensure_ascii=False, indent=4), encoding="utf-8")
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
 
@@ -356,7 +356,7 @@ class TestNarrationGateFlow:
     async def test_pending_then_confirm(self, tmp_path):
         pm = _make_project(tmp_path, "narration")
         svc = ScriptReviewService(pm)
-        _write_step1(pm, "narration", _narration_step1())
+        _write_script_plan(pm, "narration", _narration_script_plan())
 
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
@@ -367,40 +367,40 @@ class TestNarrationGateFlow:
     async def test_edit_novel_text_repends(self, tmp_path):
         pm = _make_project(tmp_path, "narration")
         svc = ScriptReviewService(pm)
-        _write_step1(pm, "narration", _narration_step1())
+        _write_script_plan(pm, "narration", _narration_script_plan())
         await svc.confirm("demo", 1)
 
-        edited = _narration_step1()
+        edited = _narration_script_plan()
         edited["segments"][0]["novel_text"] = "裴与出征后的第三年。"
         await svc.save_content("demo", 1, edited)
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
-    async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
-        """narration 的待修复草稿与另两条路线同口径地独立阻塞：草稿在场期间确认被拒、step2 被
-        阻塞，即使正式 step1 早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未
+    async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path):
+        """narration 的待修复草稿与另两条路线同口径地独立阻塞：草稿在场期间确认被拒、prompt_authoring 被
+        阻塞，即使正式 script_plan 早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未
         看过的上一版内容。"""
         pm = _make_project(tmp_path, "narration")
         svc = ScriptReviewService(pm)
         project_path = pm.get_project_path("demo")
-        _write_step1(pm, "narration", _narration_step1())
+        _write_script_plan(pm, "narration", _narration_script_plan())
         await svc.confirm("demo", 1)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
         write_quarantine(
             project_path,
             1,
-            QUARANTINE_KIND_NARRATION_STEP1,
+            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
             content={"segments": []},
             violations=[],
         )
 
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "quarantined"
 
-        clear_quarantine(project_path, 1, QUARANTINE_KIND_NARRATION_STEP1)
+        clear_quarantine(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
 
@@ -410,38 +410,38 @@ class TestNarrationGateFlow:
 
 
 class TestReferenceVideoGateFlow:
-    async def test_no_step1_then_pending_then_confirmed(self, tmp_path):
+    async def test_no_script_plan_then_pending_then_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         project_path = pm.get_project_path("demo")
 
-        # step1 未产出
-        assert (await svc.get_state("demo", 1))["status"] == "no_step1"
+        # script_plan 未产出
+        assert (await svc.get_state("demo", 1))["status"] == "no_script_plan"
 
-        # step1 产出 → 可审中间态、阻塞 step2
-        _write_rv_step1(pm, _rv_step1())
+        # script_plan 产出 → 可审中间态、阻塞 prompt_authoring
+        _write_rv_script_plan(pm, _rv_script_plan())
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
         assert state["content"]["units"][0]["unit_id"] == "E1U01"
         assert state["content"]["units"][0]["text"].startswith("@[阿离]")
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
 
         # 确认 → 放行
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
 
     async def test_editing_unit_text_reopens_review(self, tmp_path):
         """编辑单元正文 → 重新等待确认；正文是落盘的唯一内容，参考图不随之落一份副本。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
         svc = ScriptReviewService(pm)
-        _write_rv_step1(pm, _rv_step1())
+        _write_rv_script_plan(pm, _rv_script_plan())
         await svc.confirm("demo", 1)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
-        edited = _rv_step1()
+        edited = _rv_script_plan()
         edited["units"][0]["text"] = "@[阿离] 立于屋檐下。\n镜头扫过 @[屋檐]。"
         await svc.save_content("demo", 1, edited)
 
@@ -451,35 +451,35 @@ class TestReferenceVideoGateFlow:
         assert unit["text"] == edited["units"][0]["text"]
         assert "references" not in unit
 
-    async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
-        """草稿在场 → 确认被拒、step2 被阻塞，即使正式 step1 早已确认过。
+    async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path):
+        """草稿在场 → 确认被拒、prompt_authoring 被阻塞，即使正式 script_plan 早已确认过。
 
-        待处置草稿与「正式 step1 的内容指纹」相互独立：重拆分违约时正式文件保持不变，只看
+        待处置草稿与「正式 script_plan 的内容指纹」相互独立：重拆分违约时正式文件保持不变，只看
         指纹会把该集判成 confirmed 并放行，用户看到的却是上一版内容。
         """
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         project_path = pm.get_project_path("demo")
-        _write_rv_step1(pm, _rv_step1())
+        _write_rv_script_plan(pm, _rv_script_plan())
         await svc.confirm("demo", 1)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
         write_quarantine(
             project_path,
             1,
-            QUARANTINE_KIND_STEP1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
             content={"units": []},
             violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
         )
 
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "quarantined"
 
         # 草稿清除后回到既有的指纹判定（内容未变，确认仍然有效）
-        clear_quarantine(project_path, 1, QUARANTINE_KIND_STEP1)
+        clear_quarantine(project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
     def test_quarantine_path_follows_the_project_variant(self, tmp_path):
@@ -492,17 +492,19 @@ class TestReferenceVideoGateFlow:
         rv_pm = _make_project(tmp_path / "rv", "drama", generation_mode="reference_video")
         narration_pm = _make_project(tmp_path / "nr", "narration")
 
-        drama_path = script_review.step1_quarantine_path(
+        drama_path = script_review.script_plan_quarantine_path(
             drama_pm.get_project_path("demo"), drama_pm.load_project("demo"), 1
         )
-        rv_path = script_review.step1_quarantine_path(rv_pm.get_project_path("demo"), rv_pm.load_project("demo"), 1)
-        narration_path = script_review.step1_quarantine_path(
+        rv_path = script_review.script_plan_quarantine_path(
+            rv_pm.get_project_path("demo"), rv_pm.load_project("demo"), 1
+        )
+        narration_path = script_review.script_plan_quarantine_path(
             narration_pm.get_project_path("demo"), narration_pm.load_project("demo"), 1
         )
 
-        assert drama_path is not None and drama_path.name == "step1_normalized_script.invalid.json"
-        assert rv_path is not None and rv_path.name == "step1_reference_units.invalid.json"
-        assert narration_path is not None and narration_path.name == "step1_segments.invalid.json"
+        assert drama_path is not None and drama_path.name == "script_plan_normalized_script.invalid.json"
+        assert rv_path is not None and rv_path.name == "script_plan_reference_units.invalid.json"
+        assert narration_path is not None and narration_path.name == "script_plan_segments.invalid.json"
 
     def test_quarantine_of_another_variant_does_not_block(self, tmp_path):
         """其他生成模式的遗留草稿不参与当前模式的阻塞判定。"""
@@ -511,20 +513,20 @@ class TestReferenceVideoGateFlow:
         write_quarantine(
             project_path,
             1,
-            QUARANTINE_KIND_STEP1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
             content={"units": []},
             violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
         )
 
-        assert script_review.step1_quarantined(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.script_plan_quarantined(project_path, pm.load_project("demo"), 1) is False
 
     async def test_confirm_rejects_unit_duration_out_of_range(self, tmp_path):
-        """损坏的 step1（unit 时长越界）→ 确认被结构校验拒绝，不放行 step2。"""
+        """损坏的 script_plan（unit 时长越界）→ 确认被结构校验拒绝，不放行 prompt_authoring。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        bad = _rv_step1()
+        bad = _rv_script_plan()
         bad["units"][0]["duration_seconds"] = 9999  # 超出 unit 时长的结构合理性区间
-        _write_rv_step1(pm, bad)
+        _write_rv_script_plan(pm, bad)
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "invalid_content"
@@ -534,9 +536,9 @@ class TestReferenceVideoGateFlow:
         不出参考图，不是内容层的规划问题。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        candidate = _rv_step1()
+        candidate = _rv_script_plan()
         candidate["units"][0]["text"] = "@[酒馆] 的木门被风吹开。"
-        path = _write_rv_step1(pm, candidate)
+        path = _write_rv_script_plan(pm, candidate)
 
         confirmed = await svc.confirm("demo", 1)
 
@@ -549,9 +551,9 @@ class TestReferenceVideoGateFlow:
         台词又有无归属旁白，两条音轨在同一段视频上无从叠加，须在确认这一关就拒。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        candidate = _rv_step1()
+        candidate = _rv_script_plan()
         candidate["units"][0]["text"] = "@[阿离] 立于屋檐下。@[阿离]{雨要停了。}\n{雨声渐歇。}"
-        _write_rv_step1(pm, candidate)
+        _write_rv_script_plan(pm, candidate)
 
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
@@ -559,11 +561,11 @@ class TestReferenceVideoGateFlow:
         assert exc.value.code == "speech_admission"
 
     async def test_reference_duration_tiers_narrows_raw_set_by_resolution_constraint(self, tmp_path, monkeypatch):
-        """gate 下拉的档位须按分辨率联动约束收窄，与 step2 落盘前的校验同一把尺。
+        """gate 下拉的档位须按分辨率联动约束收窄，与 prompt_authoring 落盘前的校验同一把尺。
 
         Veo 3.1 项目未配置分辨率时按兜底档位（1080p）算，该档位只接受 8 秒；不收窄的话
-        get_state 暴露的档位表会让用户选中 4/6 秒，save + confirm 都不拦，直到 step2
-        ``_assert_reference_step1_ready`` 才硬拒——用户已确认过的内容变成付完钱才失败。
+        get_state 暴露的档位表会让用户选中 4/6 秒，save + confirm 都不拦，直到 prompt_authoring
+        ``_assert_reference_script_plan_ready`` 才硬拒——用户已确认过的内容变成付完钱才失败。
         """
         from server.services import script_review as mod
 
@@ -605,7 +607,7 @@ class TestReferenceVideoGateFlow:
 
     async def test_reference_duration_tiers_none_for_non_reference_video_episode(self, tmp_path, monkeypatch):
         """非 reference_video 变体不做 caps 解析、直接 None——判据是方法自身的
-        step1_kind，不能靠调用方按 get_state.supported_durations 是否非 None 短路
+        script_plan_kind，不能靠调用方按 get_state.supported_durations 是否非 None 短路
         （那个信号对自定义供应商项目恒为 None，会让方法永远没机会跑）。"""
         from server.services import script_review as mod
 
@@ -639,31 +641,33 @@ class TestReferenceVideoGateFlow:
         assert tiers == {"with_references": [5, 10], "without_references": [5, 10]}
 
 
-class TestReferenceVideoStep1Migration:
-    """存量 step1 草稿（per-shot 时长）在 gate 侧的一次性收编迁移。"""
+class TestReferenceVideoScriptPlanMigration:
+    """存量 script_plan 草稿（per-shot 时长）在 gate 侧的一次性收编迁移。"""
 
     @staticmethod
-    def _legacy_step1(seconds: int = 8) -> dict:
+    def _legacy_script_plan(seconds: int = 8) -> dict:
         """收编前形状：正文已是 v9 形态，但仍带着退役的 ``duration_override`` 标记。"""
-        legacy = _rv_step1()
+        legacy = _rv_script_plan()
         legacy["units"][0]["duration_seconds"] = seconds
         legacy["units"][0]["duration_override"] = False
         return legacy
 
-    async def test_migration_takes_slot_so_step2_never_sees_a_non_member_duration(self, tmp_path, monkeypatch):
+    async def test_migration_takes_slot_so_prompt_authoring_never_sees_a_non_member_duration(
+        self, tmp_path, monkeypatch
+    ):
         """内容确认迁移落盘的秒数必是档位成员，不能只是「落在结构区间内」。
 
         迁移幂等一次性、谁先跑谁定终局，而正常产品流程是先做内容确认再生成：内容确认若按结构
-        区间落一个非档位秒数，step2 的枚举 schema 随后硬拒，用户在 gate 里看不出问题也改不动。
+        区间落一个非档位秒数，prompt_authoring 的枚举 schema 随后硬拒，用户在 gate 里看不出问题也改不动。
         故内容确认与生成侧取同一份档位表。
         """
         _stub_video_caps(monkeypatch, [4, 8, 12])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
+        legacy = self._legacy_script_plan()
         # 10s 落在结构区间内，但不是档位成员——只做结构 clamp 时会原样固化。
         legacy["units"][0]["duration_seconds"] = 10
-        path = _write_rv_step1(pm, legacy)
+        path = _write_rv_script_plan(pm, legacy)
 
         assert (await svc.get_state("demo", 1))["content"]["units"][0]["duration_seconds"] == 12
         assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["duration_seconds"] == 12
@@ -672,16 +676,16 @@ class TestReferenceVideoStep1Migration:
         """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：档位表只有 caps 给得出。
 
         内容确认若不解析 caps，这类项目的读时收编只能退回结构区间 clamp——落盘的秒数不是档位
-        成员，step2 的枚举 schema 随后硬拒。``supported_durations`` 也要一并带出真实档位，
+        成员，prompt_authoring 的枚举 schema 随后硬拒。``supported_durations`` 也要一并带出真实档位，
         面板的可选项才与收编到的值同源。
         """
         _stub_video_caps(monkeypatch, [5, 10], provider_id="custom-acme", model="acme-video")
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
+        legacy = self._legacy_script_plan()
         # 7s 在结构区间内，但不是 [5, 10] 的成员。
         legacy["units"][0]["duration_seconds"] = 7
-        path = _write_rv_step1(pm, legacy)
+        path = _write_rv_script_plan(pm, legacy)
 
         state = await svc.get_state("demo", 1)
         assert state["content"]["units"][0]["duration_seconds"] == 10
@@ -694,9 +698,9 @@ class TestReferenceVideoStep1Migration:
         _stub_video_caps(monkeypatch, [5, 10])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
+        legacy = self._legacy_script_plan()
         legacy["units"][0]["duration_seconds"] = 7
-        _write_rv_step1(pm, legacy)
+        _write_rv_script_plan(pm, legacy)
 
         state = await svc.confirm("demo", 1)
         assert state["status"] == "confirmed"
@@ -718,10 +722,10 @@ class TestReferenceVideoStep1Migration:
 
         monkeypatch.setattr(mod, "resolve_video_caps", _raise)
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
+        legacy = self._legacy_script_plan()
         # 7s 在结构区间内，但不是 registry 档位 [4, 6, 8] 的成员。
         legacy["units"][0]["duration_seconds"] = 7
-        _write_rv_step1(pm, legacy)
+        _write_rv_script_plan(pm, legacy)
 
         state = await svc.get_state("demo", 1)
         assert state["supported_durations"] == [4, 6, 8]
@@ -731,17 +735,17 @@ class TestReferenceVideoStep1Migration:
         """项目未配置可解析的视频型号：档位表取不到，退回结构区间 clamp 而非阻断草稿加载。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
+        legacy = self._legacy_script_plan()
         legacy["units"][0]["duration_seconds"] = 10
 
-        _write_rv_step1(pm, legacy)
+        _write_rv_script_plan(pm, legacy)
         assert (await svc.get_state("demo", 1))["content"]["units"][0]["duration_seconds"] == 10
 
     async def test_legacy_draft_is_migrated_on_read_and_written_back(self, tmp_path):
         """读状态即收编：退役的 ``duration_override`` 被剥掉、unit 时长保持，且一次落盘、二次读不再改写。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        path = _write_rv_step1(pm, self._legacy_step1())
+        path = _write_rv_script_plan(pm, self._legacy_script_plan())
 
         unit = (await svc.get_state("demo", 1))["content"]["units"][0]
         assert unit["duration_seconds"] == 8
@@ -760,7 +764,7 @@ class TestReferenceVideoStep1Migration:
         """收编后存量草稿在 gate 里可确认、可保存——迁移前两者都撞结构校验（unit 带已退役字段）。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        _write_rv_step1(pm, self._legacy_step1())
+        _write_rv_script_plan(pm, self._legacy_script_plan())
 
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
@@ -773,8 +777,8 @@ class TestReferenceVideoStep1Migration:
         """迁移是机械收编、不是内容编辑：已确认的分集不因加载而重新等待确认。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
-        path = _write_rv_step1(pm, legacy)
+        legacy = self._legacy_script_plan()
+        path = _write_rv_script_plan(pm, legacy)
 
         # 先在收编前的内容上记录确认指纹（模拟升级前已通过审核的分集）。
         def _confirm_legacy(p: dict) -> None:
@@ -795,10 +799,10 @@ class TestReferenceVideoStep1Migration:
         _stub_video_caps(monkeypatch, [4, 8, 12])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
+        legacy = self._legacy_script_plan()
         # 90s 超出最大档位（12s），迁移会取档改写并记 warning。
         legacy["units"][0]["duration_seconds"] = 90
-        path = _write_rv_step1(pm, legacy)
+        path = _write_rv_script_plan(pm, legacy)
 
         def _confirm_legacy(p: dict) -> None:
             script_review.apply_confirmation(p, 1, script_review.content_fingerprint(path), "2026-01-01T00:00:00Z")
@@ -810,17 +814,17 @@ class TestReferenceVideoStep1Migration:
         assert state["content"]["units"][0]["duration_seconds"] == 12
 
     async def test_clamping_migration_reopens_review_for_grandfathered_episode(self, tmp_path, monkeypatch):
-        """从未存过确认指纹、靠 grandfather 判据（step2 已存在）放行的存量集：迁移 clamp
+        """从未存过确认指纹、靠 grandfather 判据（prompt_authoring 已存在）放行的存量集：迁移 clamp
         改写时长后须重新等待确认——迁移幂等落盘，重试不再产生 warnings，不落失配标记的话
         后续生成会静默采用用户从未过目的取值。
         """
         _stub_video_caps(monkeypatch, [4, 8, 12])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
+        legacy = self._legacy_script_plan()
         legacy["units"][0]["duration_seconds"] = 90
-        _write_rv_step1(pm, legacy)
-        _write_step2(pm)
+        _write_rv_script_plan(pm, legacy)
+        _write_prompt_authoring(pm)
 
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
@@ -836,10 +840,10 @@ class TestReferenceVideoStep1Migration:
         _stub_video_caps(monkeypatch, [4, 8, 12])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
+        legacy = self._legacy_script_plan()
         legacy["units"][0]["duration_seconds"] = 90
-        _write_rv_step1(pm, legacy)
-        _write_step2(pm)
+        _write_rv_script_plan(pm, legacy)
+        _write_prompt_authoring(pm)
 
         original_update = pm.update_project
         failed: list[int] = []
@@ -865,9 +869,9 @@ class TestReferenceVideoStep1Migration:
         _stub_video_caps(monkeypatch, [4, 8, 12])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
+        legacy = self._legacy_script_plan()
         legacy["units"][0]["duration_seconds"] = 90
-        _write_rv_step1(pm, legacy)
+        _write_rv_script_plan(pm, legacy)
 
         state = await svc.confirm("demo", 1)
         assert state["status"] == "confirmed"
@@ -880,8 +884,8 @@ class TestReferenceVideoStep1Migration:
         """
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
-        path = _write_rv_step1(pm, legacy)
+        legacy = self._legacy_script_plan()
+        path = _write_rv_script_plan(pm, legacy)
         before = script_review.content_fingerprint(path)
 
         def _confirm_legacy(p: dict) -> None:
@@ -889,7 +893,7 @@ class TestReferenceVideoStep1Migration:
 
         pm.update_project("demo", _confirm_legacy)
 
-        concurrent_edit = self._legacy_step1()
+        concurrent_edit = self._legacy_script_plan()
         concurrent_edit["units"][0]["text"] = "并发编辑：紧随迁移写回落盘。"
 
         written: list[dict] = []
@@ -919,8 +923,8 @@ class TestReferenceVideoStep1Migration:
         """
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        legacy = self._legacy_step1()
-        path = _write_rv_step1(pm, legacy)
+        legacy = self._legacy_script_plan()
+        path = _write_rv_script_plan(pm, legacy)
         before = script_review.content_fingerprint(path)
 
         original_migrate = script_review.migrate_unit_durations
@@ -939,10 +943,10 @@ class TestReferenceVideoStep1Migration:
         assert state["status"] == "confirmed"
 
     async def test_migration_does_not_confirm_an_unconfirmed_episode(self, tmp_path):
-        """指纹本就对不上（step1 确实改过）时不平移确认记录，照常按待确认处理。"""
+        """指纹本就对不上（script_plan 确实改过）时不平移确认记录，照常按待确认处理。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        _write_rv_step1(pm, self._legacy_step1())
+        _write_rv_script_plan(pm, self._legacy_script_plan())
 
         def _stale_confirm(p: dict) -> None:
             script_review.apply_confirmation(p, 1, "0" * 64, "2026-01-01T00:00:00Z")
@@ -951,9 +955,9 @@ class TestReferenceVideoStep1Migration:
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
 
-class TestReferenceVideoStep2Enforcement:
+class TestReferenceVideoPromptAuthoringEnforcement:
     async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):
-        """Agent 路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""
+        """Agent 路径：rv 的 script_plan 未确认时 prompt_authoring 阻塞，confirm_script_review 工具确认后放行。"""
         from server.agent_runtime.sdk_tools.text_generation import (
             confirm_script_review_tool,
             generate_episode_script_tool,
@@ -961,9 +965,9 @@ class TestReferenceVideoStep2Enforcement:
         from server.media_tools.context import ToolContext
 
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
-        _write_rv_step1(pm, _rv_step1())
+        _write_rv_script_plan(pm, _rv_script_plan())
         project_path = pm.get_project_path("demo")
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
 
         ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
         blocked = await generate_episode_script_tool(ctx).handler({"episode": 1})
@@ -972,7 +976,7 @@ class TestReferenceVideoStep2Enforcement:
 
         result = await confirm_script_review_tool(ctx).handler({"episode": 1})
         assert result.get("is_error") is not True
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
 
 
 # ---------------------------------------------------------------------------
@@ -982,20 +986,20 @@ class TestReferenceVideoStep2Enforcement:
 
 class TestApplicability:
     async def test_reference_video_applicable(self, tmp_path):
-        """reference_video（跨 content_mode）纳入 gate，step1 变体判为 reference_video。"""
+        """reference_video（跨 content_mode）纳入 gate，script_plan 变体判为 reference_video。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         project = pm.load_project("demo")
-        assert script_review.step1_kind(project) == "reference_video"
+        assert script_review.script_plan_kind(project) == "reference_video"
         assert script_review.is_applicable(project) is True
-        # 未产 step1 → no_step1（区别于 ad 的 not_applicable）。
-        assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "no_step1"
+        # 未产 script_plan → no_script_plan（区别于 ad 的 not_applicable）。
+        assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "no_script_plan"
 
     async def test_ad_not_applicable(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("addemo")
         pm.create_project_metadata("addemo", "Ad", "Anime", "ad")
         svc = ScriptReviewService(pm)
-        assert script_review.step1_kind(svc.pm.load_project("addemo")) is None
+        assert script_review.script_plan_kind(svc.pm.load_project("addemo")) is None
         assert (await svc.get_state("addemo", 1))["status"] == "not_applicable"
 
 
@@ -1008,9 +1012,9 @@ class TestErrors:
     async def test_save_empty_dialogue_speaker_returns_structured_admission(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        path = _write_step1(pm, "drama", _drama_step1())
+        path = _write_script_plan(pm, "drama", _drama_script_plan())
 
-        bad = _drama_step1()
+        bad = _drama_script_plan()
         bad["scenes"][0]["utterances"][1] = {"kind": "dialogue", "speaker": None, "text": "无人"}
         with pytest.raises(ScriptReviewError) as exc:
             await svc.save_content("demo", 1, bad)
@@ -1019,32 +1023,32 @@ class TestErrors:
         assert exc.value.admission.unit_id == "E1S01"
         assert exc.value.admission.problems[0].code == "empty_speaker"
         assert exc.value.admission.problems[0].locations[0].path == ("utterances", 1, "speaker")
-        assert json.loads(path.read_text(encoding="utf-8")) == _drama_step1()
+        assert json.loads(path.read_text(encoding="utf-8")) == _drama_script_plan()
 
     async def test_save_invalid_non_speech_content_rejected(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        _write_step1(pm, "drama", _drama_step1())
+        _write_script_plan(pm, "drama", _drama_script_plan())
 
-        bad = _drama_step1()
+        bad = _drama_script_plan()
         bad["scenes"][0]["duration_seconds"] = "invalid"
         with pytest.raises(ScriptReviewError) as exc:
             await svc.save_content("demo", 1, bad)
         assert exc.value.code == "invalid_content"
 
-    async def test_confirm_without_step1_rejected(self, tmp_path):
+    async def test_confirm_without_script_plan_rejected(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
-        assert exc.value.code == "no_step1"
+        assert exc.value.code == "no_script_plan"
 
     async def test_confirm_marked_drama_candidate_returns_structured_admission(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        candidate = _drama_step1()
+        candidate = _drama_script_plan()
         candidate["scenes"][0]["needs_replan"] = True
-        _write_step1(pm, "drama", candidate)
+        _write_script_plan(pm, "drama", candidate)
 
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
@@ -1054,17 +1058,17 @@ class TestErrors:
         assert exc.value.admission.unit_id == "E1S01"
         assert exc.value.admission.problems[0].code == "needs_replan"
         project = pm.load_project("demo")
-        assert script_review.gate_blocks_step2(pm.get_project_path("demo"), project, 1) is True
+        assert script_review.gate_blocks_prompt_authoring(pm.get_project_path("demo"), project, 1) is True
 
     async def test_save_not_applicable_rejected(self, tmp_path):
-        pm = _make_project(tmp_path, "ad")  # ad 无结构化 step1，gate 不适用
+        pm = _make_project(tmp_path, "ad")  # ad 无结构化 script_plan，gate 不适用
         svc = ScriptReviewService(pm)
         with pytest.raises(ScriptReviewError) as exc:
-            await svc.save_content("demo", 1, _drama_step1())
+            await svc.save_content("demo", 1, _drama_script_plan())
         assert exc.value.code == "not_applicable"
 
     async def test_get_state_unregistered_episode_rejected(self, tmp_path):
-        """适用 gate 但分集未登记 project.json → episode_not_found（而非误报 no_step1）。"""
+        """适用 gate 但分集未登记 project.json → episode_not_found（而非误报 no_script_plan）。"""
         pm = _make_project(tmp_path, "drama")  # 仅登记第 1 集
         svc = ScriptReviewService(pm)
         with pytest.raises(ScriptReviewError) as exc:
@@ -1072,13 +1076,13 @@ class TestErrors:
         assert exc.value.code == "episode_not_found"
 
     async def test_save_unregistered_episode_writes_no_orphan(self, tmp_path):
-        """给未登记分集保存 → episode_not_found，且不落 drafts/episode_99 孤儿 step1 文件。"""
+        """给未登记分集保存 → episode_not_found，且不落 drafts/episode_99 孤儿 script_plan 文件。"""
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
         with pytest.raises(ScriptReviewError) as exc:
-            await svc.save_content("demo", 99, _drama_step1())
+            await svc.save_content("demo", 99, _drama_script_plan())
         assert exc.value.code == "episode_not_found"
-        orphan = pm.get_project_path("demo") / "drafts" / "episode_99" / "step1_normalized_script.json"
+        orphan = pm.get_project_path("demo") / "drafts" / "episode_99" / "script_plan_normalized_script.json"
         assert not orphan.exists()
 
     async def test_save_with_stale_fingerprint_conflicts_reference_video(self, tmp_path):
@@ -1086,16 +1090,16 @@ class TestErrors:
         不落盘不覆盖；拿最新指纹（等价于刷新合并后）重试放行。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        path = _write_rv_step1(pm, _rv_step1())
+        path = _write_rv_script_plan(pm, _rv_script_plan())
         stale = (await svc.get_state("demo", 1))["fingerprint"]
 
         # 另一编辑方先保存（内容变化 → 指纹漂移）
-        other = _rv_step1()
+        other = _rv_script_plan()
         other["units"][0]["text"] = "@[阿离] 转身离开。"
         await svc.save_content("demo", 1, other)
         before = path.read_text(encoding="utf-8")
 
-        mine = _rv_step1()
+        mine = _rv_script_plan()
         mine["units"][0]["text"] = "@[裴与] 下马。"
         with pytest.raises(ScriptReviewError) as exc:
             await svc.save_content("demo", 1, mine, stale)
@@ -1111,16 +1115,16 @@ class TestErrors:
         """drama/narration 的 web 保存同样受基线比对保护：同一个 conflict 错误码。"""
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        path = _write_step1(pm, "drama", _drama_step1())
+        path = _write_script_plan(pm, "drama", _drama_script_plan())
         stale = (await svc.get_state("demo", 1))["fingerprint"]
 
-        other = _drama_step1()
+        other = _drama_script_plan()
         other["title"] = "另一方改的标题"
         await svc.save_content("demo", 1, other)
         before = path.read_text(encoding="utf-8")
 
         with pytest.raises(ScriptReviewError) as exc:
-            await svc.save_content("demo", 1, _drama_step1(), stale)
+            await svc.save_content("demo", 1, _drama_script_plan(), stale)
         assert exc.value.code == "conflict"
         assert path.read_text(encoding="utf-8") == before
 
@@ -1128,39 +1132,41 @@ class TestErrors:
         """不带基线指纹的直连调用维持原语义：不比对、直接落盘。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
-        _write_rv_step1(pm, _rv_step1())
-        other = _rv_step1()
+        _write_rv_script_plan(pm, _rv_script_plan())
+        other = _rv_script_plan()
         other["units"][0]["text"] = "@[阿离] 转身离开。"
         await svc.save_content("demo", 1, other)
 
-        state = await svc.save_content("demo", 1, _rv_step1())
+        state = await svc.save_content("demo", 1, _rv_script_plan())
         assert state["status"] == "pending_review"
 
-    async def test_rv_save_clears_stale_step2_quarantine_on_change(self, tmp_path):
-        """web 保存改了 step1 内容 → 在场的 step2 草稿作废（其保结构 diff 以旧 step1 为
+    async def test_rv_save_clears_stale_prompt_authoring_quarantine_on_change(self, tmp_path):
+        """web 保存改了 script_plan 内容 → 在场的 prompt_authoring 草稿作废（其保结构 diff 以旧 script_plan 为
         基底）；内容未变的保存不清。与 Agent 侧写盘同一出口、同一语义。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         project_path = pm.get_project_path("demo")
-        _write_rv_step1(pm, _rv_step1())
+        _write_rv_script_plan(pm, _rv_script_plan())
         # 先经一次保存把归一化形状（含模型默认字段）落盘，"内容未变"的比较才有同一基准
-        await svc.save_content("demo", 1, _rv_step1())
-        step2_q = quarantine_path(project_path, 1, QUARANTINE_KIND_STEP2)
+        await svc.save_content("demo", 1, _rv_script_plan())
+        prompt_authoring_q = quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
 
-        write_quarantine(project_path, 1, QUARANTINE_KIND_STEP2, content={"units": [{"text": "旧基底"}]}, violations=[])
-        await svc.save_content("demo", 1, _rv_step1())  # 内容未变（校验结果与盘上一致）
-        assert step2_q.exists()
+        write_quarantine(
+            project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "旧基底"}]}, violations=[]
+        )
+        await svc.save_content("demo", 1, _rv_script_plan())  # 内容未变（校验结果与盘上一致）
+        assert prompt_authoring_q.exists()
 
-        edited = _rv_step1()
+        edited = _rv_script_plan()
         edited["units"][0]["text"] = "@[阿离] 转身离开。"
         await svc.save_content("demo", 1, edited)
-        assert not step2_q.exists()
+        assert not prompt_authoring_q.exists()
 
-    async def test_confirm_corrupt_step1_rejected(self, tmp_path):
-        """step1 文件损坏（非法 JSON，但 content_fingerprint 仍产哈希）→ 确认被结构校验拒绝。"""
+    async def test_confirm_corrupt_script_plan_rejected(self, tmp_path):
+        """script_plan 文件损坏（非法 JSON，但 content_fingerprint 仍产哈希）→ 确认被结构校验拒绝。"""
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
-        path = _write_step1(pm, "drama", _drama_step1())
+        path = _write_script_plan(pm, "drama", _drama_script_plan())
         path.write_bytes(b"\x00\x01 not json at all {")
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
@@ -1168,73 +1174,83 @@ class TestErrors:
 
 
 # ---------------------------------------------------------------------------
-# 单一写盘出口（lib.script_review.write_step1_locked）
+# 单一写盘出口（lib.script_review.write_script_plan_locked）
 # ---------------------------------------------------------------------------
 
 
-class TestStep1WriteStore:
+class TestScriptPlanWriteStore:
     def _project_path(self, tmp_path: Path) -> Path:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         return pm.get_project_path("demo")
 
     def test_conflict_on_stale_baseline_keeps_file(self, tmp_path: Path):
         project_path = self._project_path(tmp_path)
-        with script_review.step1_write_lock(project_path, 1):
-            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]})
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
         stale = "0" * 64
 
-        with pytest.raises(script_review.Step1WriteConflict) as exc:
-            with script_review.step1_write_lock(project_path, 1):
-                script_review.write_step1_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=stale)
+        with pytest.raises(script_review.ScriptPlanWriteConflict) as exc:
+            with script_review.script_plan_write_lock(project_path, 1):
+                script_review.write_script_plan_locked(
+                    project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=stale
+                )
 
         assert exc.value.expected == stale
         assert exc.value.actual == script_review.content_fingerprint_of_data({"units": [{"v": 1}]})
         assert exc.value.current_content == {"units": [{"v": 1}]}
-        path = script_review.official_reference_step1_path(project_path, 1)
+        path = script_review.official_reference_script_plan_path(project_path, 1)
         assert json.loads(path.read_text(encoding="utf-8")) == {"units": [{"v": 1}]}
 
     def test_matching_baseline_and_none_baseline_write(self, tmp_path: Path):
         """基线一致放行；``None`` 基线表示「取基线时文件不存在」，首写同样放行。"""
         project_path = self._project_path(tmp_path)
-        with script_review.step1_write_lock(project_path, 1):
-            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]}, expected_fingerprint=None)
-        current = script_review.content_fingerprint(script_review.official_reference_step1_path(project_path, 1))
-        with script_review.step1_write_lock(project_path, 1):
-            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=current)
-        path = script_review.official_reference_step1_path(project_path, 1)
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]}, expected_fingerprint=None)
+        current = script_review.content_fingerprint(script_review.official_reference_script_plan_path(project_path, 1))
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=current)
+        path = script_review.official_reference_script_plan_path(project_path, 1)
         assert json.loads(path.read_text(encoding="utf-8")) == {"units": [{"v": 2}]}
 
     def test_none_baseline_conflicts_when_file_appeared(self, tmp_path: Path):
         """基线 None（取基线时无正式文件）而写盘前文件已被另一方写出 → 冲突，不覆盖。"""
         project_path = self._project_path(tmp_path)
-        with script_review.step1_write_lock(project_path, 1):
-            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]})
-        with pytest.raises(script_review.Step1WriteConflict):
-            with script_review.step1_write_lock(project_path, 1):
-                script_review.write_step1_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=None)
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
+        with pytest.raises(script_review.ScriptPlanWriteConflict):
+            with script_review.script_plan_write_lock(project_path, 1):
+                script_review.write_script_plan_locked(
+                    project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=None
+                )
 
-    def test_step2_quarantine_cleared_only_on_change(self, tmp_path: Path):
+    def test_prompt_authoring_quarantine_cleared_only_on_change(self, tmp_path: Path):
         project_path = self._project_path(tmp_path)
-        step2_q = quarantine_path(project_path, 1, QUARANTINE_KIND_STEP2)
-        with script_review.step1_write_lock(project_path, 1):
-            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]})
+        prompt_authoring_q = quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
 
         # 内容未变 → 不清
-        write_quarantine(project_path, 1, QUARANTINE_KIND_STEP2, content={"units": [{"text": "基底"}]}, violations=[])
-        with script_review.step1_write_lock(project_path, 1):
-            assert script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]}) is False
-        assert step2_q.exists()
+        write_quarantine(
+            project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
+        )
+        with script_review.script_plan_write_lock(project_path, 1):
+            assert script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]}) is False
+        assert prompt_authoring_q.exists()
 
         # 内容变了 → 清
-        with script_review.step1_write_lock(project_path, 1):
-            assert script_review.write_step1_locked(project_path, 1, {"units": [{"v": 2}]}) is True
-        assert not step2_q.exists()
+        with script_review.script_plan_write_lock(project_path, 1):
+            assert script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]}) is True
+        assert not prompt_authoring_q.exists()
 
         # 迁移回写按机械收编处理：内容变了也不清
-        write_quarantine(project_path, 1, QUARANTINE_KIND_STEP2, content={"units": [{"text": "基底"}]}, violations=[])
-        with script_review.step1_write_lock(project_path, 1):
-            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 3}]}, clear_step2_quarantine=False)
-        assert step2_q.exists()
+        write_quarantine(
+            project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
+        )
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(
+                project_path, 1, {"units": [{"v": 3}]}, clear_prompt_authoring_quarantine=False
+            )
+        assert prompt_authoring_q.exists()
 
     def test_successful_noop_refreshes_active_manifest_claim(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         project_path = self._project_path(tmp_path)
@@ -1243,8 +1259,8 @@ class TestStep1WriteStore:
         project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
         atomic_write_json(project_file, project)
         content = {"units": [{"v": 1}]}
-        with script_review.step1_write_lock(project_path, 1):
-            script_review.write_step1_locked(project_path, 1, content)
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, content)
 
         registered: list[object] = []
         monkeypatch.setattr(
@@ -1252,26 +1268,26 @@ class TestStep1WriteStore:
             lambda _project_path, key: registered.append(key),
         )
 
-        with script_review.step1_write_lock(project_path, 1):
-            assert script_review.write_step1_locked(project_path, 1, content) is False
+        with script_review.script_plan_write_lock(project_path, 1):
+            assert script_review.write_script_plan_locked(project_path, 1, content) is False
 
         from lib.artifact_manifest import ArtifactKey
 
-        assert registered == [ArtifactKey.episode_step1(1)]
+        assert registered == [ArtifactKey.episode_script_plan(1)]
 
 
 # ---------------------------------------------------------------------------
-# step2 工具阻塞 enforcement：pending 时 generate_episode_script 拒绝
+# prompt_authoring 工具阻塞 enforcement：pending 时 generate_episode_script 拒绝
 # ---------------------------------------------------------------------------
 
 
-class TestStep2Enforcement:
+class TestPromptAuthoringEnforcement:
     async def test_generate_blocked_when_pending(self, tmp_path):
         from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
         from server.media_tools.context import ToolContext
 
         pm = _make_project(tmp_path, "drama")
-        _write_step1(pm, "drama", _drama_step1())
+        _write_script_plan(pm, "drama", _drama_script_plan())
 
         ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
         tool = generate_episode_script_tool(ctx)
@@ -1279,64 +1295,64 @@ class TestStep2Enforcement:
 
         assert result.get("is_error") is True
         text = result["content"][0]["text"]
-        assert "step1" in text and "阻塞" in text
+        assert "script_plan" in text and "阻塞" in text
 
-    async def test_confirm_tool_unblocks_step2(self, tmp_path):
-        """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 step1→step2 不被破坏）。"""
+    async def test_confirm_tool_unblocks_prompt_authoring(self, tmp_path):
+        """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 script_plan→prompt_authoring 不被破坏）。"""
         from server.agent_runtime.sdk_tools.text_generation import confirm_script_review_tool
         from server.media_tools.context import ToolContext
 
         pm = _make_project(tmp_path, "drama")
-        _write_step1(pm, "drama", _drama_step1())
+        _write_script_plan(pm, "drama", _drama_script_plan())
         project_path = pm.get_project_path("demo")
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
 
         ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
         result = await confirm_script_review_tool(ctx).handler({"episode": 1})
 
         assert result.get("is_error") is not True
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
 
 
 # ---------------------------------------------------------------------------
-# 存量穷举：{step1 有无 × step2 有无 × step1_review 有无} 的 gate 派生态
+# 存量穷举：{script_plan 有无 × prompt_authoring 有无 × script_plan_review 有无} 的 gate 派生态
 # ---------------------------------------------------------------------------
 
 
 class TestLegacyEnumeration:
-    async def test_no_step1(self, tmp_path):
+    async def test_no_script_plan(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
-        assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "no_step1"
+        assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "no_script_plan"
 
-    async def test_step1_no_step2_no_review_pending(self, tmp_path):
-        """feature 后首次产 step1（未产 step2、无确认）→ 待确认、阻塞。"""
+    async def test_script_plan_no_prompt_authoring_no_review_pending(self, tmp_path):
+        """feature 后首次产 script_plan（未产 prompt_authoring、无确认）→ 待确认、阻塞。"""
         pm = _make_project(tmp_path, "drama")
-        _write_step1(pm, "drama", _drama_step1())
+        _write_script_plan(pm, "drama", _drama_script_plan())
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "pending_review"
 
-    async def test_step1_step2_no_review_grandfathered_confirmed(self, tmp_path):
-        """存量项目（已产 step1 + step2、无 step1_review 字段）→ grandfather 放行，不阻塞重跑。"""
+    async def test_script_plan_prompt_authoring_no_review_grandfathered_confirmed(self, tmp_path):
+        """存量项目（已产 script_plan + prompt_authoring、无 script_plan_review 字段）→ grandfather 放行，不阻塞重跑。"""
         pm = _make_project(tmp_path, "drama")
-        _write_step1(pm, "drama", _drama_step1())
-        _write_step2(pm)
+        _write_script_plan(pm, "drama", _drama_script_plan())
+        _write_prompt_authoring(pm)
         project_path = pm.get_project_path("demo")
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "confirmed"
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
 
-    async def test_step1_step2_review_matching_confirmed(self, tmp_path):
+    async def test_script_plan_prompt_authoring_review_matching_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
-        _write_step1(pm, "drama", _drama_step1())
-        _write_step2(pm)
+        _write_script_plan(pm, "drama", _drama_script_plan())
+        _write_prompt_authoring(pm)
         await ScriptReviewService(pm).confirm("demo", 1)
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "confirmed"
 
-    async def test_step1_step2_review_mismatch_pending(self, tmp_path):
-        """已确认后 step1 又被改（即便 step2 在）→ 重新等待确认，指纹优先于 grandfather。"""
+    async def test_script_plan_prompt_authoring_review_mismatch_pending(self, tmp_path):
+        """已确认后 script_plan 又被改（即便 prompt_authoring 在）→ 重新等待确认，指纹优先于 grandfather。"""
         pm = _make_project(tmp_path, "drama")
-        _write_step1(pm, "drama", _drama_step1())
-        _write_step2(pm)
+        _write_script_plan(pm, "drama", _drama_script_plan())
+        _write_prompt_authoring(pm)
         await ScriptReviewService(pm).confirm("demo", 1)
-        edited = _drama_step1()
+        edited = _drama_script_plan()
         edited["scenes"][0]["source_text"] = "改写后的原文锚"
         await ScriptReviewService(pm).save_content("demo", 1, edited)
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "pending_review"
@@ -1353,27 +1369,27 @@ class TestManualSplitSelfHeal:
         """get_state 为孤儿派生文件自愈登记条目且不写 source_range。"""
         pm = _make_manual_split_project(tmp_path, "narration")
         _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年。")
-        _write_step1(pm, "narration", _narration_step1())
+        _write_script_plan(pm, "narration", _narration_script_plan())
 
         state = await ScriptReviewService(pm).get_state("demo", 1)
         assert state["status"] == "pending_review"
 
         ep = script_review.find_episode(pm.load_project("demo"), 1)
         assert ep is not None
-        assert ep["ledger_status"] == "consumed"  # 已有 step1 中间文件
+        assert ep["ledger_status"] == "consumed"  # 已有 script_plan 中间文件
         assert "source_range" not in ep
 
-    async def test_confirm_self_heals_and_unblocks_step2(self, tmp_path):
-        """confirm（web 与 Agent 工具共用同一 service）可补齐空账本条目并放行 step2。"""
+    async def test_confirm_self_heals_and_unblocks_prompt_authoring(self, tmp_path):
+        """confirm（web 与 Agent 工具共用同一 service）可补齐空账本条目并放行 prompt_authoring。"""
         pm = _make_manual_split_project(tmp_path, "drama")
         _write_source_text(pm, "episode_1.txt", "任意派生内容")
-        _write_step1(pm, "drama", _drama_step1())
+        _write_script_plan(pm, "drama", _drama_script_plan())
 
         confirmed = await ScriptReviewService(pm).confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
 
         project_path = pm.get_project_path("demo")
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
 
     async def test_self_heal_never_anchors_even_when_source_text_matches(self, tmp_path):
         """派生文件内容即使能在原文中精确匹配，自愈也只登记不锚定：位置记录只由规划工具写入。"""

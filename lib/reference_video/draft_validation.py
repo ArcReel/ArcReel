@@ -1,4 +1,4 @@
-"""参考生视频 step1 / step2 扁平草稿结构的机械校验。
+"""参考生视频 script_plan / prompt_authoring 扁平草稿结构的机械校验。
 
 LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同一份文本上；本模块是「parser
 后校验」这一层的落点：schema 已卡死枚举与外层结构，剩下的语法与内容约束在这里逐 unit
@@ -65,7 +65,7 @@ def _normalize_for_anchor(text: str) -> str:
 def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -> None:
     """校验 ``source_text`` 是源文的逐字子串（空白归一后）。
 
-    step1 的 unit 边界要能追溯回原文，锚失配意味着模型在拆分时改写或杜撰了原文——这是内容
+    script_plan 的 unit 边界要能追溯回原文，锚失配意味着模型在拆分时改写或杜撰了原文——这是内容
     层的根本违约，比任何下游画面问题都更早需要被拦下。只判子串、不判顺序与完整覆盖：unit
     是画面单元不是朗读单元，允许原文中的对话提示语、转述段落不进任何 unit 的锚。
     """
@@ -120,7 +120,7 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
         parts = split_speech_line(line)
         leads_with_speech = bool(parts) and isinstance(parts[0], SpeechMark) and bool(parts[0].speaker)
         # 只有登记角色 + 冒号才判成写坏的台词：场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
-        # 是合法的画面描述写法，按同一形态一概判违约会把正常的 step1 产出拒掉。
+        # 是合法的画面描述写法，按同一形态一概判违约会把正常的 script_plan 产出拒掉。
         if not leads_with_speech and (leading_mention_before_colon(line) or "") in characters:
             raise DraftViolation(
                 f"{label} 的台词写法不合法：{line.strip()[:40]!r}；"
@@ -172,7 +172,7 @@ def dialogue_speakers(text: str) -> list[str]:
 def normative_lines(text: str) -> list[tuple[str, str, str]]:
     """按出现顺序取出全部发声记号：``(kind, speaker, 台词)``，``kind`` 为 dialogue / voiceover。
 
-    step2 的保结构 diff 以此为比对项：画面描述可自由展开，发声记号必须逐字不变。
+    prompt_authoring 的保结构 diff 以此为比对项：画面描述可自由展开，发声记号必须逐字不变。
 
     台词与说话人已在解析器入口归一到 NFC（``lib.reference_video.text_parser`` 的
     ``_normalize_source``）：源文可能以 NFD 落盘而模型回写 NFC，两种形式肉眼同字、逐字比对
@@ -273,8 +273,8 @@ def validate_dialogue_load(
 ) -> None:
     """校验该 unit 的台词量念得完：口播估算超出 unit 时长（含宽容系数）即违约。
 
-    时长就是计费，unit 时长在 step1 定稿；台词写超了意味着成片必然吞词或抢拍，且这在
-    step1 阶段是可改的（重拆 unit 或删台词），拖到生成后才发现只能重来。
+    时长就是计费，unit 时长在 script_plan 定稿；台词写超了意味着成片必然吞词或抢拍，且这在
+    script_plan 阶段是可改的（重拆 unit 或删台词），拖到生成后才发现只能重来。
     ``speech_rate_override`` 是项目级语速覆盖，None 即回退语言默认——与 prompt 构造侧同源，
     prompt 给的下界与此处判的上界始终是同一把尺。
     """
@@ -297,21 +297,21 @@ def validate_dialogue_load(
         )
 
 
-def assert_dialogue_preserved(label: str, step1_text: str, step2_text: str) -> None:
-    """step2 保结构 diff：发声记号的序列必须与 step1 逐字一致。
+def assert_dialogue_preserved(label: str, script_plan_text: str, prompt_authoring_text: str) -> None:
+    """prompt_authoring 保结构 diff：发声记号的序列必须与 script_plan 逐字一致。
 
-    step2 的职责是视觉展开，台词属于 step1 已由用户完成内容确认的内容契约。改词、增删、
-    重排一律响亮失败，不静默接受——台词不配画面时正确的出路是报错回到 step1，而不是让 step2
+    prompt_authoring 的职责是提示词编写，台词属于 script_plan 已由用户完成内容确认的内容契约。改词、增删、
+    重排一律响亮失败，不静默接受——台词不配画面时正确的出路是报错回到 script_plan，而不是让 prompt_authoring
     自行把台词改成好配的样子。
     """
-    before = normative_lines(step1_text)
-    after = normative_lines(step2_text)
+    before = normative_lines(script_plan_text)
+    after = normative_lines(prompt_authoring_text)
     if before == after:
         return
     if len(before) != len(after):
         raise DraftViolation(
-            f"{label} 的台词条数被改动（step1 有 {len(before)} 条，step2 产出 {len(after)} 条）；"
-            "step2 只做视觉展开，台词须逐字保留",
+            f"{label} 的台词条数被改动（script_plan 有 {len(before)} 条，prompt_authoring 产出 {len(after)} 条）；"
+            "prompt_authoring 只做提示词编写，台词须逐字保留",
             code="dialogue_line_count_changed",
             label=label,
         )
@@ -319,7 +319,7 @@ def assert_dialogue_preserved(label: str, step1_text: str, step2_text: str) -> N
         if old != new:
             raise DraftViolation(
                 f"{label} 第 {index} 条台词被改写（原：{old[1] or '画外音'}「{old[2]}」，"
-                f"现：{new[1] or '画外音'}「{new[2]}」）；step2 只做视觉展开，台词须逐字保留",
+                f"现：{new[1] or '画外音'}「{new[2]}」）；prompt_authoring 只做提示词编写，台词须逐字保留",
                 code="dialogue_rewritten",
                 label=label,
             )

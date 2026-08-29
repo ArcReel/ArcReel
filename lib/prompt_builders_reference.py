@@ -37,7 +37,7 @@ def _candidate_block(characters: dict, scenes: dict, props: dict) -> str:
 def _format_outline_block(episode_outline: dict | None, next_episode_outline: dict | None) -> str:
     """把分集大纲渲染为 XML 块；两者皆空时返回空串（不留空标签）。
 
-    与 drama step1 同源的做法：大纲是本集内容边界的既定契约，拆分 unit 时先知道本集要讲到
+    与 drama script_plan 同源的做法：大纲是本集内容边界的既定契约，拆分 unit 时先知道本集要讲到
     哪里、下集从哪接，才不会把跨集情节吞进来或提前抖包袱。
     """
     blocks: list[str] = []
@@ -84,9 +84,9 @@ def build_reference_units_split_prompt(
 ) -> str:
     """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 原文锚 + 引用语法正文）。
 
-    由 ``generate_step1`` 的参考生视频变体消费。step1 定的是**结构与内容契约**——
-    unit 边界、时长（即计费单位）、台词落位、核心资产指认；视觉展开（景别 / 构图 / 运镜）
-    留给 step2。产出受 response_schema（``build_reference_units_step1_model``，unit 时长
+    由 ``generate_script_plan`` 的参考生视频变体消费。script_plan 定的是**结构与内容契约**——
+    unit 边界、时长（即计费单位）、台词落位、核心资产指认；提示词编写（景别 / 构图 / 运镜）
+    留给 prompt_authoring。产出受 response_schema（``build_reference_units_script_plan_model``，unit 时长
     枚举硬约束）约束；unit_id / utterances 全部机器派生，不进 LLM 输出。
 
     Args:
@@ -172,10 +172,10 @@ def build_reference_units_split_prompt(
 
     return f"""# 角色与任务
 
-你是一位视频单元架构师，本任务是把源文拆分为适配多模态参考生视频模型的 video_unit 表（step1 内容整理）。
+你是一位视频单元架构师，本任务是把源文拆分为适配多模态参考生视频模型的 video_unit 表（script_plan 脚本规划）。
 每个 video_unit 对应**一次视频生成调用**，正文是一段连续的画面描述，一次生成完整覆盖它。
 本阶段定的是**结构与内容契约**：unit 边界、时长（时长即计费单位）、台词落位、核心资产指认——用户会逐 unit 审阅确认这份契约。
-视觉编排（景别 / 构图 / 运镜扩写）由后续 step2 以你的拆分为基底生成，本阶段不写。
+视觉编排（景别 / 构图 / 运镜扩写）由后续 prompt_authoring 以你的拆分为基底生成，本阶段不写。
 
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名保持英文。
 例外（逐字保留、不翻译）：`@[名称]` 中的资产名须逐字等于下方候选表中的登记名；`source_text` 须逐字复制小说原文。
@@ -237,17 +237,17 @@ def build_reference_units_split_prompt(
 - 资产名必须逐字取自下列候选，不要发明候选之外的名称：
 {_candidate_block(characters, scenes, props)}
 - 原文里的人物对白写成台词记号（`@[角色]{{台词}}`），旁白 / 心声写成画外音记号（`{{台词}}`），逐字保留原文措辞；
-  台词是内容契约的一部分，step2 不会再改动它。
-- 本阶段不写景别 / 构图 / 运镜（step2 补），把叙事内容与动作过程写清楚即可。
+  台词是内容契约的一部分，prompt_authoring 不会再改动它。
+- 本阶段不写景别 / 构图 / 运镜（prompt_authoring 补），把叙事内容与动作过程写清楚即可。
 """
 
 
-def render_reference_units_for_step2(units: list[dict]) -> str:
-    """把 step1 units 渲染为 step2 prompt 的输入文本。
+def render_reference_units_for_prompt_authoring(units: list[dict]) -> str:
+    """把 script_plan units 渲染为 prompt_authoring prompt 的输入文本。
 
-    机械渲染、无 LLM 参与：按 step1 的落盘顺序逐 unit 输出序号 + 时长 + 正文。
-    step2 以此为唯一基底做视觉扩写（见 ADR 0041）；``unit_id`` 不进渲染——它由序号机械
-    派生，step2 不写 id 就没有 id 漂移可校验。
+    机械渲染、无 LLM 参与：按 script_plan 的落盘顺序逐 unit 输出序号 + 时长 + 正文。
+    prompt_authoring 以此为唯一基底做视觉扩写（见 ADR 0041）；``unit_id`` 不进渲染——它由序号机械
+    派生，prompt_authoring 不写 id 就没有 id 漂移可校验。
     """
     blocks: list[str] = []
     for index, unit in enumerate(units, start=1):
@@ -265,23 +265,23 @@ def build_reference_video_prompt(
     characters: dict,
     scenes: dict,
     props: dict,
-    step1_units: list[dict],
+    script_plan_units: list[dict],
     max_refs: int | None,
     episode: int,
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """构建参考生视频 step2（视觉展开）的 LLM Prompt。
+    """构建参考生视频 prompt_authoring（提示词编写）的 LLM Prompt。
 
-    step2 只做一件事：把 step1 每个 unit 的正文按同一份书写语法扩写出视觉层，**保结构**——
-    unit 数与顺序不变、台词逐字不变；时长不进输出（step1 定稿、机械沿用）。
+    prompt_authoring 只做一件事：把 script_plan 每个 unit 的正文按同一份书写语法扩写出视觉层，**保结构**——
+    unit 数与顺序不变、台词逐字不变；时长不进输出（script_plan 定稿、机械沿用）。
 
     Args:
         project_overview: 项目概述（synopsis, genre, theme, world_setting）。
         style / style_description: 视觉风格标签与描述。
         characters / scenes / props: 三类已注册资产字典（用于候选列表）。
-        step1_units: 结构化 step1 units（``step1_reference_units.json`` 经校验后的 dict 列表），
-            由 ``render_reference_units_for_step2`` 机械渲染进 prompt。
+        script_plan_units: 结构化 script_plan units（``script_plan_reference_units.json`` 经校验后的 dict 列表），
+            由 ``render_reference_units_for_prompt_authoring`` 机械渲染进 prompt。
         max_refs: 当前视频模型支持的最大参考图数；为 None 时不写入硬性数量约束。
     """
     max_refs_line = (
@@ -294,18 +294,18 @@ def build_reference_video_prompt(
 
     return f"""# 角色与任务
 
-你是一位资深的短视频分镜编剧，本任务是为采用「参考生视频」的第 {episode} 集做**视觉展开**。
-下方 step1_units 表给出的是已经用户确认的内容契约；你的任务是逐 unit 把正文扩写出景别 / 构图 / 运镜与画面细节。
+你是一位资深的短视频分镜编剧，本任务是为采用「参考生视频」的第 {episode} 集做**提示词编写**。
+下方 script_plan_units 表给出的是已经用户确认的内容契约；你的任务是逐 unit 把正文扩写出景别 / 构图 / 运镜与画面细节。
 
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名保持英文。
 **结构约束**：字段 / 必填项由 response_schema 强制；本提示只解释**如何写好正文**。
 
 # 保结构要求（违反即整份产出被拒）
 
-- `units` 数组与 step1_units **等长、同序**：不合并、不拆分、不增删 unit。
+- `units` 数组与 script_plan_units **等长、同序**：不合并、不拆分、不增删 unit。
 - 每个 unit 的**台词与画外音逐字保留**：不改词、不增删、不重排、不换说话人。
   台词配不上你想要的画面时，请按台词写画面——**不要**改台词。
-- 正文里新出现的 `@[名称]` 必须是候选表中的登记名（step1 没引用过的资产也可以引用，但必须已登记）。{max_refs_line}
+- 正文里新出现的 `@[名称]` 必须是候选表中的登记名（script_plan 没引用过的资产也可以引用，但必须已登记）。{max_refs_line}
 
 # 上下文
 
@@ -335,15 +335,15 @@ def build_reference_video_prompt(
 {_format_asset_names(props)}
 </props>
 
-<step1_units>
-{render_reference_units_for_step2(step1_units)}
-</step1_units>
+<script_plan_units>
+{render_reference_units_for_prompt_authoring(script_plan_units)}
+</script_plan_units>
 
 # 正文书写语法
 
 {WRITING_SYNTAX_SPEC}
 
-# 视觉展开写作指引
+# 提示词编写写作指引
 
 正文将直接驱动该 unit 的视频生成，按「景别 → 构图 → 运镜 → 画面内容」四要素依次组织，写足画面信息、宁详勿略：
 
@@ -363,5 +363,5 @@ def build_reference_video_prompt(
 - 反例（过短）：「@[角色A] 站在 @[场景A] 里。」——没有景别 / 构图 / 运镜，也没有动作过程与环境动态，生成的视频会近乎静止。
 - 反例（写外貌）：「身穿某色服装的角色A 站在某色场景A 前」——外貌 / 服装 / 颜色应由参考图承担，且未用 `@[名称]` 引用。
 
-`title` 给本集拟一个简短标题。请按 step1_units 顺序逐 unit 产出。
+`title` 给本集拟一个简短标题。请按 script_plan_units 顺序逐 unit 产出。
 """

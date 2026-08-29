@@ -43,11 +43,11 @@ def _status() -> WorkflowStatus:
             },
             "state": "FINAL_SCRIPT",
             "blockers": [],
-            "gates": {"step1_review": {"state": "not_applicable"}},
+            "gates": {"script_plan_review": {"state": "not_applicable"}},
             "artifacts": {
                 "asset_inventory": {"state": "not_applicable"},
                 "asset_sheets": {},
-                "step1": {"state": "not_applicable"},
+                "script_plan": {"state": "not_applicable"},
                 "script": {"state": "missing"},
                 "storyboards": {"current_ids": [], "stale_ids": [], "missing_ids": []},
                 "videos": {"current_ids": [], "stale_ids": [], "missing_ids": []},

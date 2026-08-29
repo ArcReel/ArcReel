@@ -55,8 +55,8 @@ from lib.content_digest import canonical_json_digest
 from lib.draft_quarantine import QUARANTINE_FILENAMES
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import (
-    REFERENCE_VIDEO_STEP1_FILENAME,
-    STEP1_FILENAMES,
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    SCRIPT_PLAN_FILENAMES,
     episode_script_relpath,
 )
 from lib.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
@@ -1935,7 +1935,7 @@ class ProjectManager:
 
         lock 文件命名为 `.{basename}.lock`（以 `.` 开头），位于该文件所在目录，
         与 `_project_lock` / `_script_lock` 同一约定，自动被目录 glob 过滤排除。
-        供同一份文件存在多个读-改-写入口（如 step1 草稿的迁移写回与正文保存）
+        供同一份文件存在多个读-改-写入口（如 script_plan 草稿的迁移写回与正文保存）
         且需要相互串行化时使用——各入口对同一 real path 取本锁即可互斥，不必
         知道彼此的存在。
         """
@@ -2754,15 +2754,15 @@ class ProjectManager:
         """剔除旧式 type/importance 字段（schema 演进遗留），返回新 dict。"""
         return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
 
-    #: 级联重命名须一并改写的 step1 正式内容、可编辑草稿与待修复草稿文件名（结构化 JSON——它们承载
+    #: 级联重命名须一并改写的 script_plan 正式内容、可编辑草稿与待修复草稿文件名（结构化 JSON——它们承载
     #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。草稿部分取
     #: ``lib.draft_quarantine`` 的登记表全集而非逐个列举：漏一种来源就会让那条路线的草稿留着
     #: 旧名，晋升时被「引用未登记」判违约、直到人工改草稿才解得开。旧版 ``.md`` 自由文本别名
     #: 不在列：读取层仅兼认浏览，写盘与生成侧已不认。
     _RENAME_DRAFT_FILENAMES = frozenset(
         {
-            *STEP1_FILENAMES.values(),
-            REFERENCE_VIDEO_STEP1_FILENAME,
+            *SCRIPT_PLAN_FILENAMES.values(),
+            REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
             *QUARANTINE_FILENAMES,
         }
     )
@@ -2773,7 +2773,7 @@ class ProjectManager:
         """资产级联重命名的单一事务入口（UI 与 Agent 共用，见 docs/adr/0057）。
 
         在「全部剧本锁（按文件名排序）→ 草稿文件锁 → 项目锁」内一次完成：扫描全部剧集
-        剧本与 step1 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」
+        剧本与 script_plan 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」
         结构校验；``dry_run=True`` 时到此为止只返回影响报告（预览与执行共用同一套扫描，
         数字必然一致），否则按 剧本 → 草稿 → 关联文件 → 版本历史 → project.json →
         Artifact Manifest 的顺序落盘。Manifest 以整份文件的一次 CAS 最后重键；若进程在

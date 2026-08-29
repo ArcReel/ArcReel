@@ -14,7 +14,7 @@ from lib.prompt_rules.episode_pacing import (
 
 REPO = Path(__file__).resolve().parents[4]
 
-STEP1_DRAFT_AGENTS = (
+SCRIPT_PLAN_DRAFT_AGENTS = (
     "agent_runtime_profile/.claude/agents/create-episode-script.md",
     "agent_runtime_profile/.claude/agents/normalize-drama-script.md",
     "agent_runtime_profile/.claude/agents/split-reference-video-units.md",
@@ -40,8 +40,8 @@ def test_drama_repair_scope_covers_entire_draft_content() -> None:
     assert "只修改草稿的 `content.scenes[i]`" not in md
 
 
-@pytest.mark.parametrize("relative_path", STEP1_DRAFT_AGENTS)
-def test_step1_draft_repair_combines_user_intent_with_violation_repair(relative_path: str) -> None:
+@pytest.mark.parametrize("relative_path", SCRIPT_PLAN_DRAFT_AGENTS)
+def test_script_plan_draft_repair_combines_user_intent_with_violation_repair(relative_path: str) -> None:
     md = (REPO / relative_path).read_text(encoding="utf-8")
 
     assert (

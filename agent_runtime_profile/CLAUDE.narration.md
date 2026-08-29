@@ -12,7 +12,7 @@
 - **单分镜/视频单元时长**：由视频模型能力和项目 `default_duration` 配置决定
   - 分镜图生视频（含 `grid_storyboard=true`）：取值必须在所选视频模型的 `supported_durations` 内，项目 `default_duration` 非 null 时作默认偏好
   - 参考生视频：视频单元时长必须取该视频单元**引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
-  - 两者的真值均由子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 step1 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
+  - 两者的真值均由子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 script_plan 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
 - **生成方式**：按 `generation_mode` 分两路——分镜图生视频每个分镜独立生成、以分镜图作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；参考生视频按 video_unit 直出、以资产图作 `reference_images`，无分镜图
@@ -41,7 +41,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 - **Read / Edit / Write / Glob / Grep**：`file_path` 使用**绝对路径**
 - **Bash 调用 skill 脚本**：使用**相对项目根 cwd** 的路径，例如：
-  - ✅ `source/episode_1.txt`、`drafts/episode_1/step1_segments.json`、`scripts/episode_1.json`
+  - ✅ `source/episode_1.txt`、`drafts/episode_1/script_plan_segments.json`、`scripts/episode_1.json`
   - ❌ `projects/{项目名}/source/episode_1.txt`（双前缀，占位符替换或拼接出错就会落到 projects 根）
 - **严禁**在工具参数中出现 `projects/{...}/` 前缀；该前缀仅用于文档说明项目目录结构，**不可直接作为参数传给任何工具**
 - skill 脚本内部已加 cwd 校验，cwd 漂离当前项目目录时会直接拒绝执行
@@ -143,7 +143,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   须显式重新生成对应分镜才会按新装配方式出图
 - 分集规划的常驻偏好（如按章节对齐切分）不持久化，须经 `plan_episodes` 的 `instructions` 在**每一批
   调用上重复带上**；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
-- 内容整理中间文件被修改 / 重拆后必须重新生成剧本 JSON，剧本不会自动跟随中间文件更新
+- 脚本规划中间文件被修改 / 重拆后必须重新生成剧本 JSON，剧本不会自动跟随中间文件更新
 - `reference_video` **只跳过分镜图**，不跳过 audio：旁白交付选择在两种生成模式下都要逐次做
 - 批量旁白配音有两条触发路径：用户显式要求；或用户选择 `use_tts` 后，计划返回 `generate_tts` / `regenerate_tts` 的 `next_action`。后一条必须按计划执行；后期配音方式不需要 TTS
 
@@ -168,7 +168,7 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ├── project.json       # 项目元数据（角色、场景、道具、剧集、风格）
 ├── source/            # 原始小说内容
 ├── scripts/           # 分镜剧本 (JSON)
-├── drafts/            # Step 1 中间文件
+├── drafts/            # 脚本规划中间文件
 ├── characters/        # 角色资产图
 ├── scenes/            # 场景资产图
 ├── props/             # 道具资产图

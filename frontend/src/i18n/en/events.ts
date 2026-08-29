@@ -35,7 +35,7 @@ export default {
   "entity.reference_unit": "video units",
   "entity.episode": "episodes",
   "entity.overview": "project overviews",
-  "entity.draft": "content organization results",
+  "entity.draft": "script plan results",
   "entity.grid": "multi-grid storyboards",
   // Task terminal states are refresh signals (important=false) and never reach
   // notification copy; this entry only keeps the mapping exhaustive.

@@ -47,11 +47,11 @@ def _status(*, state: str = "VIDEO", action: str = "generate_videos") -> Workflo
             ),
             "state": state,
             "blockers": [],
-            "gates": {"step1_review": {"state": "confirmed", "revision": "step1"}},
+            "gates": {"script_plan_review": {"state": "confirmed", "revision": "script_plan"}},
             "artifacts": {
                 "asset_inventory": {"state": "current"},
                 "asset_sheets": {},
-                "step1": {"state": "current"},
+                "script_plan": {"state": "current"},
                 "script": {"state": "current", "path": "scripts/episode_1.json"},
                 "storyboards": {"current_ids": ["E1S01"], "stale_ids": [], "missing_ids": []},
                 "videos": {"current_ids": [], "stale_ids": [], "missing_ids": ["E1S01"]},
@@ -167,9 +167,16 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
     ("stage", "content_mode", "generation_mode", "task_type", "step_id", "resource_id"),
     [
         ("episode_plan", "narration", "storyboard", "text_episode_plan", "episode_plan", "episode-planning"),
-        ("step1", "narration", "storyboard", "text_narration_step1", "step1_content", "episode-1"),
-        ("step1", "drama", "storyboard", "text_drama_step1", "step1_content", "episode-1"),
-        ("step1", "narration", "reference_video", "text_reference_step1", "step1_content", "episode-1"),
+        ("script_plan", "narration", "storyboard", "text_narration_script_plan", "script_plan_content", "episode-1"),
+        ("script_plan", "drama", "storyboard", "text_drama_script_plan", "script_plan_content", "episode-1"),
+        (
+            "script_plan",
+            "narration",
+            "reference_video",
+            "text_reference_script_plan",
+            "script_plan_content",
+            "episode-1",
+        ),
         ("final_script", "ad", "storyboard", "text_episode_script", "final_script", "episode-1"),
     ],
 )

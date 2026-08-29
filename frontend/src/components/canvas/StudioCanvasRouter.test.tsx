@@ -720,9 +720,9 @@ describe("StudioCanvasRouter", () => {
     expect(capabilitiesSpy).not.toHaveBeenCalledWith(DEMO_PROJECT_NAME);
   });
 
-  // script_status 的三个取值来自项目摘要（由 step1 与正式脚本的产物态派生），
+  // script_status 的三个取值来自项目摘要（由 script_plan 与正式脚本的产物态派生），
   // 路由据此决定该集去源文审阅页还是画布——三种情况各钉一条。
-  it("sends an episode with no step1 and no script to the source review", () => {
+  it("sends an episode with no script_plan and no script to the source review", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
