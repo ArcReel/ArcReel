@@ -107,6 +107,46 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.queryByText("raw agent message")).not.toBeInTheDocument();
   });
 
+  // 场景引用提示：与解析预览面板同判据，落在 unit 卡内，不阻断确认。
+  it("warns on units that reference no scene while the project registers scene assets", async () => {
+    const state = pendingState();
+    state.content = { units: [{ unit_id: "E1U01", text: "@[阿离] 推门。", duration_seconds: 8, source_text: "阿离推门。" }] };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    expect(await screen.findByText("本单元未引用场景，画面地点将由模型自由决定")).toBeInTheDocument();
+    // 降级提示不进确认闸门：正文合法，只是画面地点没被钉住。
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
+  });
+
+  it("drops the scene warning once the edited body references a scene", async () => {
+    const state = pendingState();
+    state.content = { units: [{ unit_id: "E1U01", text: "@[阿离] 推门。", duration_seconds: 8, source_text: "阿离推门。" }] };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "E1U01 正文" }), {
+      target: { value: "@[阿离] 推门走进 @[长街]。" },
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText("本单元未引用场景，画面地点将由模型自由决定")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("stays silent about scenes when the project registers none", async () => {
+    const state = pendingState();
+    state.content = { units: [{ unit_id: "E1U01", text: "@[阿离] 推门。", duration_seconds: 8, source_text: "阿离推门。" }] };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={{ 阿离: "character" }} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    expect(screen.queryByText("本单元未引用场景，画面地点将由模型自由决定")).not.toBeInTheDocument();
+  });
+
   it("confirms, then prefills a continue message into the assistant input without sending", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const confirm = vi

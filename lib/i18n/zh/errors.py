@@ -305,6 +305,7 @@ MESSAGES = {
     "ref_warn_speaker_audio_unavailable": "角色「{name}」已设置参考音频，但该音频当前不可用：台词声音将由模型自行决定",
     "ref_warn_reference_audio_overflow": "参考音频最多 {limit} 段：角色「{name}」的台词声音将由模型自行决定",
     "ref_warn_speaker_audio_needs_image": "角色「{name}」没有参考图（纯画外）：当前视频模型要求参考音频逐段挂在参考图上，该角色的台词声音将由模型自行决定",
+    "ref_warn_unit_without_scene": "本单元未引用场景，画面地点将由模型自由决定",
     "ref_warn_silent_model": "当前视频模型「{model}」不会生成有声视频，台词仅用于提示词参考",
     "ref_warn_silent_episode": "本集已关闭参考音频：不会上传参考音频，声音一致性不生效，台词仅用于提示词参考；成片是否有声音由所选模型决定",
     # Episode meta

@@ -349,6 +349,9 @@ MESSAGES = {
         "Character '{name}' has no reference image (off-screen only): the current video model requires "
         "reference audio to be attached per reference image, so the model decides this character's dialogue voice"
     ),
+    "ref_warn_unit_without_scene": (
+        "This unit references no scene; the model decides the location of the shot on its own"
+    ),
     "ref_warn_silent_model": (
         "The current video model '{model}' generates no audio; dialogue is used only as prompt context"
     ),

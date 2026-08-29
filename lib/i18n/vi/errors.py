@@ -349,6 +349,9 @@ MESSAGES = {
         "âm thanh tham chiếu phải gắn theo từng ảnh tham chiếu, giọng lời thoại của nhân vật này sẽ do mô hình "
         "tự quyết định"
     ),
+    "ref_warn_unit_without_scene": (
+        "Đơn vị này không tham chiếu bối cảnh nào; địa điểm của khung hình sẽ do mô hình tự quyết định"
+    ),
     "ref_warn_silent_model": (
         "Mô hình video hiện tại '{model}' không tạo âm thanh, lời thoại chỉ dùng làm gợi ý cho prompt"
     ),

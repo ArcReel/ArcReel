@@ -1348,6 +1348,7 @@ export default {
   'reference_script_plan_edit_text': 'Edit script',
   'reference_script_plan_edit_done': 'Done editing',
   'reference_script_plan_quarantined_unit_hint': 'This video unit is in a draft awaiting Agent repair.',
+  'reference_script_plan_unit_without_scene': 'This unit references no scene; the model decides the location of the shot on its own',
   'reference_script_plan_status_quarantined': 'Draft needing fixes — split failed validation',
   'reference_script_plan_status_editable': 'Draft handled by the agent',
   'reference_script_plan_editable_hint': 'The agent will continue this draft as part of the episode task; this view updates when it is done',

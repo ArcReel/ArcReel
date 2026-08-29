@@ -141,6 +141,18 @@ function unitDurationTiers(
   return hasReferences ? tiers.with_references : tiers.without_references;
 }
 
+/**
+ * 该 unit 一个已登记场景资产都没引用——画面地点由模型自由决定，室内外交替的相邻 unit 会
+ * 各自发挥、对不上。镜像后端 `lib/reference_video/script_preview.py::unit_lacks_scene_reference`。
+ *
+ * 与档位收窄同样按当前正文实时判、不取服务端快照：本面板可就地改正文，补上 `@[场景]` 必须
+ * 当场撤下提示，等保存后才由服务端回话会让提示与眼前的正文对不上。
+ */
+function unitLacksSceneReference(scriptText: string, lookup: MentionLookup, projectHasScene: boolean): boolean {
+  if (!projectHasScene) return false;
+  return !extractMentions(scriptText).some((name) => lookup[name] === "scene");
+}
+
 function InlineViolations({ violations }: { violations: ScriptReviewViolation[] }) {
   const { t } = useTranslation("dashboard");
   if (!violations.length) return null;
@@ -169,6 +181,7 @@ function UnitCard({
   unit,
   violations,
   lookup,
+  projectHasScene,
   quarantined,
   onScrollRef,
   editing,
@@ -182,6 +195,8 @@ function UnitCard({
   unit: DisplayUnit;
   violations: UnitViolations;
   lookup: MentionLookup;
+  /** 项目登记了场景资产——没有可引用的场景时不发「未引用场景」提示（纯商品的广告项目即属此列）。 */
+  projectHasScene: boolean;
   quarantined: boolean;
   onScrollRef: (key: string, el: HTMLElement | null) => void;
   editing: boolean;
@@ -198,6 +213,10 @@ function UnitCard({
   const hasViolation = violations.anchorSource.length + violations.byLine.size + violations.aggregate.length > 0;
   const anchorBroken = violations.anchorSource.length > 0;
   const stats = useMemo(() => unitStats(unit.scriptText, lookup), [unit.scriptText, lookup]);
+  const lacksScene = useMemo(
+    () => unitLacksSceneReference(unit.scriptText, lookup, projectHasScene),
+    [unit.scriptText, lookup, projectHasScene],
+  );
   // 档位表解析不到、或内容不可编辑（草稿）时退回只读秒数：能选的档位必须是保存后
   // 后端收编不会再改的那一档，拿不到权威档位表就不提供会被静默改掉的选择。
   const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
@@ -292,6 +311,14 @@ function UnitCard({
       </div>
 
       <InlineViolations violations={violations.aggregate} />
+
+      {/* 降级提示（不阻断确认），与违约的红标区分开：正文合法，只是画面地点没被钉住。 */}
+      {lacksScene && (
+        <p className="mt-2 flex items-start gap-1.5 pl-1 text-[11px] leading-snug text-amber-300">
+          <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+          <span>{t("reference_script_plan_unit_without_scene")}</span>
+        </p>
+      )}
 
       {quarantined && hasViolation && (
         <p className="mt-2 text-[10.5px] text-text-4">{t("reference_script_plan_quarantined_unit_hint")}</p>
@@ -389,6 +416,8 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
     useAssistantStore.getState().setInput(report);
     useAppStore.getState().setAssistantPanelOpen(true);
   }, [state, episode, t]);
+
+  const projectHasScene = useMemo(() => Object.values(lookup).some((kind) => kind === "scene"), [lookup]);
 
   const cardRefs = useRef(new Map<string, HTMLElement>());
   const setCardRef = useCallback((key: string, el: HTMLElement | null) => {
@@ -558,6 +587,7 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
             unit={unit}
             violations={partitionViolations(allViolations, unit.key)}
             lookup={lookup}
+            projectHasScene={projectHasScene}
             quarantined={quarantined}
             onScrollRef={setCardRef}
             editing={!quarantined && editingUnitKey === unit.key}

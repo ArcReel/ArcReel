@@ -452,8 +452,39 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
     assert out.get("is_error") is not True, out
     assert _rv_script_plan_path(fake_ctx).exists()
     text = out["content"][0]["text"]
-    assert "声音降级提示" in text
+    assert "降级提示" in text
     assert "未设置参考音频" in text
+
+
+async def test_split_reference_video_units_names_units_without_scene_reference(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """未引用场景的 unit 逐条指名：地点由模型自由决定，室内外交替的相邻 unit 会对不上。"""
+    _rv_source(fake_ctx)
+    fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}  # pyright: ignore[reportAttributeAccessIssue]
+    out = await _run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [_rv_unit("@[酒馆] 内景，@[张三] 推门。"), _rv_unit("@[张三] 起身。")],
+    )
+
+    assert out.get("is_error") is not True, out
+    text = out["content"][0]["text"]
+    assert "unit E1U02：" in text
+    assert "unit E1U01：" not in text
+    assert "未引用场景" in text
+
+
+async def test_split_reference_video_units_silent_on_scene_warning_without_scene_assets(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """项目一张场景资产都没登记时不发场景提示——无处可引用，提示指不出任何动作。"""
+    _rv_source(fake_ctx)
+    fake_ctx.pm.project_payload["scenes"] = {}  # pyright: ignore[reportAttributeAccessIssue]
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身。")])
+
+    assert out.get("is_error") is not True, out
+    assert "未引用场景" not in out["content"][0]["text"]
 
 
 async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(

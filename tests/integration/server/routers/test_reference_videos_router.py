@@ -1206,16 +1206,26 @@ def test_script_preview_returns_localized_warnings(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     _patch_video_caps(monkeypatch, {})
-    body = _preview(reference_videos_client, "镜头1：@[王五] 推门。").json()
+    body = _preview(reference_videos_client, "镜头1：@[酒馆] 内景，@[王五] 推门。").json()
     assert [w["key"] for w in body["warnings"]] == ["ref_warn_unregistered_mention"]
     assert "王五" in body["warnings"][0]["message"]
+
+
+def test_script_preview_warns_when_unit_references_no_scene(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """项目登记了场景而单元没引用：画面地点由模型自由决定，读时就要说。"""
+    _patch_video_caps(monkeypatch, {})
+    body = _preview(reference_videos_client, "镜头1：中景，推门。").json()
+    assert [w["key"] for w in body["warnings"]] == ["ref_warn_unit_without_scene"]
+    assert body["warnings"][0]["message"] != "ref_warn_unit_without_scene"
 
 
 def test_script_preview_uses_project_voice_capabilities(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     _patch_video_caps(monkeypatch, {"voice_consistency": "none", "model": "silent-01"})
-    body = _preview(reference_videos_client, "镜头1：开场。\n@[张三]：{我来了}").json()
+    body = _preview(reference_videos_client, "镜头1：@[酒馆] 开场。\n@[张三]：{我来了}").json()
     assert [w["key"] for w in body["warnings"]] == ["ref_warn_silent_model"]
     assert "silent-01" in body["warnings"][0]["message"]
 
@@ -1233,7 +1243,7 @@ def test_script_preview_warns_when_episode_is_silent(
             "model": "doubao-seedance-2-0",
         },
     )
-    body = _preview(reference_videos_client, "镜头1：开场。\n@[张三]：{我来了}").json()
+    body = _preview(reference_videos_client, "镜头1：@[酒馆] 开场。\n@[张三]：{我来了}").json()
     assert [w["key"] for w in body["warnings"]] == ["ref_warn_silent_episode"]
     assert body["warnings"][0]["message"] != "ref_warn_silent_episode"
     # 台词照常派生：无声只影响参考音频，不影响下发给供应商的台词文本

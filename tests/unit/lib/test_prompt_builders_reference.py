@@ -7,7 +7,7 @@ from lib.prompt_builders_reference import (
     build_reference_video_prompt,
     render_reference_units_for_prompt_authoring,
 )
-from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
+from lib.reference_video.writing_syntax import SCENE_REFERENCE_RULES, WRITING_SYNTAX_SPEC
 
 
 def _prompt_authoring_prompt(**overrides) -> str:
@@ -161,6 +161,19 @@ def test_both_prompt_levels_share_one_syntax_template():
     prompt_authoring = _prompt_authoring_prompt()
     assert WRITING_SYNTAX_SPEC in split
     assert WRITING_SYNTAX_SPEC in prompt_authoring
+
+
+def test_scene_reference_rule_reaches_both_prompt_levels():
+    """场景引用规则的措辞集中在共享语法规范里，两级 prompt 各再补一条本阶段的落地口径。"""
+    assert SCENE_REFERENCE_RULES in WRITING_SYNTAX_SPEC
+
+    split = _split_prompt()
+    assert SCENE_REFERENCE_RULES in split
+    assert "每个 unit 的正文都要 `@` 引用它发生地的场景资产" in split
+
+    prompt_authoring = _prompt_authoring_prompt()
+    assert SCENE_REFERENCE_RULES in prompt_authoring
+    assert "场景引用逐 unit 保留" in prompt_authoring
 
 
 def test_build_reference_units_split_prompt_max_refs_none_skips_rule():

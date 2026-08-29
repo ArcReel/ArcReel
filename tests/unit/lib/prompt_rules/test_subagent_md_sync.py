@@ -11,6 +11,7 @@ from lib.prompt_rules.episode_pacing import (
     DRAMA_PACING_RULES,
     NARRATION_PACING_RULES,
 )
+from lib.reference_video.writing_syntax import SCENE_REFERENCE_RULES
 
 REPO = Path(__file__).resolve().parents[4]
 
@@ -50,6 +51,15 @@ def test_script_plan_draft_repair_combines_user_intent_with_violation_repair(rel
     assert "为空时保留已有修改" not in md
     assert "为空时按用户修改意见定位" not in md
     assert "不得因为没有违约就原样晋升" not in md
+
+
+def test_scene_reference_rules_in_split_reference_video_units_md() -> None:
+    md_norm = _normalize(
+        (REPO / "agent_runtime_profile/.claude/agents/split-reference-video-units.md").read_text(encoding="utf-8")
+    )
+    rules_norm = _normalize(SCENE_REFERENCE_RULES)
+    assert rules_norm[:60] in md_norm, "SCENE_REFERENCE_RULES 首段未在 split-reference-video-units.md 中找到（漂移）"
+    assert rules_norm[-60:] in md_norm, "SCENE_REFERENCE_RULES 末段未在 split-reference-video-units.md 中找到（漂移）"
 
 
 def test_narration_pacing_in_split_narration_md() -> None:
