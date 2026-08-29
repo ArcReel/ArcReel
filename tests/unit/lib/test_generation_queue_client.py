@@ -136,6 +136,32 @@ class TestTaskSpecFromRequest:
             TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt={"scene": None})
         assert exc.value.code == "prompt_scene_empty"
 
+    @pytest.mark.parametrize("scene", [123, ["a"], {"text": "a"}, True])
+    def test_storyboard_non_string_scene_rejected(self, scene):
+        # 入队守卫与渲染出口共用 require_storyboard_scene：
+        # 非字符串 scene 在入队即被拒，不推迟到执行期。
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(
+                task_type="storyboard", media_type="image", resource_id="S01", prompt={"scene": scene}
+            )
+        assert exc.value.code == "prompt_scene_empty"
+
+    def test_storyboard_string_prompt_builds_spec(self):
+        # 文本形态提示词不走 scene 判据，非空串照常入队。
+        spec = TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt="黄昏的码头")
+        assert spec.payload == {"prompt": "黄昏的码头"}
+
+    def test_storyboard_blank_string_prompt_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt="  ")
+        assert exc.value.code == "prompt_text_empty"
+
+    def test_storyboard_non_mapping_composition_accepted(self):
+        # 入队判据只看 scene：composition 形态不参与准入，prompt 原样进入 payload。
+        prompt = {"scene": "黄昏的码头", "composition": "medium"}
+        spec = TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt=prompt)
+        assert spec.payload == {"prompt": prompt}
+
     def test_asset_empty_prompt_rejected(self):
         with pytest.raises(TaskSpecValidationError) as exc:
             TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="")

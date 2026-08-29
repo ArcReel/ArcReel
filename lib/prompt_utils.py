@@ -65,6 +65,20 @@ def image_prompt_to_yaml(image_prompt: dict, project_style: str) -> str:
     return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
+def require_storyboard_scene(image_prompt: Mapping[str, Any]) -> str:
+    """Return the trimmed ``scene`` of a structured storyboard prompt, or raise ``ValueError``.
+
+    Single criterion for what counts as a usable ``scene``: the enqueue guard
+    (``TaskSpec.from_request``) and the rendering projection below both call it, so a prompt
+    accepted at submission is exactly one the renderer can project.
+    """
+
+    scene = image_prompt.get("scene")
+    if not isinstance(scene, str) or not scene.strip():
+        raise ValueError("image_prompt.scene must be a non-empty string")
+    return scene.strip()
+
+
 def project_storyboard_image_prompt(image_prompt: object, project_style: str) -> tuple[str | dict[str, Any], str]:
     """Project one script prompt into the canonical semantics shared by rendering and currency."""
 
@@ -76,14 +90,12 @@ def project_storyboard_image_prompt(image_prompt: object, project_style: str) ->
         return prompt, style
     if not isinstance(image_prompt, Mapping):
         raise ValueError("image_prompt must be a string or object")
-    scene = image_prompt.get("scene")
-    if not isinstance(scene, str) or not scene.strip():
-        raise ValueError("image_prompt.scene must be a non-empty string")
+    scene = require_storyboard_scene(image_prompt)
     raw_composition = image_prompt.get("composition")
     composition = raw_composition if isinstance(raw_composition, Mapping) else {}
     return (
         {
-            "scene": scene.strip(),
+            "scene": scene,
             "composition": {
                 "shot_type": str(composition.get("shot_type") or "Medium Shot"),
                 "lighting": str(composition.get("lighting") or ""),

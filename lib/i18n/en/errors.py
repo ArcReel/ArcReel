@@ -65,7 +65,7 @@ MESSAGES = {
     "task_fail_artifact_download_failed": "Video generation succeeded but artifact download failed; retry the download: {detail}",
     "task_fail_cascade_blocked_dependency": "Blocked by failed dependency task {dependency_task_id}: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt must be a string or an object containing scene/composition",
-    "prompt_scene_empty": "prompt.scene cannot be empty",
+    "prompt_scene_empty": "prompt.scene must be non-empty text",
     "prompt_must_be_string_or_object": "prompt must be a string or an object",
     "prompt_text_empty": "prompt must not be empty",
     "storyboard_task_submitted": "Storyboard generation task for '{segment_id}' submitted",

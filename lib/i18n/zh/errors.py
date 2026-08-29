@@ -63,7 +63,7 @@ MESSAGES = {
     "task_fail_artifact_download_failed": "视频生成任务已成功但下载失败，可重试下载：{detail}",
     "task_fail_cascade_blocked_dependency": "因依赖任务 {dependency_task_id} 失败而被阻塞：{reason}",
     "prompt_must_be_string_or_scene_object": "prompt 必须是字符串或包含 scene/composition 的对象",
-    "prompt_scene_empty": "prompt.scene 不能为空",
+    "prompt_scene_empty": "prompt.scene 必须是非空文本",
     "prompt_must_be_string_or_object": "prompt 必须是字符串或对象",
     "prompt_text_empty": "prompt 不能为空",
     "storyboard_task_submitted": "分镜「{segment_id}」生成任务已提交",
