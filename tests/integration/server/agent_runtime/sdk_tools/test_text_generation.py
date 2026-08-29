@@ -434,7 +434,7 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
 
 
 async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolContext) -> None:
-    """内容抽取前移后，分集大纲（故事节点 / 钩子）随 script_plan 注入 normalize prompt（见 ADR 0041）。"""
+    """分集大纲（故事节点 / 钩子）随 script_plan 注入 normalize prompt（见 ADR 0041）。"""
 
     project_path = fake_ctx.project_path
     src = project_path / "source"
@@ -475,7 +475,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
             captured["generate_project_name"] = project_name
 
             class _R:
-                # script_plan 现在产出结构化 JSON（DramaNormalizedScript），非 markdown 表
+                # script_plan 产出结构化 JSON（DramaNormalizedScript），非 markdown 表
                 text = json.dumps(
                     {
                         "title": "第一集",

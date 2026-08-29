@@ -153,14 +153,14 @@ MESSAGES = {
     "invalid_asset_filename": "filename must not contain path separators or ..",
     "invalid_draft_stage": "Invalid draft stage: {stage}",
     "draft_file_not_found": "Draft file does not exist",
-    "draft_invalid_json": "The content organization draft has an invalid structure; please check and retry",
-    "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no content organization result to confirm)",
-    "script_review_no_script_plan": "No content organization result to confirm yet; please finish content organization first",
+    "draft_invalid_json": "The script plan draft has an invalid structure; please check and retry",
+    "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no script plan result to confirm)",
+    "script_review_no_script_plan": "No script plan result to confirm yet; please finish the script plan first",
     "script_review_quarantined": (
         "This episode has a draft needing fixes; let the agent fix and promote it before confirming"
     ),
     "script_review_conflict": (
-        "The content organization draft was modified by another editor while you were editing; your save was not applied. "
+        "The script plan draft was modified by another editor while you were editing; your save was not applied. "
         "Refresh to see the latest content, merge your changes, then save again"
     ),
     "script_review_invalid_content": "Content confirmation draft structure validation failed; please check and retry",

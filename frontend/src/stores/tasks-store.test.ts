@@ -1,4 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import {
@@ -12,6 +13,7 @@ import {
   selectLatestTaskByResource,
   selectNeedsFastPolling,
   taskResourceKind,
+  useTaskRowsByIds,
   useTasksStore,
 } from "./tasks-store";
 import type { TaskItem, TaskStatus } from "@/types";
@@ -1271,5 +1273,41 @@ describe("selectNeedsFastPolling", () => {
         optimisticActive: new Set(["proj\0character\0A\0image_edit\0"]),
       }),
     ).toBe(true);
+  });
+});
+
+describe("useTaskRowsByIds", () => {
+  beforeEach(() => {
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+  });
+
+  it("任务字段变化时向订阅方推送新读数", () => {
+    const ids = ["t-1"];
+    const { result } = renderHook(() => useTaskRowsByIds(ids));
+
+    act(() => {
+      useTasksStore.setState({ tasks: [task({ task_id: "t-1", status: "running" })] });
+    });
+    expect(result.current.get("t-1")?.status).toBe("running");
+
+    act(() => {
+      useTasksStore.setState({ tasks: [task({ task_id: "t-1", status: "succeeded" })] });
+    });
+    expect(result.current.get("t-1")?.status).toBe("succeeded");
+  });
+
+  it("无关任务变化时不产生新的读数对象", () => {
+    const watched = task({ task_id: "t-1" });
+    useTasksStore.setState({ tasks: [watched, task({ task_id: "t-2" })] });
+    const ids = ["t-1"];
+    const { result } = renderHook(() => useTaskRowsByIds(ids));
+    const first = result.current;
+
+    act(() => {
+      useTasksStore.setState({
+        tasks: [watched, task({ task_id: "t-2", status: "succeeded" })],
+      });
+    });
+    expect(result.current).toBe(first);
   });
 });

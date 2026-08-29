@@ -204,7 +204,7 @@ class TestPromptBuildersScript:
 class TestScreenplaySourceKind:
     """source_kind 分支在 script_plan（normalize）：novel 改编 + 画外音语境放开、screenplay 提取 + 逐字保留。
 
-    prompt_authoring（drama）视觉层不再分 source_kind（口播抽取已前移 script_plan），故 build_drama_prompt 无 source_kind 入参。
+    prompt_authoring（drama）视觉层不按 source_kind 分支——口播抽取归 script_plan，故 build_drama_prompt 无 source_kind 入参。
     只断言语义关键词在场 / 缺席，不锁逐字措辞、不测 LLM 提取质量。
     """
 
@@ -278,7 +278,7 @@ class TestScreenplaySourceKind:
         assert "utterances[].text" not in novel
 
     def test_normalize_includes_episode_outline_when_present(self):
-        # 内容抽取前移后，分集大纲（故事节点 / 钩子）驱动 script_plan 内容覆盖与末场落地，从 prompt_authoring 移到 script_plan
+        # 分集大纲（故事节点 / 钩子）驱动 script_plan 的内容覆盖与末场落地
         prompt = self._normalize_prompt(
             "novel",
             episode_outline={

@@ -165,7 +165,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_script_plan", 
 
 ### 返回摘要
 
-```
+```text
 ## 分镜拆分完成（旁白/解说 · script_plan 脚本规划）
 
 **状态**: DONE

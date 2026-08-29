@@ -153,12 +153,12 @@ MESSAGES = {
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
     "invalid_draft_stage": "Giai đoạn bản nháp không hợp lệ: {stage}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
-    "draft_invalid_json": "Bản nháp tổ chức nội dung có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
-    "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả tổ chức nội dung để xác nhận)",
-    "script_review_no_script_plan": "Chưa có kết quả tổ chức nội dung để xác nhận; vui lòng hoàn tất tổ chức nội dung trước",
+    "draft_invalid_json": "Bản nháp kế hoạch kịch bản có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
+    "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả kế hoạch kịch bản để xác nhận)",
+    "script_review_no_script_plan": "Chưa có kết quả kế hoạch kịch bản để xác nhận; vui lòng hoàn tất kế hoạch kịch bản trước",
     "script_review_quarantined": ("Tập này có bản nháp cần sửa; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"),
     "script_review_conflict": (
-        "Bản nháp tổ chức nội dung đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
+        "Bản nháp kế hoạch kịch bản đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
         "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
     ),
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp xác nhận nội dung thất bại; vui lòng kiểm tra và thử lại",
