@@ -25,6 +25,7 @@ import copy
 import json
 import shutil
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -200,22 +201,40 @@ def _plan_draft_renames(project_dir: Path, episodes: list[tuple[Path | None, int
     return renames
 
 
-def rename_script_plan_drafts(project_dir: Path, *, from_version: int) -> None:
-    """只做草稿文件改名的独立入口，供改名之前就要按新名寻址的迁移步前置调用。
+def plan_script_plan_draft_renames(project_dir: Path) -> tuple[tuple[Path, Path], ...]:
+    """只读地列出待改名的草稿文件，供改名之前就要按新名寻址的迁移步做前置预检。
 
     产物清单激活（v7→v8）用当前代码解析脚本规划草稿路径，解析到的是新名；它跑在本改名之前，
-    因而必须先把文件改成新名，否则激活会认定草稿不存在、不登记该产物。改名幂等：新名已就位
-    的项目是空操作。
+    因而要么先把文件改成新名，要么让规划按旧名读取，否则激活会认定草稿不存在、不登记该产物。
+    探测与落盘分开，调用方得以把两步的只读预检合并到写盘之前。新名已就位的项目返回空元组。
     """
 
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
     if not project_file.is_file():
-        return
+        return ()
     project = load_json(project_file)
     if not isinstance(project, dict):
         raise ValueError("project.json 必须是对象")
-    renames = _plan_draft_renames(project_dir, _episode_entries(project_dir, project))
+    return tuple(_plan_draft_renames(project_dir, _episode_entries(project_dir, project)))
+
+
+def pending_draft_rename_map(renames: Sequence[tuple[Path, Path]], project_dir: Path) -> dict[str, str]:
+    """把待改名清单转成规划器要的「规范相对路径 → 当前落盘相对路径」映射。
+
+    改名对是「当前落盘位置 → 规范位置」，映射的方向与之相反：规划按规范路径寻址，读的却是
+    改名尚未落盘时的旧名。方向只在这里定义一次。
+    """
+
+    return {
+        target.relative_to(project_dir).as_posix(): source.relative_to(project_dir).as_posix()
+        for source, target in renames
+    }
+
+
+def apply_script_plan_draft_renames(renames: Sequence[tuple[Path, Path]], *, from_version: int) -> None:
+    """落盘执行 :func:`plan_script_plan_draft_renames` 的结果：先备份全部来源，再逐个改名。"""
+
     for source, _target in renames:
         _ensure_backup(source, from_version)
     for source, target in renames:
@@ -284,11 +303,7 @@ def migrate_v9_to_v10(project_dir: Path) -> None:
     # 预检全部通过后才动盘：所有被改写或改名的文件先备份完，再落盘。
     for path, _payload in [*plans, (project_file, project)]:
         _ensure_backup(path)
-    for source, _target in draft_renames:
-        _ensure_backup(source)
-
-    for source, target in draft_renames:
-        source.replace(target)
+    apply_script_plan_draft_renames(draft_renames, from_version=9)
     for path, payload in plans:
         atomic_write_json(path, payload)
 
@@ -296,4 +311,11 @@ def migrate_v9_to_v10(project_dir: Path) -> None:
     atomic_write_json(project_file, migrated_project)
 
 
-__all__ = ["DRAFT_FILE_RENAMES", "migrate_manifest", "migrate_v9_to_v10", "rename_script_plan_drafts"]
+__all__ = [
+    "DRAFT_FILE_RENAMES",
+    "apply_script_plan_draft_renames",
+    "migrate_manifest",
+    "migrate_v9_to_v10",
+    "pending_draft_rename_map",
+    "plan_script_plan_draft_renames",
+]

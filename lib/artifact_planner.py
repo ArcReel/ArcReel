@@ -137,10 +137,12 @@ class TargetStatePlanner:
         episode_scope: int | None = None,
         project_bytes: bytes | None = None,
         allow_stale_formal_targets: bool = False,
+        pending_renames: Mapping[str, str] | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
         self.project_path = self.project_dir / "project.json"
+        self.pending_renames = dict(pending_renames or {})
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
         self.episode_scope = episode_scope
@@ -474,7 +476,7 @@ class TargetStatePlanner:
         if script_plan_path is None:
             return None
         script_plan_rel = script_plan_path.relative_to(self.project_dir).as_posix()
-        observation = self.adapter.inspect_artifact(script_plan_rel)
+        observation = self.adapter.inspect_artifact(self._pending_source(script_plan_rel))
         if observation.blocker is not None or not observation.present:
             return None
         script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
@@ -1308,16 +1310,17 @@ class TargetStatePlanner:
         if existing_basis is not None and existing_basis != basis:
             raise ValueError(f"multiple canonical bases claim artifact key {key.encode()}")
         self.bases[key] = basis
-        observation = self.adapter.inspect_artifact(artifact_path)
+        observation = self.adapter.inspect_artifact(self._pending_source(artifact_path))
         if observation.blocker is not None or not observation.present:
             return
-        self._record_formal_path(key, observation.artifact_path)
+        canonical = self._canonical_target(artifact_path, observation.artifact_path)
+        self._record_formal_path(key, canonical)
         if key.kind in _FORMAL_IMAGE_KINDS:
             self._track_dependency_digest(
-                self.project_dir.joinpath(*Path(observation.artifact_path).parts),
+                self.project_dir.joinpath(*Path(canonical).parts),
             )
         entry = ArtifactManifestEntry(
-            artifact_path=observation.artifact_path,
+            artifact_path=canonical,
             basis_digest=basis.digest,
         )
         existing = self.entries.get(key)
@@ -1392,8 +1395,24 @@ class TargetStatePlanner:
         except OSError as exc:
             raise ValueError(f"cannot read {label}") from exc
 
+    def _pending_source(self, relative_path: str) -> str:
+        """该规范路径当前的落盘位置：待改名输入仍在旧名下，其余原样返回。"""
+
+        return self.pending_renames.get(relative_path, relative_path)
+
+    def _canonical_target(self, relative_path: str, observed: str) -> str:
+        """规划记下的落点：待改名输入按提交后的规范路径记，其余按实际观察到的路径记。"""
+
+        return relative_path if relative_path in self.pending_renames else observed
+
+    def _canonical_path(self, relative_path: str, observed: str) -> Path:
+        """:meth:`_canonical_target` 的绝对路径形态。"""
+
+        return self.project_dir.joinpath(*Path(self._canonical_target(relative_path, observed)).parts)
+
     def _read_dependency(self, relative_path: str, label: str) -> bytes:
-        observation = self.adapter.inspect_artifact(relative_path)
+        source = self._pending_source(relative_path)
+        observation = self.adapter.inspect_artifact(source)
         if observation.blocker is not None:
             raise ArtifactManifestError(observation.blocker.detail)
         if not observation.present:
@@ -1403,7 +1422,7 @@ class TargetStatePlanner:
             raw = path.read_bytes()
         except OSError as exc:
             raise ValueError(f"cannot read {label}: {relative_path}") from exc
-        self.dependencies[path] = raw
+        self.dependencies[self._canonical_path(relative_path, observation.artifact_path)] = raw
         return raw
 
     @staticmethod
@@ -1414,10 +1433,19 @@ class TargetStatePlanner:
             raise ValueError(f"{label} is not valid UTF-8 JSON") from exc
 
 
-def plan_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:
-    """Perform the complete read-only activation preflight."""
+def plan_artifact_target_state(
+    project_dir: Path,
+    *,
+    pending_renames: Mapping[str, str] | None = None,
+) -> ArtifactTargetStatePlan:
+    """Perform the complete read-only activation preflight.
 
-    return TargetStatePlanner(project_dir).plan()
+    ``pending_renames``（规范相对路径 → 当前落盘相对路径）供 schema 迁移使用：迁移在同一步里
+    把输入改名到规范路径，预检必须在改名落盘之前完成，因而按旧名读取、按规范路径记录。计划
+    里的依赖路径与产物路径因此都是提交时刻的事实，激活的稳定性闸门可直接复用。
+    """
+
+    return TargetStatePlanner(project_dir, pending_renames=pending_renames).plan()
 
 
 def episode_scope_for_key(key: ArtifactKey) -> int | None:
