@@ -1813,6 +1813,7 @@ export default {
   'ce_view_form': '表单',
   'ce_view_json': 'JSON',
   'ce_json_parse_error': 'JSON 格式有误，解析通过后改动才会生效。',
+  'ce_json_shape_error': 'JSON 已解析，但缺少 meta、submit、poll 等必备结构，补齐后改动才会生效。',
   'ce_variables_hint': '可用变量 · 点击插入',
   'ce_diagnostics_clean': '该定义未发现问题。',
   'ce_diagnostics_summary': '{{errors}} 个错误 · {{warnings}} 条警告',
@@ -1949,4 +1950,7 @@ export default {
   'ce_var_generate_audio': '生成音频',
   'cp_no_api_key': '该供应商无需密钥',
   'cp_no_api_key_conflict': '以下模型使用的端点需要密钥：{{models}}。它们的请求将不携带凭证。',
+  'cp_unsaved_leave_title': '离开供应商表单？',
+  'cp_unsaved_leave_desc': '表单中有未保存的改动，前往「调用端点」页会丢弃这些改动。',
+  'cp_unsaved_leave_confirm': '丢弃改动并前往',
 } satisfies Record<keyof typeof enDashboard, string>;

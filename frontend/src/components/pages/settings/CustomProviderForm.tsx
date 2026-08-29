@@ -26,6 +26,7 @@ import {
   type DiscoveryFormat,
 } from "./customProviderHelpers";
 import { EndpointSelect } from "./EndpointSelect";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/provider-models";
@@ -337,6 +338,33 @@ export function CustomProviderForm({
   const [videoMaxWorkers, setVideoMaxWorkers] = useState(workersToStr(existing?.video_max_workers));
   const [audioMaxWorkers, setAudioMaxWorkers] = useState(workersToStr(existing?.audio_max_workers));
 
+  // 未保存改动判定：全部表单 state 的序列化快照与首帧对比。表单 state 只存于本组件，
+  // 「管理端点」跳转会卸载组件、丢掉未保存的输入，跳转前有改动须经确认。
+  const formSnapshot = JSON.stringify({
+    displayName,
+    discoveryFormat,
+    baseUrl,
+    apiKey,
+    noApiKey,
+    models,
+    imageMaxWorkers,
+    videoMaxWorkers,
+    audioMaxWorkers,
+  });
+  const [initialSnapshot] = useState(formSnapshot);
+  const formDirty = formSnapshot !== initialSnapshot;
+  const [manageNavProceed, setManageNavProceed] = useState<(() => void) | null>(null);
+  const handleManageNavigate = useCallback(
+    (proceed: () => void) => {
+      if (!formDirty) {
+        proceed();
+        return;
+      }
+      setManageNavProceed(() => proceed);
+    },
+    [formDirty],
+  );
+
   // --- Loading / status ---
   const [discovering, setDiscovering] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -358,7 +386,8 @@ export function CustomProviderForm({
 
   // 勾选「无需密钥」后才需要知道哪些端点其实要密钥，因而只在那时拉一次自定义端点列表。
   // 内置端点一律按需要密钥处理：它们的定义都带 auth 节，无凭证接口只可能是用户自建的。
-  const [authFreeEndpoints, setAuthFreeEndpoints] = useState<Set<string>>(new Set());
+  // null 表示尚未成功拉到列表：此时不计算冲突提示——空 Set 会把全部模型行误报成需要密钥。
+  const [authFreeEndpoints, setAuthFreeEndpoints] = useState<Set<string> | null>(null);
   useEffect(() => {
     if (!noApiKey) return;
     const controller = new AbortController();
@@ -390,9 +419,11 @@ export function CustomProviderForm({
   /** 标了无需密钥、却仍引用需要密钥的端点的模型行。 */
   const keyRequiringModels = useMemo(
     () =>
-      models
-        .filter((m) => m.is_enabled && m.model_id.trim() && !authFreeEndpoints.has(m.endpoint))
-        .map((m) => m.model_id),
+      authFreeEndpoints === null
+        ? []
+        : models
+            .filter((m) => m.is_enabled && m.model_id.trim() && !authFreeEndpoints.has(m.endpoint))
+            .map((m) => m.model_id),
     [models, authFreeEndpoints],
   );
 
@@ -400,8 +431,9 @@ export function CustomProviderForm({
   // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
   const baseUrlChanged = !!existing && baseUrl.trim() !== existing.base_url.trim();
   // 编辑模式下若用户未输入新 key 且 base_url 未变更，则用已存储凭证（by-id 端点）；
-  // 创建模式或 base_url 变更时必须明文 api_key。发现模型与测试连接共用此判断。
-  const useStoredCredential = !!existing && !apiKey && !baseUrlChanged;
+  // 创建模式或 base_url 变更时必须明文 api_key。勾选「无需密钥」后保存写入的是空密钥，
+  // 测试与发现须同样走明文空密钥路径，否则测试结果代表不了待保存的配置。
+  const useStoredCredential = !!existing && !apiKey && !baseUrlChanged && !noApiKey;
 
   // --- Discover models ---
   const handleDiscover = useCallback(async () => {
@@ -807,6 +839,7 @@ export function CustomProviderForm({
                           })
                         }
                         ariaLabel={t("endpoint_label")}
+                        onManageNavigate={handleManageNavigate}
                       />
 
                       {/* Default toggle */}
@@ -1078,6 +1111,19 @@ export function CustomProviderForm({
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={manageNavProceed !== null}
+        title={t("cp_unsaved_leave_title")}
+        description={t("cp_unsaved_leave_desc")}
+        confirmLabel={t("cp_unsaved_leave_confirm")}
+        tone="danger"
+        onConfirm={() => {
+          manageNavProceed?.();
+          setManageNavProceed(null);
+        }}
+        onCancel={() => setManageNavProceed(null)}
+      />
     </div>
   );
 }

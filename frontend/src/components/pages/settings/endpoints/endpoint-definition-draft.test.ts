@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   definitionFileName,
+  isRenderableDefinition,
   newEndpointDefinition,
   readPaths,
   renameKey,
@@ -82,6 +83,36 @@ describe("newEndpointDefinition", () => {
     expect(definition.capabilities).toBeUndefined();
     expect(readPaths(definition.submit.extract.task_id)).toEqual([]);
     expect(readPaths(definition.poll.extract.status)).toEqual([]);
+  });
+});
+
+describe("isRenderableDefinition", () => {
+  it("accepts a freshly prefilled definition", () => {
+    expect(isRenderableDefinition(newEndpointDefinition("Ada"))).toBe(true);
+  });
+
+  it("rejects syntactically valid JSON that misses a dereferenced container", () => {
+    expect(isRenderableDefinition({})).toBe(false);
+    expect(isRenderableDefinition(null)).toBe(false);
+    expect(isRenderableDefinition([])).toBe(false);
+    const noSubmitExtract = newEndpointDefinition("Ada") as unknown as Record<string, unknown>;
+    noSubmitExtract.submit = { method: "POST", url: "" };
+    expect(isRenderableDefinition(noSubmitExtract)).toBe(false);
+    const noPollExtract = newEndpointDefinition("Ada") as unknown as Record<string, unknown>;
+    noPollExtract.poll = { method: "GET", url: "" };
+    expect(isRenderableDefinition(noPollExtract)).toBe(false);
+    const noMeta = newEndpointDefinition("Ada") as unknown as Record<string, unknown>;
+    delete noMeta.meta;
+    expect(isRenderableDefinition(noMeta)).toBe(false);
+  });
+
+  it("tolerates missing leaf fields inside the containers", () => {
+    const sparse = {
+      meta: {},
+      submit: { extract: {} },
+      poll: { extract: {} },
+    };
+    expect(isRenderableDefinition(sparse)).toBe(true);
   });
 });
 

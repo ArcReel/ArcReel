@@ -144,6 +144,26 @@ export function renameKey<T>(
   return next;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * JSON 视图写回草稿前的结构闸：表单与头部不做防御性访问（草稿即定义），
+ * 直接解引用 meta、submit.extract、poll.extract 这几个容器，缺任一即不可渲染。
+ * 字段级缺失（如 meta.name）只影响单个控件的取值，交给服务端校验诊断。
+ */
+export function isRenderableDefinition(value: unknown): value is EndpointDefinition {
+  return (
+    isRecord(value) &&
+    isRecord(value.meta) &&
+    isRecord(value.submit) &&
+    isRecord(value.submit.extract) &&
+    isRecord(value.poll) &&
+    isRecord(value.poll.extract)
+  );
+}
+
 /** 导出为不含凭证的定义文件；文件名取 meta.name，落到 ASCII 安全的形态。 */
 export function definitionFileName(definition: EndpointDefinition): string {
   const raw = definition.meta?.name?.trim() || "endpoint";

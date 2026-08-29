@@ -1814,6 +1814,7 @@ export default {
   'ce_view_form': 'Form',
   'ce_view_json': 'JSON',
   'ce_json_parse_error': 'This is not valid JSON. The change is not applied until it parses.',
+  'ce_json_shape_error': 'The JSON parses but is missing required structure such as meta, submit or poll. The change is not applied until they are present.',
   'ce_variables_hint': 'Available variables · click to insert',
   'ce_diagnostics_clean': 'No problems found in this definition.',
   'ce_diagnostics_summary': '{{errors}} errors · {{warnings}} warnings',
@@ -1950,4 +1951,7 @@ export default {
   'ce_var_generate_audio': 'Generate audio',
   'cp_no_api_key': 'This provider needs no API key',
   'cp_no_api_key_conflict': 'These models use endpoints that require a key: {{models}}. Their requests will go out without credentials.',
+  'cp_unsaved_leave_title': 'Leave the provider form?',
+  'cp_unsaved_leave_desc': 'This form has unsaved changes. Going to the endpoints page will discard them.',
+  'cp_unsaved_leave_confirm': 'Discard and go',
 };

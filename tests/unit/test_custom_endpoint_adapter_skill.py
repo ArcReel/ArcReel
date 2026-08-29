@@ -10,6 +10,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
+
 from lib import PROJECT_ROOT
 
 SCRIPT = (
@@ -153,3 +155,48 @@ def test_cli_requires_explicit_confirmation_for_cost_and_overwrite(tmp_path: Pat
     assert "--confirm-cost" in trial.stderr
     assert overwrite.returncode != 0
     assert "--confirm-overwrite" in overwrite.stderr
+
+
+@pytest.mark.parametrize(
+    ("body", "fragment"),
+    [(b"<html>Bad Gateway</html>", "Bad Gateway"), (b"not utf-8 \xff\xff", "not utf-8")],
+    ids=["html", "invalid-utf8"],
+)
+def test_cli_reports_non_json_response_without_traceback(tmp_path: Path, body: bytes, fragment: str) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            size = int(self.headers.get("content-length", "0"))
+            self.rfile.read(size)
+            encoded = body
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, format: str, *args: object) -> None:
+            del format, args
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        definition = tmp_path / "definition.json"
+        definition.write_text('{"kind":"declarative"}', encoding="utf-8")
+        env = {**os.environ, "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1"}
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "validate", str(definition)],
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
+
+    assert result.returncode != 0
+    assert "non-JSON" in result.stderr
+    assert fragment in result.stderr
+    assert "Traceback" not in result.stderr

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { errMsg } from "@/utils/async";
 import {
   ACCENT_BTN_SM_CLS,
@@ -22,6 +22,7 @@ import type {
 import { FormSection, HINT_CLS, LABEL_CLS, MONO_INPUT_CLS } from "./endpoint-form-primitives";
 
 const TRIAL_POLL_INTERVAL_MS = 2000;
+const TRIAL_POLL_MAX_CONSECUTIVE_FAILURES = 5;
 
 function TestCard({
   title,
@@ -128,6 +129,9 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   const [run, setRun] = useState<TrialRunInfo | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [cancelled, setCancelled] = useState(false);
+  // 轮询放弃态：连续失败达上限后只停读回，不动 run——服务端名额仍被占用，
+  // runId 与取消入口必须保留，否则重新创建会撞 trial_run_already_running。
+  const [pollStopped, setPollStopped] = useState(false);
 
   const credentials = useCallback((): EndpointTestCredentials => {
     if (credSource === "provider") return { provider_id: `custom-${providerId}` };
@@ -137,24 +141,47 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   const runId = run?.id ?? null;
   const runFinished = run !== null && (run.status === "succeeded" || run.status === "failed");
 
-  // 试跑是进程内异步 run：创建后按固定间隔读回，终态即停。
+  // 试跑是进程内异步 run：创建后轮询读回，终态即停。递归 setTimeout 保证上一次
+  // 读回落地后才排下一次，响应慢于间隔时不会堆积并发请求。
   useEffect(() => {
-    if (!runId || runFinished) return;
+    if (!runId || runFinished || pollStopped) return;
     const controller = new AbortController();
-    const timer = setInterval(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    // 连续失败达到上限即停：run 被删或凭证过期时 401/404 不会自愈，无限重试只会刷请求。
+    // 单次失败不弃轮询，瞬时网络抖动在下一轮成功后计数归零。
+    let consecutiveFailures = 0;
+    const poll = () => {
       void API.getTrialRun(runId, { signal: controller.signal })
         .then((next) => {
-          if (!controller.signal.aborted) setRun(next);
+          if (controller.signal.aborted) return;
+          consecutiveFailures = 0;
+          setRunError(null);
+          setRun(next);
+          timer = setTimeout(poll, TRIAL_POLL_INTERVAL_MS);
         })
         .catch((e) => {
-          if (!controller.signal.aborted) setRunError(errMsg(e));
+          if (controller.signal.aborted) return;
+          setRunError(errMsg(e));
+          // 明确的 404 表示 run 已不在服务端（TTL 过期或重启丢失），名额已释放，
+          // 就地清空本地状态；只有瞬时网络/服务错误才走重试与放弃计数。
+          if (e instanceof ApiRequestError && e.status === 404) {
+            setRun(null);
+            return;
+          }
+          consecutiveFailures += 1;
+          if (consecutiveFailures < TRIAL_POLL_MAX_CONSECUTIVE_FAILURES) {
+            timer = setTimeout(poll, TRIAL_POLL_INTERVAL_MS);
+          } else {
+            setPollStopped(true);
+          }
         });
-    }, TRIAL_POLL_INTERVAL_MS);
+    };
+    timer = setTimeout(poll, TRIAL_POLL_INTERVAL_MS);
     return () => {
       controller.abort();
-      clearInterval(timer);
+      clearTimeout(timer);
     };
-  }, [runId, runFinished]);
+  }, [runId, runFinished, pollStopped]);
 
   const handleCheck = useCallback(async () => {
     setCheckError(null);
@@ -197,6 +224,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   const handleStartTrial = useCallback(async () => {
     setRunError(null);
     setCancelled(false);
+    setPollStopped(false);
     setStarting(true);
     try {
       setRun(
@@ -221,11 +249,15 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
     try {
       await API.cancelTrialRun(runId);
     } catch (e) {
-      setRunError(errMsg(e));
-      return;
+      // 404 即 run 已不在服务端，无可取消——照常清理本地状态解除锁定。
+      if (!(e instanceof ApiRequestError && e.status === 404)) {
+        setRunError(errMsg(e));
+        return;
+      }
     }
     setRun(null);
     setRunError(null);
+    setPollStopped(false);
     setCancelled(true);
   }, [runId]);
 
@@ -429,7 +461,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
               {run ? (
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-2 text-[12px] text-text-2">
-                    {!runFinished && (
+                    {!runFinished && !pollStopped && (
                       <Loader2 className="h-3 w-3 motion-safe:animate-spin text-accent-2" aria-hidden />
                     )}
                     <span>{t(`ce_trial_status_${run.status}`)}</span>
