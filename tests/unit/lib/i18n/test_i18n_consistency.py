@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.i18n import MESSAGES, SUPPORTED_LOCALES
 from lib.i18n.en import emails as en_emails
 from lib.i18n.en import errors as en_errors
@@ -218,3 +219,49 @@ def test_frontend_event_label_keys_match_backend():
     )
     frontend_keys = set(re.findall(r"""["']label\.([a-z0-9_]+)["']""", source))
     assert frontend_keys == _event_label_keys(en_events.MESSAGES)
+
+
+#: 目录名里出现即需要译名的书写系统区段：拉丁字母以外的写法在 en/vi 界面上无法直接阅读。
+_NON_LATIN_RANGES = (
+    ("\u0400", "\u04ff"),  # 西里尔字母
+    ("\u3040", "\u30ff"),  # 平假名 / 片假名
+    ("\u3400", "\u4dbf"),  # CJK 扩展 A
+    ("\u4e00", "\u9fff"),  # CJK 统一表意文字
+    ("\uac00", "\ud7af"),  # 谚文音节
+    ("\uf900", "\ufaff"),  # CJK 兼容表意文字
+)
+
+
+def test_non_latin_registry_display_names_are_translated():
+    """registry 里用非拉丁文字写的名字必须三语都有译名，否则 en/vi 目录会漏出原文。
+
+    纯品牌名（"Gemini 3 Pro"）不入译名表：``translate_or`` 回退到 registry 的
+    display_name，三份相同的条目只是重复。
+    """
+
+    def is_non_latin(text: str) -> bool:
+        return any(low <= ch <= high for ch in text for low, high in _NON_LATIN_RANGES)
+
+    required: set[str] = set()
+    for provider_id, meta in PROVIDER_REGISTRY.items():
+        if is_non_latin(meta.display_name):
+            required.add(f"provider_name_{provider_id}")
+        for model_id, model in meta.models.items():
+            if is_non_latin(model.display_name):
+                required.add(f"model_name_{provider_id}_{model_id}")
+
+    for locale in SUPPORTED_LOCALES:
+        missing = required - set(MESSAGES[locale])
+        assert not missing, f"{locale} 缺少目录译名: {sorted(missing)}"
+
+
+def test_no_orphan_model_name_keys():
+    """译名表里不留 registry 已删除的模型条目。"""
+    known = {
+        f"model_name_{provider_id}_{model_id}"
+        for provider_id, meta in PROVIDER_REGISTRY.items()
+        for model_id in meta.models
+    }
+    for locale in SUPPORTED_LOCALES:
+        orphans = {key for key in MESSAGES[locale] if key.startswith("model_name_")} - known
+        assert not orphans, f"{locale} 有 registry 里不存在的模型译名: {sorted(orphans)}"

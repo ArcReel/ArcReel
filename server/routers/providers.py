@@ -30,7 +30,7 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
-from lib.i18n import Translator
+from lib.i18n import Locale, Translator, translate_or
 from lib.video_backends.base import VideoAudioMode
 from server.dependencies import get_config_service
 
@@ -365,6 +365,7 @@ def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
 @router.get("", response_model=ProvidersListResponse)
 async def list_providers(
     _t: Translator,
+    locale: Locale,
     svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> ProvidersListResponse:
     """返回所有供应商及其状态。"""
@@ -380,7 +381,12 @@ async def list_providers(
                 _video_reference_audio_mode(s.name, mid) if minfo.get("media_type") == "video" else "none"
             )
             models[mid] = ModelInfoResponse(
-                **minfo,
+                **{
+                    **minfo,
+                    # registry 的 display_name 是默认语言下的名字；有译名表的条目按请求语言成文，
+                    # 没有的（纯品牌名）原样返回。
+                    "display_name": translate_or(f"model_name_{s.name}_{mid}", minfo["display_name"], locale),
+                },
                 audio_track=audio_track,
                 reference_route_audio_track=reference_route_audio_track,
                 # generation_mode=None：目录端点无项目上下文，按非参考生视频路径派生，音轨位
