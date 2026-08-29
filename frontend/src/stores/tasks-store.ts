@@ -455,11 +455,6 @@ export function isOccupyingStatus(status: TaskStatus): boolean {
   return status === "queued" || status === "running" || status === "cancelling";
 }
 
-/** 终态：任务生命周期末端，不再占用 resource。 */
-export function isTerminalStatus(status: TaskStatus): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
-}
-
 /**
  * 任务占用的「资源种类」。除 image_edit 外，task_type 本身即资源种类；image_edit 跨
  * character/scene/prop/product/storyboard 共用一个 task_type，真正的种类在 resource_type，
@@ -676,5 +671,27 @@ export function useLatestTasksByResource(
 ): Map<string, TaskItem> {
   return useTasksStore(
     useShallow((s) => selectLatestTaskByResource(s.tasks, { projectName, taskType })),
+  );
+}
+
+/**
+ * 按 task_id 取这些任务的队列行。
+ *
+ * 工作流面板的任务观测由工作流状态接口给出，其中不含时间戳；时长的真相源是任务队列，
+ * 故按 task_id 回查而不是让工作流接口多带一份时间戳——同一任务在两条链路上各带一份
+ * 时间戳，两者刷新节奏不同，迟早会互相矛盾。队列里没有对应行时该 id 不进 Map，
+ * 由调用方整块不渲染。返回 store 里的原对象而非裁剪出的子集，浅比较才能在任务列表
+ * 刷新但内容未变时命中。
+ */
+export function useTaskRowsByIds(taskIds: readonly string[]): Map<string, TaskItem> {
+  const wanted = new Set(taskIds);
+  return useTasksStore(
+    useShallow((s) => {
+      const rows = new Map<string, TaskItem>();
+      for (const task of s.tasks) {
+        if (wanted.has(task.task_id)) rows.set(task.task_id, task);
+      }
+      return rows;
+    }),
   );
 }
