@@ -332,6 +332,7 @@ class SessionManager:
         "Edit",
         "Grep",
         "Glob",
+        "WebFetch",
         "AskUserQuestion",
     ]
     DEFAULT_SETTING_SOURCES = ["project"]

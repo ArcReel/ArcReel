@@ -106,11 +106,12 @@ def get_token_secret() -> str:
     return _cached_token_secret
 
 
-def create_token(username: str) -> str:
+def create_token(username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS) -> str:
     """创建 JWT token
 
     Args:
         username: 用户名
+        expiry_seconds: token 有效秒数；网页登录沿用 7 天，内嵌 Agent 使用短时效。
 
     Returns:
         JWT token 字符串
@@ -119,7 +120,7 @@ def create_token(username: str) -> str:
     payload = {
         "sub": username,
         "iat": now,
-        "exp": now + TOKEN_EXPIRY_SECONDS,
+        "exp": now + expiry_seconds,
     }
     return jwt.encode(payload, get_token_secret(), algorithm="HS256")
 

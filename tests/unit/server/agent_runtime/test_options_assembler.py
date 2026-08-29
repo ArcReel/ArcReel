@@ -17,6 +17,7 @@ from server.agent_runtime.options_assembler import (
     OptionsAssembler,
     load_provider_env_overrides,
 )
+from server.auth import verify_token
 
 _ALLOWED_TOOLS = ["Skill", "Task", "Bash", "BashOutput", "KillBash", "Read", "Write", "Edit"]
 _SETTING_SOURCES = ["project"]
@@ -103,7 +104,7 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     options = await assembler.build("demo")
 
     assert options.cwd == str(projects_root / "demo")
-    assert options.env == {"ANTHROPIC_API_KEY": "sk"}
+    assert options.env["ANTHROPIC_API_KEY"] == "sk"
     assert options.max_turns == 7
     assert list(options.setting_sources) == _SETTING_SOURCES
     # file access hook 恒注册
@@ -112,6 +113,27 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     assert options.sandbox.get("enabled") is True
     # 用户消息回放开关：缺失则 SDK 不回放副本，身份映射无从建立
     assert options.extra_args == {"replay-user-messages": None}
+
+
+@pytest.mark.asyncio
+async def test_build_injects_short_lived_arcreel_api_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """每次会话 options 都拿到 localhost API 地址与 15 分钟 JWT。"""
+
+    async def fake_loader():
+        return {"ANTHROPIC_API_KEY": "sk"}
+
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    monkeypatch.setenv("AUTH_TOKEN_SECRET", "test-secret-key-that-is-at-least-32-bytes")
+    monkeypatch.setenv("ARCREEL_API_BASE", "http://127.0.0.1:9123/api/v1/")
+    options = await _make_assembler(tmp_path, provider_env_loader=fake_loader).build("demo")
+
+    payload = verify_token(options.env["ARCREEL_API_TOKEN"])
+    assert options.env["ARCREEL_API_BASE"] == "http://127.0.0.1:9123/api/v1"
+    assert payload is not None
+    assert payload["sub"] == "embedded-agent"
+    assert payload["exp"] - payload["iat"] == 900
 
 
 @pytest.mark.asyncio

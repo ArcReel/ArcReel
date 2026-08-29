@@ -12,6 +12,7 @@ policy，装配天职是开会话时现场读 DB / 扫盘则允许 I/O 归本类
 
 import json
 import logging
+import os
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
+from server.auth import create_token, is_auth_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,7 @@ from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk.types import HookMatcher, SystemPromptPreset
 
 SDK_AVAILABLE = True
+_EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS = 15 * 60
 
 
 async def load_provider_env_overrides() -> dict[str, str]:
@@ -261,6 +264,16 @@ class OptionsAssembler:
             }
 
         provider_env = await self.build_provider_env_overrides()
+        provider_env.update(
+            {
+                "ARCREEL_API_BASE": (os.environ.get("ARCREEL_API_BASE") or "http://127.0.0.1:1241/api/v1").rstrip("/"),
+                "ARCREEL_API_TOKEN": (
+                    create_token("embedded-agent", expiry_seconds=_EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS)
+                    if is_auth_enabled()
+                    else ""
+                ),
+            }
+        )
         sandbox_typed = policy.build_sandbox_settings(project_cwd)
 
         # Windows 回退：sandbox 关闭时 Bash 系列被剥离出 allowed_tools，

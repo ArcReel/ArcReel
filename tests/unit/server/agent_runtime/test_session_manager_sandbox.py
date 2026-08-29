@@ -44,17 +44,16 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox.get("autoAllowBashIfSandboxed") is True
     # 非 Docker 默认 weakerNested=False
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
-    # 网络白名单仅保留 Anthropic + dev 常用域；provider 域名走 in-process MCP tool，不再放行
-    # 用 any(==) 显式列表成员比较，避免 CodeQL py/incomplete-url-substring-sanitization 误报
-    allowed_domains = opts.sandbox.get("network", {}).get("allowedDomains", [])
-    assert any(d == "anthropic.com" for d in allowed_domains)
-    assert any(d == "example.com" for d in allowed_domains)
-    # provider 域名已下线
-    assert not any(d == "*.googleapis.com" for d in allowed_domains)
-    assert not any(d == "*.volces.com" for d in allowed_domains)
+    # 出站显式全放行：省略 network 键等于零预放行，无人值守会话里新域名会被直接拒。
+    # loopback 单列开关——skill 脚本调同源 ArcReel API 必须经 loopback，
+    # 而 allowedDomains 无论写 * 还是写 127.0.0.1 都覆盖不到它。
+    assert opts.sandbox["network"] == {"allowedDomains": ["*"], "allowLocalBinding": True}
+    # 禁 unsandboxed fallback 与文件围栏不受网络放开影响
+    assert opts.sandbox.get("allowUnsandboxedCommands") is False
     # filesystem.denyRead 注入：sandbox profile 内核级文件读拒绝
     deny_read = opts.sandbox.get("filesystem", {}).get("denyRead", [])
     assert isinstance(deny_read, list)
+    assert str(proj_dir / "project.json") in opts.sandbox["filesystem"]["denyWrite"]
 
 
 def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -185,6 +184,7 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
         assert (tool in opts.allowed_tools) is sandbox_enabled
     assert "Read" in opts.allowed_tools
     assert "Skill" in opts.allowed_tools
+    assert "WebFetch" in opts.allowed_tools
     if not sandbox_enabled:
         assert opts.sandbox == {"enabled": False}
 
