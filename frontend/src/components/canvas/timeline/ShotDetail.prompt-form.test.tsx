@@ -94,6 +94,21 @@ describe("ShotDetail 提示词形态切换", () => {
     expect(screen.getByText("镜头")).toBeInTheDocument();
   });
 
+  it("渲染不出最终提示词时不切换形态，就地给出后端的不可用原因", async () => {
+    const unavailable = { ...preview() };
+    unavailable.storyboard_image = { text: null, unavailable: "该分镜没有分镜图提示词", is_text_form: false };
+    const spy = vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue(unavailable);
+    renderDetail(makeSegment());
+
+    const [imageToText] = screen.getAllByRole("button", { name: "文本" });
+    fireEvent.click(imageToText);
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(await screen.findByText("该分镜没有分镜图提示词")).toBeInTheDocument();
+    // 结构化编辑器留在原地：空正文的文本形态既丢原因、又只会在保存时被非空校验拒掉
+    expect(screen.getByDisplayValue("雨夜街道")).toBeInTheDocument();
+  });
+
   it("有未保存改动时禁用形态切换：初值取自已保存内容，切换会静默丢弃改动", () => {
     renderDetail(makeSegment());
 

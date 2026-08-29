@@ -519,6 +519,7 @@ export default {
   'prompt_form_structured': 'Structured',
   'prompt_form_text': 'Text',
   'prompt_form_switch_needs_save': 'Save your changes before switching the prompt form',
+  'prompt_form_switch_unavailable': 'The final prompt cannot be rendered right now, so switching to text form is unavailable.',
   'prompt_form_to_structured_title': 'Switch back to a structured prompt?',
   'prompt_form_to_structured_desc': 'The text prompt will be discarded. It is not parsed back into structured fields — you will fill them in again.',
   'prompt_form_to_structured_confirm': 'Discard and switch',

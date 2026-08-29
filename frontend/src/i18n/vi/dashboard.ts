@@ -512,6 +512,7 @@ export default {
   'prompt_form_structured': 'Có cấu trúc',
   'prompt_form_text': 'Văn bản',
   'prompt_form_switch_needs_save': 'Hãy lưu thay đổi trước khi chuyển dạng lời nhắc',
+  'prompt_form_switch_unavailable': 'Hiện không dựng được lời nhắc cuối cùng nên không thể chuyển sang dạng văn bản.',
   'prompt_form_to_structured_title': 'Chuyển lại lời nhắc có cấu trúc?',
   'prompt_form_to_structured_desc': 'Lời nhắc dạng văn bản sẽ bị bỏ và không được phân tích ngược thành các trường có cấu trúc, bạn cần nhập lại.',
   'prompt_form_to_structured_confirm': 'Bỏ và chuyển',
