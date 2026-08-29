@@ -67,8 +67,10 @@ from lib.reference_video.script_preview import (
     WARN_SILENT_EPISODE,
     WARN_SILENT_MODEL,
     WARN_SPEAKER_WITHOUT_AUDIO,
+    WARN_UNIT_WITHOUT_SCENE,
     derive_utterances,
     derive_voice_bindings,
+    unit_lacks_scene_reference,
 )
 from lib.reference_video.text_parser import extract_mentions
 from lib.reference_video.voice_settings import VoiceRenderSettings
@@ -1027,6 +1029,20 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
     )
 
 
+def _reference_unit_id(episode: int, index: int) -> str:
+    """扁平产出第 ``index`` 个 unit（1 起）的 ``unit_id``。
+
+    落盘内容、违约报告与降级提示三者指的必须是同一个 unit：各自拼一遍格式串时，改一处编号
+    口径就会让报告指偏到另一个 unit。
+    """
+    return f"E{episode}U{index:02d}"
+
+
+def _reference_unit_label(episode: int, index: int) -> str:
+    """违约 / 提示条目的定位前缀（``unit E{集}U{两位序号}``）。"""
+    return f"unit {_reference_unit_id(episode, index)}"
+
+
 def _collect_reference_flat_violations(
     flat_units: list[dict[str, Any]],
     project: dict[str, Any],
@@ -1050,7 +1066,7 @@ def _collect_reference_flat_violations(
     speech_rate_override = project_speech_rate_override(project)
     violations: list[DraftViolation] = []
     for index, flat in enumerate(flat_units, start=1):
-        label = f"unit E{episode}U{index:02d}"
+        label = _reference_unit_label(episode, index)
         duration = flat["duration_seconds"]
         source_text = flat["source_text"]
         text = flat["text"]
@@ -1089,7 +1105,7 @@ def _build_reference_units_from_flat(
     """
     units: list[dict] = []
     for index, flat in enumerate(flat_units, start=1):
-        unit_id = f"E{episode}U{index:02d}"
+        unit_id = _reference_unit_id(episode, index)
         validate_unit_text(f"unit {unit_id}", flat["text"], project, max_refs=max_refs)
         units.append(
             {
@@ -1145,14 +1161,34 @@ def _reference_voice_warning_lines(
     return lines
 
 
+def _reference_scene_warning_lines(unit_texts: list[str], project: dict[str, Any], *, episode: int) -> list[str]:
+    """逐 unit 取「未引用任何场景资产」的提示，带 unit 定位。
+
+    与声音降级同属容忍类：地点由模型自由决定不是格式错误，正文照常落盘；但室内外交替的相邻
+    unit 会各自发挥，不在产出当时说，Agent 与用户都要等看到成片才发现。
+
+    判据取自 ``unit_lacks_scene_reference``，与编辑器预览的同名 warning 共用一个出口——同一份
+    正文在回执与面板上必须给出同一个结论。
+
+    不跨 unit 去重：每个未引用场景的 unit 都要各自被指名，合并成一条 Agent 无从定位要改哪几个。
+    """
+    message = translate(WARN_UNIT_WITHOUT_SCENE)
+    return [
+        f"{_reference_unit_label(episode, index)}：{message}"
+        for index, text in enumerate(unit_texts, start=1)
+        if unit_lacks_scene_reference(text, project)
+    ]
+
+
 def _reference_result_text(script_plan_path: Path, units: list[dict], warning_lines: list[str], *, action: str) -> str:
-    """晋升 / 拆分成功后回给 Agent 的摘要：落盘统计 + 三类容忍 warning。
+    """晋升 / 拆分成功后回给 Agent 的摘要：落盘统计 + 容忍类 warning。
 
     ``action`` 点明这份正式 script_plan 是重新拆分还是草稿晋升来的：两条路都写同一个文件，摘要不分
     的话，Agent 修完草稿会收到一句「拆分已保存」，读起来像它的修改被一次重抽覆盖了。
 
-    warning 不阻断落盘，但必须随产物呈现——「角色没配参考音频」这类降级只在生成后才听得出来，
-    不在产出当时说，Agent 与用户都不会知道声音一致性已经打了折。
+    warning 不阻断落盘，但必须随产物呈现——「角色没配参考音频」「本单元没引用场景」这类降级只在
+    生成后才听得出来、看得出来，不在产出当时说，Agent 与用户都不会知道声音一致性或画面地点已经
+    打了折。
     """
     total_seconds = sum(int(u.get("duration_seconds") or 0) for u in units)
     max_unit_refs = max(len(extract_mentions(str(u.get("text") or ""))) for u in units)
@@ -1162,7 +1198,7 @@ def _reference_result_text(script_plan_path: Path, units: list[dict], warning_li
         f"单 unit `@` 提及最多 {max_unit_refs} 个"
     )
     if warning_lines:
-        text += "\n⚠️ 声音降级提示（不阻断，产物已落盘）:\n" + "\n".join(f"- {line}" for line in warning_lines)
+        text += "\n⚠️ 降级提示（不阻断，产物已落盘）:\n" + "\n".join(f"- {line}" for line in warning_lines)
     return text
 
 
@@ -1479,11 +1515,10 @@ async def generate_reference_script_plan(
                         exc.actual,
                     )
                 ) from exc
+        unit_texts = [flat_unit["text"] for flat_unit in flat_units]
         warning_lines = _reference_voice_warning_lines(
-            [flat_unit["text"] for flat_unit in flat_units],
-            project,
-            split_caps.voice,
-        )
+            unit_texts, project, split_caps.voice
+        ) + _reference_scene_warning_lines(unit_texts, project, episode=episode)
         return CompensableTextGenerationResult(
             _reference_result_text(
                 script_review.official_reference_script_plan_path(project_path, episode),

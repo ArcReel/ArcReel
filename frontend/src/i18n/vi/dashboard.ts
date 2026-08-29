@@ -1322,6 +1322,7 @@ export default {
   'reference_script_plan_edit_text': 'Chỉnh sửa văn bản',
   'reference_script_plan_edit_done': 'Hoàn tất chỉnh sửa',
   'reference_script_plan_quarantined_unit_hint': 'Đơn vị video này nằm trong bản nháp đang chờ Agent sửa.',
+  'reference_script_plan_unit_without_scene': 'Đơn vị này không tham chiếu bối cảnh nào; địa điểm của khung hình sẽ do mô hình tự quyết định',
   'reference_script_plan_status_quarantined': 'Bản nháp cần sửa — chia không qua kiểm tra',
   'reference_script_plan_status_editable': 'Bản nháp do Agent xử lý',
   'reference_script_plan_editable_hint': 'Agent sẽ tiếp tục xử lý bản nháp này trong tác vụ của tập; giao diện sẽ cập nhật khi hoàn tất',
