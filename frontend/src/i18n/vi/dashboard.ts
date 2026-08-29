@@ -1775,7 +1775,7 @@ export default {
   'ce_reference_count': '{{n}} mô hình đang dùng',
   'ce_manage_entry': 'Quản lý điểm gọi…',
   'ce_import': 'Nhập',
-  'ce_import_hint': 'Nhập tệp định nghĩa (.json)',
+  'ce_import_hint': 'Nhập tệp JSON định nghĩa',
   'ce_import_title': 'Nhập định nghĩa điểm gọi',
   'ce_import_read_failed': 'Tệp này không phải định nghĩa hợp lệ. Hãy chọn tệp JSON định nghĩa được xuất từ một điểm gọi.',
   'ce_import_failed': 'Không nhập được định nghĩa.',

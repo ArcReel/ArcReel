@@ -1777,7 +1777,7 @@ export default {
   'ce_reference_count': '{{n}} models in use',
   'ce_manage_entry': 'Manage endpoints…',
   'ce_import': 'Import',
-  'ce_import_hint': 'Import a definition file (.json)',
+  'ce_import_hint': 'Import a definition JSON file',
   'ce_import_title': 'Import endpoint definition',
   'ce_import_read_failed': 'This file is not a valid definition. Choose a definition JSON file exported from an endpoint.',
   'ce_import_failed': 'The definition could not be imported.',
