@@ -640,7 +640,7 @@ class TestLegacyEntryRevisionBackfill:
 
     @staticmethod
     def _make_legacy(project_dir: Path, variant: _Variant) -> None:
-        """抹掉全部条目指纹，把刚落盘的剧本还原成本机制引入之前的形状。"""
+        """抹掉全部条目指纹，把刚落盘的剧本还原成存量剧本的无指纹形状。"""
         path = project_dir / "scripts" / "episode_1.json"
         script = json.loads(path.read_text(encoding="utf-8"))
         for entry in script[variant.items_key]:
