@@ -63,6 +63,7 @@ from server.tool_runtime import (
     PatchProjectRequest,
     PlanEpisodesRequest,
     ProjectScope,
+    PromptPreviewRequest,
     RenameAssetRequest,
     ResetEpisodePlanningRequest,
     Services,
@@ -81,6 +82,7 @@ from server.tool_runtime import (
     get_episode_script,
     get_generation_batch,
     get_project_content,
+    get_prompt_preview,
     get_script_plan_content,
     get_source_text,
     get_video_capabilities,
@@ -823,6 +825,19 @@ def build_remote_mcp_server(
             return _to_mcp_result("project_content", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         return _to_mcp_result(
             "project_content", await get_project_content(ToolRequest(None), scope, _authenticated_caller(), services)
+        )
+
+    @server.tool(name="get_prompt_preview", structured_output=False)
+    async def remote_prompt_preview(project: str, script: str, item_id: str) -> CallToolResult:
+        """Return one shot's final image and video prompts, verbatim as generation would send them."""
+        try:
+            scope = _project_scope(project, projects)
+            request = PromptPreviewRequest(script=script, item_id=item_id)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("prompt_preview", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result(
+            "prompt_preview",
+            await get_prompt_preview(ToolRequest(request), scope, _authenticated_caller(), services),
         )
 
     @server.tool(name="list_source_files", structured_output=False)

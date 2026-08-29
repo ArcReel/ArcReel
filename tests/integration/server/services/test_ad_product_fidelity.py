@@ -128,7 +128,7 @@ class TestAdProductFidelityStoryboard:
         for dirty in ("保温杯", {"保温杯": True}, 7):
             item = {"shot_id": "E1S02", "products_in_shot": dirty}
             assert (
-                generation_tasks._collect_shot_product_references(
+                generation_tasks.collect_shot_product_references(
                     project, project_path, item, currency_resolver=resolver
                 )
                 == []
@@ -138,13 +138,13 @@ class TestAdProductFidelityStoryboard:
         for empty in (None, []):
             item = {"shot_id": "E1S01", "products_in_shot": empty}
             assert (
-                generation_tasks._collect_shot_product_references(
+                generation_tasks.collect_shot_product_references(
                     project, project_path, item, currency_resolver=resolver
                 )
                 == []
             )
         assert (
-            generation_tasks._collect_shot_product_references(
+            generation_tasks.collect_shot_product_references(
                 project, project_path, {"shot_id": "E1S01"}, currency_resolver=resolver
             )
             == []

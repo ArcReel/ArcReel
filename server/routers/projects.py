@@ -65,6 +65,7 @@ from server.services.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project_cover import resolve_project_cover
+from server.services.prompt_preview import ScriptItemNotFound, preview_item_prompts
 
 router = APIRouter()
 
@@ -1083,6 +1084,49 @@ async def edit_script_batch(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+@router.get(
+    "/projects/{name}/script-items/{item_id}/prompt-preview",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def preview_script_item_prompts(
+    name: str,
+    item_id: str,
+    _t: Translator,
+    script_file: str = Query(..., description="剧本文件名"),
+):
+    """渲染该条目当前会送进图像 / 视频模型的最终提示词文本。
+
+    与执行路径共用同一渲染出口，结果逐字等于本次生成实际发出的提示词。只读：不向供应商
+    发请求、不产生费用、不写产物清单。某一侧缺提示词或形状不合规时，该侧返回不可用原因、
+    另一侧照常渲染，半成品条目仍能看到已写好的那一半。
+
+    挂迁移闸门与生成入口同判据：商品参考的装配读产物清单，且被阻断的项目本就无法生成，
+    此时报「先修复」比渲染一份不会被发出的文本诚实。
+    """
+    try:
+        preview = await preview_item_prompts(name, script_file, item_id)
+    except ScriptItemNotFound as exc:
+        raise NotFoundError("script_item_not_found", id=item_id) from exc
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=script_file) from exc
+    except ValueError as exc:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+
+    def _side(rendered):
+        return {
+            "text": rendered.text,
+            "unavailable": _t(rendered.unavailable) if rendered.unavailable else None,
+            "is_text_form": rendered.is_text_form,
+        }
+
+    return {
+        "item_id": preview.item_id,
+        "content_mode": preview.content_mode,
+        "storyboard_image": _side(preview.storyboard_image),
+        "video": _side(preview.video),
+    }
 
 
 class UpdateSceneRequest(BaseModel):

@@ -48,6 +48,7 @@ from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
     patch_episode_script_tool,
 )
+from server.agent_runtime.sdk_tools.prompt_preview import get_prompt_preview_tool
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
 from server.agent_runtime.sdk_tools.text_generation import (
@@ -85,6 +86,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "complete_asset_inventory",
     "complete_script_plan_rebuild",
     "get_workflow_plan",
+    "get_prompt_preview",
     "get_generation_batch",
     "cancel_generation_batch",
     "get_project_content",
@@ -195,6 +197,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         complete_asset_inventory_tool(ctx),
         complete_script_plan_rebuild_tool(ctx),
         get_workflow_plan_tool(ctx),
+        get_prompt_preview_tool(ctx),
         get_generation_batch_tool(ctx),
         cancel_generation_batch_tool(ctx),
         get_project_content_tool(ctx),

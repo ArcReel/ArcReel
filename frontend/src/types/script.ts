@@ -324,3 +324,22 @@ export interface AdEpisodeScript {
 }
 
 export type EpisodeScript = NarrationEpisodeScript | DramaEpisodeScript | AdEpisodeScript;
+
+/**
+ * 一侧提示词的最终渲染结果。`text` 与 `unavailable` 恰有一个非 null；
+ * `unavailable` 已是后端按请求语言渲染的成品文案，前端不再二次翻译。
+ */
+export interface RenderedPromptPreview {
+  text: string | null;
+  unavailable: string | null;
+  /** 该条目的这一侧提示词当前是文本形态。 */
+  is_text_form: boolean;
+}
+
+/** 条目最终提示词预览：与执行期同一渲染出口，逐字等于实际发给模型的文本。 */
+export interface ItemPromptPreview {
+  item_id: string;
+  content_mode: "narration" | "drama" | "ad";
+  storyboard_image: RenderedPromptPreview;
+  video: RenderedPromptPreview;
+}
