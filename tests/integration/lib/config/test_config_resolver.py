@@ -746,8 +746,8 @@ class TestVideoCapabilities:
 
 
 class TestVoiceConsistency:
-    """voice_consistency 二维派生（模型能力 × generation_mode）。全员经 `db_factory` 落真实
-    in-memory DB，按 CONTRIBUTING.md 的 pytest markers 纪律归 integration。"""
+    """voice_consistency 三维派生（模型能力 × generation_mode × 角色声音绑定方式）。全员经
+    `db_factory` 落真实 in-memory DB，按 CONTRIBUTING.md 的 pytest markers 纪律归 integration。"""
 
     async def _caps(self, db_factory, project: dict) -> dict:
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -758,7 +758,31 @@ class TestVoiceConsistency:
                 return await resolver._resolve_video_capabilities(fake_svc, session, "demo")
 
     async def test_seedance_2_reference_video_is_native(self, db_factory):
-        """reference_audio_mode=direct 且 generation_mode=reference_video → native。"""
+        """reference_audio_mode=direct、generation_mode=reference_video 且项目选了参考音频绑定 → native。"""
+        caps = await self._caps(
+            db_factory,
+            {
+                "video_backend": "ark/doubao-seedance-2-0-260128",
+                "generation_mode": "reference_video",
+                "character_voice_binding": "reference_audio",
+            },
+        )
+        assert caps["voice_consistency"] == "native"
+
+    async def test_prompt_binding_downgrades_native_to_soft(self, db_factory):
+        """项目选提示词软约束时，原生音频参考通道的模型同样降格 soft：声音只靠 voice_style 约束。"""
+        caps = await self._caps(
+            db_factory,
+            {
+                "video_backend": "ark/doubao-seedance-2-0-260128",
+                "generation_mode": "reference_video",
+                "character_voice_binding": "prompt",
+            },
+        )
+        assert caps["voice_consistency"] == "soft"
+
+    async def test_missing_binding_defaults_to_prompt_and_downgrades(self, db_factory):
+        """字段缺省即默认档（提示词软约束）：新项目不写该字段时不得解出 native。"""
         caps = await self._caps(
             db_factory,
             {
@@ -766,7 +790,19 @@ class TestVoiceConsistency:
                 "generation_mode": "reference_video",
             },
         )
-        assert caps["voice_consistency"] == "native"
+        assert caps["voice_consistency"] == "soft"
+
+    async def test_unreadable_binding_falls_back_to_prompt(self, db_factory):
+        """project.json 被手编成非法值时按默认档解读，不得升格成参考音频直传。"""
+        caps = await self._caps(
+            db_factory,
+            {
+                "video_backend": "ark/doubao-seedance-2-0-260128",
+                "generation_mode": "reference_video",
+                "character_voice_binding": ["reference_audio"],
+            },
+        )
+        assert caps["voice_consistency"] == "soft"
 
     async def test_requested_generate_audio_is_exposed_separately_from_pricing_value(self, db_factory):
         """caps 并列透出用户无声意图与计价口径：AI Studio Veo 恒按含音出账，但项目关掉音频时
@@ -882,7 +918,7 @@ class TestVoiceConsistency:
         assert caps["voice_consistency"] == "soft"
 
     async def test_custom_provider_with_direct_override_and_reference_video_is_native(self, db_factory):
-        """自定义供应商覆盖 reference_audio_mode=direct + 上限 > 0，且走参考生视频路径 → native。"""
+        """自定义供应商覆盖 reference_audio_mode=direct + 上限 > 0，参考生视频路径 + 参考音频绑定 → native。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -918,6 +954,7 @@ class TestVoiceConsistency:
                 mock_pm.return_value.load_project.return_value = {
                     "video_backend": project_backend,
                     "generation_mode": "reference_video",
+                    "character_voice_binding": "reference_audio",
                 }
                 caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
         assert caps["voice_consistency"] == "native"
@@ -1677,9 +1714,10 @@ class TestProjectGenerationModeCaps:
         assert (await _video_caps(db_factory, reference_project))["model"] == "S2V-01"
 
     async def test_voice_consistency_follows_project_route(self, db_factory):
-        """参考生视频按 native 解析，分镜图生视频降格 soft。"""
+        """参考生视频（且项目选了参考音频绑定）按 native 解析，分镜图生视频降格 soft。"""
         project = {
             "generation_mode": "reference_video",
+            "character_voice_binding": "reference_audio",
             "video_provider_r2v": "ark/doubao-seedance-2-0-260128",
             "video_backend": "ark/doubao-seedance-2-0-260128",
         }

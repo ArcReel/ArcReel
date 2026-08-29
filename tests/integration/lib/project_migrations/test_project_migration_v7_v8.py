@@ -38,6 +38,7 @@ from lib.project_migrations.runner import cleanup_stale_backups, migrate_project
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from lib.project_migrations.v9_to_v10_script_plan_naming import migrate_v9_to_v10
+from lib.project_migrations.v10_to_v11_character_voice_binding import migrate_v10_to_v11
 from lib.speech_artifact_provenance import (
     RenditionVariant,
     SelectedMediaEvidence,
@@ -575,6 +576,7 @@ def test_formal_script_plan_write_serializes_with_schema_last_activation(tmp_pat
         # 等锁的写入方因此只会看到迁移前后两个完整状态，与启动扫描先迁完再对外服务同口径。
         migrate_v8_to_v9(project_dir_arg)
         migrate_v9_to_v10(project_dir_arg)
+        migrate_v10_to_v11(project_dir_arg)
 
     def _activate() -> None:
         try:

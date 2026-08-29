@@ -668,6 +668,7 @@ export function StudioCanvasRouter() {
           onRestoreCharacterVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
           generatingCharacterNames={generatingCharacterNames}
+          voiceBinding={currentProjectData?.character_voice_binding}
         />
       </Route>
 

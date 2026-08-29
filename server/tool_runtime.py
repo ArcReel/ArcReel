@@ -30,6 +30,7 @@ from lib.asset_inventory import (
 )
 from lib.asset_types import ASSET_SPECS
 from lib.async_thread import run_sync_transaction as _run_sync_transaction
+from lib.character_voice import VALID_CHARACTER_VOICE_BINDINGS
 from lib.config.resolver import ConfigResolver
 from lib.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.db import async_session_factory
@@ -1526,6 +1527,7 @@ PROJECT_SETTINGS = (
     "planning_max_episodes",
     "narration_voice",
     "narration_speed",
+    "character_voice_binding",
 )
 PROJECT_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
 EPISODE_META_FIELDS = ("title",)
@@ -2008,6 +2010,12 @@ def _coerce_setting_value(key: str, value: Any) -> Any:
     if key == "brief":
         if value is not None and not isinstance(value, str):
             raise ValueError(f"brief 必须是字符串或 null,收到 {value!r}")
+        return value
+    if key == "character_voice_binding":
+        if value is not None and (not isinstance(value, str) or value not in VALID_CHARACTER_VOICE_BINDINGS):
+            raise ValueError(
+                f"character_voice_binding 必须是 {sorted(VALID_CHARACTER_VOICE_BINDINGS)} 之一或 null,收到 {value!r}"
+            )
         return value
     if key == "narration_voice":
         if value is not None and (not isinstance(value, str) or not value.strip()):

@@ -9,7 +9,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
-import type { Character } from "@/types";
+import type { Character, CharacterVoiceBinding } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 
@@ -22,11 +22,13 @@ interface Props {
   onRestoreCharacterVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingCharacterNames?: Set<string>;
+  /** 项目的角色声音绑定方式；决定角色卡是否把参考音频区折叠为可选。 */
+  voiceBinding?: CharacterVoiceBinding;
   /** 只读展示（引导演示项目）：不渲染新增 / 入库 / 生成 / 上传入口。 */
   readOnly?: boolean;
 }
 
-export function CharactersPage({ projectName, characters, onSaveCharacter, onGenerateCharacter, onAddCharacter, onRestoreCharacterVersion, onRefreshProject, generatingCharacterNames, readOnly = false }: Props) {
+export function CharactersPage({ projectName, characters, onSaveCharacter, onGenerateCharacter, onAddCharacter, onRestoreCharacterVersion, onRefreshProject, generatingCharacterNames, voiceBinding, readOnly = false }: Props) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -78,6 +80,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
                 onRestoreVersion={onRestoreCharacterVersion}
                 onReload={onRefreshProject}
                 generating={generatingCharacterNames?.has(name)}
+                voiceBinding={voiceBinding}
                 readOnly={readOnly}
               />
             ))}

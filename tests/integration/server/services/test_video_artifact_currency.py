@@ -19,6 +19,13 @@ from lib.artifact_manifest import (
 from lib.generation_queue import CompensableGenerationResult
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
 from lib.reference_video.execution_checkpoint import NarrationExecutionFacts
+from lib.reference_video.request_projection import (
+    FilesystemReferenceAssets,
+    clamp_reference_assets,
+    hydrate_reference_assets,
+    resolve_reference_assets,
+    unit_reference_declarations,
+)
 from lib.speech_artifact_provenance import (
     build_video_duration_basis,
     build_video_speech_basis,
@@ -27,7 +34,10 @@ from lib.speech_artifact_provenance import (
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import PaidVersionCommit, VersionManager
 from lib.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
-from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
+from lib.visual_artifact_provenance import (
+    build_reference_video_artifact_visual_basis,
+    build_storyboard_video_artifact_visual_basis,
+)
 from server.services import video_artifact_currency
 from server.services.artifact_version_restore import is_typed_media_version_restorable
 from server.services.video_artifact_currency import (
@@ -1032,3 +1042,124 @@ def test_current_selected_tts_and_planned_tier_drive_video_currency(tmp_path: Pa
     assert stale_tts != long_basis
     assert unavailable_tts == shorter_tier
     assert unavailable_tts_with_longer_plan is None
+
+
+def _reference_video_state(tmp_path: Path) -> tuple[Path, dict, dict, dict[str, object]]:
+    """一个已用参考音频生成过的参考生视频片段，连同它冻结下来的执行事实。"""
+
+    project_path = tmp_path / "demo"
+    sheet = project_path / "characters" / "阿离.png"
+    sheet.parent.mkdir(parents=True)
+    sheet.write_bytes(b"sheet")
+    audio = project_path / "characters" / "refs_audio" / "阿离.wav"
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"RIFF")
+    project = {
+        "content_mode": "drama",
+        "generation_mode": "reference_video",
+        "aspect_ratio": {"videos": "9:16"},
+        "character_voice_binding": "reference_audio",
+        "characters": {
+            "阿离": {
+                "voice_style": "清亮",
+                "character_sheet": "characters/阿离.png",
+                "reference_audio": "characters/refs_audio/阿离.wav",
+            }
+        },
+    }
+    unit = {
+        "unit_id": "E1U1",
+        "duration_seconds": 4,
+        "text": "@[阿离] 冲出门。\n@[阿离]：{快走。}",
+        "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
+    }
+    script = {"content_mode": "drama", "episode": 1, "video_units": [unit]}
+
+    preparation = admit_script_unit("video_units", unit).preparation
+    declared = unit_reference_declarations(project, unit)
+    hydration = hydrate_reference_assets(
+        declared, resolve_reference_assets(project, project_path, unit), FilesystemReferenceAssets(project_path)
+    )
+    visual = build_reference_video_artifact_visual_basis(
+        unit=unit,
+        request_assets=clamp_reference_assets(hydration.available, None),
+        style=None,
+        aspect_ratio="9:16",
+    )
+    speech = build_video_speech_basis(
+        preparation,
+        voices=project_character_voice_evidence(
+            preparation,
+            characters=project["characters"],
+            voice_style_speakers=("阿离",),
+            reference_audio_paths={"阿离": audio},
+        ),
+    )
+    duration = build_video_duration_basis(4)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=4,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=("阿离",),
+        duration_tiers=(4, 8),
+        reference_image_limit=None,
+        parent_version=0,
+    )
+    metadata: dict[str, object] = {
+        "artifact_video_currency": currency.to_dict(),
+        "execution_script_file": "episode_1.json",
+        "execution_provider_media": [
+            {
+                "role": "reference_audio",
+                "logical_type": "speaker",
+                "logical_name": "阿离",
+                "staged_locator": "characters/refs_audio/阿离.wav",
+            }
+        ],
+        "execution_narration": {
+            "delivery": "post_production",
+            "tts_status": "not_applicable",
+            "artifact_path": "",
+            "basis_digest": None,
+            "actual_duration_seconds": None,
+        },
+    }
+    return project_path, project, script, metadata
+
+
+def _reference_video_basis(project_path: Path, project: dict, script: dict, metadata: dict[str, object]):
+    return build_current_video_artifact_basis(
+        project_path=project_path,
+        project=project,
+        script=script,
+        resource_type="reference_videos",
+        resource_id="E1U1",
+        versions=VersionManager(project_path),
+        version_metadata=metadata,
+    )
+
+
+def test_switching_to_prompt_voice_binding_makes_a_reference_video_stale(tmp_path: Path) -> None:
+    """声音绑定方式属于交付内容：切回提示词软约束后，挂过参考音频的成片不再对得上当前设置。"""
+    project_path, project, script, metadata = _reference_video_state(tmp_path)
+    before = _reference_video_basis(project_path, project, script, metadata)
+    assert before is not None
+
+    switched = deepcopy(project)
+    switched["character_voice_binding"] = "prompt"
+    assert _reference_video_basis(project_path, switched, script, metadata) != before
+
+    # 字段缺省即默认档，与显式写 prompt 同判
+    absent = deepcopy(project)
+    del absent["character_voice_binding"]
+    assert _reference_video_basis(project_path, absent, script, metadata) != before
+
+
+def test_reference_video_stays_current_while_the_voice_binding_is_unchanged(tmp_path: Path) -> None:
+    project_path, project, script, metadata = _reference_video_state(tmp_path)
+    assert _reference_video_basis(project_path, project, script, metadata) == _reference_video_basis(
+        project_path, deepcopy(project), script, metadata
+    )

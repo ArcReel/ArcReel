@@ -189,7 +189,7 @@ export function ReferenceVideoCanvas({
   const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
 
   const voiceLegacyNotice = useMemo(
-    () => computeVoiceLegacyNotice(units, project?.characters ?? {}),
+    () => computeVoiceLegacyNotice(units, project?.characters ?? {}, project?.character_voice_binding),
     [units, project],
   );
   // 关闭 = 「已确认到该角色当前这一版声音」，故写回该角色自己的 voice_updated_at 而非
