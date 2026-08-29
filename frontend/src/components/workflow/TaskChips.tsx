@@ -1,6 +1,8 @@
-import { useId } from "react";
+import { useId, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkflowTaskObservation } from "@/types/workflow";
+import { useTaskRowsByIds } from "@/stores/tasks-store";
+import { TaskElapsedReadout } from "@/components/shared/TaskElapsedReadout";
 import { CheckpointNote } from "./CheckpointNote";
 import { UnitTag } from "./UnitTag";
 import { taskTone } from "./state-language";
@@ -23,6 +25,9 @@ interface Props {
 export function TaskChips({ tasks }: Props) {
   const { t } = useTranslation("workflow");
   const headingId = useId();
+  const taskIds = useMemo(() => tasks.map((task) => task.task_id), [tasks]);
+  // 工作流观测不带时间戳，时长按 task_id 回查任务队列。
+  const taskRows = useTaskRowsByIds(taskIds);
   if (tasks.length === 0) return null;
   const activeCount = tasks.filter((task) => ACTIVE_STATUSES.has(task.status)).length;
 
@@ -34,6 +39,7 @@ export function TaskChips({ tasks }: Props) {
       <ul className="flex flex-col gap-1">
         {tasks.map((task) => {
           const tone = taskTone(task.status);
+          const row = taskRows.get(task.task_id);
           return (
             <li key={task.task_id} className="flex flex-col gap-0.5">
               <span className="flex flex-wrap items-center gap-1.5">
@@ -46,6 +52,13 @@ export function TaskChips({ tasks }: Props) {
                   {" · "}
                   {t(`task_status_${task.status}`, { defaultValue: task.status })}
                 </span>
+                {row && (
+                  <TaskElapsedReadout
+                    task={row}
+                    className="text-[11px]"
+                    style={{ color: "var(--color-text-4)" }}
+                  />
+                )}
               </span>
               {task.provider_checkpoint && (
                 <CheckpointNote checkpoint={task.provider_checkpoint} showJobId />

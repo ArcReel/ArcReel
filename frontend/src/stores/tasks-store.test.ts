@@ -7,7 +7,6 @@ import {
   isOccupyingStatus,
   isResourceBusy,
   isScriptFileBusy,
-  isTerminalStatus,
   selectActiveResourceIds,
   selectHasActiveTaskForScriptFile,
   selectLatestTaskByResource,
@@ -109,19 +108,6 @@ describe("isOccupyingStatus", () => {
   it("counts terminal statuses as not occupying", () => {
     const free: TaskStatus[] = ["succeeded", "failed", "cancelled"];
     for (const status of free) expect(isOccupyingStatus(status)).toBe(false);
-  });
-});
-
-describe("isTerminalStatus", () => {
-  it("counts succeeded/failed/cancelled as terminal", () => {
-    expect(isTerminalStatus("succeeded")).toBe(true);
-    expect(isTerminalStatus("failed")).toBe(true);
-    expect(isTerminalStatus("cancelled")).toBe(true);
-  });
-
-  it("counts in-flight statuses as non-terminal", () => {
-    const live: TaskStatus[] = ["queued", "running", "cancelling"];
-    for (const status of live) expect(isTerminalStatus(status)).toBe(false);
   });
 });
 

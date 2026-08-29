@@ -9,6 +9,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
+import { useNowTick } from "@/hooks/useNowTick";
 import { GlassPopover } from "@/components/ui/GlassPopover";
 import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import type { WorkspaceNotification } from "@/types";
@@ -206,12 +207,7 @@ export function WorkspaceNotificationsDrawer({
                         >
                           {item.read ? t("read_status") : t("new_notification")}
                         </span>
-                        <span
-                          className="num text-[10px]"
-                          style={{ color: "var(--color-text-4)" }}
-                        >
-                          {formatNotificationTime(item.created_at, t)}
-                        </span>
+                        <NotificationAge timestamp={item.created_at} />
                       </div>
                       <p
                         className="mt-1.5 whitespace-pre-wrap leading-[1.55]"
@@ -307,11 +303,27 @@ function getToneIcon(tone: WorkspaceNotification["tone"]) {
   }
 }
 
+/**
+ * 通知的年龄。抽成组件而非行内调用，是为了让共享时钟的订阅落在抽屉打开时——
+ * Popover 关闭时不挂载子树，抽屉组件本身却始终挂载，把 hook 写在外层会让时钟
+ * 常驻走动。
+ */
+function NotificationAge({ timestamp }: { timestamp: number }) {
+  const { t } = useTranslation("dashboard");
+  const now = useNowTick();
+  return (
+    <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+      {formatNotificationTime(timestamp, now, t)}
+    </span>
+  );
+}
+
 function formatNotificationTime(
   timestamp: number,
+  now: number,
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
-  const diff = Date.now() - timestamp;
+  const diff = now - timestamp;
   if (diff < 60_000) return t("just_now");
   if (diff < 3_600_000)
     return t("minutes_ago", { count: Math.max(1, Math.floor(diff / 60_000)) });

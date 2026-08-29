@@ -49,4 +49,10 @@ export default {
   'not_found_title': 'Page not found',
   'not_found_back': 'Back to home',
   'recommended': 'Recommended',
+  'elapsed_seconds': '{{seconds}}s',
+  'elapsed_minutes': '{{minutes}}m {{seconds}}s',
+  'elapsed_hours': '{{hours}}h {{minutes}}m',
+  'elapsed_running': 'Running for {{duration}}',
+  'elapsed_queued': 'Waiting for {{duration}}',
+  'elapsed_total': 'Took {{duration}}',
 };
