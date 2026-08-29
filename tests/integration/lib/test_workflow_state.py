@@ -28,6 +28,7 @@ from lib.project_migration_failure import (
 )
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.resource_paths import resource_relative_path
+from lib.script_plan_entries import plan_entry_revisions
 from lib.source_revision import SourceScope, compute_source_revision
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
@@ -1116,6 +1117,128 @@ def test_legacy_storyboard_script_without_duration_remains_resumable(
     assert status.state == "STORYBOARD"
     assert status.artifacts["script"]["state"] == "current"
     assert not status.blockers
+
+
+def _confirmed_narration_project_with_script(
+    tmp_path: Path, plan_segments: list[dict], script_segments: list[dict]
+) -> tuple[ProjectManager, Path, str]:
+    """造一个 script_plan 已确认、剧本已登记的 narration 项目，返回整集 script_plan 指纹。"""
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}]
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    _write_episode_source(project_path, 1)
+    script_plan_path = draft_dir / "script_plan_segments.json"
+    atomic_write_json(script_plan_path, {"segments": plan_segments})
+    revision = script_review.content_fingerprint(script_plan_path)
+    assert revision is not None
+    pm.update_project(
+        "demo", lambda project: script_review.apply_confirmation(project, 1, revision, "2026-08-11T00:00:00Z")
+    )
+    _write_registered_script(
+        project_path,
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": script_segments,
+            "metadata": {script_review.SCRIPT_PLAN_REVISION_FIELD: revision},
+        },
+    )
+    return pm, project_path, revision
+
+
+def _plan_segment(segment_id: str, novel_text: str) -> dict:
+    return {
+        "segment_id": segment_id,
+        "novel_text": novel_text,
+        "duration_seconds": 4,
+        "segment_break": False,
+        "characters_in_segment": [],
+        "scenes": [],
+        "props": [],
+    }
+
+
+#: 不属于任何脚本规划条目的指纹值：条目上记着它，即表示该条目消费的内容已经不是当前那份。
+_MISMATCHED_ENTRY_REVISION = "sha256-v1:" + "0" * 64
+
+
+def test_script_entry_currency_reports_only_the_changed_entry(tmp_path: Path) -> None:
+    """一条条目的指纹失配：剧本判 stale，但失效条目只列那一条，其余条目不受牵连。"""
+    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
+    revisions = plan_entry_revisions("narration", plan, episode=1)
+    pm, _project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [
+            _valid_narration_segment(script_plan_entry_revision=revisions["E1S01"]),
+            _valid_narration_segment(segment_id="E1S02", script_plan_entry_revision=_MISMATCHED_ENTRY_REVISION),
+        ],
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "stale"
+    assert status.artifacts["script"]["stale_entry_ids"] == ["E1S02"]
+    assert status.artifacts["script"]["removed_entry_ids"] == []
+
+
+def test_script_entry_currency_marks_matching_entries_current(tmp_path: Path) -> None:
+    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
+    revisions = plan_entry_revisions("narration", plan, episode=1)
+    pm, _project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [
+            _valid_narration_segment(script_plan_entry_revision=revisions["E1S01"]),
+            _valid_narration_segment(segment_id="E1S02", script_plan_entry_revision=revisions["E1S02"]),
+        ],
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "current"
+    assert status.artifacts["script"]["stale_entry_ids"] == []
+    assert status.artifacts["script"]["entry_order_changed"] is False
+
+
+def test_script_entry_currency_reports_added_removed_and_reordered_entries(tmp_path: Path) -> None:
+    plan = [_plan_segment("E1S02", "原文乙。"), _plan_segment("E1S01", "原文甲。")]
+    revisions = plan_entry_revisions("narration", plan, episode=1)
+    pm, _project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [
+            _valid_narration_segment(script_plan_entry_revision=revisions["E1S01"]),
+            _valid_narration_segment(segment_id="E1S09", script_plan_entry_revision=_MISMATCHED_ENTRY_REVISION),
+        ],
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "stale"
+    assert status.artifacts["script"]["stale_entry_ids"] == ["E1S02"]
+    assert status.artifacts["script"]["removed_entry_ids"] == ["E1S09"]
+
+
+def test_legacy_script_without_entry_revisions_stays_current(tmp_path: Path) -> None:
+    """存量剧本条目无指纹：整集指纹仍匹配时不误报 stale（读时按整集口径回退）。"""
+    plan = [_plan_segment("E1S01", "原文甲。")]
+    pm, _project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path, plan, [_valid_narration_segment()]
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "current"
+    assert status.artifacts["script"]["stale_entry_ids"] == []
 
 
 def test_legacy_narration_scenes_skeleton_remains_resumable(tmp_path: Path) -> None:

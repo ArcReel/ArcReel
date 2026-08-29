@@ -10,7 +10,7 @@ import unicodedata
 from collections import Counter
 from collections.abc import Callable
 from contextlib import ExitStack
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, NamedTuple, cast
 
@@ -78,6 +78,7 @@ from lib.script_models import (
     build_drama_normalized_script_model,
     build_reference_units_script_plan_model,
 )
+from lib.script_plan_entries import SCOPE_ALL, SCOPE_STALE, ScriptPlanEntryError
 from lib.speech_composition import admit_script_unit
 from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextTaskType
@@ -101,10 +102,38 @@ class TextGenerationRequest:
     source: str | None = None
     instructions: str | None = None
     dry_run: bool = False
+    #: 提示词编写的重写范围：``"stale"``（默认）只重写内容失配与新增的条目，``"all"`` 整集重写。
+    scope: str = SCOPE_STALE
+    #: 只重写这些条目；非空时即为本次范围，与 ``scope="all"`` 互斥（同时给出即请求自相矛盾）。
+    entry_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if isinstance(self.episode, bool) or not isinstance(self.episode, int) or self.episode < 1:
             raise ValueError("episode must be a positive integer")
+        if self.scope not in {SCOPE_ALL, SCOPE_STALE}:
+            raise ValueError(f"scope must be {SCOPE_ALL!r} or {SCOPE_STALE!r}")
+        # 队列 payload 经 JSON 往返后 entry_ids 是 list：在此归一为 tuple，让「从工具入口构造」
+        # 与「从 payload 还原」两条路径得到同一个值，任务事实比对才不会因容器类型分叉。
+        entry_ids = tuple(self.entry_ids)
+        if any(not isinstance(entry_id, str) or not entry_id for entry_id in entry_ids):
+            raise ValueError("entry_ids must be non-empty strings")
+        if entry_ids and self.scope == SCOPE_ALL:
+            raise ValueError("entry_ids 与 scope='all' 互斥：要么整集重写，要么只重写指定条目")
+        object.__setattr__(self, "entry_ids", entry_ids)
+
+    @property
+    def authoring_scope(self) -> str | tuple[str, ...]:
+        """传给 ``ScriptGenerator.generate`` 的重写范围。"""
+        return self.entry_ids or self.scope
+
+    def to_payload(self) -> dict[str, object]:
+        """队列任务 payload：只用 JSON 原生类型。
+
+        ``asdict`` 会把 ``entry_ids`` 留成 tuple，而从数据库读回来的同一份 payload 是 list；
+        「本次请求与在跑任务是否同一件事」的比对按值相等判定，两种容器类型会让同一个请求
+        判成不同，把幂等提交变成一次任务冲突。
+        """
+        return {**asdict(self), "entry_ids": list(self.entry_ids)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -636,7 +665,7 @@ async def generate_episode_script(
                 project_path,
                 config_resolver=config_resolver,
             )
-            prompt = await generator.build_prompt(episode, instructions=instructions)
+            prompt = await generator.build_prompt(episode, instructions=instructions, scope=request.authoring_scope)
             return TextGenerationResult(f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}")
 
         generator = await ScriptGenerator.create(
@@ -645,10 +674,13 @@ async def generate_episode_script(
         )
         file_receipts: list[FormalWriteReceipt] = []
         manifest_receipts: list[ArtifactEntryRekeyReceipt] = []
+        rewritten: list[str] = []
         try:
             result_path = await generator.generate(
                 episode=episode,
                 instructions=instructions,
+                scope=request.authoring_scope,
+                rewritten_entry_ids=rewritten,
                 cancellation_file_receipts=file_receipts,
                 cancellation_manifest_receipts=manifest_receipts,
             )
@@ -662,17 +694,20 @@ async def generate_episode_script(
                 )
                 await run_noninterruptible_sync(receipt.compensate_cancelled)
             raise
+    except ScriptPlanEntryError as exc:
+        # 点名的条目不在当前脚本规划内是调用方的错：报「拒绝生成」而不是让它冒成 internal_error，
+        # 后者会引导 Agent 原样重试同一份必然失败的参数。
+        raise TextGenerationError(f"❌ 重写范围无效: {exc}") from exc
     except FileNotFoundError as exc:
         raise TextGenerationError(f"❌ 文件错误: {exc}") from exc
+    rewritten_note = "、".join(rewritten) if rewritten else "无（其余条目原样保留）"
+    summary = f"✅ 剧本生成完成: {result_path}\n   本次重写条目: {rewritten_note}"
     if not file_receipts and not manifest_receipts:
-        return TextGenerationResult(f"✅ 剧本生成完成: {result_path}")
+        return TextGenerationResult(summary)
     if len(file_receipts) != 1 or len(manifest_receipts) != 1:
         raise RuntimeError("episode script commit did not return cancellation state")
     receipt = _EpisodeScriptCancellationReceipt(project_path, episode, file_receipts[0], manifest_receipts[0])
-    return CompensableTextGenerationResult(
-        f"✅ 剧本生成完成: {result_path}",
-        receipt.compensate_cancelled,
-    )
+    return CompensableTextGenerationResult(summary, receipt.compensate_cancelled)
 
 
 # ---------------------------------------------------------------------------

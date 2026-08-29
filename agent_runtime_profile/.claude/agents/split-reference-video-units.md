@@ -115,7 +115,7 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 - 参考图不落盘：执行期按正文里 `@[名称]` 的首现顺序解析（顺序即参考图编号），去重后超过 `max_reference_images` 会判违约——要改参考图就改正文的引用，台词记号的说话人位不计入
 - `unit_id` 不手写：晋升时按数组顺序重编为 `E{集数}U{两位序号}`。调整视频单元顺序或增删视频单元即调整数组元素，编号自动跟随
 
-**修改必重生 JSON 剧本**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新拆分 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
+**修改必重生失效条目**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script`，否则留下「新拆分 + 旧剧本」的陈旧组合。重生只覆盖内容变化与新增的条目，未变条目的提示词与已生成产物原样保留。在返回摘要中明确提示这一点。
 
 ## 输出格式参考
 
@@ -154,5 +154,5 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 **文件已保存**: `drafts/episode_{N}/script_plan_reference_units.json`
 
 下一步：首次生成（情况 A）→ 主 Agent 可 dispatch `create-episode-script` 子智能体生成 JSON 剧本（ReferenceVideoScript）；
-修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
+修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生失效条目。
 ```

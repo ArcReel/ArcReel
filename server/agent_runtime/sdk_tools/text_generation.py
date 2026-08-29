@@ -9,6 +9,7 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
+from lib.script_plan_entries import SCOPE_STALE
 from server.draft_workflow import DiscardDraftRequest, DraftLocator, PatchDraftRequest, PromoteDraftRequest
 from server.media_tools.context import (
     MAX_INSTRUCTIONS_LEN,
@@ -212,23 +213,43 @@ def promote_draft_tool(ctx: ToolContext):
 def generate_episode_script_tool(ctx: ToolContext):
     @tool(
         "generate_episode_script",
-        "调用项目配置的文本模型生成 JSON 剧本。dry_run=true 时仅返回 prompt。",
+        "调用项目配置的文本模型生成 JSON 剧本。已有剧本时默认只重写脚本规划内容已变化的条目，"
+        "其余条目的提示词、备注、尾帧与已生成产物原样保留。dry_run=true 时仅返回 prompt。",
         {
             "type": "object",
             "properties": {
                 "episode": {"type": "integer", "minimum": 1, "description": "剧集编号"},
                 "instructions": _INSTRUCTIONS_SCHEMA,
+                "scope": {
+                    "type": "string",
+                    "enum": ["stale", "all"],
+                    "description": "重写范围：stale（默认）只重写内容失配与新增的条目；all 整集重写",
+                },
+                "entry_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "只重写这些条目（分镜 / 单元 id）；给出时即为本次范围，与 scope=all 互斥",
+                },
                 "dry_run": {"type": "boolean", "description": "仅显示 prompt，不调用模型"},
             },
             "required": ["episode"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        request = ToolTextGenerationRequest(
-            episode=int(args["episode"]),
-            instructions=args.get("instructions"),
-            dry_run=bool(args.get("dry_run")),
-        )
+        try:
+            request = ToolTextGenerationRequest(
+                episode=int(args["episode"]),
+                instructions=args.get("instructions"),
+                scope=args.get("scope") or SCOPE_STALE,
+                entry_ids=tuple(args.get("entry_ids") or ()),
+                dry_run=bool(args.get("dry_run")),
+            )
+        except (TypeError, ValueError) as exc:
+            # 参数自相矛盾（如 scope=all 同时点名 entry_ids）是调用方的错，报 invalid_request
+            # 而不是让它冒成 internal_error——后者会引导 Agent 原样重试。
+            return tool_outcome_response(
+                "text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+            )
         outcome = await run_generate_episode_script(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
         return tool_outcome_response("text_generation", outcome)
 

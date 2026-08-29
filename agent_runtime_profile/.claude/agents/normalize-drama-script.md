@@ -132,7 +132,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "bas
 
 **`screenplay` 项目的逐字保真**：本项目 `source_kind=screenplay` 时（不确定就 Read `project.json` 确认），手动修改同样受逐字约束——`utterances` 里作者写下的台词与画外音、以及 `source_text` 原文锚**一字不改**，除非用户的修改要求明确针对这些口播 / 原文文字本身。`scene_description`、运镜、景别等视觉描述可按用户意见调整，但不要借「润色」之名改动作者的对白原文。
 
-**修改必重生 JSON 剧本**：内容修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新内容 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
+**修改必重生失效条目**：内容修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script`，否则留下「新内容 + 旧剧本」的陈旧组合。重生只覆盖内容变化与新增的条目，未变条目的提示词与已生成产物原样保留。在返回摘要中明确提示这一点。
 
 ### 返回摘要（三种情况均执行）
 
@@ -155,7 +155,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "bas
 - `drafts/episode_{N}/script_plan_normalized_script.json`
 
 下一步：首次生成（情况 A）→ 主 Agent 可 dispatch `create-episode-script` 子智能体生成 JSON 剧本；
-修改或修复已有内容（情况 B/C）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
+修改或修复已有内容（情况 B/C）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生失效条目。
 ```
 
 ## 输出格式参考
