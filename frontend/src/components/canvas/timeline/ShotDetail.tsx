@@ -33,8 +33,10 @@ import { NarrationAudioCard } from "./NarrationAudioCard";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { ReferenceDurationConfirmDialog } from "../reference/ReferenceDurationConfirmDialog";
 import { NotesDrawer } from "./NotesDrawer";
+import { PromptPreviewPanel } from "./PromptPreviewPanel";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Popover } from "@/components/ui/Popover";
 import { API, NarratedVideoDurationError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -43,6 +45,8 @@ import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import {
+  emptyImagePrompt,
+  emptyVideoPrompt,
   isStructuredImagePrompt,
   isStructuredVideoPrompt,
 } from "@/utils/prompt-shape";
@@ -51,6 +55,9 @@ import type { NarratedVideoDurationAdmission, ReferenceGenerationRequestOptions 
 
 type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
+
+/** 提示词形态切换与预览按分镜图 / 视频两侧分别作用。 */
+type PromptSide = "image" | "video";
 type ImagePromptValue = ImagePrompt | string;
 type VideoPromptValue = VideoPrompt | string;
 
@@ -646,6 +653,75 @@ export function ShotDetail({
     setDraft((d) => ({ ...d, video_prompt: val }));
   };
 
+  // 提示词形态切换。结构化 → 文本以后端渲染结果为初值（前端不复刻渲染逻辑）；
+  // 文本 → 结构化不做解析，须显式确认丢弃文本。
+  const [formSwitching, setFormSwitching] = useState<PromptSide | null>(null);
+  const [pendingStructSwitch, setPendingStructSwitch] = useState<PromptSide | null>(null);
+  const [formSwitchError, setFormSwitchError] = useState<string | null>(null);
+
+  const switchToTextForm = async (side: PromptSide) => {
+    if (!scriptFile || formSwitching) return;
+    setFormSwitching(side);
+    setFormSwitchError(null);
+    try {
+      const preview = await API.previewScriptItemPrompts(projectName, segmentId, scriptFile);
+      const rendered = side === "image" ? preview.storyboard_image : preview.video;
+      const seed = rendered.text ?? "";
+      if (side === "image") handleImgStringChange(seed);
+      else handleVidStringChange(seed);
+    } catch (e) {
+      setFormSwitchError(errMsg(e));
+    } finally {
+      setFormSwitching(null);
+    }
+  };
+
+  const confirmStructuredForm = () => {
+    const side = pendingStructSwitch;
+    if (!side) return;
+    setDraft((d) =>
+      side === "image"
+        ? { ...d, image_prompt: emptyImagePrompt() }
+        : { ...d, video_prompt: emptyVideoPrompt(isDrama) },
+    );
+    setPendingStructSwitch(null);
+  };
+
+  const renderFormToggle = (side: PromptSide, isStructured: boolean) => {
+    // 草稿脏时禁用：结构化 → 文本的初值取自已保存内容，带着未保存改动切换会静默丢弃它们。
+    const blocked = refsReadOnly || !scriptFile || dirty || formSwitching !== null;
+    const title = dirty ? t("prompt_form_switch_needs_save") : undefined;
+    return (
+      <span className="inline-flex items-center gap-0.5" role="group" aria-label={t("prompt_form_group_label")}>
+        {(
+          [
+            ["structured", t("prompt_form_structured"), isStructured],
+            ["text", t("prompt_form_text"), !isStructured],
+          ] as const
+        ).map(([key, label, active]) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={active}
+            disabled={blocked || active}
+            title={title}
+            onClick={() => {
+              if (key === "text") void switchToTextForm(side);
+              else setPendingStructSwitch(side);
+            }}
+            className="focus-ring rounded px-1.5 py-0.5 text-[10px] transition-colors disabled:cursor-default"
+            style={{
+              color: active ? "var(--color-text-2)" : "var(--color-text-4)",
+              background: active ? "var(--color-bg-grad-a)" : "transparent",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </span>
+    );
+  };
+
   const handleNotesCommit = (value: string) => {
     if (value === note) return;
     void onUpdatePrompt?.(segmentId, "note", value);
@@ -907,6 +983,7 @@ export function ShotDetail({
               {t("detail_field_chars_count", { count: imgDraft.scene.length })}
             </span>
           )}
+          {renderFormToggle("image", isStructIp)}
         </div>
         {imgDraft ? (
           <ImagePromptEditor prompt={imgDraft} onUpdate={handleImgUpdate} readOnly={refsReadOnly} />
@@ -920,6 +997,15 @@ export function ShotDetail({
             readOnly={refsReadOnly}
             placeholder={t("detail_image_prompt_placeholder")}
             style={{ minHeight: 124 }}
+          />
+        )}
+        {scriptFile && (
+          <PromptPreviewPanel
+            projectName={projectName}
+            scriptFile={scriptFile}
+            segmentId={segmentId}
+            side="storyboard_image"
+            dirty={dirty}
           />
         )}
       </section>
@@ -945,6 +1031,7 @@ export function ShotDetail({
               {t("detail_field_chars_count", { count: vidDraft.action.length })}
             </span>
           )}
+          {renderFormToggle("video", isStructVp)}
         </div>
         {vidDraft ? (
           <VideoPromptEditor prompt={vidDraft} onUpdate={handleVidUpdate} readOnly={refsReadOnly} />
@@ -959,6 +1046,20 @@ export function ShotDetail({
             placeholder={t("detail_video_prompt_placeholder")}
             style={{ minHeight: 88 }}
           />
+        )}
+        {scriptFile && (
+          <PromptPreviewPanel
+            projectName={projectName}
+            scriptFile={scriptFile}
+            segmentId={segmentId}
+            side="video"
+            dirty={dirty}
+          />
+        )}
+        {formSwitchError && (
+          <p className="mt-2 text-[11px]" style={{ color: "var(--color-warm)" }}>
+            {formSwitchError}
+          </p>
         )}
       </section>
     </div>
@@ -1078,6 +1179,15 @@ export function ShotDetail({
           onCancel={() => setPendingDurationConfirmation(null)}
         />
       )}
+      <ConfirmDialog
+        open={pendingStructSwitch !== null}
+        title={t("prompt_form_to_structured_title")}
+        description={t("prompt_form_to_structured_desc")}
+        confirmLabel={t("prompt_form_to_structured_confirm")}
+        tone="danger"
+        onConfirm={confirmStructuredForm}
+        onCancel={() => setPendingStructSwitch(null)}
+      />
     </div>
   );
 

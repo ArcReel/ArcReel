@@ -150,17 +150,37 @@ def build_storyboard_prompt(
         raise TypeError("style_description must be a string")
     projected, normalized_style = project_storyboard_image_prompt(image_prompt, style)
 
+    rendered = image_prompt_to_yaml(projected, normalized_style) if isinstance(projected, dict) else projected
     style_parts: list[str] = []
     if normalized_style and isinstance(projected, str):
         style_parts.append(f"Style: {normalized_style}")
     normalized_description = style_description.strip()
     if normalized_description:
         style_parts.append(f"Visual style: {normalized_description}")
-    style_prefix = "\n".join(style_parts) + "\n\n" if style_parts else ""
-    rendered = image_prompt_to_yaml(projected, normalized_style) if isinstance(projected, dict) else projected
-    if style_prefix and not rendered.startswith(style_prefix):
-        rendered = f"{style_prefix}{rendered}"
+    # 文本形态才按内容判重：它以「当前渲染结果」为初值，正文本身就带着这些声明，按前缀相等
+    # 判定会漏判而叠出第二份。结构形态的正文是本函数刚渲染出的 YAML，一律注入。
+    if isinstance(projected, str):
+        style_parts = [part for part in style_parts if part not in rendered]
+    if style_parts:
+        rendered = "\n".join(style_parts) + "\n\n" + rendered
     return append_image_negative_tail(rendered)
+
+
+def render_storyboard_image_prompt(
+    image_prompt: object,
+    *,
+    style: str = "",
+    style_description: str = "",
+    product_names: Sequence[str] | None = None,
+) -> str:
+    """分镜图最终提示词文本的唯一出口。
+
+    执行路径与预览接口共用本函数：结构形态经项目风格投影为 YAML、文本形态原样作提示词主体，
+    两者同样注入项目风格与反向约束，商品分镜再追加高保真还原指令（``product_names`` 取实际
+    注入了参考图的商品，与执行期同口径）。
+    """
+
+    return append_product_fidelity_tail(build_storyboard_prompt(image_prompt, style, style_description), product_names)
 
 
 def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | None) -> str:

@@ -9,7 +9,7 @@ script_models.py - 剧本数据模型
 import logging
 from typing import Annotated, Any, ClassVar, Literal, get_args
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.script_skeleton import resolve_declared_kind
@@ -168,6 +168,19 @@ class DramaVideoPrompt(_VideoPromptCore):
     """
 
 
+def _require_non_blank_prompt(value: str) -> str:
+    """文本形态提示词不得为空白：空串等价于「没有提示词」，渲染层同样以 ValueError 拒绝。"""
+    if not value.strip():
+        raise ValueError("prompt text must not be empty")
+    return value
+
+
+#: 提示词的文本形态：该字段本身就是送给模型的提示词主体，渲染层只做必要的注入、不套结构模板。
+#: 以 ``SkipJsonSchema`` 排除在 response_schema 之外——结构化输出仍只允许 LLM 产出结构形态，
+#: 文本形态是创作者在时间线里显式切换的编写方式，不是模型可选的输出形状。
+PromptText = SkipJsonSchema[Annotated[str, AfterValidator(_require_non_blank_prompt)]]
+
+
 class GeneratedAssets(BaseModel):
     """生成资源状态（初始化为空）"""
 
@@ -242,8 +255,8 @@ class NarrationSegment(BaseModel):
     characters_in_segment: list[str] = Field(description="出场角色名称列表")
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
-    image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
-    video_prompt: VideoPrompt = Field(description="视频生成提示词")
+    image_prompt: ImagePrompt | PromptText = Field(description="分镜图生成提示词")
+    video_prompt: VideoPrompt | PromptText = Field(description="视频生成提示词")
     # transition_to_next 由 _add_metadata default + 用户 PATCH 路径(projects.py UpdateSegmentRequest)管理;
     # LLM 无 prompt 引导,隐藏避免乱填污染剪映/compose-video 合成
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
@@ -486,9 +499,9 @@ class DramaScene(BaseModel):
     characters_in_scene: list[str] = Field(description="出场角色名称列表")
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
-    image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
+    image_prompt: ImagePrompt | PromptText = Field(description="分镜图生成提示词")
     # drama 的 video_prompt 只承载画面动作、运镜与环境音，口播由下方 utterances 承载。
-    video_prompt: DramaVideoPrompt = Field(description="视频生成提示词")
+    video_prompt: DramaVideoPrompt | PromptText = Field(description="视频生成提示词")
     # utterances 统一承载分镜级角色台词与画外音；条目顺序即幕内发声顺序（见 ADR 0040）。
     utterances: list[Utterance] = Field(
         default_factory=list,
@@ -693,8 +706,8 @@ class AdShot(BaseModel):
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     products_in_shot: list[str] = Field(default_factory=list, description="出场商品名称列表，非空即商品分镜")
-    image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
-    video_prompt: VideoPrompt = Field(description="视频生成提示词")
+    image_prompt: ImagePrompt | PromptText = Field(description="分镜图生成提示词")
+    video_prompt: VideoPrompt | PromptText = Field(description="视频生成提示词")
     # 见 NarrationSegment.transition_to_next 说明
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。

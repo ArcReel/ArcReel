@@ -134,6 +134,7 @@ from server.draft_workflow import (
     PatchDraftRequest,
     PromoteDraftRequest,
 )
+from server.services.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
 from server.services.video_caps import annotate_reference_unit_tiers
 from server.services.workflow_planner import WorkflowPlanner
 from server.text_generation import (
@@ -849,6 +850,46 @@ async def get_episode_script(
     return ToolOutcome(
         value=EpisodeScriptContent(revision=script_revision(script), script_filename=filename, script=script)
     )
+
+
+class PromptPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    script: str = Field(min_length=1, description="剧本文件名（纯文件名）")
+    item_id: str = Field(min_length=1, description="分镜条目 id")
+
+
+async def get_prompt_preview(
+    request: ToolRequest[PromptPreviewRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[ItemPromptPreview]:
+    """渲染一个条目当前会送进图像 / 视频模型的最终提示词文本。
+
+    与执行路径共用同一渲染出口，结果逐字等于本次生成实际发出的提示词。只读：不向供应商
+    发请求、不产生费用、不写产物清单。``unavailable`` 是稳定的机器可读原因码，两个 host
+    原样透传，UI 侧的成品文案由 REST 路由按请求语言渲染。
+    """
+    filename = request.value.script
+    if "/" in filename or "\\" in filename or filename in {".", ".."}:
+        return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
+    try:
+        failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
+        if failure is not None:
+            return ToolOutcome(problem=ToolProblem(MIGRATION_FAILURE_CODE, failure.reason))
+        preview = await preview_item_prompts(
+            scope.project_name, filename, request.value.item_id, projects=services.projects
+        )
+    except ScriptItemNotFound:
+        return ToolOutcome(problem=ToolProblem("item_not_found", f"剧本中不存在分镜 {request.value.item_id}"))
+    except FileNotFoundError as exc:
+        return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
+    except (TypeError, ValueError) as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"get_prompt_preview 失败: {exc}"))
+    return ToolOutcome(value=preview)
 
 
 async def list_source_files(
@@ -2332,6 +2373,7 @@ __all__ = [
     "ToolOutcome",
     "ToolProblem",
     "ToolRequest",
+    "PromptPreviewRequest",
     "UploadSourceRequest",
     "complete_asset_inventory",
     "cancel_generation_batch",
@@ -2341,6 +2383,7 @@ __all__ = [
     "get_episode_script",
     "get_generation_batch",
     "get_project_content",
+    "get_prompt_preview",
     "get_source_text",
     "get_script_plan_content",
     "get_video_capabilities",

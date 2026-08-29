@@ -166,7 +166,14 @@ class TestInvalidNarration:
 
     def test_video_prompt_wrong_shape(self):
         seg = _segment()
-        seg["video_prompt"] = "纯字符串而非对象"
+        seg["video_prompt"] = 123
+        result = validate_script_structure(_narration([seg]))
+        assert not result.valid
+        assert any("video_prompt" in e for e in result.errors)
+
+    def test_video_prompt_blank_text_rejected(self):
+        seg = _segment()
+        seg["video_prompt"] = "   "
         result = validate_script_structure(_narration([seg]))
         assert not result.valid
         assert any("video_prompt" in e for e in result.errors)

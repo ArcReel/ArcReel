@@ -2285,13 +2285,24 @@ async def test_generate_videos_scene_scope_generated_assets_non_dict_readable_re
     assert "请先运行 generate_storyboards" in out["content"][0]["text"]
 
 
-def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
-    """drama：_get_video_prompt 从分镜级 dialogue-kind utterances 派生 video YAML 台词，
-    voiceover-kind 不进；narration / ad（无 utterances 字段）原样渲染既有 video_prompt.dialogue。"""
+def _admitted_video_yaml(item: dict, **kwargs) -> dict:
+    """准入渲染出口产出的 YAML 段。
+
+    该出口与执行路径共用 ``render_storyboard_video_prompt``，尾部统一追加的反向约束不是
+    YAML，解析前剥离。
+    """
     import yaml
 
-    from server.services.video_batch_admission import storyboard_video_prompt as _get_video_prompt
+    from lib.prompt_builders import append_video_negative_tail
+    from server.services.video_batch_admission import storyboard_video_prompt
 
+    rendered = storyboard_video_prompt(item, **kwargs)
+    return yaml.safe_load(rendered.removesuffix(append_video_negative_tail("")).rstrip())
+
+
+def test_storyboard_video_prompt_drama_sources_dialogue_from_utterances() -> None:
+    """drama：准入渲染出口从分镜级 dialogue-kind utterances 派生 video YAML 台词，
+    voiceover-kind 不进；narration / ad（无 utterances 字段）原样渲染既有 video_prompt.dialogue。"""
     drama_item = {
         "scene_id": "E1S01",
         "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
@@ -2300,7 +2311,7 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
             {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
         ],
     }
-    parsed = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama"))
+    parsed = _admitted_video_yaml(drama_item, content_mode="drama")
     assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
 
     narration_item = {
@@ -2312,17 +2323,13 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
             "dialogue": [{"speaker": "Alice", "line": "hello"}],
         },
     }
-    parsed_narr = yaml.safe_load(_get_video_prompt(narration_item, content_mode="narration"))
+    parsed_narr = _admitted_video_yaml(narration_item, content_mode="narration")
     assert parsed_narr["Dialogue"] == [{"Speaker": "Alice", "Line": "hello"}]
 
 
-def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None:
+def test_storyboard_video_prompt_injects_voice_profiles_when_characters_given() -> None:
     """drama：传入带非空 voice_style 的角色资产时 YAML 顶部出现 Voice_Profiles；
     voice_characters 缺省（既有调用点行为）不注入。"""
-    import yaml
-
-    from server.services.video_batch_admission import storyboard_video_prompt as _get_video_prompt
-
     drama_item = {
         "scene_id": "E1S01",
         "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
@@ -2330,25 +2337,21 @@ def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None
     }
     characters = {"王": {"voice_style": "低沉沙哑"}}
 
-    parsed = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama", voice_characters=characters))
+    parsed = _admitted_video_yaml(drama_item, content_mode="drama", voice_characters=characters)
     assert parsed["Voice_Profiles"] == [{"Speaker": "王", "Voice_Style": "低沉沙哑"}]
 
-    parsed_default = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama"))
+    parsed_default = _admitted_video_yaml(drama_item, content_mode="drama")
     assert "Voice_Profiles" not in parsed_default
 
-    parsed_no_style = yaml.safe_load(
-        _get_video_prompt(drama_item, content_mode="drama", voice_characters={"王": {"voice_style": ""}})
+    parsed_no_style = _admitted_video_yaml(
+        drama_item, content_mode="drama", voice_characters={"王": {"voice_style": ""}}
     )
     assert "Voice_Profiles" not in parsed_no_style
 
 
-def test_get_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
+def test_storyboard_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
     """utterances 迁移前的存量 drama 剧本（无 utterances 字段，台词仍在
     video_prompt.dialogue）：改走 legacy 出口派生 Voice_Profiles，不因缺 utterances 静默丢失。"""
-    import yaml
-
-    from server.services.video_batch_admission import storyboard_video_prompt as _get_video_prompt
-
     legacy_drama_item = {
         "scene_id": "E1S01",
         "video_prompt": {
@@ -2360,19 +2363,15 @@ def test_get_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
     }
     characters = {"王": {"voice_style": "低沉沙哑"}}
 
-    parsed = yaml.safe_load(_get_video_prompt(legacy_drama_item, content_mode="drama", voice_characters=characters))
+    parsed = _admitted_video_yaml(legacy_drama_item, content_mode="drama", voice_characters=characters)
     assert parsed["Voice_Profiles"] == [{"Speaker": "王", "Voice_Style": "低沉沙哑"}]
     assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
 
 
-def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() -> None:
+def test_storyboard_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() -> None:
     """narration/ad（item 无 utterances 字段）剧本 video_prompt 自带 voice_profiles 时一律剥离：
     该声明段唯一来源是 build_drama_video_prompt 的机械派生，剧本残留值不得越权、绕过 C 类
     （真无声）门控直达 YAML。"""
-    import yaml
-
-    from server.services.video_batch_admission import storyboard_video_prompt as _get_video_prompt
-
     narration_item = {
         "segment_id": "E1S01",
         "video_prompt": {
@@ -2382,7 +2381,7 @@ def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() 
             "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}],
         },
     }
-    parsed = yaml.safe_load(_get_video_prompt(narration_item, content_mode="narration"))
+    parsed = _admitted_video_yaml(narration_item, content_mode="narration")
     assert "Voice_Profiles" not in parsed
 
 

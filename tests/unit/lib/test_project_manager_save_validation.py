@@ -115,7 +115,7 @@ class TestValidateDefaultsOn:
 
         with pytest.raises(ScriptStructureValidationError):
             with pm.locked_script("demo", "episode_1.json") as script:  # 不传 validate
-                script["segments"][0]["video_prompt"] = "坏形状"
+                script["segments"][0]["video_prompt"] = 123
 
     def test_validate_false_bypasses_guard(self, tmp_path: Path):
         """显式 validate=False 时即便引入非法结构也放行。"""
@@ -123,9 +123,9 @@ class TestValidateDefaultsOn:
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
         with pm.locked_script("demo", "episode_1.json", validate=False) as script:
-            script["segments"][0]["video_prompt"] = "坏形状"
+            script["segments"][0]["video_prompt"] = 123
 
-        assert pm.load_script("demo", "episode_1.json")["segments"][0]["video_prompt"] == "坏形状"
+        assert pm.load_script("demo", "episode_1.json")["segments"][0]["video_prompt"] == 123
 
 
 def _drama_scene(scene_id: str = "E1S01") -> dict:

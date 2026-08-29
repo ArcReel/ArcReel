@@ -69,6 +69,7 @@ import type {
   ReferenceBatchGenerateRequest,
   ReferenceRequestOptions,
   ScriptPreview,
+  ItemPromptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
@@ -1329,6 +1330,25 @@ class API {
         method: "PATCH",
         body: JSON.stringify({ script_file: scriptFile, updates }),
       }
+    );
+  }
+
+  /**
+   * 条目最终提示词预览：分镜图与视频各一份，逐字等于执行期发给模型的文本。
+   *
+   * 只读——不向供应商发请求、不产生费用。读的是**已保存**的剧本内容，草稿未保存时
+   * 预览仍是上一次保存的结果。不可用原因由后端按请求语言渲染，前端不再二次翻译。
+   */
+  static async previewScriptItemPrompts(
+    projectName: string,
+    itemId: string,
+    scriptFile: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ItemPromptPreview> {
+    const query = new URLSearchParams({ script_file: scriptFile }).toString();
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/script-items/${encodeURIComponent(itemId)}/prompt-preview?${query}`,
+      { signal: options?.signal },
     );
   }
 

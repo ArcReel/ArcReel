@@ -172,6 +172,67 @@ def normalize_video_prompt(prompt: object) -> str:
     return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt))
 
 
+def render_storyboard_video_prompt(
+    prompt: object,
+    item: Mapping[str, Any] | None = None,
+    *,
+    content_mode: str,
+    voice_characters: dict[str, Any] | None,
+) -> str:
+    """分镜生视频最终提示词文本的唯一出口。
+
+    执行路径、批量准入、执行敏感摘要与预览接口共用本函数，四处产出逐字同构由此在结构上
+    成立，而非各写一份靠约定对齐。``prompt`` 取条目当前的 ``video_prompt``（结构形态或文本
+    形态），``item`` 供 drama 取分镜级 ``utterances``（``None`` 视同无 utterances 字段）。
+
+    文本形态下条目正文即提示词主体，不套结构模板；drama 的发声序列仍由脚本规划的
+    ``utterances`` 决定——正文不承载台词，台词与声音风格由本函数按同一门控追加到正文之后。
+    """
+
+    if isinstance(prompt, dict):
+        prompt = strip_voice_profiles(prompt)
+        if content_mode == "drama":
+            if isinstance(item, Mapping) and "utterances" in item:
+                prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
+            else:
+                # utterances 迁移前的存量剧本：load_script 按原始 JSON 读盘不过 pydantic，不会被
+                # DramaScene._migrate_legacy 自动补齐，台词仍留在 video_prompt.dialogue。
+                prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
+    elif isinstance(prompt, str) and content_mode == "drama":
+        prompt = _attach_drama_speech_text(prompt, item, characters=voice_characters)
+    return normalize_video_prompt(prompt)
+
+
+def _attach_drama_speech_text(text: str, item: Mapping[str, Any] | None, *, characters: dict[str, Any] | None) -> str:
+    """把 drama 的发声声明段追加到文本形态 video_prompt 正文之后。
+
+    与结构形态共用 ``utterances_to_dialogue`` 与 ``_build_voice_profiles``，键名沿用
+    ``video_prompt_to_yaml`` 的 ``Voice_Profiles`` / ``Dialogue``，两种形态对模型同一套词表。
+    无台词、或无声门控下无声音风格可注入时不追加任何内容。两个声明段各自按内容判重：
+    「结构化 → 文本」以当前渲染结果为初值，正文里已带着它们，整体判前缀会漏判而叠出第二份。
+    """
+    utterances = item.get("utterances") if isinstance(item, Mapping) else None
+    dialogue = utterances_to_dialogue(utterances)
+    sections: list[str] = []
+    if characters is not None:
+        voice_profiles = _build_voice_profiles(dialogue, characters)
+        if voice_profiles:
+            sections.append(_speech_section({"Voice_Profiles": voice_profiles}))
+    if dialogue:
+        sections.append(
+            _speech_section({"Dialogue": [{"Speaker": entry["speaker"], "Line": entry["line"]} for entry in dialogue]})
+        )
+    pending = [section for section in sections if section not in text]
+    if not pending:
+        return text
+    return f"{text.rstrip()}\n\n" + "\n".join(pending) + "\n"
+
+
+def _speech_section(ordered: dict[str, Any]) -> str:
+    """渲染一个发声声明段，键名与缩进沿用 ``video_prompt_to_yaml``，两种形态判重可比。"""
+    return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False).rstrip()
+
+
 def strip_voice_profiles(video_prompt: dict[str, Any]) -> dict[str, Any]:
     """剥离入参自带的 ``voice_profiles`` 键。
 
