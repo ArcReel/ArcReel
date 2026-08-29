@@ -118,11 +118,14 @@ export function ProviderSection() {
 
   // 同一 reloadKey 下的重跑只可能由语言变化触发，此时静默刷新：不置 loading，
   // 列表与详情面板保持挂载，详情表单里未保存的输入不被卸载丢弃。
+  // 还要有一份拉取成功过的目录可留：首次拉取在途时切语言同样落在同一 reloadKey 上，
+  // 那时静默失败会留下一个空列表且没有重试入口，必须走常规的 loading / 错误面板。
+  const loadedCatalogRef = useRef(false);
   const loadedKeyRef = useRef<number | null>(null);
 
   useEffect(() => {
     let disposed = false;
-    const silent = loadedKeyRef.current === reloadKey;
+    const silent = loadedCatalogRef.current && loadedKeyRef.current === reloadKey;
     loadedKeyRef.current = reloadKey;
     // 并行拉取 preset+custom 列表。供应商与模型名由后端按 Accept-Language 成文，
     // 语言切换后须重取，否则目录停留在切换前的语言。
@@ -140,9 +143,12 @@ export function ProviderSection() {
           if (disposed) return;
           setProviders(presetRes.providers);
           setCustomProviders(customRes.providers);
+          loadedCatalogRef.current = true;
           setLoadError(null);
         } catch (err) {
-          if (!disposed) setLoadError(errMsg(err));
+          // 静默刷新失败保留上一份目录：loadError 会让整个小节被错误面板取代、
+          // ProviderDetail 随之卸载，未保存的表单输入丢失。译名停留在旧语言远好过丢输入。
+          if (!disposed && !silent) setLoadError(errMsg(err));
         } finally {
           if (!disposed) setLoading(false);
         }

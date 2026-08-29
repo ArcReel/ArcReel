@@ -128,6 +128,47 @@ describe("ProviderSection", () => {
     );
   });
 
+  it("keeps the previous catalog when a language-triggered refetch fails", async () => {
+    vi.spyOn(API, "getProviders").mockImplementation(() => {
+      const lang = i18n.language;
+      if (lang !== "en") return Promise.resolve(providersFor(lang));
+      return Promise.reject(new Error("network down"));
+    });
+
+    render(<ProviderSection />);
+    await screen.findByRole("navigation");
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    // 静默刷新失败不得把整个小节换成错误面板：那会卸载详情面板、丢掉未保存的表单输入
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("navigation")).getByText("Gemini AI Studio（中文）"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("network down")).not.toBeInTheDocument();
+  });
+
+  it("surfaces the error when the language switches before any catalog has loaded", async () => {
+    vi.spyOn(API, "getProviders").mockImplementation(() => {
+      // 首次（中文）拉取永不落定：语言切换发生在它返回之前
+      if (i18n.language !== "en") return new Promise<never>(() => {});
+      return Promise.reject(new Error("network down"));
+    });
+
+    render(<ProviderSection />);
+
+    // 首次拉取尚未返回就切语言：没有可留的目录，失败必须走错误面板而非留下空列表
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    await screen.findByText("network down");
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
   it("selects the first preset provider when the URL names no selection", async () => {
     search = "";
 
