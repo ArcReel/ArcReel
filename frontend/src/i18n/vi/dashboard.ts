@@ -1812,6 +1812,7 @@ export default {
   'ce_view_form': 'Biểu mẫu',
   'ce_view_json': 'JSON',
   'ce_json_parse_error': 'JSON không hợp lệ. Thay đổi chỉ áp dụng khi phân tích được.',
+  'ce_json_shape_error': 'JSON phân tích được nhưng thiếu cấu trúc bắt buộc như meta, submit hoặc poll. Thay đổi chỉ áp dụng khi các phần này đầy đủ.',
   'ce_variables_hint': 'Biến khả dụng · bấm để chèn',
   'ce_diagnostics_clean': 'Không phát hiện vấn đề trong định nghĩa này.',
   'ce_diagnostics_summary': '{{errors}} lỗi · {{warnings}} cảnh báo',
@@ -1948,4 +1949,7 @@ export default {
   'ce_var_generate_audio': 'Tạo âm thanh',
   'cp_no_api_key': 'Nhà cung cấp này không cần khóa API',
   'cp_no_api_key_conflict': 'Các mô hình sau dùng điểm gọi cần khóa: {{models}}. Yêu cầu của chúng sẽ đi ra mà không có thông tin xác thực.',
+  'cp_unsaved_leave_title': 'Rời biểu mẫu nhà cung cấp?',
+  'cp_unsaved_leave_desc': 'Biểu mẫu có thay đổi chưa lưu. Chuyển sang trang điểm gọi sẽ làm mất các thay đổi này.',
+  'cp_unsaved_leave_confirm': 'Bỏ thay đổi và chuyển',
 } satisfies Record<keyof typeof enDashboard, string>;

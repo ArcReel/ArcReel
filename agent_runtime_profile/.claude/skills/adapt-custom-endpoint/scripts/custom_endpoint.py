@@ -36,7 +36,13 @@ def _request(method: str, path: str, payload: object | None = None) -> object:
         raise SystemExit(f"ArcReel API returned HTTP {exc.code}: {detail}") from exc
     except URLError as exc:
         raise SystemExit(f"ArcReel API request failed: {exc.reason}") from exc
-    return json.loads(raw) if raw else {"status": "ok"}
+    if not raw:
+        return {"status": "ok"}
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        preview = raw[:200].decode("utf-8", errors="replace")
+        raise SystemExit(f"ArcReel API returned non-JSON response: {preview}") from exc
 
 
 def _test_payload(args: argparse.Namespace) -> dict[str, object]:

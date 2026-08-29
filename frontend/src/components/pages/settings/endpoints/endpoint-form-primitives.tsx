@@ -44,6 +44,11 @@ export function VariableInsertionProvider({ children }: { children: React.ReactN
   const insert = useCallback((token: string) => {
     const target = targetRef.current;
     if (!target) return;
+    // 目标输入框已随行删除卸载时撤销目标：残留的旧 onChange 会把值写回已删除的字段。
+    if (!target.el.isConnected) {
+      targetRef.current = null;
+      return;
+    }
     const { el, onChange } = target;
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? start;

@@ -281,12 +281,10 @@ class AgentAccessPolicy:
         - ``allowUnsandboxedCommands=False``：禁止 Agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
         - ``network``：``allowedDomains`` 是「预放行清单」而非「限制清单」——不写该键等于零
-          预放行，无人值守会话里新域名的放行请求被直接拒，出站全断。自定义端点适配要读任意
-          供应商域名的文档，白名单不可行，故以 ``["*"]`` 显式全放行。``allowLocalBinding``
+          预放行，无人值守会话里新域名的放行请求被直接拒，出站全断。``allowLocalBinding``
           单独控制 loopback：``allowedDomains`` 无论写 ``*`` 还是写 ``127.0.0.1`` 都放不通
-          loopback，而 skill 脚本调同源 ArcReel API 必须经 loopback，故一并打开。代价是整台
-          宿主的 loopback 服务（同机数据库、其他应用的开发服务器）都对 sandbox 内 Bash 可达，
-          见 ADR 0069。
+          loopback。当前取值为全域放行加 loopback 放通（ADR 0069），整台宿主的 loopback
+          服务对 sandbox 内 Bash 可达。
         """
         if not self.sandbox_enabled:
             return {"enabled": False}

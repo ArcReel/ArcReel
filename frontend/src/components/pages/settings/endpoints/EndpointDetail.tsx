@@ -20,7 +20,7 @@ import type {
   EndpointDescriptor,
   EndpointValidateResponse,
 } from "@/types";
-import { definitionFileName, type EndpointFormSection } from "./endpoint-definition-draft";
+import { definitionFileName, isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
 import { EndpointDiagnostics } from "./EndpointDiagnostics";
 import { EndpointForm } from "./EndpointForm";
 import { EndpointTestSection } from "./EndpointTestSection";
@@ -94,7 +94,9 @@ export function EndpointDetail({
   // JSON 片段编辑器自持文本状态：换端点或从 JSON 视图返回时递增，强制它按新定义重挂载。
   const [formEpoch, setFormEpoch] = useState(0);
   const [jsonText, setJsonText] = useState("");
-  const [jsonInvalid, setJsonInvalid] = useState(false);
+  // parse：JSON 语法不通过；shape：语法通过但缺表单/头部直接解引用的容器结构。
+  // 两种情况都不写回草稿，文本保留供继续编辑。
+  const [jsonIssue, setJsonIssue] = useState<"parse" | "shape" | null>(null);
   const [validation, setValidation] = useState<EndpointValidateResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -152,7 +154,7 @@ export function EndpointDetail({
 
   const enterJsonMode = () => {
     setJsonText(JSON.stringify(draft ?? {}, null, 2));
-    setJsonInvalid(false);
+    setJsonIssue(null);
     setEditorMode("json");
   };
 
@@ -289,7 +291,7 @@ export function EndpointDetail({
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={saving || hasErrors || jsonInvalid || !dirty}
+              disabled={saving || hasErrors || jsonIssue !== null || !dirty}
               title={hasErrors ? t("ce_save_blocked") : undefined}
               className={ACCENT_BTN_SM_CLS}
               style={ACCENT_BUTTON_STYLE}
@@ -378,22 +380,29 @@ export function EndpointDetail({
                 readOnly={!editable}
                 spellCheck={false}
                 aria-label={t("ce_view_json")}
-                aria-invalid={jsonInvalid || undefined}
+                aria-invalid={jsonIssue !== null || undefined}
                 rows={28}
                 onChange={(e) => {
                   setJsonText(e.target.value);
+                  let parsed: unknown;
                   try {
-                    setDraft(JSON.parse(e.target.value) as EndpointDefinition);
-                    setJsonInvalid(false);
+                    parsed = JSON.parse(e.target.value);
                   } catch {
-                    setJsonInvalid(true);
+                    setJsonIssue("parse");
+                    return;
                   }
+                  if (!isRenderableDefinition(parsed)) {
+                    setJsonIssue("shape");
+                    return;
+                  }
+                  setDraft(parsed);
+                  setJsonIssue(null);
                 }}
                 className={`${INPUT_CLS} resize-y font-mono text-[11.5px] leading-[1.65]`}
               />
-              {jsonInvalid && (
+              {jsonIssue !== null && (
                 <span role="alert" className="mt-1.5 block text-[12px] text-warm-bright">
-                  {t("ce_json_parse_error")}
+                  {t(jsonIssue === "parse" ? "ce_json_parse_error" : "ce_json_shape_error")}
                 </span>
               )}
             </div>

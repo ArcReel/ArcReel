@@ -42,9 +42,14 @@ interface EndpointSelectProps {
   ariaLabel?: string;
   /** Disable interaction */
   disabled?: boolean;
+  /**
+   * 拦截「管理端点」跳转：宿主表单据此在有未保存改动时先行确认，确认后调用 proceed
+   * 执行跳转。缺省直接跳转。
+   */
+  onManageNavigate?: (proceed: () => void) => void;
 }
 
-export function EndpointSelect({ value, onChange, ariaLabel, disabled }: EndpointSelectProps) {
+export function EndpointSelect({ value, onChange, ariaLabel, disabled, onManageNavigate }: EndpointSelectProps) {
   const { t } = useTranslation("dashboard");
   const [, navigate] = useLocation();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -315,7 +320,9 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
             setOpen(false);
             const params = new URLSearchParams({ section: "endpoints" });
             if (value) params.set("endpoint", value);
-            navigate(`/app/settings?${params.toString()}`);
+            const proceed = () => navigate(`/app/settings?${params.toString()}`);
+            if (onManageNavigate) onManageNavigate(proceed);
+            else proceed();
           }}
           className="flex shrink-0 items-center gap-1.5 border-t border-hairline-soft px-3.5 py-2 text-left text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a/50 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >

@@ -247,7 +247,12 @@ export class SpeechAdmissionError extends Error {
  * `diagnostic` 是可选的技术细节（字段名、schema、异常原文），只用于诊断展示，不拼进 `message`。
  */
 export class ApiRequestError extends Error {
-  constructor(message: string, public readonly diagnostic?: string) {
+  constructor(
+    message: string,
+    public readonly diagnostic?: string,
+    /** HTTP 状态码；调用方据此区分「资源已不存在」与瞬时网络/服务错误。 */
+    public readonly status?: number,
+  ) {
     super(message);
     this.name = "ApiRequestError";
   }
@@ -520,7 +525,7 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
     if (isSpeechAdmission(detail)) {
       throw new SpeechAdmissionError(detail);
     }
-    throw new ApiRequestError(messageFromDetail(detail, fallbackMsg), error.diagnostic);
+    throw new ApiRequestError(messageFromDetail(detail, fallbackMsg), error.diagnostic, response.status);
   }
 }
 
@@ -834,7 +839,7 @@ class API {
       if (isSpeechAdmission(error.detail)) {
         throw new SpeechAdmissionError(error.detail);
       }
-      throw new ApiRequestError(messageFromDetail(error.detail, "请求失败"), error.diagnostic);
+      throw new ApiRequestError(messageFromDetail(error.detail, "请求失败"), error.diagnostic, response.status);
     }
 
     if (response.status === 204) {
