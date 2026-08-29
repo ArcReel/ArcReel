@@ -367,6 +367,68 @@ describe("ProjectSettingsPage – style picker", () => {
     expect(screen.queryByRole("switch", { name: /多宫格分镜/ })).not.toBeInTheDocument();
   });
 
+  it("saves the character voice binding switch on the reference-video route", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "reference_video",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    // 字段缺省即默认档：提示词软约束选中，参考音频未选中
+    const promptOption = await screen.findByRole("radio", { name: /按声音描述|By voice description/ });
+    expect(promptOption).toBeChecked();
+    const audioOption = screen.getByRole("radio", { name: /按参考音频|By reference audio/ });
+    fireEvent.click(audioOption);
+
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({ character_voice_binding: "reference_audio" }),
+      );
+    });
+  });
+
+  it("omits the character voice binding on the storyboard route", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "storyboard",
+        character_voice_binding: "reference_audio",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    const toggle = await screen.findByRole("switch", { name: /多宫格分镜/ });
+    expect(screen.queryByRole("radio", { name: /按声音描述|By voice description/ })).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    // 参考音频通道只属于参考生视频路线：分镜图生视频下该键与项目无关，不写
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("character_voice_binding");
+  });
+
   it("saves the grid assembly toggle on the storyboard route", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {

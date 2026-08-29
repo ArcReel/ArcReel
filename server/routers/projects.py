@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.asset_types import asset_name_comparison_key
+from lib.character_voice import PROJECT_FIELD as CHARACTER_VOICE_BINDING_FIELD
+from lib.character_voice import VALID_CHARACTER_VOICE_BINDINGS
 from lib.config.registry import default_model_for_provider
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.db import async_session_factory
@@ -245,6 +247,8 @@ class UpdateProjectRequest(BaseModel):
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
     video_generate_audio: bool | None = None
+    # 角色声音绑定方式：prompt（默认，voice_style 提示词软约束）/ reference_audio（挂角色参考音频）
+    character_voice_binding: str | None = None
     # 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速；留空 = 跟随全局默认
     audio_backend: str | None = None
     narration_voice: str | None = None
@@ -888,6 +892,15 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project.pop("video_generate_audio", None)
                     else:
                         project["video_generate_audio"] = req.video_generate_audio
+                # 角色声音绑定方式：枚举，null / 空串 = 清除、回落默认（提示词软约束）
+                if "character_voice_binding" in req.model_fields_set:
+                    binding = (req.character_voice_binding or "").strip()
+                    if not binding:
+                        project.pop(CHARACTER_VOICE_BINDING_FIELD, None)
+                    elif binding in VALID_CHARACTER_VOICE_BINDINGS:
+                        project[CHARACTER_VOICE_BINDING_FIELD] = binding
+                    else:
+                        raise HTTPException(status_code=422, detail=_t("character_voice_binding_invalid"))
                 # 旁白音色：照供应商文档填的字符串 id；空串 = 清除回落全局默认
                 if "narration_voice" in req.model_fields_set:
                     voice = (req.narration_voice or "").strip()

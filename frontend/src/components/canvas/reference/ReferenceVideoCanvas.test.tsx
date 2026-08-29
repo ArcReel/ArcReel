@@ -1533,6 +1533,8 @@ describe("ReferenceVideoCanvas", () => {
         currentProjectName: "proj",
         currentProjectData: {
           ...STUB_PROJECT,
+          // 横幅只在参考音频绑定档下出现：提示词软约束档不挂参考音频，换了也不改变已生成视频的声音
+          character_voice_binding: "reference_audio",
           characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
         },
         refreshProject: vi.fn().mockResolvedValue({ status: "ok" }),
@@ -1578,6 +1580,7 @@ describe("ReferenceVideoCanvas", () => {
         currentProjectName: "proj",
         currentProjectData: {
           ...STUB_PROJECT,
+          character_voice_binding: "reference_audio",
           characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
         },
         refreshProject,
@@ -1589,6 +1592,23 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(dismiss);
 
       await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
+    });
+
+    it("提示词软约束档下不出现——该档不挂参考音频，横幅会指向一个当前不生效的设置", async () => {
+      useProjectsStore.setState({
+        currentProjectName: "proj",
+        currentProjectData: {
+          ...STUB_PROJECT,
+          character_voice_binding: "prompt",
+          characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
+        },
+        refreshProject: vi.fn().mockResolvedValue({ status: "ok" }),
+      } as never);
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()] });
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+      await screen.findAllByText("E1U1");
+      expect(screen.queryByRole("button", { name: /Got it|知道了/ })).not.toBeInTheDocument();
     });
   });
 });

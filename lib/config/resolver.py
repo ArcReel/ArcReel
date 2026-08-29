@@ -26,6 +26,7 @@ from lib.backend_assembly.specs import (
     builtin_effective_generate_audio_for_model,
     builtin_video_capabilities_for_model,
 )
+from lib.character_voice import CharacterVoiceBinding, character_voice_binding
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     default_model_for_provider,
@@ -435,21 +436,29 @@ def derive_voice_consistency(
     reference_audio_mode: str,
     generation_mode: str | None,
     has_audio: bool,
+    character_voice_binding: CharacterVoiceBinding | None,
 ) -> VoiceConsistency:
-    """三级声音一致性标识派生（native / soft / none），模型能力 × 生效 generation_mode 二维。
+    """三级声音一致性标识派生（native / soft / none）：模型能力 × 生效 generation_mode × 绑定方式。
 
     全仓库唯一派生点：项目内场景经 `_resolve_video_caps_for_model` 走这里，无项目上下文的
-    目录场景由 `server/routers/providers.py` 以 ``generation_mode=None`` 调同一函数，前端不
-    复制第二份公式。
+    目录场景由 `server/routers/providers.py` 以 ``generation_mode=None`` /
+    ``character_voice_binding=None`` 调同一函数，前端不复制第二份公式。
 
     ``reference_audio_mode`` 按字面量比较（``ReferenceAudioMode`` 是 ``StrEnum``，两者可
     直接 ``==``），不在 lib.config 层导入 lib.video_backends（分层契约，config 是最底层）。
 
-    native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none。``has_audio``
-    问的是「成片有没有音轨」而非「开关可不可控」，故恒有声（开关不可控）的型号同样算有音轨；
-    调用方由 :func:`builtin_video_audio_track` 得出该位，不各自解读一份声明。
+    native 蕴含有音轨：generation_mode 非参考生视频、或项目选的是提示词软约束
+    （``character_voice_binding == "prompt"``，默认档）时一律降格 soft，不降到 none。降格是全链路
+    的总闸：脚本预览的参考音频类 warning、提示词里的 ``@音频N`` 编号与执行期的参考音频挂线都只认
+    ``native``，因此绑定方式不必再沿渲染链逐层传递。``has_audio`` 问的是「成片有没有音轨」而非
+    「开关可不可控」，故恒有声（开关不可控）的型号同样算有音轨；调用方由
+    :func:`builtin_video_audio_track` 得出该位，不各自解读一份声明。
     """
-    if reference_audio_mode == "direct" and generation_mode == "reference_video":
+    if (
+        reference_audio_mode == "direct"
+        and generation_mode == "reference_video"
+        and character_voice_binding == "reference_audio"
+    ):
         return "native"
     return "soft" if has_audio else "none"
 
@@ -926,7 +935,7 @@ class ConfigResolver:
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
               "generation_mode": str | None,       # 项目生成模式（无项目上下文时 None）
-              "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode 二维派生
+              "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode × 绑定方式
             }
 
         Raises:
@@ -1534,6 +1543,7 @@ class ConfigResolver:
             reference_audio_mode=reference_audio_mode,
             generation_mode=generation_mode,
             has_audio=has_audio,
+            character_voice_binding=character_voice_binding(project),
         )
 
         return {

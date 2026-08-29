@@ -125,6 +125,12 @@ export interface EpisodeMeta {
   videos?: ArtifactCount;
 }
 
+/** 角色声音绑定方式；与后端 `lib.character_voice.CharacterVoiceBinding` 一一对应，取值增减须两侧同步。 */
+export type CharacterVoiceBinding = "prompt" | "reference_audio";
+
+/** 未声明时的取值：提示词软约束。参考音频是可选增强，须由用户显式选择才生效。 */
+export const DEFAULT_CHARACTER_VOICE_BINDING: CharacterVoiceBinding = "prompt";
+
 export interface ModelSettingEntry {
   resolution?: string | null;
 }
@@ -168,6 +174,8 @@ export interface ProjectData {
   /** 多宫格分镜装配开关；仅分镜图生视频有意义，随时可切。 */
   grid_storyboard?: boolean;
   video_generate_audio?: boolean | null;
+  /** 角色声音绑定方式：prompt（默认，按 voice_style 提示词软约束）/ reference_audio（挂角色参考音频）。 */
+  character_voice_binding?: CharacterVoiceBinding;
   /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */
   audio_backend?: string | null;
   narration_voice?: string | null;

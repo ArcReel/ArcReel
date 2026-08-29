@@ -1286,6 +1286,24 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is True
         assert "source_language" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.parametrize("binding", ["prompt", "reference_audio"])
+    async def test_set_character_voice_binding_allowed_values(self, ctx: ToolContext, binding: str) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"character_voice_binding": binding}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["character_voice_binding"] == binding
+
+    async def test_clear_character_voice_binding(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"settings": {"character_voice_binding": "reference_audio"}})
+        out = await _call(patch_project_tool(ctx), {"settings": {"character_voice_binding": None}})
+        assert out.get("is_error") is not True
+        assert "character_voice_binding" not in ctx.pm.load_project("demo")
+
+    @pytest.mark.parametrize("bad", ["native", "soft", "PROMPT", "", 1, True, ["prompt"]])
+    async def test_invalid_character_voice_binding_rejected(self, ctx: ToolContext, bad: Any) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"character_voice_binding": bad}})
+        assert out.get("is_error") is True
+        assert "character_voice_binding" not in ctx.pm.load_project("demo")
+
     @pytest.mark.parametrize("bad_value", [0, -5, 1.5, True, "10.5", "10.0", "abc", ""])
     async def test_invalid_value_rejected(self, ctx: ToolContext, bad_value: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": bad_value}})

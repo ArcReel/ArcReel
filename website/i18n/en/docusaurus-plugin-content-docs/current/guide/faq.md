@@ -261,7 +261,7 @@ A scene design is different from a story-specific storyboard image: the scene de
 
 The Web UI currently offers standalone voice-over TTS only for Narration/Commentary. You can preview or generate voice-over segment by segment or for a full episode, then include it in a Jianying draft export. Configure the speech provider, voice, and speed globally or per project; some models do not support speed control.
 
-Built-in speech from a video model, character reference audio, and standalone voice-over TTS are separate capabilities. Character reference audio is currently used in Reference-to-video mode, and the selected video model must explicitly support reference audio. In Storyboard mode, or when only a voice description is available, voice is a soft constraint and cannot guarantee identical timbre across segments.
+Built-in speech from a video model, character reference audio, and standalone voice-over TTS are separate capabilities. By default character voices are a soft constraint driven by each character's voice description, which cannot guarantee identical timbre across segments. To have the video model reuse a character's actual voice, switch Character voice binding to "By reference audio" in project settings, and make sure the project runs in Reference-to-video mode, the selected video model explicitly supports reference audio, and every speaking character has reference audio. Storyboard mode does not use the reference-audio channel.
 
 ## Costs, data, and export {#cost-data-export}
 

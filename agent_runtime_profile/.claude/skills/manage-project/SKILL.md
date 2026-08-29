@@ -44,6 +44,7 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 - `planning_max_episodes`：`int >= 1` 设置 / `null` 清除回内部默认。分集规划单批最多产出的集数
 - `narration_voice`：非空字符串（音色 id 照供应商文档）设置 / `null` 清除。项目级旁白音色覆盖，优先于全局设置生效，只影响当前项目
 - `narration_speed`：正的有限数值（如 `1.2`）设置 / `null` 清除。项目级旁白语速覆盖，优先于全局设置生效，只影响当前项目
+- `character_voice_binding`：`"prompt" / "reference_audio"` 设置 / `null` 清除回默认（`prompt`）。角色声音靠什么约束：`prompt` 把角色 `voice_style` 写进提示词做软约束，`reference_audio` 才把角色已设的参考音频随请求挂给视频模型换取原生音色一致。要原生一致须两件事同时成立：本项设为 `reference_audio` 且该角色配了参考音频
 
 `generation_mode`、`grid_storyboard` 不在白名单内，`patch_project` 会拒绝写入：`generation_mode` 项目创建后不可更改，用户要求改生成方式（storyboard ↔ reference_video）时明确告知不可更改、无绕过方式；`grid_storyboard` 由用户在 Web 设置页开关，用户要求改宫格装配时指引其前往设置页操作，并告知开关只影响后续生成——已生成的分镜图不会自动失效，要按新装配方式出图须显式重新生成对应分镜。
 

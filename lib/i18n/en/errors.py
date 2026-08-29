@@ -122,6 +122,7 @@ MESSAGES = {
     "video_shorter_than_tts": "The generated video is {video_duration:.1f}s, shorter than the {tts_duration:.1f}s narration audio; regenerate it without truncating or speeding up speech",
     "audio_provider_not_configured": "Please configure an audio provider first: add a text-to-speech capable provider in Settings → Providers",
     "narration_speed_must_be_positive": "Narration speed must be a positive number",
+    "character_voice_binding_invalid": "Character voice binding must be either prompt-based or reference audio",
     "video_poll_timeout_minimum": "Video polling timeout must be at least 60 seconds",
     "speech_rate_out_of_range": "Spoken pace must be between {min} and {max} (characters or words per second)",
     "character_not_found": "Character '{name}' does not exist",

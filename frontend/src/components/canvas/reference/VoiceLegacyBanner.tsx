@@ -14,7 +14,8 @@
  * 计数的每个角色分别写回。
  */
 import { History, X } from "lucide-react";
-import type { Character } from "@/types/project";
+import type { Character, CharacterVoiceBinding } from "@/types/project";
+import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types/project";
 import { dialogueSpeakers, normalizeAssetName } from "@/utils/reference-mentions";
 
 /**
@@ -44,11 +45,18 @@ function toEpochMs(iso: string): number {
   return new Date(iso).getTime();
 }
 
-/** 纯函数，独立可测：不依赖 store/hooks。 */
+/**
+ * 纯函数，独立可测：不依赖 store/hooks。
+ *
+ * `voiceBinding` 为 prompt（默认）时恒返回空：那条路径压根不挂参考音频，换了参考音频也不改变
+ * 已生成视频的声音，横幅会指向一个当前不生效的设置。
+ */
 export function computeVoiceLegacyNotice(
   units: readonly VoiceNoticeUnit[],
   characters: Record<string, Character>,
+  voiceBinding: CharacterVoiceBinding = DEFAULT_CHARACTER_VOICE_BINDING,
 ): VoiceLegacyNotice {
+  if (voiceBinding !== "reference_audio") return EMPTY_NOTICE;
   const staleUnitIds = new Set<string>();
   const characterNames = new Set<string>();
   // characters 的 key 与正文里的名字可能是 NFC/NFD 中的任一方，归一后再查（同
