@@ -334,6 +334,37 @@ The model discovery protocol only determines which type of model-listing interfa
 6. TTS;
 7. Error codes and rate-limiting behavior.
 
+### 10.1 Adapt a Custom Video Call Endpoint with an Agent {#custom-endpoint-agent}
+
+When a provider submits jobs as JSON and then polls JSON results by task ID, you can delegate the adaptation to
+an external Agent such as Claude Code. Signature-based authentication, multipart requests, and routing by asset
+shape are outside the first version of declarative definitions.
+
+Install the public skill:
+
+```bash
+npx skills add ArcReel/skills
+```
+
+Select `adapt-custom-endpoint` from the installation list. You can also
+[view or download the same skill source](https://github.com/ArcReel/ArcReel/tree/main/agent_runtime_profile/.claude/skills/adapt-custom-endpoint).
+
+Provide the ArcReel API URL and an `arc-` API Key created on the Settings page through your Agent host's secret
+environment. Do not place the API Key in commands, project files, or chat messages:
+
+```text
+ARCREEL_API_BASE=https://your-arcreel.example/api/v1
+ARCREEL_API_TOKEN=arc- API Key supplied by the host's secret store
+```
+
+Then ask the Agent to read the provider documentation and use this skill. It follows the sequence “write a
+definition → run the shared validator → check responses offline → preview requests → run a connection test →
+save.” The definition reference and thin HTTP script are downloaded with the skill; no MCP or SDK tool is
+required. Response checks and request previews do not contact the provider. A connection test performs a real
+generation and may incur charges, so the Agent must obtain your explicit approval first. When a definition with
+the same lineage exists, the Agent may save a copy and report it; overwriting the existing endpoint always
+requires your explicit approval.
+
 ## 11. Multiple API Keys {#multiple-api-keys}
 
 You can configure multiple API Keys for the same provider and select the currently active Key.

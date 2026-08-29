@@ -201,7 +201,11 @@ Public routes include authentication bootstrap/login, project/global file delive
 
 - API responses generally mask stored secrets. The custom-provider credentials endpoint is a material exception: it returns the stored `api_key` in plaintext to any caller accepted by the generic authentication dependency, including an `arc-` API key.
 - The server fails fast when provider secrets are present in the parent process environment, reducing automatic inheritance by sandboxed child processes.
-- Agent policy denies sensitive-file reads and scrubs secret-like environment variables from sandboxed Bash execution.
+- Agent policy denies sensitive-file reads and scrubs provider and secret-like environment variables from sandboxed
+  Bash execution. The dedicated short-lived `ARCREEL_API_TOKEN` is intentionally retained so the embedded Agent can
+  call ArcReel's HTTP API. That retention cancels most of the scrubbing's value: the token authenticates the
+  custom-provider credentials endpoint described above, so an Agent holding it can read back the same provider
+  `api_key` values in plaintext over HTTP.
 - Vertex credential files are written with restrictive permissions where supported.
 
 Built-in provider, custom-provider, and Agent credentials are nevertheless stored in plaintext database columns. API masking does not protect a copied database, backup, snapshot, or compromised database account, and it does not protect custom-provider credentials from the authenticated plaintext-read endpoint described above.
@@ -237,12 +241,26 @@ On supported Linux and macOS deployments, ArcReel verifies sandbox tooling at st
 - Sensitive-file denial.
 - Protected-write workflows.
 - Sandbox filesystem deny rules.
-- Sandbox network-domain policy.
-- Secret-like environment scrubbing.
+- Unrestricted sandbox outbound network for provider documentation and custom-endpoint adaptation: the domain
+  allowlist is the single wildcard `*`, and `allowLocalBinding` additionally opens host loopback.
+- Secret-like environment scrubbing. This is not a boundary against an Agent that holds `ARCREEL_API_TOKEN`; see
+  section 9.2.
 - Windows command-whitelist fallback behavior.
 - Prevention of unsandboxed command fallback.
 
 SDK built-in `Read`, `Write`, `Edit`, `Glob`, and `Grep` tools execute in the main process and are constrained by `PreToolUse` hooks, not by the kernel sandbox. Bash and its descendants are constrained by the kernel sandbox on supported platforms. In-process MCP tools also run outside the OS sandbox and require independent project binding and argument validation.
+
+The embedded Agent receives a 15-minute administrator session JWT, outbound access to any domain, and — through
+`allowLocalBinding` — reachability of the host's loopback interface. Prompt injection in fetched provider
+documentation can therefore exfiltrate that token to an arbitrary host, exercise any authenticated ArcReel API
+during its lifetime (including the plaintext credentials read of section 9.2), and reach loopback services that are
+not ArcReel at all: a database, another application's development server, or any private service bound to
+`127.0.0.1` on the same machine. Filesystem confinement remains in force and covers none of these paths.
+
+The JWT is stateless and cannot be revoked before it expires. Rotating `AUTH_TOKEN_SECRET` is the only way to
+invalidate an outstanding token, and it invalidates every web session at the same time. The 15-minute lifetime
+shortens the window without reducing the token's privileges. The accepted boundary and rationale are recorded in
+ADR 0069.
 
 ### 9.6 Frontend and browser controls
 

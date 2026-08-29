@@ -442,14 +442,16 @@ def test_build_sandbox_settings_disabled_returns_only_enabled_false(tmp_path: Pa
 
 
 def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> None:
-    """sandbox_enabled=True（默认）依然返回完整 dict（含 network / filesystem）。"""
+    """sandbox_enabled=True 时出站与 loopback 均显式放行，文件围栏保持完整。"""
     policy = _make_policy(tmp_path, sandbox_enabled=True)
     cwd = policy.projects_root / "demo"
     settings = policy.build_sandbox_settings(cwd)
     assert settings["enabled"] is True
     assert settings["autoAllowBashIfSandboxed"] is True
     assert settings["allowUnsandboxedCommands"] is False
-    assert "allowedDomains" in settings["network"]
+    # 省略 network 键等于零预放行（出站全断），全放行必须显式写 ``*``；
+    # loopback 另由 allowLocalBinding 控制，allowedDomains 覆盖不到。
+    assert settings["network"] == {"allowedDomains": ["*"], "allowLocalBinding": True}
     assert "denyRead" in settings["filesystem"]
     assert str(cwd / "project.json") in settings["filesystem"]["denyWrite"]
 
@@ -634,6 +636,22 @@ def test_wrap_bash_command_unsets_provider_keys(tmp_path: Path) -> None:
     # 原命令被 shlex.quote 包到 sh -c 内
     assert "sh -c " in wrapped
     assert "'env | grep ANTHROPIC'" in wrapped
+
+
+def test_wrap_bash_command_preserves_short_lived_arcreel_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """skill 脚本可从 Bash 子进程读取专用短期 JWT，其余 secret-like env 仍剥离。"""
+    monkeypatch.setenv("ARCREEL_API_TOKEN", "session-jwt")
+    monkeypatch.setenv("RANDOM_VENDOR_AUTH_TOKEN", "provider-secret")
+    AgentAccessPolicy._collect_env_keys_to_scrub.cache_clear()
+    AgentAccessPolicy._env_scrub_wrap_prefix.cache_clear()
+    try:
+        wrapped = _make_policy(tmp_path).wrap_bash_command_for_env_scrub("python skill.py validate x.json")
+        assert wrapped is not None
+        assert "-u ARCREEL_API_TOKEN" not in wrapped
+        assert "-u RANDOM_VENDOR_AUTH_TOKEN" in wrapped
+    finally:
+        AgentAccessPolicy._collect_env_keys_to_scrub.cache_clear()
+        AgentAccessPolicy._env_scrub_wrap_prefix.cache_clear()
 
 
 def test_wrap_bash_command_skips_when_sandbox_disabled(tmp_path: Path) -> None:

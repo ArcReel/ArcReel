@@ -101,26 +101,6 @@ class AgentAccessPolicy:
     # 走前缀白名单（见 ``filter_allowed_tools`` / ``is_bash_command_whitelisted``）。
     BASH_TOOLS: ClassVar[tuple[str, ...]] = ("Bash", "BashOutput", "KillBash")
 
-    # 沙箱网络默认允许的域名。所有供应商 HTTP 调用均由 in-process MCP tool
-    # （server/agent_runtime/sdk_tools/，主进程不经 sandbox）执行；sandbox 内
-    # 只保留 Anthropic SDK 自身与通用 dev 域名（docs / 包仓库等），自定义供应商
-    # 无需手动加入 ALLOWED_DOMAINS。
-    _DEFAULT_SANDBOX_ALLOWED_DOMAINS: ClassVar[tuple[str, ...]] = (
-        # Anthropic
-        "anthropic.com",
-        "*.anthropic.com",
-        # dev: docs / 包仓库 / acceptance 用例
-        "code.claude.com",
-        "github.com",
-        "*.github.com",
-        "*.githubusercontent.com",
-        "pypi.org",
-        "*.pypi.org",
-        "*.npmjs.org",
-        "registry.yarnpkg.com",
-        "example.com",
-    )
-
     # python skills 入口前缀。约定形态 ``python .claude/skills/<skill>/scripts/
     # <script>.py <args>``：脚本路径须落在某 skill 的 scripts/ 下（_SKILL_SCRIPT_RE
     # 校验），挡住 skills 目录里任意现有/未来文件被当作可执行入口——Windows 回退
@@ -300,6 +280,13 @@ class AgentAccessPolicy:
           split 写 ``source/``，均不碰），故不误伤。
         - ``allowUnsandboxedCommands=False``：禁止 Agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
+        - ``network``：``allowedDomains`` 是「预放行清单」而非「限制清单」——不写该键等于零
+          预放行，无人值守会话里新域名的放行请求被直接拒，出站全断。自定义端点适配要读任意
+          供应商域名的文档，白名单不可行，故以 ``["*"]`` 显式全放行。``allowLocalBinding``
+          单独控制 loopback：``allowedDomains`` 无论写 ``*`` 还是写 ``127.0.0.1`` 都放不通
+          loopback，而 skill 脚本调同源 ArcReel API 必须经 loopback，故一并打开。代价是整台
+          宿主的 loopback 服务（同机数据库、其他应用的开发服务器）都对 sandbox 内 Bash 可达，
+          见 ADR 0069。
         """
         if not self.sandbox_enabled:
             return {"enabled": False}
@@ -307,7 +294,7 @@ class AgentAccessPolicy:
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
             "allowUnsandboxedCommands": False,
-            "network": {"allowedDomains": list(self._DEFAULT_SANDBOX_ALLOWED_DOMAINS)},
+            "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
             "enableWeakerNestedSandbox": bool(self.in_docker),
             "filesystem": {
                 "denyRead": self._build_sensitive_abs_paths(),
