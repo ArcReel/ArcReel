@@ -65,7 +65,7 @@ MESSAGES = {
     "task_fail_artifact_download_failed": "Đã tạo video nhưng tải tệp xuống thất bại; hãy thử tải lại: {detail}",
     "task_fail_cascade_blocked_dependency": "Bị chặn do tác vụ phụ thuộc {dependency_task_id} thất bại: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt phải là chuỗi hoặc đối tượng chứa scene/composition",
-    "prompt_scene_empty": "prompt.scene không được để trống",
+    "prompt_scene_empty": "prompt.scene phải là văn bản không rỗng",
     "prompt_must_be_string_or_object": "prompt phải là chuỗi hoặc đối tượng",
     "prompt_text_empty": "prompt không được để trống",
     "storyboard_task_submitted": "Đã gửi tác vụ tạo phân cảnh cho '{segment_id}'",
