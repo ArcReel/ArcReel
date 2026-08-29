@@ -31,8 +31,13 @@ from lib.script_skeleton import SKELETONS, rewrite_episode_prefix
 ScriptPlanKind = Literal["drama", "narration", "reference_video"]
 
 #: 剧本条目上持久化的「该条目消费的脚本规划条目内容指纹」字段名。对 LLM 隐藏
-#: （``SkipJsonSchema``）、不在任何 PATCH 白名单内，只由提示词编写落盘时写入。
+#: （``SkipJsonSchema``）、不在任何 PATCH 白名单内，只由提示词编写落盘与存量回填写入。
 SCRIPT_PLAN_ENTRY_REVISION_FIELD = "script_plan_entry_revision"
+
+#: 剧本 metadata 上持久化的「该剧本消费的脚本规划**整集**内容指纹」字段名，即条目指纹的整集
+#: 对位。存量条目的回填按它开门（见 :func:`backfill_entry_revisions`），因而它与条目指纹须是
+#: 同一个字面量的两处读法；``lib.script_review`` 从本模块再导出，不另立一份。
+SCRIPT_PLAN_REVISION_FIELD = "script_plan_revision"
 
 #: 条目内容 basis 的 kind 与版本。两者都参与 digest 计算且随剧本落盘，改值等于把存量剧本的
 #: 全部条目判成失配、触发一轮整集重写——与 ``SCRIPT_PLAN_BASIS_KIND`` 同属持久化格式。
@@ -299,6 +304,47 @@ def evaluate_entry_currency(
     )
 
 
+def backfill_entry_revisions(
+    kind: str,
+    *,
+    script: Mapping[str, object],
+    plan_revisions: Mapping[str, str],
+    whole_plan_revision: str | None,
+) -> tuple[str, ...]:
+    """为存量剧本里没有条目指纹的条目就地补上当前脚本规划的条目指纹，返回被回填的条目 id。
+
+    只在剧本 metadata 记录的整集脚本规划指纹仍等于 ``whole_plan_revision`` 时回填：整集相等
+    即证明这份剧本消费的正是当前这份脚本规划，逐条盖章与「它当时消费了什么」等价，且盖的正是
+    装配出口 (:func:`splice_entries`) 会盖的那个值——两处同取 :func:`plan_entry_revisions` 的
+    产物，不另摘一份。整集不等时一律不回填：那时无从知道每一条消费了什么，只能维持整集口径回退
+    （见 :func:`evaluate_entry_currency` 的 ``legacy_entries_current``）。
+
+    回填必须发生在脚本规划被改动之前——一旦整集指纹不再相等，这扇门就关上了，接下来的一次
+    提示词编写便整集重写、覆盖用户精修过的视觉层。
+
+    已带指纹的条目不动：它记着自己当时消费的值，覆盖它等于把一个真实的失配抹平。
+    """
+
+    if not whole_plan_revision:
+        return ()
+    metadata = script.get("metadata")
+    recorded = metadata.get(SCRIPT_PLAN_REVISION_FIELD) if isinstance(metadata, Mapping) else None
+    if recorded != whole_plan_revision:
+        return ()
+    entries = script_entries_by_id(kind, script)
+    backfilled: list[str] = []
+    for entry_id, revision in plan_revisions.items():
+        entry = entries.get(entry_id)
+        if entry is None:
+            continue
+        stored = entry.get(SCRIPT_PLAN_ENTRY_REVISION_FIELD)
+        if isinstance(stored, str) and stored:
+            continue
+        entry[SCRIPT_PLAN_ENTRY_REVISION_FIELD] = revision
+        backfilled.append(entry_id)
+    return tuple(backfilled)
+
+
 #: ``scope`` 的两个具名取值；其余取值按「条目 id 列表」解读。
 SCOPE_ALL = "all"
 SCOPE_STALE = "stale"
@@ -385,10 +431,12 @@ __all__ = [
     "SCOPE_ALL",
     "SCOPE_STALE",
     "SCRIPT_PLAN_ENTRY_REVISION_FIELD",
+    "SCRIPT_PLAN_REVISION_FIELD",
     "SKELETON_BY_PLAN_KIND",
     "ScriptEntryCurrency",
     "ScriptPlanEntryError",
     "ScriptPlanKind",
+    "backfill_entry_revisions",
     "entry_id_field",
     "entry_revision",
     "evaluate_entry_currency",

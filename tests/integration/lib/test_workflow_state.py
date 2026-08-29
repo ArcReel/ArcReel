@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unicodedata
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from portalocker.exceptions import LockException
 
 import lib.script_review as script_review
 from lib.artifact_activation import (
@@ -14,7 +16,7 @@ from lib.artifact_activation import (
 from lib.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.asset_inventory import complete_asset_inventory
 from lib.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints, discover_sources
-from lib.json_io import atomic_write_json
+from lib.json_io import atomic_write_json, load_json
 from lib.narration_delivery import (
     TtsSynthesisSettings,
     build_narration_audio_basis,
@@ -28,7 +30,7 @@ from lib.project_migration_failure import (
 )
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.resource_paths import resource_relative_path
-from lib.script_plan_entries import plan_entry_revisions
+from lib.script_plan_entries import SCRIPT_PLAN_ENTRY_REVISION_FIELD, plan_entry_revisions
 from lib.source_revision import SourceScope, compute_source_revision
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
@@ -1226,6 +1228,101 @@ def test_script_entry_currency_reports_added_removed_and_reordered_entries(tmp_p
     assert status.artifacts["script"]["state"] == "stale"
     assert status.artifacts["script"]["stale_entry_ids"] == ["E1S02"]
     assert status.artifacts["script"]["removed_entry_ids"] == ["E1S09"]
+
+
+def test_status_backfills_legacy_entry_revisions(tmp_path: Path) -> None:
+    """存量剧本的读时补齐：整集指纹仍相等时，状态计算把当前条目指纹落进磁盘上的剧本。
+
+    补齐只有在脚本规划被改动之前才做得成——之后整集指纹失配，就只剩整集口径可退。
+    """
+    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
+    pm, project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [_valid_narration_segment(), _valid_narration_segment(segment_id="E1S02")],
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "current"
+    saved = load_json(project_path / "scripts" / "episode_1.json")
+    assert {
+        segment["segment_id"]: segment[SCRIPT_PLAN_ENTRY_REVISION_FIELD] for segment in saved["segments"]
+    } == plan_entry_revisions("narration", plan, episode=1)
+
+
+def test_backfilled_legacy_script_reports_only_the_changed_entry(tmp_path: Path) -> None:
+    """补齐之后改一条脚本规划内容：只有那一条判失效，其余条目不再被整集口径牵连。"""
+    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
+    pm, project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [_valid_narration_segment(), _valid_narration_segment(segment_id="E1S02")],
+    )
+    WorkflowStateService(pm).get_status("demo")
+
+    changed = [plan[0], _plan_segment("E1S02", "原文乙改了一个错别字。")]
+    script_plan_path = project_path / "drafts" / "episode_1" / "script_plan_segments.json"
+    atomic_write_json(script_plan_path, {"segments": changed})
+    revision = script_review.content_fingerprint(script_plan_path)
+    assert revision is not None
+    pm.update_project(
+        "demo", lambda project: script_review.apply_confirmation(project, 1, revision, "2026-08-12T00:00:00Z")
+    )
+    _register_script_plan(project_path)
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "stale"
+    assert status.artifacts["script"]["stale_entry_ids"] == ["E1S02"]
+
+
+def test_status_does_not_backfill_when_whole_revision_differs(tmp_path: Path) -> None:
+    """整集指纹已失配：不回填、不写盘，仍按整集口径把全部条目判失效（引入本机制前的结论）。"""
+    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
+    pm, project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [_valid_narration_segment(), _valid_narration_segment(segment_id="E1S02")],
+    )
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = load_json(script_path)
+    script["metadata"][script_review.SCRIPT_PLAN_REVISION_FIELD] = "sha256-v1:" + "1" * 64
+    atomic_write_json(script_path, script)
+    before = script_path.read_bytes()
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "stale"
+    assert status.artifacts["script"]["stale_entry_ids"] == ["E1S01", "E1S02"]
+    assert script_path.read_bytes() == before
+
+
+def test_status_survives_a_failed_backfill_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """补齐落不了盘（取不到剧本锁）：状态照常给出结论，不把一次读状态变成失败。
+
+    锁失败经 portalocker 包成 ``BaseLockException``、不是 ``OSError``；补齐只是格式收编，
+    落不了盘不改变任何结论。
+    """
+    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
+    pm, project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [_valid_narration_segment(), _valid_narration_segment(segment_id="E1S02")],
+    )
+    script_path = project_path / "scripts" / "episode_1.json"
+    before = script_path.read_bytes()
+
+    def _refuse_lock(self: ProjectManager, path: Path):  # noqa: ARG001
+        raise LockException("锁不可用")
+
+    monkeypatch.setattr(ProjectManager, "file_lock", contextmanager(_refuse_lock))
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "current"
+    assert status.artifacts["script"]["stale_entry_ids"] == []
+    assert script_path.read_bytes() == before
 
 
 def test_legacy_script_without_entry_revisions_stays_current(tmp_path: Path) -> None:
