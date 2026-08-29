@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Protocol, Self, cast
+from typing import NamedTuple, Protocol, Self, cast
 
 import portalocker
 
@@ -1601,6 +1601,47 @@ def _coerce_optional_artifact_basis_descriptor(
     return _coerce_artifact_basis_descriptor(field, value)
 
 
+def encode_artifact_key_parts(kind: str, components: Sequence[object]) -> str:
+    """Encode raw key parts into the manifest key wire form.
+
+    Shared with :meth:`ArtifactKey.encode` so exactly one encoding exists, including
+    for producers that cannot go through :class:`ArtifactKey` — a migration rewriting
+    a key whose kind this build no longer defines has no typed key to encode.
+    """
+
+    payload = json.dumps([kind, *components], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    token = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    return _KEY_PREFIX + token
+
+
+class ArtifactKeyParts(NamedTuple):
+    """A manifest key's raw parts, before any :class:`ArtifactKind` is required to exist."""
+
+    kind: str
+    components: tuple[object, ...]
+
+
+def decode_artifact_key_parts(value: str) -> ArtifactKeyParts | None:
+    """Decode a manifest key back into its raw kind and components.
+
+    Returns ``None`` for anything that is not this encoding.  Unlike
+    :meth:`ArtifactKey.decode` the kind is not required to still be a supported
+    :class:`ArtifactKind`, which is what lets a migration rewrite a renamed kind.
+    """
+
+    if not value.startswith(_KEY_PREFIX):
+        return None
+    token = value.removeprefix(_KEY_PREFIX)
+    try:
+        raw = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
+        payload = json.loads(raw.decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, ValueError, RecursionError):
+        return None
+    if not isinstance(payload, list) or not payload or not isinstance(payload[0], str):
+        return None
+    return ArtifactKeyParts(payload[0], tuple(cast(list[object], payload)[1:]))
+
+
 @dataclass(frozen=True, slots=True)
 class ArtifactKey:
     """Typed artifact identity with a canonical reversible wire representation."""
@@ -1738,27 +1779,16 @@ class ArtifactKey:
         return episode if type(episode) is int else None
 
     def encode(self) -> str:
-        payload = json.dumps(
-            [self.kind.value, *self.components],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        token = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-        return _KEY_PREFIX + token
+        return encode_artifact_key_parts(self.kind.value, self.components)
 
     @classmethod
     def decode(cls, value: str) -> Self:
         if not value.startswith(_KEY_PREFIX):
             raise ValueError("artifact key has an unsupported encoding")
-        token = value.removeprefix(_KEY_PREFIX)
-        try:
-            raw = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
-            payload = json.loads(raw.decode("utf-8"))
-        except (binascii.Error, UnicodeDecodeError, ValueError, RecursionError) as exc:
-            raise ValueError("artifact key is malformed") from exc
-        if not isinstance(payload, list) or not payload or not isinstance(payload[0], str):
-            raise ValueError("artifact key payload is malformed")
-        key = cls._from_parts(payload[0], payload[1:])
+        parts = decode_artifact_key_parts(value)
+        if parts is None:
+            raise ValueError("artifact key is malformed")
+        key = cls._from_parts(parts.kind, list(parts.components))
         if key.encode() != value:
             raise ValueError("artifact key is not canonical")
         return key
