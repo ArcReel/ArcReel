@@ -1,11 +1,11 @@
-"""step1→step2 web 内容确认的服务层：确认状态读取、结构化中间态编辑、确认动作。
+"""script_plan→prompt_authoring web 内容确认的服务层：确认状态读取、结构化中间态编辑、确认动作。
 
 纯 gate 逻辑（适用性 / 指纹 / 状态派生）在 ``lib.script_review``；本层叠加 ProjectManager
-持久化（确认指纹落 project.json ``episodes[i].step1_review``）与结构化内容的 Pydantic 校验、落盘。
+持久化（确认指纹落 project.json ``episodes[i].script_plan_review``）与结构化内容的 Pydantic 校验、落盘。
 
-确认触发 step2 的语义是「放行」而非「服务端 launcher」：step2（剧本视觉生成）由 Agent 的
+确认触发 prompt_authoring 的语义是「放行」而非「服务端 launcher」：prompt_authoring（剧本视觉生成）由 Agent 的
 ``generate_episode_script`` 工具执行，本服务只负责把内容确认状态翻到 confirmed；该工具读时经
-``lib.script_review.gate_blocks_step2`` 校验，pending 时拒绝、confirmed 后放行。
+``lib.script_review.gate_blocks_prompt_authoring`` 校验，pending 时拒绝、confirmed 后放行。
 """
 
 from __future__ import annotations
@@ -21,24 +21,24 @@ from pydantic import BaseModel, ValidationError
 
 from lib import script_review
 from lib.config.resolver import ConfigResolver, resolve_raw_supported_durations
-from lib.draft_quarantine import QUARANTINE_KIND_STEP2, quarantine_path, read_quarantine, violation_entries
+from lib.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING, quarantine_path, read_quarantine, violation_entries
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.json_io import load_json_or_none
 from lib.project_manager import ProjectManager
-from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
+from lib.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.speech_composition import SpeechAdmission, admit_script_unit
 from server.media_tools.context import reference_unit_duration_tiers, resolve_video_caps
 
 logger = logging.getLogger(__name__)
 
-#: 结构化 step1 中间态的校验模型（按 step1 变体 ``script_review.step1_kind``）。编辑保存按此做结构校验：
+#: 结构化 script_plan 中间态的校验模型（按 script_plan 变体 ``script_review.script_plan_kind``）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
-#: narration 为 NarrationStep1Draft（结构化 novel_text 分镜），reference_video 为 ReferenceStep1Draft
+#: narration 为 NarrationScriptPlanDraft（结构化 novel_text 分镜），reference_video 为 ReferenceScriptPlanDraft
 #: （units → 正文 + 编排时长）。
-_STEP1_CONTENT_MODEL: dict[str, type[BaseModel]] = {
+_SCRIPT_PLAN_CONTENT_MODEL: dict[str, type[BaseModel]] = {
     "drama": DramaNormalizedScript,
-    "narration": NarrationStep1Draft,
-    "reference_video": ReferenceStep1Draft,
+    "narration": NarrationScriptPlanDraft,
+    "reference_video": ReferenceScriptPlanDraft,
 }
 
 
@@ -85,28 +85,28 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: obj
 
 
 class ScriptReviewService:
-    """封装 step1→step2 内容确认的读写。router 与测试经此操作 gate，不直接碰文件 / project.json。"""
+    """封装 script_plan→prompt_authoring 内容确认的读写。router 与测试经此操作 gate，不直接碰文件 / project.json。"""
 
     def __init__(self, pm: ProjectManager, *, config_resolver: ConfigResolver | None = None):
         self.pm = pm
         self.config_resolver = config_resolver
 
-    def _resolve_step1_model(self, project: dict[str, Any], episode: int) -> tuple[str, type[BaseModel]]:
-        """该集 step1 变体 + 结构校验模型；不适用 gate（无结构化 step1）时抛 not_applicable。
+    def _resolve_script_plan_model(self, project: dict[str, Any], episode: int) -> tuple[str, type[BaseModel]]:
+        """该集 script_plan 变体 + 结构校验模型；不适用 gate（无结构化 script_plan）时抛 not_applicable。
 
-        变体判定单一真相源在 ``script_review.step1_kind``（reference_video 按项目生成模式优先，
+        变体判定单一真相源在 ``script_review.script_plan_kind``（reference_video 按项目生成模式优先，
         跨 content_mode）；本层据此选 Pydantic 模型。返回变体名供调用方按变体分流。
         """
-        kind = script_review.step1_kind(project)
+        kind = script_review.script_plan_kind(project)
         if kind is None:
             raise ScriptReviewError("not_applicable")
-        return kind, _STEP1_CONTENT_MODEL[kind]
+        return kind, _SCRIPT_PLAN_CONTENT_MODEL[kind]
 
     def _require_episode(self, project_name: str, project: dict[str, Any], episode: int) -> dict[str, Any]:
         """gate 适用时校验该集已在 project.json ``episodes[]`` 登记，返回（必要时已自愈的）project。
 
-        与 ``confirm`` 的写入前置一致：避免 ``get_state`` 把未登记分集误报成 no_step1、
-        ``save_content`` 给未登记分集写出永远无法与 project.json 关联的孤儿 step1 文件。
+        与 ``confirm`` 的写入前置一致：避免 ``get_state`` 把未登记分集误报成 no_script_plan、
+        ``save_content`` 给未登记分集写出永远无法与 project.json 关联的孤儿 script_plan 文件。
 
         条目缺失时不立即拒绝：若该集的派生文件 ``source/episode_N.txt`` 实际存在（用户绕过
         分集规划器、手动预拆分上传的存量场景），先用 ``register_orphan_episode_entries`` 自愈
@@ -173,12 +173,12 @@ class ScriptReviewService:
         调用方须在取 ``self.pm.file_lock`` **之前** await 本方法：那把锁是阻塞式文件锁，跨
         await 持有会连带把事件循环上的其它协程挡在锁外。
         """
-        if script_review.step1_kind(project) != "reference_video":
+        if script_review.script_plan_kind(project) != "reference_video":
             return None
         caps = await self._resolve_caps_best_effort(project_name, project)
         return resolve_raw_supported_durations(project, caps)
 
-    def _read_step1_migrated(
+    def _read_script_plan_migrated(
         self,
         project_name: str,
         project: dict[str, Any],
@@ -187,28 +187,28 @@ class ScriptReviewService:
         project_path: Path,
         supported_durations: list[int] | None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-        """读结构化 step1，并对参考生视频草稿做一次性时长收编迁移；返回 ``(内容, 最新 project)``。
+        """读结构化 script_plan，并对参考生视频草稿做一次性时长收编迁移；返回 ``(内容, 最新 project)``。
 
         草稿是 gate 的三个入口（读状态 / 保存 / 确认）唯一的内容来源，而收编后的
-        ``ReferenceStep1Unit`` 要求 unit 级 ``duration_seconds`` 且不接受多余字段：存量草稿若不在
+        ``ReferenceScriptPlanUnit`` 要求 unit 级 ``duration_seconds`` 且不接受多余字段：存量草稿若不在
         读时迁移，保存与确认都会撞结构校验，用户在 gate 里既改不了也确认不了。
         剧集脚本的迁移在 ``ProjectManager.load_script``，草稿的在这里，两处共用同一迁移器。
 
         ``supported_durations`` 由调用方经 ``_resolve_supported_durations`` 解析后传入（本函数
-        跑在锁内，不能自行 await），与 step2 生成侧同源：迁移幂等一次性、谁先跑谁定终局，两侧
-        口径不一致时先跑的内容确认会把落在结构区间内但非档位成员的秒数固化到盘上，step2 的枚举
+        跑在锁内，不能自行 await），与 prompt_authoring 生成侧同源：迁移幂等一次性、谁先跑谁定终局，两侧
+        口径不一致时先跑的内容确认会把落在结构区间内但非档位成员的秒数固化到盘上，prompt_authoring 的枚举
         schema 随后硬拒，用户在 gate 里既看不出问题也改不动。为 None（项目未配置视频型号）时
         退回结构区间 clamp——缺配置不该阻断草稿加载，档位偏移仍由执行时取档兜底。
 
-        调用方须已持有 ``self.pm.file_lock(path)``；reference_video 还须先持 step2 草稿锁，
-        统一锁序为「下游草稿 → 正式 step1」。本函数只做读改写，不自行加锁，避免与调用方
+        调用方须已持有 ``self.pm.file_lock(path)``；reference_video 还须先持 prompt_authoring 草稿锁，
+        统一锁序为「下游草稿 → 正式 script_plan」。本函数只做读改写，不自行加锁，避免与调用方
         （如 ``confirm``）已持有的同一把锁发生同线程二次获取的死锁。
         """
         content = _read_json(path)
-        if content is None or script_review.step1_kind(project) != "reference_video":
+        if content is None or script_review.script_plan_kind(project) != "reference_video":
             return content, project
 
-        updated, _warnings = script_review.migrate_step1_draft_in_place(
+        updated, _warnings = script_review.migrate_script_plan_draft_in_place(
             project_path,
             content,
             episode=episode,
@@ -220,8 +220,8 @@ class ScriptReviewService:
     async def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
         """返回该集内容确认状态 + 结构化中间态内容（供 web 渲染）。
 
-        ``content`` 为解析后的结构化 step1（drama: {title, scenes[]}；narration: {segments[]}；
-        reference_video: {units[]}）；不适用 gate 或 step1 缺失 / 损坏时为 None。
+        ``content`` 为解析后的结构化 script_plan（drama: {title, scenes[]}；narration: {segments[]}；
+        reference_video: {units[]}）；不适用 gate 或 script_plan 缺失 / 损坏时为 None。
 
         ``supported_durations`` 只在 reference_video 变体下非 None：unit 时长是档位枚举而非
         自由秒数，web 侧要按它渲染选择项。取值与读时迁移同源（同一次
@@ -248,7 +248,7 @@ class ScriptReviewService:
         型号配置，档位表在迁移前后描述的是同一件事，无需在锁内重算。
         """
         project_path = self.pm.get_project_path(project_name)
-        path = script_review.step1_path(project_path, project, episode)
+        path = script_review.script_plan_path(project_path, project, episode)
         if path is not None:
             # 适用 gate（drama / narration 非 reference_video）才要求分集已登记；
             # not_applicable（ad / reference_video）与分集存在性无关，保持原样返回。
@@ -256,15 +256,15 @@ class ScriptReviewService:
         content: dict[str, Any] | None = None
         fingerprint: str | None = None
         if path is not None:
-            # 迁移可能回写 step1 与确认记录；指纹与状态在同一把锁内、迁移之后取，三者才据
+            # 迁移可能回写 script_plan 与确认记录；指纹与状态在同一把锁内、迁移之后取，三者才据
             # 同一份落盘内容派生——锁外取则并发 save_content 会让指纹描述另一份内容。
-            step2_lock = (
-                self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2))
-                if script_review.step1_kind(project) == "reference_video"
+            prompt_authoring_lock = (
+                self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING))
+                if script_review.script_plan_kind(project) == "reference_video"
                 else nullcontext()
             )
-            with step2_lock, self.pm.file_lock(path):
-                content, project = self._read_step1_migrated(
+            with prompt_authoring_lock, self.pm.file_lock(path):
+                content, project = self._read_script_plan_migrated(
                     project_name, project, episode, path, project_path, supported_durations
                 )
                 fingerprint = script_review.content_fingerprint(path)
@@ -282,9 +282,9 @@ class ScriptReviewService:
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
-        """本集 step1 草稿的信息（供内容确认呈现违约），不适用 / 无草稿时 None。
+        """本集 script_plan 草稿的信息（供内容确认呈现违约），不适用 / 无草稿时 None。
 
-        读时按产出时那套校验器全量重算（``revalidate_step1_draft`` 按 kind 分派到该变体的重判
+        读时按产出时那套校验器全量重算（``revalidate_script_plan_draft`` 按 kind 分派到该变体的重判
         器，晋升工具同一份代码），不信任草稿里 ``violations`` 的上一轮快照——草稿在场期间源文或
         模型配置可能已变，报告要对现值负责。本方法与 ``get_state`` 各自读盘、互不依赖，由 router
         在同一次请求内合并两者的返回。
@@ -300,11 +300,11 @@ class ScriptReviewService:
         这里保持同一纪律。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
-        quarantine_kind = script_review.step1_quarantine_kind(project)
+        quarantine_kind = script_review.script_plan_quarantine_kind(project)
         if quarantine_kind is None:
             return None
         project_path = self.pm.get_project_path(project_name)
-        quarantine_path = script_review.step1_quarantine_path(project_path, project, episode)
+        quarantine_path = script_review.script_plan_quarantine_path(project_path, project, episode)
         if quarantine_path is None or not quarantine_path.exists():
             return None
         draft = await asyncio.to_thread(read_quarantine, project_path, episode, quarantine_kind)
@@ -329,10 +329,10 @@ class ScriptReviewService:
                 ],
             }
         # 延迟导入避免模块级循环依赖：draft_workflow 复用本服务的持锁写入能力。
-        from server.draft_workflow import revalidate_step1_draft
+        from server.draft_workflow import revalidate_script_plan_draft
 
         try:
-            revalidation = await revalidate_step1_draft(
+            revalidation = await revalidate_script_plan_draft(
                 project_path,
                 project,
                 episode,
@@ -363,17 +363,17 @@ class ScriptReviewService:
     async def get_reference_duration_tiers(self, project_name: str, episode: int) -> dict[str, list[int]] | None:
         """reference_video 变体逐 unit 生效时长档位：``{with_references, without_references}``。
 
-        与 ``get_state.supported_durations``（收窄前的结构区间全集，供 ``_read_step1_migrated``
+        与 ``get_state.supported_durations``（收窄前的结构区间全集，供 ``_read_script_plan_migrated``
         的存量草稿 clamp）取自同一份 ``resolve_raw_supported_durations`` 结果，但用途不同源：
-        那个决定「这个秒数结构上合不合法」，这个决定「现在选它，``_assert_reference_step1_ready``
+        那个决定「这个秒数结构上合不合法」，这个决定「现在选它，``_assert_reference_script_plan_ready``
         会不会接受」——分辨率 / 参考图联动约束只影响后者。clamp 保持用全集，避免收窄后把结构
         合法但当前档位表之外的存量秒数误判非法；这里单独给下拉提供收窄后的可选项，同一把尺
         来自 ``reference_unit_duration_tiers``（拆分工具校验用的同一份）。无法解析到型号时返回
         None，呈现层退回未收窄的 ``supported_durations``。
 
         非 reference_video 变体直接返回 None，不做 caps 解析——调用方（router）按此方法自身
-        的 step1_kind 判断决定是否调用，不拿 ``get_state.supported_durations`` 是否非 None
-        当短路条件：那是另一个方法的返回值，两者各自判 step1_kind，不互相依赖。
+        的 script_plan_kind 判断决定是否调用，不拿 ``get_state.supported_durations`` 是否非 None
+        当短路条件：那是另一个方法的返回值，两者各自判 script_plan_kind，不互相依赖。
 
         caps 与收窄用的模型身份在本方法内单独解析：``reference_unit_duration_tiers`` 要按
         caps 里的 provider/model 求联动约束，光有档位表不够；解析失败的降级与档位表那条链
@@ -383,7 +383,7 @@ class ScriptReviewService:
         直接 ``await``，同步的 ``project.json`` 读取直接跑在事件循环上会阻塞并发的其它请求。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
-        if script_review.step1_kind(project) != "reference_video":
+        if script_review.script_plan_kind(project) != "reference_video":
             return None
         caps = await self._resolve_caps_best_effort(project_name, project)
         raw = resolve_raw_supported_durations(project, caps)
@@ -405,7 +405,7 @@ class ScriptReviewService:
         内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
 
         ``base_fingerprint`` 是编辑方读取内容（``get_state``）时拿到的指纹：给定时在锁内与盘上
-        现值比对，不一致（编辑期间另一写入方已改过 step1）抛 ``conflict``、不落盘——后写方拿
+        现值比对，不一致（编辑期间另一写入方已改过 script_plan）抛 ``conflict``、不落盘——后写方拿
         409 冲突提示去刷新合并，先写方的内容不被静默覆盖。``None`` 不比对（无基线的直连调用）。
 
         落盘本身全同步（不做时长收编，无需档位表），整段卸到线程；随后的 ``get_state`` 自行
@@ -420,11 +420,11 @@ class ScriptReviewService:
         """``save_content`` 的同步主体：结构校验、基线比对、落盘。"""
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
-        path = script_review.step1_path(project_path, project, episode)
+        path = script_review.script_plan_path(project_path, project, episode)
         if path is None:
             raise ScriptReviewError("not_applicable")
         project = self._require_episode(project_name, project, episode)
-        kind, model = self._resolve_step1_model(project, episode)
+        kind, model = self._resolve_script_plan_model(project, episode)
         try:
             validated = model.model_validate(content).model_dump()
         except ValidationError as exc:
@@ -439,27 +439,32 @@ class ScriptReviewService:
         expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
         try:
             if kind == "reference_video":
-                # 写盘经单一出口：锁、基线比对、step2 草稿清理都在 write_step1_locked 一处。
-                step2_path = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
-                with self.pm.file_lock(step2_path), script_review.step1_write_lock(project_path, episode):
+                # 写盘经单一出口：锁、基线比对、prompt_authoring 草稿清理都在 write_script_plan_locked 一处。
+                prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
+                with (
+                    self.pm.file_lock(prompt_authoring_path),
+                    script_review.script_plan_write_lock(project_path, episode),
+                ):
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
-                    script_review.write_step1_locked(project_path, episode, validated, expected_fingerprint=expected)
+                    script_review.write_script_plan_locked(
+                        project_path, episode, validated, expected_fingerprint=expected
+                    )
             else:
-                # 与 _read_step1_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
+                # 与 _read_script_plan_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
                 # 基线比对同 rv 走 assert_base_fingerprint，两者的冲突判据不分叉；比对先于
                 # 台词准入判定，让基线过期的保存拿到 conflict 而不是一条它改不动的准入意见。
                 # 比对既已在此做过，落盘出口不再重复比对（默认 UNCHECKED）。
-                with script_review.formal_step1_lock(project_path, episode, path):
+                with script_review.formal_script_plan_lock(project_path, episode, path):
                     script_review.assert_base_fingerprint(path, expected)
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
-                    script_review.write_formal_step1_locked(project_path, episode, path, validated)
-        except script_review.Step1WriteConflict as exc:
+                    script_review.write_formal_script_plan_locked(project_path, episode, path, validated)
+        except script_review.ScriptPlanWriteConflict as exc:
             raise ScriptReviewError("conflict", str(exc)) from exc
 
     async def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
-        """把该集内容确认状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
+        """把该集内容确认状态翻到 confirmed（记录当前 script_plan 内容指纹），放行 prompt_authoring。
 
-        无 step1 / 不适用 / 集条目缺失 / step1 内容结构非法 / 有草稿待处置时
+        无 script_plan / 不适用 / 集条目缺失 / script_plan 内容结构非法 / 有草稿待处置时
         抛 ScriptReviewError，由 router 映射 4xx。
 
         档位表先于加锁解析（同 ``get_state``）：确认路径同样要对存量草稿做一次读时收编，收编
@@ -479,32 +484,32 @@ class ScriptReviewService:
     ) -> None:
         """``confirm`` 的同步主体：待处置草稿校验、读时收编、结构校验、指纹落盘。"""
         project_path = self.pm.get_project_path(project_name)
-        path = script_review.step1_path(project_path, project, episode)
+        path = script_review.script_plan_path(project_path, project, episode)
         if path is None:
             raise ScriptReviewError("not_applicable")
         project = self._require_episode(project_name, project, episode)
-        # 草稿在场时拒绝确认：正式 step1 此刻仍是上一版（或不存在），确认它等于替用户
+        # 草稿在场时拒绝确认：正式 script_plan 此刻仍是上一版（或不存在），确认它等于替用户
         # 认可一份他没看过的内容，而刚产出的那份违约正文还在草稿里等 Agent 处置。校验
         # 口径与生成侧同一把尺——晋升工具用的正是产出时那套校验器，这里只判待处置草稿是否在场。
-        quarantine = script_review.step1_quarantine_path(project_path, project, episode)
+        quarantine = script_review.script_plan_quarantine_path(project_path, project, episode)
         if quarantine is not None and quarantine.exists():
-            raise ScriptReviewError("quarantined", f"step1 草稿待处置: {quarantine}")
+            raise ScriptReviewError("quarantined", f"script_plan 草稿待处置: {quarantine}")
         # 存量草稿先做时长收编再校验：Agent / 直连调用可能不经 get_state 就确认。同一把
         # per-path 锁覆盖读改写全程（含下方 reference_video 分支自己的落盘），避免中途被
-        # save_content 或迁移的写入插队——_read_step1_migrated 要求调用方已持锁。
-        kind, model = self._resolve_step1_model(project, episode)
-        step2_lock = (
-            self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2))
+        # save_content 或迁移的写入插队——_read_script_plan_migrated 要求调用方已持锁。
+        kind, model = self._resolve_script_plan_model(project, episode)
+        prompt_authoring_lock = (
+            self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING))
             if kind == "reference_video"
             else nullcontext()
         )
-        with step2_lock, self.pm.file_lock(path):
-            content, project = self._read_step1_migrated(
+        with prompt_authoring_lock, self.pm.file_lock(path):
+            content, project = self._read_script_plan_migrated(
                 project_name, project, episode, path, project_path, supported_durations
             )
             if content is None and not path.exists():
-                raise ScriptReviewError("no_step1")
-            # 确认前按 step1 变体模型校验 step1 结构：content 为 None（非法 JSON / 非对象）同样会
+                raise ScriptReviewError("no_script_plan")
+            # 确认前按 script_plan 变体模型校验 script_plan 结构：content 为 None（非法 JSON / 非对象）同样会
             # 在此被 model_validate 拒绝为 invalid_content，不会被仅凭「文件存在」放行。
             try:
                 validated = model.model_validate(content)
@@ -530,10 +535,10 @@ class ScriptReviewService:
                     admission = admit_script_unit("video_units", unit)
                     if not admission.allowed:
                         raise ScriptReviewError("speech_admission", admission=admission)
-                # 单一写盘出口（已持同一把 per-path 锁，不再套 step1_write_lock）；同临界区
-                # 读改写无并发窗口，不做基线比对。内容真的变了时，step2 草稿的基底随之
+                # 单一写盘出口（已持同一把 per-path 锁，不再套 script_plan_write_lock）；同临界区
+                # 读改写无并发窗口，不做基线比对。内容真的变了时，prompt_authoring 草稿的基底随之
                 # 失效，由出口按变更清理。
-                script_review.write_step1_locked(project_path, episode, dumped)
+                script_review.write_script_plan_locked(project_path, episode, dumped)
                 fingerprint = script_review.content_fingerprint_of_data(dumped)
             else:
                 # 指纹从校验通过的 content 派生，不二次读盘：确认记录须对应这里校验过的内容。
@@ -549,7 +554,7 @@ class ScriptReviewService:
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
-    """读取并解析结构化 step1 文件；缺失 / 非法 JSON / 非对象时返回 None（状态另由指纹派生兜底）。
+    """读取并解析结构化 script_plan 文件；缺失 / 非法 JSON / 非对象时返回 None（状态另由指纹派生兜底）。
 
     容错读取复用 ``lib.json_io.load_json_or_none``（OSError / JSON / 编码错误归 None），与项目
     其余 JSON 读取同口径；本函数再叠加「顶层须为对象」守卫，非对象同样返回 None。

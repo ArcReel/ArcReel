@@ -151,7 +151,7 @@ class TestGenerationTasks:
         from lib.formal_write import project_metadata_lock
         from lib.grid.models import GridGeneration
         from lib.grid_manager import GridManager
-        from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
+        from lib.project_migrations.runner import migrate_project_dir
         from lib.version_manager import VersionManager
 
         project_path = _prepare_files(tmp_path)
@@ -241,7 +241,7 @@ class TestGenerationTasks:
         activation_thread.join(timeout=5)
 
         # 清单激活只把项目送到 v8；形式产物注册要求当前 schema，剩余迁移由启动扫描跑完。
-        migrate_v8_to_v9(project_path)
+        migrate_project_dir(project_path)
 
         writer_thread = threading.Thread(target=_complete_grid)
         with project_metadata_lock(project_path):

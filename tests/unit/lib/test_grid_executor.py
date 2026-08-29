@@ -89,9 +89,9 @@ def project_with_script(tmp_path):
             }
         )
     )
-    # 生产项目一律处于当前 schema，剧本与其取证链（分集原文 → step1）均已登记进产物清单
+    # 生产项目一律处于当前 schema，剧本与其取证链（分集原文 → script_plan）均已登记进产物清单
     (p / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
-    (p / "drafts" / "episode_1" / "step1_segments.json").write_text(
+    (p / "drafts" / "episode_1" / "script_plan_segments.json").write_text(
         json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
     )
     activate_artifact_target_state(p, bump_schema=True)

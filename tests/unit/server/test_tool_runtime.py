@@ -31,8 +31,8 @@ from server.tool_runtime import (
     get_episode_script,
     get_generation_batch,
     get_project_content,
+    get_script_plan_content,
     get_source_text,
-    get_step1_content,
     get_video_capabilities,
     get_workflow_plan,
     list_project_files,
@@ -119,11 +119,11 @@ def _status() -> WorkflowStatus:
             },
             "state": "FINAL_SCRIPT",
             "blockers": [],
-            "gates": {"step1_review": {"state": "not_applicable", "revision": None}},
+            "gates": {"script_plan_review": {"state": "not_applicable", "revision": None}},
             "artifacts": {
                 "asset_inventory": {"state": "not_applicable"},
                 "asset_sheets": {},
-                "step1": {"state": "not_applicable"},
+                "script_plan": {"state": "not_applicable"},
                 "script": {"state": "missing"},
                 "storyboards": {"current_ids": [], "stale_ids": [], "missing_ids": []},
                 "videos": {"current_ids": [], "stale_ids": [], "missing_ids": []},
@@ -441,15 +441,17 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, m
 async def test_content_readers_return_body_and_revision_from_the_same_snapshot(tmp_path: Path, monkeypatch) -> None:
     project_dir = tmp_path / "demo"
     (project_dir / "scripts").mkdir(parents=True)
-    step1_dir = project_dir / "drafts" / "episode_1"
-    step1_dir.mkdir(parents=True)
+    script_plan_dir = project_dir / "drafts" / "episode_1"
+    script_plan_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text(
         f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
     )
     (project_dir / "scripts" / "episode_1.json").write_text(
         '{"episode":1,"title":"第一集","scenes":[]}', encoding="utf-8"
     )
-    (step1_dir / "step1_normalized_script.json").write_text('{"title":"第一集","scenes":[]}', encoding="utf-8")
+    (script_plan_dir / "script_plan_normalized_script.json").write_text(
+        '{"title":"第一集","scenes":[]}', encoding="utf-8"
+    )
     projects = ProjectManager(tmp_path)
     services = Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities())
     scope = ProjectScope("demo", tmp_path)
@@ -472,7 +474,7 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
 
     project = await get_project_content(ToolRequest(None), scope, caller, services)
     script = await get_episode_script(ToolRequest("episode_1.json"), scope, caller, services)
-    step1 = await get_step1_content(ToolRequest(1), scope, caller, services)
+    script_plan = await get_script_plan_content(ToolRequest(1), scope, caller, services)
 
     assert project.problem is None
     assert project.value is not None
@@ -482,9 +484,9 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
     assert script.value is not None
     assert script.value.script["title"] == "第一集"
     assert script.value.revision.startswith("sha256-v1:")
-    assert step1.problem is None
-    assert step1.value is not None
-    assert step1.value.content["title"] == "第一集"
+    assert script_plan.problem is None
+    assert script_plan.value is not None
+    assert script_plan.value.content["title"] == "第一集"
     assert len(reader_threads) == 3
     assert all(thread != caller_thread for thread in reader_threads)
 
@@ -500,7 +502,7 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
     (project_dir / "source" / "episode_1.txt").write_text("第一集原文", encoding="utf-8")
     (project_dir / "source" / "directory.txt").mkdir()
     (project_dir / "scripts" / "episode_1.json").write_text('{"episode":1,"scenes":[]}', encoding="utf-8")
-    (drafts / "step1_normalized_script.json").write_text('{"title":"第一集","scenes":[]}', encoding="utf-8")
+    (drafts / "script_plan_normalized_script.json").write_text('{"title":"第一集","scenes":[]}', encoding="utf-8")
     (project_dir / ".env").write_text("SECRET=value", encoding="utf-8")
     (project_dir / "source" / "linked.txt").symlink_to(project_dir / ".env")
     projects = ProjectManager(tmp_path)
@@ -509,7 +511,7 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
     caller = CallerContext(user_id="u1", source="mcp")
     sources = await list_source_files(ToolRequest(None), scope, caller, services)
     source = await get_source_text(ToolRequest("source/episode_1.txt"), scope, caller, services)
-    step1 = await get_step1_content(ToolRequest(1), scope, caller, services)
+    script_plan = await get_script_plan_content(ToolRequest(1), scope, caller, services)
     files = await list_project_files(ToolRequest(None), scope, caller, services)
     script = await read_project_file(ToolRequest("scripts/episode_1.json"), scope, caller, services)
     sensitive = await read_project_file(ToolRequest(".env"), scope, caller, services)
@@ -521,14 +523,14 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
     assert sources.value is not None
     assert [entry.path for entry in sources.value.files] == ["source/episode_1.txt", "source/novel.txt"]
     assert source.value is not None and source.value.text == "第一集原文"
-    assert step1.value is not None and step1.value.content["title"] == "第一集"
+    assert script_plan.value is not None and script_plan.value.content["title"] == "第一集"
     assert files.value is not None
     assert {entry.path for entry in files.value.files} == {
         "project.json",
         "source/episode_1.txt",
         "source/novel.txt",
         "scripts/episode_1.json",
-        "drafts/episode_1/step1_normalized_script.json",
+        "drafts/episode_1/script_plan_normalized_script.json",
     }
     assert script.value is not None and script.value.content["episode"] == 1
     assert script.value.etag.startswith("sha256-v1:")
@@ -597,7 +599,7 @@ async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) 
 @pytest.mark.parametrize("episode", [0, -1, True, 1.5, "1"])
 def test_draft_locator_requires_a_strict_positive_episode(episode: object) -> None:
     with pytest.raises(ValueError):
-        DraftLocator(episode=episode, doc_type="reference_step1")  # type: ignore[arg-type]
+        DraftLocator(episode=episode, doc_type="reference_script_plan")  # type: ignore[arg-type]
 
 
 def test_draft_locator_rejects_unknown_document_types() -> None:

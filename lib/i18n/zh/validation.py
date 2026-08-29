@@ -112,22 +112,22 @@ MESSAGES = {
     "val_skeleton_mismatch_reference_known": (
         "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本是 {actual}（{actual_noun}）骨架。"
-        "请调用 generate_step1 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
+        "请调用 generate_script_plan 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_reference_none": (
         "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本没有任何骨架数组。"
-        "请调用 generate_step1 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
+        "请调用 generate_script_plan 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_known": (
         "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本是 {actual}（{actual_noun}）骨架。"
-        "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
+        "请重跑分集拆分（script_plan）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_none": (
         "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本没有任何骨架数组。"
-        "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
+        "请重跑分集拆分（script_plan）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     # ---- 参考生视频时长收编迁移 ----
     "val_unit_duration_clamped": "unit {unit_id} 时长 {target}s 超出 {low}-{high}s 合理区间，已裁剪为 {clamped}s",

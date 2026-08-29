@@ -134,19 +134,19 @@ def test_write_protected_project_json_denied(policy: AgentAccessPolicy, tool: st
 @pytest.mark.parametrize(
     "relative",
     [
-        "drafts/episode_1/step1_reference_units.json",
-        "drafts/episode_12/step1_reference_units.json",
-        "drafts/episode_1/STEP1_REFERENCE_UNITS.JSON",
-        "drafts/episode_1/step1_normalized_script.json",
-        "drafts/episode_12/step1_normalized_script.json",
-        "drafts/episode_1/STEP1_NORMALIZED_SCRIPT.JSON",
-        "drafts/episode_1/step1_segments.json",
-        "drafts/episode_12/step1_segments.json",
-        "drafts/episode_1/STEP1_SEGMENTS.JSON",
+        "drafts/episode_1/script_plan_reference_units.json",
+        "drafts/episode_12/script_plan_reference_units.json",
+        "drafts/episode_1/SCRIPT_PLAN_REFERENCE_UNITS.JSON",
+        "drafts/episode_1/script_plan_normalized_script.json",
+        "drafts/episode_12/script_plan_normalized_script.json",
+        "drafts/episode_1/SCRIPT_PLAN_NORMALIZED_SCRIPT.JSON",
+        "drafts/episode_1/script_plan_segments.json",
+        "drafts/episode_12/script_plan_segments.json",
+        "drafts/episode_1/SCRIPT_PLAN_SEGMENTS.JSON",
     ],
 )
-def test_write_formal_step1_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """三条路线的正式 step1 都不可用 Write/Edit 直改：它另有几条持同一把 per-path 锁的写入路径
+def test_write_formal_script_plan_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """三条路线的正式 script_plan 都不可用 Write/Edit 直改：它另有几条持同一把 per-path 锁的写入路径
     （迁移 / Web 端保存 / 晋升），沙箱内的 Write/Edit 取不到锁，直改即丢失更新窗口。
     报错要指向取回草稿的工具，否则 Agent 只知被拒、不知改道哪里。"""
     cwd = _cwd(policy)
@@ -156,14 +156,14 @@ def test_write_formal_step1_denied(policy: AgentAccessPolicy, tool: str, relativ
     assert "promote_draft" in reason
 
 
-def test_protected_step1_filenames_match_shared_constant() -> None:
+def test_protected_script_plan_filenames_match_shared_constant() -> None:
     """写禁清单只认 lib.episode_paths 那一份常量：判定表与文件名真相源分开声明时，
     改名或新增变体会只落到其中一处，留出「文件已换名、写禁还拦旧名」的静默旁路。"""
-    from lib.episode_paths import AGENT_PROTECTED_STEP1_FILENAMES
+    from lib.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 
-    assert AgentAccessPolicy._PROTECTED_STEP1_FILENAMES_NORM == frozenset(  # pyright: ignore[reportPrivateUsage]
+    assert AgentAccessPolicy._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM == frozenset(  # pyright: ignore[reportPrivateUsage]
         AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))  # pyright: ignore[reportPrivateUsage]
-        for name in AGENT_PROTECTED_STEP1_FILENAMES
+        for name in AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
     )
 
 
@@ -171,12 +171,12 @@ def test_protected_step1_filenames_match_shared_constant() -> None:
 @pytest.mark.parametrize(
     "relative",
     [
-        "drafts/episode_1/step1_narration_segments.json",
-        "drafts/step1_reference_units.json",
-        "drafts/episode_1/sub/step1_reference_units.json",
+        "drafts/episode_1/script_plan_narration_segments.json",
+        "drafts/script_plan_reference_units.json",
+        "drafts/episode_1/sub/script_plan_reference_units.json",
     ],
 )
-def test_write_near_formal_step1_allowed(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+def test_write_near_formal_script_plan_allowed(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """写禁不外溢到未注册的同目录邻居。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
@@ -187,10 +187,10 @@ def test_write_near_formal_step1_allowed(policy: AgentAccessPolicy, tool: str, r
 @pytest.mark.parametrize(
     "relative",
     [
-        "drafts/episode_1/step1_reference_units.invalid.json",
-        "drafts/episode_1/step1_normalized_script.invalid.json",
-        "drafts/episode_1/step1_segments.invalid.json",
-        "drafts/episode_1/step2_reference_script.invalid.json",
+        "drafts/episode_1/script_plan_reference_units.invalid.json",
+        "drafts/episode_1/script_plan_normalized_script.invalid.json",
+        "drafts/episode_1/script_plan_segments.invalid.json",
+        "drafts/episode_1/prompt_authoring_reference_script.invalid.json",
     ],
 )
 def test_write_revisioned_draft_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
@@ -328,7 +328,7 @@ def test_normalize_path_for_protected_compare_strips_windows_extended_prefix() -
 def test_write_drafts_and_source_still_allowed(policy: AgentAccessPolicy) -> None:
     """合法的草稿/源文件写入不受影响（drafts/*.md、source/*.txt、scripts 外的 .json）。"""
     cwd = _cwd(policy)
-    for relative in ("drafts/episode_1/step1_segments.md", "source/episode_1.txt", "config_data.json"):
+    for relative in ("drafts/episode_1/script_plan_segments.md", "source/episode_1.txt", "config_data.json"):
         allowed, _ = policy.check_path_access(str(cwd / relative), "Write", cwd)
         assert allowed, f"{relative} 应允许"
 
@@ -476,7 +476,7 @@ def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccess
 def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: AgentAccessPolicy) -> None:
     """``drafts/`` 按整目录 deny，不逐文件枚举——清单在会话装配期一次性构造，而集是运行时
     增删的：「同集会话内先拆分出第 N 集、再改它」这条主流程上，逐文件枚举必然落空。
-    与 hook 层刻意不对称（hook 只拒正式 step1，草稿留给内置 Edit）。"""
+    与 hook 层刻意不对称（hook 只拒正式 script_plan，草稿留给内置 Edit）。"""
     cwd = _cwd(policy)
     deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
     assert str(cwd / "drafts") in deny_write

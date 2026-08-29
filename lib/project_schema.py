@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-CURRENT_PROJECT_SCHEMA_VERSION = 9
+CURRENT_PROJECT_SCHEMA_VERSION = 10
 
 
 def parse_project_schema_version(project: Mapping[str, object]) -> int:

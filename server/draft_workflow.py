@@ -19,10 +19,10 @@ from lib.config.resolver import ConfigResolver
 from lib.draft_quarantine import (
     DOC_TYPE_TO_QUARANTINE_KIND,
     PROMOTE_TOOL_NAME,
-    QUARANTINE_KIND_DRAMA_STEP1,
-    QUARANTINE_KIND_NARRATION_STEP1,
-    QUARANTINE_KIND_STEP1,
-    QUARANTINE_KIND_STEP2,
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+    QUARANTINE_KIND_PROMPT_AUTHORING,
+    QUARANTINE_KIND_SCRIPT_PLAN,
     QUARANTINE_KIND_TO_DOC_TYPE,
     QuarantinedDraft,
     clear_quarantine,
@@ -35,14 +35,14 @@ from lib.draft_quarantine import (
     write_quarantine,
 )
 from lib.draft_violation import DraftViolation
-from lib.episode_paths import STEP1_FILENAMES, episode_drafts_dir, episode_script_filename
+from lib.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, ScriptWriteConflict
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
-    NarrationStep1Draft,
+    NarrationScriptPlanDraft,
     build_drama_normalized_script_model,
-    build_reference_units_step1_model,
+    build_reference_units_script_plan_model,
 )
 from lib.speech_composition import admit_script_unit
 from server.text_generation import (
@@ -50,13 +50,13 @@ from server.text_generation import (
     _build_reference_units_from_flat,
     _collect_narration_violations,
     _collect_reference_flat_violations,
-    _commit_single_step1,
+    _commit_single_script_plan,
     _coverage_source_scope,
     _fetch_caps_with_fallback,
     _fetch_reference_caps_with_fallback,
     _load_novel_source,
-    _load_step1_source_with_basis,
-    _narration_step1_path,
+    _load_script_plan_source_with_basis,
+    _narration_script_plan_path,
     _uses_reference_video_units,
 )
 
@@ -75,7 +75,9 @@ class DraftContext:
         return self.pm.get_project_path(self.project_name)
 
 
-DraftDocType = Literal["drama_step1", "narration_step1", "reference_step1", "reference_step2"]
+DraftDocType = Literal[
+    "drama_script_plan", "narration_script_plan", "reference_script_plan", "reference_prompt_authoring"
+]
 PositiveEpisode = Annotated[int, Field(strict=True, ge=1)]
 
 
@@ -115,7 +117,7 @@ class DraftWorkflowError(Exception):
 
 
 class ReferenceDraftRevalidation(NamedTuple):
-    """step1 草稿读时重判的结果。
+    """script_plan 草稿读时重判的结果。
 
     ``schema_failed`` 显式区分两个阶段：True 表示草稿连产出时的 schema 都没过（``flat_units``
     必为空，调用方只能按 ``draft.content`` 原样呈现）；False 时 ``flat_units`` 是收编后的扁平
@@ -130,7 +132,7 @@ class ReferenceDraftRevalidation(NamedTuple):
     basis: ArtifactBasis | None
 
 
-async def revalidate_reference_step1_draft(
+async def revalidate_reference_script_plan_draft(
     project_path: Path,
     project: dict[str, Any],
     episode: int,
@@ -138,7 +140,7 @@ async def revalidate_reference_step1_draft(
     *,
     config_resolver: ConfigResolver | None = None,
 ) -> ReferenceDraftRevalidation:
-    """按产出时那套校验器全量重判 step1 草稿，只读、不写盘、不清草稿。
+    """按产出时那套校验器全量重判 script_plan 草稿，只读、不写盘、不清草稿。
 
     重判走的是拆分工具用的同一个函数（``_collect_reference_flat_violations``），不是它的简化
     副本：晋升口径、内容确认的读时重算与产出口径必须同一份代码，否则「这里放行、下次
@@ -161,8 +163,8 @@ async def revalidate_reference_step1_draft(
     # 源文可能达数百 KB（整个 source/ 目录拼接），同步读盘直接放在这个 async 函数体里会占用
     # 事件循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）
     # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
-    novel_text, _prompt_inputs, step1_basis = await asyncio.to_thread(
-        _load_step1_source_with_basis,
+    novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
+        _load_script_plan_source_with_basis,
         project_path,
         draft.meta["source"],
         project,
@@ -178,7 +180,7 @@ async def revalidate_reference_step1_draft(
             config_resolver=config_resolver,
         )
 
-    # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住时长
+    # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_script_plan_json 卡住时长
     # 枚举与字段非空，晋升侧漏掉这一层的话，把 duration_seconds 改成非档位值、或整个删掉（收成
     # 0 秒）都能一路晋升进正式文件——正是本机制要防的「正式文件被污染」。schema 违约在这条路上
     # 没有 backend 可重试（内容是 Agent 写的），故同样回报告让它继续改。
@@ -186,7 +188,7 @@ async def revalidate_reference_step1_draft(
     # 外层形状（units 缺失 / 不是数组 / 空数组）与逐 unit 的字段违约走同一条报告路径：两者都是
     # Agent 编辑草稿时会犯的错，只有后者刷新报告的话，前者就把它甩出了「改完再晋升」的循环。
     raw_units = draft.content.get("units")
-    schema = build_reference_units_step1_model(split_caps.durations)
+    schema = build_reference_units_script_plan_model(split_caps.durations)
     violations: list[DraftViolation] = []
     flat_units: list[dict[str, Any]] = []
     if not isinstance(raw_units, list) or not raw_units:
@@ -203,13 +205,13 @@ async def revalidate_reference_step1_draft(
         except ValidationError as exc:
             violations = [
                 DraftViolation(
-                    f"草稿的 content 不符合 step1 产出结构：{exc}；"
+                    f"草稿的 content 不符合 script_plan 产出结构：{exc}；"
                     f"每个 unit 须有非空 source_text / text，且 duration_seconds 取自模型档位 {split_caps.durations}",
                     code="schema_invalid",
                 )
             ]
     if violations:
-        return ReferenceDraftRevalidation(violations, [], split_caps, schema_failed=True, basis=step1_basis)
+        return ReferenceDraftRevalidation(violations, [], split_caps, schema_failed=True, basis=script_plan_basis)
 
     source_language = project.get("source_language")
     violations = _collect_reference_flat_violations(
@@ -220,10 +222,10 @@ async def revalidate_reference_step1_draft(
         caps=split_caps,
         source_language=source_language,
     )
-    return ReferenceDraftRevalidation(violations, flat_units, split_caps, schema_failed=False, basis=step1_basis)
+    return ReferenceDraftRevalidation(violations, flat_units, split_caps, schema_failed=False, basis=script_plan_basis)
 
 
-def _commit_reference_step1(
+def _commit_reference_script_plan(
     project_path: Path,
     episode: int,
     content: dict[str, Any],
@@ -233,29 +235,29 @@ def _commit_reference_step1(
 ) -> None:
     if before_commit is not None:
         before_commit()
-    script_review.write_step1(
+    script_review.write_script_plan(
         project_path,
         episode,
         content,
         expected_fingerprint=expected_fingerprint,
         basis=basis,
     )
-    clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+    clear_quarantine(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
 
 
-def _open_step1_draft(
+def _open_script_plan_draft(
     project_path: Path,
     episode: int,
-    step1_path: Path,
+    script_plan_path: Path,
     kind: str,
     source: str | None,
     to_draft_shape: Callable[[dict[str, Any]], dict[str, Any] | None],
     missing_detail: str,
 ) -> None:
-    with script_review.formal_step1_lock(project_path, episode, step1_path):
+    with script_review.formal_script_plan_lock(project_path, episode, script_plan_path):
         if quarantine_exists(project_path, episode, kind):
             return
-        data = load_json_or_none(step1_path)
+        data = load_json_or_none(script_plan_path)
         content = to_draft_shape(data) if isinstance(data, dict) else None
         if content is None:
             raise DraftWorkflowError("draft_source_missing", missing_detail)
@@ -294,18 +296,18 @@ def _rewrite_invalid_draft(
     )
 
 
-async def _promote_reference_step1(
+async def _promote_reference_script_plan(
     ctx: DraftContext,
     episode: int,
     draft: QuarantinedDraft,
     *,
     before_commit: Callable[[], None] | None = None,
 ) -> None:
-    """按产出时那套校验器全量重判 step1 草稿，通过则晋升为正式 step1 并清除草稿。"""
+    """按产出时那套校验器全量重判 script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。"""
     project_path = ctx.project_path
     project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
     try:
-        revalidation = await revalidate_reference_step1_draft(
+        revalidation = await revalidate_reference_script_plan_draft(
             project_path,
             project,
             episode,
@@ -322,7 +324,7 @@ async def _promote_reference_step1(
             _rewrite_invalid_draft,
             project_path,
             episode,
-            QUARANTINE_KIND_STEP1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
             draft.content,
             violations,
             draft.meta,
@@ -333,7 +335,7 @@ async def _promote_reference_step1(
             _rewrite_invalid_draft,
             project_path,
             episode,
-            QUARANTINE_KIND_STEP1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
             {"units": flat_units},
             violations,
             draft.meta,
@@ -341,7 +343,7 @@ async def _promote_reference_step1(
         raise DraftWorkflowError("draft_invalid", report)
 
     units = _build_reference_units_from_flat(flat_units, project, episode=episode, max_refs=split_caps.max_refs)
-    # 写盘经单一出口（lib.script_review.write_step1_locked）：锁、基线比对、step2 草稿清理
+    # 写盘经单一出口（lib.script_review.write_script_plan_locked）：锁、基线比对、prompt_authoring 草稿清理
     # 只存在那一处。基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint——正式文件在草稿
     # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 Agent 合并，
     # 不静默覆盖对方的修改。缺少 base_fingerprint 的草稿按无基线晋升。
@@ -350,7 +352,7 @@ async def _promote_reference_step1(
     )
     try:
         await run_sync_transaction(
-            _commit_reference_step1,
+            _commit_reference_script_plan,
             project_path,
             episode,
             {"units": units},
@@ -358,23 +360,23 @@ async def _promote_reference_step1(
             revalidation.basis,
             before_commit,
         )
-    except script_review.Step1WriteConflict as conflict:
+    except script_review.ScriptPlanWriteConflict as conflict:
         raise DraftWorkflowError(
             "formal_revision_conflict",
-            _render_step1_conflict_report(
+            _render_script_plan_conflict_report(
                 episode,
                 draft,
                 conflict,
-                to_draft_shape=_reference_step1_draft_shape,
+                to_draft_shape=_reference_script_plan_draft_shape,
                 field_hint="content.units",
             ),
         ) from conflict
 
 
-def _render_step1_conflict_report(
+def _render_script_plan_conflict_report(
     episode: int,
     draft: QuarantinedDraft,
-    conflict: script_review.Step1WriteConflict,
+    conflict: script_review.ScriptPlanWriteConflict,
     *,
     to_draft_shape: Callable[[dict[str, Any]], dict[str, Any] | None],
     field_hint: str,
@@ -390,15 +392,15 @@ def _render_step1_conflict_report(
     latest_content = to_draft_shape(conflict.current_content) if conflict.current_content is not None else None
     if latest_content is not None:
         latest = json.dumps(latest_content, ensure_ascii=False, indent=2)
-        latest_block = f"当前正式 step1 的最新内容（与草稿 content 同形）：\n{latest}"
+        latest_block = f"当前正式 script_plan 的最新内容（与草稿 content 同形）：\n{latest}"
     else:
-        latest_block = "当前正式文件不存在或不是合法的 step1 JSON，无法附上最新内容；请自行读取该文件确认。"
+        latest_block = "当前正式文件不存在或不是合法的 script_plan JSON，无法附上最新内容；请自行读取该文件确认。"
     # 指纹按 JSON 字面量给：正式文件已被删除时现值是 null，写成 "None" 会让 Agent
     # 接受错误的基线，之后每次重晋升都比对不上、拿到同一份报告，冲突再也解不掉。
     actual_literal = json.dumps(conflict.actual)
     doc_type = QUARANTINE_KIND_TO_DOC_TYPE[draft.kind]
     return (
-        "❌ 晋升中止（并发冲突）：正式 step1 在本草稿产出后已被其他写入方（如 Web 端保存）修改，"
+        "❌ 晋升中止（并发冲突）：正式 script_plan 在本草稿产出后已被其他写入方（如 Web 端保存）修改，"
         "直接晋升会覆盖对方的修改，本次未写盘、草稿仍在场。\n"
         f"草稿基线指纹: {json.dumps(conflict.expected)}；盘上现值指纹: {actual_literal}\n\n"
         f"{latest_block}\n\n"
@@ -410,7 +412,7 @@ def _render_step1_conflict_report(
     )
 
 
-def _render_step2_conflict_report(
+def _render_prompt_authoring_conflict_report(
     episode: int,
     draft: QuarantinedDraft,
     conflict: ScriptWriteConflict,
@@ -427,13 +429,13 @@ def _render_step2_conflict_report(
         "处置：调用 open_draft 读取当前草稿与 formal_revision，合并最新正式内容；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
         "若该值为 null 且使用 remote MCP，还须传 accepts_formal_revision=true；"
-        f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "reference_step2", '
+        f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "reference_prompt_authoring", '
         '"base_revision": "<patch_draft 返回的新 revision>"}) 重新晋升。'
     )
 
 
-def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
-    """正式 step1 的结构化 unit 表 → 扁平草稿单元（``_build_reference_units_from_flat`` 的逆向）。
+def _flatten_reference_script_plan_units(units: list[Any]) -> list[dict[str, Any]]:
+    """正式 script_plan 的结构化 unit 表 → 扁平草稿单元（``_build_reference_units_from_flat`` 的逆向）。
 
     ``unit_id`` 不进草稿：它是按数组序号机械编号的派生物，草稿是给 Agent 改的那一层，带上
     派生字段等于给漂移开口子。
@@ -461,20 +463,20 @@ def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
     return flat
 
 
-def _reference_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式参考 step1 内容 → 扁平草稿结构；不是合法 step1 时返回 None。"""
+def _reference_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
+    """正式参考 script_plan 内容 → 扁平草稿结构；不是合法 script_plan 时返回 None。"""
     units = content.get("units")
     if not isinstance(units, list) or not units:
         return None
-    return {"units": _flatten_reference_step1_units(units)}
+    return {"units": _flatten_reference_script_plan_units(units)}
 
 
-def _drama_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式 drama step1 内容 → 可编辑草稿装的分镜结构；不是合法 step1 时返回 None。
+def _drama_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
+    """正式 drama script_plan 内容 → 可编辑草稿装的分镜结构；不是合法 script_plan 时返回 None。
 
     只剥 ``needs_replan``：它是按台词准入机械派生的标记，让 Agent 编辑派生物等于给漂移开
     口子——晋升时照样按 ``content`` 现值重新派生。其余字段原样带过，包括 ``scene_id``：它是
-    step2 视觉层的对齐锚，草稿里写坏了要由晋升侧的 schema 逐条报出来，不能在这一层替它填。
+    prompt_authoring 视觉层的对齐锚，草稿里写坏了要由晋升侧的 schema 逐条报出来，不能在这一层替它填。
     非 dict 的分镜项同样原样带过而非丢弃：跳过会让数组变短，若剩余分镜恰好都能过校验，晋升
     会悄悄覆盖正式文件、丢掉这一分镜而无人知晓。
     """
@@ -487,15 +489,15 @@ def _drama_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
     return {"title": content.get("title", ""), "scenes": flat}
 
 
-class SingleStep1DraftRevalidation(NamedTuple):
-    """只有一个草稿位的两条路线（drama / narration）的 step1 草稿读时重判结果。
+class SingleScriptPlanDraftRevalidation(NamedTuple):
+    """只有一个草稿位的两条路线（drama / narration）的 script_plan 草稿读时重判结果。
 
     ``schema_failed`` 显式区分两个阶段：True 表示草稿连产出时的 schema 都没过（``content`` 必为
     空 dict，调用方只能按 ``draft.content`` 原样呈现）；False 时 ``content`` 是经 schema 收编后的
     草稿层形状（drama 的 ``{title, scenes}``、narration 的 ``{segments}``），``violations`` 为空即
     可晋升。两者的处置不同（原样 vs 收编），故不靠 ``content`` 是否为空来反推。
 
-    两条路线共用一个类型而非各立一个：字段与语义逐字相同，分成两个只会让 ``revalidate_step1_draft``
+    两条路线共用一个类型而非各立一个：字段与语义逐字相同，分成两个只会让 ``revalidate_script_plan_draft``
     的归一分支按类型各写一遍同样的事。参考生视频另有 ``ReferenceDraftRevalidation``——它的产出是
     扁平 units 且要带回档位，形状本就不同。
     """
@@ -506,15 +508,15 @@ class SingleStep1DraftRevalidation(NamedTuple):
     basis: ArtifactBasis | None
 
 
-async def revalidate_drama_step1_draft(
+async def revalidate_drama_script_plan_draft(
     project_path: Path,
     project: dict[str, Any],
     episode: int,
     draft: QuarantinedDraft,
     *,
     config_resolver: ConfigResolver | None = None,
-) -> SingleStep1DraftRevalidation:
-    """按产出时那套校验器全量重判 drama step1 草稿，只读、不写盘、不清草稿。
+) -> SingleScriptPlanDraftRevalidation:
+    """按产出时那套校验器全量重判 drama script_plan 草稿，只读、不写盘、不清草稿。
 
     校验器就是产出时那一个（按当前能力档位构造的 ``DramaNormalizedScript``），不是它的副本：
     档位随项目配置变化，草稿里那个曾经合法的秒数今天可能已不在档位内，用旧枚举放行等于把一份
@@ -527,8 +529,8 @@ async def revalidate_drama_step1_draft(
     """
     # 源文可能达数百 KB，同步读盘卸到线程：内容确认的读时重算在请求协程里跑，直接读会
     # 占用事件循环、拖慢并发的其它请求。与另两条路线同口径。
-    _novel_text, _prompt_inputs, step1_basis = await asyncio.to_thread(
-        _load_step1_source_with_basis,
+    _novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
+        _load_script_plan_source_with_basis,
         project_path,
         draft.meta.get("source"),
         project,
@@ -548,35 +550,35 @@ async def revalidate_drama_step1_draft(
         content = schema.model_validate(draft.content).model_dump()
     except ValidationError as exc:
         violation = DraftViolation(
-            f"草稿的 content 不符合 step1 规范化产出结构：{exc}；"
+            f"草稿的 content 不符合 script_plan 规范化产出结构：{exc}；"
             f"顶层须为 {{title, scenes}}，每个分镜的 duration_seconds 取自模型档位 {supported_durations}",
             code="schema_invalid",
         )
-        return SingleStep1DraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
+        return SingleScriptPlanDraftRevalidation([violation], {}, schema_failed=True, basis=script_plan_basis)
 
     raw_scenes = content.get("scenes")
     if not isinstance(raw_scenes, list) or not raw_scenes:
         violation = DraftViolation("草稿的 content.scenes 必须是非空的分镜对象数组", code="schema_invalid")
-        return SingleStep1DraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
+        return SingleScriptPlanDraftRevalidation([violation], {}, schema_failed=True, basis=script_plan_basis)
     for scene in raw_scenes:
         admission = admit_script_unit("scenes", scene, ignore_marker=True)
         if admission.allowed:
             scene.pop("needs_replan", None)
         else:
             scene["needs_replan"] = True
-    return SingleStep1DraftRevalidation([], content, schema_failed=False, basis=step1_basis)
+    return SingleScriptPlanDraftRevalidation([], content, schema_failed=False, basis=script_plan_basis)
 
 
-async def _promote_drama_step1(
+async def _promote_drama_script_plan(
     ctx: DraftContext,
     episode: int,
     draft: QuarantinedDraft,
 ) -> None:
-    """按产出时那套校验器全量重判 drama step1 草稿，通过则晋升为正式 step1 并清除草稿。"""
+    """按产出时那套校验器全量重判 drama script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。"""
     project_path = ctx.project_path
     project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
     try:
-        revalidation = await revalidate_drama_step1_draft(
+        revalidation = await revalidate_drama_script_plan_draft(
             project_path,
             project,
             episode,
@@ -593,7 +595,7 @@ async def _promote_drama_step1(
             _rewrite_invalid_draft,
             project_path,
             episode,
-            QUARANTINE_KIND_DRAMA_STEP1,
+            QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
             draft.content if revalidation.schema_failed else revalidation.content,
             revalidation.violations,
             draft.meta,
@@ -601,43 +603,43 @@ async def _promote_drama_step1(
         raise DraftWorkflowError("draft_invalid", report)
 
     content = revalidation.content
-    step1_basis = revalidation.basis
+    script_plan_basis = revalidation.basis
     # 基线指纹取自取回时记进 meta 的 base_fingerprint：正式文件在草稿产出后被其他写入方
     # （Web 端保存、重跑 normalize）改过时晋升中止、返回冲突报告让 Agent 合并，不静默覆盖。
     expected = (
         draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
     )
-    step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
+    script_plan_path = episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["drama"]
     try:
         await run_sync_transaction(
-            _commit_single_step1,
+            _commit_single_script_plan,
             project_path,
             episode,
-            step1_path,
-            QUARANTINE_KIND_DRAMA_STEP1,
+            script_plan_path,
+            QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
             content,
             expected,
-            step1_basis,
+            script_plan_basis,
         )
-    except script_review.Step1WriteConflict as conflict:
+    except script_review.ScriptPlanWriteConflict as conflict:
         raise DraftWorkflowError(
             "formal_revision_conflict",
-            _render_step1_conflict_report(
+            _render_script_plan_conflict_report(
                 episode,
                 draft,
                 conflict,
-                to_draft_shape=_drama_step1_draft_shape,
+                to_draft_shape=_drama_script_plan_draft_shape,
                 field_hint="content.scenes",
             ),
         ) from conflict
 
 
-async def _open_drama_step1_for_edit(
+async def _open_drama_script_plan_for_edit(
     ctx: DraftContext,
     episode: int,
     source: str | None,
 ) -> None:
-    """把本集正式 drama step1 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。
+    """把本集正式 drama script_plan 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。
 
     与参考生视频同一条流程：草稿有无的检查、正式文件的读取、草稿的写入整段在同一把 per-path
     锁的临界区内完成——拆开在锁外各做一次的话，同一集的两个并发取回请求会都先看到「无草稿」、
@@ -653,36 +655,36 @@ async def _open_drama_step1_for_edit(
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
-    step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
+    script_plan_path = episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["drama"]
     await run_sync_transaction(
-        _open_step1_draft,
+        _open_script_plan_draft,
         project_path,
         episode,
-        step1_path,
-        QUARANTINE_KIND_DRAMA_STEP1,
+        script_plan_path,
+        QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
         source,
-        _drama_step1_draft_shape,
-        f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在、不是合法 JSON，"
-        "或 scenes 不是非空数组）；首次生成请调用 generate_step1",
+        _drama_script_plan_draft_shape,
+        f"❌ 第 {episode} 集没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        "或 scenes 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
 
-async def revalidate_narration_step1_draft(
+async def revalidate_narration_script_plan_draft(
     project_path: Path,
     project: dict[str, Any],
     episode: int,
     draft: QuarantinedDraft,
     *,
     config_resolver: ConfigResolver | None = None,
-) -> SingleStep1DraftRevalidation:
-    """按产出时那套校验器全量重判 narration step1 草稿，只读、不写盘、不清草稿。
+) -> SingleScriptPlanDraftRevalidation:
+    """按产出时那套校验器全量重判 narration script_plan 草稿，只读、不写盘、不清草稿。
 
     重判走的是拆分工具用的同一个函数（``_collect_narration_violations``），不是它的简化副本：
     晋升口径、内容确认的读时重算与产出口径必须同一份代码，否则「这里放行、下次生成时被拒」
     这类分叉会重新出现。能力档位与源文都重新解析——隔离期间用户可能改过模型配置或源文，重判要
     对着现值判。
 
-    与 ``revalidate_reference_step1_draft`` 同样不依赖 ``DraftContext``：内容确认的读时重算
+    与 ``revalidate_reference_script_plan_draft`` 同样不依赖 ``DraftContext``：内容确认的读时重算
     没有 Agent 工具的 ctx，只有 ``ProjectManager``，两处共用本函数而不各自加载 project。
 
     ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
@@ -697,8 +699,8 @@ async def revalidate_narration_step1_draft(
     # 源文可能达数百 KB（整个 source/ 目录拼接），同步读盘直接放在这个 async 函数体里会占用事件
     # 循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）在请求
     # 协程里跑，卸到线程避免拖慢并发的其它请求。
-    novel_text, prompt_inputs, step1_basis = await asyncio.to_thread(
-        _load_step1_source_with_basis,
+    novel_text, prompt_inputs, script_plan_basis = await asyncio.to_thread(
+        _load_script_plan_source_with_basis,
         project_path,
         draft.meta["source"],
         project,
@@ -714,7 +716,7 @@ async def revalidate_narration_step1_draft(
             config_resolver=config_resolver,
         )
 
-    # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住字段与
+    # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_script_plan_json 卡住字段与
     # 类型，晋升侧漏掉这一层的话，把 duration_seconds 改成字符串、或整个删掉 novel_text 都能一路
     # 晋升进正式文件——正是本机制要防的「正式文件被污染」。外层形状（segments 缺失 / 不是数组 /
     # 空数组）与逐分镜的字段违约走同一条报告路径：两者都是 Agent 编辑草稿时会犯的错。
@@ -722,17 +724,17 @@ async def revalidate_narration_step1_draft(
     if not isinstance(raw_segments, list) or not raw_segments:
         logger.debug("草稿 content.segments 形状非法: %s", type(raw_segments).__name__)
         violation = DraftViolation("草稿的 content.segments 必须是非空的分镜对象数组", code="schema_invalid")
-        return SingleStep1DraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
+        return SingleScriptPlanDraftRevalidation([violation], {}, schema_failed=True, basis=script_plan_basis)
     try:
-        content = NarrationStep1Draft.model_validate(draft.content).model_dump()
+        content = NarrationScriptPlanDraft.model_validate(draft.content).model_dump()
     except ValidationError as exc:
         violation = DraftViolation(
-            f"草稿的 content 不符合 step1 分镜拆分产出结构：{exc}；"
+            f"草稿的 content 不符合 script_plan 分镜拆分产出结构：{exc}；"
             "每个分镜须有非空 segment_id / novel_text、整数 duration_seconds、布尔 segment_break，"
             "以及 characters_in_segment / scenes / props 三个数组（无对应资产时写空数组）",
             code="schema_invalid",
         )
-        return SingleStep1DraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
+        return SingleScriptPlanDraftRevalidation([violation], {}, schema_failed=True, basis=script_plan_basis)
 
     violations = _collect_narration_violations(
         content["segments"],
@@ -743,20 +745,20 @@ async def revalidate_narration_step1_draft(
         props=cast(dict[str, Any], prompt_inputs["props"]),
         novel_text=novel_text,
         # 重判用的源文范围来自草稿自己的 meta.source：取回时未指定 source
-        # 的草稿记的是 null（整个 source/），若本集正式 step1 当初是按单个源文件产出的，这里会把
+        # 的草稿记的是 null（整个 source/），若本集正式 script_plan 当初是按单个源文件产出的，这里会把
         # 一份原样取回、一字未改的草稿判成覆盖不全。把范围与改法一并写进消息，Agent 才走得出去
         # ——草稿在场时不能重新取回，须由 patch_draft 更新源文范围。
         source_scope=(
             f"{_coverage_source_scope(cast(str | None, draft.meta['source']))}"
-            "，取自草稿的源文范围；若该范围与产出本集正式 step1 时不同，"
+            "，取自草稿的源文范围；若该范围与产出本集正式 script_plan 时不同，"
             "请调用 patch_draft，用 source 传入当初那个源文件的相对路径后重试"
         ),
     )
-    return SingleStep1DraftRevalidation(violations, content, schema_failed=False, basis=step1_basis)
+    return SingleScriptPlanDraftRevalidation(violations, content, schema_failed=False, basis=script_plan_basis)
 
 
-def _narration_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式 narration step1 内容 → 草稿装的分镜结构；不是合法 step1 时返回 None。
+def _narration_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
+    """正式 narration script_plan 内容 → 草稿装的分镜结构；不是合法 script_plan 时返回 None。
 
     该变体没有机器派生字段可剥（``segment_id`` 是模型自己写的对齐锚、不由序号派生），草稿层与
     落盘层同形，只丢掉 ``segments`` 之外的顶层键。分镜项原样带过、包括非 dict 的项：跳过会让
@@ -768,16 +770,16 @@ def _narration_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | No
     return {"segments": list(segments)}
 
 
-async def _promote_narration_step1(
+async def _promote_narration_script_plan(
     ctx: DraftContext,
     episode: int,
     draft: QuarantinedDraft,
 ) -> None:
-    """按产出时那套校验器全量重判 narration step1 草稿，通过则晋升为正式 step1 并清除草稿。"""
+    """按产出时那套校验器全量重判 narration script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。"""
     project_path = ctx.project_path
     project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
     try:
-        revalidation = await revalidate_narration_step1_draft(
+        revalidation = await revalidate_narration_script_plan_draft(
             project_path,
             project,
             episode,
@@ -795,7 +797,7 @@ async def _promote_narration_step1(
             _rewrite_invalid_draft,
             project_path,
             episode,
-            QUARANTINE_KIND_NARRATION_STEP1,
+            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
             content,
             revalidation.violations,
             draft.meta,
@@ -808,35 +810,35 @@ async def _promote_narration_step1(
     expected = (
         draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
     )
-    step1_path = _narration_step1_path(project_path, episode)
+    script_plan_path = _narration_script_plan_path(project_path, episode)
     try:
         await run_sync_transaction(
-            _commit_single_step1,
+            _commit_single_script_plan,
             project_path,
             episode,
-            step1_path,
-            QUARANTINE_KIND_NARRATION_STEP1,
+            script_plan_path,
+            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
             revalidation.content,
             expected,
             revalidation.basis,
         )
-    except script_review.Step1WriteConflict as conflict:
-        conflict_report = _render_step1_conflict_report(
+    except script_review.ScriptPlanWriteConflict as conflict:
+        conflict_report = _render_script_plan_conflict_report(
             episode,
             draft,
             conflict,
-            to_draft_shape=_narration_step1_draft_shape,
+            to_draft_shape=_narration_script_plan_draft_shape,
             field_hint="content.segments",
         )
         raise DraftWorkflowError("formal_revision_conflict", conflict_report) from conflict
 
 
-async def _open_narration_step1_for_edit(
+async def _open_narration_script_plan_for_edit(
     ctx: DraftContext,
     episode: int,
     source: str | None,
 ) -> None:
-    """把本集正式 narration step1 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。
+    """把本集正式 narration script_plan 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。
 
     与另两条路线同一条流程：草稿有无的检查、正式文件的读取、草稿的写入整段在同一把 per-path 锁
     的临界区内完成——拆开在锁外各做一次的话，同一集的两个并发取回请求会都先看到「无草稿」、再
@@ -852,22 +854,22 @@ async def _open_narration_step1_for_edit(
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
-    step1_path = _narration_step1_path(project_path, episode)
+    script_plan_path = _narration_script_plan_path(project_path, episode)
     await run_sync_transaction(
-        _open_step1_draft,
+        _open_script_plan_draft,
         project_path,
         episode,
-        step1_path,
-        QUARANTINE_KIND_NARRATION_STEP1,
+        script_plan_path,
+        QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
         source,
-        _narration_step1_draft_shape,
-        f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在、不是合法 JSON，"
-        "或 segments 不是非空数组）；首次生成请调用 generate_step1",
+        _narration_script_plan_draft_shape,
+        f"❌ 第 {episode} 集没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        "或 segments 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
 
-class Step1DraftRevalidation(NamedTuple):
-    """按 kind 分派后的 step1 草稿重判结果，归一到呈现层口径。
+class ScriptPlanDraftRevalidation(NamedTuple):
+    """按 kind 分派后的 script_plan 草稿重判结果，归一到呈现层口径。
 
     ``content`` 是要展示给用户的那一份草稿正文：过了 schema 时是收编后的现值形状（时长等已按
     当前档位重判），没过时为 None——调用方据此改用 ``draft.content`` 原样呈现 Agent 手改的文本。
@@ -879,7 +881,7 @@ class Step1DraftRevalidation(NamedTuple):
     content: dict[str, Any] | None
 
 
-class _SingleStep1Revalidator(Protocol):
+class _SingleScriptPlanRevalidator(Protocol):
     """表内重判器的调用形状：草稿定位参数同形，能力解析器按关键字注入。"""
 
     def __call__(
@@ -890,33 +892,33 @@ class _SingleStep1Revalidator(Protocol):
         draft: QuarantinedDraft,
         *,
         config_resolver: ConfigResolver | None = None,
-    ) -> Awaitable[SingleStep1DraftRevalidation]: ...
+    ) -> Awaitable[SingleScriptPlanDraftRevalidation]: ...
 
 
-_SINGLE_STEP1_REVALIDATORS: dict[str, _SingleStep1Revalidator] = {
-    QUARANTINE_KIND_DRAMA_STEP1: revalidate_drama_step1_draft,
-    QUARANTINE_KIND_NARRATION_STEP1: revalidate_narration_step1_draft,
+_SINGLE_SCRIPT_PLAN_REVALIDATORS: dict[str, _SingleScriptPlanRevalidator] = {
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN: revalidate_drama_script_plan_draft,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN: revalidate_narration_script_plan_draft,
 }
 
 
-async def revalidate_step1_draft(
+async def revalidate_script_plan_draft(
     project_path: Path,
     project: dict[str, Any],
     episode: int,
     draft: QuarantinedDraft,
     *,
     config_resolver: ConfigResolver | None = None,
-) -> Step1DraftRevalidation:
-    """把一份 step1 草稿交给它那条路线的重判器，返回路线中立的重判结果。
+) -> ScriptPlanDraftRevalidation:
+    """把一份 script_plan 草稿交给它那条路线的重判器，返回路线中立的重判结果。
 
     内容确认的读时重算按 kind 走这一个入口：三条路线的重判器签名同形、结果同构，内容确认
     因此不必认得任一条路线的内部形状，也不会在新增变体时漏掉一处分派。晋升侧仍各自直接调用
     自己那个重判器——它们要用到 basis 与 schema_failed 这些落盘所需、呈现层不关心的位。
 
-    ``draft.kind`` 不是 step1 的三个来源之一（如误传 step2 草稿）时抛 ``ValueError``。
+    ``draft.kind`` 不是 script_plan 的三个来源之一（如误传 prompt_authoring 草稿）时抛 ``ValueError``。
     """
-    if draft.kind == QUARANTINE_KIND_STEP1:
-        reference = await revalidate_reference_step1_draft(
+    if draft.kind == QUARANTINE_KIND_SCRIPT_PLAN:
+        reference = await revalidate_reference_script_plan_draft(
             project_path,
             project,
             episode,
@@ -924,20 +926,20 @@ async def revalidate_step1_draft(
             config_resolver=config_resolver,
         )
         content = None if reference.schema_failed else {"units": reference.flat_units}
-        return Step1DraftRevalidation(reference.violations, content)
-    revalidator = _SINGLE_STEP1_REVALIDATORS.get(draft.kind)
+        return ScriptPlanDraftRevalidation(reference.violations, content)
+    revalidator = _SINGLE_SCRIPT_PLAN_REVALIDATORS.get(draft.kind)
     if revalidator is None:
-        raise ValueError(f"不是 step1 草稿来源，无法重判: {draft.kind}")
+        raise ValueError(f"不是 script_plan 草稿来源，无法重判: {draft.kind}")
     single = await revalidator(project_path, project, episode, draft, config_resolver=config_resolver)
-    return Step1DraftRevalidation(single.violations, None if single.schema_failed else single.content)
+    return ScriptPlanDraftRevalidation(single.violations, None if single.schema_failed else single.content)
 
 
-async def _open_reference_step1_for_edit(
+async def _open_reference_script_plan_for_edit(
     ctx: DraftContext,
     episode: int,
     source: str | None,
 ) -> None:
-    """把本集正式参考生视频 step1 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。"""
+    """把本集正式参考生视频 script_plan 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。"""
     project_path = ctx.project_path
     # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升重判用，若此刻
     # 是个缺失/改名/写错的路径，晋升会在 _load_novel_source 上反复报错，而草稿已在场
@@ -952,36 +954,36 @@ async def _open_reference_step1_for_edit(
     # 草稿有无的检查、正式文件的读取、草稿的写入须在同一把锁的临界区内完成：拆开在锁外
     # 各做一次的话，同一集的两个并发取回请求可能都先看到「无草稿」，再都各自写入草稿，
     # 后写者悄悄覆盖前者的 content 与 meta.source。写临界区与 Web 端保存、迁移同一把锁，
-    # 读也持锁避免取回一份写到一半的 step1。
-    step1_path = script_review.official_reference_step1_path(project_path, episode)
+    # 读也持锁避免取回一份写到一半的 script_plan。
+    script_plan_path = script_review.official_reference_script_plan_path(project_path, episode)
     await run_sync_transaction(
-        _open_step1_draft,
+        _open_script_plan_draft,
         project_path,
         episode,
-        step1_path,
-        QUARANTINE_KIND_STEP1,
+        script_plan_path,
+        QUARANTINE_KIND_SCRIPT_PLAN,
         source,
-        _reference_step1_draft_shape,
-        f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在、不是合法 JSON，"
-        "或 units 不是非空数组）；首次生成请调用 generate_step1",
+        _reference_script_plan_draft_shape,
+        f"❌ 第 {episode} 集没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        "或 units 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
 
-_STEP1_EDIT_OPENERS: dict[
+_SCRIPT_PLAN_EDIT_OPENERS: dict[
     str,
     Callable[[DraftContext, int, str | None], Awaitable[None]],
 ] = {
-    QUARANTINE_KIND_STEP1: _open_reference_step1_for_edit,
-    QUARANTINE_KIND_DRAMA_STEP1: _open_drama_step1_for_edit,
-    QUARANTINE_KIND_NARRATION_STEP1: _open_narration_step1_for_edit,
+    QUARANTINE_KIND_SCRIPT_PLAN: _open_reference_script_plan_for_edit,
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN: _open_drama_script_plan_for_edit,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN: _open_narration_script_plan_for_edit,
 }
 
-_SINGLE_STEP1_PROMOTERS: dict[
+_SINGLE_SCRIPT_PLAN_PROMOTERS: dict[
     str,
     Callable[[DraftContext, int, QuarantinedDraft], Awaitable[None]],
 ] = {
-    QUARANTINE_KIND_DRAMA_STEP1: _promote_drama_step1,
-    QUARANTINE_KIND_NARRATION_STEP1: _promote_narration_step1,
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN: _promote_drama_script_plan,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN: _promote_narration_script_plan,
 }
 
 
@@ -1000,8 +1002,10 @@ class DraftWorkflow:
         if allow_stale_discard:
             return kind
         project = await asyncio.to_thread(self.ctx.pm.load_project_readonly, self.ctx.project_name)
-        active_step1 = script_review.step1_quarantine_kind(project)
-        compatible = kind == active_step1 or (kind == QUARANTINE_KIND_STEP2 and _uses_reference_video_units(project))
+        active_script_plan = script_review.script_plan_quarantine_kind(project)
+        compatible = kind == active_script_plan or (
+            kind == QUARANTINE_KIND_PROMPT_AUTHORING and _uses_reference_video_units(project)
+        )
         if not compatible:
             raise DraftWorkflowError(
                 "doc_type_not_applicable", f"doc_type {doc_type} does not match the project workflow"
@@ -1043,15 +1047,15 @@ class DraftWorkflow:
         return draft, draft_revision(draft) if draft is not None else None
 
     def _formal_path(self, episode: int, kind: str) -> Path:
-        if kind == QUARANTINE_KIND_STEP2:
+        if kind == QUARANTINE_KIND_PROMPT_AUTHORING:
             return self.ctx.project_path / "scripts" / episode_script_filename(episode)
         project = self.ctx.pm.load_project_readonly(self.ctx.project_name)
-        path = script_review.step1_path(self.ctx.project_path, project, episode)
+        path = script_review.script_plan_path(self.ctx.project_path, project, episode)
         if path is None:
-            raise ValueError("project has no formal step1 document")
+            raise ValueError("project has no formal script_plan document")
         return path
 
-    def _open_reference_step2(
+    def _open_reference_prompt_authoring(
         self,
         episode: int,
         resolved: str,
@@ -1062,7 +1066,7 @@ class DraftWorkflow:
         )
         units = script.get("video_units")
         if not isinstance(units, list) or not units:
-            raise DraftWorkflowError("draft_source_missing", "formal reference step2 has no video_units")
+            raise DraftWorkflowError("draft_source_missing", "formal reference prompt_authoring has no video_units")
         write_quarantine(
             self.ctx.project_path,
             episode,
@@ -1089,14 +1093,14 @@ class DraftWorkflow:
                 existing = await asyncio.to_thread(self._read_if_present, episode, resolved)
                 if existing is not None:
                     return existing
-                if resolved == QUARANTINE_KIND_STEP2:
+                if resolved == QUARANTINE_KIND_PROMPT_AUTHORING:
                     await run_sync_transaction(
-                        self._open_reference_step2,
+                        self._open_reference_prompt_authoring,
                         episode,
                         resolved,
                     )
                 else:
-                    await _STEP1_EDIT_OPENERS[resolved](self.ctx, episode, source)
+                    await _SCRIPT_PLAN_EDIT_OPENERS[resolved](self.ctx, episode, source)
                 return await asyncio.to_thread(self._read, episode, resolved)
         except DraftWorkflowError:
             raise
@@ -1127,8 +1131,8 @@ class DraftWorkflow:
             )
         meta = draft.meta
         if updates_source:
-            if resolved == QUARANTINE_KIND_STEP2:
-                raise DraftWorkflowError("invalid_request", "source is only valid for step1 drafts")
+            if resolved == QUARANTINE_KIND_PROMPT_AUTHORING:
+                raise DraftWorkflowError("invalid_request", "source is only valid for script_plan drafts")
             _load_novel_source(self.ctx.project_path, source)
             meta = {**meta, "source": source}
         if accepts_formal_revision:
@@ -1211,10 +1215,10 @@ class DraftWorkflow:
                     f"draft revision changed: expected {base_revision}, actual {actual_revision}",
                 )
             try:
-                if resolved in _SINGLE_STEP1_PROMOTERS:
-                    await _SINGLE_STEP1_PROMOTERS[resolved](self.ctx, episode, draft)
-                elif resolved == QUARANTINE_KIND_STEP1:
-                    await _promote_reference_step1(
+                if resolved in _SINGLE_SCRIPT_PLAN_PROMOTERS:
+                    await _SINGLE_SCRIPT_PLAN_PROMOTERS[resolved](self.ctx, episode, draft)
+                elif resolved == QUARANTINE_KIND_SCRIPT_PLAN:
+                    await _promote_reference_script_plan(
                         self.ctx,
                         episode,
                         draft,
@@ -1222,9 +1226,9 @@ class DraftWorkflow:
                     )
                 else:
                     project = await asyncio.to_thread(self.ctx.pm.load_project_readonly, self.ctx.project_name)
-                    if script_review.gate_blocks_step2(self.ctx.project_path, project, episode):
+                    if script_review.gate_blocks_prompt_authoring(self.ctx.project_path, project, episode):
                         raise DraftWorkflowError(
-                            "review_required", "step1 content must be confirmed before promoting step2"
+                            "review_required", "script_plan content must be confirmed before promoting prompt_authoring"
                         )
                     generator = await ScriptGenerator.create(
                         self.ctx.project_path,
@@ -1235,16 +1239,16 @@ class DraftWorkflow:
                         if "base_fingerprint" in draft.meta
                         else {}
                     )
-                    result_path = await generator.promote_reference_step2_draft(
+                    result_path = await generator.promote_reference_prompt_authoring_draft(
                         episode,
-                        _step2_lock_held=True,
+                        _prompt_authoring_lock_held=True,
                         **promote_kwargs,
                     )
             except DraftWorkflowError:
                 raise
             except ScriptWriteConflict as exc:
                 raise DraftWorkflowError(
-                    "formal_revision_conflict", _render_step2_conflict_report(episode, draft, exc)
+                    "formal_revision_conflict", _render_prompt_authoring_conflict_report(episode, draft, exc)
                 ) from exc
             except DraftViolation as exc:
                 raise DraftWorkflowError("draft_invalid", str(exc)) from exc

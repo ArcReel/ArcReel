@@ -111,7 +111,7 @@ def truncate_for_log(text: str | None, limit: int = RAW_OUTPUT_LOG_LIMIT) -> str
 
 
 # 文本输出上限：非约束安全阀，仅防模型退化性 runaway，不是功能预算——分集规划、剧本生成、
-# drama step1 规范化三处的正常输出体量由各自 schema/内容天然约束，永远不会触碰这个高位值；
+# drama script_plan 规范化三处的正常输出体量由各自 schema/内容天然约束，永远不会触碰这个高位值；
 # 只有病态超大批量，或用户配置了输出能力偏低的模型时才会命中。三处共用同一常量，调整只改
 # 这一处（见 docs/adr/0044）。
 DEFAULT_MAX_OUTPUT_TOKENS = 64000

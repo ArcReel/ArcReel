@@ -33,7 +33,7 @@ export default {
   "entity.reference_unit": "đơn vị video",
   "entity.episode": "tập",
   "entity.overview": "tổng quan dự án",
-  "entity.draft": "kết quả tổ chức nội dung",
+  "entity.draft": "kết quả kế hoạch kịch bản",
   "entity.grid": "phân cảnh đa lưới",
   "entity.task": "tác vụ",
   "entity.fallback": "mục",

@@ -146,7 +146,7 @@ ignore_imports = [
 ]
 
 # 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
-# （draft_quarantine）、正式 step1 的路径与写禁表（episode_paths）对 drama / narration /
+# （draft_quarantine）、正式 script_plan 的路径与写禁表（episode_paths）对 drama / narration /
 # reference_video 一视同仁，任一处 import lib.reference_video 都是把三条路线共用的机制绑在
 # 其中一条上。
 # lib.script_review 不在列：它另有一条 lib.reference_video.duration_migration 的依赖（参考

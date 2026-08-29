@@ -1,6 +1,6 @@
 """资产级联重命名端到端测试：真实 ProjectManager 走 扫描 → 校验 → 落盘 全路径。
 
-覆盖四类资产、各 content_mode 骨架的引用改写（引用数组 / speaker / mention）、step1 草稿、
+覆盖四类资产、各 content_mode 骨架的引用改写（引用数组 / speaker / mention）、script_plan 草稿、
 关联文件与版本历史迁移、NFC/NFD 冲突拒绝与 dry-run 预览一致性。speaker 与 mention 不在
 DataValidator 引用扫描范围内，须直接断言改写结果，不能只看校验无新增 error。
 """
@@ -33,10 +33,10 @@ from lib.asset_rename import (
 from lib.asset_types import ASSET_SPECS
 from lib.draft_quarantine import QUARANTINE_FILENAMES
 from lib.episode_paths import (
-    DRAMA_STEP1_QUARANTINE_FILENAME,
-    NARRATION_STEP1_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+    DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
 )
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager, _rename_agnostic_errors
@@ -320,7 +320,7 @@ class TestRenameAssetCascade:
         assert not [e for e in result.errors if "新场景" in e or "场景A" in e]
         assert _load_script(pm_with_assets)["segments"][0]["scenes"] == ["新场景"]
 
-    def test_step1_draft_rewritten(self, pm_with_assets: ProjectManager) -> None:
+    def test_script_plan_draft_rewritten(self, pm_with_assets: ProjectManager) -> None:
         draft_dir = _project_dir(pm_with_assets) / "drafts" / "episode_1"
         draft_dir.mkdir(parents=True)
         draft = {
@@ -332,13 +332,13 @@ class TestRenameAssetCascade:
                 }
             ]
         }
-        atomic_write_json(draft_dir / "step1_reference_units.json", draft)
+        atomic_write_json(draft_dir / "script_plan_reference_units.json", draft)
 
         report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.episodes == 1
         assert report.references == 1
-        saved = json.loads((draft_dir / "step1_reference_units.json").read_text(encoding="utf-8"))
+        saved = json.loads((draft_dir / "script_plan_reference_units.json").read_text(encoding="utf-8"))
         assert saved["units"][0]["text"] == "@[主角甲] 在河边"
 
     def test_sibling_with_numeric_suffix_untouched(self, pm_with_assets: ProjectManager) -> None:
@@ -653,22 +653,22 @@ class TestRenameAssetCascade:
         draft_dir = _project_dir(pm_with_assets) / "drafts" / "episode_1"
         draft_dir.mkdir(parents=True)
         drafts = {
-            REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME: {
-                "kind": "reference_video_step1",
+            REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME: {
+                "kind": "reference_video_script_plan",
                 "episode": 1,
                 "meta": {},
                 "violations": [],
                 "content": {"units": [{"duration_seconds": 8, "source_text": "原文", "text": "@[角色A] 在河边"}]},
             },
-            REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME: {
-                "kind": "reference_video_step2",
+            REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME: {
+                "kind": "reference_video_prompt_authoring",
                 "episode": 1,
                 "meta": {},
                 "violations": [],
                 "content": {"title": "标题", "units": [{"text": "@[角色A] 抬头"}]},
             },
-            DRAMA_STEP1_QUARANTINE_FILENAME: {
-                "kind": "drama_step1",
+            DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME: {
+                "kind": "drama_script_plan",
                 "episode": 1,
                 "meta": {},
                 "violations": [],
@@ -689,8 +689,8 @@ class TestRenameAssetCascade:
                     ],
                 },
             },
-            NARRATION_STEP1_QUARANTINE_FILENAME: {
-                "kind": "narration_step1",
+            NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME: {
+                "kind": "narration_script_plan",
                 "episode": 1,
                 "meta": {},
                 "violations": [],
@@ -716,12 +716,12 @@ class TestRenameAssetCascade:
         report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         rewritten = {filename: json.loads((draft_dir / filename).read_text(encoding="utf-8")) for filename in drafts}
-        rv_step1 = rewritten[REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME]
-        rv_step2 = rewritten[REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME]
-        drama = rewritten[DRAMA_STEP1_QUARANTINE_FILENAME]
-        narration = rewritten[NARRATION_STEP1_QUARANTINE_FILENAME]
-        assert rv_step1["content"]["units"][0]["text"] == "@[主角甲] 在河边"
-        assert rv_step2["content"]["units"][0]["text"] == "@[主角甲] 抬头"
+        rv_script_plan = rewritten[REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME]
+        rv_prompt_authoring = rewritten[REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME]
+        drama = rewritten[DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME]
+        narration = rewritten[NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME]
+        assert rv_script_plan["content"]["units"][0]["text"] == "@[主角甲] 在河边"
+        assert rv_prompt_authoring["content"]["units"][0]["text"] == "@[主角甲] 抬头"
         assert drama["content"]["scenes"][0]["characters_in_scene"] == ["主角甲"]
         assert drama["content"]["scenes"][0]["utterances"][0]["speaker"] == "主角甲"
         assert narration["content"]["segments"][0]["characters_in_segment"] == ["主角甲"]

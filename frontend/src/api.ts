@@ -71,8 +71,8 @@ import type {
   ScriptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
-  NarrationStep1Draft,
-  ReferenceStep1Draft,
+  NarrationScriptPlanDraft,
+  ReferenceScriptPlanDraft,
   VideoCapabilities,
 } from "@/types";
 import type { GenerationRoute } from "@/utils/generation-mode";
@@ -1347,9 +1347,9 @@ class API {
     );
   }
 
-  // ==================== step1 → step2 内容确认 ====================
+  // ==================== script_plan → prompt_authoring 内容确认 ====================
 
-  /** 读取该集 step1 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */
+  /** 读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */
   static async getScriptReview(
     projectName: string,
     episode: number,
@@ -1363,12 +1363,12 @@ class API {
 
   /** 保存手动 / Agent 编辑后的结构化中间态，返回最新状态（重新等待确认）。
    *
-   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 Agent 晋升）
+   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 script_plan 被另一写入方（如 Agent 晋升）
    * 改过时服务端 409 冲突、不落盘，避免静默覆盖对方的修改；不传则不比对。 */
   static async saveScriptReviewContent(
     projectName: string,
     episode: number,
-    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft,
+    content: DramaNormalizedScript | NarrationScriptPlanDraft | ReferenceScriptPlanDraft,
     baseFingerprint?: string | null
   ): Promise<ScriptReviewState> {
     const query = baseFingerprint
@@ -1383,7 +1383,7 @@ class API {
     );
   }
 
-  /** 用户显式确认 step1 内容，放行 step2 视觉生成。 */
+  /** 用户显式确认 script_plan 内容，放行 prompt_authoring 视觉生成。 */
   static async confirmScriptReview(
     projectName: string,
     episode: number
@@ -1727,9 +1727,9 @@ class API {
   static async getDraftContent(
     projectName: string,
     episode: number,
-    stepNum: number
+    stage: string
   ): Promise<string> {
-    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`;
+    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`;
     const response = await fetch(
       `${API_BASE}${url}`,
       withAuth(url)
@@ -1744,10 +1744,10 @@ class API {
   static async saveDraft(
     projectName: string,
     episode: number,
-    stepNum: number,
+    stage: string,
     content: string
   ): Promise<SuccessResponse> {
-    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`;
+    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`;
     const response = await fetch(
       `${API_BASE}${url}`,
       withAuth(url, {
@@ -1766,10 +1766,10 @@ class API {
   static async deleteDraft(
     projectName: string,
     episode: number,
-    stepNum: number
+    stage: string
   ): Promise<SuccessResponse> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`,
+      `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`,
       { method: "DELETE" }
     );
   }

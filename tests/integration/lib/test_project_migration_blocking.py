@@ -223,7 +223,7 @@ async def test_retry_success_uses_caller_scoped_queue_and_capabilities(tmp_path:
             ],
         },
     )
-    register_current_artifact_if_provable(project_dir, ArtifactKey.episode_step1(1))
+    register_current_artifact_if_provable(project_dir, ArtifactKey.episode_script_plan(1))
     register_current_artifact(project_dir, ArtifactKey.episode_script(1))
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
     capabilities = object()

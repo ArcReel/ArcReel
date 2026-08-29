@@ -52,7 +52,7 @@ class ArtifactKind(StrEnum):
     """Kinds supported by the project artifact manifest schema."""
 
     ASSET_SHEET = "asset-sheet"
-    EPISODE_STEP1 = "episode-step1"
+    EPISODE_SCRIPT_PLAN = "episode-script-plan"
     EPISODE_SCRIPT = "episode-script"
     EPISODE_GRID = "episode-grid"
     EPISODE_STORYBOARD = "episode-storyboard"
@@ -1617,7 +1617,7 @@ class ArtifactKey:
                 if canonical_asset_id:
                     object.__setattr__(self, "components", (asset_type, canonical_asset_id))
                     valid = True
-        elif self.kind in {ArtifactKind.EPISODE_STEP1, ArtifactKind.EPISODE_SCRIPT} and len(self.components) == 1:
+        elif self.kind in {ArtifactKind.EPISODE_SCRIPT_PLAN, ArtifactKind.EPISODE_SCRIPT} and len(self.components) == 1:
             episode = self.components[0]
             valid = type(episode) is int and episode > 0
         elif (
@@ -1654,8 +1654,8 @@ class ArtifactKey:
         return cls(ArtifactKind.ASSET_SHEET, (asset_type, _non_empty("asset_id", asset_id)))
 
     @classmethod
-    def episode_step1(cls, episode: int) -> Self:
-        return cls(ArtifactKind.EPISODE_STEP1, (_episode_number(episode),))
+    def episode_script_plan(cls, episode: int) -> Self:
+        return cls(ArtifactKind.EPISODE_SCRIPT_PLAN, (_episode_number(episode),))
 
     @classmethod
     def episode_script(cls, episode: int) -> Self:

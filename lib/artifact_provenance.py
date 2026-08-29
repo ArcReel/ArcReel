@@ -21,20 +21,20 @@ _SOURCE_KINDS = frozenset({"novel", "screenplay"})
 _DEFAULT_SOURCE_LANGUAGE = "中文"
 _AD_OVERVIEW_FIELDS = ("synopsis", "genre", "theme")
 
-Step1PromptVariant = Literal["drama", "narration", "reference_video"]
+ScriptPlanPromptVariant = Literal["drama", "narration", "reference_video"]
 
 
-def build_step1_basis(
+def build_script_plan_basis(
     source_content: object,
     *,
     episode: int,
     project: Mapping[str, object],
 ) -> ArtifactBasis:
-    """Describe every durable prompt input consumed by one step1 artifact."""
+    """Describe every durable prompt input consumed by one script_plan artifact."""
 
     content_mode, generation_mode = _content_axes(project)
-    prompt_inputs = project_step1_prompt_inputs(episode, project=project)
-    return _build_step1_basis(
+    prompt_inputs = project_script_plan_prompt_inputs(episode, project=project)
+    return _build_script_plan_basis(
         source_content,
         content_mode=content_mode,
         generation_mode=generation_mode,
@@ -42,22 +42,22 @@ def build_step1_basis(
     )
 
 
-def build_step1_request(
+def build_script_plan_request(
     source_content: object,
     *,
     episode: int,
     project: Mapping[str, object],
-    expected_variant: Step1PromptVariant,
+    expected_variant: ScriptPlanPromptVariant,
 ) -> tuple[dict[str, object], ArtifactBasis]:
-    """Freeze the prompt projection and basis for one route-specific step1 request."""
+    """Freeze the prompt projection and basis for one route-specific script_plan request."""
 
     content_mode, generation_mode = _content_axes(project)
-    prompt_inputs = project_step1_prompt_inputs(
+    prompt_inputs = project_script_plan_prompt_inputs(
         episode,
         project=project,
         expected_variant=expected_variant,
     )
-    basis = _build_step1_basis(
+    basis = _build_script_plan_basis(
         source_content,
         content_mode=content_mode,
         generation_mode=generation_mode,
@@ -66,7 +66,14 @@ def build_step1_request(
     return prompt_inputs, basis
 
 
-def _build_step1_basis(
+#: 脚本规划 basis 的 kind，以及它作为剧本 basis 输入时的键名。两个值都参与 digest 计算，而落盘
+#: 的 ``.arcreel_artifacts.json`` 只留 digest、不留输入，改值便无从重算：存量脚本规划与剧本产物
+#: 会整体判成 stale 并阻断下游生成。**值是持久化格式，与 manifest digest 兼容，不得随术语改名。**
+SCRIPT_PLAN_BASIS_KIND = "structured-content/step1"
+SCRIPT_PLAN_BASIS_INPUT_KEY = "step1_content"
+
+
+def _build_script_plan_basis(
     source_content: object,
     *,
     content_mode: str,
@@ -74,24 +81,24 @@ def _build_step1_basis(
     prompt_inputs: Mapping[str, object],
 ) -> ArtifactBasis:
     return ArtifactBasis.build(
-        "structured-content/step1",
+        SCRIPT_PLAN_BASIS_KIND,
         kind_version=2,
         inputs={
             "content_mode": content_mode,
             "generation_mode": generation_mode,
             "source_content": source_content,
-            "prompt_context": _freeze_step1_prompt_inputs(prompt_inputs, generation_mode=generation_mode),
+            "prompt_context": _freeze_script_plan_prompt_inputs(prompt_inputs, generation_mode=generation_mode),
         },
     )
 
 
-def project_step1_prompt_inputs(
+def project_script_plan_prompt_inputs(
     episode: int,
     *,
     project: Mapping[str, object],
-    expected_variant: Step1PromptVariant | None = None,
+    expected_variant: ScriptPlanPromptVariant | None = None,
 ) -> dict[str, object]:
-    """Project persisted fields passed to the selected step1 prompt builder.
+    """Project persisted fields passed to the selected script_plan prompt builder.
 
     Capability tiers and one-shot instructions are execution inputs and stay out
     of this projection. Asset mappings preserve insertion order because all
@@ -101,10 +108,10 @@ def project_step1_prompt_inputs(
     if type(episode) is not int or episode < 1:
         raise ValueError("episode must be a positive integer")
     content_mode, generation_mode = _content_axes(project)
-    variant = _step1_prompt_variant(content_mode, generation_mode)
+    variant = _script_plan_prompt_variant(content_mode, generation_mode)
     if expected_variant is not None and variant != expected_variant:
         raise ValueError(
-            f"{expected_variant} step1 is unavailable for "
+            f"{expected_variant} script_plan is unavailable for "
             f"content_mode={content_mode!r}, generation_mode={generation_mode!r}"
         )
     overview = _mapping_or_empty(project.get("overview"))
@@ -115,9 +122,9 @@ def project_step1_prompt_inputs(
     inputs: dict[str, object] = {
         "episode": episode,
         "project_overview": {field: overview.get(field, "") for field in (*_AD_OVERVIEW_FIELDS, "world_setting")},
-        "characters": _project_step1_asset_mapping(project.get("characters")),
-        "scenes": _project_step1_asset_mapping(project.get("scenes")),
-        "props": _project_step1_asset_mapping(project.get("props")),
+        "characters": _project_script_plan_asset_mapping(project.get("characters")),
+        "scenes": _project_script_plan_asset_mapping(project.get("scenes")),
+        "props": _project_script_plan_asset_mapping(project.get("props")),
         "target_language": source_language,
     }
 
@@ -154,7 +161,7 @@ def project_step1_prompt_inputs(
     return inputs
 
 
-def _freeze_step1_prompt_inputs(
+def _freeze_script_plan_prompt_inputs(
     prompt_inputs: Mapping[str, object],
     *,
     generation_mode: str,
@@ -210,7 +217,7 @@ def _freeze_reference_outline(value: object) -> dict[str, object] | None:
     return result or None
 
 
-def _step1_prompt_variant(content_mode: str, generation_mode: str) -> Step1PromptVariant:
+def _script_plan_prompt_variant(content_mode: str, generation_mode: str) -> ScriptPlanPromptVariant:
     if generation_mode == "reference_video":
         return "reference_video"
     if content_mode == "drama":
@@ -218,7 +225,7 @@ def _step1_prompt_variant(content_mode: str, generation_mode: str) -> Step1Promp
     return "narration"
 
 
-def build_episode_script_basis(step1_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
+def build_episode_script_basis(script_plan_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
     """Describe every durable prompt input consumed by an episode script."""
 
     content_mode, generation_mode = _content_axes(project)
@@ -228,14 +235,14 @@ def build_episode_script_basis(step1_content: object, *, project: Mapping[str, o
         inputs={
             "content_mode": content_mode,
             "generation_mode": generation_mode,
-            "step1_content": step1_content,
+            SCRIPT_PLAN_BASIS_INPUT_KEY: script_plan_content,
             "prompt_context": project_episode_script_prompt_inputs(project),
         },
     )
 
 
 def project_episode_script_prompt_inputs(project: Mapping[str, object]) -> dict[str, object]:
-    """Project the persisted project fields rendered into non-ad step2 prompts.
+    """Project the persisted project fields rendered into non-ad prompt_authoring prompts.
 
     Provider/model capabilities and one-shot user instructions are execution
     inputs, not durable project state. Asset order is retained because the
@@ -258,9 +265,9 @@ def project_episode_script_prompt_inputs(project: Mapping[str, object]) -> dict[
         "style_description": _optional_string(project.get("style_description"), "style_description"),
         "aspect_ratio": aspect_ratio,
         "target_language": target_language,
-        "characters": _project_step2_assets(project.get("characters"), generation_mode=generation_mode),
-        "scenes": _project_step2_assets(project.get("scenes"), generation_mode=generation_mode),
-        "props": _project_step2_assets(project.get("props"), generation_mode=generation_mode),
+        "characters": _project_prompt_authoring_assets(project.get("characters"), generation_mode=generation_mode),
+        "scenes": _project_prompt_authoring_assets(project.get("scenes"), generation_mode=generation_mode),
+        "props": _project_prompt_authoring_assets(project.get("props"), generation_mode=generation_mode),
     }
 
 
@@ -353,19 +360,19 @@ def _project_named_assets(value: object) -> dict[str, object]:
     return result
 
 
-def _project_step1_asset_mapping(value: object) -> dict[str, object]:
-    """Copy the ordered asset table rendered by step1 prompt builders."""
+def _project_script_plan_asset_mapping(value: object) -> dict[str, object]:
+    """Copy the ordered asset table rendered by script_plan prompt builders."""
 
     result: dict[str, object] = {}
     for name, raw in _mapping_or_empty(value).items():
         if not isinstance(name, str):
-            raise ValueError("step1 asset names must be strings")
+            raise ValueError("script_plan asset names must be strings")
         result[name] = dict(raw) if isinstance(raw, Mapping) else {}
     return result
 
 
-def _project_step2_assets(value: object, *, generation_mode: str) -> list[dict[str, object]]:
-    """Project the ordered name/description pairs rendered by step2 builders."""
+def _project_prompt_authoring_assets(value: object, *, generation_mode: str) -> list[dict[str, object]]:
+    """Project the ordered name/description pairs rendered by prompt_authoring builders."""
 
     result: list[dict[str, object]] = []
     for raw_name, raw in _mapping_or_empty(value).items():

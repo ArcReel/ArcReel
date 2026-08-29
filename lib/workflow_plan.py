@@ -112,8 +112,8 @@ class WorkflowPlan(BaseModel):
 _ARTIFACT_BY_STEP: dict[str, str] = {
     "asset_inventory": "asset_inventory",
     "asset_sheets": "asset_sheets",
-    "step1_content": "step1",
-    "step1_review": "step1",
+    "script_plan_content": "script_plan",
+    "script_plan_review": "script_plan",
     "final_script": "script",
     "storyboard": "storyboards",
     "narration_delivery": "audio",
@@ -122,9 +122,9 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
 
 _TASK_STEP: dict[str, str] = {
     "text_episode_plan": "episode_plan",
-    "text_drama_step1": "step1_content",
-    "text_narration_step1": "step1_content",
-    "text_reference_step1": "step1_content",
+    "text_drama_script_plan": "script_plan_content",
+    "text_narration_script_plan": "script_plan_content",
+    "text_reference_script_plan": "script_plan_content",
     "text_episode_script": "final_script",
     **{asset_type: "asset_sheets" for asset_type in ASSET_SPECS},
     "storyboard": "storyboard",

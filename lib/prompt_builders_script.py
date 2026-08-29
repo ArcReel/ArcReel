@@ -13,7 +13,7 @@ from lib.prompt_rules.episode_pacing import render_pacing_section
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
 
-# 用户意见（instructions）注入分节的统一标题：五个分集生成入口（plan / step1 三工具 / step2）
+# 用户意见（instructions）注入分节的统一标题：五个分集生成入口（plan / script_plan 三工具 / prompt_authoring）
 # 共用，措辞保持中性——遵循强度由意见正文自行表达，注入模板不添加任何强度限定词。
 USER_INSTRUCTIONS_HEADER = "# 用户意见"
 
@@ -32,7 +32,7 @@ def _format_names(items: dict) -> str:
 
 
 def _format_assets_with_desc(items: dict) -> str:
-    """渲染资产块：名称 + 外观描述，供 step2 视觉层写细节时取材。
+    """渲染资产块：名称 + 外观描述，供 prompt_authoring 视觉层写细节时取材。
 
     缺描述 / value 非 dict（存量脏数据）时退化为纯名字。名称与描述都是 project.json
     动态文本，过 ``_neutralize_tags`` 中和尖括号；多行描述续行缩进，避免 flush-left
@@ -52,7 +52,7 @@ def _format_assets_with_desc(items: dict) -> str:
     return "\n".join(lines)
 
 
-# step2 资产块的取材注记（narration / drama 共用）：外观细节以登记描述为准，不自行发明。
+# prompt_authoring 资产块的取材注记（narration / drama 共用）：外观细节以登记描述为准，不自行发明。
 _ASSET_APPEARANCE_NOTE = "资产外观以上述描述为准：视觉字段写到出场资产的服装 / 材质 / 陈设细节时从中取材，不自行发明。"
 
 
@@ -146,7 +146,7 @@ _SCENE_WRITING_GUIDE = """这段文字将直接生成一张静态图：只描述
 
 # video_prompt.action 写作指导：i2v 契约（首帧已定、只写运动）+ 分层要素 + 正反例，末段收编任务类型
 # 触发词避讳。避讳写在这里而非编排层的 CLAUDE.*.md：video_prompt 由本模块驱动的文案模型产出，
-# 编排层的系统 prompt 不进那次调用，写在那边约束不到真正落笔的模型。本常量为三条 step2 路径
+# 编排层的系统 prompt 不进那次调用，写在那边约束不到真正落笔的模型。本常量为三条 prompt_authoring 路径
 # （drama / narration / ad）共用，改这一处即三路同步。
 _ACTION_WRITING_GUIDE = """首帧画面已定格主体、场景与风格，这段文字驱动它动起来：只描述该时长内发生的运动与变化，不复述画面中的静态内容；镜头运动专由 camera_motion 字段承载，action 只写主体与环境的运动。按主体动作（肢体 / 手势 / 表情过渡）、物件互动（摩挲信纸、推门带起的气流等）、环境动态（衣摆、尘埃、雨势、光影移动）分层写成连贯叙述句；动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免内心动词。优先低缓、连贯的细微动作，动作量与该分镜时长匹配：5 秒级分镜通常完成一个连贯动作 + 一个细节互动；8 秒级可承载一次动作过渡（如「抬头—对视—开口」）；更长的分镜保持单一低缓的动作主线，随时长递增动作段数（如「起身—走到窗前—驻足」），而非叠加多条并行动作。
    正例：「林清缓缓抬起头，眼角微微收紧，手指无意识地摩挲信纸边缘；窗外雨势渐大，桌面投下的雨痕影子在缓慢移动。」——主体动作、物件互动、环境动态各有一笔。
@@ -165,15 +165,15 @@ _AMBIANCE_AUDIO_WRITING_GUIDE = (
 
 
 # ---------------------------------------------------------------------------
-# 两段式分层文案（见 ADR 0041）：step1（normalize）= 内容、step2（drama）= 视觉。
+# 两段式分层文案（见 ADR 0041）：script_plan（normalize）= 内容、prompt_authoring（drama）= 视觉。
 #
-# 内容抽取前移到 step1：分镜边界、出场资产、逐字口播 utterances、原文锚 source_text、
+# 内容抽取前移到 script_plan：分镜边界、出场资产、逐字口播 utterances、原文锚 source_text、
 # 视觉改编描述 scene_description 一次定稿，并按 source_kind 切「改编 / 提取」口径。
-# step2 只补视觉层（image_prompt / video_prompt），按 scene_id 透传内容、不再识别口播、
-# 不分 source_kind——故 step2 文案无 novel/screenplay 分支。
+# prompt_authoring 只补视觉层（image_prompt / video_prompt），按 scene_id 透传内容、不再识别口播、
+# 不分 source_kind——故 prompt_authoring 文案无 novel/screenplay 分支。
 # ---------------------------------------------------------------------------
 
-# step1（build_normalize_prompt）开篇任务句
+# script_plan（build_normalize_prompt）开篇任务句
 _NORMALIZE_TASK_NOVEL = (
     "你的任务是将小说原文**改编**为结构化的分镜内容（含视觉改编描述、逐字口播 utterances "
     "与原文锚 source_text），用于后续 AI 视频生成。"
@@ -184,7 +184,7 @@ _NORMALIZE_TASK_SCREENPLAY = (
     "用于后续 AI 视频生成。这是成品剧本、不是待加工的素材——只做提取、不做再创作。"
 )
 
-# step1 scene_description（视觉改编自由文本）填写规则——只承载视觉内容，口播不内嵌
+# script_plan scene_description（视觉改编自由文本）填写规则——只承载视觉内容，口播不内嵌
 _NORMALIZE_SCENE_RULE_NOVEL = (
     "改编后的视觉化描述：角色动作、神态、环境、光影氛围，适合画面呈现。"
     "以本分镜当下的单一时空落笔——原文的回忆、闪回、心理活动，改编为此刻可见的载体"
@@ -197,7 +197,7 @@ _NORMALIZE_SCENE_RULE_SCREENPLAY = (
     "排版符号（markdown、△、各类标签、表格、emoji）一律剥离，只留干净文本。"
 )
 
-# step1 utterances（分镜级有序发声序列）填写规则。条目形状与 kind ⇄ speaker 约束
+# script_plan utterances（分镜级有序发声序列）填写规则。条目形状与 kind ⇄ speaker 约束
 # （dialogue 必带非空 speaker、voiceover 必无 speaker）由 Utterance schema 强制，此处只写内容指导。
 _NORMALIZE_UTTERANCES_NOVEL = (
     "按口播出现顺序产出发声序列，台词（dialogue）的 speaker 必须出现在 characters_in_scene。"
@@ -211,10 +211,10 @@ _NORMALIZE_UTTERANCES_SCREENPLAY = (
     "画外音 / 旁白写为 voiceover。不改写、不润色、不删减、不补写。分镜无口播则留空。"
 )
 
-# step1 source_text（逐字原文锚）填写规则——两源共用
+# script_plan source_text（逐字原文锚）填写规则——两源共用
 _NORMALIZE_SOURCE_TEXT_GUIDE = "逐字摘录本分镜对应的原文片段，尽量与原文一致、宁缺毋造（无把握可留空）。"
 
-# step1 segment_break 规则。novel 分支无增量判断标准（「是否为场景切换点」由 schema
+# script_plan segment_break 规则。novel 分支无增量判断标准（「是否为场景切换点」由 schema
 # description 表达），不再单列；screenplay 分支保留「沿用作者场次、不重新切碎」的实质指导。
 # 变体自带前导换行，空值时模板中不留空行。
 _NORMALIZE_BREAK_RULE_NOVEL = ""
@@ -223,7 +223,7 @@ _NORMALIZE_BREAK_RULE_SCREENPLAY = (
     "同一场次内标「否」；不要重新切碎作者的场次"
 )
 
-# step2（build_drama_prompt）开篇角色定位 + 收尾目标——视觉层专责，无 source_kind 分支
+# prompt_authoring（build_drama_prompt）开篇角色定位 + 收尾目标——视觉层专责，无 source_kind 分支
 _DRAMA_VISUAL_ROLE = (
     "你是一位资深的短剧分镜摄影 / 动作设计师。下方分镜内容（分镜边界、出场资产、逐字口播、"
     "原文锚、视觉改编描述）均已定稿，你的唯一职责是为每个分镜补全视觉生产层："
@@ -240,20 +240,20 @@ _DRAMA_VISUAL_GOAL = "输出可直接驱动 AI 图像 / 视频生成的、视觉
 
 def _neutralize_tags(value: str) -> str:
     """中和动态文本里的尖括号：novel_text / 资产名出现 </segments> 等标签序列时，避免打散
-    标签化 prompt 的块结构。属 prompt 鲁棒性——step2 输出仍由 response_schema 强制，无安全边界。
+    标签化 prompt 的块结构。属 prompt 鲁棒性——prompt_authoring 输出仍由 response_schema 强制，无安全边界。
     """
     return value.replace("<", "＜").replace(">", "＞")
 
 
-def _format_narration_step1_segments(step1_segments: list[dict]) -> str:
-    """把 step1 结构化分镜渲染为 step2 的只读上下文：segment_id + 内容字段 + 逐字原文。
+def _format_narration_script_plan_segments(script_plan_segments: list[dict]) -> str:
+    """把 script_plan 结构化分镜渲染为 prompt_authoring 的只读上下文：segment_id + 内容字段 + 逐字原文。
 
-    这些字段在 step1 已定、step2 透传不重出；此处仅作为「为该分镜写好视觉层」的依据呈现。
+    这些字段在 script_plan 已定、prompt_authoring 透传不重出；此处仅作为「为该分镜写好视觉层」的依据呈现。
     """
-    if not step1_segments:
+    if not script_plan_segments:
         return "（无分镜）"
     lines: list[str] = []
-    for seg in step1_segments:
+    for seg in script_plan_segments:
         sid = _neutralize_tags(str(seg.get("segment_id", "?")))
         dur = seg.get("duration_seconds", "?")
         brk = "，场景切换" if seg.get("segment_break") else ""
@@ -275,26 +275,26 @@ def build_narration_prompt(
     characters: dict,
     scenes: dict,
     props: dict,
-    step1_segments: list[dict],
+    script_plan_segments: list[dict],
     episode: int,
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """构建旁白/解说模式 step2（视觉层）prompt。
+    """构建旁白/解说模式 prompt_authoring（视觉层）prompt。
 
-    step1 已定的 novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具按 segment_id
-    透传，step2 只产 image_prompt 与 video_prompt。``<segments>`` 块为只读上下文，
-    LLM 不重出这些字段——novel_text 由此不再经 step2 的 LLM 扩写漂移。
+    script_plan 已定的 novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具按 segment_id
+    透传，prompt_authoring 只产 image_prompt 与 video_prompt。``<segments>`` 块为只读上下文，
+    LLM 不重出这些字段——novel_text 由此不再经 prompt_authoring 的 LLM 扩写漂移。
     """
     pacing_block = render_pacing_section("narration") + "\n\n"
-    segments_block = _format_narration_step1_segments(step1_segments)
+    segments_block = _format_narration_script_plan_segments(script_plan_segments)
 
     return f"""# 角色与任务
 
 你是一位资深的短视频分镜编剧，擅长把已定稿的小说内容转化为可直接驱动 AI 图像 / 视频生成的视觉分镜。
 你的任务：基于下方已定稿的「分镜表」，为**每个分镜**产出视觉层（image_prompt 与 video_prompt），按 segment_id 一一对齐。
 
-**只产视觉层**：novel_text、时长、segment_break、出场角色 / 场景 / 道具均已在 step1 定稿、按 segment_id 透传，**不要重复输出、不要改写**；你只产出 image_prompt 与 video_prompt。
+**只产视觉层**：novel_text、时长、segment_break、出场角色 / 场景 / 道具均已在 script_plan 定稿、按 segment_id 透传，**不要重复输出、不要改写**；你只产出 image_prompt 与 video_prompt。
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
@@ -362,18 +362,18 @@ segments 表每个分镜已定稿（segment_id、逐字原文、时长、出场�
 """
 
 
-def render_drama_content_for_step2(content_scenes: list) -> str:
-    """把 step1 已定稿的分镜内容渲染为 step2 视觉生成的输入块（每分镜一段）。
+def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
+    """把 script_plan 已定稿的分镜内容渲染为 prompt_authoring 视觉生成的输入块（每分镜一段）。
 
     口播 / 原文锚仅供 LLM 理解戏剧节奏——「不要复制进视觉字段」由 ``build_drama_prompt`` 在
     ``<shots>`` 块前一次性声明，分镜条目内不逐条重复；它们由后端按 scene_id 透传
-    （见 ``merge_drama_visual_into_scenes``），step2 只产出 image_prompt / video_prompt。
+    （见 ``merge_drama_visual_into_scenes``），prompt_authoring 只产出 image_prompt / video_prompt。
 
-    渲染结果嵌入 step2 prompt 的 ``<shots>`` 块：资产名 / utterances 字段先判 ``isinstance(_, list)``——
-    降级 / 手改 step1 可能写成非列表值（字符串会被逐字符迭代、数字会抛 TypeError），非列表按空处理；
+    渲染结果嵌入 prompt_authoring prompt 的 ``<shots>`` 块：资产名 / utterances 字段先判 ``isinstance(_, list)``——
+    降级 / 手改 script_plan 可能写成非列表值（字符串会被逐字符迭代、数字会抛 TypeError），非列表按空处理；
     列表内再按 ``isinstance(_, str)`` 过滤非字符串脏数据。所有动态文本过 ``_neutralize_tags`` 中和尖括号——
     逐字 source_text / utterances / scene_description 含 ``<...>`` 时不致打散标签块结构（与 narration 的
-    ``_format_narration_step1_segments`` 同口径）。本函数 fail-soft：结构性 fail-loud 在上游 _load_drama_step1_content。
+    ``_format_narration_script_plan_segments`` 同口径）。本函数 fail-soft：结构性 fail-loud 在上游 _load_drama_script_plan_content。
     """
     if not content_scenes:
         return "（无分镜内容）"
@@ -430,13 +430,13 @@ def build_drama_prompt(
     scenes: dict | None = None,
     props: dict | None = None,
 ) -> str:
-    """构建剧情演绎 step2（视觉层）prompt。
+    """构建剧情演绎 prompt_authoring（视觉层）prompt。
 
-    内容抽取前移到 step1（见 ADR 0041）：分镜边界、出场资产、逐字口播 utterances、原文锚
-    source_text、视觉改编描述均已在 step1 定稿，``scenes_content`` 是其渲染输入
-    （``render_drama_content_for_step2``）。step2 仅产出视觉层（image_prompt / video_prompt），
-    LLM 输出按 scene_id 与 step1 内容对齐、由后端合并；不再按 source_kind 分支、不再识别口播、
-    不再标注资产或时长——这些都是 step1 的职责。
+    内容抽取前移到 script_plan（见 ADR 0041）：分镜边界、出场资产、逐字口播 utterances、原文锚
+    source_text、视觉改编描述均已在 script_plan 定稿，``scenes_content`` 是其渲染输入
+    （``render_drama_content_for_prompt_authoring``）。prompt_authoring 仅产出视觉层（image_prompt / video_prompt），
+    LLM 输出按 scene_id 与 script_plan 内容对齐、由后端合并；不再按 source_kind 分支、不再识别口播、
+    不再标注资产或时长——这些都是 script_plan 的职责。
 
     ``characters`` / ``scenes`` / ``props`` 注入出场资产的外观描述（project.json 各 bucket），
     供视觉字段写服装 / 材质 / 陈设细节时取材；三者都为 None 时不渲染资产块。
@@ -537,8 +537,8 @@ def build_normalize_prompt(
 ) -> str:
     """Step-1 规范化 prompt：源文 → 结构化分镜内容（utterances + source_text + 视觉改编描述）。
 
-    由 ``generate_step1`` 的剧情变体消费。内容抽取前移（见 ADR 0041）：step1 一次定稿场景
-    边界、出场资产、逐字口播、原文锚与视觉改编描述，step2 仅透传 + 补视觉。输出受 response_schema
+    由 ``generate_script_plan`` 的剧情变体消费。内容抽取前移（见 ADR 0041）：script_plan 一次定稿场景
+    边界、出场资产、逐字口播、原文锚与视觉改编描述，prompt_authoring 仅透传 + 补视觉。输出受 response_schema
     （``DramaNormalizedScript``）约束为结构化 JSON。
 
     ``source_kind="screenplay"`` 翻为「提取/逐字保留」：台词与画外音逐字落 utterances、视觉转写为
@@ -699,10 +699,10 @@ def build_narration_split_prompt(
 ) -> str:
     """Step-1 旁白/解说分镜拆分 prompt：源文 → 结构化分镜表（逐字 novel_text + 时长 + 资产登记）。
 
-    由 ``generate_step1`` 的旁白变体消费。输出受 response_schema（``NarrationStep1Draft``）
-    约束为结构化 JSON——``novel_text`` 逐字保留原文（配音与透传真相源），视觉层由后续 step2 按
+    由 ``generate_script_plan`` 的旁白变体消费。输出受 response_schema（``NarrationScriptPlanDraft``）
+    约束为结构化 JSON——``novel_text`` 逐字保留原文（配音与透传真相源），视觉层由后续 prompt_authoring 按
     ``segment_id`` 对齐补齐。分镜时长的成员校验（∈ ``supported_durations``）由工具后校验兜底，因静态
-    ``NarrationStep1Segment.duration_seconds`` 是 ``ge=1, le=60`` 开区间、不在 schema 层枚举硬约束
+    ``NarrationScriptPlanSegment.duration_seconds`` 是 ``ge=1, le=60`` 开区间、不在 schema 层枚举硬约束
     （复用既有分镜 schema）。
 
     ``default_duration`` 为单分镜默认秒数偏好；与 ``build_normalize_prompt`` 不同，此处对漂移到
@@ -732,9 +732,9 @@ def build_narration_split_prompt(
 
     return f"""# 角色与任务
 
-你是一位专业的旁白内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的分镜表（step1 内容整理）。
+你是一位专业的旁白内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的分镜表（script_plan 脚本规划）。
 旁白/解说脚本走两段式：本阶段只定内容层——逐字 `novel_text`、分镜边界、时长、场景切换标记与出场资产；
-视觉层（image_prompt / video_prompt）由后续 step2 按 `segment_id` 对齐生成，`novel_text` 由本阶段定稿后透传、不再重出。
+视觉层（image_prompt / video_prompt）由后续 prompt_authoring 按 `segment_id` 对齐生成，`novel_text` 由本阶段定稿后透传、不再重出。
 
 **输出语言**：自然语言字符串值使用 {target_language}；JSON 键名保持英文。
 例外（逐字保留、不翻译、不改写）：`novel_text` 逐字等于源文原句（含标点）；资产引用字段

@@ -2961,4 +2961,4 @@ async def test_generate_videos_episode_scope_rejects_mismatched_storyboard_scrip
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
-    assert "generate_step1" in out["content"][0]["text"]
+    assert "generate_script_plan" in out["content"][0]["text"]

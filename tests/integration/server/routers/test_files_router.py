@@ -198,23 +198,23 @@ class TestFilesRouter:
 
             # drafts API
             update_draft = client.put(
-                "/api/v1/projects/demo/drafts/1/step1",
+                "/api/v1/projects/demo/drafts/1/script_plan",
                 content="draft content",
                 headers={"content-type": "text/plain"},
             )
             assert update_draft.status_code == 200
 
-            get_draft = client.get("/api/v1/projects/demo/drafts/1/step1")
+            get_draft = client.get("/api/v1/projects/demo/drafts/1/script_plan")
             assert get_draft.status_code == 200
             assert "draft content" in get_draft.text
 
-            bad_step = client.get("/api/v1/projects/demo/drafts/1/step99")
-            assert bad_step.status_code == 400
+            bad_stage = client.get("/api/v1/projects/demo/drafts/1/unknown_stage")
+            assert bad_stage.status_code == 400
 
-            delete_draft = client.delete("/api/v1/projects/demo/drafts/1/step1")
+            delete_draft = client.delete("/api/v1/projects/demo/drafts/1/script_plan")
             assert delete_draft.status_code == 200
 
-            missing_draft = client.get("/api/v1/projects/demo/drafts/1/step1")
+            missing_draft = client.get("/api/v1/projects/demo/drafts/1/script_plan")
             assert missing_draft.status_code == 404
 
             # confirm metadata updated for character/prop
@@ -958,34 +958,34 @@ class TestFilesRouter:
             payload["content_mode"] = "drama"
             project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-            # drama step1 落 .json：任意文本被拒（400）
+            # drama script_plan 落 .json：任意文本被拒（400）
             reject_text = client.put(
-                "/api/v1/projects/demo/drafts/2/step1",
+                "/api/v1/projects/demo/drafts/2/script_plan",
                 content="drama draft",
                 headers={"content-type": "text/plain"},
             )
             assert reject_text.status_code == 400
 
-            # 合法 JSON 但 scenes 为空 → 被拒（400）：与 _load_drama_step1_content 的非空 scenes 契约同口径
+            # 合法 JSON 但 scenes 为空 → 被拒（400）：与 _load_drama_script_plan_content 的非空 scenes 契约同口径
             reject_empty = client.put(
-                "/api/v1/projects/demo/drafts/2/step1",
+                "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": []}',
                 headers={"content-type": "text/plain"},
             )
             assert reject_empty.status_code == 400
 
-            # scenes 含非对象项（数字 / 字符串）→ 被拒（400）：与 _load_drama_step1_content 的逐项对象契约同口径
+            # scenes 含非对象项（数字 / 字符串）→ 被拒（400）：与 _load_drama_script_plan_content 的逐项对象契约同口径
             reject_non_dict_scene = client.put(
-                "/api/v1/projects/demo/drafts/2/step1",
+                "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{"scene_id": "E2S01"}, 42]}',
                 headers={"content-type": "text/plain"},
             )
             assert reject_non_dict_scene.status_code == 400
 
-            # scene 缺 scene_id → 被拒（400）：与 _load_drama_step1_content 的 scene_id 非空字符串契约同口径，
+            # scene 缺 scene_id → 被拒（400）：与 _load_drama_script_plan_content 的 scene_id 非空字符串契约同口径，
             # 避免写入端放行、消费端必失败的"保存成功但生成必失败"断层
             reject_missing_scene_id = client.put(
-                "/api/v1/projects/demo/drafts/2/step1",
+                "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{}]}',
                 headers={"content-type": "text/plain"},
             )
@@ -993,7 +993,7 @@ class TestFilesRouter:
 
             # scene_id 为空串 → 被拒（400）
             reject_empty_scene_id = client.put(
-                "/api/v1/projects/demo/drafts/2/step1",
+                "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{"scene_id": ""}]}',
                 headers={"content-type": "text/plain"},
             )
@@ -1001,42 +1001,42 @@ class TestFilesRouter:
 
             # 含非空 scenes 的合法 JSON 被接受（200），落到结构化草稿路径
             update_drama = client.put(
-                "/api/v1/projects/demo/drafts/2/step1",
+                "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{"scene_id": "E2S01"}]}',
                 headers={"content-type": "text/plain"},
             )
             assert update_drama.status_code == 200
-            assert update_drama.json()["path"] == "drafts/episode_2/step1_normalized_script.json"
+            assert update_drama.json()["path"] == "drafts/episode_2/script_plan_normalized_script.json"
 
-            missing_step = client.delete("/api/v1/projects/demo/drafts/2/step9")
-            assert missing_step.status_code == 400
+            missing_stage = client.delete("/api/v1/projects/demo/drafts/2/unknown_stage")
+            assert missing_stage.status_code == 400
 
             # 未登记 content_mode 回落到 drama 结构化文件名时同样触发校验（按目标文件名而非 content_mode）：
             # 任意文本不再绕过校验被写成结构化 drama JSON，拖到生成阶段才失败
             payload["content_mode"] = "future_unregistered_mode"
             project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             reject_dirty_mode = client.put(
-                "/api/v1/projects/demo/drafts/3/step1",
+                "/api/v1/projects/demo/drafts/3/script_plan",
                 content="not json at all",
                 headers={"content-type": "text/plain"},
             )
             assert reject_dirty_mode.status_code == 400
 
-            # step2 and step3 should now be invalid
-            step2_resp = client.get("/api/v1/projects/demo/drafts/1/step2")
-            assert step2_resp.status_code == 400
+            # 除脚本规划外的阶段名一律无效
+            prompt_authoring_resp = client.get("/api/v1/projects/demo/drafts/1/prompt_authoring")
+            assert prompt_authoring_resp.status_code == 400
 
-            step3_resp = client.put(
-                "/api/v1/projects/demo/drafts/1/step3",
+            unknown_stage_resp = client.put(
+                "/api/v1/projects/demo/drafts/1/unknown_stage",
                 content="test",
                 headers={"content-type": "text/plain"},
             )
-            assert step3_resp.status_code == 400
+            assert unknown_stage_resp.status_code == 400
 
-            unknown_draft = client.delete("/api/v1/projects/demo/drafts/9/step1")
+            unknown_draft = client.delete("/api/v1/projects/demo/drafts/9/script_plan")
             assert unknown_draft.status_code == 404
 
-    def test_plain_step1_save_registers_active_manifest_and_rolls_back_on_registration_failure(
+    def test_plain_script_plan_save_registers_active_manifest_and_rolls_back_on_registration_failure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         client, pm = _client(monkeypatch, tmp_path)
@@ -1079,13 +1079,13 @@ class TestFilesRouter:
 
         with client:
             response = client.put(
-                "/api/v1/projects/demo/drafts/1/step1",
+                "/api/v1/projects/demo/drafts/1/script_plan",
                 content=content,
                 headers={"content-type": "text/plain"},
             )
         assert response.status_code == 200, response.text
         draft_path = project_dir / response.json()["path"]
-        key = ArtifactKey.episode_step1(1)
+        key = ArtifactKey.episode_script_plan(1)
         adapter = ProjectArtifactManifestAdapter(project_dir)
         entry = adapter.get_entry(key)
         assert entry is not None
@@ -1119,7 +1119,7 @@ class TestFilesRouter:
         assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
 
         with client:
-            deleted = client.delete("/api/v1/projects/demo/drafts/1/step1")
+            deleted = client.delete("/api/v1/projects/demo/drafts/1/script_plan")
         assert deleted.status_code == 200, deleted.text
         assert not draft_path.exists()
         assert adapter.get_entry(key) is None
@@ -1162,25 +1162,25 @@ class TestFilesRouter:
             assert "immutable" not in resp.headers.get("cache-control", "")
 
     def test_files_helper_functions(self, tmp_path):
-        assert files._get_step_files("narration") == {1: "step1_segments.json"}
-        assert files._get_step_files("drama") == {1: "step1_normalized_script.json"}
-        # reference_video 走独立的结构化 step1 文件
-        assert files._get_step_files("drama", "reference_video") == {1: "step1_reference_units.json"}
-        assert files._get_step_files("narration", "reference_video") == {1: "step1_reference_units.json"}
+        assert files._stage_files("narration") == {"script_plan": "script_plan_segments.json"}
+        assert files._stage_files("drama") == {"script_plan": "script_plan_normalized_script.json"}
+        # reference_video 走独立的结构化 script_plan 文件
+        assert files._stage_files("drama", "reference_video") == {"script_plan": "script_plan_reference_units.json"}
+        assert files._stage_files("narration", "reference_video") == {"script_plan": "script_plan_reference_units.json"}
         # 其他 generation_mode 回落到 content_mode
-        assert files._get_step_files("narration", "storyboard") == {1: "step1_segments.json"}
+        assert files._stage_files("narration", "storyboard") == {"script_plan": "script_plan_segments.json"}
 
-    def test_resolve_step1_path_narration_prefers_own_legacy_md(self, tmp_path):
-        """narration step1 缺 .json 时优先回落自家旧 .md，不被跨模式遗留 reference_units.md 抢占。"""
+    def test_resolve_script_plan_path_narration_prefers_own_legacy_md(self, tmp_path):
+        """narration script_plan 缺 .json 时优先回落自家旧 .md，不被跨模式遗留 reference_units.md 抢占。"""
         drafts_dir = tmp_path / "drafts" / "episode_1"
         drafts_dir.mkdir(parents=True)
-        (drafts_dir / "step1_reference_units.md").write_text("ref leftover", encoding="utf-8")
-        (drafts_dir / "step1_segments.md").write_text("narration legacy", encoding="utf-8")
-        resolved = files._resolve_step1_path(drafts_dir, 1, drafts_dir / "step1_segments.json")
-        assert resolved.name == "step1_segments.md"
+        (drafts_dir / "script_plan_reference_units.md").write_text("ref leftover", encoding="utf-8")
+        (drafts_dir / "script_plan_segments.md").write_text("narration legacy", encoding="utf-8")
+        resolved = files._resolve_script_plan_path(drafts_dir, "script_plan", drafts_dir / "script_plan_segments.json")
+        assert resolved.name == "script_plan_segments.md"
 
     def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
-        """参考生视频下读/写 step1_reference_units.json，避免被按 content_mode 错误路由；
+        """参考生视频下读/写 script_plan_reference_units.json，避免被按 content_mode 错误路由；
         旧 .md 仅存量兼读，写入经 ScriptReviewService 单一出口做结构校验后落结构化 .json"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
@@ -1197,39 +1197,39 @@ class TestFilesRouter:
         drafts_dir = project_dir / "drafts" / "episode_1"
         drafts_dir.mkdir(parents=True, exist_ok=True)
         # 主文件缺失时旧 .md 作为读取候选（存量在制品兼读）
-        (drafts_dir / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
+        (drafts_dir / "script_plan_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
 
         with client:
-            resp = client.get("/api/v1/projects/demo/drafts/1/step1")
+            resp = client.get("/api/v1/projects/demo/drafts/1/script_plan")
             assert resp.status_code == 200
             assert resp.text == "E1U1 stub"
 
-            # 裸文本 / 非法结构不再直写正式 step1（旁路已收敛到单一写盘出口）
+            # 裸文本 / 非法结构不再直写正式 script_plan（旁路已收敛到单一写盘出口）
             bad = client.put(
-                "/api/v1/projects/demo/drafts/1/step1",
+                "/api/v1/projects/demo/drafts/1/script_plan",
                 content="raw text",
                 headers={"content-type": "text/plain"},
             )
             assert bad.status_code == 400
             invalid = client.put(
-                "/api/v1/projects/demo/drafts/1/step1",
+                "/api/v1/projects/demo/drafts/1/script_plan",
                 content='{"units": [{"bogus": 1}]}',
                 headers={"content-type": "text/plain"},
             )
             assert invalid.status_code == 422
 
-            # 合法结构化内容按 generation_mode 路由到 step1_reference_units.json
+            # 合法结构化内容按 generation_mode 路由到 script_plan_reference_units.json
             unit = {"unit_id": "E1U01", "text": "镜头描述", "duration_seconds": 8}
             update = client.put(
-                "/api/v1/projects/demo/drafts/1/step1",
+                "/api/v1/projects/demo/drafts/1/script_plan",
                 content=json.dumps({"units": [unit]}, ensure_ascii=False),
                 headers={"content-type": "text/plain"},
             )
             assert update.status_code == 200
-            assert update.json()["path"] == "drafts/episode_1/step1_reference_units.json"
+            assert update.json()["path"] == "drafts/episode_1/script_plan_reference_units.json"
 
             # 结构化 .json 存在后优先于旧 .md；落盘的是校验后的结构化内容
-            resp = client.get("/api/v1/projects/demo/drafts/1/step1")
+            resp = client.get("/api/v1/projects/demo/drafts/1/script_plan")
             assert resp.status_code == 200
             saved = json.loads(resp.text)
             assert saved["units"][0]["unit_id"] == "E1U01"
@@ -1241,15 +1241,15 @@ class TestFilesRouter:
 
         drafts_dir = project_dir / "drafts" / "episode_3"
         drafts_dir.mkdir(parents=True, exist_ok=True)
-        (drafts_dir / "step1_reference_units.md").write_text("fallback content", encoding="utf-8")
+        (drafts_dir / "script_plan_reference_units.md").write_text("fallback content", encoding="utf-8")
 
         with client:
-            resp = client.get("/api/v1/projects/demo/drafts/3/step1")
+            resp = client.get("/api/v1/projects/demo/drafts/3/script_plan")
             assert resp.status_code == 200
             assert resp.text == "fallback content"
 
     def test_draft_content_routes_by_project_generation_mode(self, tmp_path, monkeypatch):
-        """草稿文件名按项目生成模式路由：参考生视频全项目落 step1_reference_units.json。"""
+        """草稿文件名按项目生成模式路由：参考生视频全项目落 script_plan_reference_units.json。"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
@@ -1266,12 +1266,12 @@ class TestFilesRouter:
         with client:
             unit = {"unit_id": "E2U01", "text": "镜头描述", "duration_seconds": 8}
             update = client.put(
-                "/api/v1/projects/demo/drafts/2/step1",
+                "/api/v1/projects/demo/drafts/2/script_plan",
                 content=json.dumps({"units": [unit]}, ensure_ascii=False),
                 headers={"content-type": "text/plain"},
             )
             assert update.status_code == 200
-            assert update.json()["path"] == "drafts/episode_2/step1_reference_units.json"
+            assert update.json()["path"] == "drafts/episode_2/script_plan_reference_units.json"
 
         # _load_project_modes 走 load_project：不存在项目 → ("drama", None) 回退
         content_mode, gen_mode = files._load_project_modes("no-such-project")
@@ -1291,7 +1291,7 @@ class TestFilesRouter:
         with client, patch("server.routers.files.emit_project_change_batch") as mock_emit:
             # 首次创建 → action="created", important=True
             resp = client.put(
-                "/api/v1/projects/demo/drafts/1/step1",
+                "/api/v1/projects/demo/drafts/1/script_plan",
                 content="new draft",
                 headers={"content-type": "text/plain"},
             )
@@ -1309,7 +1309,7 @@ class TestFilesRouter:
 
             # 再次更新 → action="updated", important=False
             resp2 = client.put(
-                "/api/v1/projects/demo/drafts/1/step1",
+                "/api/v1/projects/demo/drafts/1/script_plan",
                 content="updated draft",
                 headers={"content-type": "text/plain"},
             )

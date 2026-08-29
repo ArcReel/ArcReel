@@ -33,7 +33,7 @@ export default {
   "entity.reference_unit": "视频单元",
   "entity.episode": "集",
   "entity.overview": "项目概览",
-  "entity.draft": "内容整理结果",
+  "entity.draft": "脚本规划结果",
   "entity.grid": "多宫格分镜",
   "entity.task": "任务",
   "entity.fallback": "内容",

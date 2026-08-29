@@ -26,5 +26,5 @@ status: accepted
 
 - 落地实现时，`project_events` 快照 bug 的修复随本收口的实现一并交付（不单独出临时修复 PR），ad 与 reference_video 项目届时恢复分镜级事件推送；video_units 条目快照的 `characters` 从 `references` 过滤 character 类型派生。
 - `script_shape()` 兜底删除是行为变更，现有 4 个注册表消费方的传值须逐个核对。
-- 约 45 处 content_mode 字面量分派须三分类处置：骨架-结构类（迁移查表/解析器）、内容-行为类（step1 路径、prompt 选择——content_mode 轴的正当业务分派，保留）、轴交互业务规则（如参考路线跳过分镜估价，保留）；分类清单、PR 切分与散落分派测试的删留归 PRD 阶段。
+- 约 45 处 content_mode 字面量分派须三分类处置：骨架-结构类（迁移查表/解析器）、内容-行为类（script_plan 路径、prompt 选择——content_mode 轴的正当业务分派，保留）、轴交互业务规则（如参考路线跳过分镜估价，保留）；分类清单、PR 切分与散落分派测试的删留归 PRD 阶段。
 - 本 ADR status=accepted：设计已落地为 `lib/script_skeleton.py`（`SKELETONS` 窄表 + 规范解析 `resolve_declared_kind` + 取证解析 `resolve_script_kind` + 路线闸门 `ensure_route_skeleton`），实现落盘后的新名已写入 `CONTEXT.md`「骨架」条。后续 PR 若想引入复合键、把行为写入注册表、或恢复静默兜底，须先 deprecate 本 ADR。

@@ -18,8 +18,8 @@ from lib.artifact_manifest import (
     ArtifactKey,
     ProjectArtifactManifestAdapter,
 )
+from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
-from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import fake_reference_request_projector
@@ -77,16 +77,16 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
         encoding="utf-8",
     )
 
-    # 剧本的取证链（分集原文 → step1）齐备，补录才登记得出剧本这条产物。
+    # 剧本的取证链（分集原文 → script_plan）齐备，补录才登记得出剧本这条产物。
     (proj_dir / "source").mkdir()
     (proj_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
     (proj_dir / "drafts" / "episode_1").mkdir(parents=True)
-    (proj_dir / "drafts" / "episode_1" / "step1_reference_units.json").write_text(
+    (proj_dir / "drafts" / "episode_1" / "script_plan_reference_units.json").write_text(
         json.dumps({"episode": 1, "units": []}, ensure_ascii=False),
         encoding="utf-8",
     )
     migrate_v7_to_v8(proj_dir)
-    migrate_v8_to_v9(proj_dir)
+    migrate_project_dir(proj_dir)
     assert ProjectArtifactManifestAdapter(proj_dir).get_entry(ArtifactKey.episode_script(1)) is not None
 
     from lib.project_manager import ProjectManager

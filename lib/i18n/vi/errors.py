@@ -151,11 +151,11 @@ MESSAGES = {
     "asset_field_invalid_value": "giá trị trường này không hợp lệ",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
-    "invalid_step_num": "Số bước không hợp lệ: {step_num}",
+    "invalid_draft_stage": "Giai đoạn bản nháp không hợp lệ: {stage}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
     "draft_invalid_json": "Bản nháp tổ chức nội dung có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
     "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả tổ chức nội dung để xác nhận)",
-    "script_review_no_step1": "Chưa có kết quả tổ chức nội dung để xác nhận; vui lòng hoàn tất tổ chức nội dung trước",
+    "script_review_no_script_plan": "Chưa có kết quả tổ chức nội dung để xác nhận; vui lòng hoàn tất tổ chức nội dung trước",
     "script_review_quarantined": ("Tập này có bản nháp cần sửa; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"),
     "script_review_conflict": (
         "Bản nháp tổ chức nội dung đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "

@@ -34,7 +34,7 @@ from server.tool_runtime import (
     generate_episode_script as run_generate_episode_script,
 )
 from server.tool_runtime import (
-    generate_step1 as run_generate_step1,
+    generate_script_plan as run_generate_script_plan,
 )
 
 # 四个分集数据生成工具共用的 instructions 参数 schema：用户意见原样注入 prompt 末尾的
@@ -94,7 +94,7 @@ _DRAFT_LOCATOR_SCHEMA["properties"]["episode"]["description"] = "剧集编号"
 _OPEN_DRAFT_SCHEMA = DraftLocator.model_json_schema()
 _OPEN_DRAFT_SCHEMA["properties"]["episode"]["description"] = "剧集编号"
 _OPEN_DRAFT_SCHEMA["properties"]["source"]["description"] = (
-    "可选小说源文件路径；仅在首次从正式 step1 创建草稿时用作重判来源"
+    "可选小说源文件路径；仅在首次从正式 script_plan 创建草稿时用作重判来源"
 )
 
 
@@ -128,7 +128,7 @@ def patch_draft_tool(ctx: ToolContext):
             },
             "source": {
                 "type": ["string", "null"],
-                "description": "可选源文范围；仅在修正 step1 草稿的重判范围时提供",
+                "description": "可选源文范围；仅在修正 script_plan 草稿的重判范围时提供",
             },
         },
         "required": ["episode", "doc_type", "content", "base_revision"],
@@ -235,13 +235,13 @@ def generate_episode_script_tool(ctx: ToolContext):
     return _handler
 
 
-def generate_step1_tool(
+def generate_script_plan_tool(
     ctx: ToolContext,
 ):
     @tool(
-        "generate_step1",
-        "按项目创作类型生成结构化 step1：剧情分镜、旁白分镜或参考生视频单元。"
-        "广告/短片项目无 step1。dry_run=true 时仅返回 prompt。",
+        "generate_script_plan",
+        "按项目创作类型生成结构化 script_plan：剧情分镜、旁白分镜或参考生视频单元。"
+        "广告/短片项目无 script_plan。dry_run=true 时仅返回 prompt。",
         {
             "type": "object",
             "properties": {
@@ -260,7 +260,7 @@ def generate_step1_tool(
             instructions=args.get("instructions"),
             dry_run=bool(args.get("dry_run")),
         )
-        outcome = await run_generate_step1(
+        outcome = await run_generate_script_plan(
             ToolRequest(request),
             ctx.scope,
             ctx.caller,
@@ -274,7 +274,7 @@ def generate_step1_tool(
 def confirm_script_review_tool(ctx: ToolContext):
     @tool(
         "confirm_script_review",
-        "确认本集 step1 结构化中间态，放行 step2 视觉生成。仅在用户已明确认可进入视觉生成时调用。",
+        "确认本集 script_plan 结构化中间态，放行 prompt_authoring 视觉生成。仅在用户已明确认可进入视觉生成时调用。",
         {
             "type": "object",
             "properties": {"episode": {"type": "integer", "description": "剧集编号"}},
@@ -297,7 +297,7 @@ __all__ = [
     "get_video_capabilities_tool",
     "generate_episode_script_tool",
     "confirm_script_review_tool",
-    "generate_step1_tool",
+    "generate_script_plan_tool",
     "open_draft_tool",
     "patch_draft_tool",
     "promote_draft_tool",

@@ -63,7 +63,7 @@ def test_formal_input_selection_retains_identity_for_the_provider_recheck() -> N
         ArtifactKey.asset_sheet("scene", "屋顶"),
         ArtifactKey.asset_sheet("prop", "钥匙"),
         ArtifactKey.asset_sheet("product", "咖啡豆"),
-        ArtifactKey.episode_step1(12),
+        ArtifactKey.episode_script_plan(12),
         ArtifactKey.episode_script(12),
         ArtifactKey.episode_grid(12, "group:/一"),
         ArtifactKey.episode_storyboard(12, "E12S03:/"),
@@ -119,8 +119,8 @@ def test_manifest_compares_registered_basis_without_mutating_the_artifact() -> N
     adapter = InMemoryArtifactManifestAdapter(artifacts={path})
     manifest = ArtifactManifest(adapter)
     key = ArtifactKey.episode_script(1)
-    original_basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "original"})
-    changed_basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "changed"})
+    original_basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "original"})
+    changed_basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "changed"})
 
     assert manifest.compare(key, artifact_path=path, basis=original_basis).status is ArtifactStatus.MISSING
     assert manifest.register(key, artifact_path=path, basis=original_basis)
@@ -389,7 +389,7 @@ def test_manifest_blocks_windows_drive_like_artifact_path() -> None:
     comparison = manifest.compare(
         ArtifactKey.episode_script(1),
         artifact_path="C:/outside.json",
-        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"}),
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED
@@ -442,7 +442,7 @@ def test_manifest_blocks_windows_aliases_of_runtime_paths(artifact_path: str) ->
     comparison = manifest.compare(
         ArtifactKey.episode_script(1),
         artifact_path=artifact_path,
-        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"}),
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED

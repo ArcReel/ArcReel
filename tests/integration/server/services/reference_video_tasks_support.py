@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
+from lib.project_migrations.runner import migrate_project_dir
 
 
 def _load_project_and_unit(proj_dir: Path, unit_id: str) -> tuple[dict, dict]:
@@ -106,8 +106,8 @@ def _activate_project_manifest(proj_dir: Path, *, register_script: bool = True) 
     project["schema_version"] = 7
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     assert activate_artifact_target_state(proj_dir, bump_schema=True) is True
-    # 清单激活只落到 v8；产物读写要求当前 schema，故补齐剩余迁移。
-    migrate_v8_to_v9(proj_dir)
+    # 清单激活只落到 v8；产物读写要求当前 schema，故补齐剩余迁移链。
+    migrate_project_dir(proj_dir)
     if register_script:
         ArtifactManifest(ProjectArtifactManifestAdapter(proj_dir)).register(
             ArtifactKey.episode_script(1),

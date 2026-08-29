@@ -24,7 +24,7 @@ from lib.artifact_manifest import (
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_step1_basis
+from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_script_plan_basis
 from lib.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
 from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
 from lib.grid.layout import grid_aspect_ratio_for
@@ -116,7 +116,7 @@ class _EpisodeState:
 
 
 @dataclass(frozen=True, slots=True)
-class _FormalStep1State:
+class _FormalScriptPlanState:
     artifact_path: str
     content: object
 
@@ -227,12 +227,12 @@ class TargetStatePlanner:
         kind = key.kind.value
         if kind == "asset-sheet":
             self._plan_assets()
-        elif kind == "episode-step1":
+        elif kind == "episode-script-plan":
             self.load_episode_bindings()
             episode_number = cast(int, key.components[0])
             binding = next((candidate for candidate in self.bindings if candidate.episode == episode_number), None)
             if binding is not None:
-                self._plan_one_step1(binding)
+                self._plan_one_script_plan(binding)
         elif kind == "episode-script":
             self.load_episodes()
             self._plan_structured_content()
@@ -446,18 +446,18 @@ class TargetStatePlanner:
         if self.project.get("content_mode") not in {"narration", "drama"}:
             self._planned.add("structured-content")
             return
-        step1_by_episode = {
-            binding.episode: step1
+        script_plan_by_episode = {
+            binding.episode: script_plan
             for binding in self.bindings
             if (self.episode_scope is None or binding.episode == self.episode_scope)
-            and (step1 := self._plan_one_step1(binding)) is not None
+            and (script_plan := self._plan_one_script_plan(binding)) is not None
         }
         for episode in self.episodes:
-            step1 = step1_by_episode.get(episode.episode)
-            if step1 is None:
+            script_plan = script_plan_by_episode.get(episode.episode)
+            if script_plan is None:
                 continue
             try:
-                script_basis = build_episode_script_basis(step1.content, project=self.project)
+                script_basis = build_episode_script_basis(script_plan.content, project=self.project)
             except (TypeError, ValueError):
                 continue
             self._add_if_present(
@@ -467,19 +467,19 @@ class TargetStatePlanner:
             )
         self._planned.add("structured-content")
 
-    def _plan_one_step1(self, binding: _EpisodeBinding) -> _FormalStep1State | None:
+    def _plan_one_script_plan(self, binding: _EpisodeBinding) -> _FormalScriptPlanState | None:
         if self.project.get("content_mode") not in {"narration", "drama"}:
             return None
-        step1_path = script_review.step1_path(self.project_dir, self.project, binding.episode)
-        if step1_path is None:
+        script_plan_path = script_review.script_plan_path(self.project_dir, self.project, binding.episode)
+        if script_plan_path is None:
             return None
-        step1_rel = step1_path.relative_to(self.project_dir).as_posix()
-        observation = self.adapter.inspect_artifact(step1_rel)
+        script_plan_rel = script_plan_path.relative_to(self.project_dir).as_posix()
+        observation = self.adapter.inspect_artifact(script_plan_rel)
         if observation.blocker is not None or not observation.present:
             return None
-        step1_raw = self._read_dependency(step1_rel, "formal step1")
-        step1_content = self._parse_json(step1_raw, f"formal step1 {step1_rel}")
-        step1_key = ArtifactKey.episode_step1(binding.episode)
+        script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
+        script_plan_content = self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
+        script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
         source_rel = f"source/episode_{binding.episode}.txt"
         source_observation = self.adapter.inspect_artifact(source_rel)
         if source_observation.blocker is None and source_observation.present:
@@ -489,7 +489,7 @@ class TargetStatePlanner:
             except UnicodeDecodeError as exc:
                 raise ValueError(f"episode source {source_rel} is not UTF-8") from exc
             try:
-                step1_basis = build_step1_basis(
+                script_plan_basis = build_script_plan_basis(
                     source_content,
                     episode=binding.episode,
                     project=self.project,
@@ -497,10 +497,10 @@ class TargetStatePlanner:
             except (TypeError, ValueError):
                 pass
             else:
-                self._add_if_present(step1_key, step1_rel, step1_basis)
-        if step1_key not in self.entries:
+                self._add_if_present(script_plan_key, script_plan_rel, script_plan_basis)
+        if script_plan_key not in self.entries:
             return None
-        return _FormalStep1State(artifact_path=step1_rel, content=step1_content)
+        return _FormalScriptPlanState(artifact_path=script_plan_rel, content=script_plan_content)
 
     def _plan_storyboards(self) -> None:
         if "storyboards" in self._planned:

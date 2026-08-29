@@ -46,8 +46,8 @@ WorkflowStateName = Literal[
     "SELLING_POINTS",
     "ASSET_INVENTORY",
     "EPISODE_PLAN",
-    "STEP1_CONTENT",
-    "STEP1_REVIEW",
+    "SCRIPT_PLAN_CONTENT",
+    "SCRIPT_PLAN_REVIEW",
     "FINAL_SCRIPT",
     "ASSET_SHEETS",
     "STORYBOARD",
@@ -106,8 +106,8 @@ class WorkflowActionType(StrEnum):
     ANALYZE_ASSETS = "analyze_assets"
     PLAN_EPISODES = "plan_episodes"
     RESET_EPISODE_PLANNING = "reset_episode_planning"
-    PREPARE_STEP1 = "prepare_step1"
-    CONFIRM_STEP1 = "confirm_step1"
+    PREPARE_SCRIPT_PLAN = "prepare_script_plan"
+    CONFIRM_SCRIPT_PLAN = "confirm_script_plan"
     GENERATE_SCRIPT = "generate_script"
     GENERATE_ASSET_SHEETS = "generate_asset_sheets"
     GENERATE_STORYBOARDS = "generate_storyboards"
@@ -167,7 +167,7 @@ class WorkflowStatus(BaseModel):
 #: 11 值制作状态在广度视图（项目列表、卡片、全局头）上的归并显示。
 ProjectPhase = Literal["preparation", "script", "production", "completed"]
 
-#: 每集脚本的产物态派生值：正式脚本可用即 generated，只有 step1 即 segmented。
+#: 每集脚本的产物态派生值：正式脚本可用即 generated，只有 script_plan 即 segmented。
 EpisodeScriptStatus = Literal["none", "segmented", "generated"]
 
 #: 每集在广度视图上的粗粒度进度，由该集产物计数派生。
@@ -995,10 +995,10 @@ class WorkflowStateService:
         entry: dict[str, Any],
         currency: ArtifactCurrencyResolver | None,
     ) -> EpisodeScriptStatus:
-        """由 step1 与正式脚本的产物态派生该集的脚本进度。
+        """由 script_plan 与正式脚本的产物态派生该集的脚本进度。
 
         账本标 stale 的集（重新规划后原文范围已失效）回到 none：它的下游要重做，
-        与 11 值状态把这类集打回 STEP1_CONTENT 同口径。
+        与 11 值状态把这类集打回 SCRIPT_PLAN_CONTENT 同口径。
         """
 
         if entry.get("ledger_status") == "stale":
@@ -1008,17 +1008,17 @@ class WorkflowStateService:
             state = self._artifact_state(currency, ArtifactKey.episode_script(number), script_file, [])
             if state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}:
                 return "generated"
-        step1 = script_review.step1_path(project_path, project, number)
-        if step1 is None:
+        script_plan = script_review.script_plan_path(project_path, project, number)
+        if script_plan is None:
             return "none"
-        if script_review.step1_quarantined(project_path, project, number):
+        if script_review.script_plan_quarantined(project_path, project, number):
             # 草稿在场即已分段：首轮拆分失败时正式文件从未写过，报 none 会把用户
             # 路由回源文审阅页，见不到草稿详情与修复入口。
             return "segmented"
         if currency is None:
             return "none"
         state = self._artifact_state(
-            currency, ArtifactKey.episode_step1(number), step1.relative_to(project_path).as_posix(), []
+            currency, ArtifactKey.episode_script_plan(number), script_plan.relative_to(project_path).as_posix(), []
         )
         return "segmented" if state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value} else "none"
 
@@ -1031,7 +1031,7 @@ class WorkflowStateService:
         """把 11 值制作状态的归并显示投到项目粒度：取最不推进的一集所在阶段。
 
         ``PROJECT_INPUT / SELLING_POINTS / ASSET_INVENTORY / EPISODE_PLAN`` → preparation，
-        ``STEP1_* / FINAL_SCRIPT`` → script，``ASSET_SHEETS / STORYBOARD / VIDEO`` → production，
+        ``SCRIPT_PLAN_* / FINAL_SCRIPT`` → script，``ASSET_SHEETS / STORYBOARD / VIDEO`` → production，
         ``EXPORT_READY`` → completed。
         """
 
@@ -1220,14 +1220,14 @@ class WorkflowStateService:
         artifacts: dict[str, dict[str, Any]] = {
             "asset_inventory": inventory,
             "asset_sheets": sheets,
-            "step1": {"state": "not_applicable" if mode == "ad" else "missing"},
+            "script_plan": {"state": "not_applicable" if mode == "ad" else "missing"},
             "script": {"state": "missing"},
             "storyboards": _empty_collection(),
             "videos": _empty_collection(),
             "audio": _empty_collection(),
         }
         gates: dict[str, dict[str, Any]] = {
-            "step1_review": {"state": "not_applicable" if mode == "ad" else "pending", "revision": None}
+            "script_plan_review": {"state": "not_applicable" if mode == "ad" else "pending", "revision": None}
         }
         episodes = shared.episodes
         selected = self._target(str(mode), episodes, episode)
@@ -1315,14 +1315,16 @@ class WorkflowStateService:
             else:
                 preprocessor = workflow_rule(str(mode), str(generation_mode)).preprocessor
                 if mode != "ad" and selected is not None and selected[1].get("ledger_status") == "stale":
-                    step1_path = script_review.step1_path(project_path, project, target.episode)
-                    live_revision = script_review.content_fingerprint(step1_path) if step1_path is not None else None
+                    script_plan_path = script_review.script_plan_path(project_path, project, target.episode)
+                    live_revision = (
+                        script_review.content_fingerprint(script_plan_path) if script_plan_path is not None else None
+                    )
                     stale_entry = selected[1]
-                    baseline_is_recorded = script_review.STALE_STEP1_REVISION_FIELD in stale_entry
-                    stale_revision = stale_entry.get(script_review.STALE_STEP1_REVISION_FIELD)
-                    rebuilt_revision = stale_entry.get(script_review.STALE_STEP1_REBUILT_REVISION_FIELD)
+                    baseline_is_recorded = script_review.STALE_SCRIPT_PLAN_REVISION_FIELD in stale_entry
+                    stale_revision = stale_entry.get(script_review.STALE_SCRIPT_PLAN_REVISION_FIELD)
+                    rebuilt_revision = stale_entry.get(script_review.STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD)
                     if not baseline_is_recorded:
-                        artifacts["step1"] = {"state": "stale"}
+                        artifacts["script_plan"] = {"state": "stale"}
                         state = "EPISODE_PLAN"
                         next_action = _action(
                             WorkflowActionType.RESET_EPISODE_PLANNING,
@@ -1333,15 +1335,15 @@ class WorkflowStateService:
                     if live_revision is None or (
                         baseline_is_recorded and live_revision == stale_revision and rebuilt_revision != live_revision
                     ):
-                        artifacts["step1"] = {"state": "stale"}
-                        state = "STEP1_CONTENT"
+                        artifacts["script_plan"] = {"state": "stale"}
+                        state = "SCRIPT_PLAN_CONTENT"
                         next_action = _action(
-                            WorkflowActionType.PREPARE_STEP1,
+                            WorkflowActionType.PREPARE_SCRIPT_PLAN,
                             "target episode was replanned and its downstream artifacts are stale",
                             args={
                                 "episode": target.episode,
                                 "preprocessor": preprocessor,
-                                "expected_stale_step1_revision": stale_revision,
+                                "expected_stale_script_plan_revision": stale_revision,
                             },
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
@@ -1363,46 +1365,52 @@ class WorkflowStateService:
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
                 else:
-                    step1_path = script_review.step1_path(project_path, project, target.episode)
-                    revision = script_review.content_fingerprint(step1_path) if step1_path is not None else None
-                    step1_state = ArtifactStatus.CURRENT.value if revision is not None else ArtifactStatus.MISSING.value
-                    if currency is not None and step1_path is not None:
-                        step1_state = self._artifact_state(
+                    script_plan_path = script_review.script_plan_path(project_path, project, target.episode)
+                    revision = (
+                        script_review.content_fingerprint(script_plan_path) if script_plan_path is not None else None
+                    )
+                    script_plan_state = (
+                        ArtifactStatus.CURRENT.value if revision is not None else ArtifactStatus.MISSING.value
+                    )
+                    if currency is not None and script_plan_path is not None:
+                        script_plan_state = self._artifact_state(
                             currency,
-                            ArtifactKey.episode_step1(target.episode),
-                            step1_path.relative_to(project_path).as_posix(),
+                            ArtifactKey.episode_script_plan(target.episode),
+                            script_plan_path.relative_to(project_path).as_posix(),
                             blockers,
                         )
-                    artifacts["step1"] = {
-                        "state": step1_state,
-                        "path": str(step1_path.relative_to(project_path)) if step1_path is not None else None,
+                    artifacts["script_plan"] = {
+                        "state": script_plan_state,
+                        "path": str(script_plan_path.relative_to(project_path))
+                        if script_plan_path is not None
+                        else None,
                         "revision": revision,
                     }
-                    if script_review.step1_quarantined(project_path, project, target.episode):
-                        quarantine = script_review.step1_quarantine_path(project_path, project, target.episode)
+                    if script_review.script_plan_quarantined(project_path, project, target.episode):
+                        quarantine = script_review.script_plan_quarantine_path(project_path, project, target.episode)
                         assert quarantine is not None
-                        artifacts["step1"]["state"] = "blocked"
+                        artifacts["script_plan"]["state"] = "blocked"
                         blockers.append(
                             WorkflowBlocker(
-                                code="step1_quarantined",
+                                code="script_plan_quarantined",
                                 path=str(quarantine.relative_to(project_path)),
-                                reason="step1 has a quarantined draft that must be repaired and promoted",
+                                reason="script_plan has a quarantined draft that must be repaired and promoted",
                             )
                         )
-                        state = "STEP1_REVIEW"
+                        state = "SCRIPT_PLAN_REVIEW"
                         next_action = _action(
-                            WorkflowActionType.NONE, "quarantined step1 must be repaired before confirmation"
+                            WorkflowActionType.NONE, "quarantined script_plan must be repaired before confirmation"
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
-                    if artifacts["step1"]["state"] == "blocked":
-                        state = "STEP1_CONTENT"
-                        next_action = _action(WorkflowActionType.NONE, "formal step1 currency is blocked")
+                    if artifacts["script_plan"]["state"] == "blocked":
+                        state = "SCRIPT_PLAN_CONTENT"
+                        next_action = _action(WorkflowActionType.NONE, "formal script_plan currency is blocked")
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
-                    if artifacts["step1"]["state"] == "missing":
-                        state = "STEP1_CONTENT"
+                    if artifacts["script_plan"]["state"] == "missing":
+                        state = "SCRIPT_PLAN_CONTENT"
                         next_action = _action(
-                            WorkflowActionType.PREPARE_STEP1,
-                            "target episode has no formal step1",
+                            WorkflowActionType.PREPARE_SCRIPT_PLAN,
+                            "target episode has no formal script_plan",
                             args={"episode": target.episode, "preprocessor": preprocessor},
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
@@ -1413,15 +1421,15 @@ class WorkflowStateService:
                         and script_review.stored_review(project, target.episode).get("fingerprint") is None
                     ):
                         review = "pending_review"
-                    gates["step1_review"] = {
+                    gates["script_plan_review"] = {
                         "state": "confirmed" if review == "confirmed" else "pending",
                         "revision": revision,
                     }
                     if review != "confirmed":
-                        state = "STEP1_REVIEW"
+                        state = "SCRIPT_PLAN_REVIEW"
                         next_action = _action(
-                            WorkflowActionType.CONFIRM_STEP1,
-                            "formal step1 awaits content review",
+                            WorkflowActionType.CONFIRM_SCRIPT_PLAN,
+                            "formal script_plan awaits content review",
                             args={"episode": target.episode},
                             requires_confirmation=True,
                         )
@@ -1439,11 +1447,11 @@ class WorkflowStateService:
                 ):
                     metadata = script.get("metadata")
                     generated_from = (
-                        metadata.get(script_review.SCRIPT_STEP1_REVISION_FIELD)
+                        metadata.get(script_review.SCRIPT_PLAN_REVISION_FIELD)
                         if isinstance(metadata, Mapping)
                         else None
                     )
-                    if generated_from != artifacts["step1"].get("revision"):
+                    if generated_from != artifacts["script_plan"].get("revision"):
                         artifacts["script"]["state"] = "stale"
                 if blockers:
                     state = "FINAL_SCRIPT"
@@ -1631,7 +1639,7 @@ class WorkflowStateService:
             {
                 "asset_inventory": {},
                 "asset_sheets": {},
-                "step1": {"state": "missing"},
+                "script_plan": {"state": "missing"},
                 "script": {"state": "missing"},
                 "storyboards": _empty_collection(),
                 "videos": _empty_collection(),

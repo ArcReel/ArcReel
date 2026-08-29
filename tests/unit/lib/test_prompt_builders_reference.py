@@ -5,12 +5,12 @@ import pytest
 from lib.prompt_builders_reference import (
     build_reference_units_split_prompt,
     build_reference_video_prompt,
-    render_reference_units_for_step2,
+    render_reference_units_for_prompt_authoring,
 )
 from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
 
 
-def _step2_prompt(**overrides) -> str:
+def _prompt_authoring_prompt(**overrides) -> str:
     kwargs = dict(
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
         style="s",
@@ -18,7 +18,7 @@ def _step2_prompt(**overrides) -> str:
         characters={"A": {"description": "d"}},
         scenes={},
         props={},
-        step1_units=[],
+        script_plan_units=[],
         max_refs=9,
         episode=1,
     )
@@ -44,21 +44,21 @@ def _split_prompt(**overrides) -> str:
 
 
 def test_build_reference_video_prompt_contains_required_sections():
-    step1_units = [
+    script_plan_units = [
         {
             "unit_id": "E1U01",
             "text": "@[主角] 推门走进 @[酒馆]\n@[主角] 按住 @[长剑]",
             "duration_seconds": 8,
         }
     ]
-    prompt = _step2_prompt(
+    prompt = _prompt_authoring_prompt(
         project_overview={"synopsis": "少年入江湖", "genre": "武侠", "theme": "成长", "world_setting": "北宋江湖"},
         style="国漫",
         style_description="水墨渲染风格",
         characters={"主角": {"description": "少年剑客"}, "张三": {"description": "酒客"}},
         scenes={"酒馆": {"description": "黑木桌椅的江湖酒馆"}},
         props={"长剑": {"description": "祖传青锋"}},
-        step1_units=step1_units,
+        script_plan_units=script_plan_units,
     )
 
     assert "北宋江湖" in prompt
@@ -67,7 +67,7 @@ def test_build_reference_video_prompt_contains_required_sections():
     assert "主角" in prompt and "张三" in prompt
     assert "酒馆" in prompt
     assert "长剑" in prompt
-    # step1 正文逐字透传，不加任何分段前缀
+    # script_plan 正文逐字透传，不加任何分段前缀
     assert "@[主角] 推门走进 @[酒馆]\n@[主角] 按住 @[长剑]" in prompt
     assert "（时长 8s）" in prompt
     # 断言完整约束句：单看 "9" 会被默认 aspect_ratio "9:16" 满足，max_refs 未注入也能通过
@@ -75,31 +75,31 @@ def test_build_reference_video_prompt_contains_required_sections():
 
 
 def test_build_reference_video_prompt_emphasizes_no_appearance_description():
-    assert "外貌" in _step2_prompt()
+    assert "外貌" in _prompt_authoring_prompt()
 
 
 def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
     """镜头描述指导按景别 / 构图 / 运镜 / 画面内容四要素组织（对抗生成过短的镜头描述）。"""
-    prompt = _step2_prompt()
+    prompt = _prompt_authoring_prompt()
     for element in ("景别", "构图", "运镜", "画面内容"):
         assert element in prompt
 
 
 def test_build_reference_video_prompt_states_structure_preserving_contract():
-    """step2 的职责是视觉展开：unit 数与台词两项保结构要求必须写进 prompt。"""
-    prompt = _step2_prompt()
+    """prompt_authoring 的职责是提示词编写：unit 数与台词两项保结构要求必须写进 prompt。"""
+    prompt = _prompt_authoring_prompt()
     assert "等长、同序" in prompt
     assert "逐字保留" in prompt
 
 
 def test_build_reference_video_prompt_omits_duration_from_output_contract():
-    """时长是 step1 定稿、机械沿用的字段，step2 不写——prompt 不得要求模型产出它。"""
-    prompt = _step2_prompt(step1_units=[{"unit_id": "E1U01", "text": "x", "duration_seconds": 8}])
+    """时长是 script_plan 定稿、机械沿用的字段，prompt_authoring 不写——prompt 不得要求模型产出它。"""
+    prompt = _prompt_authoring_prompt(script_plan_units=[{"unit_id": "E1U01", "text": "x", "duration_seconds": 8}])
     assert "duration_seconds" not in prompt
 
 
 def test_build_reference_video_prompt_max_refs_none_skips_rule():
-    assert "模型上限" not in _step2_prompt(max_refs=None)
+    assert "模型上限" not in _prompt_authoring_prompt(max_refs=None)
 
 
 def test_build_reference_units_split_prompt_contains_constraints_and_candidates():
@@ -126,7 +126,7 @@ def test_build_reference_units_split_prompt_contains_constraints_and_candidates(
     # 关键写作纪律
     assert "@[名称]" in prompt
     assert "外貌" in prompt
-    # step1 的内容契约三件：原文锚、台词落位、语速下界
+    # script_plan 的内容契约三件：原文锚、台词落位、语速下界
     assert "source_text" in prompt
     assert "口播语速约" in prompt
 
@@ -138,7 +138,7 @@ def test_build_reference_units_split_prompt_speech_rate_override():
 
 
 def test_build_reference_units_split_prompt_injects_episode_outline():
-    """分集大纲注入（借 drama step1）：给出本集内容边界与下集接续点。"""
+    """分集大纲注入（借 drama script_plan）：给出本集内容边界与下集接续点。"""
     prompt = _split_prompt(
         episode_outline={"title": "初入江湖", "story_beats": ["少年离家", "酒馆遇袭"], "hook": "剑断人亡"},
         next_episode_outline={"story_beats": ["追查线索"]},
@@ -158,9 +158,9 @@ def test_build_reference_units_split_prompt_without_outline_leaves_no_empty_bloc
 def test_both_prompt_levels_share_one_syntax_template():
     """语法规范唯一真相源：两级 prompt 注入同一份常量，仓库里没有第二份语法全文。"""
     split = _split_prompt()
-    step2 = _step2_prompt()
+    prompt_authoring = _prompt_authoring_prompt()
     assert WRITING_SYNTAX_SPEC in split
-    assert WRITING_SYNTAX_SPEC in step2
+    assert WRITING_SYNTAX_SPEC in prompt_authoring
 
 
 def test_build_reference_units_split_prompt_max_refs_none_skips_rule():
@@ -255,9 +255,9 @@ def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
         assert "按该 unit **镜头描述行里有没有 `@` 资产引用**取用" not in prompt
 
 
-def test_render_reference_units_for_step2_mechanical():
+def test_render_reference_units_for_prompt_authoring_mechanical():
     """渲染是机械变换：序号 + unit 时长 + 正文逐字出现；unit_id 不进渲染。"""
-    text = render_reference_units_for_step2(
+    text = render_reference_units_for_prompt_authoring(
         [
             {
                 "unit_id": "E1U01",
@@ -270,5 +270,5 @@ def test_render_reference_units_for_step2_mechanical():
     assert "#### unit 1（时长 10s）" in text
     assert "@[甲] 起身\n@[甲]：{走了。}\n@[甲] 出门" in text
     assert "#### unit 2（时长 8s）" in text
-    # unit_id 由序号机械派生，不下发给 step2
+    # unit_id 由序号机械派生，不下发给 prompt_authoring
     assert "E1U01" not in text

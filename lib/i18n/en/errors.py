@@ -151,11 +151,11 @@ MESSAGES = {
     "asset_field_invalid_value": "this field has an invalid value",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",
-    "invalid_step_num": "Invalid step number: {step_num}",
+    "invalid_draft_stage": "Invalid draft stage: {stage}",
     "draft_file_not_found": "Draft file does not exist",
     "draft_invalid_json": "The content organization draft has an invalid structure; please check and retry",
     "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no content organization result to confirm)",
-    "script_review_no_step1": "No content organization result to confirm yet; please finish content organization first",
+    "script_review_no_script_plan": "No content organization result to confirm yet; please finish content organization first",
     "script_review_quarantined": (
         "This episode has a draft needing fixes; let the agent fix and promote it before confirming"
     ),

@@ -117,7 +117,7 @@ export interface EpisodeMeta {
    * 计数口径由项目的 generation_mode 决定，三种创作类型一致。
    */
   item_count?: number;
-  /** Script progress derived from the step1 and final-script artifact states */
+  /** Script progress derived from the script_plan and final-script artifact states */
   script_status?: "none" | "segmented" | "generated";
   status?: "draft" | "scripted" | "in_production" | "completed" | "missing";
   duration_seconds?: number;

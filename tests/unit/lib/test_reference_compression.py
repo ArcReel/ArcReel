@@ -200,7 +200,7 @@ def test_ladder_start_step_respected():
     raws = [_solid_jpeg_bytes(512, 512)]
     landed, _ = select_ladder_step(raws, [RefRole.ARRAY], PayloadLimits(), start_step=2)
     assert landed >= 2
-    assert landed == 2  # 小图在 step2 即满足，不再下压
+    assert landed == 2  # 小图在 prompt_authoring 即满足，不再下压
 
 
 def test_ladder_empty_input():
