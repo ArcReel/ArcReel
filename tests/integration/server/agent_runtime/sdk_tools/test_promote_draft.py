@@ -574,6 +574,108 @@ async def test_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, 
     assert "晋升" in out["content"][0]["text"]
 
 
+def _rv_scenes(fake_ctx: ToolContext, scenes: dict[str, Any]) -> None:
+    """改写项目登记的场景资产（内存视图与盘上 project.json 同步）。"""
+    fake_ctx.pm.project_payload["scenes"] = scenes  # pyright: ignore[reportAttributeAccessIssue]
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),  # pyright: ignore[reportAttributeAccessIssue]
+        encoding="utf-8",
+    )
+
+
+async def _rv_draft_with(fake_ctx: ToolContext, monkeypatch, texts: list[str]) -> None:
+    """铺一份待修复草稿，正文按 ``texts`` 覆盖（产出时用一条必违约的正文把草稿逼出来）。"""
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场") for _ in texts])
+    envelope = _read_rv_quarantine(fake_ctx)
+    for unit, text in zip(envelope["content"]["units"], texts, strict=True):
+        unit["text"] = text
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+
+async def test_promote_draft_report_names_units_without_scene_reference(fake_ctx: ToolContext, monkeypatch) -> None:
+    """晋升被硬违约挡下时，报告也带软违约段：Agent 修草稿的每一轮都要看得见降级提示。"""
+    _rv_source(fake_ctx)
+    _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
+    await _rv_draft_with(fake_ctx, monkeypatch, ["@[张三] 起身", "@[不存在的人] 出场"])
+
+    out = await _promote(fake_ctx)
+
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "unregistered_asset" in text
+    assert "未引用场景" in text
+    assert "unit E1U01：" in text
+    # 软违约不进待修复草稿的违约条目：合流的话「非空即挡下」的判定会把降级提示变成硬违约。
+    assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["unregistered_asset"]
+
+
+async def test_promote_draft_report_silent_when_every_unit_references_a_scene(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """每个 unit 都引用了场景时报告不带软违约段——没有降级可提示。"""
+    _rv_source(fake_ctx)
+    _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
+    await _rv_draft_with(fake_ctx, monkeypatch, ["@[村口] 黄昏，@[不存在的人] 出场"])
+
+    out = await _promote(fake_ctx)
+
+    assert out.get("is_error") is True
+    assert "未引用场景" not in out["content"][0]["text"]
+
+
+async def test_promote_draft_report_silent_without_scene_assets(fake_ctx: ToolContext, monkeypatch) -> None:
+    """项目一张场景资产都没登记时报告不发场景提示：无处可引用，提示指不出任何动作。"""
+    _rv_source(fake_ctx)
+    _rv_scenes(fake_ctx, {})
+    await _rv_draft_with(fake_ctx, monkeypatch, ["@[不存在的人] 出场"])
+
+    out = await _promote(fake_ctx)
+
+    assert out.get("is_error") is True
+    assert "未引用场景" not in out["content"][0]["text"]
+
+
+async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: ToolContext, monkeypatch) -> None:
+    """晋升回执带软违约段，与拆分回执同口径——软违约不阻断晋升，正式文件照常落盘。"""
+    _rv_source(fake_ctx)
+    _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
+    await _rv_draft_with(fake_ctx, monkeypatch, ["@[村口] 黄昏，@[张三] 推门", "@[张三] 起身"])
+
+    out = await _promote(fake_ctx)
+
+    assert out.get("is_error") is not True, out
+    assert not _rv_quarantine_path(fake_ctx).exists()
+    text = json.loads(out["content"][0]["text"])["draft"]["message"]
+    assert "降级提示" in text
+    assert "未引用场景" in text
+    assert "unit E1U02：" in text
+    assert "unit E1U01：" not in text
+
+
+async def test_promote_receipt_silent_when_every_unit_references_a_scene(fake_ctx: ToolContext, monkeypatch) -> None:
+    """每个 unit 都引用了场景时回执不带软违约段。"""
+    _rv_source(fake_ctx)
+    _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
+    await _rv_draft_with(fake_ctx, monkeypatch, ["@[村口] 黄昏，@[张三] 推门"])
+
+    out = await _promote(fake_ctx)
+
+    assert out.get("is_error") is not True, out
+    assert "未引用场景" not in json.loads(out["content"][0]["text"])["draft"]["message"]
+
+
+async def test_promote_receipt_silent_without_scene_assets(fake_ctx: ToolContext, monkeypatch) -> None:
+    """项目无场景资产时回执不发场景提示。"""
+    _rv_source(fake_ctx)
+    _rv_scenes(fake_ctx, {})
+    await _rv_draft_with(fake_ctx, monkeypatch, ["@[张三] 起身"])
+
+    out = await _promote(fake_ctx)
+
+    assert out.get("is_error") is not True, out
+    assert "未引用场景" not in json.loads(out["content"][0]["text"])["draft"]["message"]
+
+
 async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cleanup(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:

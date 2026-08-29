@@ -1180,15 +1180,55 @@ def _reference_scene_warning_lines(unit_texts: list[str], project: dict[str, Any
     ]
 
 
-def _reference_result_text(script_plan_path: Path, units: list[dict], warning_lines: list[str], *, action: str) -> str:
-    """晋升 / 拆分成功后回给 Agent 的摘要：落盘统计 + 容忍类 warning。
+def _reference_soft_violation_lines(
+    unit_texts: list[str],
+    project: dict[str, Any],
+    *,
+    episode: int,
+    voice: VoiceRenderSettings,
+) -> list[str]:
+    """一份扁平产出的全部软违约（声音降级 + 未引用场景）文本行，拆分与草稿流共用的单一出口。
+
+    软违约不阻断落盘、不进违约报告，但每条呈现路径都要给出同一组结论：拆分回执、晋升回执、
+    以及晋升被违约挡下时回给 Agent 的报告。派生须留在本函数内，新增一类软违约才会同时到达
+    三条路，而不是只被接到其中一条上、另外两条继续沉默。
+
+    顺序固定为「声音在前、场景在后」：报告与回执并排比对时，同一份产物在不同路径上给出的
+    行序不该抖动。
+    """
+    return _reference_voice_warning_lines(unit_texts, project, voice) + _reference_scene_warning_lines(
+        unit_texts, project, episode=episode
+    )
+
+
+#: 晋升被违约挡下时，软违约段的处置说明：草稿仍在场、这些提示不是要修的违约。
+SOFT_VIOLATION_NOTE_QUARANTINED = "非违约、无需为此重改，草稿仍在场"
+#: 拆分 / 晋升成功回执里软违约段的处置说明。
+SOFT_VIOLATION_NOTE_COMMITTED = "产物已落盘"
+
+
+def render_soft_violation_section(soft_violations: list[str], *, note: str) -> str:
+    """把软违约文本行渲染成可拼接的「降级提示」段（无软违约时为空串）。
+
+    ``note`` 交代该段在当前语境下的处置：成功回执里产物已落盘，违约报告里草稿仍在场。段本身
+    的标题与条目形状由本函数独占，报告与回执因此不会在措辞上分叉，Agent 也能按同一形状识别。
+    """
+    if not soft_violations:
+        return ""
+    return f"\n⚠️ 降级提示（不阻断，{note}）:\n" + "\n".join(f"- {line}" for line in soft_violations)
+
+
+def _reference_result_text(
+    script_plan_path: Path, units: list[dict], soft_violations: list[str], *, action: str
+) -> str:
+    """晋升 / 拆分成功后回给 Agent 的摘要：落盘统计 + 软违约段。
 
     ``action`` 点明这份正式 script_plan 是重新拆分还是草稿晋升来的：两条路都写同一个文件，摘要不分
     的话，Agent 修完草稿会收到一句「拆分已保存」，读起来像它的修改被一次重抽覆盖了。
 
-    warning 不阻断落盘，但必须随产物呈现——「角色没配参考音频」「本单元没引用场景」这类降级只在
+    软违约不阻断落盘，但必须随产物呈现——「角色没配参考音频」「本单元没引用场景」这类降级只在
     生成后才听得出来、看得出来，不在产出当时说，Agent 与用户都不会知道声音一致性或画面地点已经
-    打了折。
+    打了折。段的渲染走 ``render_soft_violation_section``，与晋升被违约挡下时的报告同一出口。
     """
     total_seconds = sum(int(u.get("duration_seconds") or 0) for u in units)
     max_unit_refs = max(len(extract_mentions(str(u.get("text") or ""))) for u in units)
@@ -1197,9 +1237,7 @@ def _reference_result_text(script_plan_path: Path, units: list[dict], warning_li
         f"📊 生成统计: {len(units)} 个 unit，总时长 {total_seconds} 秒；"
         f"单 unit `@` 提及最多 {max_unit_refs} 个"
     )
-    if warning_lines:
-        text += "\n⚠️ 降级提示（不阻断，产物已落盘）:\n" + "\n".join(f"- {line}" for line in warning_lines)
-    return text
+    return text + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_COMMITTED)
 
 
 def _narration_script_plan_path(project_path: Path, episode: int) -> Path:
@@ -1516,14 +1554,12 @@ async def generate_reference_script_plan(
                     )
                 ) from exc
         unit_texts = [flat_unit["text"] for flat_unit in flat_units]
-        warning_lines = _reference_voice_warning_lines(
-            unit_texts, project, split_caps.voice
-        ) + _reference_scene_warning_lines(unit_texts, project, episode=episode)
+        soft_violations = _reference_soft_violation_lines(unit_texts, project, episode=episode, voice=split_caps.voice)
         return CompensableTextGenerationResult(
             _reference_result_text(
                 script_review.official_reference_script_plan_path(project_path, episode),
                 raw_units,
-                warning_lines,
+                soft_violations,
                 action="拆分",
             ),
             cancellation_receipt.compensate_cancelled,

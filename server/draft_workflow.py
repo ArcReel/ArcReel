@@ -46,6 +46,7 @@ from lib.script_models import (
 )
 from lib.speech_composition import admit_script_unit
 from server.text_generation import (
+    SOFT_VIOLATION_NOTE_QUARANTINED,
     ReferenceSplitCaps,
     _build_reference_units_from_flat,
     _collect_narration_violations,
@@ -57,7 +58,10 @@ from server.text_generation import (
     _load_novel_source,
     _load_script_plan_source_with_basis,
     _narration_script_plan_path,
+    _reference_result_text,
+    _reference_soft_violation_lines,
     _uses_reference_video_units,
+    render_soft_violation_section,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,6 +127,10 @@ class ReferenceDraftRevalidation(NamedTuple):
     必为空，调用方只能按 ``draft.content`` 原样呈现）；False 时 ``flat_units`` 是收编后的扁平
     产出，``violations`` 为空即可晋升。两者的处置不同（原样 vs 收编），故不靠 ``flat_units``
     是否为空来反推。
+
+    ``soft_violations`` 是软违约（声音降级、未引用场景）的已渲染文本行，与 ``violations``
+    分属两个字段而非合流：软违约不阻断晋升、不进待修复草稿的违约条目，合成一个列表迟早会有一处
+    按「非空即挡下」判定，把降级提示变成硬违约。schema 没过时为空——正文尚未收编，无从逐 unit 判。
     """
 
     violations: list[DraftViolation]
@@ -130,6 +138,7 @@ class ReferenceDraftRevalidation(NamedTuple):
     caps: ReferenceSplitCaps
     schema_failed: bool
     basis: ArtifactBasis | None
+    soft_violations: list[str]
 
 
 async def revalidate_reference_script_plan_draft(
@@ -211,7 +220,9 @@ async def revalidate_reference_script_plan_draft(
                 )
             ]
     if violations:
-        return ReferenceDraftRevalidation(violations, [], split_caps, schema_failed=True, basis=script_plan_basis)
+        return ReferenceDraftRevalidation(
+            violations, [], split_caps, schema_failed=True, basis=script_plan_basis, soft_violations=[]
+        )
 
     source_language = project.get("source_language")
     violations = _collect_reference_flat_violations(
@@ -222,7 +233,22 @@ async def revalidate_reference_script_plan_draft(
         caps=split_caps,
         source_language=source_language,
     )
-    return ReferenceDraftRevalidation(violations, flat_units, split_caps, schema_failed=False, basis=script_plan_basis)
+    # 软违约与硬违约在同一次重判里一并产出：有硬违约时也要算，晋升被挡下时的报告同样带着它们，
+    # 否则 Agent 修草稿的每一轮都看不见降级提示，直到最后一轮晋升成功才第一次读到。
+    soft_violations = _reference_soft_violation_lines(
+        [str(flat["text"]) for flat in flat_units],
+        project,
+        episode=episode,
+        voice=split_caps.voice,
+    )
+    return ReferenceDraftRevalidation(
+        violations,
+        flat_units,
+        split_caps,
+        schema_failed=False,
+        basis=script_plan_basis,
+        soft_violations=soft_violations,
+    )
 
 
 def _commit_reference_script_plan(
@@ -296,14 +322,28 @@ def _rewrite_invalid_draft(
     )
 
 
+def _soft_violation_section(revalidation: ReferenceDraftRevalidation) -> str:
+    """重判结果里的软违约段，供晋升被违约挡下时拼在报告尾部。
+
+    与晋升 / 拆分回执共用 ``render_soft_violation_section``，只换处置说明：此处草稿仍在场、
+    这些提示不是要修的违约，说明不换的话 Agent 会把降级提示当成没修干净的违约反复重写。
+    """
+    return render_soft_violation_section(revalidation.soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED)
+
+
 async def _promote_reference_script_plan(
     ctx: DraftContext,
     episode: int,
     draft: QuarantinedDraft,
     *,
     before_commit: Callable[[], None] | None = None,
-) -> None:
-    """按产出时那套校验器全量重判 script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。"""
+) -> str:
+    """按产出时那套校验器全量重判 script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。
+
+    返回晋升回执文本：与拆分回执同一出口（``_reference_result_text``），落盘统计后接软违约段。
+    晋升成功前无人向 Agent 交代降级提示——修草稿这条主回路走完时它才第一次拿到，故成功路径不能
+    只返回一个「已晋升」的布尔。
+    """
     project_path = ctx.project_path
     project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
     try:
@@ -329,7 +369,7 @@ async def _promote_reference_script_plan(
             violations,
             draft.meta,
         )
-        raise DraftWorkflowError("draft_invalid", report)
+        raise DraftWorkflowError("draft_invalid", report + _soft_violation_section(revalidation))
     if violations:
         report = await run_sync_transaction(
             _rewrite_invalid_draft,
@@ -340,7 +380,7 @@ async def _promote_reference_script_plan(
             violations,
             draft.meta,
         )
-        raise DraftWorkflowError("draft_invalid", report)
+        raise DraftWorkflowError("draft_invalid", report + _soft_violation_section(revalidation))
 
     units = _build_reference_units_from_flat(flat_units, project, episode=episode, max_refs=split_caps.max_refs)
     # 写盘经单一出口（lib.script_review.write_script_plan_locked）：锁、基线比对、prompt_authoring 草稿清理
@@ -371,6 +411,12 @@ async def _promote_reference_script_plan(
                 field_hint="content.units",
             ),
         ) from conflict
+    return _reference_result_text(
+        script_review.official_reference_script_plan_path(project_path, episode),
+        units,
+        revalidation.soft_violations,
+        action="晋升",
+    )
 
 
 def _render_script_plan_conflict_report(
@@ -915,6 +961,9 @@ async def revalidate_script_plan_draft(
     因此不必认得任一条路线的内部形状，也不会在新增变体时漏掉一处分派。晋升侧仍各自直接调用
     自己那个重判器——它们要用到 basis 与 schema_failed 这些落盘所需、呈现层不关心的位。
 
+    软违约不进本结果：内容确认面向创作者，降级提示由编辑器预览面板按当前正文实时判出，服务端
+    快照会在用户就地补上引用后仍留在页面上。软违约只随 Agent 侧的报告与回执呈现。
+
     ``draft.kind`` 不是 script_plan 的三个来源之一（如误传 prompt_authoring 草稿）时抛 ``ValueError``。
     """
     if draft.kind == QUARANTINE_KIND_SCRIPT_PLAN:
@@ -1199,6 +1248,9 @@ class DraftWorkflow:
         resolved = await self._kind(episode, doc_type)
         path = quarantine_path(self.ctx.project_path, episode, resolved)
         result_path: Path | None = None
+        # 晋升回执：参考生视频这条路回一段带软违约段的摘要，其余变体没有可随产物呈现的降级提示，
+        # 沿用通用短句。回执由晋升器产出而非在此拼装——软违约的措辞与拆分回执同一出口。
+        message: str | None = None
         if before_lock is not None:
             before_lock()
         async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
@@ -1218,7 +1270,7 @@ class DraftWorkflow:
                 if resolved in _SINGLE_SCRIPT_PLAN_PROMOTERS:
                     await _SINGLE_SCRIPT_PLAN_PROMOTERS[resolved](self.ctx, episode, draft)
                 elif resolved == QUARANTINE_KIND_SCRIPT_PLAN:
-                    await _promote_reference_script_plan(
+                    message = await _promote_reference_script_plan(
                         self.ctx,
                         episode,
                         draft,
@@ -1258,7 +1310,7 @@ class DraftWorkflow:
             "episode": episode,
             "doc_type": doc_type,
             "promoted": True,
-            "message": "草稿已校验并晋升",
+            "message": message if message is not None else "草稿已校验并晋升",
         }
         if result_path is not None:
             value["path"] = str(result_path)
