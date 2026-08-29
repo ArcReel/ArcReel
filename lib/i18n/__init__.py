@@ -107,6 +107,10 @@ def get_translator(request: Request) -> Callable[..., str]:
 
 Translator = Annotated[Callable[..., str], Depends(get_translator)]
 
+#: 请求语言本身。取译名需要「键缺失时回退到数据源里的原名」的地方（见 translate_or）用它，
+#: 常规成文仍用 Translator。
+Locale = Annotated[str, Depends(get_locale)]
+
 
 def _(key: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
     """Translate a message key to the given locale."""
@@ -116,3 +120,15 @@ def _(key: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
         return msg.format(**kwargs)
     except Exception:
         return msg
+
+
+def translate_or(key: str, fallback: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
+    """Translate ``key``, falling back to ``fallback`` when no locale defines it.
+
+    目录类文案（模型名、供应商名）多数是各语言通用的专有名词，只有非拉丁写法的条目需要
+    译名表。未登记的键返回数据源里的原名，而不是 ``_()`` 的裸键回退——后者会把
+    "Gemini 3 Pro" 变成 "model_name_gemini-aistudio_gemini-3-pro"。
+    """
+    if key not in MESSAGES[DEFAULT_LOCALE]:
+        return fallback
+    return _(key, locale=locale, **kwargs)
