@@ -19,16 +19,14 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 import copy
-import json
 import shutil
 import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from lib.artifact_manifest import decode_artifact_key_parts, encode_artifact_key_parts
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
 from lib.project_migration_failure import ProjectMigrationError
@@ -64,7 +62,6 @@ _SCRIPT_METADATA_FIELD_RENAMES: dict[str, str] = {"step1_revision": "script_plan
 _ARTIFACT_KIND_RENAMES: dict[str, str] = {"episode-step1": "episode-script-plan"}
 
 _MANIFEST_FILENAME = ".arcreel_artifacts.json"
-_ARTIFACT_KEY_PREFIX = "artifact-v1:"
 
 
 def _rename_fields(payload: dict[str, Any], renames: dict[str, str], location: str) -> dict[str, Any]:
@@ -78,31 +75,6 @@ def _rename_fields(payload: dict[str, Any], renames: dict[str, str], location: s
             raise ValueError(f"{location} 同时存在 {old} 与 {new}，无法判定保留哪一个")
         migrated[new] = migrated.pop(old)
     return migrated
-
-
-def _decode_artifact_kind(encoded_key: str) -> str | None:
-    """取出 artifact key 编码里的 kind；不是本格式的 key 返回 None。"""
-
-    if not encoded_key.startswith(_ARTIFACT_KEY_PREFIX):
-        return None
-    token = encoded_key.removeprefix(_ARTIFACT_KEY_PREFIX)
-    try:
-        raw = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
-        payload = json.loads(raw.decode("utf-8"))
-    except (binascii.Error, UnicodeDecodeError, ValueError, RecursionError):
-        return None
-    if not isinstance(payload, list) or not payload or not isinstance(payload[0], str):
-        return None
-    return payload[0]
-
-
-def _reencode_artifact_key(encoded_key: str, new_kind: str) -> str:
-    token = encoded_key.removeprefix(_ARTIFACT_KEY_PREFIX)
-    raw = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
-    payload = json.loads(raw.decode("utf-8"))
-    payload[0] = new_kind
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return _ARTIFACT_KEY_PREFIX + base64.urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
 
 
 def _rename_artifact_path(artifact_path: str) -> str:
@@ -125,10 +97,10 @@ def migrate_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     for encoded_key, entry in entries.items():
         if not isinstance(encoded_key, str):
             raise ValueError("产物清单 key 必须是字符串")
-        kind = _decode_artifact_kind(encoded_key)
+        parts = decode_artifact_key_parts(encoded_key)
         new_key = encoded_key
-        if kind is not None and kind in _ARTIFACT_KIND_RENAMES:
-            new_key = _reencode_artifact_key(encoded_key, _ARTIFACT_KIND_RENAMES[kind])
+        if parts is not None and parts.kind in _ARTIFACT_KIND_RENAMES:
+            new_key = encode_artifact_key_parts(_ARTIFACT_KIND_RENAMES[parts.kind], parts.components)
         if new_key in migrated_entries:
             raise ValueError(f"产物清单改名后 key 冲突: {new_key}")
         new_entry = entry

@@ -38,6 +38,7 @@ from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from lib.project_migrations.v9_to_v10_script_plan_naming import DRAFT_FILE_RENAMES, migrate_v9_to_v10
 from lib.project_migrations.v10_to_v11_character_voice_binding import migrate_v10_to_v11
+from lib.project_migrations.v11_to_v12_script_plan_artifact_key_repair import migrate_v11_to_v12
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ _ACTIVATION_BACKUP_VERSION = ARTIFACT_MANIFEST_SCHEMA_VERSION - 1
 _DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES.values())
 
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
-_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9})
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 11})
 
 # 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
@@ -339,3 +340,4 @@ MIGRATORS[7] = migrate_v7_to_v8
 MIGRATORS[8] = migrate_v8_to_v9
 MIGRATORS[9] = migrate_v9_to_v10
 MIGRATORS[10] = migrate_v10_to_v11
+MIGRATORS[11] = migrate_v11_to_v12

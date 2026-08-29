@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 from pathlib import Path
 from typing import Any
@@ -10,6 +9,14 @@ from typing import Any
 import pytest
 
 from lib import script_review
+from lib.artifact_manifest import (
+    MANIFEST_SCHEMA_VERSION,
+    ArtifactKey,
+    ProjectArtifactManifestAdapter,
+    decode_artifact_key_parts,
+    encode_artifact_key_parts,
+)
+from lib.content_digest import HASH_ALGORITHM
 from lib.project_migration_failure import load_migration_failure
 from lib.project_migrations.runner import migrate_project_dir, migrate_project_with_verdict
 from lib.project_migrations.v9_to_v10_script_plan_naming import migrate_v9_to_v10
@@ -32,15 +39,20 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _artifact_key(kind: str, episode: int) -> str:
-    payload = json.dumps([kind, episode], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return "artifact-v1:" + base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+def _legacy_artifact_key(kind: str, episode: int) -> str:
+    """按 ``lib.artifact_manifest`` 的真实编码造一个 v9 时期的 key。
+
+    旧 kind 已从 ``ArtifactKind`` 删除，构不出 ``ArtifactKey``，只能走该模块的公开编码出口——
+    这正是本测试要守的东西：迁移与测试都不许自建第二套编码。
+    """
+
+    return encode_artifact_key_parts(kind, (episode,))
 
 
 def _decode_kind(encoded_key: str) -> str:
-    token = encoded_key.removeprefix("artifact-v1:")
-    raw = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
-    return json.loads(raw.decode("utf-8"))[0]
+    parts = decode_artifact_key_parts(encoded_key)
+    assert parts is not None
+    return parts.kind
 
 
 def _project(
@@ -135,18 +147,18 @@ def test_artifact_manifest_key_and_path_follow_the_rename(tmp_path: Path) -> Non
 
     project_dir = _project(tmp_path, content_mode="narration", generation_mode="storyboard")
     _write_json(project_dir / "drafts" / "episode_1" / "step1_segments.json", {"segments": []})
-    digest = "sha256-v1:" + "0" * 64
+    digest = f"{HASH_ALGORITHM}:" + "0" * 64
     _write_json(
         project_dir / ".arcreel_artifacts.json",
         {
-            "schema_version": 1,
-            "hash_algorithm": "sha256",
+            "schema_version": MANIFEST_SCHEMA_VERSION,
+            "hash_algorithm": HASH_ALGORITHM,
             "entries": {
-                _artifact_key("episode-step1", 1): {
+                _legacy_artifact_key("episode-step1", 1): {
                     "artifact_path": "drafts/episode_1/step1_segments.json",
                     "basis_digest": digest,
                 },
-                _artifact_key("episode-script", 1): {
+                ArtifactKey.episode_script(1).encode(): {
                     "artifact_path": "scripts/episode_1.json",
                     "basis_digest": digest,
                 },
@@ -162,6 +174,11 @@ def test_artifact_manifest_key_and_path_follow_the_rename(tmp_path: Path) -> Non
     assert by_kind["episode-script-plan"]["artifact_path"] == "drafts/episode_1/script_plan_segments.json"
     assert by_kind["episode-script-plan"]["basis_digest"] == digest
     assert by_kind["episode-script"]["artifact_path"] == "scripts/episode_1.json"
+    # 读侧口径：改写后的 key 必须正好是当前代码登记脚本规划产物时用的那一个，
+    # 清单整体也必须仍然可读——残留旧 kind 会让解析直接判整份清单不可读。
+    snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+    assert set(snapshot) == {ArtifactKey.episode_script_plan(1), ArtifactKey.episode_script(1)}
+    assert snapshot[ArtifactKey.episode_script_plan(1)].artifact_path == "drafts/episode_1/script_plan_segments.json"
 
 
 def test_a_project_already_holding_both_names_is_refused_without_touching_disk(tmp_path: Path) -> None:
