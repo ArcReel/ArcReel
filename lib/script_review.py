@@ -48,6 +48,7 @@ from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.reference_video.duration_migration import migrate_unit_durations
+from lib.script_plan_entries import SCRIPT_PLAN_REVISION_FIELD as SCRIPT_PLAN_REVISION_FIELD
 from lib.validation_messages import ValidationMessage
 
 if TYPE_CHECKING:
@@ -68,9 +69,10 @@ STALE_SCRIPT_PLAN_REVISION_FIELD = "stale_script_plan_revision"
 #: stale 分集的 script_plan 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
 STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD = "stale_script_plan_rebuilt_revision"
 
-#: 最终剧本 metadata 记录其实际消费的 script_plan 内容指纹；workflow status 用它识别 script_plan
-#: 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 prompt_authoring 已完成。
-SCRIPT_PLAN_REVISION_FIELD = "script_plan_revision"
+# SCRIPT_PLAN_REVISION_FIELD（最终剧本 metadata 记录其实际消费的 script_plan 内容指纹；workflow
+# status 用它识别 script_plan 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 prompt_authoring
+# 已完成）的字面量定义在 lib.script_plan_entries——它是条目指纹的整集对位，存量条目的回填按它
+# 开门——由本模块顶部的 import 再导出，既有读法不变。
 
 #: script_plan 变体：drama / narration（按 content_mode）+ reference_video（按项目生成模式，跨 content_mode）。
 #: 决定 script_plan 文件名与结构校验模型；三者共用同一内容确认。

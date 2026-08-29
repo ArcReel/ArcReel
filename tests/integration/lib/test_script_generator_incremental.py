@@ -14,8 +14,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from lib import script_review
 from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
+from lib.project_manager import ProjectManager
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script_generator import ScriptGenerator
 from lib.script_plan_entries import (
@@ -626,3 +628,103 @@ class TestDryRunPrompt:
         prompt = await variant.generator(project_dir, []).build_prompt(1, scope="all")
 
         assert all(needle in prompt for needle in variant.prompt_needles)
+
+
+class TestLegacyEntryRevisionBackfill:
+    """存量剧本（条目无指纹）的读时补齐：整集指纹仍相等时逐条盖章，此后按条目增量。
+
+    补齐必须发生在脚本规划被改动之前——整集指纹一旦失配就无从知道每条消费了什么，只能整集
+    回退。走的是读时补齐的落盘入口 ``ProjectManager.backfill_script_plan_entry_revisions``
+    （工作流状态计算的调用见 ``tests/integration/lib/test_workflow_state.py``）。
+    """
+
+    @staticmethod
+    def _make_legacy(project_dir: Path, variant: _Variant) -> None:
+        """抹掉全部条目指纹，把刚落盘的剧本还原成本机制引入之前的形状。"""
+        path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(path.read_text(encoding="utf-8"))
+        for entry in script[variant.items_key]:
+            entry.pop(SCRIPT_PLAN_ENTRY_REVISION_FIELD, None)
+        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    @staticmethod
+    def _backfill(project_dir: Path, variant: _Variant, plan_path: Path) -> tuple[str, ...]:
+        document = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan_revisions = plan_entry_revisions(
+            variant.name, plan_entries_from_document(variant.name, document), episode=1
+        )
+        return ProjectManager(str(project_dir.parent)).backfill_script_plan_entry_revisions(
+            project_dir.name,
+            "episode_1.json",
+            plan_kind=variant.name,
+            plan_revisions=plan_revisions,
+            whole_plan_revision=script_review.content_fingerprint(plan_path),
+        )
+
+    async def test_backfill_stamps_the_same_revisions_as_the_assembly_outlet(
+        self, tmp_path: Path, variant: _Variant
+    ) -> None:
+        """回填盖的值与装配出口盖的逐个相等——两处同取一个构造器，不另摘一份。"""
+        first, second = variant.entry_ids
+        project_dir, plan_path = variant.build(tmp_path)
+        await variant.generator(project_dir, [variant.visual_factory(first, second)]).generate(1)
+        stamped_by_outlet = {
+            entry_id: entry[SCRIPT_PLAN_ENTRY_REVISION_FIELD]
+            for entry_id, entry in _entries(_script(project_dir), variant).items()
+        }
+        self._make_legacy(project_dir, variant)
+
+        assert self._backfill(project_dir, variant, plan_path) == (first, second)
+
+        assert {
+            entry_id: entry[SCRIPT_PLAN_ENTRY_REVISION_FIELD]
+            for entry_id, entry in _entries(_script(project_dir), variant).items()
+        } == stamped_by_outlet
+
+    async def test_backfilled_script_rewrites_only_the_changed_entry(self, tmp_path: Path, variant: _Variant) -> None:
+        """补齐之后改一条 source_text：只重写那一条，用户精修过的字段不被覆盖。"""
+        first, second = variant.entry_ids
+        project_dir, plan_path = variant.build(tmp_path)
+        await variant.generator(project_dir, [variant.visual_factory(first, second, mark="首轮")]).generate(1)
+        self._make_legacy(project_dir, variant)
+        self._backfill(project_dir, variant, plan_path)
+        _stamp_user_fields(project_dir, variant, first)
+        before_first_json = json.dumps(
+            _entries(_script(project_dir), variant)[first], ensure_ascii=False, sort_keys=True
+        )
+
+        document = json.loads(plan_path.read_text(encoding="utf-8"))
+        entries_key = _PLAN_ENTRIES_KEY[variant.name]
+        document[entries_key][1]["novel_text" if variant is NARRATION else "source_text"] = "改了一个错别字。"
+        plan_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        _activate(project_dir)
+
+        rewritten: list[str] = []
+        rerun = variant.generator(project_dir, [variant.visual_factory(second, mark="二轮")])
+        await rerun.generate(1, rewritten_entry_ids=rewritten)
+
+        assert rewritten == [second]
+        after = _entries(_script(project_dir), variant)
+        assert json.dumps(after[first], ensure_ascii=False, sort_keys=True) == before_first_json
+
+    async def test_whole_revision_mismatch_keeps_the_integral_fallback(self, tmp_path: Path, variant: _Variant) -> None:
+        """整集指纹已经失配：不回填，仍按整集口径整集重写（本机制引入前的结论）。"""
+        first, second = variant.entry_ids
+        project_dir, plan_path = variant.build(tmp_path)
+        await variant.generator(project_dir, [variant.visual_factory(first, second, mark="首轮")]).generate(1)
+        self._make_legacy(project_dir, variant)
+
+        document = json.loads(plan_path.read_text(encoding="utf-8"))
+        entries_key = _PLAN_ENTRIES_KEY[variant.name]
+        document[entries_key][1]["novel_text" if variant is NARRATION else "source_text"] = "改了一个错别字。"
+        plan_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        _activate(project_dir)
+
+        assert self._backfill(project_dir, variant, plan_path) == ()
+        assert all(SCRIPT_PLAN_ENTRY_REVISION_FIELD not in entry for entry in _script(project_dir)[variant.items_key])
+
+        rewritten: list[str] = []
+        rerun = variant.generator(project_dir, [variant.visual_factory(first, second, mark="二轮")])
+        await rerun.generate(1, rewritten_entry_ids=rewritten)
+
+        assert rewritten == [first, second]

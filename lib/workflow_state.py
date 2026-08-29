@@ -1,8 +1,14 @@
-"""Authoritative, side-effect-free workflow status for ArcReel projects."""
+"""Authoritative workflow status for ArcReel projects.
+
+状态计算不改变任何结论性数据。唯一的写盘是条目指纹的读时补齐（见
+``_annotate_script_entry_currency``）：存量剧本一次性收编，只增补一个对 LLM 与 PATCH 均不可见
+的指纹字段，本次状态的结论不因它是否落盘而变化。
+"""
 
 from __future__ import annotations
 
 import json
+import logging
 import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -11,6 +17,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
+from portalocker.exceptions import BaseLockException
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib import script_review
@@ -38,6 +45,7 @@ from lib.project_migration_failure import (
 from lib.script_models import get_generated_assets, script_duration_total
 from lib.script_plan_entries import (
     ScriptPlanEntryError,
+    backfill_entry_revisions,
     evaluate_entry_currency,
     plan_entries_from_document,
     plan_entry_revisions,
@@ -46,6 +54,8 @@ from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_ro
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 from lib.version_manager import VersionManager
 from lib.workflow_rules import workflow_rule
+
+logger = logging.getLogger(__name__)
 
 WorkflowStateName = Literal[
     "PROJECT_INPUT",
@@ -660,6 +670,7 @@ class WorkflowStateService:
     def _annotate_script_entry_currency(
         self,
         project_path: Path,
+        project_name: str,
         project: dict[str, Any],
         target: WorkflowTarget,
         script: dict[str, Any],
@@ -672,6 +683,12 @@ class WorkflowStateService:
         判定是条目级的：改一条 ``source_text`` 只让那一条失效，其余条目照旧可用——重写的是失效
         条目，不是整集（stale 的语义见 ``docs/adr/0062``）。存量剧本的条目没有条目指纹，退回
         整集口径判定，不因升级本身被误报。
+
+        本方法同时是条目指纹的**读时补齐路径**：整集指纹仍相等时，这里就把当前脚本规划的条目
+        指纹落进那些无指纹的存量条目。补齐只有在脚本规划被改动之前才做得成——整集指纹一旦失配
+        就无从知道每条消费了什么，只能整集回退、整集重写，用户精修过的提示词随之被覆盖。这是
+        状态计算里唯一的写盘，且只增补一个对 LLM 与 PATCH 均不可见的指纹字段：写盘失败不改变
+        本次状态的任何结论，故只记日志、不升级为 blocker。
 
         脚本规划读不出或形状不符时什么也不标注：脚本规划自身的状态由 ``artifacts["script_plan"]``
         回答，此处不重复造一类错误。
@@ -697,6 +714,27 @@ class WorkflowStateService:
         generated_from = (
             metadata.get(script_review.SCRIPT_PLAN_REVISION_FIELD) if isinstance(metadata, Mapping) else None
         )
+        # 先在内存副本上补齐：非空即表示磁盘上那份也待补，据此决定是否为落盘取一次剧本锁——
+        # 已补齐过的剧本（绝大多数）因此不为读状态引入锁竞争。
+        if backfill_entry_revisions(
+            plan_kind,
+            script=script,
+            plan_revisions=plan_revisions,
+            whole_plan_revision=whole_plan_revision,
+        ):
+            try:
+                self.pm.backfill_script_plan_entry_revisions(
+                    project_name,
+                    target.script,
+                    plan_kind=plan_kind,
+                    plan_revisions=plan_revisions,
+                    whole_plan_revision=whole_plan_revision,
+                )
+            except (OSError, ValueError, BaseLockException):
+                # 落盘要取剧本锁、要写文件，两者都可能失败（锁失败经 portalocker 包成
+                # BaseLockException，不是 OSError）。补齐是纯格式收编，失败不改变本次状态的
+                # 任何结论，一次读状态不该因此整个失败。
+                logger.warning("剧本 %s 的条目指纹读时补齐未能落盘", target.script, exc_info=True)
         currency = evaluate_entry_currency(
             plan_kind,
             script=script,
@@ -1504,6 +1542,7 @@ class WorkflowStateService:
                     plan_artifact = artifacts.get("script_plan")
                     self._annotate_script_entry_currency(
                         project_path,
+                        project_name,
                         project,
                         target,
                         script,

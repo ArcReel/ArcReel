@@ -79,6 +79,7 @@ from lib.project_schema import parse_project_schema_version
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets
+from lib.script_plan_entries import backfill_entry_revisions
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 from lib.validation_messages import ValidationResult
 
@@ -1277,6 +1278,41 @@ class ProjectManager:
                 real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
                 self._persist_script_json(real, script)
         return script
+
+    def backfill_script_plan_entry_revisions(
+        self,
+        project_name: str,
+        filename: str,
+        *,
+        plan_kind: str,
+        plan_revisions: Mapping[str, str],
+        whole_plan_revision: str | None,
+    ) -> tuple[str, ...]:
+        """在剧本锁内为无条目指纹的存量条目补齐指纹并回写，返回被回填的条目 id。
+
+        条目指纹只在提示词编写的装配出口写入，存量剧本因此一条都没有；它们在脚本规划被改动
+        之前必须补齐，否则整集指纹一失配就退回整集口径，整集重写会覆盖用户精修过的视觉层
+        （回填的准入判定见 ``lib.script_plan_entries.backfill_entry_revisions``）。调用方给出
+        当前脚本规划的条目指纹与整集指纹，本方法只管在锁内落盘。
+
+        与 ``load_script`` 的存量迁移同一形状：锁内重读最新内容再判再写（无锁读到的内容可能
+        已被并发写者取代），且不走 ``_write_script_unlocked``——补齐只是格式收编，不该刷新
+        ``metadata.updated_at``、不触发 project.json 同步与变更提示。
+        """
+        norm = self.normalize_script_filename(filename)
+        with self._script_lock(project_name, norm):
+            script, _migrated = self._read_script_unlocked(project_name, norm)
+            backfilled = backfill_entry_revisions(
+                plan_kind,
+                script=script,
+                plan_revisions=plan_revisions,
+                whole_plan_revision=whole_plan_revision,
+            )
+            if not backfilled:
+                return ()
+            real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
+            self._persist_script_json(real, script)
+        return backfilled
 
     def load_script_readonly(self, project_name: str, filename: str) -> dict:
         """Load a script with in-memory compatibility migrations but never persist them."""

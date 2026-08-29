@@ -9,7 +9,9 @@ from lib.script_plan_entries import (
     PLAN_ITEMS_KEY,
     PRESERVED_ON_UNCHANGED_FIELDS,
     SCRIPT_PLAN_ENTRY_REVISION_FIELD,
+    SCRIPT_PLAN_REVISION_FIELD,
     ScriptPlanEntryError,
+    backfill_entry_revisions,
     entry_revision,
     evaluate_entry_currency,
     plan_entries_from_document,
@@ -207,6 +209,87 @@ class TestEvaluateEntryCurrency:
         assert evaluate_entry_currency(
             "drama", script=script, plan_revisions=revisions, legacy_entries_current=False
         ).stale_ids == ("E1S01",)
+
+
+class TestBackfillEntryRevisions:
+    """存量条目的回填：整集指纹相等即逐条盖章，不等则一条不动。"""
+
+    def _script(self, *entries: dict[str, object], whole_revision: str | None) -> dict[str, object]:
+        metadata = {SCRIPT_PLAN_REVISION_FIELD: whole_revision} if whole_revision is not None else {}
+        return {"scenes": list(entries), "metadata": metadata}
+
+    def test_backfill_stamps_the_plan_revision_when_the_whole_revision_matches(self) -> None:
+        revisions = plan_entry_revisions("drama", [drama_plan_entry("E1S01"), drama_plan_entry("E1S02")], episode=1)
+        script = self._script({"scene_id": "E1S01"}, {"scene_id": "E1S02"}, whole_revision="whole")
+
+        assert backfill_entry_revisions(
+            "drama", script=script, plan_revisions=revisions, whole_plan_revision="whole"
+        ) == ("E1S01", "E1S02")
+
+        stamped = script_entries_by_id("drama", script)
+        assert {entry_id: entry[SCRIPT_PLAN_ENTRY_REVISION_FIELD] for entry_id, entry in stamped.items()} == revisions
+        # 盖完章之后按条目口径判定，不再依赖整集回退。
+        assert not evaluate_entry_currency(
+            "drama", script=script, plan_revisions=revisions, legacy_entries_current=False
+        ).is_stale
+
+    def test_mismatched_whole_revision_stamps_nothing(self) -> None:
+        """整集指纹不等：无从知道每条消费了什么，回填一条都不做。"""
+        revisions = plan_entry_revisions("drama", [drama_plan_entry("E1S01")], episode=1)
+        script = self._script({"scene_id": "E1S01"}, whole_revision="旧的整集指纹")
+
+        assert (
+            backfill_entry_revisions("drama", script=script, plan_revisions=revisions, whole_plan_revision="whole")
+            == ()
+        )
+        assert SCRIPT_PLAN_ENTRY_REVISION_FIELD not in script_entries_by_id("drama", script)["E1S01"]
+
+    def test_missing_whole_revision_stamps_nothing(self) -> None:
+        """剧本没记整集指纹、或当前脚本规划取不到指纹：同样不开门。"""
+        revisions = plan_entry_revisions("drama", [drama_plan_entry("E1S01")], episode=1)
+        assert (
+            backfill_entry_revisions(
+                "drama",
+                script=self._script({"scene_id": "E1S01"}, whole_revision=None),
+                plan_revisions=revisions,
+                whole_plan_revision="whole",
+            )
+            == ()
+        )
+        assert (
+            backfill_entry_revisions(
+                "drama",
+                script=self._script({"scene_id": "E1S01"}, whole_revision="whole"),
+                plan_revisions=revisions,
+                whole_plan_revision=None,
+            )
+            == ()
+        )
+
+    def test_existing_entry_revisions_are_left_alone(self) -> None:
+        """已带指纹的条目记着自己当时消费的值：覆盖它等于把一个真实的失配抹平。"""
+        revisions = plan_entry_revisions("drama", [drama_plan_entry("E1S01"), drama_plan_entry("E1S02")], episode=1)
+        stale = "sha256-v1:" + "0" * 64
+        script = self._script(
+            {"scene_id": "E1S01", SCRIPT_PLAN_ENTRY_REVISION_FIELD: stale},
+            {"scene_id": "E1S02"},
+            whole_revision="whole",
+        )
+
+        assert backfill_entry_revisions(
+            "drama", script=script, plan_revisions=revisions, whole_plan_revision="whole"
+        ) == ("E1S02",)
+        assert script_entries_by_id("drama", script)["E1S01"][SCRIPT_PLAN_ENTRY_REVISION_FIELD] == stale
+
+    def test_entries_outside_the_plan_are_not_stamped(self) -> None:
+        """脚本规划里没有的条目（已被删掉）不盖章：它没有可消费的规划条目。"""
+        revisions = plan_entry_revisions("drama", [drama_plan_entry("E1S01")], episode=1)
+        script = self._script({"scene_id": "E1S01"}, {"scene_id": "E1S09"}, whole_revision="whole")
+
+        assert backfill_entry_revisions(
+            "drama", script=script, plan_revisions=revisions, whole_plan_revision="whole"
+        ) == ("E1S01",)
+        assert SCRIPT_PLAN_ENTRY_REVISION_FIELD not in script_entries_by_id("drama", script)["E1S09"]
 
 
 class TestResolveRewriteIds:
