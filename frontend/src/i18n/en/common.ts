@@ -49,4 +49,5 @@ export default {
   'not_found_title': 'Page not found',
   'not_found_back': 'Back to home',
   'recommended': 'Recommended',
+  'unexpected_error': 'Something went wrong',
 };

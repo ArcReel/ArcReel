@@ -8,22 +8,42 @@ type VoidPromiseOptions = {
  *  （如保存中状态、串行提交），不能用本函数；只想丢弃返回值时，自写
  *  `async (...args) => { await fn(...args); }` 保留等待语义。 */
 export function voidPromise<Args extends unknown[]>(
-  fn: (...args: Args) => Promise<unknown>,
+  fn: (...args: Args) => unknown,
   opts?: VoidPromiseOptions,
 ): (...args: Args) => void {
   return (...args) => {
-    fn(...args).catch((err: unknown) => {
+    try {
+      const result = fn(...args);
+      if (
+        result != null &&
+        typeof (result as { catch?: unknown }).catch === "function"
+      ) {
+        (result as Promise<unknown>).catch((err: unknown) => {
+          if (opts?.onError) opts.onError(err);
+          else console.error(err);
+        });
+      }
+    } catch (err) {
       if (opts?.onError) opts.onError(err);
       else console.error(err);
-    });
+    }
   };
 }
 
 export function voidCall<T>(
-  promise: Promise<T>,
+  promise: unknown,
   onError: (err: unknown) => void = console.error,
 ): void {
-  promise.catch(onError);
+  try {
+    if (
+      promise != null &&
+      typeof (promise as { catch?: unknown }).catch === "function"
+    ) {
+      (promise as Promise<T>).catch(onError);
+    }
+  } catch (err) {
+    onError(err);
+  }
 }
 
 /** Normalize an unknown thrown value to a user-displayable string.

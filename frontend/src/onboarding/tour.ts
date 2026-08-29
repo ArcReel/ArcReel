@@ -381,5 +381,21 @@ function decorateSkip(popover: PopoverDOM, isLastStep: boolean, label: string): 
   skip.className = "driver-popover-footer-btn arc-tour-skip-btn";
   skip.textContent = label;
   skip.addEventListener("click", () => popover.closeButton.click());
-  popover.footer.insertBefore(skip, popover.footerButtons);
+  // 容错：footerButtons 理论上是 footer 的直接子节点，但在 driver.js 异步重入或
+  // 版本差异下 reference 可能已不为 child，insertBefore 会抛
+  // `Failed to execute 'insertBefore' on 'Node'` 并导致整页空白（被 ErrorBoundary 捕获
+  // 也会闪一下）。改用 contains 检查并在异常时回退到 append。
+  try {
+    if (popover.footerButtons && popover.footer.contains(popover.footerButtons)) {
+      popover.footer.insertBefore(skip, popover.footerButtons);
+    } else {
+      popover.footer.appendChild(skip);
+    }
+  } catch {
+    try {
+      popover.footer.appendChild(skip);
+    } catch {
+      // 极端容错：不让异常冒泡
+    }
+  }
 }

@@ -7,6 +7,7 @@ import { AppRoutes } from "./router";
 import { useAuthStore } from "@/stores/auth-store";
 import { i18nReady } from "@/i18n";
 import { BRAND, BRAND_DOCUMENT_TITLE } from "@/branding";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import "driver.js/dist/driver.css";
 
@@ -66,7 +67,16 @@ if (root) {
   // chunk 都是本地 lazy import，弱网下也只是几十 ms 延迟（cold start）。
   // i18n 加载失败时不能阻塞应用启动（仍 render，让 t() 退回 key 字符串），
   // 但失败必须可观测——所以显式记 error 而不是用 finally 把成功/失败合流静默。
-  const render = () => createRoot(root).render(<AppRoutes />);
+  // 复用单一 root 实例：重复 createRoot 会在 HMR 或 i18n 重试时让同一容器挂两个 root，
+  // 后续更新时 React 会对已卸载的旧 root 做 insertBefore 而抛
+  // `The node before which the new node is to be inserted is not a child`。
+  const rootInstance = createRoot(root);
+  const render = () =>
+    rootInstance.render(
+      <ErrorBoundary>
+        <AppRoutes />
+      </ErrorBoundary>,
+    );
   i18nReady.then(render, (err) => {
     console.error("i18n initialization failed", err);
     render();
