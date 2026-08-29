@@ -273,6 +273,9 @@ MESSAGES = {
         "The asset is declared but never referenced from submit: it is never sent, and cannot back a capability"
     ),
     "val_ce_enum_map_variable_not_allowed": "{variable} cannot be mapped; mappable variables: {allowed}",
+    "val_ce_default_variable_not_allowed": "{variable} cannot have a default; variables that can: {allowed}",
+    "val_ce_default_value_type_invalid": "The default for {variable} must be of type {expected}",
+    "val_ce_default_value_not_in_enum_map": "The default {value} for {variable} is not in enum_maps; available values: {allowed}",
     "val_ce_status_map_target_invalid": "Status {target} is outside {allowed}; map expiry semantics to failed",
     "val_ce_capability_declared_without_input": (
         "{capability} is declared but submit references no {source} asset, so the capability would lie"
@@ -307,6 +310,7 @@ MESSAGES = {
         "The regex match operator is not allowed in extraction paths (at character {position}): {path_expression}"
     ),
     "val_ce_jsonpath_syntax": "Extraction path syntax error (at character {position}): {path_expression}",
+    "val_ce_template_render_failed": "Could not render the request template: {detail}",
     "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} uses a wildcard: an object wildcard takes the first member only, "

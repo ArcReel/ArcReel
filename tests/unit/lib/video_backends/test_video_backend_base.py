@@ -1,3 +1,4 @@
+import asyncio
 import itertools
 import logging
 from collections.abc import Iterator
@@ -17,6 +18,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     _dig,
+    _rewrites_to_get,
     extract_provider_error_message,
     first_mapping_by_paths,
     first_str_by_paths,
@@ -25,12 +27,18 @@ from lib.video_backends.base import (
     persist_api_call_id,
     persist_provider_job_id,
     poll_with_retry,
+    recording_poll,
     should_retry_download,
     should_retry_poll,
+    should_retry_signed_download,
     should_retry_submit,
+    stream_to_file,
     submit_post,
+    url_origin,
+    with_artifact_retry,
 )
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
+from tests.http_capture import capture_http
 
 
 class _FakeClock:
@@ -598,12 +606,13 @@ class TestRetryPredicates:
 
 
 class TestShouldRetryDownload:
-    """should_retry_download 下载阶段谓词：4xx（含 404）fail-fast、5xx/传输错误重试。"""
+    """should_retry_download 下载阶段谓词：403/404 未就绪及瞬态错误重试。"""
 
-    def test_all_4xx_including_404_fail_fast(self):
-        # 预签发的结果 URL 4xx 是确定性错误：与 poll 不同，404 也 fail-fast。
-        for code in (400, 401, 403, 404, 413, 422):
+    def test_download_retries_not_ready_403_and_404(self):
+        for code in (400, 401, 413, 422):
             assert should_retry_download(_http_status_error(code)) is False
+        for code in (403, 404):
+            assert should_retry_download(_http_status_error(code)) is True
 
     def test_transient_http_retries(self):
         for code in (408, 425, 429, 500, 502, 503, 504):
@@ -625,6 +634,23 @@ class TestShouldRetryDownload:
         assert should_retry_download(httpx.LocalProtocolError("bad")) is False
         # 普通异常即便消息含状态码子串也不重试（绕开字符串误判）。
         assert should_retry_download(ValueError("503 in message")) is False
+
+
+class TestShouldRetrySignedDownload:
+    """should_retry_signed_download：预签发 URL 的 4xx 一律确定性失败，瞬态码照常重试。"""
+
+    def test_all_client_errors_fail_fast(self):
+        for code in (400, 401, 403, 404, 413, 422):
+            assert should_retry_signed_download(_http_status_error(code)) is False
+
+    def test_transient_codes_still_retry(self):
+        # 429/408/425 是限流与瞬态，不属于「签名 URL 确定性失败」，与 5xx 同样重试。
+        for code in (408, 425, 429, 500, 503):
+            assert should_retry_signed_download(_http_status_error(code)) is True
+
+    def test_transport_errors_retry_and_local_protocol_errors_fail_fast(self):
+        assert should_retry_signed_download(httpx.ConnectError("refused")) is True
+        assert should_retry_signed_download(httpx.UnsupportedProtocol("scheme")) is False
 
 
 class TestSubmitPost:
@@ -966,3 +992,151 @@ class TestPersistApiCallIdRetry:
                 await persist_api_call_id("task-V", 7)
 
         assert attempts == 1
+
+
+class TestRedirectMethodRewrite:
+    """跟随重定向时的方法改写规则，与 httpx / RFC 9110 同口径。"""
+
+    @pytest.mark.parametrize(
+        ("status_code", "method", "expected"),
+        [
+            (303, "POST", True),
+            (303, "PUT", True),
+            (303, "HEAD", False),
+            (301, "POST", True),
+            (302, "POST", True),
+            # PUT 在 301/302 上保留方法与请求体：改写会让端点收到语义完全不同的请求。
+            (301, "PUT", False),
+            (302, "PUT", False),
+            (307, "POST", False),
+            (308, "POST", False),
+        ],
+    )
+    def test_rewrite_rule(self, status_code: int, method: str, expected: bool):
+        assert _rewrites_to_get(status_code, method) is expected
+
+
+class TestWithArtifactRetry:
+    async def test_single_slow_attempt_is_cut_off_at_max_wait(self):
+        """一次取件迟迟不返回时也要受墙钟上限约束——poll_with_retry 只在返回后才比对预算。
+
+        判据不靠真实等待：预算给 0，取件停在一个永不置位的事件上，截止时刻即刻到达。
+        """
+        never_ready = asyncio.Event()
+
+        async def never_returns() -> None:
+            await never_ready.wait()
+
+        with pytest.raises(TimeoutError):
+            await with_artifact_retry(never_returns, label="slow", max_wait=0)
+
+        assert not never_ready.is_set()
+
+
+class TestStreamToFile:
+    async def test_writes_body_and_leaves_no_partial_file(self, tmp_path: Path):
+        output = tmp_path / "nested" / "out.mp4"
+        payload = b"x" * (9 * 1024 * 1024)  # 跨过攒批阈值，走多次落盘
+
+        with capture_http() as router:
+            router.get("https://cdn.test/a.mp4").mock(return_value=httpx.Response(200, content=payload))
+            async with httpx.AsyncClient() as client:
+                await stream_to_file(client, "https://cdn.test/a.mp4", output)
+
+        assert output.read_bytes() == payload
+        assert not (output.parent / f"{output.name}.part").exists()
+
+    async def test_redirect_without_location_is_not_written_as_the_artifact(self, tmp_path: Path):
+        """raise_for_status 放行 3xx：没有 Location 就无处可跳，跳转响应体不能当成片存下来。"""
+        output = tmp_path / "out.mp4"
+
+        with capture_http() as router:
+            router.get("https://relay.test/a.mp4").mock(return_value=httpx.Response(302, content=b"not a video"))
+            async with httpx.AsyncClient() as client:
+                with pytest.raises(RuntimeError, match="redirect without a Location header"):
+                    await stream_to_file(
+                        client,
+                        "https://relay.test/a.mp4",
+                        output,
+                        headers={"X-API-Key": "secret"},
+                        credential_origin=url_origin("https://relay.test"),
+                    )
+
+        assert not output.exists()
+
+    async def test_failed_download_leaves_the_artifact_path_untouched(self, tmp_path: Path):
+        output = tmp_path / "out.mp4"
+
+        with capture_http() as router:
+            router.get("https://cdn.test/a.mp4").mock(return_value=httpx.Response(404, text="gone"))
+            async with httpx.AsyncClient() as client:
+                with pytest.raises(httpx.HTTPStatusError):
+                    await stream_to_file(client, "https://cdn.test/a.mp4", output)
+
+        assert not output.exists()
+        assert not (tmp_path / f"{output.name}.part").exists()
+
+
+class TestRecordingPoll:
+    """轮询留痕：每收到一次响应即写入，早于状态与错误解读。"""
+
+    @staticmethod
+    def _request(recorded: list[object]) -> VideoGenerationRequest:
+        async def _record(body: object) -> None:
+            recorded.append(body)
+
+        return VideoGenerationRequest(
+            prompt="p",
+            output_path=Path("out.mp4"),
+            task_id="task-R",
+            on_provider_response=_record,
+        )
+
+    async def test_terminal_failure_body_is_recorded_before_it_raises(self):
+        """终态失败由 is_failed 在 poll_with_retry 内抛出，留痕仍须拿到该响应体。"""
+        recorded: list[object] = []
+        body = {"status": "failed", "error": "provider said no"}
+
+        with pytest.raises(RuntimeError, match="provider said no"):
+            await poll_with_retry(
+                poll_fn=recording_poll(AsyncMock(return_value=body), self._request(recorded)),
+                is_done=lambda r: r["status"] == "failed",
+                is_failed=lambda r: r.get("error"),
+                poll_interval=1,
+                max_wait=60,
+                clock=_FakeClock(),
+            )
+
+        assert recorded == [body]
+
+    async def test_http_error_response_body_is_recorded(self):
+        """4xx/5xx 响应从 poll_fn 自己抛出，同样是需要诊断的那次调用。"""
+        recorded: list[object] = []
+        response = httpx.Response(500, json={"detail": "boom"}, request=httpx.Request("GET", "https://x/t"))
+        error = httpx.HTTPStatusError("500", request=response.request, response=response)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await recording_poll(AsyncMock(side_effect=error), self._request(recorded))()
+
+        assert recorded == [{"detail": "boom"}]
+
+    async def test_non_json_http_error_body_is_recorded_as_text(self):
+        recorded: list[object] = []
+        response = httpx.Response(502, text="<html>gateway</html>", request=httpx.Request("GET", "https://x/t"))
+        error = httpx.HTTPStatusError("502", request=response.request, response=response)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await recording_poll(AsyncMock(side_effect=error), self._request(recorded))()
+
+        assert recorded == ["<html>gateway</html>"]
+
+    async def test_diagnostic_write_failure_does_not_fail_the_generation(self):
+        """留痕列写不进去时任务照常推进——供应商已受理的生成不因诊断数据失败。"""
+        request = VideoGenerationRequest(
+            prompt="p",
+            output_path=Path("out.mp4"),
+            task_id="task-R",
+            on_provider_response=AsyncMock(side_effect=OperationalError("stmt", {}, Exception("locked"))),
+        )
+
+        assert await recording_poll(AsyncMock(return_value={"status": "ok"}), request)() == {"status": "ok"}

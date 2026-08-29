@@ -481,6 +481,10 @@ async def lifespan(app: FastAPI):
         finally:
             get_generation_queue().set_worker_cancel_callback(None)
         logger.info("GenerationWorker 已停止")
+    # 测试连接的 run 不可续跑：随事件循环消亡会把账本 pending 行永远留下，关停前按取消路径结算。
+    from lib.custom_provider.endpoint_test import shutdown_trial_runs
+
+    await shutdown_trial_runs()
     await shutdown_http_client()
     await close_db()
 

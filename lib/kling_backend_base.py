@@ -37,6 +37,7 @@ from lib.retry import (
 )
 from lib.video_backends.base import (
     VIDEO_POLL_INTERVAL_SECONDS,
+    VideoGenerationRequest,
     poll_with_retry,
     should_retry_poll,
     should_retry_submit,
@@ -111,9 +112,16 @@ class KlingBackendBase:
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
         retry_if=should_retry_submit,
     )
-    async def _submit_task(self, client: httpx.AsyncClient, endpoint_path: str, payload: dict) -> str:
+    async def _submit_task(
+        self,
+        client: httpx.AsyncClient,
+        endpoint_path: str,
+        payload: dict,
+        request: VideoGenerationRequest | None = None,
+    ) -> str:
         # 非幂等「建任务 + 计费」POST：submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败，
         # 避免重试重复建任务 + 重复计费；>=400 抛 HTTPStatusError 交 should_retry_submit 按状态码分流。
+        # ``request`` 只有视频通道传（图片通道不做供应商响应留痕）。
         resp = await submit_post(
             lambda: client.post(
                 f"{self._base_url}/{endpoint_path}",
@@ -121,6 +129,7 @@ class KlingBackendBase:
                 headers=self._headers(),
             ),
             provider=PROVIDER_KLING,
+            request=request,
         )
         return extract_kling_task_id(resp.json())
 

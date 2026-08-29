@@ -297,18 +297,19 @@ class TestHttpErrors:
 class TestRetryScope:
     async def test_download_failure_does_not_retrigger_generation(self, tmp_path: Path):
         # 下载阶段瞬态失败只在下载层重试，绝不回退到重跑非幂等的生成 POST（防重复建图 + 重复计费）。
-        from lib.retry import DOWNLOAD_MAX_ATTEMPTS
+        from lib.video_backends.base import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 
         download = AsyncMock(side_effect=httpx.ConnectError("conn reset"))
         with bounded_poll_clock(), _generate_route(_img_response(), download) as route:
             from lib.image_backends.agnes import AgnesImageBackend
 
             b = AgnesImageBackend(api_key="sk")
-            with pytest.raises(httpx.ConnectError):
+            # 共用预算耗尽后抛的是带最后一次原错误的 RuntimeError。
+            with pytest.raises(RuntimeError, match="conn reset"):
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
         # 生成 POST 恰好一次（计费一次）；重试全部发生在下载层
         assert route.call_count == 1
-        assert download.call_count == DOWNLOAD_MAX_ATTEMPTS
+        assert download.call_count == VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 
 
 class TestPricing:

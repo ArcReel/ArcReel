@@ -38,8 +38,6 @@ from lib.providers import PROVIDER_AGNES
 from lib.retry import (
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
     with_retry_async,
 )
 from lib.video_backends.base import (
@@ -52,7 +50,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_video,
     poll_with_retry,
-    should_retry_download,
+    recording_poll,
     should_retry_poll,
     should_retry_submit,
     submit_post,
@@ -300,7 +298,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             format_kwargs_for_log(_safe_body_for_log(payload)),
         )
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            task_id = await self._create_task(client, payload)
+            task_id = await self._create_task(client, payload, request)
             logger.info("Agnes 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             await self._persist_provider_job_id(request, task_id, provider=PROVIDER_AGNES)
             return await self._poll_and_build(client, task_id, request, is_resume=False)
@@ -417,7 +415,9 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
         retry_if=should_retry_submit,
     )
-    async def _create_task(self, client: httpx.AsyncClient, payload: dict) -> str:
+    async def _create_task(
+        self, client: httpx.AsyncClient, payload: dict, request: VideoGenerationRequest | None = None
+    ) -> str:
         # 非幂等的「建任务 + 计费」POST：submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败，
         # 避免重试重复建任务 + 重复计费；>=400 抛 HTTPStatusError 交 should_retry_submit 按状态码分流
         # （5xx/408/429 重试——含上游繁忙 503；确定性 4xx 快失败）。submit 用长超时覆盖上游长阻塞。
@@ -429,6 +429,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
                 timeout=_SUBMIT_TIMEOUT_SECONDS,
             ),
             provider=PROVIDER_AGNES,
+            request=request,
         )
         return _extract_task_id(resp.json())
 
@@ -445,21 +446,28 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
         retry_if=should_retry_poll,
     )
-    async def _query_video(self, client: httpx.AsyncClient, video_id: str) -> dict:
+    async def _query_video(self, client: httpx.AsyncClient, video_id: str, request: VideoGenerationRequest) -> dict:
         """按 ``video_id`` 向成片查询端点二次查询（完成态只含 video_id、无直接 URL 字段时）。
 
         该端点挂在网关根而非 ``/v1`` 下，且只认 video_id——拿 task_id 打它会排队异常。
-        幂等 GET，复用轮询同一套重试判定。
+        幂等 GET，复用轮询同一套重试判定与留痕边界：它与轮询打的是同一个供应商任务，
+        成功与失败响应都要留痕，否则这一步失败时诊断字段停在上一次轮询的响应上。
         """
-        resp = await client.get(
-            f"{self._host}{_VIDEO_QUERY_ENDPOINT}",
-            params={"video_id": video_id},
-            headers=agnes_headers(self._api_key),
-        )
-        resp.raise_for_status()
-        return resp.json()
 
-    async def _resolve_video_url(self, client: httpx.AsyncClient, final: dict) -> tuple[str, dict | None]:
+        async def fetch() -> dict:
+            resp = await client.get(
+                f"{self._host}{_VIDEO_QUERY_ENDPOINT}",
+                params={"video_id": video_id},
+                headers=agnes_headers(self._api_key),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        return await recording_poll(fetch, request)()
+
+    async def _resolve_video_url(
+        self, client: httpx.AsyncClient, final: dict, request: VideoGenerationRequest
+    ) -> tuple[str, dict | None]:
         """成片 URL 两级来源：完成态直接字段命中即用；否则用 video_id 二次查询取 URL。
 
         命中二次查询时一并返回该查询响应体（未查询则 None），供调用方从中补解析成片时长——
@@ -474,7 +482,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
         video_id = final.get("video_id")
         if isinstance(video_id, str) and video_id:
-            queried = await self._query_video(client, video_id)
+            queried = await self._query_video(client, video_id, request)
             video_url = _first_url_field(queried)
             if video_url is not None:
                 return video_url, queried
@@ -493,9 +501,12 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         # resume 路径下 404 直接转 ResumeExpiredError：should_retry_poll 把轮询 404 当「短暂未就绪」
         # 重试，对已过期的 resume 任务会一直重到超时、永不落终态，故在此一击转终态异常。非 resume 的
         # 4xx 原样抛出，交 should_retry_poll 按 status_code 分流。
+        # 留痕包在闸门里侧：闸门把 404 换成 ResumeExpiredError，包在外侧就再也看不到那个响应。
+        recorded_poll = recording_poll(lambda: self._poll_once(client, task_id), request)
+
         async def _gated_poll() -> dict:
             try:
-                return await self._poll_once(client, task_id)
+                return await recorded_poll()
             except httpx.HTTPStatusError as exc:
                 if is_resume and exc.response.status_code == 404:
                     raise ResumeExpiredError(job_id=task_id, provider=PROVIDER_AGNES) from exc
@@ -516,7 +527,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             ),
         )
 
-        video_url, queried = await self._resolve_video_url(client, final)
+        video_url, queried = await self._resolve_video_url(client, final, request)
 
         await self._download_with_retry(video_url, request.output_path)
         logger.info("Agnes 视频下载完成: %s", request.output_path)
@@ -535,11 +546,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         )
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_download,
-    )
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
-        """下载成片 URL（幂等 GET），独立的下载重试范围，不回退到重跑生成 POST。"""
-        await download_video(video_url, output_path)
+        """下载成片 URL（幂等 GET），走共用的产物下载预算，不回退到重跑生成 POST。"""
+        await download_video(video_url, output_path, label="Agnes")

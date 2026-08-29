@@ -15,7 +15,7 @@ from lib.config.url_utils import normalize_base_url
 from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GEMINI
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.retry import with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
@@ -26,6 +26,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     poll_with_retry,
+    with_artifact_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -360,10 +361,16 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         else:
             return image
 
-    @with_retry_async(max_attempts=DOWNLOAD_MAX_ATTEMPTS, backoff_seconds=DOWNLOAD_BACKOFF_SECONDS)
     async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
-        """下载视频（含瞬态错误重试）。"""
-        await asyncio.to_thread(self._download_video, video_ref, output_path)
+        """下载视频，重试走共用的产物下载预算。
+
+        SDK 取件抛的不是 ``HTTPStatusError``，故退到按 ``retryable_errors`` 判定。
+        """
+        await with_artifact_retry(
+            lambda: asyncio.to_thread(self._download_video, video_ref, output_path),
+            label="Gemini",
+            retry_if=None,
+        )
 
     def _download_video(self, video_ref, output_path: Path) -> None:
         """下载视频到本地文件 — 提取自 GeminiClient。"""

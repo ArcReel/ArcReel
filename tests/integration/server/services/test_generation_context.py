@@ -16,7 +16,7 @@ from typing import cast
 import pytest
 
 from lib.audio_backends.base import VoiceOption
-from lib.backend_assembly.specs import get_provider_spec
+from lib.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, ProviderModel, VoiceConsistency, get_provider_fallback
 from lib.custom_provider import make_provider_id
@@ -24,7 +24,6 @@ from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
 from lib.video_backends.base import VideoCapabilities
-from lib.video_backends.registry import video_capabilities_for_model
 from server.services import generation_context
 from server.services.generation_context import (
     AudioLaneRequest,
@@ -46,8 +45,7 @@ def _registry_video_model(provider_id: str) -> str:
 
 def _backend_video_caps(provider_id: str, model_id: str) -> VideoCapabilities:
     """视频能力位与参考图上限的唯一声明处是 backend，registry ModelInfo 不带这些字段。"""
-    spec = get_provider_spec(provider_id, "video")
-    return video_capabilities_for_model(spec.registry_backend, model_id)
+    return builtin_video_capabilities_for_model(provider_id, model_id)
 
 
 @dataclass

@@ -1,0 +1,62 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "V2 Video Generations",
+    "author": "ArcReel",
+    "version": "1.0.0"
+  },
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {
+    "first_frame": {"source": "start_image", "encoding": "data_uri"},
+    "last_frame": {"source": "end_image", "encoding": "data_uri"},
+    "refs": {"source": "reference_images", "encoding": "data_uri"}
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/v2/video/generations",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "duration": "{{ duration }}",
+      "aspect_ratio": "{{ aspect_ratio }}",
+      "resolution": "{{ resolution }}",
+      "seed": "{{ seed }}",
+      "image_url": "{{ inputs.first_frame }}",
+      "last_image_url": "{{ inputs.last_frame }}",
+      "image_urls": [{"$each": {"in": "inputs.refs", "as": "ref", "item": "{{ ref }}"}}]
+    },
+    "extract": {
+      "task_id": {
+        "paths": ["$.generation_id", "$.id", "$.task_id", "$.data.task_id", "$.request_id", "$.data.taskId"],
+        "accept": "scalar"
+      },
+      "error": ["$.error.message", "$.error.name", "$.error", "$.message"]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/v2/video/generations?generation_id={{ task_id }}",
+    "extract": {
+      "status": ["$.status", "$.state", "$.data.status", "$.data.state", "$.output.status"],
+      "video_url": [
+        "$.video.url",
+        "$.assets.video",
+        "$.output.video_url",
+        "$.content.video_url",
+        "$.data.task_result.videos[0].url",
+        "$.url"
+      ],
+      "error": [
+        "$.error.message",
+        "$.error.name",
+        "$.error",
+        "$.data.error.message",
+        "$.data.error.name",
+        "$.data.error"
+      ]
+    }
+  },
+  "status_map": {"expired": "failed"},
+  "capabilities": {"first_frame": true, "last_frame": true, "max_reference_images": 4}
+}

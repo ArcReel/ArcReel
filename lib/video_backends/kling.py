@@ -32,11 +32,6 @@ from lib.kling_shared import (
     image_to_base64,
 )
 from lib.providers import PROVIDER_KLING
-from lib.retry import (
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
-    with_retry_async,
-)
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     VideoAudioMode,
@@ -46,7 +41,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     VideoRoute,
     download_video,
-    should_retry_download,
+    recording_poll,
 )
 
 logger = logging.getLogger(__name__)
@@ -437,7 +432,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         generate_audio = self._effective_audio(request, subpath=subpath)
         logger.info("调用 Kling 视频 API payload=%s", self._safe_log_view(subpath, payload))
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            task_id = await self._submit_task(client, f"videos/{subpath}", payload)
+            task_id = await self._submit_task(client, f"videos/{subpath}", payload, request)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
             # 与 submit 时的有声决策（见 _encode_job_id）。
@@ -475,7 +470,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         generate_audio: bool,
     ) -> VideoGenerationResult:
         final = await self._poll_until_terminal(
-            lambda: self._poll_query(client, f"videos/{subpath}/{task_id}"),
+            recording_poll(lambda: self._poll_query(client, f"videos/{subpath}/{task_id}"), request),
             max_wait=request.poll_timeout_seconds,
         )
 
@@ -495,10 +490,5 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         )
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_download,
-    )
     async def _download_with_retry(download_url: str, output_path: Path) -> None:
-        await download_video(download_url, output_path)
+        await download_video(download_url, output_path, label="Kling")

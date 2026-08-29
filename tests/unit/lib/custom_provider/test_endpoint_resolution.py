@@ -77,12 +77,13 @@ class TestSpecFromRow:
 
 class TestResolveEndpointSpec:
     async def test_builtin_key_delegates_to_registry(self, db_session: AsyncSession):
-        assert await resolve_endpoint_spec(db_session, "openai-video") is get_endpoint_spec("openai-video")
+        repo = CustomEndpointRepository(db_session)
+        assert await resolve_endpoint_spec("openai-video", repo.get) is get_endpoint_spec("openai-video")
 
     async def test_custom_key_reads_definition_from_db(self, db_session: AsyncSession):
         endpoint_id = await _store(db_session, custom_endpoint_definition())
 
-        spec = await resolve_endpoint_spec(db_session, make_endpoint_key(endpoint_id))
+        spec = await resolve_endpoint_spec(make_endpoint_key(endpoint_id), CustomEndpointRepository(db_session).get)
 
         assert spec.key == f"ce-{endpoint_id}"
         assert spec.display_name == "示例端点"
@@ -102,13 +103,13 @@ class TestResolveEndpointSpec:
         )
         await db_session.commit()
 
-        spec = await resolve_endpoint_spec(db_session, make_endpoint_key(endpoint_id))
+        spec = await resolve_endpoint_spec(make_endpoint_key(endpoint_id), repo.get)
 
         assert spec.display_name == "改名后"
 
     async def test_deleted_custom_endpoint_is_unknown(self, db_session: AsyncSession):
         with pytest.raises(ValueError, match="unknown endpoint"):
-            await resolve_endpoint_spec(db_session, "ce-404")
+            await resolve_endpoint_spec("ce-404", CustomEndpointRepository(db_session).get)
 
     @pytest.mark.parametrize(
         "endpoint",
@@ -127,8 +128,8 @@ class TestResolveEndpointSpec:
     )
     async def test_malformed_custom_key_is_unknown(self, db_session: AsyncSession, endpoint: str):
         with pytest.raises(ValueError, match="unknown endpoint"):
-            await resolve_endpoint_spec(db_session, endpoint)
+            await resolve_endpoint_spec(endpoint, CustomEndpointRepository(db_session).get)
 
     async def test_unknown_builtin_key_is_unknown(self, db_session: AsyncSession):
         with pytest.raises(ValueError, match="unknown endpoint"):
-            await resolve_endpoint_spec(db_session, "no-such-endpoint")
+            await resolve_endpoint_spec("no-such-endpoint", CustomEndpointRepository(db_session).get)

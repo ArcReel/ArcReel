@@ -26,6 +26,7 @@ from lib.video_backends.base import ProviderJobStatus, ReferenceAudioMode, audio
 
 from .errors import ROOT_PATH, DefinitionDiagnostics, DefinitionErrorCode, DefinitionIssue, join_path
 from .jsonpath_subset import JsonPathSubsetError, parse_json_path
+from .template_engine import enum_map_key
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
 
@@ -50,6 +51,20 @@ BASE_VARIABLES = frozenset(
 
 #: 只能做枚举映射的变量：供应商侧改名的都是这几个档位参数，prompt 之类改名没有意义。
 ENUM_MAP_VARIABLES = frozenset({"duration", "aspect_ratio", "resolution", "generate_audio"})
+
+#: 可声明缺省值的变量与各自的宿主类型：调用方可以不填的那几个档位参数。base_url / model /
+#: prompt 每次调用都带，width / height 由比例与分辨率派生，给它们声明缺省值只会掩盖真正的
+#: 缺参。类型即 ArcReel 侧参数类型——缺省值渲染前原样进上下文，错型的 aspect_ratio /
+#: resolution 会让宽高派生拿不到档位（引用 {{ width }} 的定义每次未指定参数都渲染失败），
+#: 错型的 duration / generate_audio 则把整值占位符保留原生类型的语义带歪。
+DEFAULT_VALUE_TYPES: dict[str, type] = {
+    "duration": int,
+    "aspect_ratio": str,
+    "resolution": str,
+    "generate_audio": bool,
+    "seed": int,
+}
+DEFAULTABLE_VARIABLES = frozenset(DEFAULT_VALUE_TYPES)
 
 #: 列表型素材来源：只能经 ``$each`` 展开，直接内插会把整个列表串化进请求。
 LIST_INPUT_SOURCES = frozenset({"reference_images", "reference_audio_files"})
@@ -289,6 +304,7 @@ class _SemanticChecker:
             if section in self._document:
                 self._check_request(section)
         self._check_enum_maps()
+        self._check_defaults()
         self._check_status_map()
         self._check_inputs_referenced()
         self._check_capabilities()
@@ -487,6 +503,39 @@ class _SemanticChecker:
                 variable=name,
                 allowed=" / ".join(sorted(ENUM_MAP_VARIABLES)),
             )
+
+    def _check_defaults(self) -> None:
+        enum_maps: Mapping[str, Mapping[str, Any]] = self._document.get("enum_maps") or {}
+        for name, value in (self._document.get("defaults") or {}).items():
+            if name not in DEFAULTABLE_VARIABLES:
+                self._error(
+                    join_path("defaults", name),
+                    DefinitionErrorCode.DEFAULT_VARIABLE_NOT_ALLOWED,
+                    variable=name,
+                    allowed=" / ".join(sorted(DEFAULTABLE_VARIABLES)),
+                )
+                continue
+            expected = DEFAULT_VALUE_TYPES[name]
+            # bool 是 int 的子类：True 会冒充合法的 duration / seed，反向单判。
+            if not isinstance(value, expected) or (isinstance(value, bool) and expected is not bool):
+                self._error(
+                    join_path("defaults", name),
+                    DefinitionErrorCode.DEFAULT_VALUE_TYPE_INVALID,
+                    variable=name,
+                    expected=expected.__name__,
+                )
+                continue
+            # 缺省值写的是 ArcReel 侧的值，渲染时照常过 enum_maps：查不到表就等于每次未指定参数
+            # 的请求都在渲染期失败，这种定义不该存得下来。
+            mapping = enum_maps.get(name)
+            if mapping is not None and enum_map_key(value) not in mapping:
+                self._error(
+                    join_path("defaults", name),
+                    DefinitionErrorCode.DEFAULT_VALUE_NOT_IN_ENUM_MAP,
+                    variable=name,
+                    value=str(value),
+                    allowed=" / ".join(sorted(mapping)),
+                )
 
     def _check_status_map(self) -> None:
         for raw, target in (self._document.get("status_map") or {}).items():

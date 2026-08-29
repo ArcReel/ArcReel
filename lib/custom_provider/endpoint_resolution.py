@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -23,8 +23,6 @@ from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
 from lib.custom_provider.endpoints import EndpointSpec, declarative_endpoint_spec, get_endpoint_spec
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
-
     from lib.db.models.custom_endpoint import CustomEndpoint
 
 
@@ -58,7 +56,10 @@ def endpoint_spec_from_row(row: CustomEndpoint) -> EndpointSpec:
     return declarative_endpoint_spec(make_endpoint_key(row.id), row.definition, source="custom")
 
 
-async def resolve_endpoint_spec(session: AsyncSession, endpoint: str) -> EndpointSpec:
+async def resolve_endpoint_spec(
+    endpoint: str,
+    get_custom_endpoint: Callable[[int], Awaitable[CustomEndpoint | None]],
+) -> EndpointSpec:
     """按端点键取 spec：``ce-`` 前缀读 ``custom_endpoint`` 表，其余委托内置查表。
 
     Raises:
@@ -67,13 +68,11 @@ async def resolve_endpoint_spec(session: AsyncSession, endpoint: str) -> Endpoin
     if not is_custom_endpoint(endpoint):
         return get_endpoint_spec(endpoint)
 
-    from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-
     try:
         endpoint_id = parse_endpoint_key(endpoint)
     except ValueError:
         raise ValueError(f"unknown endpoint: {endpoint!r}") from None
-    row = await CustomEndpointRepository(session).get(endpoint_id)
+    row = await get_custom_endpoint(endpoint_id)
     if row is None:
         raise ValueError(f"unknown endpoint: {endpoint!r}")
     return endpoint_spec_from_row(row)

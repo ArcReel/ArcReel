@@ -214,6 +214,9 @@ MESSAGES = {
     "val_ce_when_unknown_input": "$when 指向的 {name} 不是已声明的素材",
     "val_ce_input_not_referenced": "声明了素材却没有在 submit 里引用：既不会发给供应商，也不能据此声明能力",
     "val_ce_enum_map_variable_not_allowed": "{variable} 不支持枚举映射，可映射的变量：{allowed}",
+    "val_ce_default_variable_not_allowed": "{variable} 不支持缺省值，可声明缺省值的变量：{allowed}",
+    "val_ce_default_value_type_invalid": "{variable} 的缺省值须是 {expected} 类型",
+    "val_ce_default_value_not_in_enum_map": "{variable} 的缺省值 {value} 不在 enum_maps 表内，可用的值：{allowed}",
     "val_ce_status_map_target_invalid": "状态档位 {target} 不在 {allowed} 之内，过期语义请映射到 failed",
     "val_ce_capability_declared_without_input": "声明了 {capability}，但 submit 没有引用任何 {source} 素材，能力会撒谎",
     "val_ce_capability_input_without_declaration": (
@@ -231,6 +234,7 @@ MESSAGES = {
     "val_ce_jsonpath_filter_non_singular": "过滤器内只允许单值查询（第 {position} 个字符）：{path_expression}",
     "val_ce_jsonpath_regex_operator": "取值路径禁用正则匹配运算符（第 {position} 个字符）：{path_expression}",
     "val_ce_jsonpath_syntax": "取值路径语法错误（第 {position} 个字符）：{path_expression}",
+    "val_ce_template_render_failed": "请求模板渲染失败：{detail}",
     "val_ce_poll_without_task_id": "轮询请求没有引用 task_id，请确认这是有意的",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} 含通配：对象通配只取首个，键序在前端预览与后端执行之间可能不同"

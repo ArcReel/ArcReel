@@ -541,7 +541,7 @@ docker compose logs --tail=300 arcreel
 - 检查 Base URL 和模型名称；
 - 检查网络和代理；
 - 查看供应商是否限流；
-- 使用少量内容验证，不要用完整小说做连接测试。
+- 使用少量内容验证，不要一上来就用完整小说跑通全流程。
 
 ### 任务一直排队 {#tasks-stuck-in-queue}
 

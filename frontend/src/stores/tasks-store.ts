@@ -67,7 +67,7 @@ interface TasksState {
   optimisticActiveScriptFile: Set<string>;
 
   // Actions
-  setTasks: (tasks: TaskItem[]) => void;
+  setTasks: (tasks: TaskItem[] | ((prev: TaskItem[]) => TaskItem[])) => void;
   setStats: (stats: TaskStats) => void;
   setConnected: (connected: boolean) => void;
   setRefreshScope: (scope: TasksRefreshScope | null) => void;
@@ -345,11 +345,16 @@ export const useTasksStore = create<TasksState>((set, get) => {
     },
 
     setTasks: (tasks) =>
-      set((s) => ({
-        tasks,
-        optimisticActive: pruneSupersededOptimistic(tasks, s.optimisticActive),
-        optimisticActiveScriptFile: pruneSupersededOptimistic(tasks, s.optimisticActiveScriptFile),
-      })),
+      set((s) => {
+        // 传函数时按写入那一刻的快照求值：先读 getState() 再传数组，会把这两步之间到达的
+        // SSE 更新整份覆盖掉。
+        const next = typeof tasks === "function" ? tasks(s.tasks) : tasks;
+        return {
+          tasks: next,
+          optimisticActive: pruneSupersededOptimistic(next, s.optimisticActive),
+          optimisticActiveScriptFile: pruneSupersededOptimistic(next, s.optimisticActiveScriptFile),
+        };
+      }),
     setStats: (stats) => set({ stats }),
     setConnected: (connected) => set({ connected }),
     beginOptimisticActive: (projectName, resourceKind, resourceId, pendingTaskType) => {

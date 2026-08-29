@@ -6,6 +6,7 @@ import pytest
 
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
+    declarative_requires_base_url,
     endpoint_spec_to_dict,
     endpoint_to_media_type,
     get_endpoint_spec,
@@ -32,7 +33,10 @@ class TestRegistry:
             "dashscope-image",
             "dashscope-async-video",
             "minimax-image",
-            "minimax-video",
+            "minimax-hailuo-v1",
+            "minimax-hailuo-v1-fast",
+            "minimax-s2v-01",
+            "minimax-h3",
             "kling-image",
             "kling-video",
             "openai-tts",
@@ -85,13 +89,16 @@ class TestRegistry:
             "ark-seedance",
             "vidu-video",
             "dashscope-async-video",
-            "minimax-video",
+            "minimax-hailuo-v1",
+            "minimax-hailuo-v1-fast",
+            "minimax-s2v-01",
+            "minimax-h3",
             "kling-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
         assert ENDPOINT_REGISTRY["openai-video"].video_max_reference_images == 1
-        assert ENDPOINT_REGISTRY["newapi-video"].video_max_reference_images == 0
+        assert ENDPOINT_REGISTRY["newapi-video"].video_max_reference_images is None
 
     def test_video_caps_declaration_bindings(self):
         """每个 video endpoint 选对了上限来源：None-cap 的绑 caps_fn、显式 int 的不绑。
@@ -105,12 +112,15 @@ class TestRegistry:
             "ark-seedance",
             "vidu-video",
             "dashscope-async-video",
-            "minimax-video",
+            "minimax-hailuo-v1",
+            "minimax-hailuo-v1-fast",
+            "minimax-s2v-01",
+            "minimax-h3",
             "kling-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
-        for key in ("openai-video", "newapi-video"):
+        for key in ("openai-video",):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
 
     def test_dashscope_caps_fn_reads_per_model_limit_without_client(self):
@@ -121,17 +131,15 @@ class TestRegistry:
         assert caps_fn("happyhorse-1.0-r2v").max_reference_images == 9
         assert caps_fn("wan2.7-r2v").max_reference_images == 5
 
-    def test_minimax_caps_fn_reads_per_model_limit_without_client(self):
-        """minimax-video 的 caps_fn 是纯函数：S2V-01 单脸参考 max_ref=1，海螺系列走首帧无参考
-        （max_ref=0），resolver 据此解析而无需构造 backend / api_key。"""
-        caps_fn = ENDPOINT_REGISTRY["minimax-video"].video_caps_for_model
-        assert caps_fn is not None
-        s2v = caps_fn("S2V-01")
-        assert s2v.max_reference_images > 0
-        assert s2v.max_reference_images == 1
-        hailuo = caps_fn("MiniMax-Hailuo-2.3")
-        assert hailuo.first_frame is True
-        assert hailuo.max_reference_images == 0
+    def test_minimax_declarative_endpoints_expose_definition_capabilities(self):
+        s2v = ENDPOINT_REGISTRY["minimax-s2v-01"].video_caps_for_model
+        hailuo = ENDPOINT_REGISTRY["minimax-hailuo-v1"].video_caps_for_model
+        fast = ENDPOINT_REGISTRY["minimax-hailuo-v1-fast"].video_caps_for_model
+        assert s2v is not None and s2v("S2V-01").max_reference_images == 1
+        assert hailuo is not None and hailuo("MiniMax-Hailuo-2.3").first_frame is True
+        # Fast 与 2.3 只差这一位：首帧必需 ⇒ text_to_video 推导为 False。
+        assert hailuo("MiniMax-Hailuo-2.3").text_to_video is True
+        assert fast is not None and fast("MiniMax-Hailuo-2.3-Fast").text_to_video is False
 
     def test_kling_caps_fn_reads_per_model_limit_without_client(self):
         """kling-video 的 caps_fn 是纯函数：v3-omni / video-o1 多图主体 R2V max_ref=4，turbo 等其余档
@@ -195,7 +203,7 @@ class TestRegistry:
     def test_audio_capable_endpoints_match_backends_that_send_audio(self):
         """运输声明与 backend 实现同步：声明 True 的 endpoint 必须真的组装参考音频。"""
         audio_capable = {k for k, s in ENDPOINT_REGISTRY.items() if s.reference_audio_capable}
-        assert audio_capable == {"ark-seedance", "dashscope-async-video"}
+        assert audio_capable == {"ark-seedance", "dashscope-async-video", "minimax-h3"}
 
     def test_audio_endpoint_spec(self):
         spec = ENDPOINT_REGISTRY["openai-tts"]
@@ -230,7 +238,10 @@ class TestRegistry:
             "ark-seedance",
             "vidu-video",
             "dashscope-async-video",
-            "minimax-video",
+            "minimax-hailuo-v1",
+            "minimax-hailuo-v1-fast",
+            "minimax-s2v-01",
+            "minimax-h3",
             "kling-video",
         }
 
@@ -255,6 +266,24 @@ class TestHelpers:
     def test_list_endpoints_by_media_type(self):
         text = list_endpoints_by_media_type("text")
         assert {s.key for s in text} == {"openai-chat", "gemini-generate"}
+
+    @pytest.mark.parametrize(
+        ("definition", "required"),
+        [
+            ({"submit": {"url": "{{ base_url }}/v1/video"}}, True),
+            # 提交写死绝对地址、轮询才引用 base_url：只查提交会放行到付费提交之后才失败。
+            (
+                {"submit": {"url": "https://fixed.test/v1/video"}, "poll": {"url": "{{ base_url }}/v1/task"}},
+                True,
+            ),
+            ({"submit": {"url": "https://fixed.test/v1/video"}, "result": {"url": "{{ base_url }}/v1/file"}}, True),
+            ({"submit": {"url": "https://fixed.test/v1/video"}, "poll": {"url": "https://fixed.test/v1/task"}}, False),
+            # 写死的地址里恰好含 base_url 字样，不是占位符。
+            ({"submit": {"url": "https://fixed.test/base_url/video"}}, False),
+        ],
+    )
+    def test_declarative_requires_base_url_scans_every_request_section(self, definition, required):
+        assert declarative_requires_base_url(definition) is required
 
 
 class TestInferEndpoint:
@@ -349,23 +378,40 @@ class TestInferEndpoint:
             ("veo-3", "openai", "openai-video"),
             ("veo-3", "google", "openai-video"),  # 非 seedance/viduq3/minimax 视频 → openai-video
             # ── MiniMax 原生 token 二级路由 ──
-            ("MiniMax-Hailuo-2.3", "openai", "minimax-video"),
-            ("MiniMax-Hailuo-2.3-Fast", "openai", "minimax-video"),
-            ("minimax-hailuo-2.3", "openai", "minimax-video"),
+            ("MiniMax-Hailuo-2.3", "openai", "minimax-hailuo-v1"),
+            ("MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
+            ("minimax-hailuo-2.3-fast", "openai", "minimax-hailuo-v1-fast"),
+            ("minimax-hailuo-2.3", "openai", "minimax-hailuo-v1"),
             (
                 "hailuo-02",
                 "openai",
-                "minimax-video",
-            ),  # 海螺 token → minimax-video（前 minimax endpoint 时代默认 openai-video）
-            ("S2V-01", "openai", "minimax-video"),  # s2v 不在通用视频 pattern，须显式路由
-            ("minimax-s2v-01", "openai", "minimax-video"),
-            ("MiniMax-H3", "openai", "minimax-video"),  # H3 同样不在通用视频 pattern，须显式路由
-            ("minimax-h3", "openai", "minimax-video"),
+                "minimax-hailuo-v1",
+            ),
+            # Fast × 非 Fast 前缀碰撞：Fast 只认精确型号名（剥离命名空间前缀后比较）。
+            # 非精确的 Fast 形态别名上游是不是 Fast 无从确知，落通用海螺键（无输入要求），
+            # 不落首帧必需的 Fast 定义——与迁移 8c2b1e7d4a90 同一口径。
+            ("proxy/MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
+            ("proxy/MiniMax-Hailuo-2.3", "openai", "minimax-hailuo-v1"),
+            ("vendor:MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
+            # 多层命名空间同样剥到末段：承担判定的是末段逐字等于官方型号 id
+            ("openrouter/minimax/MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
+            ("proxy/vendor:S2V-01", "openai", "minimax-s2v-01"),
+            ("MiniMax-Hailuo-2.3-Fast-preview", "openai", "minimax-hailuo-v1"),
+            ("hailuo-fast", "openai", "minimax-hailuo-v1"),
+            ("S2V-01", "openai", "minimax-s2v-01"),
+            ("minimax-s2v-01", "openai", "minimax-s2v-01"),
+            ("proxy/S2V-01", "openai", "minimax-s2v-01"),
+            # 非精确的 s2v 形态不再被误吞成参考图必需的 MiniMax S2V 协议
+            ("wan2.7-s2v", "openai", "openai-video"),
+            ("wan-2.2-s2v", "openai", "openai-video"),
+            ("vendor-s2v-custom", "openai", "openai-chat"),
+            ("MiniMax-H3", "openai", "minimax-h3"),
+            ("minimax-h3", "openai", "minimax-h3"),
             ("h3", "openai", "openai-chat"),  # 裸 "h3" 不应匹配——防止退化成过于宽松的子串
             ("other-vendor-h3", "openai", "openai-chat"),  # 其它厂商恰好含 h3 子串同样不应误路由
             ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
             ("minimax/image-01", "openai", "minimax-image"),
-            ("S2V-01", "google", "minimax-video"),  # minimax 路由不分 discovery_format
+            ("S2V-01", "google", "minimax-s2v-01"),  # minimax 路由不分 discovery_format
             # ── Kling 原生中转二级路由（视频 family 含 kling，须收敛到 kling-video 而非 openai-video）──
             ("kling-v2-5-turbo", "openai", "kling-video"),
             ("kling-v2", "openai", "kling-video"),  # 前 kling endpoint 时代默认 openai-video

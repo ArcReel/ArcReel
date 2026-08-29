@@ -120,6 +120,7 @@ export default {
   'action_confirm_request_duration': 'confirm the requested length',
   'action_configure_provider': 'set the video or audio model in Settings',
   'action_repair_artifact_state': "repair this unit's file state",
+  'action_retry_artifact_download': 'download the finished file again, without regenerating it',
   'action_repair_project_data': 'ask the agent to repair the damaged project file',
   'action_collect_project_input': 'add the story source and project setup',
   'action_analyze_assets': 'analyse the source for characters, scenes and props',

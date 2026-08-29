@@ -53,11 +53,6 @@ from lib.video_backends.openai import OpenAIVideoBackend
 
 register_backend(PROVIDER_OPENAI, OpenAIVideoBackend)
 
-# NewAPI 统一视频端点
-from lib.video_backends.newapi import NewAPIVideoBackend
-
-register_backend(PROVIDER_NEWAPI, NewAPIVideoBackend)
-
 # fork: Vidu — 单独 import 以避免与上游聚合 import 冲突
 from lib.providers import PROVIDER_VIDU  # noqa: E402
 from lib.video_backends.vidu import ViduVideoBackend  # noqa: E402
@@ -69,12 +64,6 @@ from lib.providers import PROVIDER_DASHSCOPE  # noqa: E402
 from lib.video_backends.dashscope import DashScopeVideoBackend  # noqa: E402
 
 register_backend(PROVIDER_DASHSCOPE, DashScopeVideoBackend)
-
-# MiniMax 海螺 — Hailuo 2.3 / 2.3-Fast 视频
-from lib.providers import PROVIDER_MINIMAX  # noqa: E402
-from lib.video_backends.minimax import MiniMaxVideoBackend  # noqa: E402
-
-register_backend(PROVIDER_MINIMAX, MiniMaxVideoBackend)
 
 # 可灵 Kling — JWT 直连视频（默认模型 kling-v2-5-turbo）
 from lib.providers import PROVIDER_KLING  # noqa: E402

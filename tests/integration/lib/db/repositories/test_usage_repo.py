@@ -1,10 +1,12 @@
 """Tests for UsageRepository."""
 
+import json
+
 import pytest
 from sqlalchemy import update
 
 from lib.db.models.api_call import ApiCall
-from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.db.repositories.usage_repo import MAX_PROVIDER_RESPONSE_BYTES, SettlementInput, UsageRepository
 
 
 class TestUsageRepository:
@@ -72,6 +74,47 @@ class TestUsageRepository:
 
         page2 = await repo.get_calls(page=2, page_size=2)
         assert len(page2["items"]) == 2
+
+    async def test_last_provider_response_is_bounded(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+
+        await repo.update_last_provider_response(call_id, {"payload": "x" * (MAX_PROVIDER_RESPONSE_BYTES + 1)})
+
+        stored = (await repo.get_calls(project_name="demo"))["items"][0]["last_provider_response"]
+        assert stored["truncated"] is True
+        assert len(json.dumps(stored, ensure_ascii=False).encode()) < MAX_PROVIDER_RESPONSE_BYTES
+
+    async def test_non_ascii_response_is_bounded_by_what_gets_persisted(self, db_session):
+        """量的必须是 JSON 列真正写出去的那份文本。
+
+        JSON 列按 ensure_ascii=True 序列化，非 ASCII escape 成 \\uXXXX；按 ensure_ascii=False
+        量体积，一段表情符号能量出 60 KiB 却写出 180 KiB，上限就形同虚设。
+        """
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+
+        # 每个表情符号 4 字节 UTF-8，escape 成两个 \uXXXX 转义序列后是 12 字节。
+        await repo.update_last_provider_response(call_id, {"payload": "🎬" * 15000})
+
+        stored = (await repo.get_calls(project_name="demo"))["items"][0]["last_provider_response"]
+        assert stored["truncated"] is True
+        assert len(json.dumps(stored).encode()) <= MAX_PROVIDER_RESPONSE_BYTES
+
+    async def test_response_just_under_the_cap_is_stored_verbatim(self, db_session):
+        """判据按 JSON 列的缺省序列化算——它带空白分隔符，比紧凑写法更占地方。"""
+        from lib.db.repositories.usage_repo import bound_provider_response
+
+        body = {"payload": "x" * (MAX_PROVIDER_RESPONSE_BYTES - 1024)}
+        assert len(json.dumps(body).encode()) <= MAX_PROVIDER_RESPONSE_BYTES
+
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        await repo.update_last_provider_response(call_id, body)
+
+        assert bound_provider_response(body) == body
+        stored = (await repo.get_calls(project_name="demo"))["items"][0]["last_provider_response"]
+        assert stored == body
 
 
 class TestClassifyAssetOutputPath:

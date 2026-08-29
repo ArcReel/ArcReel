@@ -121,6 +121,8 @@ class GenerationAction(StrEnum):
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
+    RETRY_ARTIFACT_DOWNLOAD = "retry_artifact_download"
+    """产物已在供应商侧生成、只是没取回来：接续原任务取件，不重新提交、不再计费。"""
     RETRY_PROJECT_MIGRATION = RETRY_MIGRATION_ACTION
     """Fix the reported inputs, then rerun the project's migration chain."""
     NONE = "none"
@@ -158,6 +160,10 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "image_endpoint_mismatch_no_i2i": GenerationAction.CONFIGURE_PROVIDER,
     "image_endpoint_mismatch_no_t2i": GenerationAction.CONFIGURE_PROVIDER,
     "provider_unsupported_media": GenerationAction.CONFIGURE_PROVIDER,
+    "declarative_template_render_failed": GenerationAction.CONFIGURE_PROVIDER,
+    "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
+    # 供应商已出片、只是没取回来：重发同一请求会再建一个付费任务，正确的一步是接续取件。
+    "artifact_download_failed": GenerationAction.RETRY_ARTIFACT_DOWNLOAD,
     "execution_identity_unrecoverable": GenerationAction.RETRY,
     "video_shorter_than_tts": GenerationAction.RETRY,
     "script_edit_error": GenerationAction.FIX_INPUT,
@@ -913,6 +919,7 @@ _ACTION_LABELS: dict[GenerationAction, str] = {
     GenerationAction.CONFIRM_REQUEST_DURATION: "需确认时长档位",
     GenerationAction.CONFIGURE_PROVIDER: "需配置供应商",
     GenerationAction.REPAIR_ARTIFACT_STATE: "需修复产物状态",
+    GenerationAction.RETRY_ARTIFACT_DOWNLOAD: "需重试下载，不必重新生成",
     GenerationAction.RETRY_PROJECT_MIGRATION: "需重试项目迁移",
     GenerationAction.NONE: "",
 }

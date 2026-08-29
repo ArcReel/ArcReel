@@ -35,6 +35,7 @@ from lib.custom_provider.builtin_definitions import (
     declarative_video_capabilities,
     load_builtin_definitions,
 )
+from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
@@ -47,10 +48,7 @@ from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
 from lib.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.video_backends.kling import KlingVideoBackend
-from lib.video_backends.minimax import MiniMaxVideoBackend
-from lib.video_backends.newapi import NewAPIVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
-from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
 from lib.video_backends.vidu import ViduVideoBackend
 
 if TYPE_CHECKING:
@@ -185,14 +183,6 @@ def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_newapi_video(provider, model_id: str) -> CustomVideoBackend:
-    base_url = ensure_openai_base_url(provider.base_url)
-    if not base_url:
-        raise ValueError("NewAPI 视频后端需要 base_url")
-    delegate = NewAPIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
-    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
-
-
 def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     """补全协议已知挂载路径（ark /api/v3、vidu /ent/v2、kling /v1）；
     已带对应协议路径则原样信任，避免重复叠加。供 ark/vidu/kling 闭包复用。
@@ -207,14 +197,6 @@ def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     if urlsplit(normalized).path.rstrip("/").endswith(suffix):
         return normalized
     return normalized + suffix
-
-
-def _build_v2_video_generations(provider, model_id: str) -> CustomVideoBackend:
-    if not provider.base_url:
-        raise ValueError("v2-video-generations 端点需要 base_url")
-    # base_url 归一化（去版本段 + 拼 /v2/video/generations）由 V2VideoGenerationsBackend 内部处理
-    delegate = V2VideoGenerationsBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
-    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_ark_seedance(provider, model_id: str) -> CustomVideoBackend:
@@ -244,12 +226,6 @@ def _build_minimax_image(provider, model_id: str) -> CustomImageBackend:
     # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
     delegate = MiniMaxImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
-
-
-def _build_minimax_video(provider, model_id: str) -> CustomVideoBackend:
-    # 两步取 URL（submit→轮询 file_id→retrieve download_url）由 MiniMaxVideoBackend 内部处理
-    delegate = MiniMaxVideoBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
-    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_kling_image(provider, model_id: str) -> CustomImageBackend:
@@ -341,28 +317,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # OpenAI Sora input_reference 为单张首帧图。
         video_max_reference_images=1,
     ),
-    "newapi-video": EndpointSpec(
-        key="newapi-video",
-        media_type="video",
-        family="newapi",
-        display_name_key="endpoint_newapi_video_display",
-        request_method="POST",
-        request_path_template="/v1/video/generations",
-        build_backend=_build_newapi_video,
-        video_max_reference_images=0,
-    ),
-    "v2-video-generations": EndpointSpec(
-        key="v2-video-generations",
-        media_type="video",
-        family="v2",
-        display_name_key="endpoint_v2_video_generations_display",
-        request_method="POST",
-        request_path_template="/v2/video/generations",
-        build_backend=_build_v2_video_generations,
-        # 多 model 共享端点、容量不同 → endpoint 维度不声明，按 model 读 backend caps（不构造 client）
-        video_caps_for_model=V2VideoGenerationsBackend.video_capabilities_for_model,
-        end_image_capable=True,
-    ),
     "ark-seedance": EndpointSpec(
         key="ark-seedance",
         media_type="video",
@@ -430,18 +384,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_minimax_image,
     ),
-    "minimax-video": EndpointSpec(
-        key="minimax-video",
-        media_type="video",
-        family="minimax",
-        display_name_key="endpoint_minimax_video_display",
-        request_method="POST",
-        request_path_template="/video_generation",
-        build_backend=_build_minimax_video,
-        # 多 model 容量异质（S2V-01 单脸参考 max_ref=1 / 海螺系列走首帧 no-ref）→ endpoint 维度不
-        # 声明 int cap，按 model 读 backend caps（不构造 client）。
-        video_caps_for_model=MiniMaxVideoBackend.video_capabilities_for_model,
-    ),
     "kling-image": EndpointSpec(
         key="kling-image",
         media_type="image",
@@ -462,7 +404,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
         build_backend=_build_kling_video,
         # 参考图上限随 model 异质（v3-omni / video-o1 多图主体 R2V max=4，其余首尾帧无参考为 0）→ 不在
-        # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数（与 minimax-video 同构）。
+        # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数。
         video_caps_for_model=KlingVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
     ),
@@ -509,16 +451,49 @@ def validate_video_caps_declaration(spec: EndpointSpec) -> None:
         )
 
 
+#: 只认占位符本身：写死的地址里恰好含 "base_url" 字样（如 https://api.test/base_url/video）
+#: 不需要供应商填地址。
+_BASE_URL_PLACEHOLDER = re.compile(r"\{\{\s*base_url\s*\}\}")
+
+
+def declarative_requires_base_url(definition: Mapping[str, Any]) -> bool:
+    """这份定义是否要求供应商填了 base_url。
+
+    三节请求 URL 逐个查，不只看提交：提交写死绝对地址、轮询才引用 base_url 的定义是合法的，
+    只查提交会让这类端点跑到付费提交成功之后，才在轮询渲染出一个没有协议的相对地址上失败。
+
+    装配闭包与调用方（如测试连接路由的入参校验）共用这一条判定：装配层抛的是不带 i18n key
+    的 ValueError，面向用户的那条路要在装配前按本判定给出可翻译的拒绝。
+    """
+    return any(_BASE_URL_PLACEHOLDER.search(url) for url in request_urls(definition))
+
+
+def declarative_requires_api_key(definition: Mapping[str, Any]) -> bool:
+    """这份定义是否要求调用方提供 api_key。
+
+    校验器保证非空 ``auth`` 至少引用一次 api_key 占位符、且 api_key 只允许出现在 auth 节，
+    故判 auth 节是否为空即可。与 :func:`declarative_requires_base_url` 同为凭证必需性的判定缝：
+    两者皆否（auth 为空且三节 URL 全写死绝对地址）的定义不需要任何凭证即可调用。
+    """
+    return bool(definition.get("auth"))
+
+
 def _build_declarative_video(
     definition: Mapping[str, Any],
 ) -> Callable[[CustomProvider, str], CustomVideoBackend]:
-    """随版声明式端点的 backend 构造闭包，通用声明式运行时的唯一挂接点。
-
-    运行时未接入，构造一律抛 :class:`NotImplementedError`。
-    """
+    """声明式端点的 backend 构造闭包。"""
 
     def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
-        raise NotImplementedError(f"declarative endpoint runtime not wired: model={model_id!r}")
+        if declarative_requires_base_url(definition) and not provider.base_url:
+            raise ValueError("声明式调用端点需要 base_url")
+        delegate = DeclarativeVideoBackend(
+            api_key=provider.api_key,
+            base_url=provider.base_url,
+            model=model_id,
+            definition=definition,
+            provider=provider.provider_id,
+        )
+        return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
     return build
 
@@ -608,6 +583,24 @@ def endpoint_to_media_type(endpoint: str) -> str:
     return get_endpoint_spec(endpoint).media_type
 
 
+def static_media_type(endpoint: str) -> str:
+    """不读库判定端点媒体类型：自定义端点的键前缀已蕴含 video，其余走内置查表。
+
+    模型行的 endpoint 列既可能是内置键，也可能是 ``ce-`` 键，凡是按端点分媒体类型的地方
+    都要走这里；只查内置注册表会让带自定义端点的供应商整个判失败。
+
+    Raises:
+        ValueError: 既非自定义端点键，内置注册表里也没有该键。
+    """
+    # 延迟导入：builtin_definitions 消费本模块的注册表，模块级导入会成环。
+    from lib.custom_provider import is_custom_endpoint
+    from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
+
+    if is_custom_endpoint(endpoint):
+        return DECLARATIVE_MEDIA_TYPE
+    return endpoint_to_media_type(endpoint)
+
+
 def endpoint_to_image_capabilities(endpoint: str) -> frozenset[ImageCapability]:
     """返回 image 类 endpoint 的 capability 集合。非 image 类抛 ValueError。"""
     spec = get_endpoint_spec(endpoint)
@@ -650,15 +643,14 @@ _VIDEO_PATTERN = re.compile(
 _AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
 # 裸 "speech" 会撞上 ASR（语音转文字）家族 id，按内容排除，避免把识别模型默认归到 TTS 端点
 _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
-# wan 版本号 token，用于 MiniMax S2V 二级路由的排除判定：既要认出 "wan-2.2-s2v"/
-# "vendorwan2.7-s2v"/"wan2-s2v" 一类版本号相邻 wan token（无需满足家族严格标识符边界），又要排除
-# "swan"/"swan2" 这类只是把 "wan" 作为普通单词一部分、后面恰好粘连数字的无关子串。三条分支：
-# "wan" 与数字间有显式分隔符（"wan-2"/"wan_2"，此时无论数字后是否带小数点均视为版本号，前缀
-# 是否字母粘连不影响判定，"vendorwan-2" 同样成立）；或 "wan" 与数字完全粘连但数字本身是带小数点
-# 的版本号形态（"wan2.7"，前缀字母粘连不影响判定，与上一分支同理）；或 "wan" 与数字完全粘连、
-# 数字不含小数点，但 "wan" 前须满足标识符左边界（"wan2"，"swan2" 因左边界不成立被拒）——粘连纯
-# 整数版本号没有小数点这一结构信号可用，只能靠左边界区分真实 wan token 与恰好粘连数字的无关单词。
-_WAN_VERSION_TOKEN_PATTERN = re.compile(r"wan[-_]\d|wan\d+\.\d+|(?<![a-z0-9])wan\d+(?![a-z0-9])", re.IGNORECASE)
+
+#: MiniMax 输入受限端点的精确型号名（小写；剥离命名空间前缀后比较）。Fast 只接受图生视频、
+#: S2V 必须带参考图——把一个别名建到这两键等于给它加上无从核实的输入要求，故只认表列的
+#: 官方型号 id，与 alembic ``8c2b1e7d4a90`` 和 backend_assembly.specs._minimax_video_endpoint
+#: 同源（三处各存一份字面量，改其一须同改另两处）。S2V 另收 "minimax-s2v-01"：聚合商把厂商名
+#: 前缀直接粘进 id 的常见别名形态，语义仍是那一个精确型号。
+_MINIMAX_FAST_MODELS = frozenset({"minimax-hailuo-2.3-fast"})
+_MINIMAX_S2V_MODELS = frozenset({"s2v-01", "minimax-s2v-01"})
 
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
@@ -679,8 +671,11 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        classify_wan_model 的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v 等）
        落到下方 5) 的通用视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现
        请求构造，同样排除出原生路由（见 classify_wan_model 的 is_videoedit 处的说明）。
-    2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
+    2) MiniMax 原生 token → 海螺（Fast 与非 Fast 各一键）/ S2V / H3 分别走各自声明式端点，
+       image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
+       输入受限的 Fast / S2V 只认精确型号名（剥离中转命名空间前缀后比较），非精确海螺别名落
+       通用海螺键，其余 s2v 形态落 5) 的通用视频端点。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
        语义但本质是视频）；其余含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
        _VIDEO_PATTERN，须先于通用 is_video 拦截，否则视频会落到 openai-video；v3-omni 图像/视频同名
@@ -747,18 +742,24 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
     # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 与 h3 均不被 _VIDEO_PATTERN 覆盖，
     # image-01 含 "image" 否则会被通用图像家族抢走。匹配 "minimax-h3" 而非裸 "h3"——后者过短，
-    # 容易撞上其它厂商恰好含 h3 子串的型号 id。裸 "s2v" 排除含 wan 版本号 token 的 id（如未落原生
-    # 路由的 "wan2.7-s2v"、家族边界未满足的 "wan-2.2-s2v"，本后端均未实现该模态请求构造）：这类 id
-    # 应落下方 5) 的通用视频端点，而非被误吞成 MiniMax S2V 协议——用 _WAN_VERSION_TOKEN_PATTERN
-    # 而非 contains_wan_token/is_wan_family 做门槛：前者会把 "minimax-s2v-swan" 这类只是恰好含
-    # "swan" 子串的 MiniMax id 误判成 wan 家族而错过 MiniMax 路由，后者的严格边界又会漏判
-    # "wan-2.2-s2v" 一类版本号相邻但未满足家族边界的 id。
-    if (
-        "hailuo" in lowered
-        or ("s2v" in lowered and not _WAN_VERSION_TOKEN_PATTERN.search(lowered))
-        or "minimax-h3" in lowered
-    ):
-        return "minimax-video"
+    # 容易撞上其它厂商恰好含 h3 子串的型号 id。
+    #
+    # 输入受限的 Fast 与 S2V 只认精确型号名（见 _MINIMAX_FAST_MODELS / _MINIMAX_S2V_MODELS）：
+    # "MiniMax-Hailuo-2.3-Fast" 与 "MiniMax-Hailuo-2.3" 前缀碰撞，宽松子串会把非 Fast 型号或
+    # 无从核实上游的中转别名建到首帧必需的 Fast 定义。比较前剥离中转命名空间前缀——取末段，
+    # 多层命名空间（"openrouter/minimax/MiniMax-Hailuo-2.3-Fast"）一并剥掉：命名空间只是
+    # 转售包装，承担判定的是末段必须逐字等于官方型号 id。非精确的海螺别名落通用海螺键
+    # （无输入要求），其余 s2v 形态（如
+    # "wan2.7-s2v"）不再被误吞成 MiniMax S2V 协议，落下方 5) 的通用视频端点。
+    canonical = re.split(r"[/:]", lowered)[-1]
+    if "hailuo" in lowered:
+        # Fast 只接受图生视频，端点级能力据此分居两键（见 backend_assembly.specs
+        # ._minimax_video_endpoint 的同源口径），不能与 2.3 共用一个定义。
+        return "minimax-hailuo-v1-fast" if canonical in _MINIMAX_FAST_MODELS else "minimax-hailuo-v1"
+    if canonical in _MINIMAX_S2V_MODELS:
+        return "minimax-s2v-01"
+    if "minimax-h3" in lowered:
+        return "minimax-h3"
     if "image-01" in lowered:
         return "minimax-image"
 

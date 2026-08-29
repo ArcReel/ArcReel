@@ -14,7 +14,7 @@ from pathlib import Path
 
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_VIDU
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     VideoAudioMode,
     VideoCapabilities,
@@ -23,6 +23,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_video,
     poll_with_retry,
+    recording_poll,
     should_retry_submit,
     submit_post,
 )
@@ -230,7 +231,7 @@ class ViduVideoBackend:
         coerced_duration = int(body["duration"])
 
         async with create_vidu_client(api_key=self._api_key, base_url=self._base_url) as client:
-            payload = await self._create_task(client, endpoint, body)
+            payload = await self._create_task(client, endpoint, body, request)
             task_id = payload["task_id"]
             if request.on_provider_resubmit_unsafe is not None:
                 request.on_provider_resubmit_unsafe()
@@ -244,7 +245,7 @@ class ViduVideoBackend:
             )
 
             final = await poll_with_retry(
-                poll_fn=lambda: fetch_vidu_task(client, task_id),
+                poll_fn=recording_poll(lambda: fetch_vidu_task(client, task_id), request),
                 is_done=is_vidu_done,
                 is_failed=vidu_failure_reason,
                 max_wait=request.poll_timeout_seconds,
@@ -365,7 +366,9 @@ class ViduVideoBackend:
     # ── HTTP wrappers ───────────────────────────────────────────────────
 
     @with_retry_async(retry_if=should_retry_submit)
-    async def _create_task(self, client, endpoint: str, body: dict) -> dict:
+    async def _create_task(
+        self, client, endpoint: str, body: dict, request: VideoGenerationRequest | None = None
+    ) -> dict:
         assert_vidu_body_size(body)
         logger.info(
             "调用 Vidu 视频 API endpoint=%s kwargs=%s",
@@ -377,19 +380,19 @@ class ViduVideoBackend:
         # 未送达」的连接建立失败交 should_retry_submit 重试，避免重复建任务 + 重复计费。
         # 413 等 4xx 经 raise_for_status 透出 httpx.HTTPStatusError（保留 status_code），
         # 让咽喉层识别 413 走降档重试；body 由 submit_post 落日志保留可诊断性。
-        resp = await submit_post(lambda: client.post(endpoint, json=body), provider=PROVIDER_VIDU)
+        resp = await submit_post(lambda: client.post(endpoint, json=body), provider=PROVIDER_VIDU, request=request)
         data = resp.json()
         if not data.get("task_id"):
             raise RuntimeError(f"Vidu 视频任务创建响应缺少 task_id: {data}")
         return data
 
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=VIDU_RETRYABLE_ERRORS,
-    )
     async def _download_video(self, url: str, output_path: Path) -> None:
-        await download_video(url, output_path)
+        """下载 CDN 上的成片，重试走共用的产物下载预算。
+
+        取件是普通 URL GET（不是 SDK 调用），抛的就是 ``HTTPStatusError``，故用共用谓词：
+        终态刚签发的地址可能尚未在 CDN 侧传播，403/404 要重试而不是判死一条已付费的成片。
+        """
+        await download_video(url, output_path, label="Vidu", retryable_errors=VIDU_RETRYABLE_ERRORS)
 
 
 def _coerce_duration(model: str, endpoint: str, requested: int | None) -> int:

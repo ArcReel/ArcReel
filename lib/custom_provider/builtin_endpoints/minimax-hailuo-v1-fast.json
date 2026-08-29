@@ -1,0 +1,50 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "MiniMax Hailuo V1 Fast",
+    "author": "ArcReel",
+    "version": "1.0.0",
+    "hints": {"suggested_models": [{"id": "MiniMax-Hailuo-2.3-Fast"}]}
+  },
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {"first_frame": {"source": "start_image", "encoding": "data_uri", "required": true}},
+  "enum_maps": {"resolution": {"768p": "768P", "1080p": "1080P"}},
+  "defaults": {"resolution": "768p"},
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/v1/video_generation",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "duration": "{{ duration }}",
+      "resolution": "{{ resolution }}",
+      "first_frame_image": "{{ inputs.first_frame }}"
+    },
+    "extract": {"task_id": ["$.task_id"], "error": ["$.base_resp.status_msg"]}
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/v1/query/video_generation?task_id={{ task_id }}",
+    "expire_on_404": false,
+    "extract": {
+      "status": ["$.status"],
+      "error": ["$.base_resp.status_msg"],
+      "failure": ["$[?@.status_code && @.status_code != 0].status_msg"],
+      "result_id": {"paths": ["$.file_id"], "accept": "scalar"}
+    }
+  },
+  "result": {
+    "method": "GET",
+    "url": "{{ base_url }}/v1/files/retrieve?file_id={{ result_id }}",
+    "extract": {"video_url": ["$.file.download_url"], "error": ["$.base_resp.status_msg"]}
+  },
+  "status_map": {
+    "preparing": "queued",
+    "queueing": "queued",
+    "processing": "running",
+    "success": "succeeded",
+    "fail": "failed"
+  },
+  "capabilities": {"text_to_video": false, "first_frame": true, "audio_track": "always_off"}
+}

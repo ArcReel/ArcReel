@@ -64,6 +64,9 @@ class DefinitionErrorCode(StrEnum):
 
     # ---- 字典与能力 ----
     ENUM_MAP_VARIABLE_NOT_ALLOWED = "enum_map_variable_not_allowed"
+    DEFAULT_VARIABLE_NOT_ALLOWED = "default_variable_not_allowed"
+    DEFAULT_VALUE_TYPE_INVALID = "default_value_type_invalid"
+    DEFAULT_VALUE_NOT_IN_ENUM_MAP = "default_value_not_in_enum_map"
     STATUS_MAP_TARGET_INVALID = "status_map_target_invalid"
     CAPABILITY_DECLARED_WITHOUT_INPUT = "capability_declared_without_input"
     CAPABILITY_INPUT_WITHOUT_DECLARATION = "capability_input_without_declaration"
@@ -81,6 +84,9 @@ class DefinitionErrorCode(StrEnum):
     JSONPATH_FILTER_NON_SINGULAR = "jsonpath_filter_non_singular"
     JSONPATH_REGEX_OPERATOR = "jsonpath_regex_operator"
     JSONPATH_SYNTAX = "jsonpath_syntax"
+
+    # ---- 渲染期（端点测试按同一份诊断结构下发）----
+    TEMPLATE_RENDER_FAILED = "template_render_failed"
 
     # ---- warning ----
     POLL_WITHOUT_TASK_ID = "poll_without_task_id"

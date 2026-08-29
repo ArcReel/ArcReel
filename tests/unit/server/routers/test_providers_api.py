@@ -679,11 +679,11 @@ class TestTestProviderConnection:
         svc.get_provider_config = AsyncMock(return_value={})
         return svc
 
-    def _fake_test_fn(self, config: dict, _t=None) -> providers.ConnectionTestResponse:
-        return providers.ConnectionTestResponse(
+    def _fake_test_fn(self, config: dict, _t=None) -> providers.ConnectivityCheckResponse:
+        return providers.ConnectivityCheckResponse(
             success=True,
             available_models=["model-a"],
-            message="连接成功",
+            message="连通正常",
         )
 
     def test_returns_200(self):
@@ -691,7 +691,7 @@ class TestTestProviderConnection:
         with (
             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()),
             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
-            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
+            patch.dict(providers._CONNECTIVITY_CHECK_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
         ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
@@ -712,14 +712,14 @@ class TestTestProviderConnection:
         with (
             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()),
             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
-            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
+            patch.dict(providers._CONNECTIVITY_CHECK_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
         ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
         body = resp.json()
         assert body["success"] is True
         assert body["available_models"] == ["model-a"]
-        assert body["message"] == "连接成功"
+        assert body["message"] == "连通正常"
 
     def test_success_false_when_no_credential(self):
         app, _ = _make_session_app()
@@ -738,7 +738,7 @@ class TestTestProviderConnection:
         with (
             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()),
             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
-            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
+            patch.dict(providers._CONNECTIVITY_CHECK_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
         ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
@@ -748,14 +748,14 @@ class TestTestProviderConnection:
         assert "message" in body
 
     def test_connection_failure_returns_error(self):
-        def _failing_fn(config: dict, _t=None) -> providers.ConnectionTestResponse:
+        def _failing_fn(config: dict, _t=None) -> providers.ConnectivityCheckResponse:
             raise RuntimeError("API key invalid")
 
         app, _ = _make_session_app()
         with (
             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()),
             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
-            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": _failing_fn}),
+            patch.dict(providers._CONNECTIVITY_CHECK_DISPATCH, {"gemini-aistudio": _failing_fn}),
         ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
@@ -765,8 +765,8 @@ class TestTestProviderConnection:
 
     def test_dashscope_registered_in_dispatch(self):
         # dashscope 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
-        # 否则点"测试连接"会落到 unsupported_test 分支（即便 API Key 有效）
-        assert "dashscope" in providers._TEST_DISPATCH
+        # 否则点"测试连接"会落到 connectivity_check_unsupported 分支（即便 API Key 有效）
+        assert "dashscope" in providers._CONNECTIVITY_CHECK_DISPATCH
 
     def test_dashscope_test_fn_uses_compatible_mode_and_filters_models(self):
         from types import SimpleNamespace
@@ -789,7 +789,7 @@ class TestTestProviderConnection:
                 self.models = _FakeModels()
 
         with patch("openai.OpenAI", _FakeOpenAI):
-            resp = providers._test_dashscope(
+            resp = providers._check_dashscope(
                 {"api_key": "sk", "base_url": "https://dashscope.aliyuncs.com"}, lambda k, **kw: k
             )
         # host → compatible-mode base（OpenAI 协议），api_key 透传
@@ -801,8 +801,8 @@ class TestTestProviderConnection:
 
     def test_minimax_registered_in_dispatch(self):
         # minimax 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
-        # 否则点"测试连接"会落到 unsupported_test 分支（即便 API Key 有效）
-        assert "minimax" in providers._TEST_DISPATCH
+        # 否则点"测试连接"会落到 connectivity_check_unsupported 分支（即便 API Key 有效）
+        assert "minimax" in providers._CONNECTIVITY_CHECK_DISPATCH
 
     def test_minimax_test_fn_uses_v1_base_and_filters_models(self):
         from types import SimpleNamespace
@@ -825,7 +825,7 @@ class TestTestProviderConnection:
                 self.models = _FakeModels()
 
         with patch("openai.OpenAI", _FakeOpenAI):
-            resp = providers._test_minimax({"api_key": "sk", "base_url": "https://api.minimax.io"}, lambda k, **kw: k)
+            resp = providers._check_minimax({"api_key": "sk", "base_url": "https://api.minimax.io"}, lambda k, **kw: k)
         # host → {host}/v1（OpenAI 协议），api_key 透传
         assert captured["base_url"] == "https://api.minimax.io/v1"
         assert captured["api_key"] == "sk"
@@ -835,8 +835,8 @@ class TestTestProviderConnection:
 
     def test_kling_registered_in_dispatch(self):
         # kling 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
-        # 否则点"测试连接"会落到 unsupported_test 分支（即便凭证有效）
-        assert "kling" in providers._TEST_DISPATCH
+        # 否则点"测试连接"会落到 connectivity_check_unsupported 分支（即便凭证有效）
+        assert "kling" in providers._CONNECTIVITY_CHECK_DISPATCH
 
     class _FakeKlingResponse:
         def __init__(self, payload: dict, *, content_type: str = "application/json"):
@@ -858,7 +858,7 @@ class TestTestProviderConnection:
             return self._FakeKlingResponse({"code": 0, "message": "", "data": {}})
 
         with patch("httpx.get", _fake_get):
-            resp = providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+            resp = providers._check_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
         assert resp.success is True
         assert captured["headers"]["Authorization"] == "Bearer sk-kling"
         # account/costs 挂域名根路径，不带 /v1；默认 base_url 已迁移至 api-beijing
@@ -875,7 +875,7 @@ class TestTestProviderConnection:
             return self._FakeKlingResponse({"code": 0, "message": "", "data": {}})
 
         with patch("httpx.get", _fake_get):
-            resp = providers._test_kling({"access_key": "ak-1", "secret_key": "s" * 40}, lambda k, **kw: k)
+            resp = providers._check_kling({"access_key": "ak-1", "secret_key": "s" * 40}, lambda k, **kw: k)
         assert resp.success is True
         auth = captured["headers"]["Authorization"]
         assert auth.startswith("Bearer ")
@@ -890,7 +890,7 @@ class TestTestProviderConnection:
             return self._FakeKlingResponse({"code": 0, "message": "", "data": {}})
 
         with patch("httpx.get", _fake_get):
-            providers._test_kling(
+            providers._check_kling(
                 {"api_key": "sk-kling", "access_key": "ak-1", "secret_key": "s" * 40}, lambda k, **kw: k
             )
         assert captured["headers"]["Authorization"] == "Bearer sk-kling"
@@ -904,7 +904,7 @@ class TestTestProviderConnection:
             return self._FakeKlingResponse({"code": 0, "message": "", "data": {}})
 
         with patch("httpx.get", _fake_get):
-            providers._test_kling(
+            providers._check_kling(
                 {"api_key": "sk-kling", "base_url": "https://relay.example.com/v1"}, lambda k, **kw: k
             )
         assert captured["url"] == "https://relay.example.com/account/costs"
@@ -912,17 +912,17 @@ class TestTestProviderConnection:
     def test_kling_test_fn_raises_clear_error_when_no_credentials(self):
         """两种凭证形态都未填 → 明确报错（不静默发出无鉴权请求）。"""
         with pytest.raises(ValueError, match="Access Key"):
-            providers._test_kling({}, lambda k, **kw: k)
+            providers._check_kling({}, lambda k, **kw: k)
 
     def test_kling_test_fn_raises_on_code_error(self):
-        """响应 code != 0 → RuntimeError 携带官方错误信息，经上层转 connection_failed 文案。"""
+        """响应 code != 0 → RuntimeError 携带官方错误信息，经上层转 connectivity_check_failed 文案。"""
 
         def _fake_get(url, params=None, headers=None, timeout=None):
             return self._FakeKlingResponse({"code": 1101, "message": "auth failed", "data": {}})
 
         with patch("httpx.get", _fake_get):
             with pytest.raises(RuntimeError, match="auth failed"):
-                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+                providers._check_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
     def test_kling_test_fn_prefers_json_body_error_over_raise_for_status(self):
         """HTTP 状态非 2xx 但响应体带 JSON 业务错误 → 优先暴露具体原因，而非泛化的 HTTP 状态文案。"""
@@ -936,7 +936,7 @@ class TestTestProviderConnection:
 
         with patch("httpx.get", _fake_get):
             with pytest.raises(RuntimeError, match="access key not found"):
-                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+                providers._check_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
     def test_kling_test_fn_raises_http_status_error_when_body_not_json(self):
         """非 JSON 响应体（如网关错误页）跳过业务错误解析，走 raise_for_status 兜底暴露 HTTP 状态。"""
@@ -950,7 +950,7 @@ class TestTestProviderConnection:
 
         with patch("httpx.get", _fake_get):
             with pytest.raises(httpx.HTTPStatusError, match="502 Bad Gateway"):
-                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+                providers._check_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
     def test_kling_test_fn_falls_back_to_raise_for_status_on_malformed_json(self):
         """content-type 声称 JSON 但响应体非法/空（如异常网关截断）→ 解析失败不崩溃，走 raise_for_status 兜底。"""
@@ -967,7 +967,7 @@ class TestTestProviderConnection:
 
         with patch("httpx.get", _fake_get):
             with pytest.raises(httpx.HTTPStatusError, match="504 Gateway Timeout"):
-                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+                providers._check_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
     def test_kling_test_fn_raises_on_inner_data_code_error(self):
         """顶层 code=0 但 data 内嵌业务级 code != 0（如资源包查询失败）→ 同样 RuntimeError。"""
@@ -979,7 +979,7 @@ class TestTestProviderConnection:
 
         with patch("httpx.get", _fake_get):
             with pytest.raises(RuntimeError, match="resource pack not found"):
-                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+                providers._check_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
     def test_kling_connection_test_via_router_with_api_key_only(self):
         """端到端：只填 api_key 的可灵凭证通过 /test 端点即可测通（验收标准之一）。
@@ -1014,7 +1014,7 @@ class TestTestProviderConnection:
         with (
             patch("server.routers.providers.CredentialRepository", return_value=repo),
             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
-            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
+            patch.dict(providers._CONNECTIVITY_CHECK_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
         ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test?credential_id=1")
@@ -1023,7 +1023,7 @@ class TestTestProviderConnection:
 
 
 class TestArkAgentPlanConnectionTest:
-    """ark-agent-plan 必须复用 _test_ark 并自动注入 default_base_url。"""
+    """ark-agent-plan 必须复用 _check_ark 并自动注入 default_base_url。"""
 
     def _fake_cred(self):
         cred = MagicMock()
@@ -1044,21 +1044,21 @@ class TestArkAgentPlanConnectionTest:
         return svc
 
     def test_ark_agent_plan_is_dispatched(self):
-        assert "ark-agent-plan" in providers._TEST_DISPATCH
-        assert providers._TEST_DISPATCH["ark-agent-plan"] is providers._test_ark
+        assert "ark-agent-plan" in providers._CONNECTIVITY_CHECK_DISPATCH
+        assert providers._CONNECTIVITY_CHECK_DISPATCH["ark-agent-plan"] is providers._check_ark
 
     def test_default_base_url_injected_when_user_did_not_set(self):
         captured: dict = {}
 
-        def _capture(config: dict, _t=None) -> providers.ConnectionTestResponse:
+        def _capture(config: dict, _t=None) -> providers.ConnectivityCheckResponse:
             captured["base_url"] = config.get("base_url")
-            return providers.ConnectionTestResponse(success=True, available_models=[], message="ok")
+            return providers.ConnectivityCheckResponse(success=True, available_models=[], message="ok")
 
         app, _ = _make_session_app()
         with (
             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo()),
             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
-            patch.dict(providers._TEST_DISPATCH, {"ark-agent-plan": _capture}),
+            patch.dict(providers._CONNECTIVITY_CHECK_DISPATCH, {"ark-agent-plan": _capture}),
         ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/ark-agent-plan/test")
@@ -1068,9 +1068,9 @@ class TestArkAgentPlanConnectionTest:
     def test_user_base_url_overrides_default(self):
         captured: dict = {}
 
-        def _capture(config: dict, _t=None) -> providers.ConnectionTestResponse:
+        def _capture(config: dict, _t=None) -> providers.ConnectivityCheckResponse:
             captured["base_url"] = config.get("base_url")
-            return providers.ConnectionTestResponse(success=True, available_models=[], message="ok")
+            return providers.ConnectivityCheckResponse(success=True, available_models=[], message="ok")
 
         svc = MagicMock(spec=ConfigService)
         svc.get_provider_config = AsyncMock(
@@ -1081,7 +1081,7 @@ class TestArkAgentPlanConnectionTest:
         with (
             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo()),
             patch("server.routers.providers.ConfigService", return_value=svc),
-            patch.dict(providers._TEST_DISPATCH, {"ark-agent-plan": _capture}),
+            patch.dict(providers._CONNECTIVITY_CHECK_DISPATCH, {"ark-agent-plan": _capture}),
         ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/ark-agent-plan/test")

@@ -15,7 +15,7 @@ provider_name 计费归因）各挂专属闭包；文本侧别名映射（dashsc
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -24,6 +24,7 @@ from lib.kling_shared import kling_auth_mode
 
 if TYPE_CHECKING:
     from lib.backend_assembly.loaded_config import LoadedConfig
+    from lib.video_backends.base import VideoCapabilities
 
 
 @dataclass(frozen=True)
@@ -104,6 +105,62 @@ def _simple_spec(provider_id: str, media_type: str, *, extra_keys: tuple[str, ..
         build_backend=partial(
             _build_simple, media_type=media_type, registry_backend=provider_id, extra_keys=extra_keys
         ),
+    )
+
+
+def _minimax_video_endpoint(model_id: str | None) -> str:
+    """model → 声明式端点键。一份定义一种请求形状 + 一组能力，故 Fast 与 2.3 分居两键。
+
+    与 :func:`lib.custom_provider.endpoints.infer_endpoint` 和 alembic ``8c2b1e7d4a90``
+    的模型名口径同源（三处各存一份字面量，改其一须同改另两处）：Fast 只接受图生视频，
+    定义把首帧声明为必需输入，``text_to_video`` 才据此推导为 False。
+    """
+    model = (model_id or "").lower()
+    if model_id == "S2V-01":
+        return "minimax-s2v-01"
+    if "minimax-h3" in model:
+        return "minimax-h3"
+    if "hailuo" in model and "fast" in model:
+        return "minimax-hailuo-v1-fast"
+    return "minimax-hailuo-v1"
+
+
+def builtin_declarative_video_diagnostics(
+    provider_id: str, model_id: str, config: Mapping[str, str]
+) -> tuple[Mapping[str, Any], str, str] | None:
+    """内置模型行走声明式装配时，测试连接诊断用的 ``(definition, base_url, api_key)``。
+
+    该 (provider, model) 由 Python backend 实现时返回 None。端点判定与凭证回落与
+    :func:`_build_minimax_declarative_video` 同一份——诊断里渲出的请求必须与真发的一致。
+    调用方须先按各自的凭证闸确认 ``api_key`` 非空（空值在此处会 fail-loud）。
+    """
+    if provider_id != "minimax":
+        return None
+    from lib.custom_provider.endpoints import get_endpoint_spec
+    from lib.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
+
+    definition = get_endpoint_spec(_minimax_video_endpoint(model_id)).definition
+    if definition is None:
+        return None
+    return definition, config.get("base_url") or MINIMAX_BASE_URL, resolve_minimax_api_key(config.get("api_key"))
+
+
+def _build_minimax_declarative_video(config: LoadedConfig, model_id: str | None) -> Any:
+    from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
+    from lib.custom_provider.endpoints import get_endpoint_spec
+    from lib.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
+
+    model = model_id or "MiniMax-H3"
+    endpoint = _minimax_video_endpoint(model)
+    definition = get_endpoint_spec(endpoint).definition
+    if definition is None:
+        raise ValueError(f"builtin endpoint {endpoint!r} is not declarative")
+    return DeclarativeVideoBackend(
+        api_key=resolve_minimax_api_key(config.credentials.get("api_key")),
+        base_url=_resolve_base_url(config) or MINIMAX_BASE_URL,
+        model=model,
+        definition=definition,
+        provider="minimax",
     )
 
 
@@ -363,6 +420,12 @@ PROVIDER_SPEC_REGISTRY.update(
 # workspace，推不出），未配置时 backend 自行回落通用 base_url。image/audio 两条 lane 不消费它，
 # 仍走简单族。
 PROVIDER_SPEC_REGISTRY[("dashscope", "video")] = _simple_spec("dashscope", "video", extra_keys=("wan3_base_url",))
+PROVIDER_SPEC_REGISTRY[("minimax", "video")] = ProviderSpec(
+    provider_id="minimax",
+    media_type="video",
+    registry_backend="declarative",
+    build_backend=_build_minimax_declarative_video,
+)
 
 # agnes 简单族 image + video 显式登记（文本族在下方文本区随 _TEXT_SIMPLE_PROVIDERS 登记）；
 # 与 kling 同走独立显式登记，不并入 _SIMPLE_IMAGE_VIDEO_PROVIDERS 元组。
@@ -422,3 +485,31 @@ def get_provider_spec(provider_id: str, media_type: str) -> ProviderSpec:
     if spec is None:
         raise ValueError(f"no builtin ProviderSpec for provider={provider_id!r} media={media_type!r}")
     return spec
+
+
+def builtin_video_capabilities_for_model(provider_id: str, model_id: str) -> VideoCapabilities:
+    """读取内置视频能力；声明式供应商从随版定义读，其余沿用 backend registry。"""
+    spec = get_provider_spec(provider_id, "video")
+    if spec.registry_backend == "declarative":
+        from lib.custom_provider.builtin_definitions import declarative_video_capabilities
+        from lib.custom_provider.endpoints import get_endpoint_spec
+
+        definition = get_endpoint_spec(_minimax_video_endpoint(model_id)).definition
+        if definition is None:
+            raise ValueError(f"builtin declarative definition missing for {provider_id}/{model_id}")
+        return declarative_video_capabilities(definition)
+    from lib.video_backends.registry import video_capabilities_for_model
+
+    return video_capabilities_for_model(spec.registry_backend, model_id)
+
+
+def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) -> bool:
+    spec = get_provider_spec(provider_id, "video")
+    if spec.registry_backend == "declarative":
+        # 计价口径与能力声明同源：定义声明成片恒无音轨时，默认执行档不可能产出人声。
+        from lib.video_backends.base import VideoAudioMode
+
+        return builtin_video_capabilities_for_model(provider_id, model_id).audio_track is not VideoAudioMode.ALWAYS_OFF
+    from lib.video_backends.registry import effective_generate_audio_for_model
+
+    return effective_generate_audio_for_model(spec.registry_backend, model_id)

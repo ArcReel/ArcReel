@@ -32,6 +32,82 @@ class TestTasksRouter:
             assert "不存在" in resp.json()["detail"]
 
 
+class _RetryQueue:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    async def retry_artifact_download(self, task_id: str):
+        self.calls.append(task_id)
+        return {"task_id": task_id, "status": "running", "error_message": None}
+
+
+class _RetryWorker:
+    def __init__(self, *, timeout_error: Exception | None = None):
+        self.tasks = []
+        self.poll_timeouts = []
+        self._timeout_error = timeout_error
+
+    async def read_video_poll_timeout_seconds(self) -> int:
+        if self._timeout_error is not None:
+            raise self._timeout_error
+        return 3600
+
+    async def retry_artifact_download(self, task, *, poll_timeout_seconds: int):
+        self.tasks.append(task)
+        self.poll_timeouts.append(poll_timeout_seconds)
+
+
+class TestRetryArtifactDownload:
+    @staticmethod
+    def _app(queue: _RetryQueue, worker: _RetryWorker | None) -> FastAPI:
+        app = FastAPI()
+        app.state.generation_worker = worker
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
+            id="default", sub="testuser", role="admin"
+        )
+        app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        return app
+
+    def test_dispatches_existing_task_without_creating_another(self, monkeypatch):
+        queue = _RetryQueue()
+        worker = _RetryWorker()
+        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+
+        with TestClient(self._app(queue, worker)) as client:
+            response = client.post("/api/v1/tasks/task-1/retry-download")
+
+        assert response.status_code == 200
+        assert queue.calls == ["task-1"]
+        assert worker.tasks == [{"task_id": "task-1", "status": "running", "error_message": None}]
+        assert worker.poll_timeouts == [3600]
+
+    def test_unresolvable_poll_timeout_leaves_task_retryable(self, monkeypatch):
+        # 轮询超时读的是配置库。它在翻状态之后失败就没有回滚点，任务会永久停在 running：
+        # 既不被队列认领，也不再满足 retry-download 的资格条件。故必须先读再翻。
+        queue = _RetryQueue()
+        worker = _RetryWorker(timeout_error=RuntimeError("config database unavailable"))
+        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+
+        with TestClient(self._app(queue, worker), raise_server_exceptions=False) as client:
+            response = client.post("/api/v1/tasks/task-1/retry-download")
+
+        assert response.status_code == 500
+        assert queue.calls == []
+        assert worker.tasks == []
+
+    def test_unavailable_worker_does_not_transition_task(self, monkeypatch):
+        queue = _RetryQueue()
+        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+
+        with TestClient(self._app(queue, None)) as client:
+            response = client.post("/api/v1/tasks/task-1/retry-download")
+
+        assert response.status_code == 400
+        assert queue.calls == []
+
+
 class _RenderQueue:
     """Queue stub serving fresh task copies per call so in-place rendering does not leak."""
 

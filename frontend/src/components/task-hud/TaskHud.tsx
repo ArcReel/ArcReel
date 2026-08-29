@@ -138,11 +138,15 @@ function TaskRow({
   expandedTaskId,
   onToggleDetail,
   onCancel,
+  onRetryDownload,
+  retryingDownload,
 }: {
   task: TaskItem;
   expandedTaskId: string | null;
   onToggleDetail: (taskId: string) => void;
   onCancel?: (taskId: string) => void;
+  onRetryDownload?: (taskId: string) => void;
+  retryingDownload?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const statusLabel: Record<TaskItem["status"], string> = {
@@ -284,6 +288,23 @@ function TaskRow({
             {t("cancelling_status")}
           </button>
         )}
+        {task.status === "failed"
+          && task.error_code === "artifact_download_failed"
+          && onRetryDownload && (
+          <button
+            type="button"
+            disabled={retryingDownload}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRetryDownload(task.task_id);
+            }}
+            className="focus-ring ml-1 rounded px-1 py-0.5 text-[10.5px]"
+            style={{ color: "var(--color-accent-2)" }}
+            aria-label={t("retry_download")}
+          >
+            {retryingDownload ? t("retrying_download") : t("retry_download")}
+          </button>
+        )}
         {task.status === "cancelled" && task.cancelled_by === "cascade" && (
           <span
             className="ml-1 text-[10.5px]"
@@ -371,12 +392,16 @@ function ChannelSection({
   tasks,
   filter,
   onCancel,
+  onRetryDownload,
+  retryingDownloadIds,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   tasks: TaskItem[];
   filter: TaskFilter;
   onCancel?: (taskId: string) => void;
+  onRetryDownload?: (taskId: string) => void;
+  retryingDownloadIds?: ReadonlySet<string>;
 }) {
   const { t } = useTranslation("dashboard");
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -435,6 +460,8 @@ function ChannelSection({
             expandedTaskId={expandedTaskId}
             onToggleDetail={toggleDetail}
             onCancel={onCancel}
+            onRetryDownload={onRetryDownload}
+            retryingDownload={retryingDownloadIds?.has(task.task_id) ?? false}
           />
         ))}
       </AnimatePresence>
@@ -573,7 +600,7 @@ function StatPill({
 export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
   const { t } = useTranslation("dashboard");
   const { taskHudOpen, setTaskHudOpen } = useAppStore();
-  const { tasks, stats } = useTasksStore();
+  const { tasks, stats, setTasks } = useTasksStore();
 
   const [cancelConfirm, setCancelConfirm] = useState<{
     taskId?: string;
@@ -585,6 +612,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
     projectName?: string;
   } | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [retryingDownloadIds, setRetryingDownloadIds] = useState<ReadonlySet<string>>(new Set());
   const [filter, setFilter] = useState<TaskFilter>("all");
 
   const handleCancelSingle = useCallback(async (taskId: string) => {
@@ -622,6 +650,31 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
       setCancelConfirm(null);
     }
   }, [cancelConfirm]);
+
+  // 按 task_id 分别记在途状态：多条下载失败的任务可以同时重试，用单个 id 会让先返回的那条
+  // 把后点的那条的加载态一并清掉。
+  const markRetrying = useCallback((taskId: string, retrying: boolean) => {
+    setRetryingDownloadIds((prev) => {
+      const next = new Set(prev);
+      if (retrying) next.add(taskId);
+      else next.delete(taskId);
+      return next;
+    });
+  }, []);
+
+  const handleRetryDownload = useCallback(async (taskId: string) => {
+    markRetrying(taskId, true);
+    try {
+      const { task } = await API.retryTaskDownload(taskId);
+      setTasks((current) => current.map((row) => row.task_id === taskId ? task : row));
+    } catch {
+      // 失败时这一行看不出任何变化（任务仍是失败态、按钮恢复可用），不给回执用户无从判断
+      // 究竟是没点上还是被拒了。属「用户在场、可立即重试的同步失败」，按 store 的分工走 toast。
+      useAppStore.getState().pushToast(t("retry_download_failed"), "error");
+    } finally {
+      markRetrying(taskId, false);
+    }
+  }, [markRetrying, setTasks, t]);
 
   useEscapeClose(() => setCancelConfirm(null), Boolean(cancelConfirm));
 
@@ -744,6 +797,8 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             tasks={imageTasks}
             filter={filter}
             onCancel={voidPromise(handleCancelSingle)}
+            onRetryDownload={voidPromise(handleRetryDownload)}
+            retryingDownloadIds={retryingDownloadIds}
           />
           <div
             className="h-px"
@@ -755,6 +810,8 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             tasks={videoTasks}
             filter={filter}
             onCancel={voidPromise(handleCancelSingle)}
+            onRetryDownload={voidPromise(handleRetryDownload)}
+            retryingDownloadIds={retryingDownloadIds}
           />
           {audioTasks.length > 0 && (
             <>
@@ -768,6 +825,8 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
                 tasks={audioTasks}
                 filter={filter}
                 onCancel={voidPromise(handleCancelSingle)}
+                onRetryDownload={voidPromise(handleRetryDownload)}
+                retryingDownloadIds={retryingDownloadIds}
               />
             </>
           )}

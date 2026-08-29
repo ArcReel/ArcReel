@@ -118,15 +118,20 @@ ignore_imports = [
     # lib.config.resolver 直接向上引用自定义供应商装配层（函数体内延迟导入，静态分析仍计入）
     "lib.config.resolver -> lib.custom_provider",
     "lib.config.resolver -> lib.custom_provider.capabilities",
-    "lib.config.resolver -> lib.custom_provider.endpoints",
+    "lib.config.resolver -> lib.custom_provider.endpoint_resolution",
     # lib.config.resolver 直接向上引用 backend 层
     "lib.config.resolver -> lib.text_backends.base",
-    "lib.config.resolver -> lib.video_backends.registry",
     # 中间模块把 backend 层拉回 config 之下的可达范围
     "lib.backend_assembly.specs -> lib.audio_backends.registry",
     "lib.backend_assembly.specs -> lib.image_backends.registry",
     "lib.backend_assembly.specs -> lib.video_backends.registry",
+    "lib.backend_assembly.specs -> lib.video_backends.base",
     "lib.backend_assembly.specs -> lib.text_backends.registry",
+    # 声明式内置端点的装配接缝（ADR 0039）：spec 行按 registry_backend="declarative" 从
+    # 随版定义读能力与构造 backend，spec 表因此同时够到 backend 层与 custom_provider 层。
+    "lib.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
+    "lib.backend_assembly.specs -> lib.custom_provider.declarative_backend",
+    "lib.backend_assembly.specs -> lib.custom_provider.endpoints",
     "lib.project_manager -> lib.text_backends.base",
     "lib.text_generator -> lib.text_backends.base",
     "lib.text_generator -> lib.text_backends.factory",

@@ -33,6 +33,12 @@
         "additionalProperties": { "$ref": "#/$defs/scalar" }
       }
     },
+    "defaults": {
+      "description": "参数缺省值：调用方未指定该参数（值为 null）时，渲染前先填入此处的值，再照常过 enum_maps。可声明的变量由校验器限定（duration / aspect_ratio / resolution / generate_audio / seed 这些调用方可以不填的参数）。缺省值写 ArcReel 侧的值，不是供应商侧的值。不声明则该参数保持未指定，整值占位符照旧把字段整个删掉。",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/scalar" }
+    },
     "submit": { "$ref": "#/$defs/submitRequest" },
     "poll": { "$ref": "#/$defs/pollRequest" },
     "result": { "$ref": "#/$defs/resultRequest" },
@@ -295,6 +301,11 @@
             "url": true,
             "headers": true,
             "body": true,
+            "expire_on_404": {
+              "description": "续跑（resume）时轮询端点返回 404 是否立即判任务过期。true（缺省）适合 404 明确表示「任务已不存在」的端点；供应商可能对在跑任务瞬时返回 404 时写 false，改为按瞬态错误重试到轮询预算耗尽。只影响续跑：首次生成路径的轮询 404 一律按瞬态重试。",
+              "type": "boolean",
+              "default": true
+            },
             "extract": {
               "description": "轮询间隔、超时与瞬时错误重试都是运行时策略，不进定义。2xx 之下按 status 查状态；429 与 5xx 保持上一状态继续轮询；其余码即任务失败，错误按 error 取。",
               "type": "object",

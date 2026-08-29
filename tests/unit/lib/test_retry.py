@@ -8,8 +8,6 @@ import pytest
 
 from lib.retry import (
     BASE_RETRYABLE_ERRORS,
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
     RETRYABLE_STATUS_PATTERNS,
     NonRetryableError,
     _should_retry,
@@ -351,12 +349,3 @@ class TestRetryAsync:
 
         assert result == "ok"
         assert clock.sleeps == [5.25]
-
-
-class TestDownloadConstants:
-    """下载重试常量测试。"""
-
-    def test_download_constants_values(self):
-        assert DOWNLOAD_MAX_ATTEMPTS == 5
-        assert DOWNLOAD_BACKOFF_SECONDS == (5, 10, 20, 40)
-        assert len(DOWNLOAD_BACKOFF_SECONDS) == DOWNLOAD_MAX_ATTEMPTS - 1

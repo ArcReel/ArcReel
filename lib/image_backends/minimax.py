@@ -35,8 +35,8 @@ from lib.minimax_shared import (
     safe_body_for_log,
 )
 from lib.providers import PROVIDER_MINIMAX
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
-from lib.video_backends.base import should_retry_download, should_retry_submit, submit_post
+from lib.retry import with_retry_async
+from lib.video_backends.base import should_retry_submit, submit_post, with_artifact_retry
 
 logger = logging.getLogger(__name__)
 
@@ -221,18 +221,14 @@ class MiniMaxImageBackend:
         logger.error("MiniMax 图像响应缺少 image_urls/image_base64: %s", data)
         raise RuntimeError("MiniMax 图像响应缺少 image_urls/image_base64")
 
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_download,
-    )
     async def _download_result(self, url: str, output_path: Path) -> None:
-        """下载已签发的结果图 URL（幂等 GET），独立的下载重试范围。
+        """下载已签发的结果图 URL（幂等 GET），走共用的产物下载预算。
 
-        瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST；4xx（URL 失效等确定性错误）
-        快速失败。下载比生成更宽容（失败不浪费生成额度），故用 DOWNLOAD_* 重试配置。
+        瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST。共用谓词把 403/404 也算作
+        可重试：终态刚签发的产物地址可能尚未在对象存储侧传播。其余 4xx 确定性失败。
+        下载比生成更宽容——失败不浪费生成额度，故预算比生成阶段大得多。
         """
-        await download_image_to_path(url, output_path)
+        await with_artifact_retry(lambda: download_image_to_path(url, output_path), label="MiniMax 图像")
 
 
 async def _write_base64_image(b64: str, output_path: Path) -> None:

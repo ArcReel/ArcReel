@@ -19,7 +19,7 @@ from lib.custom_provider.backends import (
     CustomTextBackend,
     CustomVideoBackend,
 )
-from lib.custom_provider.endpoints import endpoint_to_media_type
+from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
 from lib.custom_provider.factory import create_custom_backend
 from lib.db.models.custom_provider import CustomProviderModel
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -46,6 +46,9 @@ async def load_custom_backend(
         ValueError: provider 不存在，或该 media_type 无默认启用 model。
     """
     repo = CustomProviderRepository(session)
+    from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+
+    endpoint_repo = CustomEndpointRepository(session)
     db_id = parse_provider_id(provider_id)
     provider = await repo.get_provider(db_id)
     if provider is None:
@@ -60,9 +63,14 @@ async def load_custom_backend(
         )
         result = await session.execute(stmt)
         candidate = result.scalar_one_or_none()
-        if candidate and endpoint_to_media_type(candidate.endpoint) == media_type:
-            model = candidate
-        else:
+        if candidate:
+            try:
+                candidate_spec = await resolve_endpoint_spec(candidate.endpoint, endpoint_repo.get)
+            except ValueError:
+                candidate_spec = None
+            if candidate_spec is not None and candidate_spec.media_type == media_type:
+                model = candidate
+        if model is None:
             logger.warning(
                 "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 %s），回退到默认模型",
                 provider_id,
@@ -80,9 +88,11 @@ async def load_custom_backend(
 
     if model_id is None:
         raise ValueError(f"自定义供应商 {provider_id} 解析后仍缺少 model_id")
+    spec = await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)
     return create_custom_backend(
         provider=provider,
         model_id=model_id,
         endpoint=model.endpoint,
         capability_overrides=model.capability_overrides,
+        endpoint_spec=spec,
     )

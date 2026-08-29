@@ -18,15 +18,11 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
-from lib.custom_provider.endpoint_definition import (
-    DefinitionIssue,
-    load_schema,
-    requires_image_input,
-    validate_definition,
-)
-from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
+from lib.custom_provider.endpoint_definition import DefinitionIssue, validate_definition
+from lib.video_backends.base import VideoCapabilities
 
 #: 随版定义所在目录。文件名（不含 ``.json``）即内置端点键。
 BUILTIN_DEFINITIONS_DIR = Path(__file__).parent / "builtin_endpoints"
@@ -36,13 +32,6 @@ BUILTIN_DEFINITION_AUTHOR = "ArcReel"
 
 #: 声明式定义描述的是「JSON in/out + 提交/轮询」的视频协议，媒体类型恒为 video。
 DECLARATIVE_MEDIA_TYPE = "video"
-
-#: ``capabilities`` 节里取值为枚举的字段：schema 存字面量，:class:`VideoCapabilities` 存枚举。
-_CAPABILITY_ENUM_TYPES: Mapping[str, type[ReferenceAudioMode] | type[VideoAudioMode]] = {
-    "reference_audio_mode": ReferenceAudioMode,
-    "audio_track": VideoAudioMode,
-    "reference_route_audio_track": VideoAudioMode,
-}
 
 
 class BuiltinDefinitionError(RuntimeError):
@@ -102,34 +91,21 @@ def declarative_request_path(definition: Mapping[str, Any]) -> str:
     """提交 URL 模板去掉 ``{{ base_url }}`` 前缀后的部分，供 catalog 展示调用路径。
 
     定义里的 URL 是完整模板，而 catalog 的 ``request_path_template`` 与 Python 内置一样只呈现
-    base_url 之后的路径；模板不以 base_url 起头时（供应商域名写死在定义里）原样返回。
+    路径；模板不以 base_url 起头但写死供应商域名时，也丢掉 scheme / authority。
     """
     url: str = definition["submit"]["url"]
     stripped = url.strip()
     for prefix in ("{{base_url}}", "{{ base_url }}"):
         if stripped.startswith(prefix):
             return stripped[len(prefix) :]
+    parsed = urlsplit(stripped)
+    if parsed.scheme and parsed.netloc:
+        return parsed.path + (f"?{parsed.query}" if parsed.query else "") or "/"
     return stripped
 
 
 def declarative_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabilities:
-    """把 ``capabilities`` 节转成 :class:`VideoCapabilities`。
+    """声明式能力投影的公开兼容名；实现集中在能力合成模块。"""
+    from lib.custom_provider.capabilities import video_capabilities_from_definition
 
-    未声明的位取 ``schema.json`` 里的 ``default`` 而非 :class:`VideoCapabilities` 的字段缺省
-    ——两者在 ``first_frame`` 上并不相同（格式默认无素材输入，dataclass 默认支持首帧），照 schema
-    取值才与「能力全显式声明」的格式契约一致。
-
-    ``text_to_video`` 是唯一的例外：它由 ``inputs`` 的必需图输入推导（见
-    :func:`~lib.custom_provider.endpoint_definition.requires_image_input`），不取 schema 缺省。
-    该位在格式里是可选的冗余断言，声明为必需图输入却不声明该位的定义完全合法，照 schema 缺省
-    取值会得出 ``text_to_video=True``，让准入闸放行一个渲染不出来的纯文生请求。
-    """
-    declared: Mapping[str, Any] = definition.get("capabilities") or {}
-    properties: Mapping[str, Any] = load_schema()["$defs"]["capabilities"]["properties"]
-    values: dict[str, Any] = {}
-    for name, prop in properties.items():
-        raw = declared.get(name, prop.get("default"))
-        enum_type = _CAPABILITY_ENUM_TYPES.get(name)
-        values[name] = enum_type(raw) if enum_type is not None and raw is not None else raw
-    values["text_to_video"] = not requires_image_input(definition.get("inputs"))
-    return VideoCapabilities(**values)
+    return video_capabilities_from_definition(definition)

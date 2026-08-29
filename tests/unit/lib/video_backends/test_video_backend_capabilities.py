@@ -123,10 +123,10 @@ class TestVideoCapabilitiesForModel:
         assert ViduVideoBackend.video_capabilities_for_model("viduq3-turbo").max_reference_images == 7
 
     def test_minimax_h3_declares_multimodal_limits(self):
+        from lib.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.video_backends.base import ReferenceAudioMode
-        from lib.video_backends.minimax import MiniMaxVideoBackend
 
-        caps = MiniMaxVideoBackend.video_capabilities_for_model("MiniMax-H3")
+        caps = builtin_video_capabilities_for_model("minimax", "MiniMax-H3")
         assert caps.max_reference_images == 9
         assert caps.last_frame is True
         assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
@@ -138,15 +138,16 @@ class TestVideoCapabilitiesForModel:
         ("model", "expected"),
         [
             ("MiniMax-Hailuo-2.3", True),
+            # Fast 仅图生视频：这条收窄由 minimax-hailuo-v1-fast 定义里必需的首帧输入承担。
             ("MiniMax-Hailuo-2.3-Fast", False),
             ("S2V-01", False),
             ("MiniMax-H3", True),
         ],
     )
     def test_minimax_declares_text_to_video(self, model: str, expected: bool):
-        from lib.video_backends.minimax import MiniMaxVideoBackend
+        from lib.backend_assembly.specs import builtin_video_capabilities_for_model
 
-        assert MiniMaxVideoBackend.video_capabilities_for_model(model).text_to_video is expected
+        assert builtin_video_capabilities_for_model("minimax", model).text_to_video is expected
 
     @pytest.mark.parametrize(
         ("model", "expected"),
@@ -167,9 +168,10 @@ class TestVideoCapabilitiesForModel:
         assert ViduVideoBackend.video_capabilities_for_model(model).text_to_video is expected
 
     def test_v2_returns_four(self):
-        from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
+        from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
-        assert V2VideoGenerationsBackend.video_capabilities_for_model("whatever").max_reference_images == 4
+        caps = ENDPOINT_REGISTRY["v2-video-generations"].video_caps_for_model
+        assert caps is not None and caps("whatever").max_reference_images == 4
 
     def test_instance_property_delegates_to_static(self):
         """instance video_capabilities 委托至静态方法，保持 backend 为单一真相源。
@@ -272,17 +274,15 @@ class TestVideoAudioTrack:
 
     def test_every_video_model_matches_declared_stance(self):
         """backend 声明在全部内置视频 model 上的逐路径取值与上表相等（整表相等，非子集）。"""
-        from lib.backend_assembly.specs import get_provider_spec
+        from lib.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.config.registry import PROVIDER_REGISTRY
-        from lib.video_backends.registry import video_capabilities_for_model
 
         actual: dict[tuple[str, str], tuple[str, str]] = {}
         for provider_id, meta in PROVIDER_REGISTRY.items():
             for model_id, info in meta.models.items():
                 if info.media_type != "video":
                     continue
-                spec = get_provider_spec(provider_id, "video")
-                caps = video_capabilities_for_model(spec.registry_backend, model_id)
+                caps = builtin_video_capabilities_for_model(provider_id, model_id)
                 actual[(provider_id, model_id)] = (
                     caps.audio_track_for_route("i2v").value,
                     caps.audio_track_for_route("r2v").value,
@@ -349,9 +349,8 @@ class TestVideoCapabilitySingleSourceOfTruth:
 
     def test_every_registry_video_model_resolves_backend_capabilities(self):
         """每个内置视频模型都能从 backend 取到能力声明——单一真相源须覆盖全注册表。"""
-        from lib.backend_assembly.specs import get_provider_spec
+        from lib.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.config.registry import PROVIDER_REGISTRY
-        from lib.video_backends.registry import video_capabilities_for_model
 
         unresolved: list[str] = []
         for provider_id, meta in PROVIDER_REGISTRY.items():
@@ -359,8 +358,7 @@ class TestVideoCapabilitySingleSourceOfTruth:
                 if info.media_type != "video":
                     continue
                 try:
-                    spec = get_provider_spec(provider_id, "video")
-                    video_capabilities_for_model(spec.registry_backend, model_id)
+                    builtin_video_capabilities_for_model(provider_id, model_id)
                 except ValueError as exc:
                     unresolved.append(f"{provider_id}/{model_id}: {exc}")
         assert unresolved == []

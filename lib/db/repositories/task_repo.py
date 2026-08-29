@@ -16,9 +16,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
+from lib.db.models.api_call import ApiCall
 from lib.db.models.task import BatchTask, GenerationBatch, Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
-from lib.task_failure import bound_reason, collapse_cascade_reason, encode_failure
+from lib.task_failure import bound_reason, collapse_cascade_reason, encode_failure, parse_failure
 from lib.task_terminal_events import TERMINAL_TASK_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -596,6 +597,54 @@ class TaskRepository(BaseRepository):
         await self._cascade_failed_queued(task_id=task_id, error_message=error_message)
         await self.session.commit()
         return affected
+
+    async def retry_artifact_download(self, task_id: str) -> dict[str, Any]:
+        """把可恢复的下载失败任务原地翻回 running，并重开原 ApiCall 供 resume 结算。
+
+        派发所需的 ``provider_id`` 一并作为资格条件：状态一旦翻成 running，本方法就已提交，
+        派发侧再拒绝就没有回滚点，任务会永久停在 running 上无人接手。
+        """
+        result = await self.session.execute(select(Task).where(Task.task_id == task_id))
+        task = result.scalar_one_or_none()
+        parsed = parse_failure(task.error_message or "") if task is not None else None
+        if (
+            task is None
+            or task.status != "failed"
+            or parsed is None
+            or parsed[0] != "artifact_download_failed"
+            or not task.provider_job_id
+            or not task.provider_id
+        ):
+            raise ValueError(f"task is not eligible for artifact download retry: {task_id}")
+        payload = _json_loads(task.payload_json, {})
+        call_id = payload.get("api_call_id") if isinstance(payload, dict) else None
+        if not isinstance(call_id, int):
+            raise ValueError(f"task has no api_call_id for artifact download retry: {task_id}")
+        # 落 artifact_download_failed 的任务，其调用可能停在 failed（首次下载耗尽后已结算），
+        # 也可能停在 pending（续跑路径下载耗尽，结算与任务翻状态之间有窗口）。两种都受理并
+        # 原地翻回 pending：仍是同一条调用，不新增计费行。
+        call_update = await self.session.execute(
+            update(ApiCall)
+            .where(ApiCall.id == call_id, ApiCall.status.in_(("failed", "pending")))
+            .values(status="pending", finished_at=None, error_message=None)
+        )
+        if rowcount(call_update) != 1:
+            await self.session.rollback()
+            raise ValueError(f"api call is not eligible for artifact download retry: {call_id}")
+        now = utc_now()
+        task_update = await self.session.execute(
+            update(Task)
+            .where(Task.task_id == task_id, Task.status == "failed")
+            # started_at 一并刷新：重试是新的一段执行，留着首次提交的时间会让面板上的
+            # 耗时按上一段的起点算。
+            .values(status="running", error_message=None, finished_at=None, started_at=now, updated_at=now)
+        )
+        if rowcount(task_update) != 1:
+            await self.session.rollback()
+            raise ValueError(f"task is not eligible for artifact download retry: {task_id}")
+        await self.session.commit()
+        refreshed = await self.session.execute(select(Task).where(Task.task_id == task_id))
+        return _task_to_dict(refreshed.scalar_one())
 
     async def _mark_failed_running(self, *, task_id: str, error_message: str) -> int:
         """单点：将 running task 标 failed；返回受影响行数。不 commit。"""

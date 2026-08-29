@@ -22,7 +22,10 @@ if TYPE_CHECKING:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.backend_assembly.specs import get_provider_spec
+from lib.backend_assembly.specs import (
+    builtin_effective_generate_audio_for_model,
+    builtin_video_capabilities_for_model,
+)
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     default_model_for_provider,
@@ -42,10 +45,6 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import get_project_manager
 from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
-from lib.video_backends.registry import (
-    effective_generate_audio_for_model as builtin_effective_generate_audio_for_model,
-)
-from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -362,8 +361,7 @@ def builtin_video_audio_track(provider_id: str, model_id: str, *, capability: Vi
     if model_info is None or model_info.media_type != "video":
         return None
     try:
-        spec = get_provider_spec(provider_id, "video")
-        caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+        caps = builtin_video_capabilities_for_model(provider_id, model_id)
     except ValueError:
         return None
     return caps.audio_track_for_route(capability).value
@@ -1216,7 +1214,8 @@ class ConfigResolver:
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
-        from lib.custom_provider.endpoints import endpoint_to_media_type
+        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 
         try:
             db_pid = parse_provider_id(provider_id)
@@ -1226,10 +1225,10 @@ class ConfigResolver:
         if model is None or not model.is_enabled:
             raise _video_bucket_reference_unavailable(capability, provider_id, model_id)
         try:
-            media_type = endpoint_to_media_type(model.endpoint)
+            endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
         except ValueError as exc:
             raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
-        if media_type != "video":
+        if endpoint_spec.media_type != "video":
             raise _video_bucket_reference_unavailable(capability, provider_id, model_id)
         return model
 
@@ -1256,17 +1255,21 @@ class ConfigResolver:
             from lib.custom_provider.capabilities import synthesize_video_capabilities
 
             try:
+                from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+                from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+
+                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
                 caps = synthesize_video_capabilities(
                     endpoint=model.endpoint,
                     model_id=model_id,
                     overrides=model.capability_overrides,
+                    endpoint_spec=endpoint_spec,
                 )
             except ValueError as exc:
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
         else:
             try:
-                spec = get_provider_spec(provider_id, "video")
-                caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+                caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
         satisfied = video_capability_satisfied(
@@ -1297,7 +1300,8 @@ class ConfigResolver:
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；内置分支不用它，
         # 也就不必为此拉起整个装配层。
-        from lib.custom_provider.endpoints import endpoint_to_media_type
+        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 
         try:
             db_pid = parse_provider_id(selected.provider_id)
@@ -1305,8 +1309,13 @@ class ConfigResolver:
             raise ValueError(f"invalid custom provider_id: {selected.provider_id}") from exc
         repo = CustomProviderRepository(session)
         model = await repo.get_model_by_ids(db_pid, selected.model_id)
-        if model is not None and model.is_enabled and endpoint_to_media_type(model.endpoint) == "video":
-            return selected
+        if model is not None and model.is_enabled:
+            try:
+                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
+            except ValueError:
+                endpoint_spec = None
+            if endpoint_spec is not None and endpoint_spec.media_type == "video":
+                return selected
 
         logger.warning(
             "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 video），身份解析回退到默认模型",
@@ -1418,10 +1427,15 @@ class ConfigResolver:
             # provider 行、不构造 SDK client，故逐视频单元解析无 DB/网络/client 构造副作用
             # （也不因 api_key 缺失而抛）。
             try:
+                from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+                from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+
+                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
                 caps = synthesize_video_capabilities(
                     endpoint=model.endpoint,
                     model_id=model_id,
                     overrides=model.capability_overrides,
+                    endpoint_spec=endpoint_spec,
                 )
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
@@ -1465,8 +1479,7 @@ class ConfigResolver:
             # 也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
             # （`lib.capability_buckets`）的口径，展示层与执行层因此严格同源。
             try:
-                spec = get_provider_spec(provider_id, "video")
-                builtin_caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             max_reference_images = builtin_caps.max_reference_images
@@ -1480,9 +1493,7 @@ class ConfigResolver:
             # 路线无音轨的子路径（可灵 v3-omni 多图主体）据此如实派生出 voice_consistency=none。
             has_audio = builtin_caps.audio_track_for_route(capability) != "always_off"
             try:
-                default_tier_generates_audio = builtin_effective_generate_audio_for_model(
-                    spec.registry_backend, model_id
-                )
+                default_tier_generates_audio = builtin_effective_generate_audio_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise ValueError(
                     f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"
