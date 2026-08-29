@@ -535,7 +535,7 @@ def build_normalize_prompt(
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
-    """Step-1 规范化 prompt：源文 → 结构化分镜内容（utterances + source_text + 视觉改编描述）。
+    """脚本规划的规范化 prompt：源文 → 结构化分镜内容（utterances + source_text + 视觉改编描述）。
 
     由 ``generate_script_plan`` 的剧情变体消费。内容抽取前移（见 ADR 0041）：script_plan 一次定稿场景
     边界、出场资产、逐字口播、原文锚与视觉改编描述，prompt_authoring 仅透传 + 补视觉。输出受 response_schema
@@ -697,7 +697,7 @@ def build_narration_split_prompt(
     episode: int,
     target_language: str = "中文",
 ) -> str:
-    """Step-1 旁白/解说分镜拆分 prompt：源文 → 结构化分镜表（逐字 novel_text + 时长 + 资产登记）。
+    """脚本规划的旁白/解说分镜拆分 prompt：源文 → 结构化分镜表（逐字 novel_text + 时长 + 资产登记）。
 
     由 ``generate_script_plan`` 的旁白变体消费。输出受 response_schema（``NarrationScriptPlanDraft``）
     约束为结构化 JSON——``novel_text`` 逐字保留原文（配音与透传真相源），视觉层由后续 prompt_authoring 按

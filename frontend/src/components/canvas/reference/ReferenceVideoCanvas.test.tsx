@@ -488,12 +488,12 @@ describe("ReferenceVideoCanvas", () => {
     expect(unitsTab).toHaveAttribute("aria-selected", "true");
   });
 
-  it("switches main tab between units and content organization", async () => {
+  it("switches main tab between units and script plan", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     const unitsTab = screen.getByRole("tab", { name: /Video units|视频单元/ });
-    const preprocTab = screen.getByRole("tab", { name: /Content Organization|脚本规划/ });
+    const preprocTab = screen.getByRole("tab", { name: /Script Plan|脚本规划/ });
     fireEvent.click(preprocTab);
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     expect(unitsTab).toHaveAttribute("aria-selected", "false");
@@ -537,7 +537,7 @@ describe("ReferenceVideoCanvas", () => {
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    const preprocTab = screen.getByRole("tab", { name: /Content Organization|脚本规划/ });
+    const preprocTab = screen.getByRole("tab", { name: /Script Plan|脚本规划/ });
     fireEvent.click(preprocTab);
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     // UnitList 被隐藏，改由预览面板渲染 script_plan 结构化中间态（只读高亮文稿）
@@ -561,7 +561,7 @@ describe("ReferenceVideoCanvas", () => {
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
-    const preprocTab = await screen.findByRole("tab", { name: /Content Organization|脚本规划/ });
+    const preprocTab = await screen.findByRole("tab", { name: /Script Plan|脚本规划/ });
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     await waitFor(() => expect(screen.getByText("shot text")).toBeInTheDocument());
     expect(listSpy).not.toHaveBeenCalled();
@@ -581,7 +581,7 @@ describe("ReferenceVideoCanvas", () => {
       content: { units: [] },
     });
     const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
-    const preprocTab = await screen.findByRole("tab", { name: /Content Organization|脚本规划/ });
+    const preprocTab = await screen.findByRole("tab", { name: /Script Plan|脚本规划/ });
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     rerender(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={true} />);
     await waitFor(() =>

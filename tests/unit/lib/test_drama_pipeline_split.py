@@ -231,7 +231,7 @@ class TestMergeDramaVisualIntoScenes:
 
 
 class TestEpisodeOutlineContext:
-    """内容抽取前移后，分集大纲（故事节点 / 钩子）作为 script_plan 内容生成的规划输入。"""
+    """分集大纲（故事节点 / 钩子）是 script_plan 内容生成的规划输入。"""
 
     def _project(self) -> dict:
         return {
