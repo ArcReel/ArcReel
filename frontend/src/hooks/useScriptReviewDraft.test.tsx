@@ -15,6 +15,7 @@ function reviewState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSt
     quarantine: null,
     supported_durations: null,
     duration_tiers: null,
+    episode_target_duration: null,
     content: {
       title: "第一集",
       scenes: [

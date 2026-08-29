@@ -18,6 +18,10 @@ import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
+import {
+  EpisodeTargetDurationField,
+  isValidEpisodeTargetDuration,
+} from "@/components/shared/EpisodeTargetDurationField";
 import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -165,6 +169,7 @@ export function ProjectSettingsPage() {
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
   // 口播语速估算（阅读单位 / 秒）：null = 未填，按项目语言的默认速度估算
   const [speechRate, setSpeechRate] = useState<number | null>(null);
+  const [episodeTargetDuration, setEpisodeTargetDuration] = useState<number | null>(null);
   // 源文语言由内容分析写入，此页只读——只用来决定语速的单位名词（字 / 词）
   const [sourceLanguage, setSourceLanguage] = useState<string | null>(null);
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
@@ -196,6 +201,7 @@ export function ProjectSettingsPage() {
     aspectRatio: "", gridStoryboard: false,
     defaultDuration: null as number | null,
     speechRate: null as number | null,
+    episodeTargetDuration: null as number | null,
     videoResolution: null as string | null,
     imageResolution: null as string | null,
   });
@@ -284,6 +290,8 @@ export function ProjectSettingsPage() {
       const route = normalizeRoute(project.generation_mode);
       const grid = project.grid_storyboard === true;
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
+      const rawEtd = project.episode_target_duration;
+      const etd = typeof rawEtd === "number" && Number.isFinite(rawEtd) ? rawEtd : null;
       const rawRate = project.speech_rate_units_per_second;
       const sr = typeof rawRate === "number" && Number.isFinite(rawRate) ? rawRate : null;
       const sl = typeof project.source_language === "string" ? project.source_language : null;
@@ -308,6 +316,7 @@ export function ProjectSettingsPage() {
       setGridStoryboard(grid);
       setDefaultDuration(dd);
       setSpeechRate(sr);
+      setEpisodeTargetDuration(etd);
       setSourceLanguage(sl);
       setVoiceBinding(vbind);
       setProjectTitle(typeof project.title === "string" ? project.title : "");
@@ -345,6 +354,7 @@ export function ProjectSettingsPage() {
         voiceBinding: vbind,
         textDefault: td, textSimple: tsi, textComplex: tcx,
         aspectRatio: ar, gridStoryboard: grid, defaultDuration: dd, speechRate: sr,
+        episodeTargetDuration: etd,
         videoResolution: vRes, imageResolution: iRes,
       };
     }));
@@ -402,6 +412,7 @@ export function ProjectSettingsPage() {
     gridStoryboard !== initialRef.current.gridStoryboard ||
     defaultDuration !== initialRef.current.defaultDuration ||
     speechRate !== initialRef.current.speechRate ||
+    episodeTargetDuration !== initialRef.current.episodeTargetDuration ||
     videoResolution !== initialRef.current.videoResolution ||
     imageResolution !== initialRef.current.imageResolution ||
     styleIsDirty;
@@ -522,7 +533,11 @@ export function ProjectSettingsPage() {
         // 但只在开关可见时写——参考生视频与 ad 项目下该键与项目无关，ad 更会对 true 返回 400
         ...(gridToggleVisible ? { grid_storyboard: gridStoryboard } : {}),
         // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键
-        ...(contentMode === "ad" ? {} : { default_duration: defaultDuration }),
+        // ad 项目禁写 episode_target_duration（同 default_duration，字段出现即 400），省略该键；
+        // 非 ad 恒写：null 即清除该偏好
+        ...(contentMode === "ad"
+          ? {}
+          : { default_duration: defaultDuration, episode_target_duration: episodeTargetDuration }),
         model_settings: newModelSettings,
       });
       setModelSettings(newModelSettings);
@@ -534,6 +549,7 @@ export function ProjectSettingsPage() {
         voiceBinding,
         textDefault, textSimple, textComplex,
         aspectRatio, gridStoryboard, defaultDuration, speechRate,
+        episodeTargetDuration,
         videoResolution, imageResolution,
       };
       // grid_storyboard / video_backend 落盘后，/video-capabilities 按已存值解析——查询 key 未变
@@ -545,7 +561,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
 
   const handleResetAgentProfile = useCallback(async () => {
     if (profileResetProject !== projectName) {
@@ -872,6 +888,15 @@ export function ProjectSettingsPage() {
                   onChange={setSpeechRate}
                   sourceLanguage={sourceLanguage}
                 />
+                {/* ad 项目的整集体量由目标总时长表达，不呈现该输入（服务端亦拒写） */}
+                {contentMode !== "ad" && (
+                  <div className="mt-4">
+                    <EpisodeTargetDurationField
+                      value={episodeTargetDuration}
+                      onChange={setEpisodeTargetDuration}
+                    />
+                  </div>
+                )}
               </SectionCard>
 
               {/* 角色声音绑定方式：只在参考生视频路线有效——参考音频通道属于该路线，
@@ -1029,7 +1054,11 @@ export function ProjectSettingsPage() {
               // eslint-disable-next-line react-hooks/refs
               onClick={voidPromise(handleSave)}
               // 口播语速越界时不放行保存（区间与后端同一把尺），行内提示已说明原因
-              disabled={saving || !isValidSpeechRate(speechRate)}
+              disabled={
+                saving ||
+                !isValidSpeechRate(speechRate) ||
+                !isValidEpisodeTargetDuration(episodeTargetDuration)
+              }
               className={`${ACCENT_BTN_CLS} px-5`}
               style={ACCENT_BUTTON_STYLE}
             >

@@ -538,3 +538,34 @@ def test_ad_reference_script_basis_excludes_storyboard_only_inputs() -> None:
     )
 
     assert same.digest == baseline.digest
+
+
+@pytest.mark.parametrize(
+    "generation_mode,content_mode",
+    [("storyboard", "drama"), ("storyboard", "narration"), ("reference_video", "narration")],
+)
+def test_script_plan_basis_ignores_an_unset_episode_target_duration(
+    generation_mode: str,
+    content_mode: str,
+) -> None:
+    """未设目标时提示词与不带该参数时逐字相同，digest 不因该键存在而变——否则存量项目整体判 stale。"""
+    project = {"content_mode": content_mode, "generation_mode": generation_mode}
+
+    unset = build_script_plan_basis("source", episode=1, project=project)
+    explicit_null = build_script_plan_basis("source", episode=1, project={**project, "episode_target_duration": None})
+    dirty = build_script_plan_basis("source", episode=1, project={**project, "episode_target_duration": 5})
+
+    assert explicit_null.digest == unset.digest
+    # 越界脏值读时降级为「未设目标」，提示词同样不变，basis 也不该动
+    assert dirty.digest == unset.digest
+
+
+def test_script_plan_basis_tracks_a_set_episode_target_duration() -> None:
+    project = {"content_mode": "drama", "generation_mode": "storyboard"}
+
+    unset = build_script_plan_basis("source", episode=1, project=project)
+    targeted = build_script_plan_basis("source", episode=1, project={**project, "episode_target_duration": 90})
+    retargeted = build_script_plan_basis("source", episode=1, project={**project, "episode_target_duration": 120})
+
+    assert targeted.digest != unset.digest
+    assert retargeted.digest != targeted.digest

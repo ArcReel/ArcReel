@@ -214,6 +214,44 @@ def _write_source_text(pm: ProjectManager, filename: str, text: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _set_episode_target_duration(pm: ProjectManager, seconds: int) -> None:
+    def _set(project: dict) -> None:
+        project["episode_target_duration"] = seconds
+
+    pm.update_project("demo", _set)
+
+
+class TestEpisodeTargetDuration:
+    """审核面板的「本集合计 / 目标」对比取自 state：目标与合计出自同一次读取。"""
+
+    async def test_state_carries_the_project_target(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        _set_episode_target_duration(pm, 90)
+        _write_script_plan(pm, "drama", _drama_script_plan())
+
+        state = await ScriptReviewService(pm).get_state("demo", 1)
+
+        assert state["episode_target_duration"] == 90
+
+    async def test_state_reports_no_target_when_unset(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        _write_script_plan(pm, "drama", _drama_script_plan())
+
+        state = await ScriptReviewService(pm).get_state("demo", 1)
+
+        assert state["episode_target_duration"] is None
+
+    async def test_out_of_range_value_degrades_to_no_target(self, tmp_path):
+        """手改 project.json 的脏值不应让面板拿着越界目标去对比。"""
+        pm = _make_project(tmp_path, "drama")
+        _set_episode_target_duration(pm, 5)
+        _write_script_plan(pm, "drama", _drama_script_plan())
+
+        state = await ScriptReviewService(pm).get_state("demo", 1)
+
+        assert state["episode_target_duration"] is None
+
+
 class TestDramaGateFlow:
     async def test_no_script_plan_then_pending_then_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama")

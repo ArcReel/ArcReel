@@ -52,6 +52,12 @@ from lib.episode_reset import (
 from lib.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
+from lib.episode_target_duration import (
+    EPISODE_TARGET_DURATION_FIELD,
+    MAX_EPISODE_TARGET_DURATION,
+    MIN_EPISODE_TARGET_DURATION,
+    is_valid_episode_target_duration,
+)
 from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.generation_batch import (
     GenerationBatchReadModel,
@@ -1521,6 +1527,7 @@ MAX_INSTRUCTIONS_LEN = 4000
 ASSET_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 PROJECT_SETTINGS = (
     "episode_target_units",
+    EPISODE_TARGET_DURATION_FIELD,
     "source_language",
     "brief",
     "planning_window_chars",
@@ -2003,6 +2010,18 @@ def _coerce_setting_value(key: str, value: Any) -> Any:
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"{key} 必须是正整数或 null,收到 {value!r}")
         return value
+    if key == EPISODE_TARGET_DURATION_FIELD:
+        if value is None:
+            return None
+        message = (
+            f"{EPISODE_TARGET_DURATION_FIELD} 必须是 {MIN_EPISODE_TARGET_DURATION}-"
+            f"{MAX_EPISODE_TARGET_DURATION} 秒的整数或 null,收到 {value!r}"
+        )
+        if isinstance(value, str):
+            value = _coerce_numeric_string(value, int, message)
+        if not is_valid_episode_target_duration(value):
+            raise ValueError(message)
+        return value
     if key == "source_language":
         if value is not None and (not isinstance(value, str) or value not in _SOURCE_LANGUAGE_VALUES):
             raise ValueError(f"source_language 必须是 {list(_SOURCE_LANGUAGE_VALUES)} 之一或 null,收到 {value!r}")
@@ -2132,6 +2151,10 @@ def _patch_project_sync(
             def mutate_settings(project_data: dict[str, Any]) -> None:
                 if "brief" in coerced and project_data.get("content_mode") != "ad":
                     raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
+                if EPISODE_TARGET_DURATION_FIELD in coerced and project_data.get("content_mode") == "ad":
+                    raise ValueError(
+                        f"{EPISODE_TARGET_DURATION_FIELD} 不适用广告/短片项目（整集体量按 target_duration 预算规划）"
+                    )
                 for key, field_value in coerced.items():
                     current = project_data.get(key)
                     if field_value is None:

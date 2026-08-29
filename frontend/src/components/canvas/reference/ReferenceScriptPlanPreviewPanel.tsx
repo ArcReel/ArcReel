@@ -12,6 +12,7 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
+import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
@@ -579,6 +580,14 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
           </button>
         </div>
       </header>
+
+      {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
+      {!quarantined && (
+        <EpisodeDurationSummary
+          totalSeconds={displayUnits.reduce((sum, u) => sum + u.durationSeconds, 0)}
+          targetSeconds={state?.episode_target_duration ?? null}
+        />
+      )}
 
       <div className="flex flex-col gap-2.5">
         {displayUnits.map((unit, i) => (

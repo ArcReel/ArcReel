@@ -20,6 +20,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     quarantine: null,
     supported_durations: [4, 8],
     duration_tiers: null,
+    episode_target_duration: null,
     content: {
       units: [
         {
@@ -43,6 +44,7 @@ function quarantinedState(): ScriptReviewState {
     confirmed_at: null,
     supported_durations: [4, 8],
     duration_tiers: null,
+    episode_target_duration: null,
     content: null,
     quarantine: {
       content: {
@@ -248,6 +250,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       quarantine: null,
       supported_durations: null,
       duration_tiers: null,
+      episode_target_duration: null,
     });
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     await waitFor(() => expect(screen.getByText("暂无脚本规划结果")).toBeInTheDocument());
@@ -487,5 +490,21 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     const statusBar = container.querySelector("span.text-\\[11px\\].text-text-4");
     expect(statusBar?.textContent).toMatch(/E1U01 · 1.+E1U02 · 1/);
     expect(statusBar?.textContent).not.toContain("1E1U02");
+  });
+
+  it("compares the episode total against the project target", async () => {
+    // pendingState 只有一个 8 秒 unit
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ episode_target_duration: 30 }));
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("本集合计 8 秒 / 目标 30 秒")).toBeInTheDocument());
+  });
+
+  it("shows no comparison when the project has no target", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    expect(screen.queryByText(/本集合计/)).not.toBeInTheDocument();
   });
 });

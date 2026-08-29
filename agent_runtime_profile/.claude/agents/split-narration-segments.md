@@ -42,6 +42,7 @@ mcp__arcreel__get_video_capabilities({})
 
 解析返回的 JSON，记录：
 - `default_duration`：用户在项目设置中指定的单分镜默认时长（可能为 null）
+- `episode_target_duration`：用户在项目设置中指定的单集成片目标时长（秒，可能为 null）——本集各单元时长合计的**软目标**，据它决定本集拆多少个单元
 - `supported_durations`：分镜时长允许的取值集合（其最大值即 `max_duration`）
 
 **校验**：若 `default_duration` 非 null 但**不在** `supported_durations` 内，按 null 处理（用户配置漂移导致的非法值）。

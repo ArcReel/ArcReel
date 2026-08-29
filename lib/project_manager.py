@@ -59,6 +59,12 @@ from lib.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     episode_script_relpath,
 )
+from lib.episode_target_duration import (
+    EPISODE_TARGET_DURATION_FIELD,
+    MAX_EPISODE_TARGET_DURATION,
+    MIN_EPISODE_TARGET_DURATION,
+    is_valid_episode_target_duration,
+)
 from lib.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
@@ -2366,6 +2372,7 @@ class ProjectManager:
         content_mode: str | None = "narration",
         aspect_ratio: str | None = "9:16",
         default_duration: int | None = None,
+        episode_target_duration: int | None = None,
         style_template_id: str | None = None,
         extras: dict | None = None,
         target_duration: int | None = None,
@@ -2381,7 +2388,10 @@ class ProjectManager:
         （解析链不再读取、写边界已拒绝），调用方不应再传入。
 
         `target_duration` / `brief` 仅 content_mode=ad 可用；ad 项目不持有
-        `default_duration`，且 episodes 恒为第 1 集单条。
+        `default_duration` 与 `episode_target_duration`，且 episodes 恒为第 1 集单条。
+
+        `episode_target_duration` 为单集目标时长（秒），取值区间见
+        `lib.episode_target_duration`；软偏好，只注入脚本规划提示词与审核面板对比，不做阻断。
 
         `source_kind` 为源文件性质（novel / screenplay），缺省 novel，创建即定、之后不可变
         （可变性守卫在路由 PATCH 层，与 content_mode 同性质）。
@@ -2397,6 +2407,8 @@ class ProjectManager:
         if resolved_mode == "ad":
             if default_duration is not None:
                 raise ValueError("广告/短片项目不持有 default_duration（分镜时长按 target_duration 预算逐个分镜规划）")
+            if episode_target_duration is not None:
+                raise ValueError("广告/短片项目不持有 episode_target_duration（整集体量按 target_duration 预算规划）")
             if target_duration is not None and (
                 not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0
             ):
@@ -2440,6 +2452,13 @@ class ProjectManager:
             project["episodes"] = [dict(self.AD_SINGLE_EPISODE)]
         if default_duration is not None:
             project["default_duration"] = default_duration
+        if episode_target_duration is not None:
+            if not is_valid_episode_target_duration(episode_target_duration):
+                raise ValueError(
+                    f"episode_target_duration 必须是 {MIN_EPISODE_TARGET_DURATION}–"
+                    f"{MAX_EPISODE_TARGET_DURATION} 秒的整数，当前为 {episode_target_duration!r}"
+                )
+            project[EPISODE_TARGET_DURATION_FIELD] = episode_target_duration
         if style_template_id is not None:
             project["style_template_id"] = style_template_id
         if extras:
@@ -2449,7 +2468,13 @@ class ProjectManager:
                 raise ValueError("image_backend 已废弃，请改用 image_provider_t2i / image_provider_i2i")
             # extras 只许追加可选字段，不得覆盖上方已校验/已构造的核心字段——
             # 否则非路由调用方可借 extras 绕过模式互斥守卫（如 ad 项目写回 default_duration）。
-            reserved = set(project) | {"default_duration", "style_template_id", "target_duration", "brief"}
+            reserved = set(project) | {
+                "default_duration",
+                EPISODE_TARGET_DURATION_FIELD,
+                "style_template_id",
+                "target_duration",
+                "brief",
+            }
             forbidden = reserved & set(extras)
             if forbidden:
                 raise ValueError(f"extras 不允许覆盖核心字段: {sorted(forbidden)}")

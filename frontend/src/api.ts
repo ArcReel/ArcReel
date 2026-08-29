@@ -427,6 +427,8 @@ export interface CreateProjectPayload {
   /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
   speech_rate_units_per_second?: number | null;
   default_duration?: number | null;
+  /** 单集目标时长（秒）；未设即不传。ad 项目服务端拒绝该字段。 */
+  episode_target_duration?: number | null;
   /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
   target_duration?: number;
   /** 仅 ad：创作诉求短文本（可空）。 */

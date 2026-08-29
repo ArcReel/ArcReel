@@ -31,6 +31,12 @@ from lib.episode_ledger import (
     SourceRange,
     parse_positive_episode_num,
 )
+from lib.episode_target_duration import (
+    EPISODE_TARGET_DURATION_FIELD,
+    MAX_EPISODE_TARGET_DURATION,
+    MIN_EPISODE_TARGET_DURATION,
+    is_valid_episode_target_duration,
+)
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
@@ -326,7 +332,9 @@ class DataValidator:
         """广告/短片项目的专属字段与恒单集约束。
 
         target_duration / brief 仅 ad 项目持有；ad 项目不持有 default_duration
-        （分镜按目标总时长预算逐个规划，单个分镜偏好无意义），episodes 恒为第 1 集单条。
+        （分镜按目标总时长预算逐个规划，单个分镜偏好无意义）与 episode_target_duration
+        （整集体量已由 target_duration 预算表达，两套总量口径并存会互相竞争），
+        episodes 恒为第 1 集单条。
         """
         if content_mode != "ad":
             if project.get("target_duration") is not None:
@@ -347,6 +355,9 @@ class DataValidator:
 
         if project.get("default_duration") is not None:
             errors.append(_m("val_ad_no_default_duration"))
+
+        if project.get(EPISODE_TARGET_DURATION_FIELD) is not None:
+            errors.append(_m("val_ad_no_episode_target_duration"))
 
         if project.get("grid_storyboard") is True:
             errors.append(_m("val_ad_no_grid_storyboard"))
@@ -402,11 +413,28 @@ class DataValidator:
             elif not is_valid_speech_rate(speech_rate):
                 errors.append(
                     _m(
-                        "val_speech_rate_out_of_range",
+                        "val_field_out_of_range",
                         field=SPEECH_RATE_FIELD,
                         value=speech_rate,
                         min=MIN_SPEECH_RATE_UPS,
                         max=MAX_SPEECH_RATE_UPS,
+                    )
+                )
+
+        # 单集目标时长（秒）：可选字段，缺省即未设目标；出现即须是落在硬区间内的整数秒。
+        # 与 SPEECH_RATE_FIELD 同形，只是量纲为整数——浮点秒数按类型错报，不静默取整。
+        episode_target_duration = project.get(EPISODE_TARGET_DURATION_FIELD)
+        if episode_target_duration is not None:
+            if isinstance(episode_target_duration, bool) or not isinstance(episode_target_duration, int):
+                errors.append(_m("val_field_type_integer", field=EPISODE_TARGET_DURATION_FIELD))
+            elif not is_valid_episode_target_duration(episode_target_duration):
+                errors.append(
+                    _m(
+                        "val_field_out_of_range",
+                        field=EPISODE_TARGET_DURATION_FIELD,
+                        value=episode_target_duration,
+                        min=MIN_EPISODE_TARGET_DURATION,
+                        max=MAX_EPISODE_TARGET_DURATION,
                     )
                 )
 
