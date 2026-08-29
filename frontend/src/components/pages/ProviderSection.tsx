@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { errMsg, voidCall } from "@/utils/async";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
@@ -60,7 +60,7 @@ type Selection =
   | null;
 
 export function ProviderSection() {
-  const { t } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,12 +116,20 @@ export function ProviderSection() {
     void useConfigStatusStore.getState().refresh();
   }, []);
 
+  // 同一 reloadKey 下的重跑只可能由语言变化触发，此时静默刷新：不置 loading，
+  // 列表与详情面板保持挂载，详情表单里未保存的输入不被卸载丢弃。
+  const loadedKeyRef = useRef<number | null>(null);
+
   useEffect(() => {
     let disposed = false;
-    // mount 时重置 loading/error 后并行拉取 preset+custom 列表
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true);
-    setLoadError(null);
+    const silent = loadedKeyRef.current === reloadKey;
+    loadedKeyRef.current = reloadKey;
+    // 并行拉取 preset+custom 列表。供应商与模型名由后端按 Accept-Language 成文，
+    // 语言切换后须重取，否则目录停留在切换前的语言。
+    if (!silent) {
+      setLoading(true);
+      setLoadError(null);
+    }
     voidCall(
       (async () => {
         try {
@@ -132,14 +140,7 @@ export function ProviderSection() {
           if (disposed) return;
           setProviders(presetRes.providers);
           setCustomProviders(customRes.providers);
-          const params = new URLSearchParams(search);
-          if (
-            !params.get("provider") &&
-            !params.get("custom") &&
-            presetRes.providers.length > 0
-          ) {
-            setSelection({ kind: "preset", id: presetRes.providers[0].id });
-          }
+          setLoadError(null);
         } catch (err) {
           if (!disposed) setLoadError(errMsg(err));
         } finally {
@@ -150,7 +151,13 @@ export function ProviderSection() {
     return () => {
       disposed = true;
     };
-  }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reloadKey, i18n.language]);
+
+  // 首个 preset 兜底选中：拉取完成后 URL 仍未指定选中项时补一次。
+  useEffect(() => {
+    if (loading || selection || providers.length === 0) return;
+    setSelection({ kind: "preset", id: providers[0].id });
+  }, [loading, selection, providers, setSelection]);
 
   if (loadError) {
     return (

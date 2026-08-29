@@ -1,10 +1,10 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Stub URL object APIs not available in jsdom
 globalThis.URL.createObjectURL ??= vi.fn(() => "blob:mock");
 globalThis.URL.revokeObjectURL ??= vi.fn();
-import "@/i18n";
+import i18n from "@/i18n";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -414,5 +414,91 @@ describe("CreateProjectModal ad mode", () => {
     await waitFor(() => expect(API.createProject).toHaveBeenCalled());
     const payload = vi.mocked(API.createProject).mock.calls[0][0];
     expect("target_duration" in payload).toBe(false);
+  });
+});
+
+// 供应商名由后端按 Accept-Language 成文，替身按当前语言返回对应译名。
+function sysConfigFor(lang: string) {
+  return {
+    ...mockSysConfig,
+    settings: { ...mockSysConfig.settings, default_video_backend: "gemini-aistudio/veo-3" },
+    options: {
+      ...mockSysConfig.options,
+      provider_names: {
+        "gemini-aistudio": lang === "en" ? "Gemini AI Studio (EN)" : "Gemini AI Studio（中文）",
+      },
+    },
+  };
+}
+
+describe("CreateProjectModal language switch", () => {
+  beforeEach(() => {
+    navigateMock.mockClear();
+    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    useProjectsStore.setState({ showCreateModal: true });
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.spyOn(API, "getSystemConfig").mockImplementation(() =>
+      Promise.resolve(sysConfigFor(i18n.language) as never),
+    );
+    vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+  });
+
+  afterEach(async () => {
+    await act(async () => {
+      await i18n.changeLanguage("zh");
+    });
+  });
+
+  async function goToStep2() {
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步|Next/ })).toBeEnabled());
+  }
+
+  it("renders the model catalog in the new language after the interface language changes", async () => {
+    render(<CreateProjectModal />);
+    await goToStep2();
+    expect(screen.getAllByText(/Gemini AI Studio（中文）/).length).toBeGreaterThan(0);
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/Gemini AI Studio \(EN\)/).length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText(/Gemini AI Studio（中文）/)).not.toBeInTheDocument();
+  });
+
+  it("keeps step2 usable while the catalog is being refetched", async () => {
+    let releaseRefetch: (() => void) | null = null;
+    vi.spyOn(API, "getSystemConfig").mockImplementation(() => {
+      const lang = i18n.language;
+      if (lang !== "en") return Promise.resolve(sysConfigFor(lang) as never);
+      return new Promise((resolve) => {
+        releaseRefetch = () => resolve(sysConfigFor(lang) as never);
+      });
+    });
+
+    render(<CreateProjectModal />);
+    await goToStep2();
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    // 重取未完成时既有 step2 数据不被清空，向导仍显示旧目录而不是 loading
+    expect(screen.getAllByText(/Gemini AI Studio（中文）/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Next|下一步/ })).toBeEnabled();
+
+    await act(async () => {
+      releaseRefetch?.();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.getAllByText(/Gemini AI Studio \(EN\)/).length).toBeGreaterThan(0),
+    );
   });
 });
