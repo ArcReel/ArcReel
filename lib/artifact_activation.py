@@ -97,13 +97,17 @@ def activate_artifact_target_state(
     bump_schema: bool,
     backup_file: Callable[[Path, int], None] | None = None,
     commit_schema: Callable[[Path, Mapping[str, Any]], None] | None = None,
+    plan: ArtifactTargetStatePlan | None = None,
 ) -> bool:
     """Commit one complete target state, optionally advancing schema last.
 
     ``backup_file`` 与 ``commit_schema`` 是临界区内两个落盘步骤的注入点，缺省即生产实现。
+    ``plan`` 供调用方把只读预检提到自身写盘段之前完成；缺省即在此就地预检。传入的计划仍要
+    过 ``_assert_preflight_unchanged``，它对着盘上事实自证，晚于预检的改动一律拒绝。
     """
 
-    plan = plan_artifact_target_state(project_dir)
+    if plan is None:
+        plan = plan_artifact_target_state(project_dir)
     current_schema = plan.project.get("schema_version")
     if bump_schema and current_schema != ARTIFACT_MANIFEST_SCHEMA_VERSION - 1:
         raise ValueError(f"schema bump requires a v{ARTIFACT_MANIFEST_SCHEMA_VERSION - 1} project")

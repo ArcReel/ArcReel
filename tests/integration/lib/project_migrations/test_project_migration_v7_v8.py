@@ -1108,6 +1108,65 @@ def test_v7_activation_rejects_two_artifact_keys_that_own_one_formal_path(tmp_pa
     assert not list(project_dir.rglob("*.bak.v7-*"))
 
 
+def _rename_draft_to_v9_name(project_dir: Path) -> Path:
+    """把 fixture 写在新名下的脚本规划草稿退回 v9 落盘事实，模拟起点低于 v8 的存量项目。"""
+
+    drafts_dir = project_dir / "drafts" / "episode_1"
+    legacy = drafts_dir / "step1_segments.json"
+    (drafts_dir / "script_plan_segments.json").replace(legacy)
+    return legacy
+
+
+def test_v7_activation_registers_a_pre_rename_script_plan_at_its_canonical_path(tmp_path: Path) -> None:
+    """草稿仍在 v9 旧名下：激活按旧名读取，登记的却是改名后的规范路径，改名与备份随后落盘。"""
+
+    project_dir, project, script_plan, _script = _project(tmp_path)
+    legacy = _rename_draft_to_v9_name(project_dir)
+    drafts_dir = legacy.parent
+
+    migrate_v7_to_v8(project_dir)
+
+    assert not legacy.exists()
+    assert _read_json(drafts_dir / "script_plan_segments.json") == script_plan
+    assert list(drafts_dir.glob("step1_segments.json.bak.v7-*"))
+    assert _stored_entries(project_dir)[ArtifactKey.episode_script_plan(1).encode()] == {
+        "artifact_path": "drafts/episode_1/script_plan_segments.json",
+        "basis_digest": build_script_plan_basis("雨夜", episode=1, project=project).digest,
+    }
+    assert _read_json(project_dir / "project.json")["schema_version"] == 8
+
+
+def test_v7_preflight_rejection_leaves_a_pending_draft_rename_untouched(tmp_path: Path) -> None:
+    """激活预检拒绝时草稿改名一并不落盘：项目目录与迁移前逐字节一致。"""
+
+    project_dir, _project_data, _script_plan, script = _project(tmp_path)
+    legacy = _rename_draft_to_v9_name(project_dir)
+    script["segments"].append(
+        {
+            "segment_id": "E1S02",
+            "image_prompt": "同一张正式图的第二个身份",
+            "video_prompt": "镜头前推",
+            "characters_in_segment": [],
+            "scenes": [],
+            "props": [],
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+        }
+    )
+    _write_json(project_dir / "scripts" / "episode_1.json", script)
+    before = {
+        path.relative_to(project_dir): path.read_bytes() for path in sorted(project_dir.rglob("*")) if path.is_file()
+    }
+
+    with pytest.raises(ValueError, match="formal artifact path.*multiple keys"):
+        migrate_v7_to_v8(project_dir)
+
+    assert {
+        path.relative_to(project_dir): path.read_bytes() for path in sorted(project_dir.rglob("*")) if path.is_file()
+    } == before
+    assert legacy.is_file()
+    assert not (project_dir / MANIFEST_FILENAME).exists()
+
+
 def test_v7_activation_restores_manifest_when_a_formal_image_changes_after_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
