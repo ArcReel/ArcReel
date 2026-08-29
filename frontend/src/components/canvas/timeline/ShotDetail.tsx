@@ -657,7 +657,7 @@ export function ShotDetail({
   // 文本 → 结构化不做解析，须显式确认丢弃文本。
   const [formSwitching, setFormSwitching] = useState<PromptSide | null>(null);
   const [pendingStructSwitch, setPendingStructSwitch] = useState<PromptSide | null>(null);
-  const [formSwitchError, setFormSwitchError] = useState<string | null>(null);
+  const [formSwitchError, setFormSwitchError] = useState<{ side: PromptSide; message: string } | null>(null);
 
   const switchToTextForm = async (side: PromptSide) => {
     if (!scriptFile || formSwitching) return;
@@ -666,15 +666,27 @@ export function ShotDetail({
     try {
       const preview = await API.previewScriptItemPrompts(projectName, segmentId, scriptFile);
       const rendered = side === "image" ? preview.storyboard_image : preview.video;
-      const seed = rendered.text ?? "";
-      if (side === "image") handleImgStringChange(seed);
-      else handleVidStringChange(seed);
+      if (rendered.text === null) {
+        // 渲染不出最终文本（条目缺该提示词字段、或形状不合规）时不切换：以空正文落进文本形态，
+        // 既丢掉了不可用的原因，也只会在保存时被后端的非空校验以无关文案拒掉。
+        setFormSwitchError({ side, message: rendered.unavailable ?? t("prompt_form_switch_unavailable") });
+        return;
+      }
+      if (side === "image") handleImgStringChange(rendered.text);
+      else handleVidStringChange(rendered.text);
     } catch (e) {
-      setFormSwitchError(errMsg(e));
+      setFormSwitchError({ side, message: errMsg(e) });
     } finally {
       setFormSwitching(null);
     }
   };
+
+  const renderFormSwitchError = (side: PromptSide) =>
+    formSwitchError?.side === side ? (
+      <p className="mt-2 text-[11px]" style={{ color: "var(--color-warm)" }}>
+        {formSwitchError.message}
+      </p>
+    ) : null;
 
   const confirmStructuredForm = () => {
     const side = pendingStructSwitch;
@@ -1008,6 +1020,7 @@ export function ShotDetail({
             dirty={dirty}
           />
         )}
+        {renderFormSwitchError("image")}
       </section>
 
       <section>
@@ -1056,11 +1069,7 @@ export function ShotDetail({
             dirty={dirty}
           />
         )}
-        {formSwitchError && (
-          <p className="mt-2 text-[11px]" style={{ color: "var(--color-warm)" }}>
-            {formSwitchError}
-          </p>
-        )}
+        {renderFormSwitchError("video")}
       </section>
     </div>
   );

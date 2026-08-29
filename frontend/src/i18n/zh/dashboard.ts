@@ -518,6 +518,7 @@ export default {
   'prompt_form_structured': '结构化',
   'prompt_form_text': '文本',
   'prompt_form_switch_needs_save': '请先保存当前修改，再切换提示词形态',
+  'prompt_form_switch_unavailable': '当前渲染不出最终提示词，无法切换到文本形态。',
   'prompt_form_to_structured_title': '切换回结构化提示词？',
   'prompt_form_to_structured_desc': '当前文本提示词会被丢弃，且不会解析回结构化字段，需要重新填写。',
   'prompt_form_to_structured_confirm': '丢弃并切换',
