@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, Download, Loader2, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
 import { downloadBlob } from "@/utils/download";
 import { useAppStore } from "@/stores/app-store";
@@ -18,6 +18,7 @@ import type {
   CustomProviderInfo,
   EndpointDefinition,
   EndpointDescriptor,
+  EndpointReference,
   EndpointValidateResponse,
 } from "@/types";
 import { definitionFileName, isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
@@ -44,6 +45,25 @@ interface EndpointDetailProps {
   onDeleted: () => void;
   onCopied: (record: CustomEndpointInfo) => void;
   onCreateProvider: (definition: EndpointDefinition, endpointKey: string) => void;
+  onNavigateToModel: (reference: EndpointReference) => void;
+}
+
+function endpointReferences(error: unknown): EndpointReference[] | null {
+  if (!(error instanceof ApiRequestError) || error.status !== 409) return null;
+  const references =
+    typeof error.diagnostic === "object" && error.diagnostic !== null
+      ? (error.diagnostic as { references?: unknown }).references
+      : undefined;
+  if (!Array.isArray(references)) return null;
+  return references.filter(
+    (reference): reference is EndpointReference =>
+      typeof reference === "object" &&
+      reference !== null &&
+      typeof (reference as EndpointReference).provider_id === "number" &&
+      typeof (reference as EndpointReference).provider_display_name === "string" &&
+      typeof (reference as EndpointReference).model_id === "string" &&
+      typeof (reference as EndpointReference).model_display_name === "string",
+  );
 }
 
 function KindBadge({ selection }: { selection: EndpointSelection }) {
@@ -74,6 +94,7 @@ export function EndpointDetail({
   onDeleted,
   onCopied,
   onCreateProvider,
+  onNavigateToModel,
 }: EndpointDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -101,6 +122,7 @@ export function EndpointDetail({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteReferences, setDeleteReferences] = useState<EndpointReference[] | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const builtinKey = selection.mode === "builtin" ? selection.descriptor.key : null;
@@ -189,6 +211,11 @@ export function EndpointDetail({
       pushToast(t("ce_deleted"), "success");
       onDeleted();
     } catch (e) {
+      const references = endpointReferences(e);
+      if (references) {
+        setDeleteReferences(references);
+        return;
+      }
       pushToast(errMsg(e, t("ce_delete_failed")), "error");
     } finally {
       setDeleting(false);
@@ -279,9 +306,10 @@ export function EndpointDetail({
             {persistedId !== null && (
               <button
                 type="button"
-                onClick={() => setConfirmDelete(true)}
-                disabled={referenceCount > 0}
-                title={referenceCount > 0 ? t("ce_delete_blocked") : undefined}
+                onClick={() => {
+                  setDeleteReferences(null);
+                  setConfirmDelete(true);
+                }}
                 className={GHOST_BTN_CLS}
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden />
@@ -418,12 +446,36 @@ export function EndpointDetail({
       <ConfirmDialog
         open={confirmDelete}
         title={t("ce_delete_title")}
-        description={t("ce_delete_desc", { name: title })}
+        description={
+          deleteReferences ? (
+            <div>
+              <p>{t("ce_delete_blocked")}</p>
+              <ul className="mt-2 space-y-1">
+                {deleteReferences.map((reference) => (
+                  <li key={`${reference.provider_id}:${reference.model_id}`}>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateToModel(reference)}
+                      className="text-left text-accent-2 underline decoration-accent/40 underline-offset-2 hover:text-accent"
+                    >
+                      {reference.provider_display_name} · {reference.model_display_name} — {t("ce_go_to_model")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            t("ce_delete_desc", { name: title })
+          )
+        }
         confirmLabel={t("common:delete")}
         tone="danger"
         loading={deleting}
         onConfirm={() => void handleDelete()}
-        onCancel={() => setConfirmDelete(false)}
+        onCancel={() => {
+          setConfirmDelete(false);
+          setDeleteReferences(null);
+        }}
       />
     </div>
   );

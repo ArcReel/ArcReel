@@ -1,10 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import "@/i18n";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type {
@@ -82,6 +82,11 @@ const CATALOG: EndpointDescriptor[] = [
     display_name: null,
     display_name_key: "endpoint_openai_video_display",
   }),
+  descriptor({
+    key: "openai-image",
+    media_type: "image",
+    display_name: "OpenAI Image",
+  }),
 ];
 
 function validation(overrides?: Partial<EndpointValidateResponse>): EndpointValidateResponse {
@@ -96,12 +101,15 @@ function validation(overrides?: Partial<EndpointValidateResponse>): EndpointVali
 }
 
 function renderSection(search = "section=endpoints") {
-  const { hook } = memoryLocation({ path: "/app/settings", searchPath: search, record: true });
-  return render(
-    <Router hook={hook}>
-      <EndpointsSection />
-    </Router>,
-  );
+  const location = memoryLocation({ path: "/app/settings", searchPath: search, record: true });
+  return {
+    ...render(
+      <Router hook={location.hook}>
+        <EndpointsSection />
+      </Router>,
+    ),
+    location,
+  };
 }
 
 describe("EndpointsSection", () => {
@@ -125,6 +133,12 @@ describe("EndpointsSection", () => {
     expect(within(list).getByText("我的端点")).toBeInTheDocument();
     expect(within(list).getByText("内置")).toBeInTheDocument();
     expect(within(list).getByText("内置 · Python")).toBeInTheDocument();
+  });
+
+  it("lists only video endpoints", async () => {
+    renderSection();
+    const list = await screen.findByRole("navigation");
+    expect(within(list).queryByText("OpenAI Image")).not.toBeInTheDocument();
   });
 
   it("shows an editable lifecycle form for one of my endpoints", async () => {
@@ -170,7 +184,7 @@ describe("EndpointsSection", () => {
     );
   });
 
-  it("blocks deleting an endpoint that models still reference", async () => {
+  it("shows server references when deletion conflicts and offers a model-row jump", async () => {
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({
       providers: [
         {
@@ -205,9 +219,31 @@ describe("EndpointsSection", () => {
         },
       ],
     });
-    renderSection("section=endpoints&endpoint=ce-7");
+    vi.spyOn(API, "deleteCustomEndpoint").mockRejectedValue(
+      new ApiRequestError(
+        "Models are using this endpoint.",
+        {
+          references: [
+            {
+              provider_id: 1,
+              provider_display_name: "Relay",
+              model_id: "example-video",
+              model_display_name: "Example Video",
+            },
+          ],
+        },
+        409,
+      ),
+    );
+    const { location } = renderSection("section=endpoints&endpoint=ce-7");
     expect(await screen.findByText("1 个模型正在使用")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "删除" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "删除" }).at(-1)!);
+    const jump = await screen.findByRole("button", { name: "Relay · Example Video — 前往模型行" });
+    await userEvent.click(jump);
+    expect(location.history.at(-1)).toBe(
+      "/app/settings?section=providers&custom=1&model=example-video",
+    );
   });
 
   it("offers a copy of a built-in declarative endpoint instead of editing it", async () => {
@@ -230,6 +266,39 @@ describe("EndpointsSection", () => {
     await userEvent.type(nameField, "X-Token");
     expect(screen.getByLabelText("请求头名称")).toHaveFocus();
     expect(screen.getByLabelText("请求头名称")).toHaveValue("X-Token");
+  });
+
+  it("rejects a duplicate key with a toast without overwriting either row", async () => {
+    vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({
+      endpoints: [
+        {
+          ...MINE,
+          definition: makeDefinition({
+            auth: {
+              headers: {
+                Authorization: "Bearer {{ api_key }}",
+                "X-Token": "abc",
+              },
+            },
+          }),
+        },
+      ],
+    });
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    renderSection("section=endpoints&endpoint=ce-7");
+    const [nameField] = await screen.findAllByLabelText("请求头名称");
+
+    fireEvent.change(nameField, { target: { value: "X-Token" } });
+
+    expect(screen.getAllByLabelText("请求头名称").map((field) => field.getAttribute("value"))).toEqual([
+      "Authorization",
+      "X-Token",
+    ]);
+    expect(screen.getAllByLabelText("请求头内容").map((field) => field.getAttribute("value"))).toEqual([
+      "Bearer {{ api_key }}",
+      "abc",
+    ]);
+    expect(pushToast).toHaveBeenCalledWith("该名称已被使用，请换一个名称。", "error");
   });
 
   it("asks for the new row to be named before another one can be added", async () => {

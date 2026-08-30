@@ -12,6 +12,7 @@ import type {
   CustomProviderInfo,
   EndpointDefinition,
   EndpointDescriptor,
+  EndpointReference,
   EndpointValidateResponse,
 } from "@/types";
 import { newEndpointDefinition } from "./endpoint-definition-draft";
@@ -106,6 +107,7 @@ export function EndpointsSection() {
   }, [providers]);
 
   const groups = useMemo(() => {
+    const videoCatalog = catalog.filter((endpoint) => endpoint.media_type === "video");
     const toEntry = (descriptor: EndpointDescriptor): ListEntry => ({
       key: descriptor.key,
       label: descriptor.display_name ?? t(descriptor.display_name_key),
@@ -115,17 +117,17 @@ export function EndpointsSection() {
     return [
       {
         labelKey: "ce_group_mine",
-        entries: catalog.filter((e) => e.source === "custom").map(toEntry),
+        entries: videoCatalog.filter((e) => e.source === "custom").map(toEntry),
       },
       {
         labelKey: "ce_group_builtin",
-        entries: catalog
+        entries: videoCatalog
           .filter((e) => e.source === "builtin" && e.kind === "declarative")
           .map(toEntry),
       },
       {
         labelKey: "ce_group_builtin_python",
-        entries: catalog.filter((e) => e.kind === "python").map(toEntry),
+        entries: videoCatalog.filter((e) => e.kind === "python").map(toEntry),
       },
     ];
   }, [catalog, referenceCounts, t]);
@@ -220,6 +222,17 @@ export function EndpointsSection() {
       params.set("endpoint", endpointKey);
       const baseUrl = definition.meta.hints?.base_url;
       if (baseUrl) params.set("base_url", baseUrl);
+      navigate(`${location}?${params.toString()}`);
+    },
+    [location, navigate],
+  );
+
+  const handleNavigateToModel = useCallback(
+    (reference: EndpointReference) => {
+      const params = new URLSearchParams();
+      params.set("section", "providers");
+      params.set("custom", String(reference.provider_id));
+      params.set("model", reference.model_id);
       navigate(`${location}?${params.toString()}`);
     },
     [location, navigate],
@@ -362,6 +375,7 @@ export function EndpointsSection() {
               voidCall(reload().then(() => select(record.key)));
             }}
             onCreateProvider={handleCreateProvider}
+            onNavigateToModel={handleNavigateToModel}
           />
         ) : (
           <p className="p-6 text-[12.5px] text-text-3">{t("ce_select_endpoint")}</p>
