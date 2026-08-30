@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -11,6 +12,7 @@ import pytest
 import respx
 
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
+from tests.fakes import blocking_file_read_gate
 from tests.http_capture import capture_http
 
 # ---------------------------------------------------------------------------
@@ -192,6 +194,33 @@ class TestGenerateI2I:
 
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert len(call_kwargs["image_urls"]) == 2
+
+    async def test_i2i_reference_encoding_keeps_event_loop_running(self, grok_backend, tmp_path, monkeypatch):
+        """参考图 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""
+        ref_image = tmp_path / "ref.png"
+        ref_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        output = tmp_path / "output.png"
+        mock_response = MagicMock()
+        mock_response.respect_moderation = True
+        mock_response.url = "https://example.com/edited.png"
+        grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
+
+        with _image_download(mock_response.url, b"\x89PNG\r\n\x1a\n" + b"\x00" * 50):
+            request = ImageGenerationRequest(
+                prompt="Make it darker",
+                output_path=output,
+                reference_images=[ReferenceImage(path=str(ref_image), label="base")],
+            )
+            with blocking_file_read_gate(monkeypatch, ref_image) as gate:
+                task = asyncio.create_task(grok_backend.generate(request))
+                await gate.wait_until_read_started()
+                gate.release()
+                await task
+                gate.assert_read_was_offloaded()
+
+        call_kwargs = grok_backend._client.image.sample.call_args.kwargs
+        assert call_kwargs["image_urls"][0].startswith("data:image/png;base64,")
 
     async def test_i2i_skips_missing_ref(self, grok_backend, tmp_path):
         """参考图不存在时退化为 T2I。"""

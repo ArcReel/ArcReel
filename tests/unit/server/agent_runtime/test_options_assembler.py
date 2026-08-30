@@ -7,6 +7,7 @@ project_cwd 解析器 / 凭证 loader 直接构造装配器，断言凭证注入
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +19,7 @@ from server.agent_runtime.options_assembler import (
     load_provider_env_overrides,
 )
 from server.auth import verify_token
+from tests.fakes import blocking_file_read_gate
 
 _ALLOWED_TOOLS = ["Skill", "Task", "Bash", "BashOutput", "KillBash", "Read", "Write", "Edit"]
 _SETTING_SOURCES = ["project"]
@@ -182,3 +184,53 @@ async def test_build_sandbox_disabled_strips_bash(tmp_path: Path) -> None:
         assert tool not in options.allowed_tools
     assert "Read" in options.allowed_tools
     assert options.sandbox == {"enabled": False}
+
+
+@pytest.mark.asyncio
+async def test_json_pre_validation_hook_keeps_event_loop_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PreToolUse JSON 校验读整份剧本 JSON，必须卸载到线程，否则事件循环被读堵住。"""
+    project_cwd = tmp_path / "projects" / "demo"
+    project_cwd.mkdir(parents=True, exist_ok=True)
+    script = project_cwd / "script.json"
+    script.write_text('{"a": 1}', encoding="utf-8")
+
+    hook = _make_assembler(tmp_path)._build_json_validation_hook(project_cwd)
+    input_data = {
+        "tool_name": "Edit",
+        "tool_input": {"file_path": str(script), "old_string": '"a": 1', "new_string": '"a": 2'},
+    }
+
+    with blocking_file_read_gate(monkeypatch, script, method="read_text") as gate:
+        task = asyncio.create_task(hook(input_data, "tu-1", None))
+        await gate.wait_until_read_started()
+        gate.release()
+        result = await task
+        gate.assert_read_was_offloaded()
+
+    # 替换后仍是合法 JSON → 放行
+    assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_json_post_validation_hook_keeps_event_loop_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PostToolUse JSON 校验回读落盘结果，必须卸载到线程，否则事件循环被读堵住。"""
+    project_cwd = tmp_path / "projects" / "demo"
+    project_cwd.mkdir(parents=True, exist_ok=True)
+    script = project_cwd / "script.json"
+    script.write_text('{"a": 2}', encoding="utf-8")
+
+    hook = _make_assembler(tmp_path)._build_json_post_validation_hook(project_cwd, {})
+    input_data = {"tool_name": "Edit", "tool_input": {"file_path": str(script)}}
+
+    with blocking_file_read_gate(monkeypatch, script, method="read_text") as gate:
+        task = asyncio.create_task(hook(input_data, "tu-1", None))
+        await gate.wait_until_read_started()
+        gate.release()
+        result = await task
+        gate.assert_read_was_offloaded()
+
+    assert result == {}

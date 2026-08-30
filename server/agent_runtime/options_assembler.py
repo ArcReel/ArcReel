@@ -10,6 +10,7 @@ policy，装配天职是开会话时现场读 DB / 扫盘则允许 I/O 归本类
 ``configure_sandbox_runtime`` 整体换新 policy 后对后续所有会话立即生效。
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -481,7 +482,7 @@ class OptionsAssembler:
                 p = Path(file_path)
                 resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()  # noqa: ASYNC240 -- 仅路径解析（resolve），不读文件内容
                 try:
-                    current = resolved.read_text(encoding="utf-8")
+                    current = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
                 except OSError as read_err:
                     logger.info(
                         "JSON 校验 hook: tool=Edit file=%s skip=读取失败 error=%s",
@@ -604,7 +605,7 @@ class OptionsAssembler:
             resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()  # noqa: ASYNC240 -- 仅路径解析（resolve），不读文件内容
 
             try:
-                actual = resolved.read_text(encoding="utf-8")
+                actual = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
             except OSError:
                 return {}
 

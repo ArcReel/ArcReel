@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -87,11 +88,14 @@ class GrokImageBackend:
 
         # I2I：将所有参考图转为 base64 data URI 列表
         if request.reference_images:
-            data_uris = []
-            for ref in request.reference_images:
-                ref_path = Path(ref.path)
-                if ref_path.exists():  # noqa: ASYNC240 -- 参考图存在性检查，本地元数据
-                    data_uris.append(image_to_base64_data_uri(ref_path))
+            # exists() 只读本地文件元数据，不阻塞；读整张图做 base64 编码才是阻塞 I/O，
+            # 逐张卸载到线程后并发等待，避免堵住事件循环
+            existing_paths = [ref_path for ref in request.reference_images if (ref_path := Path(ref.path)).exists()]
+            data_uris = list(
+                await asyncio.gather(
+                    *[asyncio.to_thread(image_to_base64_data_uri, ref_path) for ref_path in existing_paths]
+                )
+            )
             if data_uris:
                 generate_kwargs["image_urls"] = data_uris
                 logger.info("Grok I2I 模式: %d 张参考图", len(data_uris))

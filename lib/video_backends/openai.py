@@ -167,14 +167,13 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         kwargs["size"] = _resolve_size(self._model, request.resolution, request.aspect_ratio)
 
         # 收集所有参考图：start_image + reference_images
-        refs = []
+        ref_paths: list[Path] = []
         if request.start_image and Path(request.start_image).exists():  # noqa: ASYNC240 -- 首帧存在性检查，本地元数据
-            refs.append(_encode_start_image(Path(request.start_image)))
+            ref_paths.append(Path(request.start_image))
         if request.reference_images:
-            for ref_path in request.reference_images:
-                p = ref_path
-                if p.exists():
-                    refs.append(_encode_start_image(p))
+            ref_paths.extend(p for p in request.reference_images if p.exists())
+        # 读整张图取上传字节是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
+        refs = list(await asyncio.gather(*[asyncio.to_thread(_encode_start_image, p) for p in ref_paths]))
         if refs:
             # 单张图时保持 tuple 格式（API 兼容），多张时用 list
             kwargs["input_reference"] = refs[0] if len(refs) == 1 else refs
