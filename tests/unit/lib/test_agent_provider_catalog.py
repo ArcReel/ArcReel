@@ -105,4 +105,4 @@ def test_preset_dataclass_is_frozen() -> None:
     assert p is not None
     assert dataclasses.is_dataclass(p)
     with pytest.raises(dataclasses.FrozenInstanceError):
-        p.display_name = "x"  # type: ignore[misc]
+        p.display_name = "x"

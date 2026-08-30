@@ -18,7 +18,7 @@ import tempfile
 import threading
 import time
 import unicodedata
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -36,6 +36,7 @@ from lib.content_digest import (
     digest_stream,
     prefixed,
 )
+from lib.schema_guards import is_str
 
 _KEY_PREFIX = "artifact-key-v1:"
 MANIFEST_FILENAME = ".arcreel_artifacts.json"
@@ -241,8 +242,6 @@ class ArtifactManifest:
         self._adapter = adapter
 
     def register(self, key: ArtifactKey, *, artifact_path: str, basis: ArtifactBasis) -> bool:
-        if not isinstance(basis, ArtifactBasis):
-            raise TypeError("basis must be an ArtifactBasis")
         return self.register_descriptor(
             key,
             artifact_path=artifact_path,
@@ -263,8 +262,6 @@ class ArtifactManifest:
         guessing the original input payload during resume and restore.
         """
 
-        if not isinstance(basis, ArtifactBasisDescriptor):
-            raise TypeError("basis must be an ArtifactBasisDescriptor")
         observation = self._adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None:
             raise ArtifactRegistrationError(observation.blocker.detail)
@@ -287,8 +284,6 @@ class ArtifactManifest:
     ) -> bool:
         """Register a descriptor while restoring the exact prior entry on error."""
 
-        if not isinstance(basis, ArtifactBasisDescriptor):
-            raise TypeError("basis must be an ArtifactBasisDescriptor")
         previous = self._adapter.get_entry(key)
         expected = ArtifactManifestEntry(
             artifact_path=normalize_artifact_path(artifact_path),
@@ -433,8 +428,6 @@ class ArtifactManifest:
         )
 
     def compare(self, key: ArtifactKey, *, artifact_path: str, basis: ArtifactBasis) -> ArtifactComparison:
-        if not isinstance(basis, ArtifactBasis):
-            raise TypeError("basis must be an ArtifactBasis")
         return self.compare_entry(
             key,
             artifact_path=artifact_path,
@@ -1237,7 +1230,7 @@ class ProjectArtifactManifestAdapter:
             return True
 
     @contextmanager
-    def _locked(self) -> Iterator[int | None]:
+    def _locked(self) -> Generator[int | None]:
         lock_path = self._project_dir / LOCK_FILENAME
         with contextlib.ExitStack() as root_stack:
             root_fd: int | None = None
@@ -1307,7 +1300,7 @@ class ProjectArtifactManifestAdapter:
                     os.close(root_fd)
 
     @contextmanager
-    def _guard_portable_project_root(self) -> Iterator[None]:
+    def _guard_portable_project_root(self) -> Generator[None]:
         windows_handle = _open_windows_directory_handle(self._project_dir) if os.name == "nt" else None
         try:
             self._assert_portable_project_root_identity()
@@ -1519,17 +1512,15 @@ class ArtifactBasisDescriptor:
     digest: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, str) or not self.kind:
+        if not is_str(self.kind) or not self.kind:
             raise ValueError("artifact basis descriptor kind must be a non-empty string")
         if type(self.kind_version) is not int or self.kind_version < 1:
             raise ValueError("artifact basis descriptor kind_version must be a positive integer")
-        if not isinstance(self.digest, str) or PREFIXED_DIGEST_RE.fullmatch(self.digest) is None:
+        if not is_str(self.digest) or PREFIXED_DIGEST_RE.fullmatch(self.digest) is None:
             raise ValueError("artifact basis descriptor digest must be a canonical sha256-v1 digest")
 
     @classmethod
     def from_basis(cls, basis: ArtifactBasis) -> Self:
-        if not isinstance(basis, ArtifactBasis):
-            raise TypeError("basis must be an ArtifactBasis")
         return cls(kind=basis.kind, kind_version=basis.kind_version, digest=basis.digest)
 
     @classmethod
@@ -1587,9 +1578,7 @@ def _coerce_artifact_basis_descriptor(
 ) -> ArtifactBasisDescriptor:
     if isinstance(value, ArtifactBasis):
         return ArtifactBasisDescriptor.from_basis(value)
-    if isinstance(value, ArtifactBasisDescriptor):
-        return value
-    raise TypeError(f"{field} must be an ArtifactBasis or ArtifactBasisDescriptor")
+    return value
 
 
 def _coerce_optional_artifact_basis_descriptor(
@@ -1887,10 +1876,6 @@ def _encode_target_entries(
 ) -> dict[str, ArtifactManifestEntry]:
     encoded: dict[str, ArtifactManifestEntry] = {}
     for key, entry in entries.items():
-        if not isinstance(key, ArtifactKey):
-            raise TypeError("manifest target keys must be ArtifactKey values")
-        if not isinstance(entry, ArtifactManifestEntry):
-            raise TypeError("manifest target entries must be ArtifactManifestEntry values")
         normalized_path = normalize_artifact_path(entry.artifact_path)
         if normalized_path != entry.artifact_path:
             raise ValueError("manifest target artifact path must be canonical")
@@ -1912,8 +1897,6 @@ def _encode_optional_entries(
     encoded_present = _encode_target_entries(present)
     encoded: dict[str, ArtifactManifestEntry | None] = {}
     for key, entry in entries.items():
-        if not isinstance(key, ArtifactKey):
-            raise TypeError("manifest compare-and-swap keys must be ArtifactKey values")
         encoded[key.encode()] = encoded_present.get(key.encode()) if entry is not None else None
     return encoded
 
@@ -1963,9 +1946,7 @@ def encode_artifact_manifest_payload(
     encoded = _encode_target_entries(snapshot.entries)
     content_digests: dict[str, str] = {}
     for key, digest in snapshot.content_digests.items():
-        if not isinstance(key, ArtifactKey):
-            raise TypeError("archive artifact content digest keys must be ArtifactKey values")
-        if not isinstance(digest, str) or CONTENT_DIGEST_RE.fullmatch(digest) is None:
+        if CONTENT_DIGEST_RE.fullmatch(digest) is None:
             raise ValueError("archive artifact content digest must be a lowercase SHA-256 digest")
         content_digests[key.encode()] = digest
     if set(content_digests) != set(encoded):

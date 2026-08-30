@@ -36,7 +36,7 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
-    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -72,7 +72,7 @@ async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx:
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
-    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -127,8 +127,8 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
-    fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
     comparisons = []
 
     class _Currency:
@@ -173,10 +173,10 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     (project_path / "characters").mkdir()
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
     (project_path / "characters" / "lisi.png").write_bytes(b"png")
-    fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["characters"]["李四"]["character_sheet"] = "characters/lisi.png"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
+    fake_ctx.pm.project_payload["characters"]["李四"]["character_sheet"] = "characters/lisi.png"
+    fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -241,8 +241,8 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
 ) -> None:
     from server.media_tools import image_edits as mod
 
-    fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["episodes"] = []  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
+    fake_ctx.pm.project_payload["episodes"] = []
     resolver = _use_fake_caps(fake_ctx)
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
@@ -296,7 +296,7 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypat
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
-    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -385,7 +385,7 @@ async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) 
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
-    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -412,7 +412,7 @@ async def test_edit_images_unexpected_exception(fake_ctx: ToolContext) -> None:
     def boom(_name: str) -> dict[str, Any]:
         raise RuntimeError("db down")
 
-    fake_ctx.pm.load_project = boom  # type: ignore[method-assign]
+    fake_ctx.pm.load_project = boom
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "x"}]})
     assert out.get("is_error") is True

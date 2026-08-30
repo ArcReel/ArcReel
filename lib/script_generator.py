@@ -158,7 +158,7 @@ _KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
 }
 
 
-def _units_use_references(units: list[dict] | None) -> bool | None:
+def _units_use_references(units: list[Any] | None) -> bool | None:
     """本集 script_plan 是否存在带 ``@[名称]`` 提及的 unit；``units`` 为 None（非参考生视频路径）时返回 None。
 
     None 的语义是「交给下游按生成模式近似判定」，与「确定不带参考图」的 False 区分开。

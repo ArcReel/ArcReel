@@ -37,8 +37,6 @@ class VisualReference:
     content_digest: str | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.path, Path):
-            raise TypeError("visual reference path must be a Path")
         _require_non_empty("visual reference role", self.role)
         if (self.logical_type is None) != (self.logical_id is None):
             raise ValueError("visual reference logical_type and logical_id must be provided together")
@@ -101,7 +99,7 @@ def visual_references_match_snapshot(references: Sequence[VisualReference]) -> b
     """Verify that every selected reference still has its frozen content digest."""
 
     for reference in references:
-        if not isinstance(reference, VisualReference) or reference.content_digest is None:
+        if reference.content_digest is None:
             raise ValueError("visual reference comparison requires frozen snapshots")
         try:
             current_digest = visual_file_digest(reference.path)
@@ -368,19 +366,16 @@ def build_reference_video_artifact_visual_basis(
     if not isinstance(raw_text, str):
         raise ValueError("unit.text must be a string")
     visual_lines = _reference_visual_lines(raw_text)
-    references: list[VisualReference] = []
-    for asset in request_assets:
-        if not isinstance(asset, ResolvedReferenceAsset):
-            raise TypeError("request_assets must contain ResolvedReferenceAsset values")
-        references.append(
-            VisualReference(
-                path=asset.path,
-                role="reference_image",
-                logical_type=asset.reference.type,
-                logical_id=asset.reference.name,
-                kind=asset.kind,
-            )
+    references = [
+        VisualReference(
+            path=asset.path,
+            role="reference_image",
+            logical_type=asset.reference.type,
+            logical_id=asset.reference.name,
+            kind=asset.kind,
         )
+        for asset in request_assets
+    ]
     return ArtifactBasis.build(
         "artifact-visual/video-reference",
         kind_version=1,
@@ -421,8 +416,6 @@ def _validate_grid_members(
         raise ValueError("grid must contain at least one member")
     if len(member_tuple) > rows * columns:
         raise ValueError("grid members exceed the declared layout capacity")
-    if any(not isinstance(member, GridStoryboardVisual) for member in member_tuple):
-        raise TypeError("grid members must be GridStoryboardVisual values")
     identities = [member.resource_id for member in member_tuple]
     if len(set(identities)) != len(identities):
         raise ValueError("grid member resource_id values must be unique")
@@ -457,8 +450,6 @@ def _project_grid_action(video_prompt: object) -> str:
 
 
 def _reference_evidence(references: Sequence[VisualReference]) -> list[dict[str, object]]:
-    if any(not isinstance(reference, VisualReference) for reference in references):
-        raise TypeError("visual references must be VisualReference values")
     return [reference.evidence() for reference in references]
 
 

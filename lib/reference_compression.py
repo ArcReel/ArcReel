@@ -16,7 +16,7 @@ from __future__ import annotations
 import contextlib
 import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from dataclasses import dataclass
 from enum import Enum
 from io import BytesIO
@@ -218,7 +218,7 @@ def compressed_reference_payload(
     *,
     limits: PayloadLimits,
     start_step: int = 0,
-) -> Iterator[tuple[int, list[CompressedRef]]]:
+) -> Generator[tuple[int, list[CompressedRef]]]:
     """压缩参考图为临时文件，yield (landed_step, refs)，退出时清理临时文件。
 
     非本地 / 不可解码源（理论上不会发生——各 backend 本就对 reference 调 read_bytes()，

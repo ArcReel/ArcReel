@@ -65,10 +65,10 @@ def _fake_grid_waiter(enqueue, wait=None):
 
 
 async def test_generate_grid_list_only(fake_ctx: ToolContext) -> None:
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
     # Need enough segments to form a group with valid layout
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
     tool_obj = generate_grid_tool(fake_ctx)
@@ -89,9 +89,9 @@ async def test_generate_grid_list_only_respects_4k_gate(
     forbidden: str,
 ) -> None:
     # 非 4K 时 4×4 / 5×5 不出现在面向 Agent 的分组预览里
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S{i:02d}", "image_prompt": "p", "segment_break": False} for i in range(1, 13)
     ]
 
@@ -111,9 +111,9 @@ async def test_generate_grid_list_only_shows_split_for_oversized_group(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # 超过单张格数上限的分组，预览按切块后的张数与档位展示，与实际入队同源
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S{i:02d}", "image_prompt": "p", "segment_break": False} for i in range(1, 13)
     ]
 
@@ -135,10 +135,10 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
     # 否则 None 会写进宫格规划、任务 payload 与记录上冻结的比例
     from lib.grid_manager import GridManager
 
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["aspect_ratio"] = None  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.project_payload["aspect_ratio"] = None
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
 
@@ -177,9 +177,9 @@ async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """联合图已付费落盘、切分失败：该组每个分镜都记为 failed，不声称产物已就位。"""
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
 
@@ -230,9 +230,9 @@ async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(
 ) -> None:
     """点名强制重生成失败时，报告仍要带上剧本里登记的旧图路径——否则下游分不清
     「这次替换失败、旧图还在」和「原本就没有可复用产物」，给不出正确的下一步建议。"""
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
         {
             "segment_id": f"E1S0{i}",
             "image_prompt": "p",
@@ -271,9 +271,9 @@ async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(
     打断（任务可能仍在跑）报成终态失败——那会诱导调用方重试、造成重复付费提交。"""
     from lib.generation_queue_client import TaskWaitTimeoutError
 
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
 
@@ -307,9 +307,9 @@ async def test_generate_grid_reports_each_scene_of_a_shared_grid(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """同组分镜共享一张宫格，结果仍逐分镜 ID 报告：落格的成功、没落格的单独失败。"""
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
 
@@ -365,7 +365,7 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
     """
     from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
 
-    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload.update(
         {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "generation_mode": "storyboard",
@@ -373,14 +373,12 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         }
     )
-    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["episode"] = 1
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
     # E1S02 已有一张旧联合图，但其 Manifest 状态读取会炸——组内其它三格都还没图。
-    fake_ctx.pm.script_payload["segments"][1]["generated_assets"] = {  # type: ignore[attr-defined]
-        "storyboard_image": "storyboards/scene_E1S02.png"
-    }
+    fake_ctx.pm.script_payload["segments"][1]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S02.png"}
 
     class _Resolver:
         def compare(self, key, *, artifact_path):
@@ -427,7 +425,7 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
     "产物状态不可读、需要修复"是错误结论，仍应按正常复用记为 skipped。"""
     from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
 
-    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload.update(
         {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "generation_mode": "storyboard",
@@ -435,17 +433,13 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         }
     )
-    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["episode"] = 1
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
     # E1S02 状态读取会炸；E1S03 已有旧图且状态 CURRENT（可复用）；E1S01/E1S04 缺图。
-    fake_ctx.pm.script_payload["segments"][1]["generated_assets"] = {  # type: ignore[attr-defined]
-        "storyboard_image": "storyboards/scene_E1S02.png"
-    }
-    fake_ctx.pm.script_payload["segments"][2]["generated_assets"] = {  # type: ignore[attr-defined]
-        "storyboard_image": "storyboards/scene_E1S03.png"
-    }
+    fake_ctx.pm.script_payload["segments"][1]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S02.png"}
+    fake_ctx.pm.script_payload["segments"][2]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S03.png"}
 
     class _Resolver:
         def compare(self, key, *, artifact_path):
@@ -484,8 +478,8 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
 
 async def test_generate_grid_rejects_an_explicitly_empty_scene_selection(fake_ctx: ToolContext) -> None:
     """显式空集合不是「全部」：拒绝请求，而不是静默扫全集。"""
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
 
     out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "scene_ids": []})
 
@@ -502,9 +496,9 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
     from lib.grid.models import GridGeneration
     from lib.grid_manager import GridManager
 
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "video_prompt": "v", "segment_break": False}
         for i in range(1, 5)
     ]
@@ -579,13 +573,13 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
     from lib.grid.models import GridGeneration
     from lib.grid_manager import GridManager
 
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
     # 前 9 个缺分镜图（要生成的一张 grid_9），后 4 个已有可复用旧图
     # （落在另一张 grid_4 里，整张都可复用、不产出替代品）。
     missing_ids = [f"E1S{i:02d}" for i in range(1, 10)]
     reusable_ids = [f"E1S{i:02d}" for i in range(10, 14)]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": sid, "image_prompt": "p", "video_prompt": "v", "segment_break": False} for sid in missing_ids
     ] + [
         {
@@ -647,10 +641,10 @@ async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # 预览路径与入队路径同源，同样不能让 None 流进 plan_grid_chunks
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["aspect_ratio"] = None  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.project_payload["aspect_ratio"] = None
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
 
@@ -670,10 +664,10 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
     # 12 个分镜 + 非 4K（上限 9）：入队 2 张宫格，分镜不重不漏，每张 prompt 分镜数与格数一致
     from lib.grid_manager import GridManager
 
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
     all_ids = [f"E1S{i:02d}" for i in range(1, 13)]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": sid, "image_prompt": "p", "video_prompt": "v", "segment_break": False} for sid in all_ids
     ]
 
@@ -732,8 +726,8 @@ async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
 
 async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolContext) -> None:
     # reference_video 生成模式无分镜图步骤：即使残留 grid_storyboard=true 也不适用宫格工具
-    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
     tool_obj = generate_grid_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is True
@@ -745,10 +739,10 @@ async def test_generate_grid_legacy_unresolvable_episode_fails_before_enqueue(
 ) -> None:
     from server.media_tools import grid as mod
 
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload.pop("episode")
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
     enqueue = AsyncMock(side_effect=AssertionError("must not enqueue"))

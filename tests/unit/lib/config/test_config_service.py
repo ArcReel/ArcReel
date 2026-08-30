@@ -73,7 +73,7 @@ async def test_video_poll_timeout_defaults_and_round_trips(config_service: Confi
 @pytest.mark.parametrize("value", [True, 0, 59, 60.5])
 async def test_video_poll_timeout_rejects_values_below_minimum(config_service: ConfigService, value: object):
     with pytest.raises(ValueError, match="at least 60"):
-        await config_service.set_video_poll_timeout_seconds(value)  # pyright: ignore[reportArgumentType]
+        await config_service.set_video_poll_timeout_seconds(value)
 
 
 async def test_get_default_video_backend(config_service: ConfigService):

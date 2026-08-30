@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from copy import deepcopy
 from typing import Annotated, Any, Literal
@@ -925,7 +925,7 @@ class RemoteMCPHost:
         await self._app(scope, receive, send)
 
     @asynccontextmanager
-    async def run(self) -> AsyncIterator[None]:
+    async def run(self) -> AsyncGenerator[None]:
         server = self._server_factory()
         child_app = server.streamable_http_app()
         async with server.session_manager.run():

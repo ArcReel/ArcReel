@@ -11,6 +11,7 @@ from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.schema_guards import is_int
 
 _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
@@ -221,7 +222,7 @@ class ConfigService:
         return value if value >= MIN_VIDEO_POLL_TIMEOUT_SECONDS else DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 
     async def set_video_poll_timeout_seconds(self, value: int) -> None:
-        if not isinstance(value, int) or isinstance(value, bool) or value < MIN_VIDEO_POLL_TIMEOUT_SECONDS:
+        if not is_int(value, minimum=MIN_VIDEO_POLL_TIMEOUT_SECONDS):
             raise ValueError(
                 f"video poll timeout must be an integer of at least {MIN_VIDEO_POLL_TIMEOUT_SECONDS} seconds"
             )

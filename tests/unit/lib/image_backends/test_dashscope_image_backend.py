@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -35,7 +35,7 @@ def _generate_route(
     download: AsyncMock,
     *,
     host: str = _DEFAULT_HOST,
-) -> Iterator[respx.Route]:
+) -> Generator[respx.Route]:
     """拦截建图 POST 并挡住产物下载，产出该路由供断言真实请求。"""
     with (
         capture_http() as router,

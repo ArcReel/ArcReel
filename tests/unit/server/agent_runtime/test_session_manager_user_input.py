@@ -55,8 +55,6 @@ async def _seed(session_manager, meta_store, *, messages=None, status="idle", bl
 def _on_actor_message_full(session_manager, managed, raw_msg):
     """Replicate SessionManager's production on_message behavior for tests."""
     msg_dict = message_to_dict(raw_msg)
-    if not isinstance(msg_dict, dict):
-        return
     echo = match_user_echo(managed.pending_user_echoes, msg_dict)
     if echo is not None:
         msg_dict[REPLAYED_USER_ECHO_KEY] = True

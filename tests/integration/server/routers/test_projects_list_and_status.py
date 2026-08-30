@@ -19,7 +19,7 @@ class TestProjectsRouter:
             calls.append((name, script_file))
             return orig_load_script(name, script_file)
 
-        fake_pm.load_script = _counting_load  # type: ignore[method-assign]
+        fake_pm.load_script = _counting_load
 
         fake_summaries = _FakeSummaries()
         client = _client(monkeypatch, fake_pm, fake_summaries)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -289,7 +289,7 @@ class TargetStatePlanner:
         self._episodes_loaded = True
 
     @contextmanager
-    def _episode_context(self, binding: _EpisodeBinding) -> Iterator[None]:
+    def _episode_context(self, binding: _EpisodeBinding) -> Generator[None]:
         """Name the episode and script a preflight rejection came from.
 
         Only active while planning a target state: the runtime resolve paths

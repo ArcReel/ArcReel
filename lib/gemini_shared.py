@@ -63,8 +63,8 @@ try:
 
     RETRYABLE_ERRORS = (
         *RETRYABLE_ERRORS,
-        genai.errors.ClientError,  # pyright: ignore[reportAttributeAccessIssue]
-        genai.errors.ServerError,  # pyright: ignore[reportAttributeAccessIssue]
+        genai.errors.ClientError,
+        genai.errors.ServerError,
     )
 except ImportError:
     logger.debug("google.genai 未安装，跳过对应可重试错误，沿用基础集合")

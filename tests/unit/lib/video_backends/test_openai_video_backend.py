@@ -532,7 +532,7 @@ class TestOpenAIVideoBackend:
         assert _is_openai_not_found(RuntimeError("session expired but task is fine")) is False
         # 仍能识别 status_code=404
         exc = RuntimeError("any")
-        exc.status_code = 404  # type: ignore[attr-defined]
+        exc.status_code = 404
         assert _is_openai_not_found(exc) is True
 
     async def test_resume_video_not_found_raises_resume_expired(self, tmp_path: Path):

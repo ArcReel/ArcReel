@@ -34,7 +34,7 @@ def decode_txt(raw: bytes) -> tuple[str, str]:
 
     best = charset_normalizer.from_bytes(raw).best()
     detected_enc: str | None = None
-    if best is not None and best.chaos is not None and best.chaos < 0.5 and best.encoding:
+    if best is not None and best.chaos < 0.5 and best.encoding:
         detected_enc = best.encoding
         try:
             return raw.decode(best.encoding), best.encoding

@@ -47,7 +47,7 @@ def test_formal_input_selection_retains_identity_for_the_provider_recheck() -> N
             return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=entry.artifact_path)
 
     assert artifact_input_is_usable(
-        resolver=_Resolver(),  # type: ignore[arg-type]
+        resolver=_Resolver(),
         key=key,
         artifact_path="scripts/episode_1.json",
         claims=claims,
@@ -83,7 +83,7 @@ def test_artifact_key_round_trips_without_display_string_parsing(key: ArtifactKe
 @pytest.mark.parametrize("variant", ["", "automatic", "USE_TTS", 1])
 def test_rendition_artifact_keys_reject_unknown_variants(variant: object) -> None:
     with pytest.raises(ValueError, match="variant"):
-        ArtifactKey.episode_presentation(1, "E1U01", variant)  # type: ignore[arg-type]
+        ArtifactKey.episode_presentation(1, "E1U01", variant)
 
 
 def test_artifact_key_rejects_direct_construction_that_cannot_round_trip() -> None:
@@ -451,3 +451,19 @@ def test_manifest_blocks_windows_aliases_of_runtime_paths(artifact_path: str) ->
     assert comparison.status is ArtifactStatus.BLOCKED
     assert comparison.blocker is not None
     assert comparison.blocker.code == "artifact_path_invalid"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"kind": 5, "kind_version": 1, "digest": "sha256-v1:" + "0" * 64},
+        {"kind": ["artifact/x"], "kind_version": 1, "digest": "sha256-v1:" + "0" * 64},
+        {"kind": "artifact/x", "kind_version": 1, "digest": 123},
+        {"kind": "artifact/x", "kind_version": 1, "digest": None},
+    ],
+)
+def test_basis_descriptor_from_dict_rejects_non_string_fields_as_value_error(payload: dict[str, object]) -> None:
+    """磁盘 JSON 的 kind/digest 可为任意类型，调用方只接 ValueError。"""
+
+    with pytest.raises(ValueError, match="artifact basis descriptor"):
+        ArtifactBasisDescriptor.from_dict(payload)

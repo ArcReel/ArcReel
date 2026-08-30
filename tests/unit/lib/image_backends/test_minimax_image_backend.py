@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -59,7 +59,7 @@ def _error_response(status_code: int) -> httpx.Response:
 
 
 @contextmanager
-def _generation_route(resp: httpx.Response, download: AsyncMock | None = None) -> Iterator[respx.Route]:
+def _generation_route(resp: httpx.Response, download: AsyncMock | None = None) -> Generator[respx.Route]:
     """成图端点的出站流：走 respx 在 transport 层拦截。
 
     端点派生、请求体字段、鉴权头都是「发出去的请求长什么样」的契约，断言落在路由捕获的

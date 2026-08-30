@@ -9,6 +9,7 @@ from typing import Any, Self, cast
 from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
 from lib.asset_types import asset_name_comparison_key
 from lib.content_digest import CONTENT_DIGEST_RE, PREFIXED_DIGEST_RE, prefixed_canonical_json_digest
+from lib.schema_guards import is_str
 from lib.speech_artifact_provenance import build_video_duration_basis
 
 _SCHEMA_VERSION = 1
@@ -68,8 +69,6 @@ class VideoArtifactCurrencyFacts:
             ("duration_basis", self.duration_basis),
             ("video_basis", self.video_basis),
         ):
-            if not isinstance(value, ArtifactBasis):
-                raise TypeError(f"{field} must be an ArtifactBasis")
             if value.kind_version != 1:
                 raise ValueError(f"{field} must use the supported kind version")
         if self.visual_basis.kind not in {_STORYBOARD_VISUAL_KIND, _REFERENCE_VISUAL_KIND}:
@@ -89,7 +88,7 @@ class VideoArtifactCurrencyFacts:
         if self.video_basis != expected_video or self.video_basis.kind != _VIDEO_KIND:
             raise ValueError("video_basis does not compose the frozen video components")
         if any(
-            not isinstance(speaker, str) or not speaker or asset_name_comparison_key(speaker) != speaker
+            not is_str(speaker) or not speaker or asset_name_comparison_key(speaker) != speaker
             for speaker in self.voice_style_speakers
         ):
             raise ValueError("voice_style_speakers must contain canonical non-empty names")
@@ -152,7 +151,7 @@ class VideoArtifactCurrencyFacts:
 
     @classmethod
     def from_dict(cls, value: object) -> Self:
-        if not isinstance(value, Mapping) or set(value) != cls._FIELDS:
+        if not isinstance(value, Mapping) or frozenset(value) != cls._FIELDS:
             raise ValueError("video artifact currency facts have an invalid schema")
         raw = cast(Mapping[str, Any], value)
         if raw["schema_version"] != _SCHEMA_VERSION:

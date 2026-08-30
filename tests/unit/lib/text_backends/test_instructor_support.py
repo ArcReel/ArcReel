@@ -1,6 +1,6 @@
 """instructor_support 模块测试。"""
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -58,7 +58,7 @@ def _retry_exhausted(
         "retries exhausted",
         last_completion=_completion(content),
         n_attempts=3,
-        total_usage=SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens),  # type: ignore[arg-type]
+        total_usage=SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens),
         failed_attempts=[
             FailedAttempt(attempt_number=i, exception=e)
             for i, e in enumerate(recorded, 1)
@@ -112,7 +112,7 @@ def _tools_rejected_error() -> InstructorRetryException:
 @contextmanager
 def _recorded_instructor(
     result: tuple[Any, Any], *, is_async: bool = False
-) -> Iterator[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+) -> Generator[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
     """instructor 入口的记录器：记下 from_openai 与 create_with_completion 的参数。
 
     mode 选择、导线参数名这些契约都是「最终发往端点的调用长什么样」，断言落在记录的参数上，
@@ -491,7 +491,7 @@ class TestInstructorExceptionShape:
 
         client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
         rejection = _bad_request("tools is not supported by this endpoint")
-        client.chat.completions.create = MagicMock(side_effect=rejection)  # type: ignore[method-assign]
+        client.chat.completions.create = MagicMock(side_effect=rejection)
         patched = instructor.from_openai(client, mode=Mode.TOOLS)
 
         with pytest.raises(InstructorRetryException) as exc_info:
@@ -531,7 +531,7 @@ class TestInstructorExceptionShape:
         )
         outage = ConnectionError("connection reset by peer")
         client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
-        client.chat.completions.create = MagicMock(side_effect=[completion, outage])  # type: ignore[method-assign]
+        client.chat.completions.create = MagicMock(side_effect=[completion, outage])
         patched = instructor.from_openai(client, mode=Mode.MD_JSON)
 
         with pytest.raises(InstructorRetryException) as exc_info:
@@ -555,7 +555,7 @@ class TestInstructorExceptionShape:
             usage=None,
         )
         client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
-        client.chat.completions.create = MagicMock(return_value=completion)  # type: ignore[method-assign]
+        client.chat.completions.create = MagicMock(return_value=completion)
         patched = instructor.from_openai(client, mode=Mode.TOOLS)
 
         with pytest.raises(InstructorRetryException) as exc_info:

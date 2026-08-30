@@ -17,7 +17,7 @@ repos:
 
       - id: basedpyright
         name: basedpyright (full project type check)
-        entry: uv run basedpyright
+        entry: uv run basedpyright --warnings
         language: system
         pass_filenames: false
         always_run: true

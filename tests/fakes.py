@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -234,7 +234,7 @@ async def build_managed_with_actor(
     managed = ManagedSession(
         session_id=session_id,
         actor=actor,
-        status=status,  # type: ignore[arg-type]
+        status=status,
         project_name=project_name,
     )
     managed_ref[0] = managed
@@ -565,7 +565,7 @@ def bounded_poll_clock(step: float = 30.0):
 
 
 @contextmanager
-def captured_provider_job_ids() -> Iterator[list[dict[str, Any]]]:
+def captured_provider_job_ids() -> Generator[list[dict[str, Any]]]:
     """provider_job_id 写回的手写替身：收下写回参数，不落 DB。
 
     ``persist_provider_job_id`` 是 backend 的 DB 边界，各提交-轮询型 backend 的测试只关心
@@ -597,7 +597,7 @@ def captured_provider_job_ids() -> Iterator[list[dict[str, Any]]]:
 
 
 @contextmanager
-def captured_ark_clients(module: str, client: Any = None) -> Iterator[list[dict[str, Any]]]:
+def captured_ark_clients(module: str, client: Any = None) -> Generator[list[dict[str, Any]]]:
     """create_ark_client 的记录器：收下建客户端的参数，回给定（或空）客户端替身。
 
     Ark 系三个后端（文本 / 图像 / 视频）各自从自己的模块引用这个工厂，模块路径由调用方给出。
@@ -617,7 +617,7 @@ def captured_ark_clients(module: str, client: Any = None) -> Iterator[list[dict[
 
 
 @contextmanager
-def captured_openai_clients(client: Any = None) -> Iterator[list[dict[str, Any]]]:
+def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]]]:
     """AsyncOpenAI 构造的记录器：收下建客户端的参数，回给定（或空）客户端替身。
 
     OpenAI 兼容族（openai / agnes 文本、openai 图像与视频、openai TTS、dashscope 与 minimax
@@ -638,7 +638,7 @@ def captured_openai_clients(client: Any = None) -> Iterator[list[dict[str, Any]]
 
 
 @contextmanager
-def captured_backend_construction() -> Iterator[list[dict[str, Any]]]:
+def captured_backend_construction() -> Generator[list[dict[str, Any]]]:
     """四个后端 registry 的构造记录器：工厂换成只记参数的哑后端，不建 SDK 客户端。
 
     装配层（``ProviderSpec.build_backend``、``lib.text_backends.factory``）的产出就是

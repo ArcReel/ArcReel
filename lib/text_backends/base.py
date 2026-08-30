@@ -238,8 +238,6 @@ def resolve_schema(schema: dict | type[BaseModel]) -> dict:
     - dict: 直接内联 $ref（如果有）
     """
     if isinstance(schema, type):
-        if not issubclass(schema, BaseModel):
-            raise TypeError(f"resolve_schema 仅接受 dict 或 Pydantic BaseModel 子类，得到 {schema!r}")
         schema_dict: dict = schema.model_json_schema()
     else:
         schema_dict = schema

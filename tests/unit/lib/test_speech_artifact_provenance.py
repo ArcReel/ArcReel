@@ -327,7 +327,7 @@ def test_tts_change_stales_tts_subtitle_and_tts_presentation_but_not_video_or_po
 @pytest.mark.parametrize("invalid", [0, -1, True, 8.5, "8"])
 def test_video_duration_basis_requires_a_request_tier(invalid: object) -> None:
     with pytest.raises(ValueError, match="positive integer"):
-        build_video_duration_basis(invalid)  # type: ignore[arg-type]
+        build_video_duration_basis(invalid)
 
 
 def test_use_tts_subtitle_and_presentation_require_narration_audio() -> None:
@@ -341,4 +341,26 @@ def test_use_tts_subtitle_and_presentation_require_narration_audio() -> None:
             variant=USE_TTS,
             video=video,
             subtitle=_basis("test/subtitle", "v1"),
+        )
+
+
+@pytest.mark.parametrize("invalid", [True, False, "8", None])
+def test_selected_media_evidence_rejects_non_number_duration(invalid: object) -> None:
+    """时长从磁盘 JSON 重建，bool 与字符串都不是可接受的秒数。"""
+
+    with pytest.raises(ValueError, match="positive and finite"):
+        SelectedMediaEvidence(
+            basis=ArtifactBasisDescriptor.from_basis(_basis("test/video", "v1")),
+            content_digest="sha256-v1:" + "0" * 64,
+            actual_duration_seconds=invalid,
+        )
+
+
+@pytest.mark.parametrize("invalid", [123, None, "bad"])
+def test_selected_media_evidence_rejects_non_digest_content_digest(invalid: object) -> None:
+    with pytest.raises(ValueError, match="canonical sha256-v1 digest"):
+        SelectedMediaEvidence(
+            basis=ArtifactBasisDescriptor.from_basis(_basis("test/video", "v1")),
+            content_digest=invalid,
+            actual_duration_seconds=8.0,
         )

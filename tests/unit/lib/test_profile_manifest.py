@@ -459,7 +459,7 @@ def test_repo_profile_resolves_for_every_content_mode() -> None:
 
     repo_profile = Path(__file__).resolve().parents[3] / "agent_runtime_profile"
     for mode in sorted(VALID_CONTENT_MODES):
-        mapping = resolve_profile_files_for_mode(repo_profile, mode)  # type: ignore[arg-type]
+        mapping = resolve_profile_files_for_mode(repo_profile, mode)
         assert mapping["CLAUDE.md"] == f"CLAUDE.{mode}.md"
         assert mapping[".claude/skills/video-workflow/SKILL.md"] == f".claude/skills/video-workflow/SKILL.{mode}.md"
 
@@ -509,7 +509,7 @@ def test_resolve_invalid_mode_raises(tmp_path: Path) -> None:
 
     profile = _make_profile(tmp_path)
     with pytest.raises(ValueError, match="content_mode"):
-        resolve_profile_files_for_mode(profile, "reference_video")  # type: ignore[arg-type]
+        resolve_profile_files_for_mode(profile, "reference_video")
 
 
 def test_resolve_double_dot_filename_not_treated_as_variant(tmp_path: Path) -> None:
@@ -675,7 +675,7 @@ def test_sync_invalid_mode_raises(tmp_path: Path) -> None:
     profile = _make_profile(tmp_path)
     project = _fresh_project(tmp_path / "proj_root")
     with pytest.raises(ValueError, match="content_mode"):
-        sync_profile_to_project(profile, project, content_mode="reference_video")  # type: ignore[arg-type]
+        sync_profile_to_project(profile, project, content_mode="reference_video")
 
 
 # ---------- force_resync_profile ----------
@@ -713,7 +713,7 @@ def test_variants_to_common_upgrade_preserves_modified_legacy_files_and_reports_
 
     profile = _make_profile(tmp_path)
     project = _fresh_project(tmp_path / "proj_root")
-    sync_profile_to_project(profile, project, content_mode=mode)  # type: ignore[arg-type]
+    sync_profile_to_project(profile, project, content_mode=mode)
     old_agent = project / ".claude" / "agents" / "generate-assets.md"
     old_agent.write_text("user customized legacy agent", encoding="utf-8")
 
@@ -730,7 +730,7 @@ def test_variants_to_common_upgrade_preserves_modified_legacy_files_and_reports_
     for variant in ("narration", "drama", "ad"):
         (references / f"workflow-mode.{variant}.md").write_text(variant, encoding="utf-8")
 
-    sync_profile_to_project(profile, project, content_mode=mode)  # type: ignore[arg-type]
+    sync_profile_to_project(profile, project, content_mode=mode)
 
     assert (project / "CLAUDE.md").read_text(encoding="utf-8") == "common top"
     assert (project / ".claude" / "skills" / "video-workflow" / "SKILL.md").read_text(
@@ -738,7 +738,7 @@ def test_variants_to_common_upgrade_preserves_modified_legacy_files_and_reports_
     ) == "common skill"
     assert (project / ".claude" / "references" / "workflow-mode.md").read_text(encoding="utf-8") == mode
     assert old_agent.read_text(encoding="utf-8") == "user customized legacy agent"
-    assert get_profile_status(profile, project, content_mode=mode) == {  # type: ignore[arg-type]
+    assert get_profile_status(profile, project, content_mode=mode) == {
         "customized": True,
         "customized_files": [".claude/agents/generate-assets.md"],
     }
@@ -855,7 +855,7 @@ def test_force_resync_invalid_mode_raises(tmp_path: Path) -> None:
     profile = _make_profile(tmp_path)
     project = _fresh_project(tmp_path / "proj_root")
     with pytest.raises(ValueError, match="content_mode"):
-        force_resync_profile(profile, project, content_mode="bad")  # type: ignore[arg-type]
+        force_resync_profile(profile, project, content_mode="bad")
 
 
 # ---------- ProjectManager 集成 ----------

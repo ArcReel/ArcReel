@@ -83,7 +83,7 @@ def test_missing_only_selects_missing_and_reuses_stale(tmp_path: Path) -> None:
     selection = select_generation_targets(
         candidates=[_candidate("A"), _candidate("B"), _candidate("C")],
         requested_ids=None,
-        resolver=resolver,  # type: ignore[arg-type]
+        resolver=resolver,
     )
 
     assert selection.mode is GenerationSelectionMode.MISSING_ONLY
@@ -100,7 +100,7 @@ def test_missing_only_never_regenerates_a_blocked_artifact(tmp_path: Path) -> No
     selection = select_generation_targets(
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=None,
-        resolver=resolver,  # type: ignore[arg-type]
+        resolver=resolver,
     )
 
     assert selection.target_ids == ("A",)
@@ -122,7 +122,7 @@ def test_explicit_selection_takes_named_ids_regardless_of_state(tmp_path: Path) 
     selection = select_generation_targets(
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=["A", "ZZ"],
-        resolver=resolver,  # type: ignore[arg-type]
+        resolver=resolver,
     )
 
     assert selection.mode is GenerationSelectionMode.EXPLICIT
@@ -138,7 +138,7 @@ def test_explicit_empty_collection_is_invalid_not_everything(tmp_path: Path) -> 
         select_generation_targets(
             candidates=[_candidate("A")],
             requested_ids=[],
-            resolver=_Resolver({}),  # type: ignore[arg-type]
+            resolver=_Resolver({}),
         )
 
 
@@ -162,7 +162,7 @@ def test_missing_only_reselects_a_recorded_path_the_manifest_no_longer_claims() 
             _candidate("KEPT", path="videos/kept.mp4"),
         ],
         requested_ids=None,
-        resolver=resolver,  # type: ignore[arg-type]
+        resolver=resolver,
     )
 
     assert selection.target_ids == ("GONE",)
@@ -177,7 +177,7 @@ def test_missing_only_admits_an_override_leg_without_rechecking_the_filesystem(t
     selection = select_generation_targets(
         candidates=[_candidate("A", path="videos/gone.mp4")],
         requested_ids=None,
-        resolver=resolver,  # type: ignore[arg-type]
+        resolver=resolver,
         reusable_override=lambda _candidate: True,
     )
 
@@ -193,7 +193,7 @@ def test_missing_only_does_not_recheck_the_filesystem(tmp_path: Path) -> None:
     selection = select_generation_targets(
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=None,
-        resolver=resolver,  # type: ignore[arg-type]
+        resolver=resolver,
     )
 
     assert selection.target_ids == ("B",)
@@ -206,13 +206,13 @@ def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
 
     # 没有 key 可比对的单元：该轴不可观测，与「缺失」不是一回事。
     assert observe_artifact_status(
-        resolver=resolver,  # type: ignore[arg-type]
+        resolver=resolver,
         key=None,
         artifact_path="videos/a.mp4",
     ) == (None, None)
     assert (
         observe_artifact_status(
-            resolver=resolver,  # type: ignore[arg-type]
+            resolver=resolver,
             key=key,
             artifact_path=None,
         )[0]
@@ -220,7 +220,7 @@ def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
     )
 
     status, blocker = observe_artifact_status(
-        resolver=_Resolver({}, raises={"A"}),  # type: ignore[arg-type]
+        resolver=_Resolver({}, raises={"A"}),
         key=key,
         artifact_path="videos/a.mp4",
     )
@@ -424,7 +424,7 @@ def test_every_registered_failure_code_resolves_to_a_declared_action() -> None:
 
 
 def _batch(resource_id: str, *, status: str = "succeeded", **kwargs: object) -> BatchTaskResult:
-    return BatchTaskResult(resource_id=resource_id, task_id=f"task-{resource_id}", status=status, **kwargs)  # type: ignore[arg-type]
+    return BatchTaskResult(resource_id=resource_id, task_id=f"task-{resource_id}", status=status, **kwargs)
 
 
 def test_recording_a_batch_reports_task_provider_and_artifact_axes_separately() -> None:
@@ -441,7 +441,7 @@ def test_recording_a_batch_reports_task_provider_and_artifact_axes_separately() 
         successes=[_batch("A", result={"file_path": "videos/a.mp4"}, task={"provider_job_id": "job-1"})],
         failures=[],
         states=states,
-        resolver=resolver,  # type: ignore[arg-type]
+        resolver=resolver,
     )
 
     item = builder.build().items[0]
@@ -548,7 +548,7 @@ def test_recording_a_success_with_no_known_state_does_not_crash_under_an_active_
         successes=[_batch("张三", result={"file_path": "characters/张三.png"})],
         failures=[],
         states={},  # unit 不在映射里 -> _state() 退回无 artifact_key 的默认 state
-        resolver=_Resolver({}),  # type: ignore[arg-type]
+        resolver=_Resolver({}),
     )
 
     item = builder.build().items[0]

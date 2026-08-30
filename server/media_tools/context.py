@@ -21,6 +21,7 @@ from lib.narration_delivery import TtsSettingsResolver
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import MigrationFailureRecord
 from lib.project_migration_guard import project_migration_failure
+from lib.schema_guards import is_str
 from server.services import workflow_planner
 from server.services.video_caps import (
     constrained_caps_durations,
@@ -237,7 +238,7 @@ def validate_script_filename(value: str) -> str:
     is fixed inside ``ProjectManager.load_script``. Any path separator —
     including a ``scripts/`` prefix or ``..`` segments — is rejected.
     """
-    if not isinstance(value, str) or not value:
+    if not is_str(value) or not value:
         raise ValueError("script 文件名不能为空")
     if "/" in value or "\\" in value or value in (".", ".."):
         raise ValueError(f"script 必须是纯文件名，禁止路径分隔符: {value!r}")

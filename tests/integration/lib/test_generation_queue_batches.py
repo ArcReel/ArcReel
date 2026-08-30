@@ -308,7 +308,7 @@ async def test_terminal_batch_reobserves_artifact_currency_instead_of_echoing_ad
     with_resolver = await batch_queue.get_generation_batch(
         project_name="demo",
         batch_id=batch_id,
-        resolver=_Resolver(),  # type: ignore[arg-type]
+        resolver=_Resolver(),
     )
 
     assert without_resolver.generation_result is not None

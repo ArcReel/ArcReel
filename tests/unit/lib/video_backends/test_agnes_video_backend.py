@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import re
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
@@ -42,7 +42,7 @@ class _AgnesRoutes(NamedTuple):
 
 
 @contextmanager
-def _agnes_api(*, base_url: str = _BASE_URL) -> Iterator[_AgnesRoutes]:
+def _agnes_api(*, base_url: str = _BASE_URL) -> Generator[_AgnesRoutes]:
     host = base_url.removesuffix("/v1")
     with capture_http() as router:
         yield _AgnesRoutes(

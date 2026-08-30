@@ -66,7 +66,7 @@ def _settings(**overrides: object) -> TtsSynthesisSettings:
         "speed": None,
     }
     values.update(overrides)
-    return TtsSynthesisSettings(**values)  # type: ignore[arg-type]
+    return TtsSynthesisSettings(**values)
 
 
 def _comparison(status: ArtifactStatus, path: str = "audio/segment_E1U1.wav") -> ArtifactComparison:
@@ -76,7 +76,7 @@ def _comparison(status: ArtifactStatus, path: str = "audio/segment_E1U1.wav") ->
 @pytest.mark.parametrize("invalid", [True, 0, -1, 8.5, "8"])
 def test_request_confirmation_is_an_exact_positive_integer(invalid: object) -> None:
     with pytest.raises(ValueError, match="positive integer"):
-        NarrationDeliveryRequestOptions(confirmed_request_duration_seconds=invalid)  # type: ignore[arg-type]
+        NarrationDeliveryRequestOptions(confirmed_request_duration_seconds=invalid)
 
 
 def test_canonical_text_is_nfc_line_normalized_and_ordered() -> None:
@@ -365,7 +365,7 @@ async def test_tts_settings_resolution_rejects_a_configured_identity_only_resolv
     resolver = _ConfiguredIdentityOnlyResolver()
 
     with pytest.raises(AttributeError):
-        await resolve_tts_synthesis_settings({}, resolver)  # type: ignore[arg-type]
+        await resolve_tts_synthesis_settings({}, resolver)
 
     assert resolver.calls == []
 
@@ -452,7 +452,7 @@ async def test_current_state_adapter_post_production_does_not_touch_tts_config(t
         preparation=_narrator_preparation(),
         project_path=tmp_path,
         delivery=POST_PRODUCTION,
-        resolver=_ExplodingResolver(),  # type: ignore[arg-type]
+        resolver=_ExplodingResolver(),
     )
 
     assert prepared.allowed is True

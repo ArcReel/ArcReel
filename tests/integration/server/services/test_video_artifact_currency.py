@@ -378,7 +378,7 @@ async def test_formal_selection_reloads_current_tts_settings_for_currency_check(
 
     monkeypatch.setattr(video_artifact_currency, "build_current_video_artifact_basis", _current_basis)
     committer = VideoArtifactCommitter(
-        project_manager=_PM(),  # type: ignore[arg-type]
+        project_manager=_PM(),
         project_name="demo",
         project_path=project_path,
         versions=versions,
@@ -442,7 +442,7 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
         AsyncMock(return_value=TtsSynthesisSettings("p", "m", "v", None)),
     )
     committer = VideoArtifactCommitter(
-        project_manager=_PM(),  # type: ignore[arg-type]
+        project_manager=_PM(),
         project_name="demo",
         project_path=project_path,
         versions=versions,
@@ -569,7 +569,7 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
 
     monkeypatch.setattr(video_artifact_currency, "build_current_video_artifact_basis", lambda **_kwargs: new_basis)
     committer = VideoArtifactCommitter(
-        project_manager=_PM(),  # type: ignore[arg-type]
+        project_manager=_PM(),
         project_name="demo",
         project_path=project_path,
         versions=versions,
@@ -681,7 +681,7 @@ def test_selected_video_compensation_preserves_the_original_and_rollback_failure
 
     monkeypatch.setattr(video_artifact_currency, "build_current_video_artifact_basis", lambda **_kwargs: new_basis)
     committer = VideoArtifactCommitter(
-        project_manager=_PM(),  # type: ignore[arg-type]
+        project_manager=_PM(),
         project_name="demo",
         project_path=project_path,
         versions=versions,

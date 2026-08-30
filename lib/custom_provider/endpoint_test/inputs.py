@@ -51,10 +51,10 @@ class EndpointTestAssets:
         return self.by_source.get(source)
 
     def items(self, source: str) -> list[AssetData]:
-        """列表型来源的素材；缺席、单值或非素材内容一律空列表。"""
+        """列表型来源的素材；缺席或单值来源取空列表。"""
         value = self.by_source.get(source)
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-            return [item for item in value if isinstance(item, AssetData)]
+            return list(value)
         return []
 
     def single(self, source: str) -> AssetData | None:

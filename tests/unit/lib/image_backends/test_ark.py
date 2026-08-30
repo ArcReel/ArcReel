@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,7 +68,7 @@ class _RecordingArkClient:
 @contextmanager
 def _recorded_ark_client(
     response: _FakeImagesResponse | None = None,
-) -> Iterator[tuple[list[dict[str, Any]], _RecordingArkClient]]:
+) -> Generator[tuple[list[dict[str, Any]], _RecordingArkClient]]:
     """create_ark_client 的记录器：收下建客户端的参数，回一个记录型客户端。"""
     created: list[dict[str, Any]] = []
     client = _RecordingArkClient(response)

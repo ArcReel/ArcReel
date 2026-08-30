@@ -233,11 +233,6 @@ def generate_structured_via_instructor(
     与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
     patched = instructor.from_openai(client, mode=mode)
-    if patched is None:
-        raise TypeError(
-            f"instructor.from_openai() 返回 None — client 类型 {type(client).__name__} 不受支持，"
-            "请传入 openai.OpenAI 或 openai.AsyncOpenAI 实例"
-        )
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
     try:
         result, completion = patched.chat.completions.create_with_completion(
@@ -281,11 +276,6 @@ async def generate_structured_via_instructor_async(
     与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
     patched = instructor.from_openai(client, mode=mode)
-    if patched is None:
-        raise TypeError(
-            f"instructor.from_openai() 返回 None — client 类型 {type(client).__name__} 不受支持，"
-            "请传入 openai.OpenAI 或 openai.AsyncOpenAI 实例"
-        )
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
     try:
         result, completion = await patched.chat.completions.create_with_completion(  # type: ignore[misc]

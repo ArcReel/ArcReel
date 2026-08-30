@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 
@@ -28,7 +28,7 @@ async def generation_admission_lock(
     project_name: str,
     script_file: str,
     resource_id: str,
-) -> AsyncIterator[None]:
+) -> AsyncGenerator[None]:
     """Serialize task admission with guarded media selection for one unit.
 
     Non-blocking lock attempts keep the event loop responsive and cancellation
@@ -63,7 +63,7 @@ def generation_admission_lock_sync(
     project_name: str,
     script_file: str,
     resource_id: str,
-) -> Iterator[None]:
+) -> Generator[None]:
     """Blocking counterpart for synchronous compensation after the async guard is released."""
 
     path = _lock_path(project_name=project_name, resource_id=resource_id)

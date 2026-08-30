@@ -37,9 +37,7 @@ _VEO_CAPS = {
 
 def _veo_720p(fake_ctx: ToolContext) -> None:
     """把项目的生效分辨率钉在 720p——联动约束按已保存的档位求值。"""
-    fake_ctx.pm.project_payload["model_settings"] = {  # pyright: ignore[reportAttributeAccessIssue]
-        "gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}
-    }
+    fake_ctx.pm.project_payload["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}
 
 
 # ---------------------------------------------------------------------------
@@ -462,7 +460,7 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
 ) -> None:
     """未引用场景的 unit 逐条指名：地点由模型自由决定，室内外交替的相邻 unit 会对不上。"""
     _rv_source(fake_ctx)
-    fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}
     out = await _run_rv_split(
         fake_ctx,
         monkeypatch,
@@ -481,7 +479,7 @@ async def test_split_reference_video_units_reports_soft_violations_alongside_the
 ) -> None:
     """产出即违约的报告同样带软违约段：Agent 修草稿这一轮就该看到降级提示，而非等到晋升。"""
     _rv_source(fake_ctx)
-    fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}
     out = await _run_rv_split(
         fake_ctx,
         monkeypatch,
@@ -506,7 +504,7 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
     那条 warning 不在容忍列表内会被丢弃——超出段数上限这类提示反而不见了。
     """
     _rv_source(fake_ctx)
-    fake_ctx.pm.project_payload["characters"] = {  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["characters"] = {
         "张三": {"description": "主角", "reference_audio": "characters/refs_audio/张三.wav"},
         "李四": {"description": "", "reference_audio": "characters/refs_audio/李四.wav"},
     }

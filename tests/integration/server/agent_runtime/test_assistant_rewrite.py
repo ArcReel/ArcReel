@@ -136,7 +136,7 @@ async def rewriting(session_factory, tmp_path):
         resolve_project_cwd=service._resolve_project_cwd_safe,
     )
     runtime = FakeSessionManager(log_store)
-    service.session_manager = runtime  # type: ignore[assignment]
+    service.session_manager = runtime
 
     session_id = str(uuid4())
     await meta_store.create(PROJECT_NAME, session_id)

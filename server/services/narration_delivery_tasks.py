@@ -56,6 +56,7 @@ from lib.reference_video.request_projection import (
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
+from lib.schema_guards import is_finite_number
 from lib.script_editor import resolve_items
 from lib.script_models import resolve_content_mode
 from lib.script_skeleton import resolve_script_kind
@@ -216,12 +217,7 @@ async def _selected_current_video_covering_duration(
 ) -> tuple[str, Path, dict[str, Any], int] | None:
     """Read one trusted selected visual whose measured media covers current TTS."""
 
-    if (
-        isinstance(minimum_actual_duration_seconds, bool)
-        or not isinstance(minimum_actual_duration_seconds, (int, float))
-        or not math.isfinite(minimum_actual_duration_seconds)
-        or minimum_actual_duration_seconds <= 0
-    ):
+    if not is_finite_number(minimum_actual_duration_seconds) or minimum_actual_duration_seconds <= 0:
         raise ValueError("minimum_actual_duration_seconds must be positive")
     selected = await asyncio.to_thread(
         _selected_current_video_record,

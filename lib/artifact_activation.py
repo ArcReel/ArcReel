@@ -349,10 +349,7 @@ def prepare_episode_script_manifest_commit(
     remaining_ids = frozenset(resource_ids)
     removed_ids = frozenset(removed_resource_ids)
     replaced_ids = frozenset(replaced_resource_ids)
-    if any(
-        not isinstance(resource_id, str) or not resource_id
-        for resource_id in (*remaining_ids, *removed_ids, *replaced_ids)
-    ):
+    if any(not resource_id for resource_id in (*remaining_ids, *removed_ids, *replaced_ids)):
         raise ValueError("script resource identities must be non-empty strings")
 
     storage = adapter or ProjectArtifactManifestAdapter(project_dir)

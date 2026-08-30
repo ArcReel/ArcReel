@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from lib.prompt_utils import image_prompt_to_yaml, project_storyboard_image_prompt
+from lib.schema_guards import is_str
 
 # ---------------------------------------------------------------------------
 # 内部常量：防崩 / 反向 / 布局 / 风格前缀
@@ -146,7 +147,7 @@ def build_storyboard_prompt(
 ) -> str:
     """Render canonical storyboard semantics into the exact provider prompt."""
 
-    if not isinstance(style_description, str):
+    if not is_str(style_description):
         raise TypeError("style_description must be a string")
     projected, normalized_style = project_storyboard_image_prompt(image_prompt, style)
 

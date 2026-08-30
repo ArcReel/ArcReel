@@ -237,7 +237,7 @@ class TestDialogueLoad:
 
     def test_non_string_language_falls_back_to_default_rate(self):
         """project.json 的 source_language 可能是脏数据：估算按默认语速走，不抛 AttributeError。"""
-        assert validate_dialogue_load("unit E1U01", "@[李明]：{我来了。}", 4, 123) is None  # pyright: ignore[reportArgumentType]
+        assert validate_dialogue_load("unit E1U01", "@[李明]：{我来了。}", 4, 123) is None
 
     def test_normalizes_unicode_before_estimating(self):
         """NFD 台词先归一再估：组合附加符会被词计数拆成多个单位，不归一会把念得完的 unit 判超载。"""

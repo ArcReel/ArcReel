@@ -100,7 +100,7 @@ def _result(
         audio = _media(audio_path, project_path, kind="audio", duration=audio_duration)
     presentation = materialize_speech_presentation(
         _speech(unit_id, mode, "甲", "乙乙"),
-        variant=variant,  # type: ignore[arg-type]
+        variant=variant,
         video=_media(video_path, project_path, kind="video", duration=duration),
         narration_audio=audio,
         provider_audio_enabled=provider_audio_enabled,

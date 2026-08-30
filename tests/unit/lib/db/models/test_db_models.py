@@ -4,9 +4,10 @@ from datetime import UTC, datetime
 
 from sqlalchemy import inspect, select
 
-import lib.db.models  # noqa: F401 — ensure all models registered for Base.metadata
 from lib.db.base import TimestampMixin, UserOwnedMixin
-from lib.db.models import AgentSession, Task, User
+from lib.db.models import AgentSession, Task, User, register_models
+
+register_models()
 
 
 class TestModelsCreateTables:

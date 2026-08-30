@@ -511,9 +511,9 @@ class TestEnumDriftNormalization:
 
     def test_non_string_enum_still_rejected(self):
         with pytest.raises(ValidationError):
-            Composition.model_validate(self._composition(123))  # type: ignore[arg-type]
+            Composition.model_validate(self._composition(123))
         with pytest.raises(ValidationError):
-            VideoPrompt.model_validate(self._video_prompt(None))  # type: ignore[arg-type]
+            VideoPrompt.model_validate(self._video_prompt(None))
 
     def test_dialogue_null_coerces_to_empty_list(self):
         vp = VideoPrompt.model_validate(self._video_prompt("Static", dialogue=None))

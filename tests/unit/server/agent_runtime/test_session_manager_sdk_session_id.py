@@ -77,7 +77,7 @@ class TestSessionManagerSdkSessionId:
         meta = await meta_store.create("demo", "sdk-usage-789")
         managed = _make_managed(session_id=meta.id, project_name="demo", assistant_model="claude-sonnet-4")
         managed.last_user_prompt = "hello assistant"
-        session_manager._user_id = "assistant-user"  # type: ignore[attr-defined]
+        session_manager._user_id = "assistant-user"
 
         await session_manager._finalize_turn(
             managed,

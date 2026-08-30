@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -13,7 +13,7 @@ import pytest
 
 
 @contextmanager
-def _recorded_genai_clients(models: list[Any] | None = None) -> Iterator[list[dict[str, Any]]]:
+def _recorded_genai_clients(models: list[Any] | None = None) -> Generator[list[dict[str, Any]]]:
     """genai 客户端构造的记录器：收下建客户端的参数，回一个列出给定模型的替身。
 
     鉴权与 base_url 透传的契约就是构造参数本身，断言落在记录的参数上，而不是替身的调用对象。

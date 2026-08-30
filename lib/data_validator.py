@@ -788,7 +788,7 @@ class DataValidator:
 
     def _validate_segments(
         self,
-        segments: list[dict[str, Any]] | Any,
+        segments: Any,
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
@@ -879,7 +879,7 @@ class DataValidator:
 
     def _validate_scenes(
         self,
-        scenes: list[dict[str, Any]] | Any,
+        scenes: Any,
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
@@ -1067,7 +1067,7 @@ class DataValidator:
 
     def _validate_shots(
         self,
-        shots: list[dict[str, Any]] | Any,
+        shots: Any,
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
@@ -1214,7 +1214,7 @@ class DataValidator:
 
     def _validate_reference_video_script(
         self,
-        video_units: list[dict[str, Any]] | Any,
+        video_units: Any,
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
         *,

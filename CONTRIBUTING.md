@@ -159,18 +159,21 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 uv run ruff check . && uv run ruff format .
 ```
 
-- 规则集：`E`/`F`/`I`/`UP`，忽略 `E402` 和 `E501`
+- 规则集：`E`/`F`/`I`/`UP`/`B`/`C4`/`PIE`/`PT`/`RET`/`PERF`/`RUF`/`SIM`/`ASYNC`；忽略 `E402`、`E501` 与 `RUF001`-`RUF003`（中文全角标点被判「易混淆 unicode」，对中文仓库是噪音）
+- FastAPI 的 `Depends`/`Query` 等在参数默认值处调用属惯用法，已登记进 `flake8-bugbear.extend-immutable-calls`，无需逐处 `noqa: B008`
 - line-length：120
 - CI 中强制检查：`ruff check . && ruff format --check .`
 
 **类型检查（basedpyright）：**
 
 ```bash
-uv run basedpyright
+uv run basedpyright --warnings
 ```
 
-- standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 执行全量扫描
-- tests/ 内 `reportOptional*` 和 `unknown*` 系列降级为 warning，避免大量使用 mock 的测试产生噪声
+- standard 模式 + `reportMissingTypeStubs = false`；`--warnings` 让 warning 也返回非 0，CI 与 pre-push hook 均以此执行全量扫描，闸门判据是 error 与 warning 双零
+- 额外开启 `reportUnnecessaryIsInstance` / `reportUnnecessaryComparison` / `reportUnnecessaryTypeIgnoreComment` / `reportUnusedImport` / `reportUnusedVariable` / `reportUnusedClass` / `reportDeprecated`，级别 warning
+- tests/ 内 `reportOptional*`、`reportArgumentType`、`reportAttributeAccessIssue` 等设为 `none`（不做闸门）：测试的断言式访问与 mock 返回值 narrow 噪声大。scripts/ 与 alembic/ 的 `reportMissingImports` 同理，两处都用 `sys.path` 注入或运行期注入符号，静态不可解析
+- 标注表达期望、判定负责实际：从磁盘 JSON 重建的数据类，其构造期形状校验走 `lib/schema_guards.py`（谓词以 `object` 收参），不要写成对自身标注的同义反复；只校验外层容器类型的访问器把元素标注写成 `Any`，别写成 `dict[str, Any]`
 
 **Import 分层契约（import-linter）：**
 

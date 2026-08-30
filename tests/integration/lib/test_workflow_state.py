@@ -627,7 +627,7 @@ def _count_source_reads(monkeypatch: pytest.MonkeyPatch, project_path: Path) -> 
 
     def _counted_read_text(self: Path, *args: object, **kwargs: object) -> str:
         _record(self)
-        return original_read_text(self, *args, **kwargs)  # pyright: ignore[reportArgumentType, reportCallIssue]
+        return original_read_text(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_bytes", _counted_read_bytes)
     monkeypatch.setattr(Path, "read_text", _counted_read_text)

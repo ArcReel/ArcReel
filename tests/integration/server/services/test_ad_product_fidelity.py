@@ -3,11 +3,11 @@
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
+    FakeGenerator,
     _ad_pm,
     _async_return,
     _currency_resolver,
     _fake_resolve_ctx,
-    _FakeGenerator,
     _prepare_files,
     _seed_current_storyboard,
 )
@@ -30,7 +30,7 @@ class TestAdProductFidelityStoryboard:
         project_path = _prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
         pm = _ad_pm(project_path, with_sheet=True)
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         self._patch(monkeypatch, pm, generator)
 
         await generation_tasks.execute_storyboard_task(
@@ -57,7 +57,7 @@ class TestAdProductFidelityStoryboard:
         """无 sheet 的商品分镜：原图直注、仍排首位；声明但缺失的原图跳过。"""
         project_path = _prepare_files(tmp_path)
         pm = _ad_pm(project_path, with_sheet=False)
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         self._patch(monkeypatch, pm, generator)
 
         await generation_tasks.execute_storyboard_task(
@@ -85,7 +85,7 @@ class TestAdProductFidelityStoryboard:
             "selling_points": [],
         }
         pm.script["shots"][1]["products_in_shot"] = ["保温杯", "杯刷"]
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         self._patch(monkeypatch, pm, generator)
 
         await generation_tasks.execute_storyboard_task(
@@ -101,7 +101,7 @@ class TestAdProductFidelityStoryboard:
         project_path = _prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
         pm = _ad_pm(project_path, with_sheet=True)
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         self._patch(monkeypatch, pm, generator)
 
         await generation_tasks.execute_storyboard_task(
@@ -214,7 +214,7 @@ class TestAdProductVideoRequest:
         (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
         pm = _ad_pm(project_path, with_sheet=True)
         _seed_current_storyboard(pm, "E1S02")
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         _patch_video_path(monkeypatch, pm, generator)
 
         result = await generation_tasks.execute_video_task(

@@ -14,11 +14,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, get_args
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from lib.db.models.custom_provider import CustomProviderModel
+
+from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -729,7 +729,7 @@ class ConfigResolver:
     # ── Session 管理 ──
 
     @asynccontextmanager
-    async def session(self) -> AsyncIterator[ConfigResolver]:
+    async def session(self) -> AsyncGenerator[ConfigResolver]:
         """打开共享 session，返回绑定到该 session 的 ConfigResolver。"""
         if self._bound_session is not None:
             yield self
@@ -738,7 +738,7 @@ class ConfigResolver:
                 yield ConfigResolver(self._session_factory, _bound_session=sess)
 
     @asynccontextmanager
-    async def _open_session(self) -> AsyncIterator[tuple[AsyncSession, ConfigService]]:
+    async def _open_session(self) -> AsyncGenerator[tuple[AsyncSession, ConfigService]]:
         """获取 (session, ConfigService)，优先复用 bound session。"""
         if self._bound_session is not None:
             yield self._bound_session, ConfigService(self._bound_session)

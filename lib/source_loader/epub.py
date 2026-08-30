@@ -6,6 +6,8 @@ import ebooklib
 from bs4 import BeautifulSoup
 from ebooklib import epub
 
+from lib.schema_guards import is_shape
+
 from .base import ExtractedText
 from .errors import CorruptFileError
 
@@ -24,9 +26,10 @@ def _resolve_titles(book: epub.EpubBook, doc_items: list) -> list[str]:
             elif hasattr(entry, "href") and entry.href:
                 by_href[entry.href.split("#")[0]] = entry.title
 
-    if book.toc:
-        toc = book.toc if isinstance(book.toc, list | tuple) else [book.toc]
-        _walk(toc)
+    # ebooklib 的 toc 未做类型声明，运行期可能是单个 Link 而非序列
+    toc = book.toc
+    if toc:
+        _walk(list(toc) if is_shape(toc, (list, tuple)) else [toc])
 
     titles: list[str] = []
     for idx, item in enumerate(doc_items, start=1):

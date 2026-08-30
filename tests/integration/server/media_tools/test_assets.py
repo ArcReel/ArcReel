@@ -63,7 +63,7 @@ async def test_list_pending_assets_error(fake_ctx: ToolContext, monkeypatch) -> 
     def boom(_name):
         raise RuntimeError("db down")
 
-    fake_ctx.pm.get_pending_characters = boom  # type: ignore[attr-defined]
+    fake_ctx.pm.get_pending_characters = boom
     tool_obj = list_pending_assets_tool(fake_ctx)
     out = await _call(tool_obj, {"type": "character"})
     assert out.get("is_error") is True
@@ -104,9 +104,9 @@ async def test_generate_assets_legacy_project_reverifies_sheet_file_on_disk(fake
     from server.media_tools import assets as mod
 
     # 未设置当前 schema：resolver 走 legacy 分支（没有 active Manifest）。
-    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["characters"]["李四"]["character_sheet"] = "characters/lisi.png"  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
+    fake_ctx.pm.project_payload["characters"]["李四"]["character_sheet"] = "characters/lisi.png"
+    fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"
     # 只有张三的文件真的落盘；李四的 sheet 路径是失效元数据。
     sheet_path = fake_ctx.project_path / "characters" / "zhangsan.png"
     sheet_path.parent.mkdir(parents=True, exist_ok=True)

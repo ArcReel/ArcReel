@@ -255,12 +255,10 @@ class SessionEntryPipeline:
             logger.exception(
                 "事件日志写入点处理失败 session_id=%s msg_type=%s",
                 self._session_id_provider(),
-                msg_dict.get("type") if isinstance(msg_dict, dict) else type(msg_dict),
+                msg_dict.get("type"),
             )
 
     async def _handle(self, msg_dict: dict[str, Any]) -> None:
-        if not isinstance(msg_dict, dict):
-            return
         session_id = self._session_id_provider()
         if not session_id:
             return

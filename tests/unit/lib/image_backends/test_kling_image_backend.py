@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
@@ -41,7 +41,7 @@ class _KlingImageRoutes(NamedTuple):
 
 
 @contextmanager
-def _kling_image_api() -> Iterator[_KlingImageRoutes]:
+def _kling_image_api() -> Generator[_KlingImageRoutes]:
     with capture_http() as router:
         yield _KlingImageRoutes(
             submit=router.post(_GENERATIONS_URL),

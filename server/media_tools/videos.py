@@ -755,14 +755,11 @@ async def _generate_reference_units(
 def _reference_episode(project: dict[str, Any], script: dict[str, Any], script_filename: str) -> int:
     """参考生视频的集号：绑定身份优先，取不到时回落到剧本 / 文件名推断。"""
 
-    episode = resolve_artifact_episode(
+    return resolve_artifact_episode(
         project=project,
         script=script,
         script_filename=script_filename,
     )
-    if episode is None:
-        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
-    return episode
 
 
 async def _run_reference_batch(

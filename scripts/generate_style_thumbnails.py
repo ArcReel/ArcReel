@@ -15,7 +15,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from lib import config  # noqa: F401 -- 副作用导入：先初始化 config 以打破 db.repositories 的循环导入
 from lib.db import async_session_factory
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.image_backends.base import ImageGenerationRequest

@@ -8,7 +8,6 @@ import errno
 import hashlib
 import json
 import logging
-import math
 import os
 import re
 import shutil
@@ -23,6 +22,7 @@ from lib.artifact_manifest import ArtifactBasisDescriptor
 from lib.content_digest import canonical_json, canonical_json_digest, sha256_file_with_size
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
+from lib.schema_guards import is_bool, is_finite_number, is_int, is_shape, is_str
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 
 logger = logging.getLogger(__name__)
@@ -64,8 +64,8 @@ def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _require_task_id(task_id: str) -> None:
-    if not isinstance(task_id, str) or not _TASK_ID_RE.fullmatch(task_id):
+def _require_task_id(task_id: object) -> None:
+    if not is_str(task_id) or not _TASK_ID_RE.fullmatch(str(task_id)):
         raise ValueError("task_id contains unsafe path characters")
 
 
@@ -138,9 +138,7 @@ class ProviderMediaInput:
         _require_nonempty_string(self.logical_type, "logical_type")
         _require_nonempty_string(self.logical_name, "logical_name")
         _require_nonempty_string(self.kind, "kind")
-        if self.target_index is not None and (
-            not isinstance(self.target_index, int) or isinstance(self.target_index, bool) or self.target_index < 0
-        ):
+        if self.target_index is not None and not is_int(self.target_index, minimum=0):
             raise ValueError("target_index must be a non-negative integer or null")
         if self.role != "reference_audio" and self.target_index is not None:
             raise ValueError(f"{self.role} cannot have target_index")
@@ -177,7 +175,7 @@ class StagedProviderMedia:
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(self.index, int) or isinstance(self.index, bool) or self.index < 0:
+        if not is_int(self.index, minimum=0):
             raise ValueError("media index must be a non-negative integer")
         if self.role not in ("reference_image", "reference_audio", "start_image", "end_image"):
             raise ValueError(f"unsupported provider media role: {self.role!r}")
@@ -187,11 +185,9 @@ class StagedProviderMedia:
         _require_relative_locator(self.source_locator, "source_locator")
         _require_relative_locator(self.staged_locator, "staged_locator")
         _require_digest(self.sha256, "sha256")
-        if not isinstance(self.size_bytes, int) or isinstance(self.size_bytes, bool) or self.size_bytes < 0:
+        if not is_int(self.size_bytes, minimum=0):
             raise ValueError("size_bytes must be a non-negative integer")
-        if self.target_index is not None and (
-            not isinstance(self.target_index, int) or isinstance(self.target_index, bool) or self.target_index < 0
-        ):
+        if self.target_index is not None and not is_int(self.target_index, minimum=0):
             raise ValueError("target_index must be a non-negative integer or null")
         if self.role != "reference_audio" and self.target_index is not None:
             raise ValueError(f"{self.role} cannot have target_index")
@@ -310,7 +306,7 @@ def stage_provider_media(
     """Atomically publish task-local copies of exactly the provider-bound media."""
 
     _require_task_id(task_id)
-    if not isinstance(inputs, tuple):
+    if not is_shape(inputs, tuple):
         raise TypeError("provider media inputs must be a tuple")
     planned = _media_plan(project_path, task_id, inputs)
     if not planned:
@@ -457,10 +453,7 @@ class NarrationExecutionFacts:
         _require_relative_locator(self.artifact_path, "artifact_path", allow_empty=True)
         _require_basis_digest(self.basis_digest, "basis_digest", optional=True)
         if self.actual_duration_seconds is not None and (
-            not isinstance(self.actual_duration_seconds, (int, float))
-            or isinstance(self.actual_duration_seconds, bool)
-            or not math.isfinite(self.actual_duration_seconds)
-            or self.actual_duration_seconds <= 0
+            not is_finite_number(self.actual_duration_seconds) or self.actual_duration_seconds <= 0
         ):
             raise ValueError("actual_duration_seconds must be positive and finite or null")
         if self.delivery == "post_production":
@@ -606,8 +599,7 @@ class _VideoSubmissionCheckpoint:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.schema_version, int)
-            or isinstance(self.schema_version, bool)
+            not is_int(self.schema_version)
             or self.schema_version not in {_LEGACY_SCHEMA_VERSION, _VISUAL_BASIS_SCHEMA_VERSION, _SCHEMA_VERSION}
             or self.kind != self.CHECKPOINT_KIND
         ):
@@ -622,24 +614,20 @@ class _VideoSubmissionCheckpoint:
         _require_nonempty_string(self.provider_model_id, "provider_model_id")
         _require_nonempty_string(self.backend_model_id, "backend_model_id")
         _require_optional_string(self.endpoint_guard, "endpoint_guard")
-        if not isinstance(self.api_call_id, int) or isinstance(self.api_call_id, bool) or self.api_call_id <= 0:
+        if not is_int(self.api_call_id, minimum=1):
             raise ValueError("api_call_id must be a positive integer")
         _require_nonempty_string(self.prompt, "prompt")
         _require_digest(self.prompt_sha256, "prompt_sha256")
         if self.prompt_sha256 != _sha256_bytes(self.prompt.encode("utf-8")):
             raise ValueError("prompt_sha256 does not match prompt")
-        if (
-            not isinstance(self.duration_seconds, int)
-            or isinstance(self.duration_seconds, bool)
-            or self.duration_seconds <= 0
-        ):
+        if not is_int(self.duration_seconds, minimum=1):
             raise ValueError("duration_seconds must be a positive integer")
         _require_nonempty_string(self.aspect_ratio, "aspect_ratio")
         _require_optional_string(self.resolution, "resolution")
-        if not isinstance(self.generate_audio, bool):
+        if not is_bool(self.generate_audio):
             raise ValueError("generate_audio must be a boolean")
         _require_nonempty_string(self.service_tier, "service_tier")
-        if self.seed is not None and (not isinstance(self.seed, int) or isinstance(self.seed, bool)):
+        if self.seed is not None and not is_int(self.seed):
             raise ValueError("seed must be an integer or null")
         _require_basis_digest(self.visual_basis_digest, "visual_basis_digest")
         if self.schema_version == _VISUAL_BASIS_SCHEMA_VERSION:
@@ -672,10 +660,7 @@ class _VideoSubmissionCheckpoint:
                 if any(item.target_index is not None for item in audio):
                     raise ValueError("media target_index requires reference_audio_targets")
             else:
-                if any(
-                    not isinstance(target, int) or isinstance(target, bool) or target < 0
-                    for target in self.reference_audio_targets
-                ):
+                if any(not is_int(target, minimum=0) for target in self.reference_audio_targets):
                     raise ValueError("reference_audio_targets must contain non-negative integers")
                 if tuple(item.target_index for item in audio) != self.reference_audio_targets:
                     raise ValueError("reference_audio_targets do not match staged audio identities")

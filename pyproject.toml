@@ -248,6 +248,10 @@ reportImportCycles = false
 reportUnnecessaryIsInstance = "warning"
 reportUnnecessaryComparison = "warning"
 reportUnnecessaryTypeIgnoreComment = "warning"
+reportUnusedImport = "warning"
+reportUnusedVariable = "warning"
+reportUnusedClass = "warning"
+reportDeprecated = "warning"
 
 reportGeneralTypeIssues = "error"
 reportOptionalSubscript = "error"
@@ -268,18 +272,21 @@ reportPrivateUsage = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
 reportUnknownVariableType = "none"
-reportArgumentType = "warning"
-reportAttributeAccessIssue = "warning"
-# 测试里 repo/manager 调用通常断言式访问，narrow 噪声大；mock 返回也常被 subscript
-reportOptionalSubscript = "warning"
-reportOptionalMemberAccess = "warning"
-reportOptionalIterable = "warning"
-reportOperatorIssue = "warning"
-reportOptionalCall = "warning"
+# 以下规则在测试域不做闸门：测试里 repo/manager 调用通常断言式访问，narrow 噪声大；
+# mock 返回也常被 subscript。闸门跑 `basedpyright --warnings` 后 warning 即阻断，
+# 故这批降级写成 none 才是「测试域不做闸门」这一既有决策的诚实表达。
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportOptionalSubscript = "none"
+reportOptionalMemberAccess = "none"
+reportOptionalIterable = "none"
+reportOperatorIssue = "none"
+reportOptionalCall = "none"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "alembic"
-reportMissingImports = "warning"
+# alembic 模板里的 `from alembic import context` 等运行期注入符号静态不可解析，此域不做闸门
+reportMissingImports = "none"
 
 # scripts/ 是一次性辅助脚本（迁移、生成 fixture、烟雾测试），
 # 不值得花大力气做类型，但 tests/scripts/ 会 import 它们，所以必须可解析
@@ -299,4 +306,5 @@ reportPossiblyUnboundVariable = "none"
 reportGeneralTypeIssues = "none"
 reportCallIssue = "none"
 reportIndexIssue = "none"
-reportMissingImports = "warning"
+# 脚本用 sys.path 注入后再 import，静态不可解析，此域不做闸门
+reportMissingImports = "none"

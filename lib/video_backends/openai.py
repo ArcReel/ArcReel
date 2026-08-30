@@ -172,7 +172,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
             refs.append(_encode_start_image(Path(request.start_image)))
         if request.reference_images:
             for ref_path in request.reference_images:
-                p = Path(ref_path) if not isinstance(ref_path, Path) else ref_path
+                p = ref_path
                 if p.exists():
                     refs.append(_encode_start_image(p))
         if refs:
@@ -298,7 +298,7 @@ def _is_openai_not_found(exc: BaseException) -> bool:
     宽泛字串会把诸如 ``"file not found in storage"`` 等业务错误误判为幽灵任务。
     """
     try:
-        from openai import NotFoundError  # pyright: ignore[reportMissingImports]
+        from openai import NotFoundError
     except ImportError:
         NotFoundError = None
 

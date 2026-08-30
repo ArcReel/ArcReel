@@ -190,7 +190,7 @@ async def test_resolution_after_upgrade(name, before, after):
             assert not any("/" in after.get(key, "") for key in (f"default_image_backend_{capability}", _KEYS[0]))
             continue
         resolved = await resolver._resolve_layered_backend(
-            _Settings(),  # pyright: ignore[reportArgumentType]
+            _Settings(),
             None,
             None,
             _IMAGE_LAYERED_KEYS[capability],

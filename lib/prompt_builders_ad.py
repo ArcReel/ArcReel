@@ -22,6 +22,7 @@ from lib.prompt_builders_script import (
     _format_names,
 )
 from lib.reference_video.writing_syntax import writing_syntax_spec
+from lib.schema_guards import is_int
 from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
@@ -193,7 +194,7 @@ def build_ad_prompt(
     （无带货框架，不设显式子模式开关）。``speech_rate_override`` 是项目级语速覆盖
     （由调用方经 ``project_speech_rate_override`` 解析），None 即回退语言默认。
     """
-    if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
+    if not is_int(target_duration, minimum=1):
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
 
     duration_constraint = _shot_duration_constraint(generation_mode, supported_durations)
@@ -359,7 +360,7 @@ def build_ad_reference_prompt(
     target_language: str = "中文",
 ) -> str:
     """广告/短片的参考生视频单阶段生成 prompt；直接输出含引用语法正文的扁平 unit。"""
-    if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
+    if not is_int(target_duration, minimum=1):
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
     min_unit_duration, max_unit_duration = REFERENCE_UNIT_DURATION_RANGE
     product_context = _format_products(products) if products else "（无商品，按通用短片创作）"

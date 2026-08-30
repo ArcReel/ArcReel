@@ -26,7 +26,7 @@ from __future__ import annotations
 import copy
 import shutil
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -174,7 +174,7 @@ def _ensure_backup(path: Path) -> None:
 
 
 @contextmanager
-def _located(episode: int, file: str) -> Iterator[None]:
+def _located(episode: int, file: str) -> Generator[None]:
     """把预检抛出的结构违约补成带定位事实的迁移错误。
 
     「需要修复」裁决按 ``(episode, file)`` 给用户与 Agent 导航，仅凭消息文本无法定位到集与文件。

@@ -577,9 +577,9 @@ async def test_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, 
 
 def _rv_scenes(fake_ctx: ToolContext, scenes: dict[str, Any]) -> None:
     """改写项目登记的场景资产（内存视图与盘上 project.json 同步）。"""
-    fake_ctx.pm.project_payload["scenes"] = scenes  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["scenes"] = scenes
     (fake_ctx.project_path / "project.json").write_text(
-        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),  # pyright: ignore[reportAttributeAccessIssue]
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -755,7 +755,7 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolC
     _rv_source(fake_ctx)
     split = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 在 @[村口] 等候")])
     assert split.get("is_error") is not True, split
-    project = fake_ctx.pm.project_payload  # pyright: ignore[reportAttributeAccessIssue]
+    project = fake_ctx.pm.project_payload
     project["episodes"][0]["script_plan_review"] = {
         "fingerprint": script_review.content_fingerprint(_rv_script_plan_path(fake_ctx)),
         "confirmed_at": "2026-08-24T00:00:00Z",
@@ -799,7 +799,7 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     _rv_source(fake_ctx)
     split = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身")])
     assert split.get("is_error") is not True, split
-    project = fake_ctx.pm.project_payload  # pyright: ignore[reportAttributeAccessIssue]
+    project = fake_ctx.pm.project_payload
     project["episodes"][0]["script_plan_review"] = {
         "fingerprint": script_review.content_fingerprint(_rv_script_plan_path(fake_ctx)),
         "confirmed_at": "2026-08-24T00:00:00Z",

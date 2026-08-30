@@ -194,7 +194,7 @@ async def test_generation_batch_remains_readable_when_project_migration_is_block
             projects=_MigrationBlockedProjects({}),
             workflow_planner=_Planner(_status()),
             capabilities=_Capabilities(),
-            queue=queue,  # type: ignore[arg-type]
+            queue=queue,
         ),
     )
 
@@ -233,7 +233,7 @@ async def test_text_task_service_registration_is_cleaned_when_batch_read_fails()
         projects=_Projects({}),
         workflow_planner=_Planner(_status()),
         capabilities=_Capabilities(),
-        queue=_Queue(),  # type: ignore[arg-type]
+        queue=_Queue(),
     )
 
     with pytest.raises(RuntimeError, match="database unavailable") as exc_info:
@@ -273,7 +273,7 @@ async def test_mcp_dedupe_does_not_remove_embedded_text_task_registration() -> N
         projects=_Projects({}),
         workflow_planner=_Planner(_status()),
         capabilities=_Capabilities(),
-        queue=_Queue(),  # type: ignore[arg-type]
+        queue=_Queue(),
     )
     tool_runtime._TEXT_TASK_SERVICES["task-shared"] = owner
     try:
@@ -325,7 +325,7 @@ async def test_text_task_conflict_deletes_the_unassociated_batch() -> None:
             projects=_Projects({}),
             workflow_planner=_Planner(_status()),
             capabilities=_Capabilities(),
-            queue=queue,  # type: ignore[arg-type]
+            queue=queue,
         ),
     )
 
@@ -610,12 +610,12 @@ async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) 
 @pytest.mark.parametrize("episode", [0, -1, True, 1.5, "1"])
 def test_draft_locator_requires_a_strict_positive_episode(episode: object) -> None:
     with pytest.raises(ValidationError, match=r"DraftLocator\nepisode"):
-        DraftLocator(episode=episode, doc_type="reference_script_plan")  # type: ignore[arg-type]
+        DraftLocator(episode=episode, doc_type="reference_script_plan")
 
 
 def test_draft_locator_rejects_unknown_document_types() -> None:
     with pytest.raises(ValidationError, match=r"DraftLocator\ndoc_type"):
-        DraftLocator(episode=1, doc_type="unsupported")  # type: ignore[arg-type]
+        DraftLocator(episode=1, doc_type="unsupported")
 
 
 def test_draft_dependency_points_from_sdk_adapter_to_shared_workflow() -> None:
@@ -641,3 +641,57 @@ def test_draft_dependency_points_from_sdk_adapter_to_shared_workflow() -> None:
     assert not any(name.startswith("server.agent_runtime.sdk_tools") for name in shared_imports)
     assert "server.draft_workflow" in sdk_imports
     assert '"is_error"' not in shared_source
+
+
+@pytest.mark.parametrize("script", [1, ["episode_1.json"], {"name": "episode_1.json"}, None])
+async def test_episode_script_reader_reports_invalid_request_for_non_string_names(
+    tmp_path: Path, script: object
+) -> None:
+    """工具入参是模型给的原始 JSON，形状不合规须落成 invalid_request 而非异常。"""
+
+    project_dir = tmp_path / "demo"
+    project_dir.mkdir(parents=True)
+    (project_dir / "project.json").write_text(
+        f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
+    )
+    services = Services(
+        projects=ProjectManager(tmp_path), workflow_planner=_Planner(_status()), capabilities=_Capabilities()
+    )
+
+    outcome = await get_episode_script(
+        ToolRequest(script),
+        ProjectScope("demo", tmp_path),
+        CallerContext(user_id="u1", source="mcp"),
+        services,
+    )
+
+    assert outcome.problem is not None
+    assert outcome.problem.code == "invalid_request"
+
+
+@pytest.mark.parametrize("path", [1, ["source/novel.txt"], {"path": "source/novel.txt"}])
+async def test_business_file_readers_reject_non_string_paths(tmp_path: Path, path: object) -> None:
+    project_dir = tmp_path / "demo"
+    (project_dir / "source").mkdir(parents=True)
+    (project_dir / "project.json").write_text(
+        f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
+    )
+    services = Services(
+        projects=ProjectManager(tmp_path), workflow_planner=_Planner(_status()), capabilities=_Capabilities()
+    )
+    scope = ProjectScope("demo", tmp_path)
+    caller = CallerContext(user_id="u1", source="mcp")
+
+    source_text = await get_source_text(ToolRequest(path), scope, caller, services)
+    project_file = await read_project_file(ToolRequest(path), scope, caller, services)
+
+    assert source_text.problem is not None
+    assert project_file.problem is not None
+
+
+@pytest.mark.parametrize("entry_ids", [(1,), (["E1U01"],), ({"id": "E1U01"},)])
+def test_text_generation_request_rejects_non_string_entry_ids(entry_ids: tuple[object, ...]) -> None:
+    """entry_ids 经队列 payload JSON 往返回来，元素类型必须真的校验。"""
+
+    with pytest.raises(ValueError, match="entry_ids must be non-empty strings"):
+        shared_text_generation.TextGenerationRequest(episode=1, scope="stale", entry_ids=entry_ids)

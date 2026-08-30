@@ -16,8 +16,8 @@ from lib.generation_queue import CompensableGenerationResult
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
+    FakeGenerator,
     _fake_resolve_ctx,
-    _FakeGenerator,
     _FakePM,
     _persist_active_fake_project,
     _prepare_files,
@@ -32,7 +32,7 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         registered: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
-        class _BrokenVersionLookup(_FakeGenerator):
+        class _BrokenVersionLookup(FakeGenerator):
             def get_versions(self, resource_type, resource_id):
                 raise RuntimeError("injected finalization failure")
 
@@ -57,7 +57,7 @@ class TestGenerationTasks:
     async def test_storyboard_registers_manifest_after_successful_formal_commit(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         registered: list[tuple[tuple[object, ...], dict[str, object]]] = []
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -87,7 +87,7 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
         _persist_active_fake_project(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -105,7 +105,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path, register_script=False)
         _persist_active_fake_project(fake_pm, register_script=False)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -129,7 +129,7 @@ class TestGenerationTasks:
             ArtifactKey.episode_storyboard(1, "E1S01"),
             "storyboards/scene_E1S01.png",
         )
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -269,7 +269,7 @@ class TestGenerationTasks:
         _persist_active_fake_project(fake_pm)
         key = ArtifactKey.asset_sheet("character", "Alice")
         _register_stale_visual_claim(project_path, key, "characters/Alice.png")
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         resolve_context = _fake_resolve_ctx(fake_generator)
 
         async def _delete_claim_then_resolve(*args, **kwargs):
@@ -297,7 +297,7 @@ class TestGenerationTasks:
         key = ArtifactKey.asset_sheet("character", "Alice")
         artifact_path = "characters/Alice.png"
         _register_stale_visual_claim(project_path, key, artifact_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         resolve_context = _fake_resolve_ctx(fake_generator)
 
         async def _replace_bytes_then_resolve(*args, **kwargs):
@@ -322,7 +322,7 @@ class TestGenerationTasks:
         _register_asset_sheet_claims(fake_pm)
         provider_submissions: list[str] = []
 
-        class _SubmittingGenerator(_FakeGenerator):
+        class _SubmittingGenerator(FakeGenerator):
             async def generate_image_async(self, **kwargs):
                 await kwargs["before_submit"]()
                 provider_submissions.append("submitted")
@@ -400,7 +400,7 @@ class TestGenerationTasks:
         )
         captured_basis: list[ArtifactBasis] = []
 
-        class _RacingGenerator(_FakeGenerator):
+        class _RacingGenerator(FakeGenerator):
             def __init__(self):
                 super().__init__()
                 self.reference_bytes: list[bytes] = []
@@ -481,7 +481,7 @@ class TestGenerationTasks:
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         captured: list[ArtifactBasis] = []
         original_generate = fake_generator.generate_image_async
 
@@ -545,7 +545,7 @@ class TestGenerationTasks:
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         captured: list[ArtifactBasis] = []
         original_generate = fake_generator.generate_image_async
 
@@ -662,7 +662,7 @@ class TestGenerationTasks:
     async def test_storyboard_cancellation_waits_for_registration_and_returns_compensation(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         registration_started = threading.Event()
         finish_registration = threading.Event()
         compensated: list[str] = []

@@ -42,7 +42,7 @@ async def test_generate_videos_episode_scope_reports_an_interrupted_batch_enqueu
     from lib.generation_queue_client import BatchTaskResult
     from server.media_tools import videos as mod
 
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": "E1S01", "novel_text": "第一段旁白。", "video_prompt": "第一镜"},
         {"segment_id": "E1S02", "novel_text": "第二段旁白。", "video_prompt": "第二镜"},
     ]
@@ -50,7 +50,7 @@ async def test_generate_videos_episode_scope_reports_an_interrupted_batch_enqueu
     for segment_id in ("E1S01", "E1S02"):
         image = project_dir / "storyboards" / f"scene_{segment_id}.png"
         image.write_bytes(b"png")
-        for item in fake_ctx.pm.script_payload["segments"]:  # type: ignore[attr-defined]
+        for item in fake_ctx.pm.script_payload["segments"]:
             if item["segment_id"] == segment_id:
                 item["generated_assets"] = {"storyboard_image": f"storyboards/scene_{segment_id}.png"}
 
@@ -94,7 +94,7 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
 ) -> None:
     """在途任务冲突拦下整批：一个都不入队，其余 unit 报告自己是被谁扣下的。"""
     fake_ctx = idle_fake_ctx
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": "E1S01", "novel_text": "第一段旁白。", "video_prompt": "第一镜"},
         {"segment_id": "E1S02", "novel_text": "第二段旁白。", "video_prompt": "第二镜"},
     ]
@@ -102,7 +102,7 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
     for segment_id in ("E1S01", "E1S02"):
         image = project_dir / "storyboards" / f"scene_{segment_id}.png"
         image.write_bytes(b"png")
-        for item in fake_ctx.pm.script_payload["segments"]:  # type: ignore[attr-defined]
+        for item in fake_ctx.pm.script_payload["segments"]:
             if item["segment_id"] == segment_id:
                 item["generated_assets"] = {"storyboard_image": f"storyboards/scene_{segment_id}.png"}
 
@@ -161,7 +161,7 @@ async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue
     )
     _use_reference_route(fake_ctx)
     (fake_ctx.project_path / "project.json").write_text(
-        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),  # type: ignore[attr-defined]
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),
         encoding="utf-8",
     )
     script = _reference_video_script()
@@ -173,7 +173,7 @@ async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue
             "duration_seconds": 5,
         }
     )
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     async with concurrent_session_factory() as session:
         session.add(User(id="tenant-user", username="tenant-user"))
         await session.commit()
@@ -245,7 +245,7 @@ async def test_generate_videos_all_scope_creates_zero_tasks_when_one_artifact_st
     from lib.generation_result import GenerationCandidate, GenerationTargetState
     from server.media_tools import videos as mod
 
-    fake_ctx.pm.script_payload["segments"].append(  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"].append(
         {
             "segment_id": "E1S02",
             "image_prompt": "山道清晨",
@@ -295,7 +295,7 @@ async def test_generate_videos_all_scope_admits_legacy_narration_stored_under_sc
     """narration 数据落在 scenes 键的历史剧本按实际骨架做发声准入，不被整批判成解析失败。"""
     from server.media_tools import videos as mod
 
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {
         "content_mode": "narration",
         "episode": 1,
         "scenes": [
@@ -383,7 +383,7 @@ async def test_generate_reference_episode_refuses_a_non_scalar_unit_id(
     script = _reference_video_script()
     healthy = script["video_units"][0]
     script["video_units"] = [{**healthy, "unit_id": ["U9"]}, healthy]
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
@@ -406,7 +406,7 @@ async def test_generate_reference_units_refuses_a_duplicated_named_unit(
     _use_reference_route(fake_ctx)
     script = _reference_video_script()
     script["video_units"] = [*script["video_units"], {**script["video_units"][0]}]
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     duplicated_id = script["video_units"][0]["unit_id"]
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)

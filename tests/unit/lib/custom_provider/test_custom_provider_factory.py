@@ -6,7 +6,7 @@ endpoints 模块内的真实后端类换成记录型工厂：工厂的产出就�
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -41,7 +41,7 @@ _ENDPOINT_BACKEND_CLASSES = (
 
 
 @contextmanager
-def _endpoint_backends() -> Iterator[list[dict[str, Any]]]:
+def _endpoint_backends() -> Generator[list[dict[str, Any]]]:
     """endpoints 模块各后端类的构造记录器：记类名与构造参数，不建 SDK 客户端。"""
     records: list[dict[str, Any]] = []
 

@@ -41,6 +41,7 @@ from lib.narration_delivery import (
 from lib.path_safety import PathTraversalError, safe_join
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.text_parser import derive_references_from_text
+from lib.schema_guards import is_int
 from lib.script_models import ReferenceResource
 from lib.speech_composition import admit_script_unit
 
@@ -67,16 +68,10 @@ class ReferenceRequestOptions(NarrationDeliveryRequestOptions):
         if floor is not None and (not math.isfinite(floor) or floor <= 0):
             raise ValueError("current_tts_duration_seconds must be positive and finite or null")
         visual_duration = self.current_visual_duration_seconds
-        if visual_duration is not None and (
-            not isinstance(visual_duration, int) or isinstance(visual_duration, bool) or visual_duration <= 0
-        ):
+        if visual_duration is not None and not is_int(visual_duration, minimum=1):
             raise ValueError("current_visual_duration_seconds must be a positive integer or null")
         reusable_visual_duration = self.current_reusable_visual_duration_seconds
-        if reusable_visual_duration is not None and (
-            not isinstance(reusable_visual_duration, int)
-            or isinstance(reusable_visual_duration, bool)
-            or reusable_visual_duration <= 0
-        ):
+        if reusable_visual_duration is not None and not is_int(reusable_visual_duration, minimum=1):
             raise ValueError("current_reusable_visual_duration_seconds must be a positive integer or null")
         preparation = self.narration_preparation
         if preparation is not None and preparation.delivery != self.narration_delivery:

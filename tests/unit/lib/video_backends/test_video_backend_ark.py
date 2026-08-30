@@ -647,7 +647,7 @@ class TestIsArkNotFound:
         from lib.video_backends.ark import _is_ark_not_found
 
         exc = RuntimeError("any")
-        exc.status_code = 404  # type: ignore[attr-defined]
+        exc.status_code = 404
         assert _is_ark_not_found(exc) is True
 
 

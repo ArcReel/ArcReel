@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,7 +19,7 @@ from tests.http_capture import capture_http
 
 
 @contextmanager
-def _image_download(url: str, content: bytes) -> Iterator[respx.Route]:
+def _image_download(url: str, content: bytes) -> Generator[respx.Route]:
     """成图下载的出站流：base 层用真实 httpx 取字节，走 respx 在 transport 层拦截。"""
     with capture_http() as router:
         yield router.get(url).mock(return_value=httpx.Response(200, content=content))

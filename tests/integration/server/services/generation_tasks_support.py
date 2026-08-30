@@ -232,7 +232,7 @@ class _FakePM:
         return self.project
 
 
-class _FakeGenerator:
+class FakeGenerator:
     def __init__(self, project_path: Path | None = None):
         # 传入项目目录时把产出落到产物的规范路径，让任务按生产口径登记清单
         self.project_path = project_path

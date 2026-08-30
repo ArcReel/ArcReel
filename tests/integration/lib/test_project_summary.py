@@ -307,7 +307,7 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
 
     def _spy(project_path: Path, *args: object, **kwargs: object) -> SourceRevisionResult:
         revision_calls.append(project_path)
-        return compute_source_revision(project_path, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+        return compute_source_revision(project_path, *args, **kwargs)
 
     monkeypatch.setattr("lib.workflow_state.compute_source_revision", _spy)
     source_reads = _count_source_reads(monkeypatch, project_path)

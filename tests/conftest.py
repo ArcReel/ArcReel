@@ -7,7 +7,7 @@ import os
 import shutil
 import tempfile
 import uuid as _uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -172,12 +172,15 @@ def _register_models() -> None:
     不这么做时建表范围取决于被测模块的 import 链，同一 fixture 在不同文件下建出的
     schema 不同。
     """
-    import lib.agent_session_store.models
-    import lib.db.models  # noqa: F401  (users / agent_sessions / config etc.)
+    from lib.agent_session_store.models import register_models as register_agent_session_models
+    from lib.db.models import register_models as register_db_models
+
+    register_agent_session_models()
+    register_db_models()
 
 
 @asynccontextmanager
-async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None = None) -> AsyncIterator[AsyncEngine]:
+async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None = None) -> AsyncGenerator[AsyncEngine]:
     """DB fixture 的 engine 构造点，唯一例外是 `async_session` 的 PG 分支。
 
     那条分支绑定 CI job 已 `alembic upgrade head` 建好的 public schema，隔离原语是外层

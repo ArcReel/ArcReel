@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from lib.source_loader.base import ExtractedText, FormatExtractor, NormalizeResult  # noqa: F401
+from lib.source_loader.base import ExtractedText, FormatExtractor, NormalizeResult
 
 
 def test_extracted_text_defaults():
@@ -30,7 +30,7 @@ def test_format_extractor_protocol_runtime_check():
         def extract(self, path: Path) -> ExtractedText:
             return ExtractedText(text="x")
 
-    stub = _Stub()
+    stub: FormatExtractor = _Stub()
     # Protocol 仅做静态检查；运行期通过 hasattr 验证 duck-typing
     assert hasattr(stub, "extract")
     assert isinstance(stub.extract(Path(".")), ExtractedText)

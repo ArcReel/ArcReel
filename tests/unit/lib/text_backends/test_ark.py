@@ -1,6 +1,6 @@
 """ArkTextBackend tests."""
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -14,7 +14,7 @@ from tests.fakes import bounded_poll_clock, captured_ark_clients
 
 
 @contextmanager
-def _recorded_openai_clients() -> Iterator[list[dict[str, Any]]]:
+def _recorded_openai_clients() -> Generator[list[dict[str, Any]]]:
     """OpenAI 兼容客户端构造的记录器：收下建客户端的参数，回一个空替身。"""
     created: list[dict[str, Any]] = []
 
@@ -27,7 +27,7 @@ def _recorded_openai_clients() -> Iterator[list[dict[str, Any]]]:
 
 
 @contextmanager
-def _recorded_instructor_fallback(result: tuple[str, int, int]) -> Iterator[list[dict[str, Any]]]:
+def _recorded_instructor_fallback(result: tuple[str, int, int]) -> Generator[list[dict[str, Any]]]:
     """instructor 降级入口的记录器：收下降级调用参数，回固定结果。"""
     calls: list[dict[str, Any]] = []
 
@@ -40,7 +40,7 @@ def _recorded_instructor_fallback(result: tuple[str, int, int]) -> Iterator[list
 
 
 @contextmanager
-def _recorded_instructor_wire(result: tuple[Any, Any]) -> Iterator[list[dict[str, Any]]]:
+def _recorded_instructor_wire(result: tuple[Any, Any]) -> Generator[list[dict[str, Any]]]:
     """instructor patched client 的记录器：收下最终发往端点的参数。"""
     calls: list[dict[str, Any]] = []
 

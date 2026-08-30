@@ -12,7 +12,7 @@ import shutil
 import sys
 import tempfile
 import threading
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -25,6 +25,7 @@ from lib.formal_write import formal_write_transaction
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
 from lib.resource_paths import resource_extension, resource_relative_path
+from lib.schema_guards import is_bool
 
 _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
@@ -220,7 +221,7 @@ class VersionManager:
         return info["current_version"]
 
     @contextmanager
-    def locked_version_snapshot(self, resource_type: str, resource_id: str) -> Iterator[dict[str, Any]]:
+    def locked_version_snapshot(self, resource_type: str, resource_id: str) -> Generator[dict[str, Any]]:
         """Keep one resource selection stable while a dependent read-model commit runs."""
 
         with self._lock:
@@ -732,7 +733,7 @@ class VersionManager:
                     if callable(select_current)
                     else select_current
                 )
-                if not isinstance(should_select, bool):
+                if not is_bool(should_select):
                     raise TypeError("select_current callback must return a boolean")
             except BaseException as failure:
                 _report_cleanup_failures(_unlink_paths(staged_file), active_failure=failure)

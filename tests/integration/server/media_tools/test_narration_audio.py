@@ -60,7 +60,7 @@ async def test_generate_narration_audio_missing_only_reuses_a_stale_recording(
 
     script = _narration_audio_script()
     script["segments"][0]["generated_assets"] = {"narration_audio": "audio/segment_E1S01.wav"}
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     enqueue = AsyncMock()
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _AllStaleResolver())
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
@@ -85,7 +85,7 @@ async def test_generate_narration_audio_explicit_ids_regenerate_a_stale_recordin
 
     script = _narration_audio_script()
     script["segments"][0]["generated_assets"] = {"narration_audio": "audio/segment_E1S01.wav"}
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
@@ -113,7 +113,7 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     """不传 segment_ids → 只为缺 narration_audio 的段入队 tts 任务，prompt 为该段 novel_text。"""
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _narration_audio_script()
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
@@ -152,7 +152,7 @@ async def test_generate_narration_audio_covers_reference_video_units(fake_ctx: T
     from server.media_tools import narration_audio as mod
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script(  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script(
         video_units=[{"unit_id": "E1U1", "duration_seconds": 5, "text": "{风吹过旷野。}"}]
     )
     captured: list[Any] = []
@@ -187,7 +187,7 @@ async def test_generate_narration_audio_rejects_unbound_active_script_before_enq
     from server.media_tools import narration_audio as mod
 
     _activate_unbound_project(fake_ctx)
-    fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _narration_audio_script()
     enqueued = False
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
@@ -213,8 +213,8 @@ async def test_generate_narration_audio_uses_canonical_filename_when_episode_fie
     script = _narration_audio_script()
     script.pop("episode")
     script["segments"] = script["segments"][:1]
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
+    fake_ctx.pm.project_payload.update(
         {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "content_mode": "narration",
@@ -223,7 +223,7 @@ async def test_generate_narration_audio_uses_canonical_filename_when_episode_fie
         }
     )
     (fake_ctx.project_path / "project.json").write_text(
-        json.dumps(fake_ctx.pm.project_payload),  # type: ignore[attr-defined]
+        json.dumps(fake_ctx.pm.project_payload),
         encoding="utf-8",
     )
     captured: list[Any] = []
@@ -254,7 +254,7 @@ async def test_generate_narration_audio_selects_item_with_corrupt_generated_asse
 
     script = _narration_audio_script()
     script["segments"][0]["generated_assets"] = "corrupt"
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
@@ -284,7 +284,7 @@ async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolCo
     """传 segment_ids → 即使该段已有 narration_audio 也重新入队（批量范围/单段重生语义）。"""
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _narration_audio_script()
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
@@ -309,7 +309,7 @@ async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolContex
 
     script = _narration_audio_script()
     script["segments"].append({"segment_id": "E1S03", "novel_text": "   ", "video_prompt": {}, "generated_assets": {}})
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
@@ -349,7 +349,7 @@ async def test_generate_narration_audio_partial_unmatched_reported(fake_ctx: Too
     """部分 id 不命中不能静默丢弃：命中的照常入队，未命中的按 blocked 逐 ID 上报。"""
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _narration_audio_script()
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
@@ -381,8 +381,8 @@ async def test_generate_narration_audio_accepts_drama_narrator_scene(
 ) -> None:
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["content_mode"] = "drama"
+    fake_ctx.pm.script_payload = {
         "content_mode": "drama",
         "episode": 1,
         "scenes": [
@@ -414,8 +414,8 @@ async def test_generate_narration_audio_uses_project_mode_for_drama_without_cont
 ) -> None:
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["content_mode"] = "drama"
+    fake_ctx.pm.script_payload = {
         "episode": 1,
         "scenes": [
             {
@@ -445,8 +445,8 @@ async def test_generate_narration_audio_accepts_reference_narrator_unit(
 ) -> None:
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
+    fake_ctx.pm.script_payload = {
         "content_mode": "narration",
         "episode": 1,
         "video_units": [
@@ -476,7 +476,7 @@ async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: Tool
     """分镜图生视频项目下的 video_units 骨架剧本：结构报错 + 重拆指引，不静默换路径。"""
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {
         "content_mode": "narration",
         "episode": 1,
         "video_units": [{"unit_id": "E1U1"}],
@@ -493,7 +493,7 @@ async def test_generate_narration_audio_rejects_string_segment_ids(fake_ctx: Too
     """segment_ids 传裸字符串会被逐字符迭代成 {'E','1','S'...}，必须显式拒绝。"""
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _narration_audio_script()
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "segment_ids": "E1S01"})
     assert out.get("is_error") is True
@@ -508,7 +508,7 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
     # 两个分镜都缺配音：本用例的主题是无 ID 分镜的可寻址性，不掺入已有配音的复用判定。
     script["segments"][1]["generated_assets"] = {}
     script["segments"].append({"novel_text": "有文本但缺 id 的片段。", "video_prompt": {}, "generated_assets": {}})
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
@@ -531,7 +531,7 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
 async def test_generate_narration_audio_no_match_error(fake_ctx: ToolContext) -> None:
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _narration_audio_script()
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "segment_ids": ["NO_SUCH"]})
     assert out.get("is_error") is True
@@ -545,7 +545,7 @@ async def test_generate_narration_audio_all_done(fake_ctx: ToolContext) -> None:
 
     script = _narration_audio_script()
     script["segments"][0]["generated_assets"] = {"narration_audio": "audio/segment_E1S01.wav"}
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
@@ -558,7 +558,7 @@ async def test_generate_narration_audio_all_done(fake_ctx: ToolContext) -> None:
 async def test_generate_narration_audio_task_failures_surface(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.media_tools import narration_audio as mod
 
-    fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _narration_audio_script()
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult

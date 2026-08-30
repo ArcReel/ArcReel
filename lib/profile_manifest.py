@@ -222,7 +222,7 @@ def _ensure_dest_within(project_dir: Path, rel: str) -> Path:
         raise ValueError(f"dest path escapes project_dir: {rel!r}") from exc
 
 
-def _normalize_profile_rel_path(rel: str) -> str:
+def _normalize_profile_rel_path(rel: object) -> str:
     """force_resync 的 ``paths`` 来自 UI / 外部输入，必须拒掉绝对路径和 ``..``，
     否则 ``profile_dir / rel`` 和 ``project_dir / rel`` 会逃逸到 profile / 项目
     根目录之外，读写任意可写文件。

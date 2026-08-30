@@ -571,7 +571,7 @@ def _filename_episode(script_file: str) -> int | None:
     return int(match.group(1)) if match is not None else None
 
 
-def _find_index(items: list[dict[str, Any]], id_field: str, item_id: str) -> int:
+def _find_index(items: list[Any], id_field: str, item_id: str) -> int:
     for index, item in enumerate(items):
         if isinstance(item, dict) and str(item.get(id_field)) == item_id:
             return index

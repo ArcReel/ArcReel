@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 import httpx
@@ -46,7 +46,7 @@ class TestViduConnectionTestKeyResolution:
 
 
 @contextmanager
-def _probe_route(*, status_code: int, body: str = "") -> Iterator[respx.Route]:
+def _probe_route(*, status_code: int, body: str = "") -> Generator[respx.Route]:
     """连接测试探针的出站流：走 respx 在 transport 层拦截。
 
     白名单判定的输入是真实响应的状态码，URL 拼接与 Authorization 头都在断言范围内。

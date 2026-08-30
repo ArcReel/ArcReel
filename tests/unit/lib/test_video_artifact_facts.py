@@ -142,3 +142,14 @@ def test_video_artifact_currency_accepts_unlimited_reference_projection_but_reje
             reference_image_limit=-1,
             parent_version=0,
         )
+
+
+@pytest.mark.parametrize("speakers", [[123], [["阿离"]], [{"name": "阿离"}]])
+def test_video_artifact_currency_rejects_non_string_speakers_as_value_error(speakers: list[object]) -> None:
+    """checkpoint JSON 损坏时调用方只接 ValueError，形状错误不得漏成其他异常。"""
+
+    raw = _facts().to_dict()
+    raw["voice_style_speakers"] = speakers
+
+    with pytest.raises(ValueError, match="not self-verifying"):
+        VideoArtifactCurrencyFacts.from_dict(raw)

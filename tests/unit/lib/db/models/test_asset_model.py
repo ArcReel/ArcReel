@@ -5,8 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-import lib.db.models  # noqa: F401 — ensure all models registered for Base.metadata
+from lib.db.models import register_models
 from lib.db.models.asset import Asset
+
+register_models()
 
 
 async def test_asset_create_and_fetch(db_session):

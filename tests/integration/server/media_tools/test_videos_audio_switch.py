@@ -66,7 +66,7 @@ def _ctx(tmp_path: Path, project: dict[str, Any]) -> ToolContext:
     return ToolContext(
         project_name="demo",
         projects_root=tmp_path,
-        pm=_FakePM(project),  # type: ignore[arg-type]
+        pm=_FakePM(project),
     )
 
 
@@ -300,7 +300,7 @@ class TestStoryboardGateSkipsEmptyBatches:
         ctx = ToolContext(
             project_name="demo",
             projects_root=tmp_path,
-            pm=_EpisodePM(project_dir, with_storyboard=with_storyboard, with_video=with_video),  # type: ignore[arg-type]
+            pm=_EpisodePM(project_dir, with_storyboard=with_storyboard, with_video=with_video),
         )
         if with_video:
             _claim_existing_video(project_dir, "E1S01")
@@ -350,7 +350,7 @@ class TestStoryboardGateEntersAdmission:
         return ToolContext(
             project_name="demo",
             projects_root=tmp_path,
-            pm=_EpisodePM(project_dir, with_storyboard=True),  # type: ignore[arg-type]
+            pm=_EpisodePM(project_dir, with_storyboard=True),
         )
 
     async def test_audio_switch_conflict_is_reported_as_a_blocked_admission(self, tmp_path, monkeypatch):
@@ -382,7 +382,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        ctx.pm.script_payload["segments"][0]["video_prompt"] = "   "  # type: ignore[attr-defined]
+        ctx.pm.script_payload["segments"][0]["video_prompt"] = "   "
 
         tool_obj = _episode_scope(ctx)
         out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
@@ -405,7 +405,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments = ctx.pm.script_payload["segments"]
         segments.append({**segments[0]})
 
         tool_obj = _episode_scope(ctx)
@@ -467,7 +467,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        ctx.pm.script_payload["segments"][0]["segment_id"] = ["E1S01"]  # type: ignore[attr-defined]
+        ctx.pm.script_payload["segments"][0]["segment_id"] = ["E1S01"]
 
         tool_obj = _episode_scope(ctx)
         out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
@@ -490,7 +490,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        ctx.pm.script_payload["segments"].insert(0, 42)  # type: ignore[attr-defined]
+        ctx.pm.script_payload["segments"].insert(0, 42)
 
         tool_obj = _episode_scope(ctx)
         out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
@@ -513,7 +513,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments = ctx.pm.script_payload["segments"]
         segments.insert(0, 42)
         segments[1]["segment_id"] = "items[0]"
 
@@ -535,7 +535,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments = ctx.pm.script_payload["segments"]
         first = segments[0]
         first["scene_id"] = "SC1"
         segments.append({**first, "segment_id": "E1S02"})
@@ -562,7 +562,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments = ctx.pm.script_payload["segments"]
         segments[0]["scene_id"] = ["E1S01"]
 
         tool_obj = _selected_scope(ctx)
@@ -584,7 +584,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments = ctx.pm.script_payload["segments"]
         segments[0]["scene_id"] = "A"
         segments.append({**segments[0], "scene_id": "B"})
 
@@ -614,7 +614,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments = ctx.pm.script_payload["segments"]
         segments[0]["segment_id"] = 0
         segments[0]["scene_id"] = "E1S01"
 
@@ -640,7 +640,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments = ctx.pm.script_payload["segments"]
         segments.append({**segments[0], "segment_id": ""})
 
         tool_obj = _all_scope(ctx)
@@ -665,7 +665,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
-        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments = ctx.pm.script_payload["segments"]
         segments.append({**segments[0]})
 
         tool_obj = _selected_scope(ctx)
