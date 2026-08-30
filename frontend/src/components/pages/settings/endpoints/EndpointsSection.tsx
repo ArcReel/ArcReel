@@ -106,8 +106,12 @@ export function EndpointsSection() {
     return counts;
   }, [providers]);
 
+  const videoCatalog = useMemo(
+    () => catalog.filter((endpoint) => endpoint.media_type === "video"),
+    [catalog],
+  );
+
   const groups = useMemo(() => {
-    const videoCatalog = catalog.filter((endpoint) => endpoint.media_type === "video");
     const toEntry = (descriptor: EndpointDescriptor): ListEntry => ({
       key: descriptor.key,
       label: descriptor.display_name ?? t(descriptor.display_name_key),
@@ -130,20 +134,20 @@ export function EndpointsSection() {
         entries: videoCatalog.filter((e) => e.kind === "python").map(toEntry),
       },
     ];
-  }, [catalog, referenceCounts, t]);
+  }, [videoCatalog, referenceCounts, t]);
 
   const selection = useMemo((): EndpointSelection | null => {
     if (selectedKey === "new") {
       return { mode: "new", definition: newEndpointDefinition("") };
     }
-    const record = customEndpoints.find((e) => e.key === selectedKey);
+    const record = customEndpoints.find((e) => e.key === selectedKey && e.media_type === "video");
     if (record) return { mode: "custom", record };
-    const descriptor = catalog.find((e) => e.key === selectedKey);
+    const descriptor = videoCatalog.find((e) => e.key === selectedKey);
     if (!descriptor) return null;
     return descriptor.kind === "python"
       ? { mode: "python", descriptor }
       : { mode: "builtin", descriptor };
-  }, [selectedKey, customEndpoints, catalog]);
+  }, [selectedKey, customEndpoints, videoCatalog]);
 
   // --- 导入 ---
 

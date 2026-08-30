@@ -699,6 +699,9 @@ export default {
   'calls': 'Calls',
   'success_count': 'Success',
   'success_rate': 'Success Rate',
+  'usage_call_status_pending': 'In progress',
+  'usage_call_status_success': 'Succeeded',
+  'usage_call_status_failed': 'Failed',
   'type': 'Type',
   'duration': 'Duration',
 

@@ -698,6 +698,9 @@ export default {
   'calls': '调用',
   'success_count': '成功',
   'success_rate': '成功率',
+  'usage_call_status_pending': '进行中',
+  'usage_call_status_success': '成功',
+  'usage_call_status_failed': '失败',
   'type': '类型',
   'duration': '时长',
 

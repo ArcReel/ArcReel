@@ -141,6 +141,12 @@ describe("EndpointsSection", () => {
     expect(within(list).queryByText("OpenAI Image")).not.toBeInTheDocument();
   });
 
+  it("rejects an image endpoint selected through the URL", async () => {
+    renderSection("section=endpoints&endpoint=openai-image");
+    expect(await screen.findByText("选择一个端点查看其定义。")).toBeInTheDocument();
+    expect(screen.queryByText("该端点由代码实现，仅展示接口信息。")).not.toBeInTheDocument();
+  });
+
   it("shows an editable lifecycle form for one of my endpoints", async () => {
     renderSection("section=endpoints&endpoint=ce-7");
     expect(await screen.findByDisplayValue("Example Video API")).toBeEnabled();
@@ -255,6 +261,12 @@ describe("EndpointsSection", () => {
 
     expect(await screen.findByDisplayValue("NewAPI Video")).toHaveAttribute("readonly");
     expect(screen.queryByRole("button", { name: "保存更改" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "JSON" }));
+    expect(screen.getByRole("textbox", { name: "JSON" })).toHaveClass(
+      "read-only:border-accent/25",
+      "read-only:bg-bg-grad-b/65",
+      "read-only:text-text-2",
+    );
     await userEvent.click(screen.getByRole("button", { name: "复制为我的" }));
     await waitFor(() => expect(create).toHaveBeenCalledOnce());
   });

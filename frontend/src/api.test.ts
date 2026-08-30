@@ -1450,12 +1450,19 @@ describe("uploadFile (source) onConflict", () => {
 });
 
 describe("custom endpoint test multipart", () => {
-  it("adds the current auth token to the native artifact URL", () => {
+  it("fetches the artifact with the current auth header", async () => {
+    const blob = new Blob(["video"], { type: "video/mp4" });
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse({ blobData: blob }));
+    vi.stubGlobal("fetch", fetchMock);
     setToken("session token");
     try {
-      expect(API.getTrialRunArtifactUrl("run/1")).toBe(
-        "/api/v1/custom-endpoints/trial-runs/run%2F1/artifact?token=session%20token",
+      await expect(API.getTrialRunArtifact("run/1")).resolves.toBe(blob);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/custom-endpoints/trial-runs/run%2F1/artifact",
+        expect.objectContaining({ headers: expect.any(Headers) }),
       );
+      const headers = fetchMock.mock.calls[0][1].headers as Headers;
+      expect(headers.get("Authorization")).toBe("Bearer session token");
     } finally {
       clearToken();
     }

@@ -23,7 +23,7 @@ from lib.db import get_async_session
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.ledger import Ledger
-from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
+from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_endpoints
 from server.routers.endpoint_tests import get_config_resolver, get_trial_run_manager
@@ -59,9 +59,7 @@ def endpoint_tests_app(db_engine, trial_runs: TrialRunManager) -> FastAPI:
     app.dependency_overrides[get_trial_run_manager] = lambda: trial_runs
     app.dependency_overrides[get_config_resolver] = lambda: ConfigResolver(session_factory)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
-    app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
     app.include_router(custom_endpoints.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    app.include_router(custom_endpoints.endpoint_tests.artifact_router, prefix="/api/v1")
     register_error_handlers(app)
     return app
 

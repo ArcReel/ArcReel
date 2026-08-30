@@ -112,5 +112,7 @@ describe("UsageStatsSection provider filter dropdown", () => {
     ));
     expect(await screen.findByText("费用账本 #42")).toBeInTheDocument();
     expect(screen.getByText("video-1")).toBeInTheDocument();
+    expect(screen.getByText("成功")).toBeInTheDocument();
+    expect(screen.queryByText("success")).not.toBeInTheDocument();
   });
 });

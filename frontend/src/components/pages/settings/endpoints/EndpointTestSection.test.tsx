@@ -6,6 +6,9 @@ import { API } from "@/api";
 import type { EndpointDefinition, TrialRunInfo } from "@/types";
 import { EndpointTestSection } from "./EndpointTestSection";
 
+globalThis.URL.createObjectURL ??= vi.fn();
+globalThis.URL.revokeObjectURL ??= vi.fn();
+
 const DEFINITION: EndpointDefinition = {
   kind: "declarative",
   schema_version: "1.0.0",
@@ -46,14 +49,27 @@ const RUNNING: TrialRunInfo = {
   has_artifact: false,
 };
 
+const FINISHED: TrialRunInfo = {
+  ...RUNNING,
+  status: "succeeded",
+  finished_at: 2,
+};
+
 describe("EndpointTestSection", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:trial-artifact");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   });
 
-  it("uploads a required endpoint asset under its multipart source name", async () => {
-    const createTrialRun = vi.spyOn(API, "createTrialRun").mockResolvedValue(RUNNING);
-    render(<EndpointTestSection definition={DEFINITION} providers={[]} />);
+  it("uses only the definition's current assets for previews and trial runs", async () => {
+    const previewEndpointRequest = vi.spyOn(API, "previewEndpointRequest").mockResolvedValue({
+      submit: { method: "POST", url: "https://example.test/videos", headers: {}, body: {} },
+      poll: { method: "GET", url: "https://example.test/videos/task", headers: {}, body: null },
+      result: null,
+    });
+    const createTrialRun = vi.spyOn(API, "createTrialRun").mockResolvedValue(FINISHED);
+    const { rerender } = render(<EndpointTestSection definition={DEFINITION} providers={[]} />);
 
     const modelInputs = screen.getAllByLabelText("模型");
     await userEvent.type(modelInputs[1], "video-1");
@@ -63,6 +79,14 @@ describe("EndpointTestSection", () => {
     const file = new File(["image"], "start.png", { type: "image/png" });
     await userEvent.upload(screen.getByLabelText(/首帧/), file);
     expect(start).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "预览" }));
+
+    await waitFor(() => {
+      expect(previewEndpointRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ parameters: { model: "video-1", prompt: "" } }),
+        { assets: { start_image: [file] } },
+      );
+    });
     await userEvent.click(start);
 
     await waitFor(() => {
@@ -71,9 +95,27 @@ describe("EndpointTestSection", () => {
         { start_image: [file] },
       );
     });
+
+    rerender(
+      <EndpointTestSection
+        definition={{
+          ...DEFINITION,
+          inputs: undefined,
+          submit: { ...DEFINITION.submit, body: { model: "{{ model }}" } },
+        }}
+        providers={[]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "开始测试" }));
+
+    await waitFor(() => expect(createTrialRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({ parameters: { model: "video-1", prompt: "" } }),
+      {},
+    ));
   });
 
   it("plays a successful artifact in place and links its API call to the spend ledger", async () => {
+    vi.spyOn(API, "getTrialRunArtifact").mockResolvedValue(new Blob(["video"]));
     vi.spyOn(API, "createTrialRun").mockResolvedValue({
       ...RUNNING,
       status: "succeeded",
@@ -81,7 +123,7 @@ describe("EndpointTestSection", () => {
       api_call_id: 42,
       has_artifact: true,
     });
-    render(
+    const { unmount } = render(
       <EndpointTestSection
         definition={{ ...DEFINITION, inputs: undefined }}
         providers={[]}
@@ -93,11 +135,14 @@ describe("EndpointTestSection", () => {
 
     expect(await screen.findByLabelText("测试连接产物")).toHaveAttribute(
       "src",
-      "/api/v1/custom-endpoints/trial-runs/run-1/artifact",
+      "blob:trial-artifact",
     );
+    expect(API.getTrialRunArtifact).toHaveBeenCalledWith("run-1", { signal: expect.any(AbortSignal) });
     expect(screen.getByRole("link", { name: "费用账本 #42" })).toHaveAttribute(
       "href",
       "/app/settings?section=usage&call_id=42#usage-call-42",
     );
+    unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:trial-artifact");
   });
 });

@@ -682,6 +682,9 @@ export default {
   'calls': 'Lượt gọi',
   'success_count': 'Thành công',
   'success_rate': 'Tỉ lệ thành công',
+  'usage_call_status_pending': 'Đang thực hiện',
+  'usage_call_status_success': 'Thành công',
+  'usage_call_status_failed': 'Thất bại',
   'type': 'Loại',
   'duration': 'Thời lượng',
 
