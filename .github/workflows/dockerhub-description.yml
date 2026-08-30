@@ -1,0 +1,39 @@
+name: Docker Hub Description
+
+# 把 docs/dockerhub-README.md 同步为 Docker Hub 仓库页的描述。描述是低频改动，
+# 不挂在发布流程上：绑在 release 里等于每次发布都做一次无意义的 API 写入，
+# 还给发布多一个可能失败的点。
+#
+# 该 action 调用 Docker Hub 的仓库元数据接口，要求 PAT 具备 read/write/delete
+# 作用域，比发布用的 DOCKERHUB_TOKEN（read/write）更宽，故用独立 secret 承载。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/dockerhub-README.md"
+      - ".github/workflows/dockerhub-description.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: dockerhub-description
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          repository: arcreel/arcreel
+          readme-filepath: ./docs/dockerhub-README.md
+          short-description: "Open-source, self-hosted AI video production workspace — novels and scripts to editable videos"

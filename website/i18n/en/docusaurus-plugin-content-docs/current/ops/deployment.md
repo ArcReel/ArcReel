@@ -290,7 +290,7 @@ If a project migration fails, preserve the files and inspect the startup logs. D
 Change the image in Compose to:
 
 ```yaml
-image: ghcr.io/arcreel/arcreel:vX.Y.Z
+image: arcreel/arcreel:X.Y.Z
 ```
 
 Explicitly changing the version when upgrading reduces the risk of unintentionally pulling a new version.

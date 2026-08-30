@@ -291,7 +291,7 @@ curl -f http://localhost:1241/health
 将 Compose 中的镜像改为：
 
 ```yaml
-image: ghcr.io/arcreel/arcreel:vX.Y.Z
+image: arcreel/arcreel:X.Y.Z
 ```
 
 升级时显式修改版本，可以降低无意中拉取新版本的风险。
