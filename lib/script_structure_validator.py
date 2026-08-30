@@ -15,6 +15,8 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
+
+# pydantic 顶层不 re-export ErrorDetails，只能直接依赖 pydantic-core。
 from pydantic_core import ErrorDetails
 
 from lib.script_models import (

@@ -28,6 +28,9 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# UploadFile 取 starlette 基类而非 fastapi 子类：这里对 Request.form() 解析结果做 isinstance
+# 判定，解析器产出的是 starlette.datastructures.UploadFile，用子类判定会全部落空。
 from starlette.datastructures import FormData, UploadFile
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError

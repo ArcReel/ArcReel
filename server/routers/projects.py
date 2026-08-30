@@ -30,6 +30,8 @@ from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
+
+# fastapi 只 re-export 复数的 BackgroundTasks，单数版本只能取 starlette。
 from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)

@@ -106,6 +106,9 @@ jobs:
       - name: Import layering (import-linter)
         run: uv run lint-imports
 
+      - name: Dependency hygiene (deptry)
+        run: uv run deptry lib server alembic scripts tests
+
       - name: Agent Runtime Profile integrity
         run: uv run python scripts/lint_agent_runtime_profile.py
 
