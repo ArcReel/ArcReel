@@ -11,6 +11,7 @@ from lib.custom_provider.endpoint_definition import (
     DefinitionDiagnostics,
     DefinitionErrorCode,
     DefinitionIssue,
+    TemplateRenderError,
 )
 
 
@@ -22,7 +23,14 @@ class EndpointTestDefinitionError(Exception):
         super().__init__("endpoint definition cannot be executed")
 
     @classmethod
-    def from_render_failure(cls, path: str, detail: str) -> EndpointTestDefinitionError:
+    def from_render_failure(cls, path: str, detail: str | TemplateRenderError) -> EndpointTestDefinitionError:
         """把一次模板渲染失败（占位符缺值、混合文本遇 null、enum 缺项）包成单条诊断。"""
-        issue = DefinitionIssue(path=path, code=DefinitionErrorCode.TEMPLATE_RENDER_FAILED, params={"detail": detail})
+        if isinstance(detail, TemplateRenderError):
+            issue = DefinitionIssue(path=path, code=detail.code, params=detail.message.params)
+        else:
+            issue = DefinitionIssue(
+                path=path,
+                code=DefinitionErrorCode.TEMPLATE_RENDER_FAILED,
+                params={"detail": detail},
+            )
         return cls(DefinitionDiagnostics(errors=(issue,)))

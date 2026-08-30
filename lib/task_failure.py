@@ -286,6 +286,15 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
         nested_reason = params.get("reason")
         if isinstance(nested_reason, str):
             params = {**params, "reason": render_failure(nested_reason, translate)}
+    if code == "declarative_template_render_failed":
+        detail = params.get("detail")
+        if (
+            isinstance(detail, dict)
+            and set(detail) == {"key", "params"}
+            and isinstance(detail.get("key"), str)
+            and isinstance(detail.get("params"), dict)
+        ):
+            params = {**params, "detail": translate(detail["key"], **detail["params"])}
     return translate(FAILURE_CODE_KEYS[code], **params)
 
 

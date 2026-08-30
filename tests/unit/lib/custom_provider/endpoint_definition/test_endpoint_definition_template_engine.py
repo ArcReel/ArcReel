@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from lib.custom_provider.endpoint_definition import AssetData, build_context, encode_inputs, render_request
+from lib.custom_provider.endpoint_definition import (
+    AssetData,
+    DefinitionErrorCode,
+    build_context,
+    encode_inputs,
+    render_request,
+)
 from lib.custom_provider.endpoint_definition.template_engine import TemplateRenderError
 
 
@@ -77,20 +83,63 @@ def test_mixed_text_stringifies_and_missing_value_fails_loud():
 
     assert request.body == {"mix": "seed=hi-5"}
 
-    with pytest.raises(TemplateRenderError):
+    with pytest.raises(TemplateRenderError) as exc_info:
         render_request(
             {"method": "POST", "url": "{{ base_url }}", "body": {"mix": "seed={{ seed }}"}},
             context,
         )
+    assert exc_info.value.code is DefinitionErrorCode.TEMPLATE_TEXT_VARIABLE_NULL
 
 
 def test_enum_map_miss_fails_loud():
-    with pytest.raises(TemplateRenderError):
+    with pytest.raises(TemplateRenderError) as exc_info:
         render_request(
             {"method": "POST", "url": "{{ base_url }}", "body": {"d": "{{ duration }}"}},
             _context(duration=7),
             enum_maps={"duration": {"5": "5s"}},
         )
+    assert exc_info.value.code is DefinitionErrorCode.ENUM_MAP_VALUE_MISSING
+
+
+def test_undeclared_variable_has_a_specific_failure_code():
+    with pytest.raises(TemplateRenderError) as exc_info:
+        render_request(
+            {"method": "POST", "url": "{{ base_url }}", "body": {"value": "{{ missing }}"}},
+            _context(),
+        )
+
+    assert exc_info.value.code is DefinitionErrorCode.UNDECLARED_VARIABLE
+
+
+def test_non_string_rendered_url_has_a_specific_failure_code():
+    with pytest.raises(TemplateRenderError) as exc_info:
+        render_request({"method": "POST", "url": "{{ port }}"}, _context(port=443))
+
+    assert exc_info.value.code is DefinitionErrorCode.TEMPLATE_URL_NOT_STRING
+
+
+def test_unknown_asset_encoding_has_a_specific_failure_code():
+    with pytest.raises(TemplateRenderError) as exc_info:
+        encode_inputs(
+            {"first": {"source": "start_image", "encoding": "hex"}},
+            {"start_image": AssetData("image/png", b"image")},
+        )
+
+    assert exc_info.value.code is DefinitionErrorCode.UNKNOWN_ASSET_ENCODING
+
+
+def test_each_runtime_value_that_is_not_a_list_has_a_specific_failure_code():
+    with pytest.raises(TemplateRenderError) as exc_info:
+        render_request(
+            {
+                "method": "POST",
+                "url": "{{ base_url }}",
+                "body": [{"$each": {"in": "refs", "as": "ref", "item": "{{ ref }}"}}],
+            },
+            _context(refs=1),
+        )
+
+    assert exc_info.value.code is DefinitionErrorCode.EACH_VALUE_NOT_LIST
 
 
 def test_enum_maps_apply_to_url_headers_and_auth_query_alike():
@@ -122,12 +171,13 @@ def test_auth_query_appends_without_reencoding_existing_url_query():
 
 
 def test_auth_query_rejects_parameter_already_present_in_url():
-    with pytest.raises(TemplateRenderError):
+    with pytest.raises(TemplateRenderError) as exc_info:
         render_request(
             {"method": "GET", "url": "{{ base_url }}/v?key=static"},
             _context(),
             auth={"query": {"key": "{{ api_key }}"}},
         )
+    assert exc_info.value.code is DefinitionErrorCode.AUTH_QUERY_CONFLICT
 
 
 def test_auth_header_overrides_request_header_case_insensitively():

@@ -6,7 +6,8 @@
 的 ``{"key", "params"}`` 同构（见 ``lib.reference_video.duration_slots.DurationSlot.warning``）。
 
 ``params`` 里的值默认按 ``str.format`` 直出；需要跟随语言变化的词（资产类别、生成模式、骨架
-名词）用 ``MessageRef`` 包一层，渲染时先按其自身的 key 翻译再代入。
+名词）用 ``MessageRef`` 包一层，完整的嵌套句子用 ``ValidationMessage``，渲染时都先按同一语言
+翻译再代入。
 """
 
 from __future__ import annotations
@@ -106,6 +107,8 @@ class ValidationResult:
 
 def _resolve_param(value: Any, translate: Callable[..., str]) -> Any:
     """把参数值里的嵌套翻译标记解析成当前语言的文本，其余值原样返回。"""
+    if isinstance(value, ValidationMessage):
+        return value.render(translate)
     if isinstance(value, MessageRef):
         return translate(value.key)
     if isinstance(value, MessageJoin):

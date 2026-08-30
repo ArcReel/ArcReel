@@ -186,7 +186,9 @@ def _render(definition: Mapping[str, Any], section: str, context: Mapping[str, o
             enum_maps=definition.get("enum_maps"),
             auth=definition.get("auth"),
         )
-    except (KeyError, TypeError, ValueError, TemplateRenderError) as exc:
+    except TemplateRenderError as exc:
+        raise EndpointTestDefinitionError.from_render_failure(section, exc) from exc
+    except (KeyError, TypeError, ValueError) as exc:
         raise EndpointTestDefinitionError.from_render_failure(section, str(exc)) from exc
 
 

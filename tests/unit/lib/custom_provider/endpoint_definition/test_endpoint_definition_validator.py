@@ -605,6 +605,39 @@ class TestDiagnosticPayload:
         payload = validate_definition(definition).to_payload(make_translator("zh"))
         assert "运行时策略" in payload["errors"][0]["message"]
 
+    @pytest.mark.parametrize(
+        ("locale", "expected"),
+        [
+            ("zh", "取值不符合格式约定：不符合要求的格式：\\S"),
+            ("en", "Value does not match the format: Required format not matched: \\S"),
+            ("vi", "Giá trị không đúng định dạng: Không khớp định dạng bắt buộc: \\S"),
+        ],
+    )
+    def test_jsonschema_detail_is_rendered_in_the_requested_locale(self, locale: str, expected: str):
+        definition = custom_endpoint_definition()
+        definition["submit"]["url"] = " "
+
+        payload = validate_definition(definition).to_payload(make_translator(locale))
+
+        assert payload["errors"][0]["message"] == expected
+
+    @pytest.mark.parametrize(
+        ("locale", "expected"),
+        [
+            ("zh", "不符合定义格式：取值落入了禁止范围"),
+            ("en", "Does not match the definition format: The value matches a forbidden constraint"),
+            ("vi", "Không khớp định dạng định nghĩa: Giá trị thuộc phạm vi bị cấm"),
+        ],
+    )
+    def test_jsonschema_fallback_detail_is_rendered_in_the_requested_locale(self, locale: str, expected: str):
+        definition = custom_endpoint_definition()
+        definition["schema_version"] = "1.0.0\n"
+
+        payload = validate_definition(definition).to_payload(make_translator(locale))
+
+        assert payload["errors"][0]["code"] == "schema_violation"
+        assert payload["errors"][0]["message"] == expected
+
     def test_every_code_reads_as_prose_in_every_locale(self):
         keys = {message_key(code) for code in DefinitionErrorCode} | set(REMOVED_FIELD_REASONS.values())
         for key in sorted(keys):

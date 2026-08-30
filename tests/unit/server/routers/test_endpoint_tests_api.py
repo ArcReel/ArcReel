@@ -265,14 +265,18 @@ class TestSharedValidation:
         definition = custom_endpoint_definition()
         definition["enum_maps"] = {"duration": {"10": 10}}
 
-        resp = _post(
-            client,
-            "preview-request",
-            {"definition": definition, "parameters": PARAMETERS, "credentials": INLINE_CREDENTIALS},
+        resp = client.post(
+            "/api/v1/custom-endpoints/preview-request",
+            json={"definition": definition, "parameters": PARAMETERS, "credentials": INLINE_CREDENTIALS},
+            headers={"Accept-Language": "en"},
         )
 
         assert resp.status_code == 422
-        assert resp.json()["diagnostic"]["errors"][0]["code"] == "template_render_failed"
+        assert resp.json()["diagnostic"]["errors"][0] == {
+            "path": "submit",
+            "code": "enum_map_value_missing",
+            "message": "enum_maps.duration has no entry for '5'",
+        }
 
 
 class TestTrialRuns:

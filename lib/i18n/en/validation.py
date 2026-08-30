@@ -218,6 +218,11 @@ MESSAGES = {
     "val_ce_invalid_enum_value": "Value is not allowed here; allowed: {allowed}",
     "val_ce_invalid_value": "Value does not match the format: {detail}",
     "val_ce_schema_violation": "Does not match the definition format: {detail}",
+    "val_ce_schema_minimum_constraint": "Minimum allowed: {limit}",
+    "val_ce_schema_maximum_constraint": "Maximum allowed: {limit}",
+    "val_ce_schema_format_constraint": "Required format not matched: {constraint}",
+    "val_ce_schema_forbidden_constraint": "The value matches a forbidden constraint",
+    "val_ce_schema_generic_constraint": "Definition constraint not satisfied ({keyword})",
     "val_ce_removed_reason_request_query": (
         "static and dynamic query parameters belong in the url template, credential query in auth.query"
     ),
@@ -320,6 +325,11 @@ MESSAGES = {
         "This value appears to contain an actual secret key: reference the credential with the api_key "
         "placeholder instead, or the key will be exposed when the definition is exported or shared"
     ),
+    "val_ce_template_url_not_string": "The URL template must render to a string",
+    "val_ce_unknown_asset_encoding": "Unknown asset encoding: {encoding}",
+    "val_ce_enum_map_value_missing": "enum_maps.{name} has no entry for '{value}'",
+    "val_ce_template_text_variable_null": "Variable {name} is null and cannot be embedded in text",
+    "val_ce_each_value_not_list": "$each.in points at {name}, whose runtime value is not a list",
     "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} uses a wildcard: an object wildcard takes the first member only, "

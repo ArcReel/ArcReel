@@ -216,6 +216,11 @@ MESSAGES = {
     "val_ce_invalid_enum_value": "Giá trị không được phép, các giá trị hợp lệ: {allowed}",
     "val_ce_invalid_value": "Giá trị không đúng định dạng: {detail}",
     "val_ce_schema_violation": "Không khớp định dạng định nghĩa: {detail}",
+    "val_ce_schema_minimum_constraint": "Giá trị hoặc số lượng tối thiểu được phép: {limit}",
+    "val_ce_schema_maximum_constraint": "Giá trị hoặc số lượng tối đa được phép: {limit}",
+    "val_ce_schema_format_constraint": "Không khớp định dạng bắt buộc: {constraint}",
+    "val_ce_schema_forbidden_constraint": "Giá trị thuộc phạm vi bị cấm",
+    "val_ce_schema_generic_constraint": "Chưa thỏa mãn ràng buộc định nghĩa ({keyword})",
     "val_ce_removed_reason_request_query": (
         "tham số query tĩnh và động đều viết trong mẫu url, query chứa thông tin xác thực thuộc về auth.query"
     ),
@@ -328,6 +333,11 @@ MESSAGES = {
         "Giá trị này có vẻ chứa khóa bí mật thật: hãy tham chiếu thông tin xác thực qua placeholder api_key, "
         "nếu không khóa sẽ bị lộ khi định nghĩa được xuất hoặc chia sẻ"
     ),
+    "val_ce_template_url_not_string": "Mẫu URL phải được dựng thành chuỗi",
+    "val_ce_unknown_asset_encoding": "Kiểu mã hóa tư liệu không xác định: {encoding}",
+    "val_ce_enum_map_value_missing": "enum_maps.{name} không có ánh xạ cho '{value}'",
+    "val_ce_template_text_variable_null": "Biến {name} rỗng nên không thể chèn vào văn bản",
+    "val_ce_each_value_not_list": "$each.in trỏ tới {name}, có giá trị khi chạy không phải danh sách",
     "val_ce_poll_without_task_id": "Yêu cầu hỏi trạng thái không tham chiếu task_id; hãy xác nhận đây là chủ ý",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} dùng ký tự đại diện: với đối tượng chỉ lấy thành viên đầu tiên, "
