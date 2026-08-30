@@ -71,8 +71,8 @@ const SECTION_GROUPS: SectionGroup[] = [
     kicker: "Configuration",
     items: [
       { id: "providers", labelKey: "dashboard:providers", Icon: Plug },
-      { id: "endpoints", labelKey: "dashboard:ce_section_title", Icon: Waypoints },
       { id: "agent", labelKey: "dashboard:agents", Icon: Bot },
+      { id: "endpoints", labelKey: "dashboard:ce_section_title", Icon: Waypoints },
       { id: "media", labelKey: "dashboard:models", Icon: Film },
     ],
   },
