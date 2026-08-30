@@ -172,7 +172,7 @@ def _register_models() -> None:
     不这么做时建表范围取决于被测模块的 import 链，同一 fixture 在不同文件下建出的
     schema 不同。
     """
-    import lib.agent_session_store.models  # noqa: F401
+    import lib.agent_session_store.models
     import lib.db.models  # noqa: F401  (users / agent_sessions / config etc.)
 
 

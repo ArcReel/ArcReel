@@ -249,7 +249,7 @@ def test_cross_episode_path_collision_restores_the_first_owner_and_archives_paid
     staged.write_bytes(b"episode-two-paid")
     currency = _currency("episode-two", parent_version=old_version, episode=2)
 
-    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+    with pytest.raises(ArtifactManifestError, match=r"formal artifact path.*multiple keys"):
         commit_paid_video_artifact(
             project_path=project,
             versions=versions,

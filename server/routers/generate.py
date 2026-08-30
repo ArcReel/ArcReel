@@ -417,8 +417,8 @@ async def _require_audio_provider_configured(project: dict) -> str:
 
     try:
         resolved = await ConfigResolver(async_session_factory).resolve_audio_backend(project, None)
-    except ValueError:
-        raise BadRequestError("audio_provider_not_configured")
+    except ValueError as exc:
+        raise BadRequestError("audio_provider_not_configured") from exc
     return resolved.provider_id
 
 
@@ -481,7 +481,7 @@ async def generate_tts(
             raise BadRequestError("tts_not_applicable", segment_id=segment_id)
         return _project, item
 
-    project, segment = await asyncio.to_thread(_sync)
+    project, _segment = await asyncio.to_thread(_sync)
 
     provider_id = await _require_audio_provider_configured(project)
 
@@ -638,8 +638,8 @@ async def generate_character_voice_sample(
         project = pm_local.load_project(project_name)
         try:
             char_name = validate_asset_name(name)
-        except ValueError:
-            raise BadRequestError("asset_invalid_name", name=name)
+        except ValueError as exc:
+            raise BadRequestError("asset_invalid_name", name=name) from exc
         # 存量角色 key 可能是 NFD，按坐标系解析存在性
         if resolve_asset_key(project.get("characters"), char_name) is None:
             raise NotFoundError("character_not_found", name=char_name)
@@ -691,8 +691,8 @@ async def confirm_character_voice_sample(
     """
     try:
         char_name = validate_asset_name(name)
-    except ValueError:
-        raise BadRequestError("asset_invalid_name", name=name)
+    except ValueError as exc:
+        raise BadRequestError("asset_invalid_name", name=name) from exc
     queue = get_generation_queue()
     task = await queue.get_task(req.task_id)
     if (
@@ -724,8 +724,8 @@ async def confirm_character_voice_sample(
         try:
             with project_change_source("webui"):
                 pm_local.install_character_reference_audio(project_name, char_name, ref_audio_rel, content)
-        except KeyError:
-            raise NotFoundError("character_not_found", name=char_name)
+        except KeyError as exc:
+            raise NotFoundError("character_not_found", name=char_name) from exc
 
         # 目标文件名固定为 {char_name}.wav：重新生成后再次确认时 reference_audio 字段值
         # 不变（同一路径字符串），project.json 的字段级 diff 因此检测不到变化、不会自动
@@ -917,8 +917,8 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
 
     try:
         resolved = await ConfigResolver(async_session_factory).resolve_image_backend(project, None, capability="i2i")
-    except ValueError:
-        raise BadRequestError("image_edit_i2i_unavailable")
+    except ValueError as exc:
+        raise BadRequestError("image_edit_i2i_unavailable") from exc
     return resolved.provider_id
 
 
@@ -962,10 +962,10 @@ async def edit_image(
                 artifact_episode=artifact_episode,
                 resolver=active_artifact_currency_resolver(project_path, project),
             )
-        except KeyError:
+        except KeyError as exc:
             if is_storyboard:
-                raise NotFoundError("segment_not_found", id=req.resource_id)
-            raise NotFoundError(_ASSET_GENERATE_I18N[req.resource_type]["not_found"], name=req.resource_id)
+                raise NotFoundError("segment_not_found", id=req.resource_id) from exc
+            raise NotFoundError(_ASSET_GENERATE_I18N[req.resource_type]["not_found"], name=req.resource_id) from exc
         if source is None:
             raise BadRequestError("image_edit_no_current_image", id=req.resource_id)
         return project

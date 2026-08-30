@@ -226,7 +226,7 @@ class TestSessionManager:
         from tests.fakes import build_managed_with_actor
 
         meta = await meta_store.create("demo", "sdk-send-msg")
-        managed_running, actor_running, _ = await build_managed_with_actor(
+        managed_running, _actor_running, _ = await build_managed_with_actor(
             session_id=meta.id,
             project_name="demo",
             status="running",
@@ -361,7 +361,7 @@ class TestSessionManager:
             await session_manager.answer_user_question("missing", "q", {"a": "b"})
 
         meta = await meta_store.create("demo", "sdk-buffer-snap")
-        managed, actor, client = await build_managed_with_actor(
+        managed, _actor, client = await build_managed_with_actor(
             session_id=meta.id,
             project_name="demo",
             status="running",

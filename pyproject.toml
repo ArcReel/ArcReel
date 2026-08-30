@@ -197,8 +197,23 @@ line-length = 120
 exclude = [".worktrees", ".claude/worktrees"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = ["E402", "E501"]
+select = ["E", "F", "I", "UP", "B", "C4", "PIE", "RET", "PERF", "RUF"]
+# RUF001-003：中文注释与文案里的全角标点被判为「易混淆 unicode」，对中文仓库是纯噪音。
+ignore = ["E402", "E501", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 依赖注入以「参数默认值处调用」为惯用法，B008 对其属误报；登记后无需逐处 noqa。
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+    "fastapi.Security",
+]
 
 [tool.basedpyright]
 include = ["lib", "server", "alembic", "tests", "scripts"]

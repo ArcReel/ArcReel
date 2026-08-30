@@ -94,10 +94,9 @@ def _test_payload(args: argparse.Namespace) -> dict[str, object]:
 
 
 def _asset_files(args: argparse.Namespace) -> list[tuple[str, Path]]:
-    files: list[tuple[str, Path]] = []
-    for field in ("start_image", "end_image"):
-        if path := getattr(args, field):
-            files.append((field, Path(path)))
+    files: list[tuple[str, Path]] = [
+        (field, Path(path)) for field in ("start_image", "end_image") if (path := getattr(args, field))
+    ]
     for field in ("reference_images", "reference_audio_files"):
         files.extend((field, Path(path)) for path in getattr(args, field))
     return files

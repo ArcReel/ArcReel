@@ -28,7 +28,7 @@ class TestProjectsRouter:
             assert listed.status_code == 200
             names = [p["name"] for p in listed.json()["projects"]]
             assert names == ["ready", "empty", "broken"]
-            broken = [p for p in listed.json()["projects"] if p["name"] == "broken"][0]
+            broken = next(p for p in listed.json()["projects"] if p["name"] == "broken")
             assert broken["status"] == {}
             assert "error" not in broken
 

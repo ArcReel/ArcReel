@@ -136,8 +136,7 @@ def verify_token(token: str) -> dict | None:
         成功返回 payload dict，失败返回 None
     """
     try:
-        payload = jwt.decode(token, get_token_secret(), algorithms=["HS256"])
-        return payload
+        return jwt.decode(token, get_token_secret(), algorithms=["HS256"])
     except (jwt.InvalidTokenError, jwt.ExpiredSignatureError):
         return None
 

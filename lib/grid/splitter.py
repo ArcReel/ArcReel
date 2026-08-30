@@ -32,11 +32,10 @@ def center_crop_to_ratio(img: Image.Image, target_ratio: str) -> Image.Image:
         new_w = int(h * target)
         left = (w - new_w) // 2
         return img.crop((left, 0, left + new_w, h))
-    else:
-        # Too tall — crop height
-        new_h = int(w / target)
-        top = (h - new_h) // 2
-        return img.crop((0, top, w, top + new_h))
+    # Too tall — crop height
+    new_h = int(w / target)
+    top = (h - new_h) // 2
+    return img.crop((0, top, w, top + new_h))
 
 
 def is_placeholder_cell(img: Image.Image) -> bool:

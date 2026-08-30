@@ -1,4 +1,4 @@
-from typing import cast
+from typing import ClassVar, cast
 from unittest.mock import patch
 
 import pytest
@@ -1518,7 +1518,7 @@ class TestReferencePayloadLimits:
 
         resolver = ConfigResolver(db_factory)
         # 未知 provider → get_provider_config 抛 ValueError → catch 回退默认
-        total, single = await resolver.reference_payload_limits("totally-unknown-provider")
+        total, _single = await resolver.reference_payload_limits("totally-unknown-provider")
         assert total == _DEFAULT_REFERENCE_TOTAL_MAX_BYTES
 
     async def test_non_numeric_override_falls_back(self, db_factory):
@@ -1740,7 +1740,7 @@ class TestProjectGenerationModeCaps:
 class TestResolveRawSupportedDurations:
     """收窄前的时长全集：caps → registry 两级解析。"""
 
-    _VEO_PROJECT = {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"}
+    _VEO_PROJECT: ClassVar[dict[str, str]] = {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"}
 
     def test_caps_take_precedence_over_registry(self):
         """caps 是 DB 驱动的当下真相，压过 project.json 自报身份查到的静态声明。"""

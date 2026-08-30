@@ -6,7 +6,7 @@ import asyncio
 import logging
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 from lib.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.image_backends.base import (
@@ -83,7 +83,7 @@ def _resolve_openai_params(
 class OpenAIImageBackend:
     """OpenAI 图片生成后端，按 mode 决定支持 T2I / I2I / 两者。"""
 
-    _MODE_TO_CAPS: dict[str, set[ImageCapability]] = {
+    _MODE_TO_CAPS: ClassVar[dict[str, set[ImageCapability]]] = {
         "both": {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE},
         "generations_only": {ImageCapability.TEXT_TO_IMAGE},
         "edits_only": {ImageCapability.IMAGE_TO_IMAGE},

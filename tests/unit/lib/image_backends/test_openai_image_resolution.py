@@ -6,6 +6,7 @@
 - I2I（images.edit）与 T2I 对称下传 size
 """
 
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -30,7 +31,7 @@ def _stub_generate(backend) -> dict:
         captured.update(kwargs)
 
         class FakeResp:
-            data = [type("D", (), {"b64_json": "aGk="})()]
+            data: ClassVar[list[object]] = [type("D", (), {"b64_json": "aGk="})()]
 
         return FakeResp()
 
@@ -45,7 +46,7 @@ def _stub_edit(backend) -> dict:
         captured.update(kwargs)
 
         class FakeResp:
-            data = [type("D", (), {"b64_json": "aGk="})()]
+            data: ClassVar[list[object]] = [type("D", (), {"b64_json": "aGk="})()]
 
         return FakeResp()
 

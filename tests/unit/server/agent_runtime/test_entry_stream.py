@@ -222,7 +222,7 @@ class TestStreamEntryEvents:
         assert events[-1][1]["status"] == "completed"
 
     async def test_pending_questions_replayed_on_subscribe(self, entry_service):
-        service, store = entry_service
+        service, _store = entry_service
         question = {"type": "ask_user_question", "question_id": "aq-1", "questions": [{"question": "选哪个?"}]}
         manager = _FakeEntrySessionManager(status="running", pending=[question])
         service.session_manager = manager
@@ -252,7 +252,7 @@ class TestListSessionEntries:
         assert result["draft_rev"] == 3
 
     async def test_non_running_has_no_draft(self, entry_service):
-        service, store = entry_service
+        service, _store = entry_service
         service.session_manager = _FakeEntrySessionManager(status="idle")
         result = await service.list_session_entries(SESSION_ID, after_seq=-1)
         assert result["draft"] is None

@@ -14,8 +14,7 @@ class TestSystemConfigMigration:
         return config_path
 
     def _make_manager(self, tmp_path: Path) -> SystemConfigManager:
-        manager = SystemConfigManager(tmp_path)
-        return manager
+        return SystemConfigManager(tmp_path)
 
     def test_migrate_001_to_preview(self, tmp_path):
         """AI Studio 的 001 后缀应迁移为 preview。"""

@@ -319,7 +319,7 @@ class SystemConfigManager:
     def update_overrides(self, patch: dict[str, Any]) -> dict[str, Any]:
         """Apply patch to overrides file. Returns updated overrides."""
         with self._lock:
-            data, migrated = self._load_file()
+            data, _migrated = self._load_file()
             overrides = data.get("overrides") or {}
             if not isinstance(overrides, dict):
                 overrides = {}

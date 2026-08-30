@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import inspect, select
+from sqlalchemy.exc import IntegrityError
 
 import lib.db.models  # noqa: F401 — ensure all models registered
 from lib.db.models import CustomProvider, CustomProviderModel
@@ -202,5 +203,5 @@ class TestCustomProviderModelRoundTrip:
             endpoint="openai-chat",
         )
         db_session.add(model2)
-        with pytest.raises(Exception):  # IntegrityError
+        with pytest.raises(IntegrityError):
             await db_session.commit()

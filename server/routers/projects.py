@@ -401,9 +401,9 @@ async def create_export_token(
         }
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @self_auth_router.get("/projects/{name}/export")
@@ -423,12 +423,12 @@ async def export_project_archive(
 
     try:
         verify_download_token(download_token, name)
-    except pyjwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail=_t("download_expired"))
-    except ValueError:
-        raise HTTPException(status_code=403, detail=_t("download_token_mismatch"))
-    except pyjwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail=_t("download_token_invalid"))
+    except pyjwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_expired")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=_t("download_token_mismatch")) from exc
+    except pyjwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
 
     try:
         archive_path, download_name = await asyncio.to_thread(lambda: archive_service.export_project(name, scope=scope))
@@ -442,9 +442,9 @@ async def export_project_archive(
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 # --- 剪映草稿导出 ---
@@ -491,12 +491,12 @@ async def export_jianying_draft(
     # 1. 验证 download_token
     try:
         verify_download_token(download_token, name)
-    except pyjwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail=_t("download_expired"))
-    except ValueError:
-        raise HTTPException(status_code=403, detail=_t("download_token_mismatch"))
-    except pyjwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail=_t("download_token_invalid"))
+    except pyjwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_expired")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=_t("download_token_mismatch")) from exc
+    except pyjwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
 
     # 2. 校验 draft_path
     draft_path = _validate_draft_path(draft_path, _t)
@@ -523,11 +523,11 @@ async def export_jianying_draft(
     except PresentationUnavailableError as exc:
         logger.warning("剪映草稿 presentation 不可用: project=%s episode=%d (%s)", name, episode, exc)
         raise ApiError("presentation_unavailable", status_code=422) from exc
-    except Exception:
+    except Exception as exc:
         # 含暂存/写入阶段的路径越界守卫（ValueError，str(e) 带真实路径）：属安全告警而非
         # 常规空态，不应误报为「本集无已完成片段」，一律降级为通用 500，细节只进日志
         logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
-        raise HTTPException(status_code=500, detail=_t("jianying_export_failed"))
+        raise HTTPException(status_code=500, detail=_t("jianying_export_failed")) from exc
 
     download_name = f"{name}_episode_{episode}_jianying_draft.zip"
 
@@ -681,8 +681,8 @@ async def create_project(
 
             try:
                 manager.create_project(project_name, content_mode=req.content_mode or "narration")
-            except FileExistsError:
-                raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name))
+            except FileExistsError as exc:
+                raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name)) from exc
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
@@ -716,9 +716,9 @@ async def create_project(
         raise BadRequestError("project_config_invalid") from e
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/projects/{name}/video-capabilities")
@@ -848,9 +848,9 @@ async def get_project(
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/projects/{name}/agent-profile")
@@ -871,9 +871,9 @@ async def get_agent_profile_status(name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except ApiError:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("读取项目 Agent profile 状态失败: project=%s", name)
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.post("/projects/{name}/agent-profile/reset")
@@ -897,9 +897,9 @@ async def reset_agent_profile(name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except ApiError:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("重置项目 Agent profile 失败: project=%s", name)
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.patch("/projects/{name}")
@@ -1071,9 +1071,9 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.delete("/projects/{name}")
@@ -1090,9 +1090,9 @@ async def delete_project(name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/projects/{name}/scripts/{script_file}")
@@ -1105,9 +1105,9 @@ async def get_script(name: str, script_file: str, _t: Translator):
         raise NotFoundError("script_not_found", name=script_file) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.post(
@@ -1267,9 +1267,9 @@ async def update_scene(
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 class UpdateShotRequest(BaseModel):
@@ -1373,9 +1373,9 @@ async def update_shot(
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 class ReorderShotsRequest(BaseModel):
@@ -1431,9 +1431,9 @@ async def reorder_shots(
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 class UpdateSegmentRequest(BaseModel):
@@ -1532,9 +1532,9 @@ async def update_segment(
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.patch("/projects/{name}/episodes/{episode}", dependencies=[Depends(require_project_migration_ok)])
@@ -1590,9 +1590,9 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
         raise
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 # ==================== 源文件管理 ====================
@@ -1647,8 +1647,8 @@ async def set_project_source(
                     safe_filename = Path(original_name).name
                     try:
                         text = raw.decode("utf-8")
-                    except UnicodeDecodeError:
-                        raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
+                    except UnicodeDecodeError as exc:
+                        raise HTTPException(status_code=400, detail=_t("invalid_encoding")) from exc
                     if len(text) > MAX_CHARS:
                         raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                     (source_dir / safe_filename).write_text(text, encoding="utf-8")
@@ -1682,9 +1682,9 @@ async def set_project_source(
         return result
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
     finally:
         if file:
             await file.close()
@@ -1706,9 +1706,9 @@ async def generate_overview(name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     def _provider_not_configured(exc: ValueError) -> BadRequestError:
         # 非法项目名已由上方预校验拦截，此处均来自供应商解析链路（未配置/无可用供应商）；str(exc) 只进日志
@@ -1727,23 +1727,23 @@ async def generate_overview(name: str, _t: Translator):
         return {"success": True, "overview": overview}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except PydanticValidationError:
+    except PydanticValidationError as exc:
         # 模型输出未通过 schema 校验（后端降级仍失守时的最后防线），
         # 裸 pydantic 错误串含模型原始输出片段，不透传给用户
         logger.exception("概述生成响应解析失败")
-        raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid"))
+        raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid")) from exc
     except EmptySourceError as e:
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
         logger.exception("生成概述失败：项目数据损坏 name=%s", name)
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.patch("/projects/{name}/overview")
@@ -1778,6 +1778,6 @@ async def update_overview(name: str, req: UpdateOverviewRequest, _t: Translator)
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc

@@ -14,7 +14,7 @@ class PdfOxideExtractor:
     def extract(self, path: Path) -> ExtractedText:
         try:
             doc_ctx = PdfDocument(str(path))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise CorruptFileError(filename=path.name, reason=f"PDF 打开失败: {exc}") from exc
 
         pages_text: list[str] = []
@@ -24,20 +24,20 @@ class PdfOxideExtractor:
         with doc_ctx as doc:
             try:
                 page_count = doc.page_count()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 raise CorruptFileError(filename=path.name, reason=f"PDF 解析失败: {exc}") from exc
 
             for idx in range(page_count):
                 try:
                     page_text = doc.extract_text(idx) or ""
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     raise CorruptFileError(filename=path.name, reason=f"PDF 解析失败: {exc}") from exc
                 pages_text.append(page_text)
                 try:
                     chars = doc.extract_chars(idx) or []
                     total_chars_via_chars_api += len(chars)
                     chars_api_ok_pages += 1
-                except Exception:  # noqa: BLE001
+                except Exception:
                     # chars API 失败不视作致命，回退到文本长度判断
                     pass
 

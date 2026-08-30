@@ -402,13 +402,13 @@ async def upload_grid_image(
         if len(content) > max_bytes:
             raise UploadTooLargeError(max_bytes)
     except UploadValidationError as e:
-        raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params))
+        raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params)) from e
     try:
         png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content, max_long_edge=None)
-    except ImagePixelLimitError:
-        raise BadRequestError("image_pixels_too_large", max_megapixels=MAX_UPLOAD_PIXELS // 1_000_000)
-    except ValueError:
-        raise BadRequestError("invalid_image_file")
+    except ImagePixelLimitError as exc:
+        raise BadRequestError("image_pixels_too_large", max_megapixels=MAX_UPLOAD_PIXELS // 1_000_000) from exc
+    except ValueError as exc:
+        raise BadRequestError("invalid_image_file") from exc
 
     grid_manager = GridManager(project_path)
     target = grid_manager.image_path(grid_id)

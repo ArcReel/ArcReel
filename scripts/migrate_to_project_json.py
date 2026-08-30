@@ -134,7 +134,7 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
 
     # 统计已完成的角色资产图（仅用于日志输出）
     completed_chars = 0
-    for name, char_data in all_characters.items():
+    for char_data in all_characters.values():
         sheet = char_data.get("character_sheet")
         if sheet:
             sheet_path = project_dir / sheet

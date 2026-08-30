@@ -222,7 +222,7 @@ class TestEditImageValidation:
 
             def resolve_usable_entry(self, key, *, artifact_path):
                 self.compare(key, artifact_path=artifact_path)
-                return None
+                return
 
         monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _Currency())
         client = _client(monkeypatch, fake_pm, fake_queue)

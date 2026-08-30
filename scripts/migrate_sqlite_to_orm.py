@@ -37,10 +37,10 @@ lib_stub.__path__ = [str(ROOT / "lib")]
 lib_stub.__package__ = "lib"
 sys.modules.setdefault("lib", lib_stub)
 
-from lib.app_data_dir import app_data_dir  # noqa: E402
-from lib.db import init_db  # noqa: E402
-from lib.db.engine import async_session_factory  # noqa: E402
-from lib.db.models import AgentSession, ApiCall, Task, WorkerLease  # noqa: E402
+from lib.app_data_dir import app_data_dir
+from lib.db import init_db
+from lib.db.engine import async_session_factory
+from lib.db.models import AgentSession, ApiCall, Task, WorkerLease
 
 PROJECTS_DIR = app_data_dir()
 OLD_TASK_DB = PROJECTS_DIR / ".task_queue.db"

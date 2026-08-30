@@ -8,6 +8,7 @@ import asyncio
 import copy
 import json
 import math
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -478,7 +479,7 @@ class TestExecuteTtsTask:
         assert gen.audio_calls[0]["text"] == "却说天下大势，分久必合，合久必分。"
 
     async def test_script_rebind_before_commit_preserves_old_formal_audio(self, tts_env):
-        pm, gen = tts_env
+        pm, _gen = tts_env
         formal = pm.project_path / "audio" / "segment_E1S01.wav"
         formal.parent.mkdir(parents=True, exist_ok=True)
         formal.write_bytes(b"paid-old-audio")
@@ -877,7 +878,7 @@ class TestExecuteTtsTask:
         assert comparison.status is ArtifactStatus.CURRENT
 
     async def test_cancel_after_first_tts_commit_removes_the_new_script_binding(self, tts_env):
-        pm, gen = tts_env
+        pm, _gen = tts_env
         pm.script["segments"][0]["generated_assets"] = {"status": "pending"}
 
         result = await generation_tasks.execute_tts_task(
@@ -931,18 +932,18 @@ class TestExecuteTtsTask:
         assert pm.script["segments"] == []
 
     async def test_narration_speed_passed_to_generator(self, tts_env, monkeypatch):
-        pm, gen = tts_env
+        _pm, gen = tts_env
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen, speed=1.5))
         await generation_tasks.execute_tts_task("demo", "E1S01", {"text": "你好"})
         assert gen.audio_calls[0]["speed"] == 1.5
 
     async def test_unset_narration_speed_passes_none(self, tts_env):
-        pm, gen = tts_env
+        _pm, gen = tts_env
         await generation_tasks.execute_tts_task("demo", "E1S01", {"text": "你好"})
         assert gen.audio_calls[0]["speed"] is None
 
     async def test_no_text_no_script_file_raises(self, tts_env):
-        with pytest.raises(ValueError, match="payload.text 或 payload.script_file"):
+        with pytest.raises(ValueError, match=re.escape("payload.text 或 payload.script_file")):
             await generation_tasks.execute_tts_task("demo", "E1S01", {})
 
     async def test_segment_not_found_raises(self, tts_env):

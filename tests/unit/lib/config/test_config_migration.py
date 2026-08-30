@@ -100,7 +100,7 @@ async def test_migrate_noop_if_no_file(db_session: AsyncSession, tmp_path: Path)
 # 旧任务级文本键 → 档位键迁移
 # ---------------------------------------------------------------------------
 
-from lib.config.migration import migrate_text_tier_settings  # noqa: E402
+from lib.config.migration import migrate_text_tier_settings
 
 
 async def test_tier_migration_noop_when_no_legacy_keys(db_session: AsyncSession):

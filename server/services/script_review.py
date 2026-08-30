@@ -154,7 +154,7 @@ class ScriptReviewService:
             if self.config_resolver is None:
                 return await resolve_video_caps(project)
             return await resolve_video_caps(project, config_resolver=self.config_resolver)
-        except Exception as exc:  # noqa: BLE001 - best-effort：解析失败退回空 caps，不阻断 gate
+        except Exception as exc:  # best-effort：解析失败退回空 caps，不阻断 gate
             logger.warning(
                 "video_capabilities 解析异常，内容确认退回不带 caps 的解析 project=%s：%s", project_name, exc
             )

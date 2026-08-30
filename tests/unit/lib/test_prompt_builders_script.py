@@ -74,14 +74,14 @@ class TestPromptBuildersScript:
 
     def _drama_prompt_authoring_prompt(self, **overrides) -> str:
         """prompt_authoring（视觉层）drama prompt；内容已在 script_plan 定稿，只收渲染好的内容块。"""
-        kwargs = dict(
-            project_overview={"synopsis": "动作", "genre": "动作", "theme": "成长", "world_setting": "近未来"},
-            style="赛博",
-            style_description="high contrast",
-            scenes_content="### E1S01（时长 8 秒）\n视觉改编：天台追逐",
-            episode=1,
-            aspect_ratio="16:9",
-        )
+        kwargs = {
+            "project_overview": {"synopsis": "动作", "genre": "动作", "theme": "成长", "world_setting": "近未来"},
+            "style": "赛博",
+            "style_description": "high contrast",
+            "scenes_content": "### E1S01（时长 8 秒）\n视觉改编：天台追逐",
+            "episode": 1,
+            "aspect_ratio": "16:9",
+        }
         kwargs.update(overrides)
         return build_drama_prompt(**kwargs)
 
@@ -214,18 +214,18 @@ class TestScreenplaySourceKind:
         return "".join(text.split())
 
     def _normalize_prompt(self, source_kind: str, **overrides) -> str:
-        kwargs = dict(
-            novel_text="【第1集】角色甲：「你好」",
-            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
-            style="动漫",
-            characters={"角色甲": {}},
-            scenes={},
-            props={},
-            default_duration=8,
-            supported_durations=[4, 6, 8],
-            episode=1,
-            source_kind=source_kind,
-        )
+        kwargs = {
+            "novel_text": "【第1集】角色甲：「你好」",
+            "project_overview": {"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            "style": "动漫",
+            "characters": {"角色甲": {}},
+            "scenes": {},
+            "props": {},
+            "default_duration": 8,
+            "supported_durations": [4, 6, 8],
+            "episode": 1,
+            "source_kind": source_kind,
+        }
         kwargs.update(overrides)
         return build_normalize_prompt(**kwargs)
 
@@ -336,17 +336,17 @@ class TestDramaDurationSpeechLowerBound:
     _SPEECH_MARKER = "口播语速约"
 
     def _normalize(self, **overrides) -> str:
-        kwargs = dict(
-            novel_text="【第1集】角色甲：「你好」",
-            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
-            style="动漫",
-            characters={"角色甲": {}},
-            scenes={},
-            props={},
-            default_duration=8,
-            supported_durations=[4, 6, 8],
-            episode=1,
-        )
+        kwargs = {
+            "novel_text": "【第1集】角色甲：「你好」",
+            "project_overview": {"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            "style": "动漫",
+            "characters": {"角色甲": {}},
+            "scenes": {},
+            "props": {},
+            "default_duration": 8,
+            "supported_durations": [4, 6, 8],
+            "episode": 1,
+        }
         kwargs.update(overrides)
         return build_normalize_prompt(**kwargs)
 
@@ -555,16 +555,16 @@ class TestBuildNarrationSplitPrompt:
     """script_plan 说书分镜拆分 prompt（源文 → 结构化分镜表）。"""
 
     def _prompt(self, **overrides):
-        kwargs = dict(
-            novel_text="张三走向村口，久久凝望。",
-            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
-            characters={"张三": {"description": "主角"}},
-            scenes={"村口": {"description": "黄昏村口"}},
-            props={},
-            default_duration=4,
-            supported_durations=[4, 6, 8],
-            episode=1,
-        )
+        kwargs = {
+            "novel_text": "张三走向村口，久久凝望。",
+            "project_overview": {"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            "characters": {"张三": {"description": "主角"}},
+            "scenes": {"村口": {"description": "黄昏村口"}},
+            "props": {},
+            "default_duration": 4,
+            "supported_durations": [4, 6, 8],
+            "episode": 1,
+        }
         kwargs.update(overrides)
         return build_narration_split_prompt(**kwargs)
 

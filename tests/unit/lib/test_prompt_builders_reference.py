@@ -15,34 +15,34 @@ from lib.reference_video.writing_syntax import scene_reference_rules, writing_sy
 
 
 def _prompt_authoring_prompt(**overrides) -> str:
-    kwargs = dict(
-        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
-        style="s",
-        style_description="d",
-        characters={"A": {"description": "d"}},
-        scenes={},
-        props={},
-        script_plan_units=[],
-        max_refs=9,
-        episode=1,
-    )
+    kwargs = {
+        "project_overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+        "style": "s",
+        "style_description": "d",
+        "characters": {"A": {"description": "d"}},
+        "scenes": {},
+        "props": {},
+        "script_plan_units": [],
+        "max_refs": 9,
+        "episode": 1,
+    }
     kwargs.update(overrides)
     return build_reference_video_prompt(**kwargs)
 
 
 def _split_prompt(**overrides) -> str:
-    kwargs = dict(
-        novel_text="text",
-        project_overview={},
-        characters={},
-        scenes={},
-        props={},
-        supported_durations=[8],
-        max_duration=8,
-        max_reference_images=None,
-        default_duration=None,
-        episode=1,
-    )
+    kwargs = {
+        "novel_text": "text",
+        "project_overview": {},
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "supported_durations": [8],
+        "max_duration": 8,
+        "max_reference_images": None,
+        "default_duration": None,
+        "episode": 1,
+    }
     kwargs.update(overrides)
     return build_reference_units_split_prompt(**kwargs)
 

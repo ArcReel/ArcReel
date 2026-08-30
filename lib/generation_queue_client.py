@@ -221,7 +221,7 @@ async def enqueue_task_only(
     raw_resource_type = (payload or {}).get("resource_type")
     resource_type = raw_resource_type if isinstance(raw_resource_type, str) and raw_resource_type else None
 
-    enqueue_result = await queue.enqueue_task(
+    return await queue.enqueue_task(
         project_name=project_name,
         task_type=task_type,
         media_type=media_type,
@@ -238,7 +238,6 @@ async def enqueue_task_only(
         batch_unit_id=batch_unit_id,
         batch_unit_ids=batch_unit_ids,
     )
-    return enqueue_result
 
 
 async def get_active_tasks_for_resources(
@@ -607,7 +606,7 @@ async def _enqueue_sequentially(
                 ),
                 queue=queue,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             failures.append(
                 BatchTaskResult(
                     resource_id=spec.unit_id or spec.resource_id,

@@ -69,9 +69,9 @@ def _numeric_backup_candidates(source: Path, versions: tuple[int, ...]) -> list[
     candidates: list[Path] = []
     for version in versions:
         prefix = f"{source.name}.bak.v{version}-"
-        for candidate in source.parent.glob(f"{prefix}*"):
-            if candidate.name.removeprefix(prefix).isdigit():
-                candidates.append(candidate)
+        candidates.extend(
+            candidate for candidate in source.parent.glob(f"{prefix}*") if candidate.name.removeprefix(prefix).isdigit()
+        )
     return candidates
 
 
@@ -212,7 +212,7 @@ def migrate_project_with_verdict(project_dir: Path) -> MigrationFailureRecord | 
 
     try:
         migrate_project_dir(project_dir)
-    except Exception as exc:  # noqa: BLE001 - one project's failure is isolated, not fatal
+    except Exception as exc:  # 单个项目失败被隔离，不中断整体迁移
         logger.error("迁移失败 %s: %s", project_dir.name, exc)
         # The persisted verdict is what the production status, the production plan
         # and every generation entry read to refuse work on this project.

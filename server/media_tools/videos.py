@@ -313,8 +313,10 @@ def _confirmation_lines(admission: BatchAdmission) -> list[str]:
 def _blocked_lines(admission: BatchAdmission) -> list[str]:
     lines = ["本次批量请求未通过准入，未入队任何任务。逐 unit 缺口如下："]
     for ticket in admission.refused_tickets:
-        for problem in ticket.problems:
-            lines.append(f"- {ticket.unit_id}：{problem.code}（下一步：{problem.action.value}）{problem.detail}")
+        lines.extend(
+            f"- {ticket.unit_id}：{problem.code}（下一步：{problem.action.value}）{problem.detail}"
+            for problem in ticket.problems
+        )
     lines.append("修复全部缺口后重试即可一次性提交整批。")
     return lines
 
@@ -1257,7 +1259,7 @@ def _episode_scope_tool(ctx: ToolContext):
             )
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_OPERATION, exc, log)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return tool_error(_OPERATION, exc, log)
 
     return _handler
@@ -1361,7 +1363,7 @@ def _all_scope_tool(ctx: ToolContext):
             )
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_OPERATION, exc, log)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return tool_error(_OPERATION, exc, log)
 
     return _handler
@@ -1481,7 +1483,7 @@ def _selected_scope_tool(ctx: ToolContext):
             )
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_OPERATION, exc, log)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return tool_error(_OPERATION, exc, log)
 
     return _handler
@@ -1536,7 +1538,7 @@ async def handle_generate_videos(ctx: ToolContext, args: dict[str, Any]) -> Tool
             raise ValueError(f"target.scope={scope} 时不能提供 target.episode")
         forwarded["scene_ids"] = ids
         return await _selected_scope_tool(ctx).invoke(forwarded)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return tool_error("generate_videos", exc)
 
 

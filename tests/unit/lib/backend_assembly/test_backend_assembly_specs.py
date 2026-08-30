@@ -530,7 +530,7 @@ class TestValidateProviderSpecs:
         # spec 内 provider_id/media_type 与字典键漂移 → fail-fast
         bad = dataclasses.replace(PROVIDER_SPEC_REGISTRY[("ark", "image")], provider_id="drifted")
         monkeypatch.setitem(PROVIDER_SPEC_REGISTRY, ("ark", "image"), bad)
-        with pytest.raises(ValueError, match="key .* does not match spec"):
+        with pytest.raises(ValueError, match=r"key .* does not match spec"):
             _validate_provider_specs()
 
     def test_registry_backend_names_are_registered(self):

@@ -248,7 +248,7 @@ async def apply_grid_split(
 
             # Cells stay invisible until the script, complete version batch, grid
             # record, and complete Manifest claim set can all commit.
-            for cell, frame in zip(cells, grid.frame_chain):
+            for cell, frame in zip(cells, grid.frame_chain, strict=True):
                 if frame.frame_type == "placeholder":
                     continue
                 if frame.frame_type not in ("first", "transition"):

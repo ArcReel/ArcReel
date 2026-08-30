@@ -1400,7 +1400,7 @@ class TestFilesRouter:
 
 # ==================== Source 多格式上传 ====================
 
-import io  # noqa: E402
+import io
 
 from tests.auth_deps import AUTH_DEPENDENCIES
 

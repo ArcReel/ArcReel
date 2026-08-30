@@ -8,6 +8,7 @@ Exception 翻 failed 后重抛、记账失败不吞原异常、CancelledError �
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -112,7 +113,7 @@ class TestRecordBracket:
 
     async def test_missing_success_declaration_raises_runtime_error(self, db_factory: async_sessionmaker) -> None:
         ledger = Ledger(session_factory=db_factory)
-        with pytest.raises(RuntimeError, match="未调用 call.success"):
+        with pytest.raises(RuntimeError, match=re.escape("未调用 call.success")):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
                 pass  # 正常退出但未声明成功
 

@@ -593,7 +593,10 @@ def add_background_music(video_path: Path, music_path: Path, output_path: Path, 
 
 
 def compose_video(
-    script_filename: str, output_filename: str = None, music_path: str = None, use_transitions: bool = True
+    script_filename: str,
+    output_filename: str | None = None,
+    music_path: str | None = None,
+    use_transitions: bool = True,
 ) -> Path:
     """
     合成最终视频

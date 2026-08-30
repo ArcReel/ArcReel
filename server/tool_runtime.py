@@ -317,7 +317,7 @@ async def get_generation_batch(
         )
     except GenerationBatchNotFound as exc:
         return ToolOutcome(problem=ToolProblem("generation_batch_not_found", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"get_generation_batch 失败: {exc}"))
     return ToolOutcome(value=result)
 
@@ -336,7 +336,7 @@ async def cancel_generation_batch(
         )
     except GenerationBatchNotFound as exc:
         return ToolOutcome(problem=ToolProblem("generation_batch_not_found", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"cancel_generation_batch 失败: {exc}"))
     return ToolOutcome(value=result)
 
@@ -394,7 +394,7 @@ async def _run_text_generation(
         return ToolOutcome(value=await call)
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"{operation} 失败: {exc}"))
 
 
@@ -553,7 +553,7 @@ async def generate_episode_script(
         )
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"generate_episode_script 失败: {exc}"))
     return await _submit_text_task(
         task_type=_TEXT_EPISODE_SCRIPT,
@@ -587,7 +587,7 @@ async def generate_script_plan(
             raise TextGenerationError(f"不支持的创作类型: {content_mode}")
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"generate_script_plan 失败: {exc}"))
     if request.value.dry_run:
         return await _execute_text_handler("generate_script_plan", handler, request.value, scope, services)
@@ -830,7 +830,7 @@ async def get_project_content(
         content = await asyncio.to_thread(_get_project_content_sync, scope.project_name, services.projects)
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("project_not_found", f"项目未找到或缺 project.json: {exc}"))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"get_project_content 失败: {exc}"))
     return ToolOutcome(value=content)
 
@@ -853,7 +853,7 @@ async def get_episode_script(
         return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
     except (TypeError, ValueError) as exc:
         return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"get_episode_script 失败: {exc}"))
     return ToolOutcome(
         value=EpisodeScriptContent(revision=script_revision(script), script_filename=filename, script=script)
@@ -895,7 +895,7 @@ async def get_prompt_preview(
         return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
     except (TypeError, ValueError) as exc:
         return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"get_prompt_preview 失败: {exc}"))
     return ToolOutcome(value=preview)
 
@@ -915,7 +915,7 @@ async def list_source_files(
         )
         revision = prefixed_canonical_json_digest([entry.model_dump() for entry in files])
         return ToolOutcome(value=SourceFilesContent(revision=revision, files=files))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_file_problem("list_source_files", exc))
 
 
@@ -933,7 +933,7 @@ async def get_source_text(
         if not isinstance(content, str):
             raise ValueError("source 文件必须是文本")
         return ToolOutcome(value=SourceTextContent(revision=revision, etag=etag, path=request.value, text=content))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_file_problem("get_source_text", exc))
 
 
@@ -974,7 +974,7 @@ async def get_script_plan_content(
         if result is None:
             return ToolOutcome(problem=ToolProblem("script_plan_not_applicable", "当前项目没有 script_plan 中间态"))
         return ToolOutcome(value=result)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_file_problem("get_script_plan_content", exc))
 
 
@@ -991,7 +991,7 @@ async def list_project_files(
         )
         revision = prefixed_canonical_json_digest([entry.model_dump() for entry in files])
         return ToolOutcome(value=ProjectFilesContent(revision=revision, files=files))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_file_problem("list_project_files", exc))
 
 
@@ -1005,7 +1005,7 @@ async def read_project_file(
         project_dir = services.projects.get_project_path(scope.project_name)
         content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, request.value)
         return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=request.value, content=content))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_file_problem("read_project_file", exc))
 
 
@@ -1025,7 +1025,7 @@ async def _run_draft(call: Awaitable[dict[str, Any]]) -> ToolOutcome[dict[str, A
         return ToolOutcome(value=await call)
     except DraftWorkflowError as exc:
         return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", str(exc)))
 
 
@@ -1146,7 +1146,7 @@ async def list_projects(
 
     try:
         return ToolOutcome(value=await asyncio.to_thread(_list))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"list_projects 失败: {exc}"))
 
 
@@ -1185,7 +1185,7 @@ async def create_project(
         return ToolOutcome(problem=ToolProblem("project_exists", str(exc)))
     except ValueError as exc:
         return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"create_project 失败: {exc}"))
 
 
@@ -1246,7 +1246,7 @@ async def upload_source(
         return ToolOutcome(problem=ToolProblem("invalid_source", str(exc)))
     except ConflictError as exc:
         return ToolOutcome(problem=ToolProblem("source_conflict", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"upload_source 失败: {exc}"))
 
 
@@ -1266,7 +1266,7 @@ async def get_workflow_plan(
         )
     except WorkflowRequestError as exc:
         return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"get_workflow_plan 失败: {exc}"))
     return ToolOutcome(value=plan)
 
@@ -1285,7 +1285,7 @@ async def get_video_capabilities(
         return ToolOutcome(problem=ToolProblem("project_not_found", f"项目未找到或缺 project.json: {exc}"))
     except ValueError as exc:
         return ToolOutcome(problem=ToolProblem("capabilities_unresolved", f"无法解析视频模型能力: {exc}"))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"get_video_capabilities 失败: {exc}"))
     return ToolOutcome(value=payload)
 
@@ -1345,18 +1345,19 @@ def _project_patch_operations(
             *,
             location: tuple[str | int, ...],
             unit_id: str | None = None,
+            operation_index: int = index,
         ) -> Any:
             try:
                 return action()
             except ScriptEditError as exc:
-                exc.params.update(operation_index=index, location=location, unit_id=unit_id)
+                exc.params.update(operation_index=operation_index, location=location, unit_id=unit_id)
                 raise
 
         if isinstance(operation, PatchUpdateOperation):
             item_id = operation.id
             for field, value in operation.fields.items():
                 apply(
-                    lambda field=field, value=value: patch_field(preview, item_id, field, value),
+                    lambda field=field, value=value, item_id=item_id: patch_field(preview, item_id, field, value),
                     location=("fields", *field.split(".")),
                     unit_id=item_id,
                 )
@@ -1367,7 +1368,9 @@ def _project_patch_operations(
             insert_after_id = operation.after_id
             new_item = operation.item
             apply(
-                lambda: insert_segment(preview, insert_after_id, new_item),
+                lambda insert_after_id=insert_after_id, new_item=new_item: insert_segment(
+                    preview, insert_after_id, new_item
+                ),
                 location=("after_id",),
                 unit_id=insert_after_id,
             )
@@ -1382,7 +1385,7 @@ def _project_patch_operations(
 
         if isinstance(operation, PatchRemoveOperation):
             item_id = operation.id
-            apply(lambda: remove_segment(preview, item_id), location=("id",), unit_id=item_id)
+            apply(lambda item_id=item_id: remove_segment(preview, item_id), location=("id",), unit_id=item_id)
             append(operation.model_dump(mode="python"), index)
             continue
 
@@ -1402,7 +1405,7 @@ def _project_patch_operations(
             )
         previous_id = str(items[original_index - 1].get(id_field)) if original_index else None
         apply(
-            lambda: split_segment(preview, item_id, parts),
+            lambda item_id=item_id, parts=parts: split_segment(preview, item_id, parts),
             location=("parts",),
             unit_id=item_id,
         )
@@ -1452,7 +1455,7 @@ def _patch_episode_script_sync(
         current = services.projects.load_script(scope.project_name, request.value.script)
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("script_not_found", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"patch_episode_script 失败: {exc}"))
 
     if request.value.base_revision != script_revision(current):
@@ -1793,7 +1796,7 @@ async def _execute_plan_episodes(
             )
     except (EpisodePlanningError, FileNotFoundError) as exc:
         return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 分集规划失败：{exc}"))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_unexpected("plan_episodes", exc))
     value = PlanEpisodesResult(
         message=_format_plan(result),
@@ -1936,7 +1939,7 @@ async def reset_episode_planning(
         )
     except (EpisodeResetError, FileNotFoundError) as exc:
         return ToolOutcome(problem=ToolProblem("episode_reset_failed", f"❌ 分集规划重置失败：{exc}"))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_unexpected("reset_episode_planning", exc))
 
     if isinstance(result, ResetConfirmationRequired):
@@ -2177,7 +2180,7 @@ def _patch_project_sync(
         return ToolOutcome(
             value=PatchProjectResult(message=_format_upsert(value.table, changes), operation="assets", changes=changes)
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_unexpected("patch_project", exc))
 
 
@@ -2199,7 +2202,7 @@ def _patch_episode_meta_sync(
     try:
         with services.projects.locked_script(scope.project_name, value.script) as script:
             script[value.field] = value.value
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_unexpected("patch_episode_meta", exc))
     return ToolOutcome(
         value=PatchEpisodeMetaResult(
@@ -2235,7 +2238,7 @@ async def rename_asset(
             value.old_name,
             value.new_name,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_unexpected("rename_asset", exc))
     message = (
         f"已把 {value.table} 资产 {report.old_name!r} 重命名为 {report.new_name!r}:"
@@ -2272,7 +2275,7 @@ async def retry_project_migration(
             queue=services.queue,
             config_resolver=services.capabilities,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         try:
             residual = load_migration_failure(project_dir)
         except (FileNotFoundError, ValueError, OSError):
@@ -2332,7 +2335,7 @@ async def complete_asset_inventory(
         return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
     except AssetInventoryError as exc:
         return ToolOutcome(problem=ToolProblem("inventory_unavailable", str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_unexpected("complete_asset_inventory", exc))
     return ToolOutcome(
         value=CompleteAssetInventoryResult(
@@ -2365,79 +2368,79 @@ async def complete_script_plan_rebuild(
         )
     except ScriptPlanRebuildCompletionError as exc:
         return ToolOutcome(problem=ToolProblem(exc.code, str(exc)))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ToolOutcome(problem=_unexpected("complete_script_plan_rebuild", exc))
     return ToolOutcome(value=CompleteScriptPlanRebuildResult(episode=value.episode, script_plan_revision=revision))
 
 
 __all__ = [
     "ASSET_TABLES",
-    "CallerContext",
-    "CompleteAssetInventoryRequest",
-    "CompleteScriptPlanRebuildRequest",
-    "CreateProjectToolRequest",
-    "GenerationBatchToolRequest",
-    "EpisodeScriptContent",
     "EPISODE_META_FIELDS",
     "MAX_INSTRUCTIONS_LEN",
     "PROJECT_OVERVIEW_FIELDS",
     "PROJECT_SETTINGS",
+    "CallerContext",
+    "CompleteAssetInventoryRequest",
+    "CompleteScriptPlanRebuildRequest",
+    "CreateProjectToolRequest",
+    "DiscardDraftRequest",
+    "DraftLocator",
+    "EpisodeScriptContent",
+    "GenerationBatchToolRequest",
+    "PatchDraftRequest",
     "PatchEpisodeMetaRequest",
     "PatchEpisodeScriptRequest",
     "PatchProjectRequest",
     "PlanEpisodesRequest",
+    "ProjectContent",
     "ProjectFileContent",
     "ProjectFileEntry",
     "ProjectFilesContent",
-    "ProjectContent",
-    "SourceFilesContent",
-    "SourceTextContent",
-    "ScriptPlanContent",
-    "DraftLocator",
-    "DiscardDraftRequest",
-    "PatchDraftRequest",
-    "PromoteDraftRequest",
     "ProjectScope",
+    "PromoteDraftRequest",
+    "PromptPreviewRequest",
     "RenameAssetRequest",
     "ResetEpisodePlanningRequest",
+    "ScriptPlanContent",
     "Services",
+    "SourceFilesContent",
+    "SourceTextContent",
     "TextGenerationError",
     "TextGenerationRequest",
     "TextGenerationResult",
     "ToolOutcome",
     "ToolProblem",
     "ToolRequest",
-    "PromptPreviewRequest",
     "UploadSourceRequest",
-    "complete_asset_inventory",
     "cancel_generation_batch",
+    "complete_asset_inventory",
     "complete_script_plan_rebuild",
+    "confirm_script_review",
     "create_project",
     "discard_draft",
+    "generate_episode_script",
+    "generate_script_plan",
     "get_episode_script",
     "get_generation_batch",
     "get_project_content",
     "get_prompt_preview",
-    "get_source_text",
     "get_script_plan_content",
+    "get_source_text",
     "get_video_capabilities",
     "get_workflow_plan",
-    "list_projects",
-    "confirm_script_review",
-    "generate_episode_script",
-    "generate_script_plan",
     "list_project_files",
+    "list_projects",
     "list_source_files",
+    "open_draft",
+    "patch_draft",
     "patch_episode_meta",
     "patch_episode_script",
     "patch_project",
     "plan_episodes",
+    "promote_draft",
+    "read_project_file",
     "rename_asset",
     "reset_episode_planning",
-    "read_project_file",
     "retry_project_migration",
-    "open_draft",
-    "patch_draft",
-    "promote_draft",
     "upload_source",
 ]

@@ -11,7 +11,7 @@ import time
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 from uuid import uuid4
 
 from lib.db.base import DEFAULT_USER_ID
@@ -102,13 +102,9 @@ class _StartupStderrCollector:
 class SessionCapacityError(Exception):
     """所有并发槽位已被 running 会话占满，无法创建新连接。"""
 
-    pass
-
 
 class SessionBusyError(Exception):
     """目标会话正处于 running 状态，暂不接受新消息（与内容校验错误区分，各自映射不同状态码）。"""
-
-    pass
 
 
 class AgentStartupError(RuntimeError):
@@ -232,7 +228,7 @@ class ManagedSession:
     _interrupting: bool = False  # send_interrupt re-entry guard (distinct from interrupt_requested)
 
     # Message types that must never be silently dropped from subscriber queues.
-    _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "log_entry", "log_turn_complete"}
+    _CRITICAL_MESSAGE_TYPES: ClassVar[set[str]] = {"result", "runtime_status", "log_entry", "log_turn_complete"}
 
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
@@ -319,7 +315,7 @@ class ManagedSession:
 class SessionManager:
     """Manages all active ClaudeSDKClient instances."""
 
-    DEFAULT_ALLOWED_TOOLS = [
+    DEFAULT_ALLOWED_TOOLS: ClassVar[list[str]] = [
         "Skill",
         "Task",
         # —— Bash 系列（sandbox 启用 + autoAllowBashIfSandboxed=True 协同放行）——
@@ -335,7 +331,7 @@ class SessionManager:
         "WebFetch",
         "AskUserQuestion",
     ]
-    DEFAULT_SETTING_SOURCES = ["project"]
+    DEFAULT_SETTING_SOURCES: ClassVar[list[str]] = ["project"]
     _SDK_ID_TIMEOUT = 60.0
 
     def __init__(

@@ -35,7 +35,7 @@ def _fake_grid_waiter(enqueue, wait=None):
                     source=spec.source,
                 )
                 task = await wait(queued["task_id"])
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 failures.append(
                     BatchTaskResult(
                         resource_id=spec.resource_id,

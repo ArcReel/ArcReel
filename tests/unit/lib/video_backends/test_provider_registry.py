@@ -140,8 +140,8 @@ def test_kling_video_backend_registered() -> None:
 
 def test_ark_agent_plan_backend_registered() -> None:
     """复用现有 ark backend 类支持 ark-agent-plan provider。"""
-    import lib.image_backends  # noqa: F401  触发自注册
-    import lib.text_backends  # noqa: F401
+    import lib.image_backends  # 副作用导入：触发供应商自注册
+    import lib.text_backends
     import lib.video_backends  # noqa: F401
     from lib.image_backends.ark import ArkImageBackend
     from lib.image_backends.registry import _BACKEND_FACTORIES as image_reg

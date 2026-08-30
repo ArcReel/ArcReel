@@ -117,9 +117,11 @@ def _validate_projection(
             if target is not None and target not in projected:
                 errors.append(f"{mode}:{source_rel}: missing Markdown pointer {pointer!r}")
         tool_names = {match.rstrip(_MCP_SENTENCE_PUNCTUATION) for match in _MCP_RE.findall(text)}
-        for tool_name in sorted(tool_names):
-            if tool_name != "*" and tool_name not in registered_tools:
-                errors.append(f"{mode}:{source_rel}: unregistered MCP tool mcp__arcreel__{tool_name}")
+        errors.extend(
+            f"{mode}:{source_rel}: unregistered MCP tool mcp__arcreel__{tool_name}"
+            for tool_name in sorted(tool_names)
+            if tool_name != "*" and tool_name not in registered_tools
+        )
 
 
 def _validate_evals(profile_dir: Path, errors: list[str]) -> None:

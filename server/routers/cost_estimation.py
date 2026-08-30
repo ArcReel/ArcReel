@@ -79,6 +79,6 @@ async def get_cost_estimate(
             project_name=project_name,
             reference_request_options=reference_request_options,
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("费用估算失败")
-        raise HTTPException(status_code=500, detail=_t("cost_estimation_failed"))
+        raise HTTPException(status_code=500, detail=_t("cost_estimation_failed")) from exc

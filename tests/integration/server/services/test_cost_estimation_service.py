@@ -64,7 +64,7 @@ def _make_script(
     """Helper to create a narration episode script dict."""
     default_assets = {"storyboard_image": None, "video_clip": None, "status": "pending"}
     segments = []
-    for i, (sid, dur) in enumerate(zip(segment_ids, durations)):
+    for i, (sid, dur) in enumerate(zip(segment_ids, durations, strict=True)):
         assets = {**default_assets}
         if generated_assets_overrides and i < len(generated_assets_overrides):
             assets.update(generated_assets_overrides[i])

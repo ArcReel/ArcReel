@@ -819,7 +819,7 @@ class ScriptGenerator:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
-            raise ValueError(f"prompt_authoring 视觉层 JSON 解析失败: {e}")
+            raise ValueError(f"prompt_authoring 视觉层 JSON 解析失败: {e}") from e
         try:
             validated = DramaVisualScript.model_validate(data)
             return [s.model_dump() for s in validated.scenes]
@@ -1410,7 +1410,7 @@ class ScriptGenerator:
             try:
                 raw = json.loads(script_plan_json.read_text(encoding="utf-8"))
             except json.JSONDecodeError as e:
-                raise ValueError(f"script_plan_reference_units.json 解析失败: {e}")
+                raise ValueError(f"script_plan_reference_units.json 解析失败: {e}") from e
 
             # 存量草稿的 per-shot 时长一次性收编到 unit 级并回写落盘（二次加载不再触发）。
             # 此处持有模型档位，收编结果直接取档，与下方的枚举校验对齐。
@@ -1444,7 +1444,7 @@ class ScriptGenerator:
         try:
             draft = ReferenceScriptPlanDraft.model_validate(raw)
         except ValidationError as e:
-            raise ValueError(f"script_plan_reference_units.json 结构校验失败: {e}")
+            raise ValueError(f"script_plan_reference_units.json 结构校验失败: {e}") from e
 
         units = [u.model_dump() for u in draft.units]
         if not units:
@@ -1509,7 +1509,7 @@ class ScriptGenerator:
         try:
             raw = json.loads(raw_bytes.decode("utf-8"))
         except json.JSONDecodeError as e:
-            raise ValueError(f"script_plan_segments.json 解析失败: {e}")
+            raise ValueError(f"script_plan_segments.json 解析失败: {e}") from e
         self._script_plan_revision = content_fingerprint_of_data(raw)
         self._freeze_script_plan_artifact_basis(raw)
         self._freeze_script_plan_input_claim(
@@ -1521,7 +1521,7 @@ class ScriptGenerator:
         try:
             draft = NarrationScriptPlanDraft.model_validate(raw)
         except ValidationError as e:
-            raise ValueError(f"script_plan_segments.json 结构校验失败: {e}")
+            raise ValueError(f"script_plan_segments.json 结构校验失败: {e}") from e
 
         segments = [s.model_dump() for s in draft.segments]
         if not segments:
@@ -1569,7 +1569,7 @@ class ScriptGenerator:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as e:
-            raise ValueError(f"脚本规划内容文件不是合法 JSON（drama script_plan 应为结构化内容）: {e}")
+            raise ValueError(f"脚本规划内容文件不是合法 JSON（drama script_plan 应为结构化内容）: {e}") from e
         if not isinstance(data, dict):
             raise ValueError("脚本规划内容文件结构异常：顶层应为对象 {title, scenes}")
         self._script_plan_revision = content_fingerprint_of_data(data)
@@ -1688,7 +1688,7 @@ class ScriptGenerator:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
-            raise ValueError(f"JSON 解析失败: {e}")
+            raise ValueError(f"JSON 解析失败: {e}") from e
         # title 缺失/空白兜底须在校验之前：title 仅展示用、用户可改，非约束解码通道下模型
         # 整字段漏写不该让一次已付费的展开失败（与 _parse_response 的兜底同口径）。
         if isinstance(data, dict):
@@ -1752,7 +1752,7 @@ class ScriptGenerator:
         response_text: str,
         exc: DraftViolation,
         *,
-        base_fingerprint: str | None | _UnsetExpectedFingerprint = _UNSET_EXPECTED_FINGERPRINT,
+        base_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
         expected_draft_revision: str | None,
         before_commit: Callable[[], None] | None = None,
     ) -> DraftViolation:
@@ -1833,7 +1833,7 @@ class ScriptGenerator:
         caps: dict | None,
         output_filename: str | None = None,
         *,
-        expected_fingerprint: str | None | _UnsetExpectedFingerprint = _UNSET_EXPECTED_FINGERPRINT,
+        expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
         _prompt_authoring_lock_held: bool = False,
     ) -> Path:
         draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
@@ -1853,7 +1853,7 @@ class ScriptGenerator:
         caps: dict | None,
         output_filename: str | None = None,
         *,
-        expected_fingerprint: str | None | _UnsetExpectedFingerprint = _UNSET_EXPECTED_FINGERPRINT,
+        expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
     ) -> Path:
         draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         if draft is None:
@@ -1947,7 +1947,7 @@ class ScriptGenerator:
         episode: int,
         output_filename: str | None = None,
         *,
-        expected_fingerprint: str | None | _UnsetExpectedFingerprint = _UNSET_EXPECTED_FINGERPRINT,
+        expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
         _prompt_authoring_lock_held: bool = False,
     ) -> Path:
         """按产出时那套校验器全量重判 prompt_authoring 待修复草稿，通过则晋升为正式剧本并清除草稿。
@@ -1987,7 +1987,7 @@ class ScriptGenerator:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
-            raise ValueError(f"JSON 解析失败: {e}")
+            raise ValueError(f"JSON 解析失败: {e}") from e
 
         # title 缺失/空白兜底：非约束解码通道下模型可能整字段漏写。title 仅展示用、
         # 用户可改，不值得让整集生成失败；与 _merge_narration_visual 的兜底同口径。
@@ -2061,11 +2061,11 @@ class ScriptGenerator:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
-            raise ValueError(f"prompt_authoring 视觉层 JSON 解析失败: {e}")
+            raise ValueError(f"prompt_authoring 视觉层 JSON 解析失败: {e}") from e
         try:
             validated = NarrationVisualEpisodeScript.model_validate(data)
         except ValidationError as e:
-            raise ValueError(f"prompt_authoring 视觉层结构校验失败: {e}")
+            raise ValueError(f"prompt_authoring 视觉层结构校验失败: {e}") from e
         return validated.model_dump()
 
     def _merge_narration_visual(self, script_plan_segments: list[dict], visual_data: dict, episode: int) -> dict:

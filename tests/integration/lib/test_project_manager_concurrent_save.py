@@ -222,14 +222,14 @@ class TestSaveScriptConcurrency:
                 i += 1
                 try:
                     pm.save_script(name, _make_script(1, payload_size=40 + (i % 30)), "episode_1.json")
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     errors.append(e)
 
         def _reader() -> None:
             while not stop.is_set():
                 try:
                     pm.load_script(name, "episode_1.json")
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     errors.append(e)
 
         threads = [threading.Thread(target=_writer), threading.Thread(target=_reader), threading.Thread(target=_reader)]

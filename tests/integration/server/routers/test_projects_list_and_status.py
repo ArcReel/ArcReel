@@ -113,7 +113,7 @@ class TestProjectsRouter:
         with client:
             resp = client.get("/api/v1/projects")
             assert resp.status_code == 200
-            ready = [p for p in resp.json()["projects"] if p["name"] == "ready"][0]
+            ready = next(p for p in resp.json()["projects"] if p["name"] == "ready")
             assert ready["style_image"] == "style_reference.png"
             assert ready.get("style_template_id") is None
 

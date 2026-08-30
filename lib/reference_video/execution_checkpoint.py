@@ -349,7 +349,7 @@ def stage_provider_media(
                 raise
             existing = _load_staging_manifest(final_dir)
             if existing != planned:
-                raise ValueError("immutable provider media staging conflicts with a concurrent publisher")
+                raise ValueError("immutable provider media staging conflicts with a concurrent publisher") from exc
             _verify_staged_files(project_path, existing)
             return existing
         return planned
@@ -1041,15 +1041,15 @@ __all__ = [
     "ProviderMediaInput",
     "ReferenceExecutionIdentityError",
     "ReferenceSubmissionCheckpoint",
+    "StagedProviderMedia",
     "StoryboardSubmissionCheckpoint",
     "VideoResumeState",
     "VideoSubmissionCheckpoint",
-    "StagedProviderMedia",
-    "cleanup_staged_provider_media",
     "checkpoint_version_metadata",
     "classify_video_resume_state",
-    "load_task_video_checkpoint",
+    "cleanup_staged_provider_media",
     "load_task_reference_checkpoint",
+    "load_task_video_checkpoint",
     "stage_provider_media",
     "stage_provider_media_for_task",
 ]

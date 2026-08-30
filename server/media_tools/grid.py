@@ -435,7 +435,7 @@ async def handle_generate_grid(
                         )
                         for scene_id in report_ids
                     }
-                except Exception:  # noqa: BLE001
+                except Exception:
                     logger.exception("联合图切分落格失败: grid_id=%s", grid.id)
                     unit_results = {
                         scene_id: {
@@ -478,7 +478,7 @@ async def handle_generate_grid(
                     provider_checkpoint=provider_checkpoint_from_task(result.task or {}),
                 )
         return generation_result_outcome(builder.build(), log, batch_id=submitted.batch.batch_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return tool_error(_OPERATION, exc)
 
 

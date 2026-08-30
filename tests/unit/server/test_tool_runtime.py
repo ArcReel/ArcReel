@@ -6,6 +6,7 @@ import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -173,7 +174,7 @@ async def test_generation_batch_remains_readable_when_project_migration_is_block
             return Path("/projects/demo")
 
     class _Queue:
-        calls: list[dict] = []
+        calls: ClassVar[list[dict]] = []
 
         async def get_generation_batch(self, **kwargs):
             self.calls.append(kwargs)
@@ -293,7 +294,7 @@ async def test_mcp_dedupe_does_not_remove_embedded_text_task_registration() -> N
 
 async def test_text_task_conflict_deletes_the_unassociated_batch() -> None:
     class _Queue:
-        deleted: list[tuple[str, str, str]] = []
+        deleted: ClassVar[list[tuple[str, str, str]]] = []
 
         async def get_active_tasks_for_resources(self, **_kwargs):
             return []

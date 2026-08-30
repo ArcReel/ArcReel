@@ -21,7 +21,7 @@ from server.app import (
 def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
     """构造 subprocess.run 替身，用于桩 bwrap 试跑结果。"""
 
-    def _stub(cmd, *args, **kwargs):  # noqa: ANN001 - 测试替身，宽松签名
+    def _stub(cmd, *args, **kwargs):
         assert cmd[0] == "bwrap"
         # probe 必须用 unshare-user + unshare-net + unshare-pid 才能在启动期捕获三类典型失败：
         # userns 创建被拒 / loopback 配置被拒（缺 NET_ADMIN）/ pid namespace 被拒。
@@ -132,7 +132,7 @@ def _patch_sysctls(
     与 mac / 老内核行为一致。
     """
 
-    def _stub(self: Path, *args, **kwargs):  # noqa: ANN001 - 测试替身
+    def _stub(self: Path, *args, **kwargs):
         mapping = {
             "/proc/sys/kernel/apparmor_restrict_unprivileged_userns": apparmor_userns,
             "/proc/sys/kernel/unprivileged_userns_clone": userns_clone,
@@ -224,7 +224,7 @@ def test_sandbox_bwrap_probe_exec_failure_linux_raises(
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
 
-    def _raises(*args, **kwargs):  # noqa: ANN001 - 测试替身
+    def _raises(*args, **kwargs):
         raise exc
 
     monkeypatch.setattr("server.app.subprocess.run", _raises)

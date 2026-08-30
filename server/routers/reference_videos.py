@@ -832,8 +832,8 @@ async def upload_unit_video(
             # 路径遍历防护：unit_id 拼出的绝对路径不得逃出项目目录（与 versions.py 对齐）
             try:
                 safe_join(project_path, relative_path)
-            except PathTraversalError:
-                raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=unit_id))
+            except PathTraversalError as exc:
+                raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=unit_id)) from exc
             return project_path, VersionManager(project_path), script_file
 
         project_path, versions, script_file = await asyncio.to_thread(_validate_unit)

@@ -366,18 +366,18 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             # 指的是第 N 个 type="audio_url" 条目（官方《快速入门》提示词规则）。故这里必须
             # 保持 reference_audio_files 的原始顺序、不跳过任何一段——跳过会让编排层拼好的
             # 指认文本整体错位，把 A 角色的音色安到 B 角色头上。
-            for audio_path in request.reference_audio_files:
-                content.append(
-                    {
-                        "type": "audio_url",
-                        "audio_url": {
-                            "url": reference_audio_to_data_uri(
-                                Path(audio_path), model=self._model, mime_types=_REFERENCE_AUDIO_MIME_TYPES
-                            )
-                        },
-                        "role": "reference_audio",
-                    }
-                )
+            content.extend(
+                {
+                    "type": "audio_url",
+                    "audio_url": {
+                        "url": reference_audio_to_data_uri(
+                            Path(audio_path), model=self._model, mime_types=_REFERENCE_AUDIO_MIME_TYPES
+                        )
+                    },
+                    "role": "reference_audio",
+                }
+                for audio_path in request.reference_audio_files
+            )
 
         # 2. Build API params
         # 比例优先：ratio 是独立 SDK 字段，由 aspect_ratio 直接决定；resolution 仅清晰度档位，

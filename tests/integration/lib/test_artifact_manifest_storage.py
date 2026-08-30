@@ -129,7 +129,7 @@ def test_project_adapter_rejects_a_second_key_claiming_an_existing_formal_path(t
     assert adapter.put_entry(first_key, first_entry)
     manifest_before = (project / MANIFEST_FILENAME).read_bytes()
 
-    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+    with pytest.raises(ArtifactManifestError, match=r"formal artifact path.*multiple keys"):
         adapter.put_entry(second_key, second_entry)
 
     assert (project / MANIFEST_FILENAME).read_bytes() == manifest_before
@@ -176,9 +176,9 @@ def test_project_adapter_rejects_manifest_snapshot_with_duplicate_path_ownership
     manifest_path.write_bytes(malformed)
     adapter = ProjectArtifactManifestAdapter(project)
 
-    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+    with pytest.raises(ArtifactManifestError, match=r"formal artifact path.*multiple keys"):
         adapter.get_entry(first_key)
-    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+    with pytest.raises(ArtifactManifestError, match=r"formal artifact path.*multiple keys"):
         adapter.snapshot_entries()
 
     assert manifest_path.read_bytes() == malformed

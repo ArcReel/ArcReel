@@ -65,7 +65,7 @@ class TestUsageRepository:
 
     async def test_pagination(self, db_session):
         repo = UsageRepository(db_session)
-        for i in range(5):
+        for _ in range(5):
             await repo.start_call(project_name="demo", call_type="image", model="m")
 
         page1 = await repo.get_calls(page=1, page_size=2)

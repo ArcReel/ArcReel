@@ -897,34 +897,34 @@ class ProjectEventService:
         changes: list[dict[str, Any]] = []
         previous_keys = set(previous_items)
         current_keys = set(current_items)
-        for name in sorted(current_keys - previous_keys):
-            changes.append(
-                self._build_entity_change(
-                    entity_type=entity_type,
-                    action="created",
-                    entity_id=name,
-                    label_key=f"named_entity_{entity_type}",
-                    label_params={"id": name},
-                    focus={
-                        "pane": pane,
-                        "anchor_type": entity_type,
-                        "anchor_id": name,
-                    },
-                    important=True,
-                )
+        changes.extend(
+            self._build_entity_change(
+                entity_type=entity_type,
+                action="created",
+                entity_id=name,
+                label_key=f"named_entity_{entity_type}",
+                label_params={"id": name},
+                focus={
+                    "pane": pane,
+                    "anchor_type": entity_type,
+                    "anchor_id": name,
+                },
+                important=True,
             )
-        for name in sorted(previous_keys - current_keys):
-            changes.append(
-                self._build_entity_change(
-                    entity_type=entity_type,
-                    action="deleted",
-                    entity_id=name,
-                    label_key=f"named_entity_{entity_type}",
-                    label_params={"id": name},
-                    focus=None,
-                    important=False,
-                )
+            for name in sorted(current_keys - previous_keys)
+        )
+        changes.extend(
+            self._build_entity_change(
+                entity_type=entity_type,
+                action="deleted",
+                entity_id=name,
+                label_key=f"named_entity_{entity_type}",
+                label_params={"id": name},
+                focus=None,
+                important=False,
             )
+            for name in sorted(previous_keys - current_keys)
+        )
         for name in sorted(previous_keys & current_keys):
             if previous_items[name] == current_items[name]:
                 continue
@@ -998,26 +998,26 @@ class ProjectEventService:
             current_meta = current_scripts[script_file]
             previous_items = previous_meta.get("items", {})
             current_items = current_meta.get("items", {})
-            for item_id in sorted(set(current_items) - set(previous_items)):
-                changes.append(
-                    self._build_script_item_change(
-                        action="created",
-                        item_id=item_id,
-                        script_file=script_file,
-                        script_meta=current_meta,
-                        important=True,
-                    )
+            changes.extend(
+                self._build_script_item_change(
+                    action="created",
+                    item_id=item_id,
+                    script_file=script_file,
+                    script_meta=current_meta,
+                    important=True,
                 )
-            for item_id in sorted(set(previous_items) - set(current_items)):
-                changes.append(
-                    self._build_script_item_change(
-                        action="deleted",
-                        item_id=item_id,
-                        script_file=script_file,
-                        script_meta=previous_meta,
-                        important=False,
-                    )
+                for item_id in sorted(set(current_items) - set(previous_items))
+            )
+            changes.extend(
+                self._build_script_item_change(
+                    action="deleted",
+                    item_id=item_id,
+                    script_file=script_file,
+                    script_meta=previous_meta,
+                    important=False,
                 )
+                for item_id in sorted(set(previous_items) - set(current_items))
+            )
             entity_type = self._script_item_entity_type(current_meta)
             for item_id in sorted(set(previous_items) & set(current_items)):
                 previous_item = previous_items[item_id]

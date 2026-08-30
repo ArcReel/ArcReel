@@ -1,9 +1,10 @@
 import asyncio
 import json
 import logging
+import re
 import threading
 from pathlib import Path
-from typing import cast
+from typing import ClassVar, cast
 
 import pytest
 
@@ -291,7 +292,7 @@ class TestScriptGenerator:
         _write(project_path / "drafts" / "episode_1" / "script_plan_segments.md", "其他模式中间文件")
 
         generator = ScriptGenerator(project_path)
-        with pytest.raises(FileNotFoundError, match="script_plan_normalized_script.json"):
+        with pytest.raises(FileNotFoundError, match=re.escape("script_plan_normalized_script.json")):
             generator._load_script_plan(1)
 
     async def test_load_drama_script_plan_content_rejects_non_dict_top_level(self, tmp_path):
@@ -754,7 +755,7 @@ class TestScriptGenerator:
         generator._fetch_video_capabilities = _fixed_caps_468
 
         with pytest.raises(
-            ValueError, match="script_plan.*not registered|script_plan.*未登记|not registered.*script_plan"
+            ValueError, match=r"script_plan.*not registered|script_plan.*未登记|not registered.*script_plan"
         ):
             await generator.generate(1)
 
@@ -795,7 +796,7 @@ class TestScriptGenerator:
 
         generator._fetch_video_capabilities = _forget_script_plan_claim
 
-        with pytest.raises(ValueError, match="formal artifact input.*no longer registered"):
+        with pytest.raises(ValueError, match=r"formal artifact input.*no longer registered"):
             await generator.generate(1)
 
         assert fake.backend.last_request is None
@@ -1335,7 +1336,7 @@ class TestFetchVideoCapabilitiesErrorHandling:
 class TestDegradedResolutionKeepsBucket:
     """caps 解析失败后的降级路径仍按 generation_mode 定桶读 project.json，只丢 DB 那一层。"""
 
-    _PROJECT = {
+    _PROJECT: ClassVar[dict[str, str]] = {
         "video_backend": "kling/kling-v3",
         "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
         "generation_mode": "reference_video",
@@ -1789,7 +1790,7 @@ class TestLoadNarrationScriptPlan:
 
     def test_missing_json_without_legacy_md_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
-        with pytest.raises(FileNotFoundError, match="script_plan_segments.json"):
+        with pytest.raises(FileNotFoundError, match=re.escape("script_plan_segments.json")):
             sg._load_narration_script_plan(1, [4, 6, 8])
 
     def test_legacy_md_only_raises_rerun_hint(self, tmp_path):
@@ -1818,14 +1819,14 @@ class TestLoadNarrationScriptPlan:
     def test_duplicate_segment_id_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": [_script_plan_seg("E1S01", "甲"), _script_plan_seg("E1S01", "乙")]})
-        with pytest.raises(ValueError, match="重复|E1S01"):
+        with pytest.raises(ValueError, match=r"重复|E1S01"):
             sg._load_narration_script_plan(1, [4, 6, 8])
 
     def test_post_rewrite_collision_raises(self, tmp_path):
         """原始 id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud。"""
         sg = _bare_generator(tmp_path)
         self._write(sg, 2, {"segments": [_script_plan_seg("E1S02_1", "甲"), _script_plan_seg("E2S02_1", "乙")]})
-        with pytest.raises(ValueError, match="改写|E2S02_1"):
+        with pytest.raises(ValueError, match=r"改写|E2S02_1"):
             sg._load_narration_script_plan(2, [4, 6, 8])
 
     def test_duration_outside_supported_raises(self, tmp_path):
@@ -1886,7 +1887,7 @@ class TestLoadReferenceScriptPlan:
     def test_duplicate_unit_id_raises(self, tmp_path):
         sg = self._generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U01")]})
-        with pytest.raises(ValueError, match="重复|E1U01"):
+        with pytest.raises(ValueError, match=r"重复|E1U01"):
             sg._load_reference_script_plan(1, [4, 6, 8])
 
     def test_post_rewrite_collision_raises(self, tmp_path):
@@ -1898,7 +1899,7 @@ class TestLoadReferenceScriptPlan:
         """
         sg = self._generator(tmp_path)
         self._write(sg, 2, {"units": [self._unit("E1U01"), self._unit("E2U01")]})
-        with pytest.raises(ValueError, match="改写|E2U01"):
+        with pytest.raises(ValueError, match=r"改写|E2U01"):
             sg._load_reference_script_plan(2, [4, 6, 8])
 
     def test_duration_outside_supported_raises(self, tmp_path):

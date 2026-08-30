@@ -21,11 +21,11 @@ def test_reference_resource_rejects_clue():
 
 
 def _make_unit(**overrides):
-    defaults = dict(
-        unit_id="E1U1",
-        text="镜头一\n镜头二",
-        duration_seconds=8,
-    )
+    defaults = {
+        "unit_id": "E1U1",
+        "text": "镜头一\n镜头二",
+        "duration_seconds": 8,
+    }
     defaults.update(overrides)
     return ReferenceVideoUnit(**defaults)
 

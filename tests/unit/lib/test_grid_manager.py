@@ -12,17 +12,17 @@ from lib.grid_manager import GridManager
 
 
 def _make_grid(**kwargs) -> GridGeneration:
-    defaults = dict(
-        episode=1,
-        script_file="ep1.json",
-        scene_ids=["S1", "S2", "S3", "S4"],
-        rows=2,
-        cols=2,
-        grid_size="grid_4",
-        provider="test",
-        model="m",
-        video_aspect_ratio="9:16",
-    )
+    defaults = {
+        "episode": 1,
+        "script_file": "ep1.json",
+        "scene_ids": ["S1", "S2", "S3", "S4"],
+        "rows": 2,
+        "cols": 2,
+        "grid_size": "grid_4",
+        "provider": "test",
+        "model": "m",
+        "video_aspect_ratio": "9:16",
+    }
     defaults.update(kwargs)
     return GridGeneration.create(**defaults)
 

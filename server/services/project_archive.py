@@ -1561,10 +1561,11 @@ class ProjectArchiveService:
 
         prefix = f"{resource_id}_v"
         extension = resource_extension(resource_type)
-        candidates: list[str] = []
-        for candidate in sorted(version_dir.iterdir(), key=lambda path: path.name):
-            if candidate.is_file() and candidate.name.startswith(prefix) and candidate.suffix == extension:
-                candidates.append(candidate.relative_to(project_dir).as_posix())
+        candidates: list[str] = [
+            candidate.relative_to(project_dir).as_posix()
+            for candidate in sorted(version_dir.iterdir(), key=lambda path: path.name)
+            if candidate.is_file() and candidate.name.startswith(prefix) and candidate.suffix == extension
+        ]
 
         if len(candidates) == 1:
             return candidates[0]
@@ -1723,7 +1724,7 @@ class ProjectArchiveService:
         if real is None:
             raise ValueError(f"路径越界，拒绝写入: {path}")
         real.parent.mkdir(parents=True, exist_ok=True)
-        with open(real, "w", encoding="utf-8") as handle:  # noqa: PTH123
+        with open(real, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
 
     @staticmethod

@@ -69,7 +69,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path):
             pass
 
     migrate_mock.assert_called_once()
-    args, kwargs = migrate_mock.call_args
+    _args, kwargs = migrate_mock.call_args
     # Sanity: store should be passed as positional arg, projects_root + data_dir as kwargs
     assert "projects_root" in kwargs
     assert "data_dir" in kwargs

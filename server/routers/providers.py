@@ -434,12 +434,16 @@ async def get_provider_config(
 
     # 构建字段列表：先必填，再可选，跳过凭证字段
     fields: list[FieldInfo] = []
-    for key in meta.required_keys:
-        if key not in _CREDENTIAL_KEYS:
-            fields.append(_build_field(key, required=True, db_entry=db_values.get(key)))
-    for key in meta.optional_keys:
-        if key not in _CREDENTIAL_KEYS:
-            fields.append(_build_field(key, required=False, db_entry=db_values.get(key)))
+    fields.extend(
+        _build_field(key, required=True, db_entry=db_values.get(key))
+        for key in meta.required_keys
+        if key not in _CREDENTIAL_KEYS
+    )
+    fields.extend(
+        _build_field(key, required=False, db_entry=db_values.get(key))
+        for key in meta.optional_keys
+        if key not in _CREDENTIAL_KEYS
+    )
 
     # 凭证表单的 secret 输入字段：required ∩ secret ∩ 凭证键，保留 required_keys 顺序。
     # 单 secret provider → [api_key]（见 ADR 0037）；可灵 → [api_key, access_key, secret_key]，
@@ -644,16 +648,16 @@ async def upload_vertex_credential(
     """上传 Vertex AI 服务账号 JSON 凭证文件，同时创建凭证记录。"""
     try:
         contents = await file.read(MAX_VERTEX_CREDENTIALS_BYTES + 1)
-    except Exception:
-        raise HTTPException(status_code=400, detail=_t("vertex_json_read_failed"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=_t("vertex_json_read_failed")) from exc
 
     if len(contents) > MAX_VERTEX_CREDENTIALS_BYTES:
         raise HTTPException(status_code=413, detail=_t("vertex_json_too_large"))
 
     try:
         payload = json.loads(contents.decode("utf-8"))
-    except Exception:
-        raise HTTPException(status_code=400, detail=_t("vertex_json_invalid"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=_t("vertex_json_invalid")) from exc
 
     if not isinstance(payload, dict) or not payload.get("project_id"):
         raise HTTPException(status_code=400, detail=_t("vertex_json_missing_project_id"))

@@ -353,13 +353,12 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             }
             mime_type = mime_types.get(suffix, mime_type_png)
             return self._types.Image(image_bytes=image_bytes, mime_type=mime_type)
-        elif isinstance(image, Image.Image):
+        if isinstance(image, Image.Image):
             buffer = io.BytesIO()
             image.save(buffer, format="PNG")
             image_bytes = buffer.getvalue()
             return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
-        else:
-            return image
+        return image
 
     async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
         """下载视频，重试走共用的产物下载预算。

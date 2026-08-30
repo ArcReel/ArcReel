@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 class UnsupportedDiscoveryFormatError(ValueError):
     """discovery_format 取值不在受支持集合内，与 SDK 调用期的凭证/网络类 ValueError 区分。"""
 
-    pass
-
 
 async def discover_models(
     *,
@@ -34,14 +32,13 @@ async def discover_models(
     """
     if discovery_format == "openai":
         return await _discover_openai(base_url, api_key)
-    elif discovery_format == "google":
+    if discovery_format == "google":
         return await _discover_google(base_url, api_key)
-    elif discovery_format == "anthropic":
+    if discovery_format == "anthropic":
         return await _discover_anthropic(base_url, api_key)
-    else:
-        raise UnsupportedDiscoveryFormatError(
-            f"不支持的 discovery_format: {discovery_format!r}，支持: 'openai', 'google', 'anthropic'"
-        )
+    raise UnsupportedDiscoveryFormatError(
+        f"不支持的 discovery_format: {discovery_format!r}，支持: 'openai', 'google', 'anthropic'"
+    )
 
 
 async def _discover_openai(base_url: str | None, api_key: str) -> list[dict]:

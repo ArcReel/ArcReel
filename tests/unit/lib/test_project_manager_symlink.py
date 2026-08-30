@@ -66,7 +66,7 @@ def _profile_skill_path(profile_dir: Path, name: str = "demo") -> Path:
 
 class TestFirstSyncMigration:
     def test_first_sync_full_reset_when_no_manifest(self, env):
-        pm, profile_dir, project_dir = env
+        pm, _profile_dir, project_dir = env
         pm.sync_agent_profile(project_dir)
 
         assert _skill_path(project_dir).read_text() == "demo v1"

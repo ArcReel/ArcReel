@@ -248,7 +248,7 @@ def complete_stale_script_plan_rebuild(
     return committed["revision"]
 
 
-def assert_base_fingerprint(path: Path, expected: str | None | _UncheckedFingerprint) -> None:
+def assert_base_fingerprint(path: Path, expected: str | _UncheckedFingerprint | None) -> None:
     """乐观并发比对：``expected`` 与 ``path`` 盘上现值不一致时抛 ``ScriptPlanWriteConflict``、不落盘。
 
     ``expected`` 是写入方取基线时的文件指纹（``None`` 表示彼时文件不存在），
@@ -360,7 +360,7 @@ def write_formal_script_plan_locked(
     path: Path,
     content: dict[str, Any],
     *,
-    expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
+    expected_fingerprint: str | _UncheckedFingerprint | None = UNCHECKED_FINGERPRINT,
     dependent_quarantine: str | None = None,
     clear_dependent_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
@@ -401,7 +401,7 @@ def write_script_plan_locked(
     episode: int,
     content: dict[str, Any],
     *,
-    expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
+    expected_fingerprint: str | _UncheckedFingerprint | None = UNCHECKED_FINGERPRINT,
     clear_prompt_authoring_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
 ) -> bool:
@@ -424,7 +424,7 @@ def write_script_plan(
     episode: int,
     content: dict[str, Any],
     *,
-    expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
+    expected_fingerprint: str | _UncheckedFingerprint | None = UNCHECKED_FINGERPRINT,
     clear_prompt_authoring_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
     before_lock: Callable[[], None] | None = None,

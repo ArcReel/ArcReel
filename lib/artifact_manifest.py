@@ -375,7 +375,7 @@ class ArtifactManifest:
         receipt = ArtifactEntryRekeyPlan(
             adapter=self._adapter,
             before=before,
-            after={key: None for key in before},
+            after=dict.fromkeys(before),
             changed=True,
         ).commit()
         return receipt.changed
@@ -1906,10 +1906,9 @@ def _encode_target_entries(
 def _encode_optional_entries(
     entries: Mapping[ArtifactKey, ArtifactManifestEntry | None],
 ) -> dict[str, ArtifactManifestEntry | None]:
-    present: dict[ArtifactKey, ArtifactManifestEntry] = {}
-    for key, entry in entries.items():
-        if entry is not None:
-            present[key] = entry
+    present: dict[ArtifactKey, ArtifactManifestEntry] = {
+        key: entry for key, entry in entries.items() if entry is not None
+    }
     encoded_present = _encode_target_entries(present)
     encoded: dict[str, ArtifactManifestEntry | None] = {}
     for key, entry in entries.items():
@@ -2110,7 +2109,7 @@ def _is_linkish(path: Path) -> bool:
 
 
 def _open_windows_directory_handle(path: Path) -> int:
-    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     create_file = kernel32.CreateFileW
     create_file.argtypes = [
         wintypes.LPCWSTR,
@@ -2138,7 +2137,7 @@ def _open_windows_directory_handle(path: Path) -> int:
 
 
 def _close_windows_handle(handle: int) -> None:
-    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     close_handle = kernel32.CloseHandle
     close_handle.argtypes = [wintypes.HANDLE]
     close_handle.restype = wintypes.BOOL

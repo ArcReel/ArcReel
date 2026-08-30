@@ -11,7 +11,7 @@ from logging.config import fileConfig
 from sqlalchemy import DateTime, String, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
-import lib.agent_session_store.models  # noqa: F401  ensure tables registered
+import lib.agent_session_store.models  # 副作用导入：注册 agent_session 表
 
 # Import all models so their tables are included in metadata
 import lib.db.models  # noqa: F401

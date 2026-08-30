@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -24,7 +25,7 @@ class _FakeImageBackend:
 
     name = "fake-image"
     model = "img-model"
-    capabilities = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+    capabilities: ClassVar[set[ImageCapability]] = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
     def __init__(self):
         self.calls = []
@@ -1154,11 +1155,11 @@ class TestMediaGenerator:
 
 # ── 咽喉层参考图压缩接线 ────────────────────────────────────────────────────
 
-import httpx  # noqa: E402
-from PIL import Image  # noqa: E402
+import httpx
+from PIL import Image
 
-from lib.media_generator import _is_413  # noqa: E402
-from lib.reference_compression import LADDER_STEPS, ReferencePayloadFloorError  # noqa: E402
+from lib.media_generator import _is_413
+from lib.reference_compression import LADDER_STEPS, ReferencePayloadFloorError
 
 
 def _http_413_error() -> httpx.HTTPStatusError:
@@ -1184,7 +1185,7 @@ class _ConfigurableImageBackend:
 
     name = "fake-image"
     model = "img-model"
-    capabilities = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+    capabilities: ClassVar[set[ImageCapability]] = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
     def __init__(self, fail_413_times: int = 0):
         self.calls = []

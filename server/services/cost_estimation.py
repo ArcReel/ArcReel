@@ -576,8 +576,7 @@ class CostEstimationService:
             for gid, indices in grid_to_indices.items():
                 grid_cost = _claim_actual(actual_by_segment, claimed_actual, gid, ("image",)).get("image", {})
                 if grid_cost:
-                    for idx, share in zip(indices, _split_cost_across(grid_cost, len(indices)), strict=True):
-                        grid_actual_per_index[idx] = share
+                    grid_actual_per_index.update(zip(indices, _split_cost_across(grid_cost, len(indices)), strict=True))
 
             segments_result = []
             ep_est: dict[str, CostBreakdown] = {}

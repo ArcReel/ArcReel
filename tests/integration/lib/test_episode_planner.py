@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import threading
 import unicodedata
 from pathlib import Path
@@ -1379,7 +1380,7 @@ class TestSourceFingerprintGate:
         project_dir = _write_project(tmp_path, extra={SOURCE_FINGERPRINTS_KEY: {"source/novel.txt": stale_fp}})
         planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
 
-        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+        with pytest.raises(EpisodePlanningError, match=re.escape("source/novel.txt")):
             await planner.plan()
 
     async def test_plan_error_names_changed_file_and_points_to_reset(self, tmp_path: Path):
@@ -1398,7 +1399,7 @@ class TestSourceFingerprintGate:
 
         (project_dir / "source" / "novel.txt").write_text("全新的故事内容，这是重置后的新素材。", encoding="utf-8")
         blocked = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
-        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+        with pytest.raises(EpisodePlanningError, match=re.escape("source/novel.txt")):
             await blocked.plan()
 
         result = reset_episode_planning(project_dir, from_episode=1)
@@ -1456,7 +1457,7 @@ class TestSourceFingerprintGate:
         fake = _MutatingGenerator([_plan_response([{"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP2}])])
         planner = EpisodePlanner(project_dir, generator=fake)
 
-        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+        with pytest.raises(EpisodePlanningError, match=re.escape("source/novel.txt")):
             await planner.plan()
 
         project = _load_project(project_dir)
@@ -1482,7 +1483,7 @@ class TestSourceFingerprintGate:
         fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])
         planner = EpisodePlanner(project_dir, generator=fake)
 
-        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+        with pytest.raises(EpisodePlanningError, match=re.escape("source/novel.txt")):
             await planner.plan()
 
         project = _load_project(project_dir)
@@ -1529,7 +1530,7 @@ class TestSourceFingerprintGate:
         monkeypatch.setattr("lib.episode_planner.discover_sources", _mutating_discover_sources)
         planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
 
-        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+        with pytest.raises(EpisodePlanningError, match=re.escape("source/novel.txt")):
             await planner.plan()
 
         project = _load_project(project_dir)
@@ -1568,7 +1569,7 @@ class TestSourceFingerprintGate:
         fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])
         planner = EpisodePlanner(project_dir, generator=fake)
 
-        with pytest.raises(EpisodePlanningError, match="source/novel2.txt"):
+        with pytest.raises(EpisodePlanningError, match=re.escape("source/novel2.txt")):
             await planner.plan()
 
         project = _load_project(project_dir)

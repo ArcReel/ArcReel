@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, ClassVar, Literal, cast
 
 import portalocker
 from pydantic import BaseModel, Field
@@ -287,7 +287,7 @@ class ProjectManager:
     """视频项目管理器"""
 
     # 项目子目录结构
-    SUBDIRS = [
+    SUBDIRS: ClassVar[list[str]] = [
         "source",
         "scripts",
         "drafts",
@@ -694,7 +694,7 @@ class ProjectManager:
         Returns:
             剧本字典
         """
-        script = {
+        return {
             "novel": {"title": title, "chapter": chapter},
             "scenes": [],
             "metadata": {
@@ -704,8 +704,6 @@ class ProjectManager:
             },
         }
 
-        return script
-
     def save_script(
         self,
         project_name: str,
@@ -714,7 +712,7 @@ class ProjectManager:
         *,
         validate: bool = True,
         artifact_basis: ArtifactBasisDescriptor | None = None,
-        expected_fingerprint: str | None | _Unset = _UNSET,
+        expected_fingerprint: str | _Unset | None = _UNSET,
         cancellation_file_receipts: list[FormalWriteReceipt] | None = None,
         cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
     ) -> Path:
@@ -753,7 +751,7 @@ class ProjectManager:
                         current_content=current_content,
                     )
             prepare_on_commit: Callable[[], Callable[[Path], None] | None] | None = None
-            before_script: dict | None | _Unset = _UNSET
+            before_script: dict | _Unset | None = _UNSET
             if type(episode) is int and episode > 0 and self.project_exists(project_name):
                 from lib.artifact_activation import prepare_episode_script_manifest_commit
 
@@ -820,7 +818,7 @@ class ProjectManager:
         filename: str,
         *,
         validate: bool,
-        before: dict | None | _Unset = _UNSET,
+        before: dict | _Unset | None = _UNSET,
         on_commit: Callable[[Path], None] | None = None,
         prepare_on_commit: Callable[[], Callable[[Path], None] | None] | None = None,
         cancellation_receipts: list[FormalWriteReceipt] | None = None,
@@ -898,7 +896,7 @@ class ProjectManager:
         sync_project: bool = True,
         *,
         validate: bool = True,
-        before: dict | None | _Unset = _UNSET,
+        before: dict | _Unset | None = _UNSET,
         emit_change: bool = True,
     ) -> Path:
         """剧本写盘主体：校验 + 更新元数据 + 原子写 + 同步 project.json。
@@ -1040,7 +1038,7 @@ class ProjectManager:
     def _read_project_raw_unlocked(self, project_name: str) -> dict:
         """裸读 project.json（不取锁、不迁移）。仅供已持 `_project_lock` 的复核调用。"""
         project_file = self._get_project_file_path(project_name)
-        with open(project_file, encoding="utf-8") as f:  # noqa: PTH123
+        with open(project_file, encoding="utf-8") as f:
             return json.load(f)
 
     @contextmanager
@@ -1343,7 +1341,7 @@ class ProjectManager:
             # 存在性检查只对文件系统这条路径成立；剧本是否存在由实际读取方判定。
             if not real.exists():
                 raise FileNotFoundError(f"剧本文件不存在: {real}")
-            with open(real, encoding="utf-8") as f:  # noqa: PTH123
+            with open(real, encoding="utf-8") as f:
                 script = json.load(f)
         else:
             script = self._script_reader(real)
@@ -1914,7 +1912,7 @@ class ProjectManager:
         project_file = self._get_project_file_path(project_name)
         if not project_file.exists():
             raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
-        with open(project_file, encoding="utf-8") as f:  # noqa: PTH123
+        with open(project_file, encoding="utf-8") as f:
             project = json.load(f)
         self._migrate_legacy_style(project)
         return project
@@ -2360,7 +2358,11 @@ class ProjectManager:
             project.pop("video_model_settings", None)
 
     # 广告/短片项目恒单集：episodes 恒为第 1 集单条，剧本即第 1 集脚本文件
-    AD_SINGLE_EPISODE = {"episode": 1, "title": "", "script_file": episode_script_relpath(1)}
+    AD_SINGLE_EPISODE: ClassVar[dict[str, str | int]] = {
+        "episode": 1,
+        "title": "",
+        "script_file": episode_script_relpath(1),
+    }
     # 创建入口未传 target_duration 时的数据层兜底（与创建向导默认档位同值）
     AD_DEFAULT_TARGET_DURATION = 60
 
@@ -2798,7 +2800,7 @@ class ProjectManager:
         return self.update_project(project_name, _mutate, on_commit=_forget_claim)
 
     # bucket_key（characters/scenes/props/products）→ 资产类型，从静态 ASSET_SPECS 派生一次。
-    _BUCKET_TO_ASSET_TYPE = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
+    _BUCKET_TO_ASSET_TYPE: ClassVar[dict[str, str]] = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
 
     @classmethod
     def _resolve_asset_type(cls, table: str) -> str:

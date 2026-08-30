@@ -536,7 +536,7 @@ class ConfigReferenceCapabilityProjection:
             capability=capability,
         )
         max_references = caps.get("max_reference_images")
-        candidate = ProviderProjectionCandidate(
+        return ProviderProjectionCandidate(
             capability=capability,
             provider_id=provider_id,
             model_id=model_id,
@@ -553,7 +553,6 @@ class ConfigReferenceCapabilityProjection:
             first_frame=bool(caps.get("first_frame")),
             text_to_video=bool(caps.get("text_to_video", True)),
         )
-        return candidate
 
 
 def clamp_reference_assets(
@@ -635,17 +634,17 @@ class ReferenceUnitRequestProjector:
 
         problems: list[ProjectionProblem] = []
         if options.narration_preparation is not None:
-            for delivery_problem in options.narration_preparation.problems:
-                problems.append(
-                    ProjectionProblem(
-                        code=delivery_problem.code,
-                        blocking=delivery_problem.blocking,
-                        params=delivery_problem.params,
-                        reason=delivery_problem.reason,
-                        action=delivery_problem.action,
-                        locations=tuple(location.path for location in delivery_problem.locations),
-                    )
+            problems.extend(
+                ProjectionProblem(
+                    code=delivery_problem.code,
+                    blocking=delivery_problem.blocking,
+                    params=delivery_problem.params,
+                    reason=delivery_problem.reason,
+                    action=delivery_problem.action,
+                    locations=tuple(location.path for location in delivery_problem.locations),
                 )
+                for delivery_problem in options.narration_preparation.problems
+            )
         if hydration.missing:
             missing = tuple((ref.type, ref.name) for ref in hydration.missing)
             problems.append(

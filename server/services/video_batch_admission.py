@@ -921,7 +921,7 @@ def build_storyboard_video_specs(
 
         try:
             prompt = storyboard_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             refused.append(
                 refused_ticket(
                     str(item_id),
@@ -1044,18 +1044,18 @@ async def admit_storyboard_video_request(
 
 __all__ = [
     "active_task_problem",
-    "admit_storyboard_video_request",
-    "audio_switch_conflict",
-    "build_storyboard_video_specs",
-    "resolve_voice_context",
-    "speech_admission_ticket",
-    "storyboard_video_prompt",
     "admit_reference_video_batch",
     "admit_storyboard_video_batch",
-    "reference_unit_task_spec",
+    "admit_storyboard_video_request",
     "artifact_state_tickets",
+    "audio_switch_conflict",
+    "build_storyboard_video_specs",
+    "reference_unit_task_spec",
     "request_options_for_unit",
     "resolve_reference_batch_targets",
+    "resolve_voice_context",
     "speech_admission_problems",
+    "speech_admission_ticket",
+    "storyboard_video_prompt",
     "video_target_states",
 ]

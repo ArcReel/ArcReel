@@ -559,7 +559,7 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
     adapter = ConfigReferenceCapabilityProjection(resolver)
     with pytest.raises(ValueError) as exc_info:
         await adapter.resolve_candidate({}, "r2v")
-    assert getattr(exc_info.value, "code") == "reference_supported_durations_missing"
+    assert exc_info.value.code == "reference_supported_durations_missing"
 
     class _InvalidResolver(_Resolver):
         async def video_capabilities_for_project(self, project: dict, *, capability: str) -> dict:
@@ -568,7 +568,7 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
 
     with pytest.raises(ValueError) as invalid_exc:
         await ConfigReferenceCapabilityProjection(_InvalidResolver()).resolve_candidate({}, "r2v")
-    assert getattr(invalid_exc.value, "code") == "reference_supported_durations_invalid"
+    assert invalid_exc.value.code == "reference_supported_durations_invalid"
 
     class _InvalidValuesResolver(_Resolver):
         async def video_capabilities_for_project(self, project: dict, *, capability: str) -> dict:
@@ -579,4 +579,4 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
 
     with pytest.raises(ValueError) as invalid_values_exc:
         await ConfigReferenceCapabilityProjection(_InvalidValuesResolver()).resolve_candidate({}, "r2v")
-    assert getattr(invalid_values_exc.value, "code") == "reference_supported_durations_invalid"
+    assert invalid_values_exc.value.code == "reference_supported_durations_invalid"

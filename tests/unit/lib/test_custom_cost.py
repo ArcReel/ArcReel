@@ -153,7 +153,7 @@ class TestCustomCostNullPrice:
 
     def test_null_currency_defaults_to_usd(self):
         calc = CostCalculator()
-        amount, currency = calc.calculate_cost(
+        _amount, currency = calc.calculate_cost(
             "custom-1",
             PricingParams(call_type="text", model="model", input_tokens=1000, output_tokens=500),
             custom_price_input=1.0,

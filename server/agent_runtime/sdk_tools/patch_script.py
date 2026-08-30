@@ -191,7 +191,7 @@ def patch_episode_script_tool(ctx: ToolContext):
                         f"\n⚠️  改了 prompt 的分镜（{', '.join(dict.fromkeys(regen_ids))}）须紧接着重新生成对应图/视频。"
                     )
             return output
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return tool_outcome_response("problem", tool_error("patch_episode_script", exc))
 
     return _handler

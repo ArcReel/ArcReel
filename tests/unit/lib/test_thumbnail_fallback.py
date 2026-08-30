@@ -155,7 +155,7 @@ async def test_last_frame_falls_back_to_count_frames(tmp_path: Path):
         async def wait(self):
             # 模拟 ffmpeg 写出文件
             self._target.write_bytes(b"\x89PNG\r\n\x1a\n")
-            return None
+            return
 
     call_log: list[list[str]] = []
     procs = [
@@ -211,7 +211,7 @@ async def test_last_frame_retries_precise_count_when_fast_extract_writes_nothing
         async def wait(self):
             if self._writes_output:
                 self._target.write_bytes(b"fresh")
-            return None
+            return
 
     probe_procs = [_ProbeProc(b"999\n"), _ProbeProc(b"30\n")]
     ffmpeg_writes = [False, True]

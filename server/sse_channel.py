@@ -199,10 +199,7 @@ class SseChannel:
 
     def broadcast(self, item: Any) -> None:
         """把 *item* 投递给全部订阅队列；投递失败的订阅者按溢出策略移除。"""
-        stale: list[asyncio.Queue] = []
-        for queue in self._subscribers:
-            if not self._overflow.deliver(queue, item):
-                stale.append(queue)
+        stale: list[asyncio.Queue] = [queue for queue in self._subscribers if not self._overflow.deliver(queue, item)]
         for queue in stale:
             self._overflow.finalize_removal(queue)
             self._subscribers.discard(queue)

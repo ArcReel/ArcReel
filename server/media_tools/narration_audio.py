@@ -204,7 +204,7 @@ async def handle_generate_narration_audio(ctx: ToolContext, args: dict[str, Any]
             )
 
         return generation_result_outcome(builder.build(), batch_id=submitted.batch.batch_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return tool_error(_OPERATION, exc)
 
 

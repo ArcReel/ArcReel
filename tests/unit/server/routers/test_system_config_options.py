@@ -61,7 +61,7 @@ def _make_mock_svc(ready_providers: list[str] | None = None) -> ConfigService:
 
 class TestBuildOptionsCustomModels:
     async def test_includes_enabled_text_model(self, session_with_factory):
-        db_session, factory = session_with_factory
+        db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="My LLM",
@@ -89,7 +89,7 @@ class TestBuildOptionsCustomModels:
         assert expected not in options["video_backends"]
 
     async def test_includes_enabled_image_model(self, session_with_factory):
-        db_session, factory = session_with_factory
+        db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="My Image Provider",
@@ -115,7 +115,7 @@ class TestBuildOptionsCustomModels:
         assert expected in options["image_backends"]
 
     async def test_includes_enabled_video_model(self, session_with_factory):
-        db_session, factory = session_with_factory
+        db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="My Video Provider",
@@ -141,7 +141,7 @@ class TestBuildOptionsCustomModels:
         assert expected in options["video_backends"]
 
     async def test_excludes_disabled_model(self, session_with_factory):
-        db_session, factory = session_with_factory
+        db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="My Provider",
@@ -167,7 +167,7 @@ class TestBuildOptionsCustomModels:
         assert excluded not in options["text_backends"]
 
     async def test_multiple_providers_and_models(self, session_with_factory):
-        db_session, factory = session_with_factory
+        db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         p1 = await repo.create_provider(
             display_name="Provider A",
@@ -243,7 +243,7 @@ class TestBuildOptionsCustomModels:
 
     async def test_preset_providers_still_included_alongside_custom(self, session_with_factory):
         """Preset ready providers + custom models both appear in options."""
-        db_session, factory = session_with_factory
+        db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="Custom Text",
@@ -280,7 +280,7 @@ class TestBuildOptionsCustomModels:
 class TestBuildOptionsProviderNames:
     async def test_returns_provider_names_for_custom_providers(self, session_with_factory):
         """provider_names 应包含自定义供应商的 ID→display_name 映射。"""
-        db_session, factory = session_with_factory
+        db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="我的 LLM 服务",
@@ -306,7 +306,7 @@ class TestBuildOptionsProviderNames:
         assert options["provider_names"][f"custom-{provider.id}"] == "我的 LLM 服务"
 
     async def test_multiple_providers_all_have_names(self, session_with_factory):
-        db_session, factory = session_with_factory
+        db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         p1 = await repo.create_provider(
             display_name="Provider A",
@@ -355,7 +355,7 @@ class TestBuildOptionsProviderNames:
 
     async def test_disabled_models_provider_not_in_names(self, session_with_factory):
         """如果供应商所有模型都被禁用，则不出现在 provider_names 中。"""
-        db_session, factory = session_with_factory
+        db_session, _factory = session_with_factory
         repo = CustomProviderRepository(db_session)
         await repo.create_provider(
             display_name="All Disabled",

@@ -84,7 +84,7 @@ async def test_get_default_video_backend(config_service: ConfigService):
 
 
 async def test_get_default_backend_fallback(config_service: ConfigService):
-    provider_id, model_id = await config_service.get_default_video_backend()
+    provider_id, _model_id = await config_service.get_default_video_backend()
     assert provider_id == "gemini-aistudio"
 
 

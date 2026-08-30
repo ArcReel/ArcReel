@@ -41,7 +41,7 @@ class EpubExtractor:
     def extract(self, path: Path) -> ExtractedText:
         try:
             book = epub.read_epub(str(path))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise CorruptFileError(filename=path.name, reason=f"EPUB 解析失败: {exc}") from exc
 
         # 按 spine 顺序拿到 ITEM_DOCUMENT

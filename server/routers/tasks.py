@@ -215,8 +215,7 @@ async def cancel_all_preview(project_name: str):
 @router.post("/projects/{project_name}/tasks/cancel-all")
 async def cancel_all_queued(project_name: str):
     queue = get_task_queue()
-    result = await queue.cancel_all_queued(project_name)
-    return result
+    return await queue.cancel_all_queued(project_name)
 
 
 @router.get("/tasks/{task_id}")

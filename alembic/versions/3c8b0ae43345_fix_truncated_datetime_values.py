@@ -60,4 +60,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """No-op: we cannot restore the original (lost) timestamps."""
-    pass

@@ -179,12 +179,14 @@ def select_ladder_step(
     while True:
         compressed = [
             compress_single_at_step(raw, role, step, single_max_bytes=effective_single)
-            for raw, role in zip(raws, roles)
+            for raw, role in zip(raws, roles, strict=True)
         ]
         total = sum(len(b) for b in compressed)
         # single 硬门控只管 ARRAY：FRAME 永不缩尺寸、降档对它是 no-op，单张超 single 的帧
         # 不该让主动预检在 provider 被调用前就 floor 掉（保守上限是猜的，交被动 413 兜底）。
-        single_ok = all(len(b) <= effective_single for b, role in zip(compressed, roles) if role is RefRole.ARRAY)
+        single_ok = all(
+            len(b) <= effective_single for b, role in zip(compressed, roles, strict=True) if role is RefRole.ARRAY
+        )
         if total <= limits.total_max_bytes and single_ok:
             return step, compressed
         if step >= LADDER_STEPS:
@@ -256,7 +258,7 @@ def compressed_reference_payload(
     temp_root: Path | None = None
     try:
         by_index: dict[int, CompressedRef] = {}
-        for k, (idx, data) in enumerate(zip(compressible_indices, compressed_bytes)):
+        for k, (idx, data) in enumerate(zip(compressible_indices, compressed_bytes, strict=True)):
             spec = specs[idx]
             if data is compressible_raws[k]:
                 # 透传：未重编码，直接用原始源路径（不写临时副本）。

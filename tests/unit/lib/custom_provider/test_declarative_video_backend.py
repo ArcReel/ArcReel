@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
+from typing import ClassVar
 
 import httpx
 import pytest
@@ -1186,7 +1187,7 @@ class TestDeclarativeVideoBackend:
 class TestExtractDuration:
     """``extract_duration`` 直接决定计费时长：越界与不可解析一律回 ``None`` 走缺省计价。"""
 
-    SPEC = {"paths": ["$.usage.duration"], "accept": "scalar"}
+    SPEC: ClassVar[dict[str, object]] = {"paths": ["$.usage.duration"], "accept": "scalar"}
 
     @pytest.mark.parametrize(
         "raw",

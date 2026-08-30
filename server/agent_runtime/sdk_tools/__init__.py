@@ -70,7 +70,7 @@ from server.media_tools.context import (
 )
 from server.tool_runtime import CallerContext
 
-__all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
+__all__ = ["ARCREEL_MCP_TOOL_IDS", "ToolContext", "build_arcreel_mcp_server"]
 
 # Single source of truth for the ArcReel in-process MCP tool catalogue.
 # Each id is the **short tool name** (without the ``mcp__arcreel__`` prefix the

@@ -164,7 +164,7 @@ class TestListProviders:
         assert len(body["providers"]) == 1
         models = body["providers"][0]["models"]
         assert models, "providers[0].models should not be empty"
-        for _mid, minfo in models.items():
+        for minfo in models.values():
             assert "resolutions" in minfo
             assert isinstance(minfo["resolutions"], list)
 
