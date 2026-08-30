@@ -13,7 +13,7 @@ An open-source, self-hosted AI video production workspace. Turn novels, finished
 | Tag | Meaning |
 |---|---|
 | `latest` | The most recent stable release |
-| `X.Y.Z` | An exact release, e.g. `0.28.0` |
+| `X.Y.Z` | An exact release |
 | `X.Y` | The latest patch of that minor line |
 | `X` | The latest release of that major line |
 
