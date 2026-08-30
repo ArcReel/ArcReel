@@ -334,11 +334,28 @@ The model discovery protocol only determines which type of model-listing interfa
 6. TTS;
 7. Error codes and rate-limiting behavior.
 
-### 10.1 Adapt a Custom Video Call Endpoint with an Agent {#custom-endpoint-agent}
+### 10.1 Three Endpoint Test Modes {#custom-endpoint-tests}
+
+The call endpoint detail page in Settings offers three test modes, ordered from lowest to highest risk:
+
+- **Check a response**: paste a provider response from the submit, progress, or fetch stage to inspect every
+  extraction path, status mapping, and error field. This does not contact the provider or incur a charge.
+- **Preview the request**: render the URL, method, headers, and body from sample parameters so you can compare
+  them with the provider documentation. This also does not contact the provider or incur a charge.
+- **Test connection**: submit one real generation and track it to a terminal state. A billing badge identifies
+  that this mode incurs one API call. Endpoints with required assets need the corresponding first frame, last
+  frame, reference images, or reference audio before the test can start.
+
+You can cancel a connection test while it is running. Cancellation stops ArcReel from tracking that test and
+removes its local result, but the provider's remote job may continue and charges already incurred remain in the
+ledger. A successful artifact plays directly in the result card, and the call number links to the spend ledger.
+The server retains terminal results and artifacts for 24 hours; they are unavailable after that period.
+
+### 10.2 Adapt a Custom Video Call Endpoint with an Agent {#custom-endpoint-agent}
 
 When a provider submits jobs as JSON and then polls JSON results by task ID, you can delegate the adaptation to
-an external Agent such as Claude Code. Signature-based authentication, multipart requests, and routing by asset
-shape are outside the first version of declarative definitions.
+an external Agent such as Claude Code. Signature-based authentication, multipart requests sent to the provider,
+and routing by asset shape are outside the first version of declarative definitions.
 
 Install the public skill:
 
@@ -364,6 +381,9 @@ required. Response checks and request previews do not contact the provider. A co
 generation and may incur charges, so the Agent must obtain your explicit approval first. When a definition with
 the same lineage exists, the Agent may save a copy and report it; overwriting the existing endpoint always
 requires your explicit approval.
+
+Pass required assets with `--start-image`, `--end-image`, repeatable `--reference-images`, and repeatable
+`--reference-audio-files`. These CLI options use the same multipart fields as the Settings page.
 
 ## 11. Multiple API Keys {#multiple-api-keys}
 

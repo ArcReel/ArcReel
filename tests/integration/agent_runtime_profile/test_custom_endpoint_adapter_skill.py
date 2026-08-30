@@ -157,6 +157,80 @@ def test_cli_requires_explicit_confirmation_for_cost_and_overwrite(tmp_path: Pat
     assert "--confirm-overwrite" in overwrite.stderr
 
 
+def test_cli_sends_endpoint_assets_with_the_shared_multipart_field_names(tmp_path: Path) -> None:
+    received: list[tuple[str, bytes]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            size = int(self.headers.get("content-length", "0"))
+            received.append((self.headers["content-type"], self.rfile.read(size)))
+            encoded = b'{"id":"run-1","status":"running"}'
+            self.send_response(201)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, format: str, *args: object) -> None:
+            del format, args
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        definition = tmp_path / "definition.json"
+        parameters = tmp_path / "parameters.json"
+        definition.write_text('{"kind":"declarative"}', encoding="utf-8")
+        parameters.write_text('{"model":"demo"}', encoding="utf-8")
+        assets = {
+            "start": tmp_path / "start.png",
+            "end": tmp_path / "end.png",
+            "ref1": tmp_path / "ref-1.png",
+            "ref2": tmp_path / "ref-2.png",
+            "audio": tmp_path / "voice.wav",
+        }
+        for name, path in assets.items():
+            path.write_bytes(name.encode())
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "trial-run",
+                str(definition),
+                "--parameters",
+                str(parameters),
+                "--start-image",
+                str(assets["start"]),
+                "--end-image",
+                str(assets["end"]),
+                "--reference-images",
+                str(assets["ref1"]),
+                "--reference-images",
+                str(assets["ref2"]),
+                "--reference-audio-files",
+                str(assets["audio"]),
+                "--confirm-cost",
+            ],
+            env={**os.environ, "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1"},
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
+
+    assert result.returncode == 0, result.stderr
+    content_type, body = received[0]
+    assert content_type.startswith("multipart/form-data; boundary=")
+    assert body.count(b'name="payload"') == 1
+    assert body.count(b'name="start_image"') == 1
+    assert body.count(b'name="end_image"') == 1
+    assert body.count(b'name="reference_images"') == 2
+    assert body.count(b'name="reference_audio_files"') == 1
+
+
 @pytest.mark.parametrize(
     ("body", "fragment"),
     [(b"<html>Bad Gateway</html>", "Bad Gateway"), (b"not utf-8 \xff\xff", "not utf-8")],

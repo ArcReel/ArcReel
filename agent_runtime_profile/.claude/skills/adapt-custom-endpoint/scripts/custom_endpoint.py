@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import mimetypes
 import os
+import secrets
 import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -18,14 +20,50 @@ def _json_file(path: str) -> object:
         return json.load(source)
 
 
-def _request(method: str, path: str, payload: object | None = None) -> object:
+def _multipart(payload: object, files: list[tuple[str, Path]]) -> tuple[bytes, str]:
+    boundary = f"arcreel-{secrets.token_hex(16)}"
+    chunks = [
+        f'--{boundary}\r\nContent-Disposition: form-data; name="payload"\r\n'
+        "Content-Type: application/json; charset=utf-8\r\n\r\n".encode(),
+        json.dumps(payload, ensure_ascii=False).encode(),
+        b"\r\n",
+    ]
+    for field, path in files:
+        filename = path.name.replace('"', "'").replace("\r", "").replace("\n", "")
+        try:
+            content = path.read_bytes()
+        except OSError as exc:
+            raise SystemExit(f"Cannot read asset file {path}: {exc}") from exc
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        chunks.extend(
+            [
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; '
+                f'filename="{filename}"\r\nContent-Type: {content_type}\r\n\r\n'.encode(),
+                content,
+                b"\r\n",
+            ]
+        )
+    chunks.append(f"--{boundary}--\r\n".encode())
+    return b"".join(chunks), boundary
+
+
+def _request(
+    method: str,
+    path: str,
+    payload: object | None = None,
+    files: list[tuple[str, Path]] | None = None,
+) -> object:
     base = (os.environ.get("ARCREEL_API_BASE") or "http://127.0.0.1:1241/api/v1").rstrip("/")
     token = os.environ.get("ARCREEL_API_TOKEN", "").strip()
     headers = {"Accept": "application/json"}
     data = None
     if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False).encode()
-        headers["Content-Type"] = "application/json"
+        if files:
+            data, boundary = _multipart(payload, files)
+            headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+        else:
+            data = json.dumps(payload, ensure_ascii=False).encode()
+            headers["Content-Type"] = "application/json"
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
@@ -55,6 +93,16 @@ def _test_payload(args: argparse.Namespace) -> dict[str, object]:
     return payload
 
 
+def _asset_files(args: argparse.Namespace) -> list[tuple[str, Path]]:
+    files: list[tuple[str, Path]] = []
+    for field in ("start_image", "end_image"):
+        if path := getattr(args, field):
+            files.append((field, Path(path)))
+    for field in ("reference_images", "reference_audio_files"):
+        files.extend((field, Path(path)) for path in getattr(args, field))
+    return files
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -73,6 +121,10 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("definition")
         command.add_argument("--parameters", required=True)
         command.add_argument("--credentials")
+        command.add_argument("--start-image")
+        command.add_argument("--end-image")
+        command.add_argument("--reference-images", action="append", default=[])
+        command.add_argument("--reference-audio-files", action="append", default=[])
         if name == "trial-run":
             command.add_argument("--confirm-cost", action="store_true")
 
@@ -103,11 +155,11 @@ def main() -> None:
             },
         )
     elif args.command == "preview-request":
-        result = _request("POST", "/custom-endpoints/preview-request", _test_payload(args))
+        result = _request("POST", "/custom-endpoints/preview-request", _test_payload(args), _asset_files(args))
     elif args.command == "trial-run":
         if not args.confirm_cost:
             parser.error("trial-run sends a billable provider request; ask the user, then pass --confirm-cost")
-        result = _request("POST", "/custom-endpoints/trial-runs", _test_payload(args))
+        result = _request("POST", "/custom-endpoints/trial-runs", _test_payload(args), _asset_files(args))
     elif args.command == "trial-status":
         result = _request("GET", f"/custom-endpoints/trial-runs/{args.run_id}")
     else:

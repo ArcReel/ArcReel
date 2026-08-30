@@ -55,6 +55,7 @@ async def get_stats(
 
 @router.get("/usage/calls")
 async def get_calls(
+    call_id: int | None = Query(None, ge=1, description="调用记录 ID"),
     project_name: str | None = Query(None, description="项目名称"),
     call_type: CallType | None = Query(None, description="调用类型 (image/video/text)"),
     status: str | None = Query(None, description="状态 (success/failed)"),
@@ -68,6 +69,7 @@ async def get_calls(
 
     async with async_session_factory() as session:
         result = await UsageRepository(session).get_calls(
+            call_id=call_id,
             project_name=project_name,
             call_type=call_type,
             status=status,

@@ -658,7 +658,7 @@ app.include_router(auth_router.public_router, prefix="/api/v1", tags=["认证"])
 app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 
 # 自带认证端点：成因都是浏览器直发请求带不了 Authorization header，
-# 端点内自行校验凭证（SSE 用 CurrentUserFlexible 收 ?token=，导出用短时效下载 token）。
+# 端点内自行校验凭证（SSE / 原生媒体用 CurrentUserFlexible 收 ?token=，导出用短时效下载 token）。
 app.include_router(
     assistant.self_auth_router,
     prefix="/api/v1/projects/{project_name}/assistant",
@@ -666,6 +666,7 @@ app.include_router(
 )
 app.include_router(project_events.self_auth_router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
+app.include_router(custom_endpoints.endpoint_tests.artifact_router, prefix="/api/v1", tags=["自定义调用端点"])
 app.mount("/mcp", remote_mcp_host)
 
 

@@ -51,6 +51,10 @@ class TestUsageRouter:
         assert calls.json()["page_size"] == 10
         assert calls.json()["total"] == 6
 
+        selected = client.get(f"/api/v1/usage/calls?call_id={calls.json()['items'][0]['id']}")
+        assert selected.status_code == 200
+        assert selected.json()["total"] == 1
+
         projects = client.get("/api/v1/usage/projects")
         assert projects.status_code == 200
         assert set(projects.json()["projects"]) == {"demo", "demo2"}

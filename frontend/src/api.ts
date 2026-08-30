@@ -49,6 +49,7 @@ import type {
   EndpointValidateResponse,
   EndpointTestParameters,
   EndpointTestCredentials,
+  EndpointTestAssets,
   EndpointPreviewResponse,
   EndpointStageReport,
   EndpointTestStage,
@@ -378,6 +379,7 @@ export interface UsageStatsFilters {
 }
 
 export interface UsageCallsFilters {
+  callId?: number;
   projectName?: string;
   callType?: string;
   status?: string;
@@ -793,12 +795,27 @@ function withAuth(endpoint: string, options: RequestInit = {}): RequestInit {
   return { ...options, headers };
 }
 
-/** 为 URL 追加 token query param（用于 EventSource） */
+/** 为浏览器原生请求 URL 追加 token query param（用于 EventSource / 媒体元素）。 */
 function withAuthQuery(url: string): string {
   const token = getToken();
   if (!token) return url;
   const sep = url.includes("?") ? "&" : "?";
   return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
+function endpointTestRequest(
+  body: unknown,
+  assets: EndpointTestAssets = {},
+  signal?: AbortSignal,
+): RequestInit {
+  const files = Object.entries(assets).flatMap(([source, items]) =>
+    (items ?? []).map((file) => [source, file] as const),
+  );
+  if (files.length === 0) return { method: "POST", body: JSON.stringify(body), signal };
+  const form = new FormData();
+  form.append("payload", JSON.stringify(body));
+  for (const [source, file] of files) form.append(source, file);
+  return { method: "POST", headers: {}, body: form, signal };
 }
 
 class API {
@@ -2507,6 +2524,7 @@ class API {
     options: { signal?: AbortSignal } = {}
   ): Promise<Record<string, unknown>> {
     const params = new URLSearchParams();
+    if (filters.callId) params.append("call_id", String(filters.callId));
     if (filters.projectName)
       params.append("project_name", filters.projectName);
     if (filters.callType) params.append("call_type", filters.callType);
@@ -2797,13 +2815,12 @@ class API {
       parameters: EndpointTestParameters;
       credentials?: EndpointTestCredentials;
     },
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; assets?: EndpointTestAssets } = {},
   ): Promise<EndpointPreviewResponse> {
-    return this.request("/custom-endpoints/preview-request", {
-      method: "POST",
-      body: JSON.stringify(body),
-      signal: options.signal,
-    });
+    return this.request(
+      "/custom-endpoints/preview-request",
+      endpointTestRequest(body, options.assets, options.signal),
+    );
   }
 
   static async checkEndpointResponse(
@@ -2823,11 +2840,8 @@ class API {
     model_ref?: TrialRunModelRef;
     parameters: EndpointTestParameters;
     credentials?: EndpointTestCredentials;
-  }): Promise<TrialRunInfo> {
-    return this.request("/custom-endpoints/trial-runs", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+  }, assets: EndpointTestAssets = {}): Promise<TrialRunInfo> {
+    return this.request("/custom-endpoints/trial-runs", endpointTestRequest(body, assets));
   }
 
   static async getTrialRun(
@@ -2837,6 +2851,12 @@ class API {
     return this.request(`/custom-endpoints/trial-runs/${encodeURIComponent(runId)}`, {
       signal: options.signal,
     });
+  }
+
+  static getTrialRunArtifactUrl(runId: string): string {
+    return withAuthQuery(
+      `${API_BASE}/custom-endpoints/trial-runs/${encodeURIComponent(runId)}/artifact`,
+    );
   }
 
   static async cancelTrialRun(runId: string): Promise<void> {

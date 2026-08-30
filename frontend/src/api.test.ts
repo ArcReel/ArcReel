@@ -8,6 +8,7 @@ import {
   ScriptEditCommandError,
   SpeechAdmissionError,
 } from "@/api";
+import { clearToken, setToken } from "@/utils/auth";
 
 type JsonResponseOptions = {
   ok?: boolean;
@@ -663,6 +664,7 @@ describe("API", () => {
         endDate: "2026-02-01",
       });
       await API.getUsageCalls({
+        callId: 42,
         projectName: "demo",
         callType: "image",
         status: "succeeded",
@@ -695,7 +697,7 @@ describe("API", () => {
         { signal: undefined },
       );
       expect(requestSpy).toHaveBeenCalledWith(
-        "/usage/calls?project_name=demo&call_type=image&status=succeeded&start_date=2026-01-01&end_date=2026-02-01&page=1&page_size=50",
+        "/usage/calls?call_id=42&project_name=demo&call_type=image&status=succeeded&start_date=2026-01-01&end_date=2026-02-01&page=1&page_size=50",
         { signal: undefined },
       );
       expect(requestSpy).toHaveBeenCalledWith("/usage/projects");
@@ -1444,5 +1446,47 @@ describe("uploadFile (source) onConflict", () => {
     const call = API.uploadFile("p", "source", new File(["x"], "a.txt"));
     await expect(call).rejects.not.toBeInstanceOf(ConflictError);
     await expect(call).rejects.toThrow("a.txt");
+  });
+});
+
+describe("custom endpoint test multipart", () => {
+  it("adds the current auth token to the native artifact URL", () => {
+    setToken("session token");
+    try {
+      expect(API.getTrialRunArtifactUrl("run/1")).toBe(
+        "/api/v1/custom-endpoints/trial-runs/run%2F1/artifact?token=session%20token",
+      );
+    } finally {
+      clearToken();
+    }
+  });
+
+  it("uses the server asset field names and leaves the multipart boundary to the browser", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockResponse({ jsonData: { id: "run-1", status: "running" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const start = new File(["start"], "start.png", { type: "image/png" });
+    const end = new File(["end"], "end.png", { type: "image/png" });
+    const ref1 = new File(["ref1"], "ref1.png", { type: "image/png" });
+    const ref2 = new File(["ref2"], "ref2.png", { type: "image/png" });
+    const audio = new File(["audio"], "voice.wav", { type: "audio/wav" });
+    const payload = { definition: {}, parameters: { model: "demo" } };
+
+    await API.createTrialRun(payload, {
+      start_image: [start],
+      end_image: [end],
+      reference_images: [ref1, ref2],
+      reference_audio_files: [audio],
+    });
+
+    const options = fetchMock.mock.calls[0][1] as RequestInit;
+    const form = options.body as FormData;
+    expect(JSON.parse(String(form.get("payload")))).toEqual(payload);
+    expect(form.getAll("start_image")).toEqual([start]);
+    expect(form.getAll("end_image")).toEqual([end]);
+    expect(form.getAll("reference_images")).toEqual([ref1, ref2]);
+    expect(form.getAll("reference_audio_files")).toEqual([audio]);
+    expect((options.headers as Headers).has("Content-Type")).toBe(false);
   });
 });
