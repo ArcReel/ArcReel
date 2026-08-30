@@ -470,9 +470,11 @@ describe("WorkflowPanel 刷新纪律", () => {
     }
     expect(spy).toHaveBeenCalledTimes(1);
 
-    await advanceDebounce(249);
+    // shouldAdvanceTime 下假定时钟随真实时间插值前进，故两侧断言各留安全余量：
+    // 100ms 远未触达 250ms 防抖窗口，settleDebounce 则已远超该窗口。
+    await advanceDebounce(100);
     expect(spy).toHaveBeenCalledTimes(1);
-    await advanceDebounce(1);
+    await settleDebounce();
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   });
