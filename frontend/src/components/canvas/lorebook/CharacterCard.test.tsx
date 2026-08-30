@@ -350,7 +350,7 @@ describe("CharacterCard", () => {
       // 声音描述仍是主输入；参考音频区退到折叠壳内
       expect(screen.getByLabelText("声音风格")).toHaveValue("warm");
       expect(screen.getByText(/可选：参考音频/)).toBeInTheDocument();
-      expect(screen.getByText(/按声音描述配音，参考音频暂不生效/)).toBeInTheDocument();
+      expect(screen.getByText(/使用提示词约束角色声音，参考音频不会生效/)).toBeInTheDocument();
     });
 
     it("参考音频档下参考音频区照常直接展示", () => {
