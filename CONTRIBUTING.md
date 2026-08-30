@@ -14,7 +14,7 @@
 uv sync
 cd frontend && pnpm install && cd ..
 
-# 一次性安装 pre-commit 钩子（ruff / eslint / pull_request_target tripwire）
+# 一次性安装 pre-commit 钩子（ruff / eslint / actionlint / zizmor）
 uv run pre-commit install
 
 # 初始化数据库
@@ -151,6 +151,8 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 ## 代码质量
 
+工具报出的问题一律改代码。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`，zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
+
 **Lint & Format（ruff）：**
 
 ```bash
@@ -179,6 +181,17 @@ uv run lint-imports
 
 - 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，是 CI backend-static 的必过步骤
 - 新增 ignore 条目前先确认该依赖边无法直接消除（约定见 `pyproject.toml`）
+
+**Workflow 语法与安全（actionlint + zizmor）：**
+
+```bash
+uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-files zizmor
+```
+
+- actionlint 只扫 `.github/workflows/`，校验语法与 `run:` 脚本；本机有 shellcheck 时一并检查 shell，无则只做语法检查，CI 的官方容器镜像自带 shellcheck 与 pyflakes
+- zizmor 默认 persona，`--min-severity medium` 为阻断线，本地与 CI 同为 offline 模式（CI 不提供 `GH_TOKEN`）；除 workflow 外还覆盖 `.github/actions/*/action.yml` 与 `.github/dependabot.yml`，CI 的目录扫描另含 `.pre-commit-config.yaml`
+- CI 中是 `workflow-static` job，只在 workflow 域变更时运行
+- 两个工具的版本写在 `.pre-commit-config.yaml` 与 `.github/workflows/test.yml` 两处，升级须同步
 
 **Lint（前端 ESLint）：**
 

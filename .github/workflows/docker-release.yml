@@ -8,13 +8,12 @@ on:
   push:
     tags: ["v*"]
 
-# 不同 v* tag 并发运行时，后完成的旧版本会覆盖 latest/{{major}} 等可变标签，
-# 串行执行；queue: max 保留全部排队 tag（默认每组只留一个 pending，
-# 连续多个 tag 会丢中间版本的发布）
+# 不同 v* tag 并发运行时，后完成的旧版本会覆盖 latest/{{major}} 等可变标签，故串行执行。
+# GitHub 每个 concurrency group 只保留一个 pending 运行：连续推多个 tag 时，中间版本的
+# 发布运行会被后来者顶掉，需要补发时重新推该 tag。
 concurrency:
   group: docker-release
   cancel-in-progress: false
-  queue: max
 
 env:
   REGISTRY: ghcr.io

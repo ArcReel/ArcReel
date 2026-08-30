@@ -13,11 +13,11 @@ updates:
       day: "monday"
     open-pull-requests-limit: 10
     versioning-strategy: lockfile-only
-    # 刚发布的版本先沉淀几天再开 PR，降低撞上「发布即回归」的概率
+    # 刚发布的版本先沉淀几天再开 PR，降低撞上「发布即回归」的概率；
+    # semver-minor 走 default-days，只有偏离它的档位单列
     cooldown:
-      default-days: 5
+      default-days: 7
       semver-major-days: 14
-      semver-minor-days: 5
       semver-patch-days: 3
     labels:
       - "dependencies"
@@ -125,9 +125,8 @@ updates:
     # ^ range 内的升级只动 lockfile；超出 range（major）才改 package.json 并开 PR
     versioning-strategy: increase-if-necessary
     cooldown:
-      default-days: 5
+      default-days: 7
       semver-major-days: 14
-      semver-minor-days: 5
       semver-patch-days: 3
     labels:
       - "dependencies"
@@ -229,9 +228,8 @@ updates:
     open-pull-requests-limit: 5
     versioning-strategy: increase-if-necessary
     cooldown:
-      default-days: 5
+      default-days: 7
       semver-major-days: 14
-      semver-minor-days: 5
       semver-patch-days: 3
     labels:
       - "dependencies"
@@ -284,7 +282,7 @@ updates:
     open-pull-requests-limit: 10
     # github-actions 生态只支持 default-days，不支持 semver 粒度的冷却字段
     cooldown:
-      default-days: 5
+      default-days: 7
     labels:
       - "dependencies"
       - "ci"

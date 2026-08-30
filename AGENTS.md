@@ -9,11 +9,12 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 ```bash
 uv run ruff check . && uv run ruff format . && uv run basedpyright && uv run lint-imports && uv run python -m pytest -n 4 --dist loadfile
 uv run python scripts/audit_tests.py --check   # 改动测试文件时；同时扫后端 tests/ 与前端 *.test.*
+uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-files zizmor   # 改动 .github/ 时
 (cd frontend && pnpm check)
 (cd website && pnpm check)
 ```
 
-相关测试必须实际运行且通过；若选择结果为 0 个测试，须扩大范围。启动开发服务器、数据库迁移、测试选择与规范（分层/替身/判据/闸门）、分支与提交规范、依赖管理、注释规范见 `CONTRIBUTING.md`。
+相关测试必须实际运行且通过；若选择结果为 0 个测试，须扩大范围。启动开发服务器、数据库迁移、测试选择与规范（分层/替身/判据/闸门）、分支与提交规范、依赖管理、注释规范、静态工具的豁免规范见 `CONTRIBUTING.md`。
 
 ## 通用规范
 
