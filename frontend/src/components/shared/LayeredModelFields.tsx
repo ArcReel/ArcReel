@@ -52,11 +52,11 @@ export function executingImageModel(
 }
 
 /** 任务类型桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
-export function useCapabilityBucketLabels(): Record<CapabilityBucket, { label: string; caption: string }> {
+export function useCapabilityBucketLabels(): Record<CapabilityBucket, { label: string; caption?: string }> {
   const { t } = useTranslation("templates");
   return useMemo(
     () => ({
-      t2i: { label: t("bucket_t2i_label"), caption: t("bucket_t2i_caption") },
+      t2i: { label: t("bucket_t2i_label") },
       i2i: { label: t("bucket_i2i_label"), caption: t("bucket_i2i_caption") },
       i2v: { label: t("bucket_i2v_label"), caption: t("bucket_i2v_caption") },
       r2v: { label: t("bucket_r2v_label"), caption: t("bucket_r2v_caption") },
@@ -69,8 +69,8 @@ export interface LayeredSubField {
   key: string;
   /** 已 t() 的细分项标签，以生成路径命名（文生图 / 图生图 / 图生视频 / 参考生视频）。 */
   label: string;
-  /** 已 t() 的覆盖范围说明，常驻在下拉下方。 */
-  caption: string;
+  /** 已 t() 的覆盖范围说明，展示在下拉下方；仅在覆盖范围不可从标签自明时提供。 */
+  caption?: string;
   value: string;
   /** 该细分项的候选（细分层按能力过滤）。 */
   options: string[];
@@ -240,7 +240,9 @@ export function LayeredModelFields({
                     renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue, field.key))
                   }
                 />
-                <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{field.caption}</p>
+                {field.caption && (
+                  <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{field.caption}</p>
+                )}
               </div>
             ))}
           </div>
