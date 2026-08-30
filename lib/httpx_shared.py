@@ -17,7 +17,7 @@ def get_http_client() -> httpx.AsyncClient:
     return _client
 
 
-async def startup_http_client(timeout: float = 5.0) -> None:
+async def startup_http_client(timeout: float = 5.0) -> None:  # noqa: ASYNC109 -- httpx.AsyncClient 的 I/O 超时配置，非 async 取消 deadline
     global _client
     if _client is None:
         _client = httpx.AsyncClient(timeout=timeout)

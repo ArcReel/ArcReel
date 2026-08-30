@@ -57,7 +57,7 @@ async def test_migrate_system_settings(db_session: AsyncSession, json_file: Path
 
 async def test_migrate_renames_file(db_session: AsyncSession, json_file: Path):
     await migrate_json_to_db(db_session, json_file)
-    assert not json_file.exists()
+    assert not json_file.exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
     assert json_file.with_suffix(".json.bak").exists()
 
 

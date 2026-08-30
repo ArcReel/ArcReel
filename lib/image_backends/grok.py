@@ -90,7 +90,7 @@ class GrokImageBackend:
             data_uris = []
             for ref in request.reference_images:
                 ref_path = Path(ref.path)
-                if ref_path.exists():
+                if ref_path.exists():  # noqa: ASYNC240 -- 参考图存在性检查，本地元数据
                     data_uris.append(image_to_base64_data_uri(ref_path))
             if data_uris:
                 generate_kwargs["image_urls"] = data_uris

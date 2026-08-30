@@ -223,9 +223,11 @@ class TestApplyGridSplit:
         (project_with_script / "grids" / f"{grid.id}.png").unlink()
 
         pm = _mock_pm(project_with_script)
-        with patch("server.services.grid_split.get_project_manager", return_value=pm):
-            with pytest.raises(GridImageNotReadyError):
-                await apply_grid_split("test-project", grid)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            pytest.raises(GridImageNotReadyError),
+        ):
+            await apply_grid_split("test-project", grid)
 
     async def test_split_emits_grid_split_event(self, project_with_script, grid_with_image):
         grid = grid_with_image
@@ -356,9 +358,11 @@ class TestApplyGridSplit:
         def _fail_register(*_args, **_kwargs):
             raise RuntimeError("manifest commit failed")
 
-        with patch("server.services.grid_split.get_project_manager", return_value=pm):
-            with pytest.raises(RuntimeError, match="manifest commit failed"):
-                await apply_grid_split("test-project", grid_with_image, register_entries=_fail_register)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            pytest.raises(RuntimeError, match="manifest commit failed"),
+        ):
+            await apply_grid_split("test-project", grid_with_image, register_entries=_fail_register)
 
         assert project_file.read_bytes() == snapshots["project"]
         assert script_file.read_bytes() == snapshots["script"]
@@ -428,9 +432,11 @@ class TestApplyGridSplit:
         }
         pm = ProjectManager(project_with_script.parent)
 
-        with patch("server.services.grid_split.get_project_manager", return_value=pm):
-            with pytest.raises(GridImageNotReadyError, match="registered"):
-                await apply_grid_split("test-project", grid_with_image)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            pytest.raises(GridImageNotReadyError, match="registered"),
+        ):
+            await apply_grid_split("test-project", grid_with_image)
 
         assert project_file.read_bytes() == before["project"]
         assert script_file.read_bytes() == before["script"]
@@ -461,9 +467,11 @@ class TestApplyGridSplit:
             return original_batch_update(*args, **kwargs)
 
         monkeypatch.setattr(pm, "batch_update_scene_assets", _revoke_then_commit)
-        with patch("server.services.grid_split.get_project_manager", return_value=pm):
-            with pytest.raises(GridImageNotReadyError, match="registered"):
-                await apply_grid_split("test-project", grid_with_image)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            pytest.raises(GridImageNotReadyError, match="registered"),
+        ):
+            await apply_grid_split("test-project", grid_with_image)
 
         assert script_file.read_bytes() == script_before
         assert grid_file.read_bytes() == grid_before
@@ -528,13 +536,15 @@ class TestApplyGridSplit:
             original_register(project_path, entries=entries, expected_entries=expected_entries)
 
         pm = ProjectManager(project_with_script.parent)
-        with patch("server.services.grid_split.get_project_manager", return_value=pm):
-            with pytest.raises(ArtifactManifestError, match="changed during batch registration"):
-                await apply_grid_split(
-                    "test-project",
-                    grid_with_image,
-                    register_entries=_replace_source_then_register,
-                )
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            pytest.raises(ArtifactManifestError, match="changed during batch registration"),
+        ):
+            await apply_grid_split(
+                "test-project",
+                grid_with_image,
+                register_entries=_replace_source_then_register,
+            )
 
         assert project_file.read_bytes() == before["project"]
         assert script_file.read_bytes() == before["script"]
@@ -610,9 +620,9 @@ class TestApplyGridSplit:
                 "server.services.grid_split.build_grid_member_storyboard_visual_basis",
                 side_effect=_replace_reference_then_build,
             ),
+            pytest.raises(GridImageNotReadyError, match="changed while being split"),
         ):
-            with pytest.raises(GridImageNotReadyError, match="changed while being split"):
-                await apply_grid_split("test-project", grid_with_image)
+            await apply_grid_split("test-project", grid_with_image)
 
         assert replaced is True
         assert project_file.read_bytes() == before["project"]
@@ -673,9 +683,9 @@ class TestApplyGridSplit:
                 "server.services.grid_split.build_stale_grid_member_storyboard_visual_basis",
                 side_effect=_replace_composite_then_build,
             ),
+            pytest.raises(GridImageNotReadyError, match="changed while being split"),
         ):
-            with pytest.raises(GridImageNotReadyError, match="changed while being split"):
-                await apply_grid_split("test-project", grid_with_image)
+            await apply_grid_split("test-project", grid_with_image)
 
         assert replaced is True
         assert project_file.read_bytes() == before["project"]
@@ -699,9 +709,9 @@ class TestApplyGridSplit:
         with (
             patch("server.services.grid_split.get_project_manager", return_value=pm),
             patch.object(Image.Image, "save", _write_partial_cell_then_fail),
+            pytest.raises(RuntimeError, match="cell save failed"),
         ):
-            with pytest.raises(RuntimeError, match="cell save failed"):
-                await apply_grid_split("test-project", grid_with_image)
+            await apply_grid_split("test-project", grid_with_image)
 
         assert not tuple((project_with_script / "storyboards").glob(".*.grid-split.png"))
 
@@ -717,9 +727,9 @@ class TestApplyGridSplit:
         with (
             patch("server.services.grid_split.get_project_manager", return_value=pm),
             patch("lib.script_editor.resolve_items", side_effect=RuntimeError("script resolution failed")),
+            pytest.raises(RuntimeError, match="script resolution failed"),
         ):
-            with pytest.raises(RuntimeError, match="script resolution failed"):
-                await apply_grid_split("test-project", grid_with_image)
+            await apply_grid_split("test-project", grid_with_image)
 
         assert not tuple(grids_dir.glob(f".{grid_with_image.id}.*.split-source.png"))
 

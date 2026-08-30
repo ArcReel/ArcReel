@@ -262,11 +262,11 @@ class TestSubjectReference:
 
         ref = _make_ref(tmp_path, "face.png")
         b = MiniMaxImageBackend(api_key="sk")
-        with patch("lib.image_backends.minimax.image_to_base64_data_uri", side_effect=OSError("permission denied")):
-            with pytest.raises(ImageCapabilityError) as ei:
-                await b.generate(
-                    ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[ref])
-                )
+        with (
+            patch("lib.image_backends.minimax.image_to_base64_data_uri", side_effect=OSError("permission denied")),
+            pytest.raises(ImageCapabilityError) as ei,
+        ):
+            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[ref]))
         assert ei.value.code == "image_reference_images_unreadable"
 
 

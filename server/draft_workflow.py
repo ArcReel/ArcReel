@@ -389,9 +389,7 @@ async def _promote_reference_script_plan(
     # 只存在那一处。基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint——正式文件在草稿
     # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 Agent 合并，
     # 不静默覆盖对方的修改。缺少 base_fingerprint 的草稿按无基线晋升。
-    expected = (
-        draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
-    )
+    expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
     try:
         await run_sync_transaction(
             _commit_reference_script_plan,
@@ -658,9 +656,7 @@ async def _promote_drama_script_plan(
     script_plan_basis = revalidation.basis
     # 基线指纹取自取回时记进 meta 的 base_fingerprint：正式文件在草稿产出后被其他写入方
     # （Web 端保存、重跑 normalize）改过时晋升中止、返回冲突报告让 Agent 合并，不静默覆盖。
-    expected = (
-        draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
-    )
+    expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
     script_plan_path = episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["drama"]
     try:
         await run_sync_transaction(
@@ -868,9 +864,7 @@ async def _promote_narration_script_plan(
     # 基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint：正式文件在草稿产出后被其他写入方
     # （Web 端保存、重跑拆分）改过时晋升中止、返回冲突报告让 Agent 合并，不静默覆盖对方的修改。
     # 缺少 base_fingerprint 的草稿按无基线晋升。
-    expected = (
-        draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
-    )
+    expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
     script_plan_path = _narration_script_plan_path(project_path, episode)
     try:
         await run_sync_transaction(
@@ -1353,12 +1347,11 @@ class DraftWorkflow:
                 episode,
                 resolved,
             )
-            if draft is not None:
-                if base_revision != actual_revision:
-                    raise DraftWorkflowError(
-                        "revision_conflict",
-                        f"draft revision changed: expected {base_revision}, actual {actual_revision}",
-                    )
+            if draft is not None and base_revision != actual_revision:
+                raise DraftWorkflowError(
+                    "revision_conflict",
+                    f"draft revision changed: expected {base_revision}, actual {actual_revision}",
+                )
             discarded = path.exists()
             path.unlink(missing_ok=True)
         return {"episode": episode, "doc_type": doc_type, "discarded": discarded}

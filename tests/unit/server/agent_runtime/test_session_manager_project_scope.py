@@ -35,12 +35,14 @@ class TestSessionManagerProjectScope:
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
-        with patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True):
-            with patch(
+        with (
+            patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True),
+            patch(
                 "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
-            ):
-                options = await manager._build_options("demo")
+            ),
+        ):
+            options = await manager._build_options("demo")
 
         assert options.kwargs["cwd"] == str(project_dir.resolve())
 
@@ -53,13 +55,15 @@ class TestSessionManagerProjectScope:
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
-        with patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True):
-            with patch(
+        with (
+            patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True),
+            patch(
                 "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
-            ):
-                with pytest.raises(FileNotFoundError):
-                    await manager._build_options("missing-project")
+            ),
+            pytest.raises(FileNotFoundError),
+        ):
+            await manager._build_options("missing-project")
 
     @pytest.mark.asyncio
     async def test_build_options_always_adds_file_access_hook(self, tmp_path, monkeypatch, meta_store):
@@ -72,16 +76,18 @@ class TestSessionManagerProjectScope:
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
-        with patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True):
-            with patch(
+        with (
+            patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True),
+            patch(
                 "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
-            ):
-                with patch(
-                    "server.agent_runtime.options_assembler.HookMatcher",
-                    _FakeHookMatcher,
-                ):
-                    options = await manager._build_options("demo")
+            ),
+            patch(
+                "server.agent_runtime.options_assembler.HookMatcher",
+                _FakeHookMatcher,
+            ),
+        ):
+            options = await manager._build_options("demo")
 
         hooks = options.kwargs.get("hooks", {})
         assert "PreToolUse" in hooks
@@ -105,19 +111,21 @@ class TestSessionManagerProjectScope:
         async def _can_use_tool(_tool_name, _input_data, _context):
             return None
 
-        with patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True):
-            with patch(
+        with (
+            patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True),
+            patch(
                 "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
-            ):
-                with patch(
-                    "server.agent_runtime.options_assembler.HookMatcher",
-                    _FakeHookMatcher,
-                ):
-                    options = await manager._build_options(
-                        "demo",
-                        can_use_tool=_can_use_tool,
-                    )
+            ),
+            patch(
+                "server.agent_runtime.options_assembler.HookMatcher",
+                _FakeHookMatcher,
+            ),
+        ):
+            options = await manager._build_options(
+                "demo",
+                can_use_tool=_can_use_tool,
+            )
 
         hooks = options.kwargs.get("hooks", {})
         assert "PreToolUse" in hooks

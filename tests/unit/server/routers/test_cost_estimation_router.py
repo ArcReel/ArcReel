@@ -29,9 +29,11 @@ def _mock_pm(**overrides):
 
 class TestCostEstimationRouter:
     def test_project_not_found_returns_404(self):
-        with patch.object(cost_estimation, "get_project_manager", lambda: _mock_pm(project_exists=False)):
-            with TestClient(_make_app()) as client:
-                resp = client.get("/api/v1/projects/nonexistent/cost-estimate")
+        with (
+            patch.object(cost_estimation, "get_project_manager", lambda: _mock_pm(project_exists=False)),
+            TestClient(_make_app()) as client,
+        ):
+            resp = client.get("/api/v1/projects/nonexistent/cost-estimate")
         assert resp.status_code == 404
         assert "不存在" in resp.json()["detail"]
 
@@ -115,12 +117,11 @@ class TestCostEstimationRouter:
             load_script={"video_units": []},
         )
 
-        with patch.object(cost_estimation, "get_project_manager", lambda: mock_pm):
-            with TestClient(_make_app()) as client:
-                response = client.get(
-                    "/api/v1/projects/demo/cost-estimate",
-                    params={"reference_unit_id": "missing"},
-                )
+        with patch.object(cost_estimation, "get_project_manager", lambda: mock_pm), TestClient(_make_app()) as client:
+            response = client.get(
+                "/api/v1/projects/demo/cost-estimate",
+                params={"reference_unit_id": "missing"},
+            )
 
         assert response.status_code == 404
 

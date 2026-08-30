@@ -1019,12 +1019,11 @@ class ProjectManager:
         """
 
         norm = self.normalize_script_filename(script_filename)
-        with self._script_lock(project_name, norm):
-            with self._project_lock(project_name):
-                project = self._read_project_raw_unlocked(project_name)
-                self._migrate_legacy_style(project)
-                script, _migrated = self._read_script_unlocked(project_name, norm)
-                yield project, script
+        with self._script_lock(project_name, norm), self._project_lock(project_name):
+            project = self._read_project_raw_unlocked(project_name)
+            self._migrate_legacy_style(project)
+            script, _migrated = self._read_script_unlocked(project_name, norm)
+            yield project, script
 
     @contextmanager
     def locked_project_snapshot(self, project_name: str):
@@ -1075,45 +1074,44 @@ class ProjectManager:
         # 下方项目锁内与脚本、索引一起落盘并受同一份旧字节快照补偿。
         candidate = resolve_script_file(self.load_project_readonly(project_name))
         norm = self.normalize_script_filename(candidate)
-        with self._script_lock(project_name, norm):
-            with self._project_lock(project_name):
-                project = self._read_project_raw_unlocked(project_name)
+        with self._script_lock(project_name, norm), self._project_lock(project_name):
+            project = self._read_project_raw_unlocked(project_name)
+            if self._requires_unique_asset_namespace(project):
+                ensure_project_asset_namespace(project)
+            current = resolve_script_file(project)
+            cur_norm = self.normalize_script_filename(current)
+            if cur_norm != norm:
+                raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
+            script_path = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
+            project_path = self._get_project_file_path(project_name)
+            script, _migrated = self._read_script_unlocked(project_name, norm)
+            before = copy.deepcopy(script) if validate else None
+            yield script
+            with formal_write_transaction(script_path, project_path):
+                self._write_script_unlocked(
+                    project_name,
+                    script,
+                    norm,
+                    sync_project=False,
+                    validate=validate,
+                    before=before,
+                    emit_change=False,
+                )
+                # 在已持项目锁内联同步 project.json（等价 update_project 写路径，但不二次取锁）
+                if isinstance(script.get("episode"), int):
+                    self._apply_episode_sync(project, script, norm)
+                self._migrate_legacy_resolution_on_save(project)
+                self._migrate_legacy_style(project)
+                self._touch_metadata(project)
                 if self._requires_unique_asset_namespace(project):
                     ensure_project_asset_namespace(project)
-                current = resolve_script_file(project)
-                cur_norm = self.normalize_script_filename(current)
-                if cur_norm != norm:
-                    raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
-                script_path = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
-                project_path = self._get_project_file_path(project_name)
-                script, _migrated = self._read_script_unlocked(project_name, norm)
-                before = copy.deepcopy(script) if validate else None
-                yield script
-                with formal_write_transaction(script_path, project_path):
-                    self._write_script_unlocked(
-                        project_name,
-                        script,
-                        norm,
-                        sync_project=False,
-                        validate=validate,
-                        before=before,
-                        emit_change=False,
-                    )
-                    # 在已持项目锁内联同步 project.json（等价 update_project 写路径，但不二次取锁）
-                    if isinstance(script.get("episode"), int):
-                        self._apply_episode_sync(project, script, norm)
-                    self._migrate_legacy_resolution_on_save(project)
-                    self._migrate_legacy_style(project)
-                    self._touch_metadata(project)
-                    if self._requires_unique_asset_namespace(project):
-                        ensure_project_asset_namespace(project)
-                    atomic_write_json(project_path, project)
-                    if on_commit is not None:
-                        on_commit(script_path)
-                emit_project_change_hint(
-                    project_name,
-                    changed_paths=[f"scripts/{script_path.name}", self.PROJECT_FILE],
-                )
+                atomic_write_json(project_path, project)
+                if on_commit is not None:
+                    on_commit(script_path)
+            emit_project_change_hint(
+                project_name,
+                changed_paths=[f"scripts/{script_path.name}", self.PROJECT_FILE],
+            )
 
     @staticmethod
     def require_filename_episode_consistency(script: dict, script_filename: str) -> None:

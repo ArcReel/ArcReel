@@ -34,7 +34,7 @@ class TestProductSpec:
 
     def test_product_excluded_from_global_library(self):
         assert "product" not in GLOBAL_LIBRARY_ASSET_TYPES
-        assert GLOBAL_LIBRARY_ASSET_TYPES == frozenset({"character", "scene", "prop"})
+        assert frozenset({"character", "scene", "prop"}) == GLOBAL_LIBRARY_ASSET_TYPES
 
 
 class TestProductProjectLayout:

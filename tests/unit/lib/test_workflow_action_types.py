@@ -35,7 +35,7 @@ def test_generation_actions_are_all_dispatchable_next_actions() -> None:
 def test_migration_retry_action_is_in_the_closed_set() -> None:
     """升级失败的项目只报这一个动作；它与闭集脱钩就等于状态查询整体不可用。"""
 
-    assert RETRY_MIGRATION_ACTION == WorkflowActionType.RETRY_PROJECT_MIGRATION.value
+    assert WorkflowActionType.RETRY_PROJECT_MIGRATION.value == RETRY_MIGRATION_ACTION
 
 
 def test_frontend_union_matches_the_backend_enum() -> None:

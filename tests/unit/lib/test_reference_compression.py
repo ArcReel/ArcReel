@@ -294,12 +294,14 @@ def test_payload_tempfiles_cleaned_on_floor_error(tmp_path: Path):
     real = _write(tmp_path, "big.jpg", _noise_jpeg_bytes(2048, 2048))
     specs = [ReferenceSpec(source=real, label="图0", role=RefRole.ARRAY)]
     before = set(Path(tempfile.gettempdir()).glob("refcomp-*"))
-    with pytest.raises(ReferencePayloadFloorError):
-        with compressed_reference_payload(specs, limits=PayloadLimits(total_max_bytes=1, single_max_bytes=1)) as (
+    with (
+        pytest.raises(ReferencePayloadFloorError),
+        compressed_reference_payload(specs, limits=PayloadLimits(total_max_bytes=1, single_max_bytes=1)) as (
             _landed,
             _refs,
-        ):
-            pass
+        ),
+    ):
+        pass
     after = set(Path(tempfile.gettempdir()).glob("refcomp-*"))
     assert after == before
 

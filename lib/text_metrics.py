@@ -67,11 +67,7 @@ def find_reading_unit_offset(text: str, target_units: int, language: str | None)
     """
     if target_units <= 0 or not text:
         return 0
-    count = 0
-    last_end = 0
-    for match in _pattern_for(language).finditer(text):
-        count += 1
-        last_end = match.end()
+    for count, match in enumerate(_pattern_for(language).finditer(text), start=1):
         if count >= target_units:
-            return last_end
+            return match.end()
     return len(text)

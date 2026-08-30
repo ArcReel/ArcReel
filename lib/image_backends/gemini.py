@@ -60,10 +60,7 @@ class GeminiImageBackend:
             from google.oauth2 import service_account
 
             credentials_file: Path | None = None
-            if credentials_path:
-                credentials_file = Path(credentials_path)
-            else:
-                credentials_file = resolve_vertex_credentials_path()
+            credentials_file = Path(credentials_path) if credentials_path else resolve_vertex_credentials_path()
 
             if credentials_file is None:
                 raise ValueError("未找到 Vertex AI 凭证文件")

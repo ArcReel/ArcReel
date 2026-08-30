@@ -704,7 +704,7 @@ async def stream_to_file(
     url: str,
     output_path: Path,
     *,
-    timeout: int = 120,
+    timeout: int = 120,  # noqa: ASYNC109 -- 转交 httpx 的 I/O 超时配置，非 async 取消 deadline
     headers: Mapping[str, str] | None = None,
     params: Mapping[str, str] | None = None,
     credential_origin: tuple[str, str, int | None] | None = None,
@@ -731,7 +731,7 @@ async def stream_to_file(
         # 先落同目录临时文件、成功后原子改名：下载中途失败不会在产物路径上留下截断的文件。
         partial_path = output_path.with_name(f"{output_path.name}.part")
         try:
-            with open(partial_path, "wb") as handle:
+            with open(partial_path, "wb") as handle:  # noqa: ASYNC230 -- 只在此取句柄，实际写入均由下方 to_thread 卸载
                 # 攒够 _WRITE_BUFFER_BYTES 再一次 to_thread 落盘：既不为每个 64KB 分片调度一次
                 # 线程池任务，也不把整段产物留在内存里——大成片会把 worker 的驻留内存顶上去。
                 buffered: list[bytes] = []
@@ -834,7 +834,7 @@ async def download_video(
     output_path: Path,
     *,
     label: str = "",
-    timeout: int = 120,
+    timeout: int = 120,  # noqa: ASYNC109 -- 转交 httpx 的 I/O 超时配置，非 async 取消 deadline
     retry_if: Callable[[Exception], bool] | None = should_retry_download,
     retryable_errors: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS,
     max_wait: float = ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,

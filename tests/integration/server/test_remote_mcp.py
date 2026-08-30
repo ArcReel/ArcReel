@@ -222,20 +222,22 @@ _INITIALIZE_REQUEST = {
 async def test_remote_mcp_accepts_non_loopback_host_header(remote_server) -> None:
     """任意 Host 都能到达端点：边界由每请求强制的 arc- API Key 承担，不由 Host 白名单承担。"""
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="https://arcreel.example.com",
             follow_redirects=True,
-        ) as client:
-            response = await client.post(
-                "/mcp",
-                headers={
-                    "Accept": "application/json, text/event-stream",
-                    "Authorization": "Bearer arc-valid",
-                },
-                json=_INITIALIZE_REQUEST,
-            )
+        ) as client,
+    ):
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Authorization": "Bearer arc-valid",
+            },
+            json=_INITIALIZE_REQUEST,
+        )
 
     assert response.status_code == 200
 
@@ -265,19 +267,21 @@ async def test_remote_mcp_mount_inherits_app_cors_allowlist(
     )
     app.mount("/mcp", host)
 
-    async with host.run():
-        async with httpx.AsyncClient(
+    async with (
+        host.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="https://arcreel.example.com",
-        ) as client:
-            preflight = await client.options(
-                "/mcp",
-                headers={
-                    "Origin": origin,
-                    "Access-Control-Request-Method": "POST",
-                    "Access-Control-Request-Headers": "authorization,content-type",
-                },
-            )
+        ) as client,
+    ):
+        preflight = await client.options(
+            "/mcp",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
 
     assert (preflight.headers.get("access-control-allow-origin") == origin) is allowed
     assert (preflight.status_code == 200) is allowed
@@ -296,40 +300,34 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     remote_server, remote_projects: ProjectManager
 ) -> None:
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    tools = await session.list_tools()
-                    result = await session.call_tool("get_workflow_plan", {"project": " demo ", "episode": 1})
-                    capabilities = await session.call_tool("get_video_capabilities", {"project": "demo"})
-                    patched = await session.call_tool(
-                        "patch_project", {"project": "demo", "overview": {"synopsis": "远程更新"}}
-                    )
-                    project_content = await session.call_tool("get_project_content", {"project": "demo"})
-                    source_files = await session.call_tool("list_source_files", {"project": "demo"})
-                    source_text = await session.call_tool(
-                        "get_source_text", {"project": "demo", "path": "source/episode_1.txt"}
-                    )
-                    script = await session.call_tool(
-                        "get_episode_script", {"project": "demo", "script": "episode_1.json"}
-                    )
-                    script_plan = await session.call_tool("get_script_plan_content", {"project": "demo", "episode": 1})
-                    project_files = await session.call_tool("list_project_files", {"project": "demo"})
-                    project_file = await session.call_tool(
-                        "read_project_file", {"project": "demo", "path": "project.json"}
-                    )
-                    missing = await session.call_tool("get_workflow_plan", {"episode": 1})
-                    traversal = await session.call_tool("get_workflow_plan", {"project": "../demo", "episode": 1})
-                    nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode": 1})
-                    empty = await session.call_tool("get_workflow_plan", {"project": "empty", "episode": 1})
-                    escape = await session.call_tool("get_workflow_plan", {"project": "escape", "episode": 1})
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        tools = await session.list_tools()
+        result = await session.call_tool("get_workflow_plan", {"project": " demo ", "episode": 1})
+        capabilities = await session.call_tool("get_video_capabilities", {"project": "demo"})
+        patched = await session.call_tool("patch_project", {"project": "demo", "overview": {"synopsis": "远程更新"}})
+        project_content = await session.call_tool("get_project_content", {"project": "demo"})
+        source_files = await session.call_tool("list_source_files", {"project": "demo"})
+        source_text = await session.call_tool("get_source_text", {"project": "demo", "path": "source/episode_1.txt"})
+        script = await session.call_tool("get_episode_script", {"project": "demo", "script": "episode_1.json"})
+        script_plan = await session.call_tool("get_script_plan_content", {"project": "demo", "episode": 1})
+        project_files = await session.call_tool("list_project_files", {"project": "demo"})
+        project_file = await session.call_tool("read_project_file", {"project": "demo", "path": "project.json"})
+        missing = await session.call_tool("get_workflow_plan", {"episode": 1})
+        traversal = await session.call_tool("get_workflow_plan", {"project": "../demo", "episode": 1})
+        nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode": 1})
+        empty = await session.call_tool("get_workflow_plan", {"project": "empty", "episode": 1})
+        escape = await session.call_tool("get_workflow_plan", {"project": "escape", "episode": 1})
 
     assert not result.isError
     migrated = {
@@ -503,21 +501,23 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
     remote_projects.save_project("demo", project)
 
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    tools = await session.list_tools()
-                    result = await session.call_tool(
-                        "generate_grid",
-                        {"project": "demo", "script": "episode_1.json", "list_only": True},
-                    )
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        tools = await session.list_tools()
+        result = await session.call_tool(
+            "generate_grid",
+            {"project": "demo", "script": "episode_1.json", "list_only": True},
+        )
 
     description = next(tool.description for tool in tools.tools if tool.name == "generate_grid")
     assert description is not None
@@ -539,17 +539,19 @@ async def test_media_errors_are_typed_in_embedded_and_remote_hosts(
     assert embedded.problem.code == "invalid_request"
 
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    remote = await session.call_tool("generate_assets", {"project": "demo", "names": ["张三"]})
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        remote = await session.call_tool("generate_assets", {"project": "demo", "names": ["张三"]})
 
     assert remote.isError
     assert remote.structuredContent == {"problem": embedded.problem.model_dump(mode="json")}
@@ -577,24 +579,26 @@ async def test_remote_media_runtime_validates_shared_schema_and_forwards_nested_
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
 
     app = _mounted(remote_batch_server)
-    async with remote_batch_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_batch_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    result = await session.call_tool(
-                        "edit_images",
-                        {"project": "demo", **args},
-                    )
-                    invalid = await session.call_tool(
-                        "generate_assets",
-                        {"project": "demo", "type": "not-an-asset-type"},
-                    )
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        result = await session.call_tool(
+            "edit_images",
+            {"project": "demo", **args},
+        )
+        invalid = await session.call_tool(
+            "generate_assets",
+            {"project": "demo", "type": "not-an-asset-type"},
+        )
 
     assert not result.isError
     assert result.structuredContent is not None
@@ -623,34 +627,36 @@ async def test_remote_media_submission_returns_complete_durable_batch_and_dedupe
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
 
     app = _mounted(remote_batch_server)
-    async with remote_batch_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_batch_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    first = await session.call_tool(
-                        "generate_assets",
-                        {"project": "demo", "type": "character", "names": ["张三", "李四"]},
-                    )
-                    second = await session.call_tool(
-                        "generate_assets",
-                        {"project": "demo", "type": "character", "names": ["张三", "李四"]},
-                    )
-                    first_batch = first.structuredContent["generation_batch"]
-                    second_batch = second.structuredContent["generation_batch"]
-                    cancelled = await session.call_tool(
-                        "cancel_generation_batch",
-                        {"project": "demo", "batch_id": second_batch["batch_id"]},
-                    )
-                    reread = await session.call_tool(
-                        "get_generation_batch",
-                        {"project": "demo", "batch_id": first_batch["batch_id"]},
-                    )
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        first = await session.call_tool(
+            "generate_assets",
+            {"project": "demo", "type": "character", "names": ["张三", "李四"]},
+        )
+        second = await session.call_tool(
+            "generate_assets",
+            {"project": "demo", "type": "character", "names": ["张三", "李四"]},
+        )
+        first_batch = first.structuredContent["generation_batch"]
+        second_batch = second.structuredContent["generation_batch"]
+        cancelled = await session.call_tool(
+            "cancel_generation_batch",
+            {"project": "demo", "batch_id": second_batch["batch_id"]},
+        )
+        reread = await session.call_tool(
+            "get_generation_batch",
+            {"project": "demo", "batch_id": first_batch["batch_id"]},
+        )
 
     assert not first.isError and not second.isError
     assert first_batch["batch_id"] != second_batch["batch_id"]
@@ -707,16 +713,18 @@ async def test_remote_api_keys_share_the_persisted_single_operator_owner(
     app = _mounted(remote_batch_server)
 
     async def call_as(token: str, tool: str, args: dict[str, object]):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": f"Bearer {token}"},
-            follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    return await session.call_tool(tool, args)
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://localhost",
+                headers={"Authorization": f"Bearer {token}"},
+                follow_redirects=True,
+            ) as client,
+            streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            return await session.call_tool(tool, args)
 
     async with remote_batch_server.session_manager.run():
         first = await call_as(
@@ -752,30 +760,32 @@ async def test_remote_api_keys_share_the_persisted_single_operator_owner(
 
 async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> None:
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    created = await session.call_tool(
-                        "create_project",
-                        {
-                            "name": "new-project",
-                            "title": "New Project",
-                            "content_mode": "narration",
-                            "generation_mode": "storyboard",
-                        },
-                    )
-                    projects = await session.call_tool("list_projects", {})
-                    uploaded = await session.call_tool(
-                        "upload_source",
-                        {"project": "new-project", "filename": "novel.txt", "content": "hello"},
-                    )
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        created = await session.call_tool(
+            "create_project",
+            {
+                "name": "new-project",
+                "title": "New Project",
+                "content_mode": "narration",
+                "generation_mode": "storyboard",
+            },
+        )
+        projects = await session.call_tool("list_projects", {})
+        uploaded = await session.call_tool(
+            "upload_source",
+            {"project": "new-project", "filename": "novel.txt", "content": "hello"},
+        )
 
     assert created.structuredContent is not None
     assert created.structuredContent["project"]["name"] == "new-project"
@@ -787,46 +797,48 @@ async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> 
 
 async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_server) -> None:
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    args = {"project": "demo", "episode": 1, "doc_type": "drama_script_plan"}
-                    opened = await session.call_tool("open_draft", args)
-                    first_content = opened.structuredContent["draft"]["content"]
-                    first_content["title"] = "第一次修改"
-                    first = await session.call_tool(
-                        "patch_draft",
-                        {
-                            **args,
-                            "content": first_content,
-                            "base_revision": opened.structuredContent["draft"]["revision"],
-                        },
-                    )
-                    second_content = first.structuredContent["draft"]["content"]
-                    second_content["title"] = "第二次修改"
-                    second = await session.call_tool(
-                        "patch_draft",
-                        {
-                            **args,
-                            "content": second_content,
-                            "base_revision": first.structuredContent["draft"]["revision"],
-                        },
-                    )
-                    discarded = await session.call_tool(
-                        "discard_draft", {**args, "base_revision": second.structuredContent["draft"]["revision"]}
-                    )
-                    reopened = await session.call_tool("open_draft", args)
-                    promoted = await session.call_tool(
-                        "promote_draft",
-                        {**args, "base_revision": reopened.structuredContent["draft"]["revision"]},
-                    )
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        args = {"project": "demo", "episode": 1, "doc_type": "drama_script_plan"}
+        opened = await session.call_tool("open_draft", args)
+        first_content = opened.structuredContent["draft"]["content"]
+        first_content["title"] = "第一次修改"
+        first = await session.call_tool(
+            "patch_draft",
+            {
+                **args,
+                "content": first_content,
+                "base_revision": opened.structuredContent["draft"]["revision"],
+            },
+        )
+        second_content = first.structuredContent["draft"]["content"]
+        second_content["title"] = "第二次修改"
+        second = await session.call_tool(
+            "patch_draft",
+            {
+                **args,
+                "content": second_content,
+                "base_revision": first.structuredContent["draft"]["revision"],
+            },
+        )
+        discarded = await session.call_tool(
+            "discard_draft", {**args, "base_revision": second.structuredContent["draft"]["revision"]}
+        )
+        reopened = await session.call_tool("open_draft", args)
+        promoted = await session.call_tool(
+            "promote_draft",
+            {**args, "base_revision": reopened.structuredContent["draft"]["revision"]},
+        )
 
     assert not opened.isError
     assert not first.isError
@@ -856,42 +868,44 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
         progress_messages.append(message)
 
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    tools = {tool.name: tool for tool in (await session.list_tools()).tools}
-                    script_plan = await session.call_tool(
-                        "generate_script_plan",
-                        {
-                            "project": "demo",
-                            "episode": 1,
-                            "source": "source/episode_1.txt",
-                            "dry_run": True,
-                        },
-                        progress_callback=record_progress,
-                    )
-                    confirmed = await session.call_tool("confirm_script_review", {"project": "demo", "episode": 1})
-                    script = await session.call_tool(
-                        "generate_episode_script",
-                        {"project": "ad-demo", "episode": 1, "dry_run": True},
-                        progress_callback=record_progress,
-                    )
-                    patched = await session.call_tool(
-                        "patch_episode_script",
-                        {
-                            "project": "demo",
-                            "script": "episode_1.json",
-                            "base_revision": "sha256-v1:" + "0" * 64,
-                            "operations": [{"op": "remove", "id": "E1S01"}],
-                        },
-                    )
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+        script_plan = await session.call_tool(
+            "generate_script_plan",
+            {
+                "project": "demo",
+                "episode": 1,
+                "source": "source/episode_1.txt",
+                "dry_run": True,
+            },
+            progress_callback=record_progress,
+        )
+        confirmed = await session.call_tool("confirm_script_review", {"project": "demo", "episode": 1})
+        script = await session.call_tool(
+            "generate_episode_script",
+            {"project": "ad-demo", "episode": 1, "dry_run": True},
+            progress_callback=record_progress,
+        )
+        patched = await session.call_tool(
+            "patch_episode_script",
+            {
+                "project": "demo",
+                "script": "episode_1.json",
+                "base_revision": "sha256-v1:" + "0" * 64,
+                "operations": [{"op": "remove", "id": "E1S01"}],
+            },
+        )
 
     assert not script_plan.isError
     assert "dry_run=true" in tools["generate_script_plan"].description
@@ -975,44 +989,44 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
 
     app = _mounted(server)
     try:
-        async with server.session_manager.run():
-            async with httpx.AsyncClient(
+        async with (
+            server.session_manager.run(),
+            httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://localhost",
                 headers={"Authorization": "Bearer arc-valid"},
                 follow_redirects=True,
-            ) as client:
-                async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        remote = await session.call_tool("generate_episode_script", {"project": "demo", "episode": 1})
-                        await started.wait()
-                        embedded_ctx = ToolContext(
-                            project_name="demo",
-                            projects_root=projects.projects_root,
-                            pm=projects,
-                            queue=queue,
-                        )
-                        embedded = asyncio.create_task(
-                            _call(generate_episode_script_tool(embedded_ctx), {"episode": 1})
-                        )
-                        await queue.deduped.wait()
+            ) as client,
+            streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            remote = await session.call_tool("generate_episode_script", {"project": "demo", "episode": 1})
+            await started.wait()
+            embedded_ctx = ToolContext(
+                project_name="demo",
+                projects_root=projects.projects_root,
+                pm=projects,
+                queue=queue,
+            )
+            embedded = asyncio.create_task(_call(generate_episode_script_tool(embedded_ctx), {"episode": 1}))
+            await queue.deduped.wait()
 
-                        assert not embedded.done()
-                        assert remote.structuredContent is not None
-                        remote_batch = remote.structuredContent["generation_batch"]
-                        assert remote_batch["members"][0]["deduped"] is False
-                        assert len(queue.batch_ids) == 2
+            assert not embedded.done()
+            assert remote.structuredContent is not None
+            remote_batch = remote.structuredContent["generation_batch"]
+            assert remote_batch["members"][0]["deduped"] is False
+            assert len(queue.batch_ids) == 2
 
-                        cancel_result = await session.call_tool(
-                            "cancel_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
-                        )
-                        await cancelled.wait()
-                        release.set()
-                        embedded_result = await embedded
-                        terminal = await session.call_tool(
-                            "get_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
-                        )
+            cancel_result = await session.call_tool(
+                "cancel_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
+            )
+            await cancelled.wait()
+            release.set()
+            embedded_result = await embedded
+            terminal = await session.call_tool(
+                "get_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
+            )
 
         assert cancel_result.structuredContent["generation_batch_cancellation"]["cancelling"] == [
             remote_batch["members"][0]["task_id"]
@@ -1032,54 +1046,56 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
 @pytest.mark.parametrize("tool", ["generate_script_plan", "generate_episode_script"])
 async def test_remote_mcp_generation_rejects_non_positive_episode(remote_server, tool: str) -> None:
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    result = await session.call_tool(tool, {"project": "demo", "episode": 0, "dry_run": True})
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        result = await session.call_tool(tool, {"project": "demo", "episode": 0, "dry_run": True})
 
     assert result.isError
 
 
 async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    args = {
-                        "project": "demo",
-                        "episode": 1,
-                        "doc_type": "drama_script_plan",
-                        "source": "source/episode_1.txt",
-                    }
-                    opened = await session.call_tool("open_draft", args)
-                    (
-                        remote_projects.get_project_path("demo") / "drafts/episode_1/script_plan_normalized_script.json"
-                    ).unlink()
-                    patched = await session.call_tool(
-                        "patch_draft",
-                        {
-                            **args,
-                            "content": opened.structuredContent["draft"]["content"],
-                            "base_revision": opened.structuredContent["draft"]["revision"],
-                            "accept_formal_revision": None,
-                            "accepts_formal_revision": True,
-                            "source": None,
-                            "updates_source": True,
-                        },
-                    )
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        args = {
+            "project": "demo",
+            "episode": 1,
+            "doc_type": "drama_script_plan",
+            "source": "source/episode_1.txt",
+        }
+        opened = await session.call_tool("open_draft", args)
+        (remote_projects.get_project_path("demo") / "drafts/episode_1/script_plan_normalized_script.json").unlink()
+        patched = await session.call_tool(
+            "patch_draft",
+            {
+                **args,
+                "content": opened.structuredContent["draft"]["content"],
+                "base_revision": opened.structuredContent["draft"]["revision"],
+                "accept_formal_revision": None,
+                "accepts_formal_revision": True,
+                "source": None,
+                "updates_source": True,
+            },
+        )
 
     draft = read_quarantine(remote_projects.get_project_path("demo"), 1, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
     assert not patched.isError
@@ -1095,25 +1111,27 @@ async def test_remote_mcp_draft_respects_migration_failure_gate(remote_server, r
         schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
     )
     app = _mounted(remote_server)
-    async with remote_server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://localhost",
             headers={"Authorization": "Bearer arc-valid"},
             follow_redirects=True,
-        ) as client:
-            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    result = await session.call_tool(
-                        "discard_draft",
-                        {
-                            "project": "demo",
-                            "episode": 1,
-                            "doc_type": "drama_script_plan",
-                            "base_revision": "sha256-v1:" + "0" * 64,
-                        },
-                    )
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        result = await session.call_tool(
+            "discard_draft",
+            {
+                "project": "demo",
+                "episode": 1,
+                "doc_type": "drama_script_plan",
+                "base_revision": "sha256-v1:" + "0" * 64,
+            },
+        )
 
     assert result.isError
     assert result.structuredContent["problem"]["code"] == MIGRATION_FAILURE_CODE

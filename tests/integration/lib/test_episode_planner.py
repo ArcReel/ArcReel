@@ -120,9 +120,8 @@ class TestParseDraft:
         """字符串里带未转义引号 → 非法 JSON，拒绝并记录原始输出。"""
         raw = '{"episodes": [{"title": "他说"你好"", "hook": "h", "end_anchor": "锚点"}]}'
 
-        with caplog.at_level("WARNING", logger="lib.episode_planner"):
-            with pytest.raises(_DraftRejected) as exc_info:
-                EpisodePlanner._parse_draft(raw, NarrationPlanDraft)
+        with caplog.at_level("WARNING", logger="lib.episode_planner"), pytest.raises(_DraftRejected) as exc_info:
+            EpisodePlanner._parse_draft(raw, NarrationPlanDraft)
 
         assert "不是合法 JSON" in exc_info.value.reasons[0]
         assert any(raw[:20] in record.getMessage() for record in caplog.records)
@@ -131,9 +130,8 @@ class TestParseDraft:
         """顶层是裸 episode 对象（缺 episodes wrapper）→ 结构错误，拒绝而不机械补 wrapper。"""
         raw = json.dumps({"title": "山村少年", "hook": "h", "end_anchor": ANCHOR_EP1}, ensure_ascii=False)
 
-        with caplog.at_level("WARNING", logger="lib.episode_planner"):
-            with pytest.raises(_DraftRejected) as exc_info:
-                EpisodePlanner._parse_draft(raw, NarrationPlanDraft)
+        with caplog.at_level("WARNING", logger="lib.episode_planner"), pytest.raises(_DraftRejected) as exc_info:
+            EpisodePlanner._parse_draft(raw, NarrationPlanDraft)
 
         assert "不符合 schema" in exc_info.value.reasons[0]
         assert "episodes" in exc_info.value.reasons[0]

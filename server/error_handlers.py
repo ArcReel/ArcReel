@@ -64,10 +64,7 @@ def _cors_headers_for(
     if allow_credentials:
         headers["Access-Control-Allow-Credentials"] = "true"
 
-    if allow_all_origins and allow_credentials:
-        headers["Access-Control-Allow-Origin"] = origin
-        headers["Vary"] = "Origin"
-    elif not allow_all_origins and origin in allow_origins:
+    if (allow_all_origins and allow_credentials) or (not allow_all_origins and origin in allow_origins):
         headers["Access-Control-Allow-Origin"] = origin
         headers["Vary"] = "Origin"
 

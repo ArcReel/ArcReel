@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import json
 import os
@@ -608,7 +609,7 @@ async def test_patch_draft_revision_covers_source_metadata_without_blocking_even
     snapshot = path.read_text(encoding="utf-8")
     path.unlink()
     os.mkfifo(path)
-    snapshot_writer = subprocess.Popen(
+    snapshot_writer = subprocess.Popen(  # noqa: ASYNC220 -- 用例刻意用阻塞子进程 + FIFO 探测事件循环是否被卡住，改异步子进程即失去该判据
         [
             sys.executable,
             "-c",
@@ -652,11 +653,9 @@ with open(sys.argv[1], "w", encoding="utf-8") as fifo:
         if snapshot_writer.poll() is None:
             snapshot_writer.terminate()
         await asyncio.to_thread(snapshot_writer.wait, 10)
-        try:
+        # The child may close stdin after its FIFO write completes.
+        with contextlib.suppress(BrokenPipeError):
             snapshot_writer.stdin.close()
-        except BrokenPipeError:
-            # The child may close stdin after its FIFO write completes.
-            pass
         snapshot_writer.stdout.close()
         if not patching.done():
             patching.cancel()

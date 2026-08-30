@@ -1496,7 +1496,7 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
     assert result["resource_id"] == "E1U1"
     # 传给咽喉层的恰是源 sheet 路径（项目目录内真实文件），而非临时压缩副本——
     # 压缩已下沉到 MediaGenerator 咽喉层
-    refs = [Path(p).resolve() for p in captured["reference_images"]]
+    refs = [Path(p).resolve() for p in captured["reference_images"]]  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
     assert refs == [
         (proj_dir / "characters" / "张三.png").resolve(),
         (proj_dir / "scenes" / "酒馆.png").resolve(),

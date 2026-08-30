@@ -1302,10 +1302,8 @@ class SessionManager:
                 managed.status = "error"
 
             # Drain the inbox processor
-            try:
+            with contextlib.suppress(Exception):
                 managed._inbox.put_nowait(None)
-            except Exception:
-                pass
             if managed._process_task is not None and not managed._process_task.done():
                 try:
                     await asyncio.wait_for(managed._process_task, timeout=5.0)
@@ -1727,7 +1725,7 @@ class SessionManager:
         meta = await self.meta_store.get(session_id)
         return meta.status if meta else None
 
-    async def shutdown_gracefully(self, timeout: float = 30.0) -> None:
+    async def shutdown_gracefully(self) -> None:
         """Gracefully shutdown all sessions using the actor teardown path."""
         patrol = getattr(self, "_patrol_task", None)
         if patrol is not None and not patrol.done():

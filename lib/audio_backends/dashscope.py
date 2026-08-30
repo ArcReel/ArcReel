@@ -9,6 +9,7 @@ schema 依据 docs/api-docs/providers/dashscope.md 所列一手官方文档。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -197,4 +198,4 @@ class DashScopeAudioBackend:
             if not resp.content:
                 # 200 但空体：不写 0 字节 wav
                 raise _EmptyDownloadError(f"DashScope 音频下载返回空内容: {safe_url}")
-            output_path.write_bytes(resp.content)
+            await asyncio.to_thread(output_path.write_bytes, resp.content)

@@ -70,9 +70,11 @@ def _m4a_bytes(duration_seconds: float = 3.0) -> bytes:
 
 class TestFfprobeUnavailable:
     async def test_returns_none_without_spawning(self):
-        with patch("lib.audio_utils.shutil.which", return_value=None):
-            with patch("lib.audio_utils.asyncio.create_subprocess_exec") as spawn:
-                result = await audio_utils_module.probe_audio_duration_seconds(wav_bytes(3), ".wav")
+        with (
+            patch("lib.audio_utils.shutil.which", return_value=None),
+            patch("lib.audio_utils.asyncio.create_subprocess_exec") as spawn,
+        ):
+            result = await audio_utils_module.probe_audio_duration_seconds(wav_bytes(3), ".wav")
         assert result is None
         spawn.assert_not_called()
 

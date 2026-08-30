@@ -480,7 +480,7 @@ class OptionsAssembler:
                     }
 
                 p = Path(file_path)
-                resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
+                resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()  # noqa: ASYNC240 -- 仅路径解析（resolve），不读文件内容
                 try:
                     current = resolved.read_text(encoding="utf-8")
                 except OSError as read_err:
@@ -602,7 +602,7 @@ class OptionsAssembler:
             backup = json_backups.pop(tool_use_id, None) if tool_use_id else None
 
             p = Path(file_path)
-            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
+            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()  # noqa: ASYNC240 -- 仅路径解析（resolve），不读文件内容
 
             try:
                 actual = resolved.read_text(encoding="utf-8")

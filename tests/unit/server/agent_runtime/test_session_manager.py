@@ -373,7 +373,7 @@ class TestSessionManager:
         await session_manager._unsubscribe(meta.id, queue)
         assert not managed.channel.has_subscribers
 
-        await session_manager.shutdown_gracefully(timeout=0.01)
+        await session_manager.shutdown_gracefully()
         assert client.disconnected is True
         assert session_manager.sessions == {}
 

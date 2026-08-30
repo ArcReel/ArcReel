@@ -71,7 +71,7 @@ def _new_session_messages() -> list[dict]:
     ]
 
 
-async def _wait_for_entries(store: EventLogStore, session_id: str, count: int, timeout: float = 5.0) -> list[dict]:
+async def _wait_for_entries(store: EventLogStore, session_id: str, count: int, timeout: float = 5.0) -> list[dict]:  # noqa: ASYNC109 -- 测试轮询 helper 的等待上限，非生产取消语义
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
         entries = await store.list_after(session_id)
@@ -82,7 +82,7 @@ async def _wait_for_entries(store: EventLogStore, session_id: str, count: int, t
         await asyncio.sleep(0.02)
 
 
-async def _wait_for_status(manager: SessionManager, session_id: str, status: str, timeout: float = 5.0) -> None:
+async def _wait_for_status(manager: SessionManager, session_id: str, status: str, timeout: float = 5.0) -> None:  # noqa: ASYNC109 -- 测试轮询 helper 的等待上限，非生产取消语义
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
         managed = manager.sessions.get(session_id)
@@ -151,9 +151,9 @@ class TestNewSessionEventLogFlow:
         with (
             patch.object(manager, "_build_options", new=build_options),
             patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            pytest.raises(AgentStartupError) as exc_info,
         ):
-            with pytest.raises(AgentStartupError) as exc_info:
-                await manager.send_new_session("demo", "hello")
+            await manager.send_new_session("demo", "hello")
 
         assert exc_info.value.failure_observation is not None
         assert exc_info.value.failure_observation["phase"] == "startup"
@@ -168,9 +168,9 @@ class TestNewSessionEventLogFlow:
         with (
             patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
             patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            pytest.raises(AgentStartupError) as exc_info,
         ):
-            with pytest.raises(AgentStartupError) as exc_info:
-                await manager.send_new_session("demo", "hello")
+            await manager.send_new_session("demo", "hello")
 
         assert exc_info.value.failure_observation is not None
         assert exc_info.value.failure_observation["phase"] == "startup"
@@ -187,9 +187,9 @@ class TestNewSessionEventLogFlow:
                 new=AsyncMock(side_effect=RuntimeError("inbox processor crashed before init")),
             ),
             patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            pytest.raises(AgentStartupError) as exc_info,
         ):
-            with pytest.raises(AgentStartupError) as exc_info:
-                await manager.send_new_session("demo", "hello")
+            await manager.send_new_session("demo", "hello")
 
         assert manager.sessions == {}
         assert exc_info.value.failure_observation is not None
@@ -700,14 +700,14 @@ class TestNewSessionEventLogFlow:
                 new=AsyncMock(side_effect=RuntimeError("db down")),
             ),
             patch.object(manager.meta_store, "update_status", new=update_status_spy),
+            pytest.raises(RuntimeError),
         ):
-            with pytest.raises(RuntimeError):
-                await manager.send_new_session(
-                    "demo",
-                    "帮我写分镜",
-                    user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
-                    client_key="ck-fail-new",
-                )
+            await manager.send_new_session(
+                "demo",
+                "帮我写分镜",
+                user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
+                client_key="ck-fail-new",
+            )
 
         # 状态回写：会话进入可观察的 error 态而非静默成功
         meta = await manager.meta_store.get(SDK_ID)
@@ -745,14 +745,14 @@ class TestNewSessionEventLogFlow:
                 new=AsyncMock(side_effect=RuntimeError("db down")),
             ),
             patch.object(manager.meta_store, "update_status", new=update_status_spy),
+            pytest.raises(RuntimeError),
         ):
-            with pytest.raises(RuntimeError):
-                await manager.send_new_session(
-                    "demo",
-                    "帮我写分镜",
-                    user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
-                    client_key="ck-fail-early-result",
-                )
+            await manager.send_new_session(
+                "demo",
+                "帮我写分镜",
+                user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
+                client_key="ck-fail-early-result",
+            )
 
         meta = await manager.meta_store.get(SDK_ID)
         assert meta is not None
@@ -780,18 +780,20 @@ class TestNewSessionEventLogFlow:
             patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: next(clients)),
             patch("server.agent_runtime.session_manager.tag_session", None),
         ):
-            with patch.object(
-                manager.event_log_store,
-                "append_user_entry",
-                new=AsyncMock(side_effect=RuntimeError("db down")),
+            with (
+                patch.object(
+                    manager.event_log_store,
+                    "append_user_entry",
+                    new=AsyncMock(side_effect=RuntimeError("db down")),
+                ),
+                pytest.raises(RuntimeError),
             ):
-                with pytest.raises(RuntimeError):
-                    await manager.send_new_session(
-                        "demo",
-                        "帮我写分镜",
-                        user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
-                        client_key="ck-retry-new",
-                    )
+                await manager.send_new_session(
+                    "demo",
+                    "帮我写分镜",
+                    user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
+                    client_key="ck-retry-new",
+                )
 
             # 失败会话（SDK_ID）本身无任何条目残留：append 写入真失败，非部分写入
             assert not await manager.event_log_store.has_entries(SDK_ID)

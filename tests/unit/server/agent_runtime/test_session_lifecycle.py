@@ -192,9 +192,11 @@ class TestCleanup:
         result_msg = {"type": "result", "subtype": "success", "is_error": False}
 
         try:
-            with patch.object(mgr, "_schedule_cleanup") as mock_schedule:
-                with patch.object(mgr.meta_store, "update_status", new_callable=AsyncMock):
-                    await mgr._finalize_turn(managed, result_msg)
+            with (
+                patch.object(mgr, "_schedule_cleanup") as mock_schedule,
+                patch.object(mgr.meta_store, "update_status", new_callable=AsyncMock),
+            ):
+                await mgr._finalize_turn(managed, result_msg)
 
             mock_schedule.assert_called_once_with("s1")
             assert managed.status == "completed"
@@ -299,9 +301,11 @@ class TestEnsureCapacity:
             mgr.sessions[f"s{i}"] = m
 
         try:
-            with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=3):
-                with pytest.raises(SessionCapacityError, match="正在进行的会话"):
-                    await mgr._ensure_capacity()
+            with (
+                patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=3),
+                pytest.raises(SessionCapacityError, match="正在进行的会话"),
+            ):
+                await mgr._ensure_capacity()
         finally:
             for i in range(3):
                 await mgr.close_session(f"s{i}")
@@ -315,9 +319,11 @@ class TestEnsureCapacity:
             mgr.sessions[f"s{i}"] = m
 
         try:
-            with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=3):
-                with pytest.raises(SessionCapacityError, match="3个"):
-                    await mgr._ensure_capacity()
+            with (
+                patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=3),
+                pytest.raises(SessionCapacityError, match="3个"),
+            ):
+                await mgr._ensure_capacity()
         finally:
             for i in range(3):
                 await mgr.close_session(f"s{i}")

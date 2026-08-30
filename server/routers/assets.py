@@ -185,9 +185,8 @@ async def update_asset(
         a = await repo.get_by_id(asset_id)
         if not a:
             raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
-        if "name" in patch and patch["name"] != a.name:
-            if await repo.exists(a.type, patch["name"]):
-                raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=patch["name"]))
+        if "name" in patch and patch["name"] != a.name and await repo.exists(a.type, patch["name"]):
+            raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=patch["name"]))
         try:
             a = await repo.update(asset_id, **patch)
             await s.commit()
@@ -326,7 +325,7 @@ async def from_project(
             if (
                 candidate.exists()
                 and candidate.is_file()
-                and os.path.realpath(candidate.parent) == os.path.realpath(audio_refs_dir)
+                and os.path.realpath(candidate.parent) == os.path.realpath(audio_refs_dir)  # noqa: ASYNC240 -- 仅路径解析（realpath）做越界校验，不读文件内容
             ):
                 source_audio_path = candidate
         except (ValueError, FileNotFoundError):

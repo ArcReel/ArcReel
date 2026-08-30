@@ -786,7 +786,7 @@ class TestManifestInvariants:
         pm.sync_agent_profile(project_dir)
 
         entries = _read_manifest(project_dir)["entries"]
-        for key in entries.keys():
+        for key in entries:
             assert "\\" not in key, f"manifest key has backslash: {key!r}"
 
     def test_manifest_skipped_when_unchanged_across_repair(self, env):

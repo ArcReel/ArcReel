@@ -23,9 +23,7 @@ def _drop_dedup_index_if_exists() -> None:
     """跨方言安全 drop：DB 可能因历史迁移漂移而没建过该索引，避免 OperationalError。"""
     bind = op.get_bind()
     dialect = bind.dialect.name
-    if dialect == "sqlite":
-        op.execute("DROP INDEX IF EXISTS idx_tasks_dedupe_active")
-    elif dialect == "postgresql":
+    if dialect in ("sqlite", "postgresql"):
         op.execute("DROP INDEX IF EXISTS idx_tasks_dedupe_active")
     else:
         op.drop_index("idx_tasks_dedupe_active", table_name="tasks")

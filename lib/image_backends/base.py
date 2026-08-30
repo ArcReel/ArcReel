@@ -20,7 +20,7 @@ def image_to_base64_data_uri(image_path: Path) -> str:
     return _image_to_data_uri(image_path, IMAGE_MIME_TYPES)
 
 
-async def download_image_to_path(url: str, output_path: Path, *, timeout: int = 60) -> None:
+async def download_image_to_path(url: str, output_path: Path, *, timeout: int = 60) -> None:  # noqa: ASYNC109 -- 转交 httpx 的 I/O 超时配置，非 async 取消 deadline
     """从 URL 异步下载图片到本地文件。"""
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, timeout=timeout)

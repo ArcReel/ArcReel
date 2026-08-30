@@ -13,9 +13,12 @@ def test_all_image_video_models_have_resolutions_populated():
     ark_provider_ids = {"ark", "ark-agent-plan"}
     for pid, meta in PROVIDER_REGISTRY.items():
         for mid, minfo in meta.models.items():
-            if minfo.media_type in ("image", "video"):
-                if not minfo.resolutions and not (pid in ark_provider_ids and mid.startswith("doubao-seedream")):
-                    missing.append(f"{pid}/{mid}")
+            if (
+                minfo.media_type in ("image", "video")
+                and not minfo.resolutions
+                and not (pid in ark_provider_ids and mid.startswith("doubao-seedream"))
+            ):
+                missing.append(f"{pid}/{mid}")
     assert missing == [], f"以下 image/video 模型缺少 resolutions: {missing}"
 
 

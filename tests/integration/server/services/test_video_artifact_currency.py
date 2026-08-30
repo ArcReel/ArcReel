@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, suppress
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -222,11 +222,9 @@ async def test_paid_video_guard_acquisition_defers_cancellation_until_the_guard_
     await asyncio.sleep(0)
     cancelled_before_guard = prepare.done()
     allow_acquire.set()
-    try:
+    # The guard state remains the assertion target after callers cancel preparation.
+    with suppress(asyncio.CancelledError):
         await prepare
-    except asyncio.CancelledError:
-        # The guard state remains the assertion target after callers cancel preparation.
-        pass
 
     assert not cancelled_before_guard
     assert guard_active

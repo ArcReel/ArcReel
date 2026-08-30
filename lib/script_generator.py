@@ -1432,14 +1432,18 @@ class ScriptGenerator:
         # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、内容确认随之失效。而放行
         # 依据是改写前的状态：不在此处补判，生成就会拿着用户从未过目的秒数走完付费的
         # prompt_authoring，落盘之后才在下次加载被拦下。
-        if migration_warnings and migrated_project is not None and gate_passed_before:
-            if gate_blocks_prompt_authoring(self.project_path, migrated_project, episode):
-                raise ValueError(
-                    f"第 {episode} 集 script_plan 时长已按当前模型档位收编改写（"
-                    + "；".join(warning.render() for warning in migration_warnings)
-                    + "），改写后的内容尚未完成内容确认，prompt_authoring 生成已中止；"
-                    "请在 Web 端完成本集 script_plan 的内容确认后重新生成"
-                )
+        if (
+            migration_warnings
+            and migrated_project is not None
+            and gate_passed_before
+            and gate_blocks_prompt_authoring(self.project_path, migrated_project, episode)
+        ):
+            raise ValueError(
+                f"第 {episode} 集 script_plan 时长已按当前模型档位收编改写（"
+                + "；".join(warning.render() for warning in migration_warnings)
+                + "），改写后的内容尚未完成内容确认，prompt_authoring 生成已中止；"
+                "请在 Web 端完成本集 script_plan 的内容确认后重新生成"
+            )
 
         try:
             draft = ReferenceScriptPlanDraft.model_validate(raw)

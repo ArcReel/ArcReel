@@ -161,9 +161,12 @@ def test_protected_script_plan_filenames_match_shared_constant() -> None:
     改名或新增变体会只落到其中一处，留出「文件已换名、写禁还拦旧名」的静默旁路。"""
     from lib.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 
-    assert AgentAccessPolicy._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM == frozenset(  # pyright: ignore[reportPrivateUsage]
-        AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))  # pyright: ignore[reportPrivateUsage]
-        for name in AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
+    assert (
+        frozenset(  # pyright: ignore[reportPrivateUsage]
+            AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))  # pyright: ignore[reportPrivateUsage]
+            for name in AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
+        )
+        == AgentAccessPolicy._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM
     )
 
 

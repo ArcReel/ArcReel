@@ -74,11 +74,9 @@ class TestViduConnectionTestUrl:
         assert route.call_count == 1
 
     def test_401_is_invalid_credential(self):
-        with _probe_route(status_code=401):
-            with pytest.raises(RuntimeError, match="凭证无效"):
-                vidu_shared.test_vidu_connection({"api_key": "vda_test"})
+        with _probe_route(status_code=401), pytest.raises(RuntimeError, match="凭证无效"):
+            vidu_shared.test_vidu_connection({"api_key": "vda_test"})
 
     def test_400_is_undecidable(self):
-        with _probe_route(status_code=400, body="CODEC parse error"):
-            with pytest.raises(RuntimeError, match="无法判定"):
-                vidu_shared.test_vidu_connection({"api_key": "vda_test"})
+        with _probe_route(status_code=400, body="CODEC parse error"), pytest.raises(RuntimeError, match="无法判定"):
+            vidu_shared.test_vidu_connection({"api_key": "vda_test"})

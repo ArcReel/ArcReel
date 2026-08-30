@@ -57,9 +57,8 @@ class TestListCredentials:
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.list_by_provider = AsyncMock(return_value=[_fake_cred()])
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.get("/api/v1/providers/gemini-aistudio/credentials")
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.get("/api/v1/providers/gemini-aistudio/credentials")
         assert resp.status_code == 200
         body = resp.json()
         assert len(body["credentials"]) == 1
@@ -79,23 +78,21 @@ class TestCreateCredential:
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.create = AsyncMock(return_value=_fake_cred())
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.post(
-                    "/api/v1/providers/gemini-aistudio/credentials",
-                    json={"name": "测试Key", "api_key": "AIza-new"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/providers/gemini-aistudio/credentials",
+                json={"name": "测试Key", "api_key": "AIza-new"},
+            )
         assert resp.status_code == 201
 
     def test_requires_name(self):
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.post(
-                    "/api/v1/providers/gemini-aistudio/credentials",
-                    json={"api_key": "AIza-new"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/providers/gemini-aistudio/credentials",
+                json={"api_key": "AIza-new"},
+            )
         assert resp.status_code == 422
 
 
@@ -124,12 +121,11 @@ class TestKlingTwoSecretCredential:
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.create = AsyncMock(return_value=_fake_kling_cred())
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.post(
-                    "/api/v1/providers/kling/credentials",
-                    json={"name": "可灵账号", "access_key": "AK-new", "secret_key": "SK-new"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/providers/kling/credentials",
+                json={"name": "可灵账号", "access_key": "AK-new", "secret_key": "SK-new"},
+            )
         assert resp.status_code == 201
         mock_repo.create.assert_awaited_once()
         kwargs = mock_repo.create.await_args.kwargs
@@ -140,12 +136,11 @@ class TestKlingTwoSecretCredential:
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.create = AsyncMock(return_value=_fake_kling_cred())
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.post(
-                    "/api/v1/providers/kling/credentials",
-                    json={"name": "  可灵账号  ", "access_key": "  AK-new\n", "secret_key": "\tSK-new "},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/providers/kling/credentials",
+                json={"name": "  可灵账号  ", "access_key": "  AK-new\n", "secret_key": "\tSK-new "},
+            )
         assert resp.status_code == 201
         kwargs = mock_repo.create.await_args.kwargs
         # 粘贴密钥常带首尾空白/换行，边界处统一 strip，避免静默鉴权失败
@@ -157,9 +152,8 @@ class TestKlingTwoSecretCredential:
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.list_by_provider = AsyncMock(return_value=[_fake_kling_cred()])
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.get("/api/v1/providers/kling/credentials")
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.get("/api/v1/providers/kling/credentials")
         assert resp.status_code == 200
         cred = resp.json()["credentials"][0]
         # 两段各自独立脱敏，互不混用，且不泄漏明文
@@ -175,12 +169,11 @@ class TestKlingTwoSecretCredential:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/1",
-                    json={"secret_key": "SK-rotated"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/1",
+                json={"secret_key": "SK-rotated"},
+            )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
         assert kwargs["secret_key"] == "SK-rotated"
@@ -191,12 +184,11 @@ class TestKlingTwoSecretCredential:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/1",
-                    json={"secret_key": "  SK-rotated\n"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/1",
+                json={"secret_key": "  SK-rotated\n"},
+            )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
         # 提供的密钥 strip 首尾空白；未提供的字段不进 kwargs（保留既有值）
@@ -213,12 +205,11 @@ class TestCredentialGroupSwitch:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_cred(provider="kling", api_key="AK-old"))
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/1",
-                    json={"access_key": "AK-new", "secret_key": "SK-new"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/1",
+                json={"access_key": "AK-new", "secret_key": "SK-new"},
+            )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
         assert kwargs["access_key"] == "AK-new"
@@ -231,12 +222,11 @@ class TestCredentialGroupSwitch:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/1",
-                    json={"api_key": "AK-bearer"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/1",
+                json={"api_key": "AK-bearer"},
+            )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
         assert kwargs["api_key"] == "AK-bearer"
@@ -249,12 +239,11 @@ class TestCredentialGroupSwitch:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/1",
-                    json={"api_key": "AK-bearer", "access_key": "AK-new", "secret_key": "SK-new"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/1",
+                json={"api_key": "AK-bearer", "access_key": "AK-new", "secret_key": "SK-new"},
+            )
         assert resp.status_code == 422
         mock_repo.update.assert_not_awaited()
 
@@ -264,12 +253,11 @@ class TestCredentialGroupSwitch:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/1",
-                    json={"secret_key": "SK-rotated"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/1",
+                json={"secret_key": "SK-rotated"},
+            )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
         assert kwargs["secret_key"] == "SK-rotated"
@@ -282,12 +270,11 @@ class TestCredentialGroupSwitch:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/1",
-                    json={"name": "改名"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/1",
+                json={"name": "改名"},
+            )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
         assert kwargs == {"name": "改名"}
@@ -297,12 +284,11 @@ class TestCredentialGroupSwitch:
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.create = AsyncMock(return_value=_fake_kling_cred())
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.post(
-                    "/api/v1/providers/kling/credentials",
-                    json={"name": "可灵账号", "api_key": "AK-bearer", "access_key": "AK-new", "secret_key": "SK-new"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/providers/kling/credentials",
+                json={"name": "可灵账号", "api_key": "AK-bearer", "access_key": "AK-new", "secret_key": "SK-new"},
+            )
         assert resp.status_code == 422
         mock_repo.create.assert_not_awaited()
 
@@ -312,12 +298,11 @@ class TestCredentialGroupSwitch:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_cred(provider="gemini-aistudio"))
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/gemini-aistudio/credentials/1",
-                    json={"api_key": "AIza-new"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/gemini-aistudio/credentials/1",
+                json={"api_key": "AIza-new"},
+            )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
         assert kwargs == {"api_key": "AIza-new"}
@@ -331,12 +316,11 @@ class TestCredentialGroupSwitch:
             return_value=_fake_kling_cred(api_key="AK-old", access_key="AK-legacy", secret_key="SK-legacy")
         )
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/1",
-                    json={"api_key": "AK-rotated"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/1",
+                json={"api_key": "AK-rotated"},
+            )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
         assert kwargs["api_key"] == "AK-rotated"
@@ -349,12 +333,11 @@ class TestCredentialGroupSwitch:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/1",
-                    json={"api_key": "AK-bearer", "secret_key": "SK-stray"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/1",
+                json={"api_key": "AK-bearer", "secret_key": "SK-stray"},
+            )
         assert resp.status_code == 422
         mock_repo.update.assert_not_awaited()
 
@@ -363,12 +346,11 @@ class TestCredentialGroupSwitch:
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.create = AsyncMock(return_value=_fake_kling_cred())
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.post(
-                    "/api/v1/providers/kling/credentials",
-                    json={"name": "可灵账号", "api_key": "AK-bearer", "access_key": "AK-stray"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/providers/kling/credentials",
+                json={"name": "可灵账号", "api_key": "AK-bearer", "access_key": "AK-stray"},
+            )
         assert resp.status_code == 422
         mock_repo.create.assert_not_awaited()
 
@@ -378,12 +360,11 @@ class TestCredentialGroupSwitch:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=None)
         mock_repo.update = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.patch(
-                    "/api/v1/providers/kling/credentials/999",
-                    json={"api_key": "AK-bearer", "access_key": "AK-new", "secret_key": "SK-new"},
-                )
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/providers/kling/credentials/999",
+                json={"api_key": "AK-bearer", "access_key": "AK-new", "secret_key": "SK-new"},
+            )
         assert resp.status_code == 404
         mock_repo.update.assert_not_awaited()
 
@@ -394,18 +375,16 @@ class TestActivateCredential:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_cred(provider="gemini-aistudio"))
         mock_repo.activate = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.post("/api/v1/providers/gemini-aistudio/credentials/1/activate")
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.post("/api/v1/providers/gemini-aistudio/credentials/1/activate")
         assert resp.status_code == 204
 
     def test_returns_404_for_nonexistent(self):
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=None)
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.post("/api/v1/providers/gemini-aistudio/credentials/999/activate")
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.post("/api/v1/providers/gemini-aistudio/credentials/999/activate")
         assert resp.status_code == 404
 
 
@@ -415,7 +394,6 @@ class TestDeleteCredential:
         mock_repo = MagicMock(spec=CredentialRepository)
         mock_repo.get_by_id = AsyncMock(return_value=_fake_cred())
         mock_repo.delete = AsyncMock()
-        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
-            with TestClient(app) as client:
-                resp = client.delete("/api/v1/providers/gemini-aistudio/credentials/1")
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+            resp = client.delete("/api/v1/providers/gemini-aistudio/credentials/1")
         assert resp.status_code == 204

@@ -35,11 +35,10 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_batches_user_id"), "batches", ["user_id"], unique=False)
 
-    with preserve_sqlite_indexes("tasks"):
-        with op.batch_alter_table("tasks", schema=None) as batch_op:
-            batch_op.add_column(sa.Column("batch_id", sa.String(), nullable=True))
-            batch_op.create_foreign_key("fk_tasks_batch_id_batches", "batches", ["batch_id"], ["batch_id"])
-            batch_op.create_index(batch_op.f("ix_tasks_batch_id"), ["batch_id"], unique=False)
+    with preserve_sqlite_indexes("tasks"), op.batch_alter_table("tasks", schema=None) as batch_op:
+        batch_op.add_column(sa.Column("batch_id", sa.String(), nullable=True))
+        batch_op.create_foreign_key("fk_tasks_batch_id_batches", "batches", ["batch_id"], ["batch_id"])
+        batch_op.create_index(batch_op.f("ix_tasks_batch_id"), ["batch_id"], unique=False)
 
     op.create_table(
         "batch_tasks",
@@ -57,9 +56,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("batch_tasks")
     op.drop_index(op.f("ix_tasks_batch_id"), table_name="tasks")
-    with preserve_sqlite_indexes("tasks"):
-        with op.batch_alter_table("tasks", schema=None) as batch_op:
-            batch_op.drop_constraint("fk_tasks_batch_id_batches", type_="foreignkey")
-            batch_op.drop_column("batch_id")
+    with preserve_sqlite_indexes("tasks"), op.batch_alter_table("tasks", schema=None) as batch_op:
+        batch_op.drop_constraint("fk_tasks_batch_id_batches", type_="foreignkey")
+        batch_op.drop_column("batch_id")
     op.drop_index(op.f("ix_batches_user_id"), table_name="batches")
     op.drop_table("batches")

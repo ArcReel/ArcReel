@@ -122,7 +122,7 @@ class GrokVideoBackend:
         if request.resolution is not None:
             generate_kwargs["resolution"] = request.resolution
 
-        if request.start_image and Path(request.start_image).exists():
+        if request.start_image and Path(request.start_image).exists():  # noqa: ASYNC240 -- 首帧存在性检查，本地元数据；读图转 data URI 已 to_thread 卸载
             image_path = Path(request.start_image)
             generate_kwargs["image_url"] = await asyncio.to_thread(image_to_data_uri, image_path, IMAGE_MIME_TYPES)
 

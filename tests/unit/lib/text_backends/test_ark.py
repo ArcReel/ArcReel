@@ -78,9 +78,8 @@ class TestProperties:
         }
 
     def test_no_api_key_raises(self):
-        with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(ValueError, match="API Key"):
-                ArkTextBackend()
+        with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="API Key"):
+            ArkTextBackend()
 
 
 class TestGenerate:
@@ -613,9 +612,9 @@ class TestSuccessPathReverify:
                 side_effect=ConnectionError("503 service unavailable"),
             ) as mock_instructor,
             bounded_poll_clock(),
+            pytest.raises(ConnectionError),
         ):
-            with pytest.raises(ConnectionError):
-                await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
+            await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         # 原生 200 调用只发生一次；降级层自身重试 3 次穷尽
         backend._test_client.chat.completions.create.assert_called_once()

@@ -303,9 +303,8 @@ class TestGeminiRetryBehavior:
         gemini_backend._client.aio.operations.get = AsyncMock(side_effect=ValueError("invalid response"))
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
-        with pytest.raises(ValueError, match="invalid response"):
-            with bounded_poll_clock():
-                await gemini_backend.generate(request)
+        with pytest.raises(ValueError, match="invalid response"), bounded_poll_clock():
+            await gemini_backend.generate(request)
 
         # 创建只调用一次
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
@@ -411,9 +410,8 @@ class TestGeminiResumeVideo:
         gemini_backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=pending_op)
 
         request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
-        with bounded_poll_clock():
-            with pytest.raises(ResumeExpiredError) as ei:
-                await gemini_backend.resume_video("op-xyz", request)
+        with bounded_poll_clock(), pytest.raises(ResumeExpiredError) as ei:
+            await gemini_backend.resume_video("op-xyz", request)
         assert ei.value.job_id == "op-xyz"
 
     async def test_initial_get_not_found_classified_as_resume_expired(self, gemini_backend, tmp_path):

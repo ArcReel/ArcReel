@@ -180,9 +180,7 @@ def _mention_owner_map(occurrences: list[_AssetOccurrence]) -> dict[str, _AssetO
     owners: dict[str, _AssetOccurrence] = {}
     for item in occurrences:
         current = owners.get(item.key)
-        if current is None or item.spec.namespace_priority < current.spec.namespace_priority:
-            owners[item.key] = item
-        elif item.spec.namespace_priority == current.spec.namespace_priority:
+        if current is None or item.spec.namespace_priority <= current.spec.namespace_priority:
             owners[item.key] = item
     return owners
 

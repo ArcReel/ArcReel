@@ -185,7 +185,6 @@ class GridManager:
                 and old.status not in ("pending", "generating")
                 and old.scene_ids
                 and set(old.scene_ids) <= scene_ids
-            ):
-                if self.delete(old.id):
-                    deleted += 1
+            ) and self.delete(old.id):
+                deleted += 1
         return deleted

@@ -168,7 +168,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
 
         # 收集所有参考图：start_image + reference_images
         refs = []
-        if request.start_image and Path(request.start_image).exists():
+        if request.start_image and Path(request.start_image).exists():  # noqa: ASYNC240 -- 首帧存在性检查，本地元数据
             refs.append(_encode_start_image(Path(request.start_image)))
         if request.reference_images:
             for ref_path in request.reference_images:

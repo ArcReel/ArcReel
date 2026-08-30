@@ -120,9 +120,8 @@ def test_locked_episode_script_detects_rebind(tmp_path: Path) -> None:
     def _resolver(_project: dict) -> str:
         return next(seq)
 
-    with pytest.raises(EpisodeScriptReboundError):
-        with pm.locked_episode_script(name, _resolver, validate=False) as script:
-            script["video_units"] = [{"unit_id": "SHOULD_NOT_PERSIST"}]
+    with pytest.raises(EpisodeScriptReboundError), pm.locked_episode_script(name, _resolver, validate=False) as script:
+        script["video_units"] = [{"unit_id": "SHOULD_NOT_PERSIST"}]
 
     # 旧脚本未被写入（with 体未执行）
     units = pm.load_script(name, "episode_1.json").get("video_units") or []

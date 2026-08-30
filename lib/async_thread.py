@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Self
@@ -78,10 +79,8 @@ async def run_sync_transaction[**P, T](
     try:
         return await asyncio.shield(worker)
     except asyncio.CancelledError:
-        try:
+        with contextlib.suppress(Exception):
             await run_noninterruptible_async(worker)
-        except Exception:
-            pass
         raise
 
 

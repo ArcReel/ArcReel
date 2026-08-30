@@ -722,10 +722,14 @@ class EpisodePlanner:
                 continue
             rel = source_range.get("source_file")
             end = source_range.get("end")
-            if isinstance(rel, str) and isinstance(end, int) and not isinstance(end, bool):
-                if best_num is None or num > best_num:
-                    best_num = num
-                    last = (rel, end)
+            if (
+                isinstance(rel, str)
+                and isinstance(end, int)
+                and not isinstance(end, bool)
+                and (best_num is None or num > best_num)
+            ):
+                best_num = num
+                last = (rel, end)
         cursor = project.get("planning_cursor")
         cur: tuple[str, int] | None = None
         if isinstance(cursor, Mapping):

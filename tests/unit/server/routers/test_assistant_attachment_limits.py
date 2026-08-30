@@ -73,9 +73,11 @@ def test_send_and_rewrite_return_same_localized_422_for_oversized_image(
 ):
     body["images"] = [_image("A" * (assistant.MAX_IMAGE_BASE64_CHARS + 1))]
 
-    with patch.object(assistant.assistant_service, service_method, new=AsyncMock()) as service_call:
-        with _build_client() as client:
-            response = client.post(path, json=body, headers={"Accept-Language": locale})
+    with (
+        patch.object(assistant.assistant_service, service_method, new=AsyncMock()) as service_call,
+        _build_client() as client,
+    ):
+        response = client.post(path, json=body, headers={"Accept-Language": locale})
 
     assert response.status_code == 422
     assert response.json() == {"detail": expected_detail}
@@ -102,9 +104,11 @@ def test_send_and_rewrite_return_same_localized_422_for_oversized_image_total(
     images[-1]["data"] += "A"
     body["images"] = images
 
-    with patch.object(assistant.assistant_service, service_method, new=AsyncMock()) as service_call:
-        with _build_client() as client:
-            response = client.post(path, json=body, headers={"Accept-Language": "en"})
+    with (
+        patch.object(assistant.assistant_service, service_method, new=AsyncMock()) as service_call,
+        _build_client() as client,
+    ):
+        response = client.post(path, json=body, headers={"Accept-Language": "en"})
 
     assert response.status_code == 422
     assert response.json() == {"detail": "The original images must be no larger than 25 MB in total"}

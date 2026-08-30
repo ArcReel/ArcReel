@@ -175,10 +175,7 @@ class GridGeneration:
         # 因此这类记录等价于「已切分」，用 created_at 充当落格时间；若一律读成未切分，
         # 前端会提示待切分，用户照做就会用旧联合图覆盖之后单独重生成过的分镜图。
         # 显式为 null 的新记录、以及 status="splitting"（联合图已就绪但未落格）保持未切分。
-        if "split_at" not in data and raw_status == "completed":
-            split_at = data["created_at"]
-        else:
-            split_at = data.get("split_at")
+        split_at = data["created_at"] if "split_at" not in data and raw_status == "completed" else data.get("split_at")
         return cls(
             id=data["id"],
             episode=data["episode"],

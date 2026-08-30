@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from copy import deepcopy
 from typing import Annotated, Any, Literal
 
@@ -199,10 +199,8 @@ async def _with_progress[T](awaitable: Awaitable[T], context: Context, message: 
         return await awaitable
     finally:
         task.cancel()
-        try:
+        with suppress(asyncio.CancelledError, Exception):
             await task
-        except (asyncio.CancelledError, Exception):
-            pass
 
 
 def _default_services(projects: ProjectManager) -> Services:

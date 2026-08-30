@@ -107,7 +107,7 @@ async def _remove_staged_output_on_error(path: Path | None):
         yield
     except BaseException:
         if path is not None:
-            path.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)  # noqa: ASYNC240 -- 失败路径删除 staging 文件，本地元数据
         raise
 
 
@@ -721,7 +721,7 @@ class MediaGenerator:
         )
         os.close(fd)
         staged_path = Path(staged_name)
-        staged_path.unlink()
+        staged_path.unlink()  # noqa: ASYNC240 -- 删除 mkstemp 占位文件，本地元数据
 
         # audio 合成字符数 → 计费 token 的语义转写已收进 ledger union 分发（_settlement_from_result），
         # 此处仅把 backend 结果对象递交给 call.success。
@@ -747,7 +747,7 @@ class MediaGenerator:
                 if before_submit is not None:
                     await before_submit()
                 result = await self._audio_backend.synthesize(request)
-                if not staged_path.is_file():
+                if not staged_path.is_file():  # noqa: ASYNC240 -- staging 产物存在性检查，本地元数据
                     raise RuntimeError("audio backend completed without a regular output file")
                 call.success(result)
 
@@ -775,7 +775,7 @@ class MediaGenerator:
                 raise RuntimeError("audio commit completed without a regular formal output file")
             return output_path, version
         finally:
-            staged_path.unlink(missing_ok=True)
+            staged_path.unlink(missing_ok=True)  # noqa: ASYNC240 -- 收尾删除 staging 文件，本地元数据
 
     def generate_video(
         self,

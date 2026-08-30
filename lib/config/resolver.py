@@ -1079,10 +1079,7 @@ class ConfigResolver:
         if project is not None:
             override = project.get("video_generate_audio")
             if override is not None:
-                if isinstance(override, str):
-                    value = _parse_bool(override)
-                else:
-                    value = bool(override)
+                value = _parse_bool(override) if isinstance(override, str) else bool(override)
 
         return value
 
