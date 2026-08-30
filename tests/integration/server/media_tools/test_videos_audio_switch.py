@@ -27,22 +27,22 @@ from server.media_tools.context import ToolContext
 from server.services import video_batch_admission as admission_mod
 from server.services.video_batch_admission import admit_reference_video_batch
 from server.services.video_caps import assert_audio_switch_supported
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import _videos_tool_for_scope
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import videos_tool_for_scope
 
 _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
 _CONTROLLABLE = "ark/doubao-seedance-2-0-260128"
 
 
 def _episode_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "episode")
+    return videos_tool_for_scope(ctx, "episode")
 
 
 def _selected_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "selected")
+    return videos_tool_for_scope(ctx, "selected")
 
 
 def _all_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "all")
+    return videos_tool_for_scope(ctx, "all")
 
 
 async def _seed_settings(factory: async_sessionmaker[AsyncSession], **settings: str) -> None:
@@ -52,22 +52,6 @@ async def _seed_settings(factory: async_sessionmaker[AsyncSession], **settings: 
         for key, value in settings.items():
             await svc.set_setting(key, value)
         await session.commit()
-
-
-class _FakePM:
-    def __init__(self, project: dict[str, Any]) -> None:
-        self.project = project
-
-    def load_project(self, _name: str) -> dict[str, Any]:
-        return self.project
-
-
-def _ctx(tmp_path: Path, project: dict[str, Any]) -> ToolContext:
-    return ToolContext(
-        project_name="demo",
-        projects_root=tmp_path,
-        pm=_FakePM(project),
-    )
 
 
 def _unit_spec(unit: dict[str, Any]) -> TaskSpec:

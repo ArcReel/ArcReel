@@ -7,13 +7,13 @@ import pytest
 from server.services import generation_tasks, prompt_preview
 from tests.integration.server.services.generation_tasks_support import (
     FakeGenerator,
-    _ad_pm,
-    _async_return,
-    _fake_resolve_ctx,
     _FakePM,
-    _prepare_files,
-    _register_asset_sheet_claims,
-    _seed_current_storyboard,
+    ad_pm,
+    async_return,
+    fake_resolve_ctx,
+    prepare_files,
+    register_asset_sheet_claims,
+    seed_current_storyboard,
 )
 
 ITEM_ID = "E1S02"
@@ -54,7 +54,7 @@ def _drama_pm(project_path: Path) -> _FakePM:
             }
         ],
     }
-    _register_asset_sheet_claims(pm)
+    register_asset_sheet_claims(pm)
     return pm
 
 
@@ -63,13 +63,13 @@ def _pm_for(content_mode: str, project_path: Path) -> _FakePM:
         return _drama_pm(project_path)
     if content_mode == "ad":
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
-        pm = _ad_pm(project_path, with_sheet=True)
+        pm = ad_pm(project_path, with_sheet=True)
         shot = pm.script["shots"][1]
         shot["image_prompt"] = STRUCTURED_IMAGE_PROMPT
         shot["video_prompt"] = STRUCTURED_VIDEO_PROMPT
         return pm
     pm = _FakePM(project_path)
-    _register_asset_sheet_claims(pm)
+    register_asset_sheet_claims(pm)
     segment = pm.script["segments"][1]
     segment["image_prompt"] = STRUCTURED_IMAGE_PROMPT
     segment["video_prompt"] = {**STRUCTURED_VIDEO_PROMPT, "dialogue": [{"speaker": "Alice", "line": "hello"}]}
@@ -84,8 +84,8 @@ def _item_of(pm: _FakePM) -> dict:
 
 def _patch_execution(monkeypatch, pm: _FakePM, generator: FakeGenerator, *, register_artifacts: bool = False) -> None:
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(generator))
-    monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+    monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
+    monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
     monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
     if not register_artifacts:
         monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_a, **_kw: True)
@@ -100,7 +100,7 @@ class TestPreviewMatchesExecution:
 
     @pytest.mark.parametrize("content_mode", CONTENT_MODES)
     async def test_storyboard_image_prompt_is_verbatim(self, tmp_path, monkeypatch, content_mode):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
         generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
@@ -114,10 +114,10 @@ class TestPreviewMatchesExecution:
 
     @pytest.mark.parametrize("content_mode", CONTENT_MODES)
     async def test_video_prompt_is_verbatim(self, tmp_path, monkeypatch, content_mode):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
         (project_path / "storyboards" / f"scene_{ITEM_ID}.png").write_bytes(b"png")
-        _seed_current_storyboard(pm, ITEM_ID)
+        seed_current_storyboard(pm, ITEM_ID)
         generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
 
@@ -128,11 +128,11 @@ class TestPreviewMatchesExecution:
 
     async def test_drama_text_form_video_prompt_keeps_utterance_speech(self, tmp_path, monkeypatch):
         """文本形态不承载台词：发声序列仍由 utterances 决定，渲染层照常注入。"""
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _drama_pm(project_path)
         _item_of(pm)["video_prompt"] = "镜头缓缓推近，雨水顺着伞沿滑落"
         (project_path / "storyboards" / f"scene_{ITEM_ID}.png").write_bytes(b"png")
-        _seed_current_storyboard(pm, ITEM_ID)
+        seed_current_storyboard(pm, ITEM_ID)
         generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
 
@@ -152,7 +152,7 @@ class TestPreviewMatchesExecution:
     async def test_text_form_image_prompt_is_the_prompt_body(self, tmp_path, monkeypatch, content_mode):
         """文本形态的分镜图提示词就是提示词主体，渲染层只注入项目风格与反向约束。"""
         body = "一条被雨水打湿的老街，霓虹反射在积水上"
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
         _item_of(pm)["image_prompt"] = body
         generator = FakeGenerator()
@@ -173,11 +173,11 @@ class TestPreviewMatchesExecution:
     async def test_text_form_video_prompt_is_the_prompt_body(self, tmp_path, monkeypatch, content_mode):
         """视频侧同理：文本形态正文领先，逐字等于执行期实发文本。"""
         body = "镜头缓缓推近，雨水顺着伞沿滑落"
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
         _item_of(pm)["video_prompt"] = body
         (project_path / "storyboards" / f"scene_{ITEM_ID}.png").write_bytes(b"png")
-        _seed_current_storyboard(pm, ITEM_ID)
+        seed_current_storyboard(pm, ITEM_ID)
         generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
 
@@ -192,7 +192,7 @@ class TestPreviewMatchesExecution:
 
     async def test_rendering_a_preview_text_again_does_not_duplicate_injections(self, tmp_path, monkeypatch):
         """结构化 → 文本以当前渲染结果为初值：再渲染一次不叠出第二份风格与反向约束。"""
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
@@ -210,7 +210,7 @@ class TestPreviewMatchesExecution:
         self, tmp_path, monkeypatch, content_mode
     ):
         """视频侧同理：drama 的 Voice_Profiles / Dialogue 声明段已在正文里时不再追加第二份。"""
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
         _patch_execution(monkeypatch, pm, FakeGenerator())
 
@@ -225,10 +225,10 @@ class TestPreviewMatchesExecution:
 
 class TestPreviewIsReadOnly:
     async def test_preview_calls_no_provider_and_writes_no_manifest(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for("ad", project_path)
         (project_path / "storyboards" / f"scene_{ITEM_ID}.png").write_bytes(b"png")
-        _seed_current_storyboard(pm, ITEM_ID)
+        seed_current_storyboard(pm, ITEM_ID)
         generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
         manifest = project_path / ".arcreel_artifacts.json"
@@ -245,7 +245,7 @@ class TestPreviewIsReadOnly:
 
 class TestPreviewUnavailableSides:
     async def test_missing_prompt_reports_that_side_only(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         _item_of(pm).pop("video_prompt")
         _patch_execution(monkeypatch, pm, FakeGenerator())
@@ -257,7 +257,7 @@ class TestPreviewUnavailableSides:
         assert preview.storyboard_image.text
 
     async def test_malformed_prompt_reports_invalid(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         _item_of(pm)["image_prompt"] = {"composition": {}}
         _patch_execution(monkeypatch, pm, FakeGenerator())
@@ -268,7 +268,7 @@ class TestPreviewUnavailableSides:
         assert preview.storyboard_image.unavailable == prompt_preview.UNAVAILABLE_INVALID
 
     async def test_unknown_item_id_is_reported(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         _patch_execution(monkeypatch, pm, FakeGenerator())
 
@@ -303,7 +303,7 @@ class TestPromptPreviewTool:
         )
 
     async def test_returns_the_same_preview_as_the_service(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for("drama", project_path)
         _patch_execution(monkeypatch, pm, FakeGenerator())
 
@@ -313,7 +313,7 @@ class TestPromptPreviewTool:
         assert outcome.value == await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
     async def test_unknown_item_is_a_typed_problem(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         _patch_execution(monkeypatch, pm, FakeGenerator())
 
@@ -324,7 +324,7 @@ class TestPromptPreviewTool:
         assert outcome.problem.code == "item_not_found"
 
     async def test_script_must_be_a_bare_filename(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         _patch_execution(monkeypatch, pm, FakeGenerator())
 

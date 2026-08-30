@@ -251,6 +251,8 @@ reportUnnecessaryTypeIgnoreComment = "warning"
 reportUnusedImport = "warning"
 reportUnusedVariable = "warning"
 reportUnusedClass = "warning"
+reportUnusedFunction = "warning"
+reportUnreachable = "warning"
 reportDeprecated = "warning"
 
 reportGeneralTypeIssues = "error"

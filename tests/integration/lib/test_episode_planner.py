@@ -1337,29 +1337,6 @@ SOURCE2 = "第二部 上界风云。李恒踏入上界，灵气扑面而来。�
 ANCHOR2_MID = "云岚宗弟子苏沐。"
 
 
-def _planned_two_files(
-    tmp_path: Path, *, statuses: tuple[str, str, str, str] = ("planned", "planned", "planned", "planned")
-) -> Path:
-    """已规划 4 集横跨两个源文件的项目：1-2 集在 novel.txt、3-4 集在 novel2.txt，cursor 在第二个文件末尾。"""
-    a = _end_of(ANCHOR_EP1)
-    c = _end_of(ANCHOR2_MID, SOURCE2)
-    project_dir = _write_project(
-        tmp_path,
-        episodes=[
-            _entry(1, 0, a, status=statuses[0]),
-            _entry(2, a, len(SOURCE), status=statuses[1]),
-            _entry(3, 0, c, status=statuses[2], source_file="source/novel2.txt"),
-            _entry(4, c, len(SOURCE2), status=statuses[3], source_file="source/novel2.txt"),
-        ],
-        planning_cursor={"source_file": "source/novel2.txt", "offset": len(SOURCE2)},
-    )
-    (project_dir / "source" / "novel2.txt").write_text(SOURCE2, encoding="utf-8")
-    ranges = [(SOURCE, 0, a), (SOURCE, a, len(SOURCE)), (SOURCE2, 0, c), (SOURCE2, c, len(SOURCE2))]
-    for num, (text, s, e) in enumerate(ranges, start=1):
-        (project_dir / "source" / f"episode_{num}.txt").write_text(text[s:e], encoding="utf-8")
-    return project_dir
-
-
 class TestSourceFingerprintGate:
     """plan 提交路径记录源文指纹、入口比对拒绝已改动的源文。"""
 

@@ -56,7 +56,7 @@ _PARAM_PLACEHOLDERS = {"path": "x/y.png"}
 
 # module 级：整个文件共用一套认证环境；私有缓存在进出时清空，不污染其它测试模块。
 @pytest.fixture(scope="module", autouse=True)
-def _auth_env():
+def auth_env():
     auth_module._cached_token_secret = None
     auth_module._cached_password_hash = None
     with patch.dict(

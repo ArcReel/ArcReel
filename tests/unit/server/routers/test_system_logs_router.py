@@ -25,9 +25,9 @@ async def logs_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disa
     log_dir.mkdir()
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
-    from lib.app_data_dir import _reset_for_tests
+    from lib.app_data_dir import reset_for_tests
 
-    _reset_for_tests()
+    reset_for_tests()
 
     import importlib
 
@@ -98,9 +98,9 @@ async def test_missing_logs_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     assert not log_dir.exists()
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
-    from lib.app_data_dir import _reset_for_tests
+    from lib.app_data_dir import reset_for_tests
 
-    _reset_for_tests()
+    reset_for_tests()
 
     import importlib
 
@@ -123,9 +123,9 @@ async def test_download_requires_auth(monkeypatch: pytest.MonkeyPatch, tmp_path:
     monkeypatch.setenv("AUTH_TOKEN_SECRET", "test-secret-32-chars-long-xxxxx")
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
-    from lib.app_data_dir import _reset_for_tests
+    from lib.app_data_dir import reset_for_tests
 
-    _reset_for_tests()
+    reset_for_tests()
 
     import importlib
 

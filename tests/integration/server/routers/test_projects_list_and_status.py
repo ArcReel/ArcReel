@@ -1,9 +1,9 @@
 """Tests for projects_list_and_status."""
 
 from tests.integration.server.routers.projects_router_support import (
-    _client,
     _FakePM,
     _FakeSummaries,
+    build_projects_client,
 )
 
 
@@ -22,7 +22,7 @@ class TestProjectsRouter:
         fake_pm.load_script = _counting_load
 
         fake_summaries = _FakeSummaries()
-        client = _client(monkeypatch, fake_pm, fake_summaries)
+        client = build_projects_client(monkeypatch, fake_pm, fake_summaries)
         with client:
             resp = client.get("/api/v1/projects")
             assert resp.status_code == 200
@@ -38,7 +38,7 @@ class TestProjectsRouter:
 
     def test_list_projects_status_comes_from_the_project_summary(self, tmp_path, monkeypatch):
         """列表页的阶段与计数一律来自项目摘要：四值阶段在，五值 current_phase 不在。"""
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects")
 
@@ -52,7 +52,7 @@ class TestProjectsRouter:
 
     def test_get_project_status_comes_from_the_project_summary(self, tmp_path, monkeypatch):
         """全局头读的项目级状态与列表同源。"""
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready")
 
@@ -68,7 +68,7 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"]["episodes"] = [
             {"episode": 1, "title": "第一集", "script_file": "scripts/ep1.json"},
         ]
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.get("/api/v1/projects/ready")
 
@@ -90,7 +90,7 @@ class TestProjectsRouter:
 
     def test_get_project_scripts_carry_no_derived_totals(self, tmp_path, monkeypatch):
         """剧本响应不再注入条目数 / 总时长 / 出场名单：这些派生值只有项目摘要一个来源。"""
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready")
 
@@ -109,7 +109,7 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"].pop("style_template_id", None)
         fake_pm.project_data["ready"]["style"] = ""
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.get("/api/v1/projects")
             assert resp.status_code == 200
@@ -120,7 +120,7 @@ class TestProjectsRouter:
     def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
         """项目 API 应返回 asset_fingerprints 字段"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.get("/api/v1/projects/ready")

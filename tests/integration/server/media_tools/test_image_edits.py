@@ -12,10 +12,10 @@ from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.media_tools.context import ToolContext
 from server.media_tools.image_edits import edit_images_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
-    _call,
-    _fake_caps_resolver,
-    _generation_result,
-    _use_fake_caps,
+    call,
+    fake_caps_resolver,
+    read_generation_result,
+    use_fake_caps,
 )
 
 # ---------------------------------------------------------------------------
@@ -52,10 +52,10 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
         ]
         return succ, []
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(
+    out = await call(
         tool_obj,
         {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
     )
@@ -83,15 +83,15 @@ async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx:
         ]
         return [], fail
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(
+    out = await call(
         tool_obj,
         {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
     )
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.failed == ["张三"]
     item = result.items[0]
     assert item.artifact_path == "characters/zhangsan.png"
@@ -99,9 +99,9 @@ async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx:
 
 async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext) -> None:
     """i2i 不可用时直接报错，不创建任何任务（复用服务端 fail-fast 判断点）。"""
-    _use_fake_caps(fake_ctx, image_backend_error=ValueError("未找到可用的 image 供应商"))
+    use_fake_caps(fake_ctx, image_backend_error=ValueError("未找到可用的 image 供应商"))
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(
+    out = await call(
         tool_obj,
         {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
     )
@@ -109,7 +109,7 @@ async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext) -> None:
 
     # i2i 不可用是入队前的共享前置条件，但调用方仍按逐 ID 契约读结果——每个
     # 请求到的 ID 各记一条 blocked，而不是只回一段无法编程消费的文本。
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.blocked == ["张三"]
     item = result.items[0]
     assert item.problem is not None
@@ -142,10 +142,10 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
 
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _Currency())
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(
+    out = await call(
         edit_images_tool(fake_ctx),
         {"resource_type": "character", "edits": [{"id": "张三", "instruction": "换发色"}]},
     )
@@ -197,7 +197,7 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
             raise ArtifactManifestError("manifest sidecar unreadable")
         return _ImageEditSource(resource_id=resource_id, artifact_path="characters/lisi.png", formal_claims=())
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr("server.media_tools.image_edits.batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr(
         "server.media_tools.image_edits.active_artifact_currency_resolver",
@@ -208,7 +208,7 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
         fake_resolve_source,
     )
 
-    out = await _call(
+    out = await call(
         edit_images_tool(fake_ctx),
         {
             "resource_type": "character",
@@ -219,7 +219,7 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
         },
     )
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.succeeded == ["李四"]
     assert result.blocked == ["张三"]
     blocked_item = next(entry for entry in result.items if entry.unit_id == "张三")
@@ -228,9 +228,9 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
 
 
 async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext) -> None:
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(tool_obj, {"resource_type": "storyboard", "edits": [{"id": "E1S01", "instruction": "去杂物"}]})
+    out = await call(tool_obj, {"resource_type": "storyboard", "edits": [{"id": "E1S01", "instruction": "去杂物"}]})
     assert out.get("is_error") is True
     assert "script_file" in out["content"][0]["text"]
 
@@ -243,11 +243,11 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
 
     fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
     fake_ctx.pm.project_payload["episodes"] = []
-    resolver = _use_fake_caps(fake_ctx)
+    resolver = use_fake_caps(fake_ctx)
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(
+    out = await call(
         edit_images_tool(fake_ctx),
         {
             "resource_type": "storyboard",
@@ -265,17 +265,17 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
 
 async def test_edit_images_rejects_unknown_resource_type(fake_ctx: ToolContext) -> None:
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(tool_obj, {"resource_type": "video", "edits": [{"id": "x", "instruction": "y"}]})
+    out = await call(tool_obj, {"resource_type": "video", "edits": [{"id": "x", "instruction": "y"}]})
     assert out.get("is_error") is True
 
 
 async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext) -> None:
     """资产没有可编辑的当前图（sheet 字段未设置）时跳过并告警，不入队。"""
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     tool_obj = edit_images_tool(fake_ctx)
     # 李四 没有 character_sheet
-    out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "李四", "instruction": "换发色"}]})
+    out = await call(tool_obj, {"resource_type": "character", "edits": [{"id": "李四", "instruction": "换发色"}]})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "李四" in text
@@ -284,7 +284,7 @@ async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext) ->
 
 async def test_edit_images_rejects_empty_edits(fake_ctx: ToolContext) -> None:
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(tool_obj, {"resource_type": "character", "edits": []})
+    out = await call(tool_obj, {"resource_type": "character", "edits": []})
     assert out.get("is_error") is True
     assert "edits 不能为空" in out["content"][0]["text"]
 
@@ -312,10 +312,10 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypat
         ]
         return succ, []
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(
+    out = await call(
         tool_obj,
         {
             "resource_type": "character",
@@ -335,7 +335,7 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypat
     assert "缺少 id 的条目" in text
     assert "重复出现" in text
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.succeeded == ["张三"]
     assert sorted(result.blocked) == ["李四", "王五"]
     problems = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
@@ -363,10 +363,10 @@ async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) 
         ]
         return succ, []
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(
+    out = await call(
         tool_obj,
         {
             "resource_type": "storyboard",
@@ -396,10 +396,10 @@ async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) 
         ]
         return [], fail
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "改发型"}]})
+    out = await call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "改发型"}]})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "成功 0 件、失败 1 件" in text
@@ -414,7 +414,7 @@ async def test_edit_images_unexpected_exception(fake_ctx: ToolContext) -> None:
 
     fake_ctx.pm.load_project = boom
     tool_obj = edit_images_tool(fake_ctx)
-    out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "x"}]})
+    out = await call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "x"}]})
     assert out.get("is_error") is True
     assert "edit_images 失败" in out["content"][0]["text"]
 
@@ -422,7 +422,7 @@ async def test_edit_images_unexpected_exception(fake_ctx: ToolContext) -> None:
 async def test_i2i_provider_available_true() -> None:
     from server.media_tools import image_edits as mod
 
-    resolver = _fake_caps_resolver()
+    resolver = fake_caps_resolver()
     assert await mod._i2i_provider_available({}, config_resolver=resolver) is True
     # 判的是 i2i 槽位，不是项目默认图像槽
     assert resolver.image_capability_calls == ["i2i"]
@@ -431,5 +431,5 @@ async def test_i2i_provider_available_true() -> None:
 async def test_i2i_provider_available_false_on_value_error() -> None:
     from server.media_tools import image_edits as mod
 
-    resolver = _fake_caps_resolver(image_backend_error=ValueError("未找到可用的 image 供应商"))
+    resolver = fake_caps_resolver(image_backend_error=ValueError("未找到可用的 image 供应商"))
     assert await mod._i2i_provider_available({}, config_resolver=resolver) is False

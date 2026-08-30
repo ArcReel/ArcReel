@@ -12,7 +12,7 @@ import server.auth as auth_module
 
 
 @pytest.fixture(autouse=True)
-def _isolated_auth_env():
+def isolated_auth_env():
     """Clear cached secret/password hash per-test so env tweaks take effect."""
     auth_module._cached_token_secret = None
     auth_module._cached_password_hash = None

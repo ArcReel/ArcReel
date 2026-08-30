@@ -88,7 +88,7 @@ class TestSettlementDispatch:
         assert s.output_tokens == 50
 
     def test_unknown_channel_raises(self) -> None:
-        with pytest.raises(ValueError, match="unknown ledger channel"):
+        with pytest.raises(AssertionError, match="Expected code to be unreachable"):
             _settlement_from_result("bogus", object())
 
 

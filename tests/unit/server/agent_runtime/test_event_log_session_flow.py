@@ -11,7 +11,7 @@ import pytest
 from server.agent_runtime.event_log import EventLogStore, build_user_entry
 from server.agent_runtime.session_manager import AgentStartupError, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeSDKClient
+from tests.fakes import FakeSDKClient, empty_sdk_response_stream
 
 SDK_ID = "sdk-e2e-1"
 
@@ -127,8 +127,8 @@ class _CrashBeforeInitClient(FakeSDKClient):
         self._record("receive_response")
         if self._stderr_callback is not None:
             self._stderr_callback("OPENAI_API_KEY=pre-init-secret\nprovider stderr detail")
-        if False:
-            yield {}
+        async for message in empty_sdk_response_stream():
+            yield message
         raise RuntimeError("receive_response crashed before init")
 
 

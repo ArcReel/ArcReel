@@ -38,7 +38,7 @@ from tests.http_capture import capture_http
 
 
 @pytest.fixture(autouse=True)
-def _clean_backend_cache():
+def clean_backend_cache():
     """除清空缓存条目外，同时清空 per-key 锁。
 
     pytest-asyncio 按测试函数切换独立事件循环，跨测试复用同一缓存 key 时，

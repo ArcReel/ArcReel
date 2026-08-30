@@ -5,14 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lib.reference_video.request_projection import resolve_reference_assets
-from server.services.reference_video_tasks import (
-    _clamp_resolved_reference_images,
-)
+from lib.reference_video.request_projection import clamp_reference_assets, resolve_reference_assets
 from tests.integration.server.services.reference_video_tasks_support import (
-    _load_project_and_unit,
-    _register_asset_sheet,
-    _write_project,
+    load_project_and_unit,
+    register_asset_sheet,
+    write_project,
 )
 
 
@@ -21,15 +18,15 @@ def _resolved_names(project: dict, proj_dir: Path, text: str) -> list[str]:
 
 
 def test_resolve_reference_assets_maps_sheets(tmp_path: Path):
-    proj_dir = _write_project(tmp_path)
-    project, unit = _load_project_and_unit(proj_dir, "E1U1")
+    proj_dir = write_project(tmp_path)
+    project, unit = load_project_and_unit(proj_dir, "E1U1")
     assert _resolved_names(project, proj_dir, unit["text"]) == ["张三.png", "酒馆.png"]
 
 
 def test_product_reference_uses_its_sheet_without_type_priority(tmp_path: Path):
     """商品与其它资产同一条规则：有资产图就只用资产图，且不排到提及顺序之前。"""
-    proj_dir = _write_project(tmp_path)
-    project, _unit = _load_project_and_unit(proj_dir, "E1U1")
+    proj_dir = write_project(tmp_path)
+    project, _unit = load_project_and_unit(proj_dir, "E1U1")
     products_dir = proj_dir / "products"
     refs_dir = products_dir / "refs"
     refs_dir.mkdir(parents=True)
@@ -45,44 +42,33 @@ def test_product_reference_uses_its_sheet_without_type_priority(tmp_path: Path):
         },
     }
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
+    register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
 
     assert _resolved_names(project, proj_dir, "@[张三] 拿起 @[商品甲]") == ["张三.png", "甲-sheet.png"]
 
 
 def test_clamp_keeps_the_first_mentions_without_type_priority(tmp_path: Path):
-    """超上限时按正文提及顺序截断，并附一条超限 warning。"""
-    proj_dir = _write_project(tmp_path)
-    project, _unit = _load_project_and_unit(proj_dir, "E1U1")
+    """超上限时按正文提及顺序截断：商品资产图不因类型排到先被提及的资产之前。"""
+    proj_dir = write_project(tmp_path)
+    project, _unit = load_project_and_unit(proj_dir, "E1U1")
     products_dir = proj_dir / "products"
     products_dir.mkdir(exist_ok=True)
     image = (proj_dir / "characters" / "张三.png").read_bytes()
     (products_dir / "甲-sheet.png").write_bytes(image)
     project["products"] = {"商品甲": {"description": "x", "product_sheet": "products/甲-sheet.png"}}
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
+    register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
 
     entries = list(resolve_reference_assets(project, proj_dir, {"text": "@[张三] 在 @[酒馆] 拿起 @[商品甲]"}))
-    clamped, warnings = _clamp_resolved_reference_images(
-        entries,
-        2,
-        provider="custom-openai",
-        model="video-model",
-    )
+    clamped = clamp_reference_assets(entries, 2)
 
     assert [entry.path.name for entry in clamped] == ["张三.png", "酒馆.png"]
-    assert warnings == [
-        {
-            "key": "ref_too_many_images",
-            "params": {"count": 3, "model": "video-model", "max_count": 2},
-        }
-    ]
 
 
 def test_product_reference_with_original_only_is_executable(tmp_path: Path):
     """尚无标准 sheet 的商品仍以实拍原图作为保真锚点，不被误判为缺图。"""
-    proj_dir = _write_project(tmp_path)
-    project, _unit = _load_project_and_unit(proj_dir, "E1U1")
+    proj_dir = write_project(tmp_path)
+    project, _unit = load_project_and_unit(proj_dir, "E1U1")
     refs_dir = proj_dir / "products" / "refs"
     refs_dir.mkdir(parents=True)
     (refs_dir / "original.png").write_bytes((proj_dir / "characters" / "张三.png").read_bytes())
@@ -100,8 +86,8 @@ def test_product_reference_with_original_only_is_executable(tmp_path: Path):
 
 
 def test_resolve_reference_assets_ignores_an_unregistered_mention(tmp_path: Path):
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    proj_dir = write_project(tmp_path)
+    project, _ = load_project_and_unit(proj_dir, "E1U1")
 
     assert _resolved_names(project, proj_dir, "@[不存在的道具] 掉在地上") == []
 
@@ -114,11 +100,11 @@ def test_resolve_reference_assets_resolves_nfd_registered_name_by_nfc_mention(tm
     name_nfd = unicodedata.normalize("NFD", "Hiếu")
     assert name_nfc != name_nfd
 
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    proj_dir = write_project(tmp_path)
+    project, _ = load_project_and_unit(proj_dir, "E1U1")
     project["characters"][name_nfd] = {"description": "x", "character_sheet": "characters/hieu.png"}
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "character", name_nfd, "characters/hieu.png")
+    register_asset_sheet(proj_dir, "character", name_nfd, "characters/hieu.png")
 
     assert _resolved_names(project, proj_dir, f"@[{name_nfc}] 推门") == ["hieu.png"]
 
@@ -131,10 +117,10 @@ def test_resolve_reference_assets_dedupes_a_repeated_mention(tmp_path: Path):
     name_nfd = unicodedata.normalize("NFD", "Hiếu")
     assert name_nfc != name_nfd
 
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    proj_dir = write_project(tmp_path)
+    project, _ = load_project_and_unit(proj_dir, "E1U1")
     project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "character", name_nfc, "characters/hieu.png")
+    register_asset_sheet(proj_dir, "character", name_nfc, "characters/hieu.png")
 
     assert _resolved_names(project, proj_dir, f"@[{name_nfc}] 推门，@[{name_nfd}] 回头") == ["hieu.png"]

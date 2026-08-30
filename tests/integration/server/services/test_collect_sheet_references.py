@@ -5,8 +5,8 @@ from lib.artifact_manifest import (
 )
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from tests.integration.server.services.generation_tasks_support import (
-    _currency_resolver,
-    _register_stale_visual_claim,
+    build_currency_resolver,
+    register_stale_visual_claim,
 )
 
 
@@ -31,7 +31,7 @@ class TestCollectSheetReferences:
         }
         items = [{"characters_in_segment": char_names}]
         for name in char_names:
-            _register_stale_visual_claim(
+            register_stale_visual_claim(
                 tmp_path,
                 ArtifactKey.asset_sheet("character", name),
                 f"{name}.png",
@@ -45,7 +45,7 @@ class TestCollectSheetReferences:
             scene_field="scenes",
             prop_field="props",
             max_count=6,
-            currency_resolver=_currency_resolver(tmp_path, project),
+            currency_resolver=build_currency_resolver(tmp_path, project),
         )
 
         assert len(refs) == 6

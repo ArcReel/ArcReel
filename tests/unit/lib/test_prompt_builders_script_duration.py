@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from lib.prompt_builders_script import (
-    _format_duration_constraint,
     build_narration_split_prompt,
     build_normalize_prompt,
+    format_duration_constraint,
 )
 from lib.prompt_rules.episode_target_duration import (
     EPISODE_TARGET_DURATION_RULE_TEMPLATE,
@@ -20,30 +20,30 @@ _RULE_HEAD = EPISODE_TARGET_DURATION_RULE_TEMPLATE.split("{seconds}")[0]
 
 class TestFormatDurationConstraint:
     def test_discrete_set(self):
-        text = _format_duration_constraint([4, 6, 8], default_duration=None)
+        text = format_duration_constraint([4, 6, 8], default_duration=None)
         for duration in (4, 6, 8):
             assert str(duration) in text
 
     def test_discrete_set_with_default(self):
-        text = _format_duration_constraint([4, 6, 8], default_duration=6)
+        text = format_duration_constraint([4, 6, 8], default_duration=6)
         assert "6" in text
-        assert text != _format_duration_constraint([4, 6, 8], default_duration=None)
+        assert text != format_duration_constraint([4, 6, 8], default_duration=None)
 
     def test_default_duration_must_be_in_supported(self):
         """default_duration 不在 supported 集合时应抛错，避免 prompt 自相矛盾。"""
         with pytest.raises(ValueError, match="default_duration=6 不在"):
-            _format_duration_constraint([4, 8], default_duration=6)
+            format_duration_constraint([4, 8], default_duration=6)
 
     def test_continuous_range_uses_min_max_phrasing(self):
         """长度 ≥5 且连续整数时压缩为只包含边界的区间。"""
-        text = _format_duration_constraint([3, 4, 5, 6, 7, 8, 9, 10], default_duration=None)
+        text = format_duration_constraint([3, 4, 5, 6, 7, 8, 9, 10], default_duration=None)
         assert "3" in text
         assert "10" in text
         assert "[3, 4, 5, 6, 7, 8, 9, 10]" not in text
 
     def test_short_continuous_still_uses_list(self):
         """长度 <5 即使连续，仍保留中间值。"""
-        text = _format_duration_constraint([4, 5, 6], default_duration=None)
+        text = format_duration_constraint([4, 5, 6], default_duration=None)
         assert "5" in text
 
 
@@ -52,7 +52,7 @@ class TestBuildersRequireDurations:
 
     def test_format_constraint_rejects_empty(self):
         with pytest.raises(ValueError, match="supported_durations 不能为空"):
-            _format_duration_constraint([], default_duration=None)
+            format_duration_constraint([], default_duration=None)
 
 
 def _drama_prompt(**overrides) -> str:

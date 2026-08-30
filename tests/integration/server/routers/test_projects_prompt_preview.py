@@ -7,7 +7,7 @@ from server.services.prompt_preview import (
     RenderedPrompt,
     ScriptItemNotFound,
 )
-from tests.integration.server.routers.projects_router_support import _client, _FakePM
+from tests.integration.server.routers.projects_router_support import _FakePM, build_projects_client
 
 
 class TestPromptPreviewEndpoint:
@@ -32,7 +32,7 @@ class TestPromptPreviewEndpoint:
             )
 
         monkeypatch.setattr(projects, "preview_item_prompts", _preview)
-        client = _client(monkeypatch, self._pm(tmp_path))
+        client = build_projects_client(monkeypatch, self._pm(tmp_path))
 
         with client:
             response = client.get(
@@ -58,7 +58,7 @@ class TestPromptPreviewEndpoint:
             raise ScriptItemNotFound(item_id)
 
         monkeypatch.setattr(projects, "preview_item_prompts", _preview)
-        client = _client(monkeypatch, self._pm(tmp_path))
+        client = build_projects_client(monkeypatch, self._pm(tmp_path))
 
         with client:
             response = client.get(
@@ -69,7 +69,7 @@ class TestPromptPreviewEndpoint:
         assert response.status_code == 404
 
     def test_script_file_is_required(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, self._pm(tmp_path))
+        client = build_projects_client(monkeypatch, self._pm(tmp_path))
 
         with client:
             response = client.get("/api/v1/projects/ready/script-items/E1S01/prompt-preview")

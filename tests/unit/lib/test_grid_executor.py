@@ -114,35 +114,35 @@ def _register_sheet(project_path, resource_type, resource_id):
 
 class TestGroupBySegmentBreak:
     def test_groups(self, project_with_script):
-        from server.services.generation_tasks import _group_scenes_by_segment_break
+        from lib.storyboard_sequence import group_scenes_by_segment_break
 
         script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         items = script["segments"]
-        groups = _group_scenes_by_segment_break(items, "segment_id")
+        groups = group_scenes_by_segment_break(items, "segment_id")
         # E1S03 has segment_break=True, so groups: [E1S01,E1S02] and [E1S03,E1S04,E1S05,E1S06]
         assert len(groups) == 2
         assert len(groups[0]) == 2
         assert len(groups[1]) == 4
 
     def test_no_breaks(self):
-        from server.services.generation_tasks import _group_scenes_by_segment_break
+        from lib.storyboard_sequence import group_scenes_by_segment_break
 
         items = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
-        groups = _group_scenes_by_segment_break(items, "id")
+        groups = group_scenes_by_segment_break(items, "id")
         assert len(groups) == 1
         assert len(groups[0]) == 3
 
     def test_empty_list(self):
-        from server.services.generation_tasks import _group_scenes_by_segment_break
+        from lib.storyboard_sequence import group_scenes_by_segment_break
 
-        groups = _group_scenes_by_segment_break([], "id")
+        groups = group_scenes_by_segment_break([], "id")
         assert groups == []
 
     def test_break_at_first_item(self):
-        from server.services.generation_tasks import _group_scenes_by_segment_break
+        from lib.storyboard_sequence import group_scenes_by_segment_break
 
         items = [{"id": "a", "segment_break": True}, {"id": "b"}, {"id": "c"}]
-        groups = _group_scenes_by_segment_break(items, "id")
+        groups = group_scenes_by_segment_break(items, "id")
         # segment_break on first item: current is empty so no split, all in one group
         assert len(groups) == 1
         assert len(groups[0]) == 3

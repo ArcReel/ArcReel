@@ -1653,7 +1653,7 @@ class TestCostEstimationService:
     async def test_narration_reference_video_estimate_handles_token_priced_video_model(self, db_factory):
         """按 token 计费的视频模型（Ark/Seedance）也要能算出非零视频预估。
 
-        ``_estimate_unit_video_cost`` 只传 ``duration_seconds``，若不换算 usage_tokens，
+        参考生视频的视频估值只传 ``duration_seconds``，若不换算 usage_tokens，
         ``PerTokenVideo`` 定价形状会因 ``usage_tokens`` 缺失恒算出 0。
         """
         resolver = ConfigResolver(db_factory)

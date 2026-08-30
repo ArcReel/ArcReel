@@ -15,10 +15,6 @@ def _write(path: Path, text: str):
     path.write_text(text, encoding="utf-8")
 
 
-def _read_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _narration_script(resource_id: str) -> dict:
     return {
         "episode": 1,

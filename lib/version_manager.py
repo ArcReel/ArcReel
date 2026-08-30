@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, ClassVar
+from typing import Any, ClassVar, assert_never
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.artifact_manifest import ArtifactManifestError, ProjectArtifactManifestAdapter
@@ -645,7 +645,7 @@ class VersionManager:
         if resource_type not in self.RESOURCE_TYPES:
             raise ValueError(f"不支持的资源类型: {resource_type}")
         if not isinstance(select_current, bool) and not callable(select_current):
-            raise TypeError("select_current must be a boolean or a callable returning one")
+            assert_never(select_current)
         if expected_current_version is not None and (
             type(expected_current_version) is not int or expected_current_version < 0
         ):

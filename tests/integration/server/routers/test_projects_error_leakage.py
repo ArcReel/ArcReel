@@ -3,9 +3,9 @@
 from lib.i18n.zh import errors as zh_errors
 from server.routers import projects
 from tests.integration.server.routers.projects_router_support import (
-    _client,
     _FakePM,
-    _override,
+    build_projects_client,
+    override,
 )
 
 
@@ -52,7 +52,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_create_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_create_project"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         # _sync 里最早命中 get_project_manager()，RuntimeError 绕过 ValueError/HTTPException 分支
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
@@ -65,7 +65,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_get_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_get_project"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.get("/api/v1/projects/ready")
@@ -74,7 +74,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_update_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_project"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"title": "X"})
@@ -83,7 +83,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_delete_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_delete_project"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.delete("/api/v1/projects/remove-me")
@@ -92,7 +92,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_get_script_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_get_script"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.get("/api/v1/projects/ready/scripts/episode_1.json")
@@ -101,7 +101,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_update_scene_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_scene"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch(
@@ -113,7 +113,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_update_shot_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_shot"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch(
@@ -125,7 +125,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_reorder_shots_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_reorder_shots"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.post(
@@ -137,7 +137,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_update_segment_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_segment"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch(
@@ -149,7 +149,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_update_episode_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_episode"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         # title 非空校验在 try 前；_sync 里最早命中 get_project_manager()
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
@@ -159,7 +159,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_set_project_source_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_set_source"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             # content 走 multipart form；get_project_manager() 在 try 内最早被调用
@@ -173,7 +173,7 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_set_project_source_overview_error_does_not_leak_path(self, tmp_path, monkeypatch):
         # 概览生成是上传的可选后续：失败时上传仍成功（200），错误只降级回传 overview_error。
         # 底层异常文本可能携带服务器绝对路径，该分支不得把裸 str(e) 透传给客户端。
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post(
                 "/api/v1/projects/leaky/source",
@@ -193,7 +193,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_generate_overview_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_generate_overview"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.post("/api/v1/projects/ready/generate-overview")
@@ -203,7 +203,7 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_generate_overview_corrupted_project_maps_to_500_not_provider_error(self, tmp_path, monkeypatch):
         # JSONDecodeError 是 ValueError 子类：损坏的 project.json 不能被 except ValueError
         # 误判为「未配置文本供应商」，须先于其拦截并映射为通用 500
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/corrupted/generate-overview")
             assert resp.status_code == 500
@@ -212,7 +212,7 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_generate_overview_schema_failure_maps_to_ai_response_invalid(self, tmp_path, monkeypatch):
         # pydantic ValidationError 也是 ValueError 子类：模型输出不合 schema 时须命中
         # 「AI 响应无效」专属分支，不能被通用 ValueError 处理误判为「未配置文本供应商」
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/bad-schema/generate-overview")
             assert resp.status_code == 400
@@ -221,7 +221,7 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_generate_overview_invalid_project_name_maps_to_400_not_provider_error(self, tmp_path, monkeypatch):
         # get_project_path 抛出的非法项目名 ValueError（路径穿越等）不能被 generate_overview()
         # 内部供应商解析链路的 except ValueError 误判为「未配置文本供应商」
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/illegal-name/generate-overview")
             assert resp.status_code == 400
@@ -230,7 +230,7 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_update_overview_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_overview"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch("/api/v1/projects/ready/overview", json={"synopsis": "新简介"})
@@ -239,10 +239,10 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_create_export_token_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_export_token"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         # scope 合法（默认 full）；_sync 里最早命中 get_project_manager()。
         # 归档服务改由依赖覆盖给出，免得同一个哨兵在依赖解析期就抛、绕过处理器兜底。
-        _override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
+        override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.post("/api/v1/projects/ready/export/token")
@@ -251,10 +251,10 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_export_project_archive_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_export_archive"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         # download_token 校验先放行，再让归档服务抛 RuntimeError 落到兜底
         monkeypatch.setattr(projects, "verify_download_token", lambda token, name: {"sub": "u"})
-        _override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
+        override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
         with client:
             resp = client.get("/api/v1/projects/ready/export?download_token=tok&scope=full")
             assert resp.status_code == 500
@@ -262,9 +262,9 @@ class TestUnexpectedErrorsDoNotLeak:
 
     def test_import_project_archive_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_import_archive"
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         # 上传副本写盘成功后，_sync 调归档服务抛 RuntimeError，落到 JSONResponse(500) 兜底
-        _override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
+        override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
         with client:
             resp = client.post(
                 "/api/v1/projects/import",

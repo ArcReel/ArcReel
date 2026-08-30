@@ -14,7 +14,7 @@ import server.auth as auth_module
 
 
 @pytest.fixture(autouse=True)
-def _auth_env():
+def auth_env():
     """为所有测试设置固定的认证环境变量，测试结束后清理缓存。"""
     auth_module._cached_token_secret = None
     auth_module._cached_password_hash = None

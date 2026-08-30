@@ -11,8 +11,8 @@ from server.media_tools.assets import (
 )
 from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
-    _call,
-    _generation_result,
+    call,
+    read_generation_result,
 )
 
 # ---------------------------------------------------------------------------
@@ -22,7 +22,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 
 async def test_list_pending_assets_happy(fake_ctx: ToolContext) -> None:
     tool_obj = list_pending_assets_tool(fake_ctx)
-    out = await _call(tool_obj, {})
+    out = await call(tool_obj, {})
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
     assert "张三" in text
@@ -42,7 +42,7 @@ async def test_pending_asset_tools_include_an_unclaimed_schema8_sheet(tmp_path: 
     (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
     ctx = ToolContext(project_name="demo", projects_root=projects_root, pm=pm)
 
-    listed = await _call(list_pending_assets_tool(ctx), {"type": "scene"})
+    listed = await call(list_pending_assets_tool(ctx), {"type": "scene"})
 
     assert "客厅" in listed["content"][0]["text"]
 
@@ -54,7 +54,7 @@ async def test_pending_asset_tools_include_an_unclaimed_schema8_sheet(tmp_path: 
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _capture_batch)
 
-    await _call(generate_assets_tool(ctx), {"type": "scene"})
+    await call(generate_assets_tool(ctx), {"type": "scene"})
 
     assert enqueued == ["客厅"]
 
@@ -65,7 +65,7 @@ async def test_list_pending_assets_error(fake_ctx: ToolContext, monkeypatch) -> 
 
     fake_ctx.pm.get_pending_characters = boom
     tool_obj = list_pending_assets_tool(fake_ctx)
-    out = await _call(tool_obj, {"type": "character"})
+    out = await call(tool_obj, {"type": "character"})
     assert out.get("is_error") is True
 
 
@@ -88,10 +88,10 @@ async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = generate_assets_tool(fake_ctx)
-    out = await _call(tool_obj, {"type": "character"})
+    out = await call(tool_obj, {"type": "character"})
     # 李四 没有 description，作为 blocked 逐 ID 报告；缺口存在时整体判为 error，
     # 调用方不需要读文本就知道哪几个 ID 还没做成。
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.succeeded == ["character/张三"]
     assert result.blocked == ["character/李四"]
     assert sorted(result.requested) == sorted(result.succeeded + result.blocked)
@@ -130,9 +130,9 @@ async def test_generate_assets_legacy_project_reverifies_sheet_file_on_disk(fake
         return succ, []
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-    out = await _call(generate_assets_tool(fake_ctx), {"type": "character"})
+    out = await call(generate_assets_tool(fake_ctx), {"type": "character"})
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     # 张三：文件真实存在，missing-only 复用旧图，不重新生成。
     assert "张三" not in enqueued
     assert [entry.unit_id for entry in result.skipped] == ["character/张三"]
@@ -150,7 +150,7 @@ async def test_generate_assets_rejects_an_explicitly_empty_name_list(fake_ctx: T
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fail_batch)
 
-    out = await _call(generate_assets_tool(fake_ctx), {"type": "character", "names": []})
+    out = await call(generate_assets_tool(fake_ctx), {"type": "character", "names": []})
 
     assert out.get("is_error") is True
     assert "不能为空数组" in out["content"][0]["text"]
@@ -158,5 +158,5 @@ async def test_generate_assets_rejects_an_explicitly_empty_name_list(fake_ctx: T
 
 async def test_generate_assets_names_without_type(fake_ctx: ToolContext) -> None:
     tool_obj = generate_assets_tool(fake_ctx)
-    out = await _call(tool_obj, {"names": ["张三"]})
+    out = await call(tool_obj, {"names": ["张三"]})
     assert out.get("is_error") is True

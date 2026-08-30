@@ -17,18 +17,18 @@ from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
     FakeGenerator,
-    _fake_resolve_ctx,
     _FakePM,
-    _persist_active_fake_project,
-    _prepare_files,
-    _register_asset_sheet_claims,
-    _register_stale_visual_claim,
+    fake_resolve_ctx,
+    persist_active_fake_project,
+    prepare_files,
+    register_asset_sheet_claims,
+    register_stale_visual_claim,
 )
 
 
 class TestGenerationTasks:
     async def test_storyboard_registers_manifest_only_after_finalization_succeeds(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         registered: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
@@ -38,7 +38,7 @@ class TestGenerationTasks:
 
         fake_generator = _BrokenVersionLookup()
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(
             generation_tasks,
             "register_current_resource_artifact",
@@ -55,12 +55,12 @@ class TestGenerationTasks:
         assert registered == []
 
     async def test_storyboard_registers_manifest_after_successful_formal_commit(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator()
         registered: list[tuple[tuple[object, ...], dict[str, object]]] = []
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(
             generation_tasks,
             "register_current_resource_artifact",
@@ -83,14 +83,14 @@ class TestGenerationTasks:
         assert isinstance(kwargs["basis"], ArtifactBasis)
 
     async def test_schema8_storyboard_excludes_unclaimed_formal_references(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
-        _persist_active_fake_project(fake_pm)
+        persist_active_fake_project(fake_pm)
         fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
 
         await generation_tasks.execute_storyboard_task(
@@ -102,13 +102,13 @@ class TestGenerationTasks:
         assert fake_generator.image_calls[0]["reference_images"] is None
 
     async def test_schema8_storyboard_rejects_an_unclaimed_bound_script_before_provider(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path, register_script=False)
-        _persist_active_fake_project(fake_pm, register_script=False)
+        persist_active_fake_project(fake_pm, register_script=False)
         fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="episode script is not registered"):
             await generation_tasks.execute_storyboard_task(
@@ -120,11 +120,11 @@ class TestGenerationTasks:
         assert fake_generator.image_calls == []
 
     async def test_schema8_video_rejects_an_unclaimed_bound_script_before_provider(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path, register_script=False)
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
-        _persist_active_fake_project(fake_pm, register_script=False)
-        _register_stale_visual_claim(
+        persist_active_fake_project(fake_pm, register_script=False)
+        register_stale_visual_claim(
             project_path,
             ArtifactKey.episode_storyboard(1, "E1S01"),
             "storyboards/scene_E1S01.png",
@@ -132,7 +132,7 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="episode script is not registered"):
             await generation_tasks.execute_video_task(
@@ -154,7 +154,7 @@ class TestGenerationTasks:
         from lib.project_migrations.runner import migrate_project_dir
         from lib.version_manager import VersionManager
 
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project.update(
             {
@@ -262,15 +262,15 @@ class TestGenerationTasks:
         assert entry.basis_digest == basis.digest
 
     async def test_storyboard_rechecks_selected_manifest_claims_before_provider(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][2]["scenes"] = []
         fake_pm.script["segments"][2]["props"] = []
-        _persist_active_fake_project(fake_pm)
+        persist_active_fake_project(fake_pm)
         key = ArtifactKey.asset_sheet("character", "Alice")
-        _register_stale_visual_claim(project_path, key, "characters/Alice.png")
+        register_stale_visual_claim(project_path, key, "characters/Alice.png")
         fake_generator = FakeGenerator()
-        resolve_context = _fake_resolve_ctx(fake_generator)
+        resolve_context = fake_resolve_ctx(fake_generator)
 
         async def _delete_claim_then_resolve(*args, **kwargs):
             ProjectArtifactManifestAdapter(project_path).delete_entry(key)
@@ -289,16 +289,16 @@ class TestGenerationTasks:
         assert fake_generator.image_calls == []
 
     async def test_storyboard_rejects_same_basis_bytes_replaced_before_provider(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][2]["scenes"] = []
         fake_pm.script["segments"][2]["props"] = []
-        _persist_active_fake_project(fake_pm)
+        persist_active_fake_project(fake_pm)
         key = ArtifactKey.asset_sheet("character", "Alice")
         artifact_path = "characters/Alice.png"
-        _register_stale_visual_claim(project_path, key, artifact_path)
+        register_stale_visual_claim(project_path, key, artifact_path)
         fake_generator = FakeGenerator()
-        resolve_context = _fake_resolve_ctx(fake_generator)
+        resolve_context = fake_resolve_ctx(fake_generator)
 
         async def _replace_bytes_then_resolve(*args, **kwargs):
             (project_path / artifact_path).write_bytes(b"replacement")
@@ -317,9 +317,9 @@ class TestGenerationTasks:
         assert fake_generator.image_calls == []
 
     async def test_legacy_storyboard_rejects_sheet_replaced_after_reference_freeze(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        _register_asset_sheet_claims(fake_pm)
+        register_asset_sheet_claims(fake_pm)
         provider_submissions: list[str] = []
 
         class _SubmittingGenerator(FakeGenerator):
@@ -329,7 +329,7 @@ class TestGenerationTasks:
                 return await super().generate_image_async(**kwargs)
 
         fake_generator = _SubmittingGenerator(project_path)
-        resolve_context = _fake_resolve_ctx(fake_generator)
+        resolve_context = fake_resolve_ctx(fake_generator)
         character_path = project_path / "characters" / "Alice.png"
 
         async def _replace_sheet_then_resolve(*args, **kwargs):
@@ -356,22 +356,22 @@ class TestGenerationTasks:
     ):
         from lib.visual_artifact_provenance import VisualReference, build_storyboard_image_visual_basis
 
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
         fake_pm.script["segments"][1]["scenes"] = []
         fake_pm.script["segments"][1]["props"] = []
-        _persist_active_fake_project(fake_pm)
+        persist_active_fake_project(fake_pm)
         character_path = project_path / "characters" / "Alice.png"
         previous_path = project_path / "storyboards" / "scene_E1S01.png"
         character_path.write_bytes(b"selected-character")
         previous_path.write_bytes(b"selected-previous")
-        _register_stale_visual_claim(
+        register_stale_visual_claim(
             project_path,
             ArtifactKey.asset_sheet("character", "Alice"),
             "characters/Alice.png",
         )
-        _register_stale_visual_claim(
+        register_stale_visual_claim(
             project_path,
             ArtifactKey.episode_storyboard(1, "E1S01"),
             "storyboards/scene_E1S01.png",
@@ -414,7 +414,7 @@ class TestGenerationTasks:
 
         fake_generator = _RacingGenerator()
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         def _register(*_args, **kwargs):
             captured_basis.append(kwargs["basis"])
@@ -432,7 +432,7 @@ class TestGenerationTasks:
         assert captured_basis == [expected_basis]
 
     async def test_formal_image_commit_requires_the_exact_selected_version_record(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         current = project_path / "characters" / "Alice.png"
         staged = project_path / "characters" / ".Alice.stage.png"
@@ -461,7 +461,7 @@ class TestGenerationTasks:
         monkeypatch.setattr(
             generation_tasks,
             "resolve_generation_context",
-            _fake_resolve_ctx(_IncompleteVersions()),
+            fake_resolve_ctx(_IncompleteVersions()),
         )
         monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
 
@@ -479,7 +479,7 @@ class TestGenerationTasks:
     ):
         from lib.visual_artifact_provenance import build_storyboard_image_visual_basis
 
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator()
         captured: list[ArtifactBasis] = []
@@ -492,7 +492,7 @@ class TestGenerationTasks:
 
         fake_generator.generate_image_async = _generate
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         class _Receipt:
             def compensate_cancelled(self) -> None:
@@ -543,7 +543,7 @@ class TestGenerationTasks:
     ):
         from lib.visual_artifact_provenance import VisualReference, build_asset_sheet_visual_basis
 
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator()
         captured: list[ArtifactBasis] = []
@@ -556,7 +556,7 @@ class TestGenerationTasks:
 
         fake_generator.generate_image_async = _generate
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         class _Receipt:
             def compensate_cancelled(self) -> None:
@@ -634,7 +634,7 @@ class TestGenerationTasks:
                 return current, version
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(_Generator()))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
         monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
 
         result = await generation_tasks.execute_character_task(
@@ -660,7 +660,7 @@ class TestGenerationTasks:
         assert ArtifactBasis.from_evidence_dict(record["artifact_image_basis"]) == expected
 
     async def test_storyboard_cancellation_waits_for_registration_and_returns_compensation(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator()
         registration_started = threading.Event()
@@ -677,7 +677,7 @@ class TestGenerationTasks:
             return _Receipt()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", _register)
         monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", _register, raising=False)
 
@@ -747,7 +747,7 @@ class TestGenerationTasks:
                 compensated.append("manifest")
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(_Generator()))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
         monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", lambda *_a, **_kw: _Receipt())
         ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
             ArtifactKey.episode_script(1),
@@ -852,7 +852,7 @@ class TestGenerationTasks:
                 return current, version
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(_Generator()))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
         monkeypatch.setattr(
             generation_tasks,
             "register_task_current_resource_artifact",

@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import AsyncIterator, Callable, Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,6 +20,19 @@ from instructor.core import InstructorRetryException
 if TYPE_CHECKING:
     from lib.media_generator import MediaGenerator
     from lib.version_manager import PaidVersionCommit
+
+
+_NO_SDK_MESSAGES: tuple[dict[str, Any], ...] = ()
+
+
+async def empty_sdk_response_stream() -> AsyncIterator[dict[str, Any]]:
+    """不产出任何消息即结束的 SDK 响应流。
+
+    fake client 需要「空响应流」时返回本函数的结果；直接写 ``if False: yield`` 会留下
+    静态不可达的分支。
+    """
+    for message in _NO_SDK_MESSAGES:
+        yield message
 
 
 class FakeProjectAssetMutationMixin:

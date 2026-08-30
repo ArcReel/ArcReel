@@ -1532,7 +1532,6 @@ class SessionManager:
                 "settings.json 的 deny 规则或 PreToolUse hook（跨项目/cwd 外写/代码扩展名）。"
             )
             return PermissionResultDeny(message=hint)
-            return PermissionResultAllow(updated_input=input_data)
 
         return _can_use_tool
 

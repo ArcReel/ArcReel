@@ -1128,12 +1128,8 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_requeue_single_task_reports_database_failure(self, monkeypatch):
-        from contextlib import asynccontextmanager
-
-        @asynccontextmanager
-        async def _session_factory():
+        def _session_factory() -> contextlib.AbstractAsyncContextManager[object]:
             raise RuntimeError("database unavailable")
-            yield  # pragma: no cover
 
         monkeypatch.setattr("lib.db.safe_session_factory", _session_factory)
 
@@ -2186,13 +2182,10 @@ class TestGenerationWorker:
         """分镜视频只有 checkpoint + job 齐备才续跑；enqueue payload 不再承担身份锁定。"""
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
-        captured_task: dict | None = None
-        captured_job_id: str | None = None
+        captured: list[tuple[dict, str]] = []
 
         async def _fake_resume(task, *, job_id):
-            nonlocal captured_task, captured_job_id
-            captured_task = task
-            captured_job_id = job_id
+            captured.append((task, job_id))
             return {"ok": True}
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _fake_resume)
@@ -2200,7 +2193,8 @@ class TestGenerationWorker:
         task = _storyboard_resume_task("resume-locked", provider_id="openai", job_id="openai-job")
         task["payload"] = {"video_provider_i2v": "gemini-aistudio/veo-3.1-fast-generate-preview"}
         await worker._process_resume_task(task)
-        assert captured_task is not None
+        assert len(captured) == 1
+        captured_task, captured_job_id = captured[0]
         # Resume executor receives the row unchanged and loads its immutable checkpoint itself.
         assert captured_task["payload"] == {"video_provider_i2v": "gemini-aistudio/veo-3.1-fast-generate-preview"}
         assert captured_job_id == "openai-job"

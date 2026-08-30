@@ -52,7 +52,6 @@ from lib.reference_video.request_projection import (
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
-    clamp_reference_assets,
     hydrate_reference_assets,
     reference_audio_model_facts,
     resolve_reference_assets,
@@ -139,25 +138,6 @@ def _reference_limit_warning(*, provider: str, model: str | None, count: int, ma
         "key": "ref_too_many_images",
         "params": {"count": count, "model": model or provider, "max_count": max_refs},
     }
-
-
-def _clamp_resolved_reference_images(
-    entries: list[ResolvedReferenceImage],
-    max_refs: int | None,
-    *,
-    provider: str,
-    model: str | None,
-) -> tuple[list[ResolvedReferenceImage], list[dict[str, Any]]]:
-    """按请求上限裁图片，并让所有商品资产图优先于商品原图及其它资产。
-
-    未超限时保留原始稳定顺序；只有必须裁剪时才重排，避免在容量足够时无谓改变同一商品
-    sheet 与原图的邻接顺序。``max_refs == 0`` 表示模型不支持参考图，返回空集。
-    """
-    clamped = list(clamp_reference_assets(entries, max_refs))
-    if len(clamped) == len(entries):
-        return clamped, []
-    assert max_refs is not None
-    return clamped, [_reference_limit_warning(provider=provider, model=model, count=len(entries), max_refs=max_refs)]
 
 
 #: unit 时长缺值时的兼容兜底秒数，也作为能力暂不可解析时的新建 unit 默认值。

@@ -3,9 +3,9 @@
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
     FakeGenerator,
-    _fake_resolve_ctx,
     _FakePM,
-    _prepare_files,
+    fake_resolve_ctx,
+    prepare_files,
 )
 
 
@@ -13,12 +13,12 @@ class TestGenerationTasks:
     async def test_execute_product_task_injects_reference_images(self, tmp_path, monkeypatch):
         """product sheet 生成把用户上传原图作为参考注入（标准化整理的输入），缺失文件跳过；
         完成后回写 product_sheet。"""
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator(project_path)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         result = await generation_tasks.execute_product_task(
             "demo",
@@ -38,20 +38,20 @@ class TestGenerationTasks:
         assert "保温杯" in call["prompt"]
 
     async def test_execute_product_task_without_refs_is_t2i(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["products"]["保温杯"]["reference_images"] = []
         fake_generator = FakeGenerator(project_path)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         await generation_tasks.execute_product_task("demo", "保温杯", {"prompt": "保温杯"})
         assert fake_generator.image_calls[0]["reference_images"] is None
 
     def test_collect_product_reference_images_rejects_path_escape(self, tmp_path):
         """reference_images 中的绝对路径与 `..` 穿越值不得越出项目目录读取宿主机文件；目录路径同样跳过。"""
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         outside = tmp_path / "outside.jpg"
         outside.write_bytes(b"jpg")
         project = {

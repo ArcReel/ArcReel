@@ -90,14 +90,6 @@ def _iso_now_millis() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
-def _safe_str(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    return str(value)
-
-
 def _is_blank(value: Any) -> bool:
     if value is None:
         return True
@@ -119,42 +111,6 @@ def parse_bool_env(value: Any, default: bool) -> bool:
         if normalized in {"0", "false", "f", "no", "n", "off"}:
             return False
     return default
-
-
-def _read_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        if not value.strip():
-            return None
-        try:
-            return int(value)
-        except ValueError:
-            return None
-    return None
-
-
-def _read_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return float(int(value))
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        if not value.strip():
-            return None
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
 
 
 @dataclass(frozen=True)

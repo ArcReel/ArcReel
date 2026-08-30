@@ -8,7 +8,7 @@ from pathlib import Path
 from lib.project_migrations.runner import migrate_project_dir
 
 
-def _load_project_and_unit(proj_dir: Path, unit_id: str) -> tuple[dict, dict]:
+def load_project_and_unit(proj_dir: Path, unit_id: str) -> tuple[dict, dict]:
     project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
     script = json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
     unit = next(u for u in script["video_units"] if u["unit_id"] == unit_id)
@@ -22,7 +22,7 @@ _TINY_PNG = (
 )
 
 
-def _write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
+def write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
     project = {
         "title": "T",
         "content_mode": "narration",
@@ -73,7 +73,7 @@ def _write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
     return proj_dir
 
 
-def _register_asset_sheet(proj_dir: Path, asset_type: str, name: str, relative_path: str) -> None:
+def register_asset_sheet(proj_dir: Path, asset_type: str, name: str, relative_path: str) -> None:
     """把新增资产补成生产形态：sheet 文件在盘上，且在产物清单里登记。
 
     调用前 project.json 必须已经写盘并带上该资产的 sheet 指针——清单登记的依据来自

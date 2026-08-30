@@ -42,6 +42,6 @@ def app_data_dir() -> Path:
     return default
 
 
-def _reset_for_tests() -> None:
+def reset_for_tests() -> None:
     """Clear the cached value so tests can monkeypatch env between cases."""
     app_data_dir.cache_clear()

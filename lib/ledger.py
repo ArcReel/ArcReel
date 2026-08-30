@@ -27,7 +27,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from typing import Any, Literal, assert_never
 
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -70,7 +70,7 @@ def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: s
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
         )
-    raise ValueError(f"unknown ledger channel: {call_type!r}")
+    assert_never(call_type)
 
 
 class LedgerCall:

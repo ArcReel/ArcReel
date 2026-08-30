@@ -10,11 +10,11 @@ from lib.artifact_manifest import ArtifactKey, ArtifactStatus
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
-    _activate_unbound_project,
-    _call,
-    _generation_result,
-    _reference_video_script,
-    _use_reference_route,
+    activate_unbound_project,
+    call,
+    read_generation_result,
+    reference_video_script,
+    use_reference_route,
 )
 
 # ---------------------------------------------------------------------------
@@ -65,10 +65,10 @@ async def test_generate_narration_audio_missing_only_reuses_a_stale_recording(
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _AllStaleResolver())
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.requested == []
     assert {entry.unit_id: entry.artifact_status for entry in result.skipped} == {
         "E1S01": ArtifactStatus.STALE,
@@ -99,14 +99,14 @@ async def test_generate_narration_audio_explicit_ids_regenerate_a_stale_recordin
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _AllStaleResolver())
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
-    out = await _call(
+    out = await call(
         mod.generate_narration_audio_tool(fake_ctx),
         {"script": "episode_1.json", "segment_ids": ["E1S01"]},
     )
 
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in captured] == ["E1S01"]
-    assert _generation_result(out).succeeded == ["E1S01"]
+    assert read_generation_result(out).succeeded == ["E1S01"]
 
 
 async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -133,7 +133,7 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in captured] == ["E1S01"]
@@ -151,8 +151,8 @@ async def test_generate_narration_audio_covers_reference_video_units(fake_ctx: T
     """参考生视频的 video_units 同样可点名配音——入口按当前骨架取单元，不限生成模式。"""
     from server.media_tools import narration_audio as mod
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script(
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script(
         video_units=[{"unit_id": "E1U1", "duration_seconds": 5, "text": "{风吹过旷野。}"}]
     )
     captured: list[Any] = []
@@ -172,7 +172,7 @@ async def test_generate_narration_audio_covers_reference_video_units(fake_ctx: T
         ], []
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in captured] == ["E1U1"]
@@ -186,7 +186,7 @@ async def test_generate_narration_audio_rejects_unbound_active_script_before_enq
 ) -> None:
     from server.media_tools import narration_audio as mod
 
-    _activate_unbound_project(fake_ctx)
+    activate_unbound_project(fake_ctx)
     fake_ctx.pm.script_payload = _narration_audio_script()
     enqueued = False
 
@@ -197,7 +197,7 @@ async def test_generate_narration_audio_rejects_unbound_active_script_before_enq
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
-    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     assert "not bound" in out["content"][0]["text"]
@@ -238,12 +238,12 @@ async def test_generate_narration_audio_uses_canonical_filename_when_episode_fie
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
 
-    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_2.json"})
+    out = await call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_2.json"})
 
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in captured] == ["E1S01"]
     # 集号取自项目绑定而非剧本自述：产物身份随之落在第 2 集
-    assert _generation_result(out).items[0].artifact_key == ArtifactKey.episode_audio(2, "E1S01").encode()
+    assert read_generation_result(out).items[0].artifact_key == ArtifactKey.episode_audio(2, "E1S01").encode()
 
 
 async def test_generate_narration_audio_selects_item_with_corrupt_generated_assets(
@@ -274,7 +274,7 @@ async def test_generate_narration_audio_selects_item_with_corrupt_generated_asse
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in captured] == ["E1S01"]
@@ -297,7 +297,7 @@ async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolCo
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "segment_ids": ["E1S02"]})
+    out = await call(tool_obj, {"script": "episode_1.json", "segment_ids": ["E1S02"]})
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in captured] == ["E1S02"]
@@ -324,18 +324,18 @@ async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolContex
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
 
     # 扫描模式：空白段根本不是缺口，不进 requested，也不阻塞其余段
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in captured] == ["E1S01"]
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert "E1S03" not in result.requested
 
     # 显式点名空白段：该段按 blocked 上报，带稳定 code 与下一步动作
     captured.clear()
-    out = await _call(tool_obj, {"script": "episode_1.json", "segment_ids": ["E1S03"]})
+    out = await call(tool_obj, {"script": "episode_1.json", "segment_ids": ["E1S03"]})
     assert out.get("is_error") is True
     assert captured == []
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.requested == ["E1S03"]
     assert result.blocked == ["E1S03"]
     problem = result.items[0].problem
@@ -362,11 +362,11 @@ async def test_generate_narration_audio_partial_unmatched_reported(fake_ctx: Too
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "segment_ids": ["E1S01", "E1S99"]})
+    out = await call(tool_obj, {"script": "episode_1.json", "segment_ids": ["E1S01", "E1S99"]})
 
     assert out.get("is_error") is True
     assert [s.resource_id for s in captured] == ["E1S01"]
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert sorted(result.requested) == ["E1S01", "E1S99"]
     assert result.succeeded == ["E1S01"]
     assert result.blocked == ["E1S99"]
@@ -402,7 +402,7 @@ async def test_generate_narration_audio_accepts_drama_narrator_scene(
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in captured] == ["E1S01"]
     assert captured[0].payload == {"prompt": None, "script_file": "episode_1.json"}
@@ -434,7 +434,7 @@ async def test_generate_narration_audio_uses_project_mode_for_drama_without_cont
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in captured] == ["E1S01"]
 
@@ -467,7 +467,7 @@ async def test_generate_narration_audio_accepts_reference_narrator_unit(
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in captured] == ["E1U1"]
 
@@ -482,7 +482,7 @@ async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: Tool
         "video_units": [{"unit_id": "E1U1"}],
     }
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "骨架" in text
@@ -495,7 +495,7 @@ async def test_generate_narration_audio_rejects_string_segment_ids(fake_ctx: Too
 
     fake_ctx.pm.script_payload = _narration_audio_script()
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "segment_ids": "E1S01"})
+    out = await call(tool_obj, {"script": "episode_1.json", "segment_ids": "E1S01"})
     assert out.get("is_error") is True
     assert "数组" in out["content"][0]["text"]
 
@@ -521,11 +521,11 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in captured] == ["E1S01", "E1S02"]
-    assert _generation_result(out).requested == ["E1S01", "E1S02"]
+    assert read_generation_result(out).requested == ["E1S01", "E1S02"]
 
 
 async def test_generate_narration_audio_no_match_error(fake_ctx: ToolContext) -> None:
@@ -533,9 +533,9 @@ async def test_generate_narration_audio_no_match_error(fake_ctx: ToolContext) ->
 
     fake_ctx.pm.script_payload = _narration_audio_script()
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "segment_ids": ["NO_SUCH"]})
+    out = await call(tool_obj, {"script": "episode_1.json", "segment_ids": ["NO_SUCH"]})
     assert out.get("is_error") is True
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.requested == ["NO_SUCH"]
     assert result.blocked == ["NO_SUCH"]
 
@@ -547,10 +547,10 @@ async def test_generate_narration_audio_all_done(fake_ctx: ToolContext) -> None:
     script["segments"][0]["generated_assets"] = {"narration_audio": "audio/segment_E1S01.wav"}
     fake_ctx.pm.script_payload = script
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
     # 已有配音的单元被复用而非重生：不进 requested，只作为 skipped 报告。
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.requested == []
     assert [entry.unit_id for entry in result.skipped] == ["E1S01", "E1S02"]
 
@@ -571,7 +571,7 @@ async def test_generate_narration_audio_task_failures_surface(fake_ctx: ToolCont
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "成功 0 件、失败 1 件" in text
@@ -582,6 +582,6 @@ async def test_generate_narration_audio_rejects_path_in_script_arg(fake_ctx: Too
     from server.media_tools import narration_audio as mod
 
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "../etc/passwd"})
+    out = await call(tool_obj, {"script": "../etc/passwd"})
     assert out.get("is_error") is True
     assert "路径分隔符" in out["content"][0]["text"]

@@ -1,15 +1,15 @@
 """projects 路由的 model_settings 读写。"""
 
 from tests.integration.server.routers.projects_router_support import (
-    _client,
     _FakePM,
+    build_projects_client,
 )
 
 
 class TestModelSettingsApi:
     def test_create_project_with_model_settings(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.post(
                 "/api/v1/projects",
@@ -32,7 +32,7 @@ class TestModelSettingsApi:
 
     def test_patch_project_model_settings(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             # 先创建（利用现有 ready 项目）
             resp = client.patch(

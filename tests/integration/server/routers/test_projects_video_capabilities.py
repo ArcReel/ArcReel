@@ -3,8 +3,8 @@
 from lib.i18n.zh import errors as zh_errors
 from server.routers import projects
 from tests.integration.server.routers.projects_router_support import (
-    _client,
     _FakePM,
+    build_projects_client,
 )
 
 
@@ -36,7 +36,7 @@ class TestGetVideoCapabilities:
             "generation_mode": "reference_video",
         }
         self._patch_resolver(monkeypatch, return_value=fake_caps)
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 200
@@ -55,7 +55,7 @@ class TestGetVideoCapabilities:
         resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
         monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
 
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
@@ -75,7 +75,7 @@ class TestGetVideoCapabilities:
         resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
         monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
 
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             assert client.get("/api/v1/projects/ready/video-capabilities").status_code == 200
             resp = client.get(
@@ -98,7 +98,7 @@ class TestGetVideoCapabilities:
         resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
         monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
 
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities", params={"episode": 3})
         assert resp.status_code == 200
@@ -106,7 +106,7 @@ class TestGetVideoCapabilities:
 
     def test_malformed_video_backend_returns_400(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, return_value={})
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
@@ -126,7 +126,7 @@ class TestGetVideoCapabilities:
         resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
         monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
 
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
@@ -140,14 +140,14 @@ class TestGetVideoCapabilities:
 
     def test_unknown_project_returns_404(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, side_effect=FileNotFoundError("项目 'nonexistent' 不存在"))
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/nonexistent/video-capabilities")
             assert resp.status_code == 404
 
     def test_resolver_value_error_returns_422(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, side_effect=ValueError("model not found: grok/unknown"))
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 422
@@ -170,7 +170,7 @@ class TestGetVideoCapabilities:
                 message="video model kling/kling-v3 lacks the capability required by the r2v bucket",
             ),
         )
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 400

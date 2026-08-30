@@ -94,7 +94,7 @@ def _ffprobe_available() -> bool:
     return shutil.which("ffprobe") is not None
 
 
-def _reset_for_tests() -> None:
+def reset_for_tests() -> None:
     """test helper —— 清缓存让 monkeypatch shutil.which 立刻生效。"""
     _ffprobe_available.cache_clear()
 

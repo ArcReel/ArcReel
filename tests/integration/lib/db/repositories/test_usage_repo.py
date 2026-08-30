@@ -239,7 +239,7 @@ class TestFinalizePendingByCallId:
         """provider 成功响应但漏报 usage（``usage_tokens`` 为 None）时，实付结算必须如实按
         0 计费，不能借费用预估侧的 token 近似换算兜底把估算近似值当成真实支出记录——
         该兜底只应在 ``CostCalculator.calculate_cost(estimate_only=True)`` 时生效
-        （见 ``server/services/cost_estimation.py::_estimate_unit_video_cost``），
+        （见 ``server/services/cost_estimation.py`` 的视频预估分支），
         ``UsageRepository._settle`` 走真实结算，不传 ``estimate_only``。"""
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(

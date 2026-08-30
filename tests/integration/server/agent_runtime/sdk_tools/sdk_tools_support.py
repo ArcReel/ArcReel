@@ -37,7 +37,7 @@ from tests.fakes import FakeConfigResolver
 # ---------------------------------------------------------------------------
 
 
-async def _fake_scene_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+async def fake_scene_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
     """Stand in for the queue: every scene spec lands its canonical mp4."""
 
     from lib.generation_queue_client import BatchTaskResult
@@ -53,7 +53,7 @@ async def _fake_scene_batch(*, project_name, specs, on_success=None, on_failure=
     ], []
 
 
-def _generation_result(out: dict[str, Any] | ToolOutcome[Any]) -> GenerationBatchResult:
+def read_generation_result(out: dict[str, Any] | ToolOutcome[Any]) -> GenerationBatchResult:
     """Read the structured contract out of a tool response, never its text."""
 
     if isinstance(out, ToolOutcome):
@@ -62,7 +62,7 @@ def _generation_result(out: dict[str, Any] | ToolOutcome[Any]) -> GenerationBatc
     return GenerationBatchResult.model_validate(out["generation_result"])
 
 
-def _videos_tool_for_scope(ctx: ToolContext, scope: str):
+def videos_tool_for_scope(ctx: ToolContext, scope: str):
     """Exercise one unified video scope while keeping legacy-behavior test setup compact."""
 
     from server.media_tools.videos import generate_videos_tool
@@ -269,7 +269,7 @@ class FakePM:
         return [{"name": "保温杯", "description": "不锈钢保温杯"}]
 
 
-def _fake_reference_projection(
+def fake_reference_projection(
     slot_for=None,
     calls: list[str] | None = None,
     *,
@@ -332,7 +332,7 @@ def _fake_reference_projection(
     return _project
 
 
-def _fake_caps_resolver(**kwargs: Any) -> Any:
+def fake_caps_resolver(**kwargs: Any) -> Any:
     """构造假能力解析器（见 ``tests.fakes.FakeConfigResolver``）。
 
     返回值按 ``Any`` 交出：注入点标注的是生产的 ``ConfigResolver``，替身只实现被调到的那几个
@@ -341,19 +341,19 @@ def _fake_caps_resolver(**kwargs: Any) -> Any:
     return FakeConfigResolver(**kwargs)
 
 
-def _use_fake_caps(fake_ctx: ToolContext, **kwargs: Any) -> Any:
+def use_fake_caps(fake_ctx: ToolContext, **kwargs: Any) -> Any:
     """给这个会话装上假能力解析器并返回它。
 
     工具经 ``ToolContext.config_resolver`` 把解析器透传给能力取值器，注入后取值器里的软回退、
     时长联动约束收窄与声音档派生照常执行——那些正是用例要保护的行为，整体替换取值器会把它们
     一并旁路掉。
     """
-    resolver = _fake_caps_resolver(**kwargs)
+    resolver = fake_caps_resolver(**kwargs)
     fake_ctx.config_resolver = resolver
     return resolver
 
 
-async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
+async def call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
     """调工具处理器；工具声明为必填的交付方式在未点名时补成后期配音。
 
     绝大多数视频用例的主题不是旁白交付，逐个写死这一项只会让它们看起来在断言交付方式。
@@ -371,7 +371,7 @@ async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
     return outcome
 
 
-def _activate_unbound_project(fake_ctx: ToolContext, *, generation_mode: str = "storyboard") -> None:
+def activate_unbound_project(fake_ctx: ToolContext, *, generation_mode: str = "storyboard") -> None:
     project = fake_ctx.pm.project_payload
     project.update(
         {
@@ -384,7 +384,7 @@ def _activate_unbound_project(fake_ctx: ToolContext, *, generation_mode: str = "
     (fake_ctx.project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
 
 
-def _reference_video_script(**overrides: Any) -> dict[str, Any]:
+def reference_video_script(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "content_mode": "narration",
         "episode": 1,
@@ -400,12 +400,12 @@ def _reference_video_script(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
-def _use_reference_route(fake_ctx: ToolContext) -> None:
+def use_reference_route(fake_ctx: ToolContext) -> None:
     """把 fake 项目切到参考生视频——生成模式是项目级事实，剧本不携带戳。"""
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
 
 
-def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
+def rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
     """构造返回指定扁平 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 
     class _FakeGenerator:
@@ -430,7 +430,7 @@ def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None =
 _RV_NOVEL = "张三在村口等人"
 
 
-def _rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video") -> None:
+def rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video") -> None:
     """把项目声明成参考生视频路径——草稿的拆分 / 晋升 / 阻塞判定都以此为前提。
 
     盘上的 project.json 与 pm 的内存视图同步：生成入口从盘上读，晋升工具经 ``pm.load_project`` 读。
@@ -443,19 +443,19 @@ def _rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video")
     )
 
 
-def _rv_source(fake_ctx: ToolContext) -> None:
-    _rv_project(fake_ctx)
+def rv_source(fake_ctx: ToolContext) -> None:
+    rv_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
 
 
-def _rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> dict:
+def rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> dict:
     """script_plan 的 LLM 产出形状：一层扁平（时长 + 原文锚 + 引用语法正文）。"""
     return {"duration_seconds": duration, "source_text": source_text, "text": text}
 
 
-def _derived_reference_names(fake_ctx: ToolContext, text: str) -> list[str]:
+def derived_reference_names(fake_ctx: ToolContext, text: str) -> list[str]:
     """正文 → 参考图名称：读侧的唯一派生入口，落盘不带 references。"""
     from lib.reference_video.text_parser import derive_references_from_text
 
@@ -464,51 +464,51 @@ def _derived_reference_names(fake_ctx: ToolContext, text: str) -> list[str]:
     return [reference.name for reference in references]
 
 
-def _rv_script_plan_path(fake_ctx: ToolContext):
+def rv_script_plan_path(fake_ctx: ToolContext):
     return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_reference_units.json"
 
 
-async def _run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **caps_kwargs) -> dict:
+async def run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **caps_kwargs) -> dict:
     from server import text_generation as mod
 
-    _use_fake_caps(fake_ctx, **caps_kwargs)
-    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
-    return await _call(generate_script_plan_tool(fake_ctx), {"episode": 1})
+    use_fake_caps(fake_ctx, **caps_kwargs)
+    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units))
+    return await call(generate_script_plan_tool(fake_ctx), {"episode": 1})
 
 
-def _rv_quarantine_path(fake_ctx: ToolContext):
+def rv_quarantine_path(fake_ctx: ToolContext):
     return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
 
 
-def _read_rv_quarantine(fake_ctx: ToolContext) -> dict:
-    return json.loads(_rv_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
+def read_rv_quarantine(fake_ctx: ToolContext) -> dict:
+    return json.loads(rv_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
 
 
-async def _promote(fake_ctx: ToolContext, **caps_kwargs) -> dict:
+async def promote_reference_draft(fake_ctx: ToolContext, **caps_kwargs) -> dict:
     if not (fake_ctx.project_path / "project.json").exists():
-        _rv_project(fake_ctx)
-    _use_fake_caps(fake_ctx, **caps_kwargs)
-    if _rv_quarantine_path(fake_ctx).exists():
+        rv_project(fake_ctx)
+    use_fake_caps(fake_ctx, **caps_kwargs)
+    if rv_quarantine_path(fake_ctx).exists():
         doc_type = "reference_script_plan"
     elif quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists():
         doc_type = "reference_prompt_authoring"
     else:
         doc_type = "reference_script_plan"
     args = {"episode": 1, "doc_type": doc_type}
-    opened = await _call(open_draft_tool(fake_ctx), args)
+    opened = await call(open_draft_tool(fake_ctx), args)
     payload = json.loads(opened["content"][0]["text"])
     revision = payload.get("draft", {}).get("revision", "")
-    return await _call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
+    return await call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
 
 
-def _write_rv_script_plan(fake_ctx: ToolContext, units: list[dict]) -> None:
+def write_rv_script_plan(fake_ctx: ToolContext, units: list[dict]) -> None:
     """直接铺一份正式 script_plan（模拟上一轮拆分的落盘产物）。"""
-    path = _rv_script_plan_path(fake_ctx)
+    path = rv_script_plan_path(fake_ctx)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"units": units}, ensure_ascii=False), encoding="utf-8")
 
 
-def _rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> dict:
+def rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> dict:
     """正式 script_plan 的落盘形状（正文 + 机器派生的 unit_id）。"""
     return {
         "unit_id": unit_id,
@@ -518,24 +518,24 @@ def _rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> d
     }
 
 
-async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
+async def open_for_edit(fake_ctx: ToolContext, **args) -> dict:
     if not (fake_ctx.project_path / "project.json").exists():
-        _rv_project(fake_ctx)
-    return await _call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "reference_script_plan", **args})
+        rv_project(fake_ctx)
+    return await call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "reference_script_plan", **args})
 
 
-def _nr_project(fake_ctx: ToolContext) -> None:
-    _rv_project(fake_ctx, generation_mode="storyboard")
+def nr_project(fake_ctx: ToolContext) -> None:
+    rv_project(fake_ctx, generation_mode="storyboard")
 
 
-def _nr_source(fake_ctx: ToolContext) -> None:
-    _nr_project(fake_ctx)
+def nr_source(fake_ctx: ToolContext) -> None:
+    nr_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
 
 
-def _nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None = None):
+def nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None = None):
     """构造返回指定 segments JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 
     class _FakeGenerator:
@@ -557,7 +557,7 @@ def _nr_generator_returning(segments: list[dict], captured: dict[str, Any] | Non
     return fake_create
 
 
-def _nr_segment(segment_id="E1S01", duration=4, novel_text="张三走向村口。", **extra):
+def nr_segment(segment_id="E1S01", duration=4, novel_text="张三走向村口。", **extra):
     seg = {
         "segment_id": segment_id,
         "novel_text": novel_text,
@@ -574,7 +574,7 @@ def _nr_segment(segment_id="E1S01", duration=4, novel_text="张三走向村口�
 _DRAMA_NOVEL = "三年后，阿离回到山门。"
 
 
-def _drama_project(fake_ctx: ToolContext) -> None:
+def drama_project(fake_ctx: ToolContext) -> None:
     """把项目声明成 drama + 分镜图生视频，并铺好源文——正式 script_plan 的写禁与草稿通道以此为前提。"""
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps({"content_mode": "drama", "generation_mode": "storyboard"}, ensure_ascii=False),
@@ -587,7 +587,7 @@ def _drama_project(fake_ctx: ToolContext) -> None:
     (src / "episode_1.txt").write_text(_DRAMA_NOVEL, encoding="utf-8")
 
 
-def _drama_scene(**overrides) -> dict:
+def drama_scene(**overrides) -> dict:
     scene = {
         "scene_id": "E1S01",
         "duration_seconds": 4,
@@ -603,61 +603,61 @@ def _drama_scene(**overrides) -> dict:
     return scene
 
 
-def _drama_script_plan_path(fake_ctx: ToolContext) -> Path:
+def drama_script_plan_path(fake_ctx: ToolContext) -> Path:
     return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json"
 
 
-def _drama_quarantine_path(fake_ctx: ToolContext) -> Path:
+def drama_quarantine_path(fake_ctx: ToolContext) -> Path:
     return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
 
 
-def _write_drama_script_plan(fake_ctx: ToolContext, scenes: list[dict]) -> None:
-    path = _drama_script_plan_path(fake_ctx)
+def write_drama_script_plan(fake_ctx: ToolContext, scenes: list[dict]) -> None:
+    path = drama_script_plan_path(fake_ctx)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"title": "第一集", "scenes": scenes}, ensure_ascii=False), encoding="utf-8")
 
 
-def _read_drama_quarantine(fake_ctx: ToolContext) -> dict:
-    return json.loads(_drama_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
+def read_drama_quarantine(fake_ctx: ToolContext) -> dict:
+    return json.loads(drama_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
 
 
-async def _open_drama_for_edit(fake_ctx: ToolContext, **args) -> dict:
-    return await _call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "drama_script_plan", **args})
+async def open_drama_for_edit(fake_ctx: ToolContext, **args) -> dict:
+    return await call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "drama_script_plan", **args})
 
 
-async def _promote_drama(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
-    _use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
+async def promote_drama(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
+    use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
     args = {"episode": 1, "doc_type": "drama_script_plan"}
-    opened = await _call(open_draft_tool(fake_ctx), args)
+    opened = await call(open_draft_tool(fake_ctx), args)
     revision = json.loads(opened["content"][0]["text"])["draft"]["revision"]
-    return await _call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
+    return await call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
 
 
-def _nr_script_plan_path(fake_ctx: ToolContext) -> Path:
+def nr_script_plan_path(fake_ctx: ToolContext) -> Path:
     return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
 
 
-def _nr_quarantine_path(fake_ctx: ToolContext) -> Path:
+def nr_quarantine_path(fake_ctx: ToolContext) -> Path:
     return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
 
 
-def _read_nr_quarantine(fake_ctx: ToolContext) -> dict:
-    return json.loads(_nr_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
+def read_nr_quarantine(fake_ctx: ToolContext) -> dict:
+    return json.loads(nr_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
 
 
-def _write_nr_script_plan(fake_ctx: ToolContext, segments: list[dict]) -> None:
-    path = _nr_script_plan_path(fake_ctx)
+def write_nr_script_plan(fake_ctx: ToolContext, segments: list[dict]) -> None:
+    path = nr_script_plan_path(fake_ctx)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"segments": segments}, ensure_ascii=False), encoding="utf-8")
 
 
-async def _open_nr_for_edit(fake_ctx: ToolContext, **args) -> dict:
-    return await _call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "narration_script_plan", **args})
+async def open_nr_for_edit(fake_ctx: ToolContext, **args) -> dict:
+    return await call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "narration_script_plan", **args})
 
 
-async def _promote_nr(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
-    _use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
+async def promote_nr(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
+    use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
     args = {"episode": 1, "doc_type": "narration_script_plan"}
-    opened = await _call(open_draft_tool(fake_ctx), args)
+    opened = await call(open_draft_tool(fake_ctx), args)
     revision = json.loads(opened["content"][0]["text"])["draft"]["revision"]
-    return await _call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
+    return await call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})

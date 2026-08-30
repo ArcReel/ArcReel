@@ -12,7 +12,7 @@ from lib.generation_queue_client import wait_for_task
 from lib.generation_worker import CapacityTable, GenerationWorker
 from lib.project_change_hints import register_project_change_batch_listener
 from server.media_tools.context import ToolContext
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import FakePM, _fake_caps_resolver
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import FakePM, fake_caps_resolver
 
 
 def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
@@ -33,7 +33,7 @@ def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyP
         projects_root=tmp_path,
         pm=FakePM("demo", project_dir),
         queue=queue,
-        config_resolver=_fake_caps_resolver(),
+        config_resolver=fake_caps_resolver(),
     )
 
 

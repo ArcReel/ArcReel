@@ -3,7 +3,7 @@
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
     _FakePM,
-    _prepare_files,
+    prepare_files,
 )
 
 
@@ -72,7 +72,7 @@ class TestGenerationTasks:
         assert all(not key.startswith("/") for key in fps)
 
     def test_product_fingerprints(self, monkeypatch, tmp_path):
-        project_path = _prepare_files(tmp_path)
+        project_path = prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)

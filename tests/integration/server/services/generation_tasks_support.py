@@ -17,7 +17,7 @@ from server.services.generation_context import AudioLaneResult, GenerationContex
 from tests.fakes import persist_fake_script
 
 
-def _async_return(value):
+def async_return(value):
     """Create an async function that always returns the given value (ignoring args)."""
 
     async def _inner(*args, **kwargs):
@@ -26,7 +26,7 @@ def _async_return(value):
     return _inner
 
 
-def _fake_resolve_ctx(
+def fake_resolve_ctx(
     generator,
     *,
     image_provider=("openai", "gpt-image-2"),
@@ -291,7 +291,7 @@ class FakeGenerator:
         return True
 
 
-def _prepare_files(tmp_path: Path):
+def prepare_files(tmp_path: Path):
     project_path = tmp_path / "projects" / "demo"
     (project_path / "storyboards").mkdir(parents=True, exist_ok=True)
     (project_path / "characters").mkdir(parents=True, exist_ok=True)
@@ -318,7 +318,7 @@ def _register_episode_script_artifact(project_path: Path) -> None:
     )
 
 
-def _persist_active_fake_project(fake_pm: _FakePM, *, register_script: bool = True) -> None:
+def persist_active_fake_project(fake_pm: _FakePM, *, register_script: bool = True) -> None:
     """Persist the fake manager's mutated state back onto its schema-8 project on disk."""
 
     fake_pm.project.update(
@@ -344,7 +344,7 @@ def _persist_active_fake_project(fake_pm: _FakePM, *, register_script: bool = Tr
         _register_episode_script_artifact(fake_pm.project_path)
 
 
-def _seed_current_storyboard(fake_pm: _FakePM, resource_id: str = "E1S01") -> None:
+def seed_current_storyboard(fake_pm: _FakePM, resource_id: str = "E1S01") -> None:
     """Record one already-generated storyboard the way production does.
 
     A video task consumes the storyboard through the script pointer plus the Manifest
@@ -355,14 +355,14 @@ def _seed_current_storyboard(fake_pm: _FakePM, resource_id: str = "E1S01") -> No
     items, id_field, _kind = generation_tasks.resolve_items(fake_pm.script)
     item = next(candidate for candidate in items if str(candidate.get(id_field)) == resource_id)
     item.setdefault("generated_assets", {})["storyboard_image"] = artifact_path
-    _register_stale_visual_claim(
+    register_stale_visual_claim(
         fake_pm.project_path,
         ArtifactKey.episode_storyboard(1, resource_id),
         artifact_path,
     )
 
 
-def _register_asset_sheet_claims(fake_pm: _FakePM) -> None:
+def register_asset_sheet_claims(fake_pm: _FakePM) -> None:
     """Register every asset sheet the fake project already has on disk.
 
     A sheet is only injectable once the Manifest claims it, so a fixture that wants
@@ -376,14 +376,14 @@ def _register_asset_sheet_claims(fake_pm: _FakePM) -> None:
         for name, entry in bucket.items():
             sheet = (entry or {}).get(spec.sheet_field)
             if isinstance(sheet, str) and sheet and (fake_pm.project_path / sheet).is_file():
-                _register_stale_visual_claim(
+                register_stale_visual_claim(
                     fake_pm.project_path,
                     ArtifactKey.asset_sheet(asset_type, name),
                     sheet,
                 )
 
 
-def _currency_resolver(project_path: Path, project: dict):
+def build_currency_resolver(project_path: Path, project: dict):
     """Persist the project and build the resolver production hands the reference collectors."""
 
     from lib.artifact_activation import active_artifact_currency_resolver
@@ -392,7 +392,7 @@ def _currency_resolver(project_path: Path, project: dict):
     return active_artifact_currency_resolver(project_path, project)
 
 
-def _register_stale_visual_claim(project_path: Path, key: ArtifactKey, artifact_path: str) -> None:
+def register_stale_visual_claim(project_path: Path, key: ArtifactKey, artifact_path: str) -> None:
     ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
         key,
         artifact_path=artifact_path,
@@ -400,7 +400,7 @@ def _register_stale_visual_claim(project_path: Path, key: ArtifactKey, artifact_
     )
 
 
-def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
+def ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
     """ad 项目 fixture：商品分镜 E1S02（引用保温杯）+ 氛围分镜 E1S01/E1S03。"""
     pm = _FakePM(project_path)
     pm.project["content_mode"] = "ad"
@@ -434,5 +434,5 @@ def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
             },
         ],
     }
-    _register_asset_sheet_claims(pm)
+    register_asset_sheet_claims(pm)
     return pm

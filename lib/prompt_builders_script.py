@@ -57,7 +57,7 @@ def _format_assets_with_desc(items: dict) -> str:
 _ASSET_APPEARANCE_NOTE = "资产外观以上述描述为准：视觉字段写到出场资产的服装 / 材质 / 陈设细节时从中取材，不自行发明。"
 
 
-def _format_duration_constraint(supported_durations: list[int], default_duration: int | None) -> str:
+def format_duration_constraint(supported_durations: list[int], default_duration: int | None) -> str:
     """生成时长约束描述。连续整数集 ≥5 用区间表达，否则枚举。"""
     if not supported_durations:
         raise ValueError("supported_durations 不能为空：调用方必须提供 model 的合法时长列表")

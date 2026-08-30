@@ -6,8 +6,8 @@ from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArt
 from lib.i18n.zh import errors as zh_errors
 from lib.project_manager import ProjectManager
 from tests.integration.server.routers.projects_router_support import (
-    _client,
     _FakePM,
+    build_projects_client,
 )
 
 
@@ -75,7 +75,7 @@ class TestProjectsRouter:
         )
         adapter.put_entry(unrelated, unrelated_entry)
 
-        with _client(monkeypatch, pm) as client:
+        with build_projects_client(monkeypatch, pm) as client:
             response = client.patch(
                 "/api/v1/projects/demo",
                 json={"episodes": [{"episode": 1, "script_file": "scripts/new.json"}]},
@@ -94,7 +94,7 @@ class TestProjectsRouter:
             {"episode": 2, "title": "第二集", "script_file": "scripts/ep2.json"},
         ]
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -115,7 +115,7 @@ class TestProjectsRouter:
             {"episode": 1, "title": "第一集", "script_file": "scripts/ep1.json"},
         ]
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -132,7 +132,7 @@ class TestProjectsRouter:
             {"episode": 1, "title": "原标题", "script_file": "scripts/ep1.json"},
         ]
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -177,7 +177,7 @@ class TestProjectsRouter:
             {"episode": 2, "title": "第二集", "script_file": "scripts/ep2.json"},
         ]
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -197,7 +197,7 @@ class TestProjectsRouter:
         # 剧本带 episode 字段，触发 _apply_episode_sync 镜像（与真实生成剧本一致）
         fake_pm.scripts[("ready", "episode_1.json")]["episode"] = 1
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "  新集名  "})
             assert resp.status_code == 200
@@ -210,7 +210,7 @@ class TestProjectsRouter:
 
     def test_update_episode_title_empty_rejected(self, tmp_path, monkeypatch):
         """空/纯空白标题被拒（422），不进锁。"""
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             for blank in ("", "   "):
                 resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": blank})
@@ -218,7 +218,7 @@ class TestProjectsRouter:
 
     def test_update_episode_missing_episode_404(self, tmp_path, monkeypatch):
         """不存在的 episode → 404。"""
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.patch("/api/v1/projects/ready/episodes/99", json={"title": "x"})
             assert resp.status_code == 404
@@ -229,7 +229,7 @@ class TestProjectsRouter:
         锁内抛出的 NotFoundError 不是 HTTPException 子类，外层 except 阶梯必须
         同时放行 ApiError，否则被兜底分支吞成 internal_server_error。
         """
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.patch("/api/v1/projects/nope/episodes/1", json={"title": "x"})
             assert resp.status_code == 404
@@ -240,7 +240,7 @@ class TestProjectsRouter:
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["episodes"][0]["script_file"] = "scripts/gone.json"
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "x"})
             assert resp.status_code == 404

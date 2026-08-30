@@ -6,8 +6,8 @@ from pathlib import Path
 
 from lib.reference_video.request_projection import resolve_reference_assets
 from tests.integration.server.services.reference_video_tasks_support import (
-    _load_project_and_unit,
-    _write_project,
+    load_project_and_unit,
+    write_project,
 )
 
 
@@ -15,8 +15,8 @@ def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Pa
     from lib.reference_video.request_projection import ProviderProjectionCandidate
     from server.services.narration_delivery_tasks import reference_video_visual_basis_digest
 
-    proj_dir = _write_project(tmp_path)
-    project, unit = _load_project_and_unit(proj_dir, "E1U1")
+    proj_dir = write_project(tmp_path)
+    project, unit = load_project_and_unit(proj_dir, "E1U1")
     project["characters"]["张三"].update(
         {
             "voice_style": "低沉男声",

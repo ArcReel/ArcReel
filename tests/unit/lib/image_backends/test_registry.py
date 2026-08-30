@@ -16,7 +16,7 @@ class _DummyBackend:
 
 
 @pytest.fixture(autouse=True)
-def _clean_image_registry():
+def clean_image_registry():
     """注册表是模块级全局：清空后跑，跑完还原，避免测试用后端泄漏给其他用例。"""
     saved = dict(_BACKEND_FACTORIES)
     _BACKEND_FACTORIES.clear()

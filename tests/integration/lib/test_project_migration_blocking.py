@@ -495,16 +495,18 @@ def _guarded_app() -> FastAPI:
     register_error_handlers(app)
     router = APIRouter(dependencies=[Depends(require_project_migration_ok)])
 
+    # 以下路由桩由装饰器就地注册，函数体内无其它引用；basedpyright 把函数作用域内的符号一律
+    # 判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @router.post("/projects/{project_name}/generate/thing")
-    async def _generate(project_name: str) -> dict[str, str]:
+    async def _generate(project_name: str) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
         return {"generated": project_name}
 
     @router.get("/projects/{project_name}/thing")
-    async def _read(project_name: str) -> dict[str, str]:
+    async def _read(project_name: str) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
         return {"read": project_name}
 
     @router.post("/no-project-param")
-    async def _unparametrized() -> dict[str, str]:
+    async def _unparametrized() -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
         return {"ok": "yes"}
 
     app.include_router(router)

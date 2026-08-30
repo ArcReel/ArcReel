@@ -7,12 +7,12 @@ from pathlib import Path
 import pytest
 
 import server.services.diagnostics as diag_mod
-from lib.app_data_dir import _reset_for_tests
+from lib.app_data_dir import reset_for_tests
 
 
 def test_collect_returns_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
-    _reset_for_tests()
+    reset_for_tests()
 
     text = diag_mod.collect_diagnostics()
     assert isinstance(text, str)
@@ -30,7 +30,7 @@ def test_collect_masks_db_password(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         "DATABASE_URL",
         "postgresql+asyncpg://arcuser:supersecretpassword@db.example.com:5432/arcreel",
     )
-    _reset_for_tests()
+    reset_for_tests()
 
     text = diag_mod.collect_diagnostics()
     db_line = next(line for line in text.splitlines() if line.startswith("Database URL:"))
@@ -45,7 +45,7 @@ def test_collect_masks_db_query_secrets(monkeypatch: pytest.MonkeyPatch, tmp_pat
         "DATABASE_URL",
         "postgresql://host.example.com/arcreel?sslmode=require&password=topsecret&token=abc123",
     )
-    _reset_for_tests()
+    reset_for_tests()
 
     text = diag_mod.collect_diagnostics()
     db_line = next(line for line in text.splitlines() if line.startswith("Database URL:"))
@@ -60,7 +60,7 @@ def test_collect_masks_db_query_secrets(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
 def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
-    _reset_for_tests()
+    reset_for_tests()
 
     def boom() -> str:
         raise RuntimeError("simulated failure")
@@ -73,7 +73,7 @@ def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path
 def test_collect_returns_log_dir_matching_logging_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     log_dir = tmp_path / "custom-logs"
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
-    _reset_for_tests()
+    reset_for_tests()
 
     text = diag_mod.collect_diagnostics()
     assert str(log_dir) in text

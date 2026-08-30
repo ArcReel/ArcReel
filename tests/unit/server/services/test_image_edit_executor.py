@@ -486,17 +486,17 @@ class TestExecuteImageEditTask:
             )
         )
         manager = VersionManager(project_path)
-        provider_reference: Path | None = None
+        provider_references: list[Path] = []
 
         class _Generator:
             def __init__(self) -> None:
                 self.versions = manager
 
             async def generate_image_async(self, **kwargs):
-                nonlocal provider_reference
                 current.write_bytes(b"source-changed-during-await")
                 provider_reference = Path(kwargs["reference_images"][0])
-                assert provider_reference.read_bytes() == b"source-before-await"
+                provider_references.append(provider_reference)
+                assert provider_reference.read_bytes() == b"source-before-await"  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
 
                 def _mutate(project):
                     project["style"] = "style-changed-during-await"
@@ -539,8 +539,8 @@ class TestExecuteImageEditTask:
             is ArtifactStatus.STALE
         )
         assert current.read_bytes() == b"edited-image"
-        assert provider_reference is not None
-        assert not provider_reference.exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
+        assert len(provider_references) == 1
+        assert not provider_references[0].exists()
 
         adapter.delete_entry(source_key)
         monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)

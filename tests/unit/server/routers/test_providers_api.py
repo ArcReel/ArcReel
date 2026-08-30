@@ -523,24 +523,6 @@ class TestGetProviderConfig:
 # ---------------------------------------------------------------------------
 
 
-def _make_patch_app(mock_svc_instance: ConfigService) -> FastAPI:
-    """创建用于 PATCH 端点测试的应用，通过 patch ConfigService 构造函数注入 mock。"""
-    app = FastAPI()
-    mock_session = AsyncMock()
-    mock_session.commit = AsyncMock()
-
-    async def _override_session():
-        yield mock_session
-
-    app.dependency_overrides[get_async_session] = _override_session
-
-    with patch("server.routers.providers.ConfigService", return_value=mock_svc_instance):
-        override_auth(app)
-        app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-
-    return app
-
-
 def _make_mock_svc() -> ConfigService:
     svc = MagicMock(spec=ConfigService)
     svc.set_provider_config = AsyncMock()
