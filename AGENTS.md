@@ -7,7 +7,7 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 后端使用 `uv`，前端与文档站使用 `pnpm`。修改代码或测试时，先按 `CONTRIBUTING.md`「测试选择」运行相关测试；任务完成和 push 前执行受影响域的全量闸门：
 
 ```bash
-uv run ruff check . && uv run ruff format . && uv run basedpyright && uv run lint-imports && uv run python -m pytest -n 4 --dist loadfile
+uv run ruff check . && uv run ruff format . && uv run basedpyright && uv run lint-imports && uv run deptry lib server alembic scripts tests && uv run python -m pytest -n 4 --dist loadfile
 uv run python scripts/audit_tests.py --check   # 改动测试文件时；同时扫后端 tests/ 与前端 *.test.*
 uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-files zizmor   # 改动 .github/ 时
 (cd frontend && pnpm check)

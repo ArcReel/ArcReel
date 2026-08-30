@@ -21,12 +21,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.datastructures import MutableHeaders
-from starlette.requests import Request
-from starlette.responses import Response
 from starlette.types import Message, Receive, Scope, Send
 
 from lib import PROJECT_ROOT
@@ -682,7 +680,7 @@ async def health_check():
 @app.get("/agent-installation-guide.md", include_in_schema=False)
 async def serve_agent_installation_guide(request: Request) -> Response:
     """动态渲染 Agent 安装指引，将 {{BASE_URL}} 替换为实际服务地址（无需认证）。"""
-    from starlette.responses import PlainTextResponse
+    from fastapi.responses import PlainTextResponse
 
     template_path = PROJECT_ROOT / "public" / "agent-installation-guide.md"
 

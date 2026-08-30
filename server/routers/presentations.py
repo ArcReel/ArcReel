@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
+
+# fastapi 只 re-export 复数的 BackgroundTasks，单数版本只能取 starlette。
 from starlette.background import BackgroundTask
 
 from lib.api_errors import ApiError

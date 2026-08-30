@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Annotated, Any, Literal
 
+from fastapi.responses import PlainTextResponse
 from jsonschema import ValidationError as JsonSchemaValidationError
 from jsonschema import validate as validate_json
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -20,7 +21,6 @@ from mcp.server.fastmcp.tools import Tool as FastMCPTool
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent
 from pydantic import AnyHttpUrl, Field
-from starlette.responses import PlainTextResponse
 from starlette.types import Receive, Scope, Send
 
 from lib.config.resolver import ConfigResolver

@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# pydantic 顶层不 re-export PydanticCustomError，只能直接依赖 pydantic-core。
 from pydantic_core import PydanticCustomError
 
 from lib import PROJECT_ROOT

@@ -14,10 +14,9 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import AfterValidator, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.responses import Response
 
 from lib.app_data_dir import app_data_dir
 from lib.backend_assembly.specs import builtin_video_capabilities_for_model

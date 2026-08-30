@@ -7,11 +7,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk>=0.1.76",
-    "ffmpeg-python>=0.2.0",
     "fastapi>=0.138.2",
+    # fastapi 未 re-export 的 ASGI 类型与 MutableHeaders / FormData / UploadFile 直接取自 starlette。
+    "starlette>=1.6.0",
     "google-genai>=1.65.0",
     "Pillow>=12.1.1",
     "pydantic>=2.12.5",
+    # pydantic 未 re-export 的 ErrorDetails / PydanticCustomError 直接取自 pydantic-core。
+    "pydantic-core>=2.46.4",
     "PyYAML>=6.0.3",
     "python-dotenv>=1.2.1",
     "python-multipart>=0.0.22",
@@ -40,6 +43,9 @@ dependencies = [
     "mcp>=1.29.0,<2",
     "jsonschema>=4.26.0",
     "jsonpath-rfc9535>=1.0.0",
+    "httpx>=0.28.1",
+    "grpcio>=1.83.0",
+    "numpy>=2.5.2",
 ]
 
 [dependency-groups]
@@ -55,6 +61,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "pytest-timeout>=2.4.0",
     "respx>=0.22.0",
+    "deptry>=0.24.0",
 ]
 
 [build-system]
@@ -160,6 +167,30 @@ source_modules = [
     "lib.episode_paths",
 ]
 forbidden_modules = ["lib.reference_video"]
+
+[tool.deptry]
+# 扫描范围与 basedpyright 的 include 对齐：核心库、服务端、迁移基础设施、脚本与测试。
+# exclude 是 deptry 默认值去掉 tests（测试的 import 也要参与依赖卫生判定）再补上 worktree 目录。
+exclude = ["venv", "\\.venv", "\\.direnv", "\\.git", "setup\\.py", "\\.worktrees", "\\.claude/worktrees"]
+known_first_party = ["lib", "server", "alembic", "scripts", "tests"]
+
+[tool.deptry.per_rule_ignores]
+# DEP002（声明了但无 import）——全部是靠 entry point / 后端注册被运行时加载的插件，
+# 源码里不会出现 import。
+DEP002 = [
+    "aiosqlite",        # SQLAlchemy 的 sqlite+aiosqlite 异步驱动
+    "asyncpg",          # SQLAlchemy 的 postgresql+asyncpg 异步驱动
+    "python-multipart", # Starlette 解析 multipart/form-data 的后端
+    "socksio",          # httpx 的 SOCKS 代理传输后端
+    "lxml",             # BeautifulSoup 的 lxml / lxml-xml 解析器后端
+]
+# DEP004（import 了 dev 依赖）——tests/ 与 scripts/ 在扫描范围内，deptry 无法按目录区分
+# dev 与生产文件，故逐项列出它们正当 import 的测试框架包；其余 dev 依赖仍受本规则守护。
+DEP004 = [
+    "pytest",         # 测试框架
+    "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）
+    "respx",          # httpx 的测试替身
+]
 
 [tool.ruff]
 line-length = 120

@@ -30,6 +30,7 @@ updates:
       fastapi-stack:
         patterns:
           - "fastapi"
+          - "starlette"
           - "uvicorn"
           - "pydantic*"
           - "python-multipart"
@@ -49,6 +50,7 @@ updates:
       ai-sdks:
         patterns:
           - "claude-agent-sdk"
+          - "grpcio"
           - "mcp"
           - "google-genai"
           - "openai"
@@ -68,7 +70,7 @@ updates:
       media:
         patterns:
           - "Pillow"
-          - "ffmpeg-python"
+          - "numpy"
           - "pyjianyingdraft"
         update-types:
           - "minor"
@@ -88,6 +90,7 @@ updates:
       backend-core:
         patterns:
           - "PyYAML"
+          - "httpx"
           - "jsonpath-rfc9535"
           - "jsonschema"
           - "packaging"
@@ -101,6 +104,7 @@ updates:
           - "pytest*"
           - "ruff"
           - "basedpyright"
+          - "deptry"
           - "pre-commit"
           - "python-docx"
           - "import-linter"

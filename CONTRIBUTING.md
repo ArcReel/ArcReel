@@ -151,7 +151,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 ## 代码质量
 
-工具报出的问题一律改代码。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`，zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
+工具报出的问题一律改代码。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`，zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），deptry 见下方「依赖卫生」，ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
 
 **Lint & Format（ruff）：**
 
@@ -181,6 +181,18 @@ uv run lint-imports
 
 - 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，是 CI backend-static 的必过步骤
 - 新增 ignore 条目前先确认该依赖边无法直接消除（约定见 `pyproject.toml`）
+
+**依赖卫生（deptry）：**
+
+```bash
+uv run deptry lib server alembic scripts tests
+```
+
+- 直接 import 的第三方包必须出现在 `pyproject.toml` 的依赖声明里（`DEP003`）；声明了却无 import 的包必须删除或登记为运行时插件（`DEP002`）
+- 只在 `fastapi` / `pydantic` 未 re-export 时才直接依赖底层包（`starlette` / `pydantic_core`），且该底层包须显式声明
+- deptry 没有行内豁免语法，唯一被允许的形式是 `[tool.deptry.per_rule_ignores]` 里按规则精确列出包名，每项一行注释说明理由；不用整条规则关闭的 `ignore`
+- 扫描范围含 `tests/` 与 `scripts/`，deptry 无法按目录区分 dev 与生产文件，因此测试框架包逐项进 `DEP004` 豁免，其余 dev 依赖仍被守护
+- CI 中是 `backend-static` job 的 `Dependency hygiene (deptry)` step
 
 **Workflow 语法与安全（actionlint + zizmor）：**
 
