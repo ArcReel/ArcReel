@@ -130,6 +130,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   const [starting, setStarting] = useState(false);
   const [run, setRun] = useState<TrialRunInfo | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [artifact, setArtifact] = useState<{ runId: string; url: string } | null>(null);
   const [cancelled, setCancelled] = useState(false);
   // 轮询放弃态：连续失败达上限后只停读回，不动 run——服务端名额仍被占用，
   // runId 与取消入口必须保留，否则重新创建会撞 trial_run_already_running。
@@ -143,8 +144,15 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
     }
     return Array.from(sources, ([source, required]) => ({ source, required }));
   }, [definition.inputs]);
+  const activeAssetFiles = useMemo(() => {
+    const files: EndpointTestAssets = {};
+    for (const { source } of assetInputs) {
+      if (assetFiles[source]?.length) files[source] = assetFiles[source];
+    }
+    return files;
+  }, [assetFiles, assetInputs]);
   const missingRequiredAsset = assetInputs.some(
-    ({ source, required }) => required && !assetFiles[source]?.length,
+    ({ source, required }) => required && !activeAssetFiles[source]?.length,
   );
 
   const credentials = useCallback((): EndpointTestCredentials => {
@@ -154,6 +162,27 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
 
   const runId = run?.id ?? null;
   const runFinished = run !== null && (run.status === "succeeded" || run.status === "failed");
+  const artifactRunId = run?.has_artifact ? run.id : null;
+  const artifactUrl = artifact?.runId === artifactRunId ? artifact.url : null;
+
+  useEffect(() => {
+    if (!artifactRunId) return;
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    void API.getTrialRunArtifact(artifactRunId, { signal: controller.signal })
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setArtifact({ runId: artifactRunId, url: objectUrl });
+      })
+      .catch((e) => {
+        if (!controller.signal.aborted) setRunError(errMsg(e));
+      });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [artifactRunId]);
 
   // 试跑是进程内异步 run：创建后轮询读回，终态即停。递归 setTimeout 保证上一次
   // 读回落地后才排下一次，响应慢于间隔时不会堆积并发请求。
@@ -221,11 +250,14 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
     setPreviewing(true);
     try {
       setPreview(
-        await API.previewEndpointRequest({
-          definition,
-          parameters: { model, prompt },
-          credentials: credSource === "inline" && !baseUrl && !apiKey ? undefined : credentials(),
-        }),
+        await API.previewEndpointRequest(
+          {
+            definition,
+            parameters: { model, prompt },
+            credentials: credSource === "inline" && !baseUrl && !apiKey ? undefined : credentials(),
+          },
+          { assets: activeAssetFiles },
+        ),
       );
     } catch (e) {
       setPreview(null);
@@ -233,7 +265,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
     } finally {
       setPreviewing(false);
     }
-  }, [definition, model, prompt, credSource, baseUrl, apiKey, credentials]);
+  }, [definition, model, prompt, credSource, baseUrl, apiKey, credentials, activeAssetFiles]);
 
   const handleStartTrial = useCallback(async () => {
     setRunError(null);
@@ -248,7 +280,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
             parameters: { model, prompt },
             credentials: credentials(),
           },
-          assetFiles,
+          activeAssetFiles,
         ),
       );
     } catch (e) {
@@ -257,7 +289,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
     } finally {
       setStarting(false);
     }
-  }, [definition, model, prompt, credentials, assetFiles]);
+  }, [definition, model, prompt, credentials, activeAssetFiles]);
 
   // 取消会让服务端连同结果一起丢弃这次 run，回读只会拿到 404；就地清空本地状态，
   // 让「开始测试」重新可用。远端任务不受影响，已经发生的费用照算。
@@ -513,12 +545,12 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                       {run.error}
                     </p>
                   )}
-                  {run.has_artifact ? (
+                  {artifactUrl ? (
                     // eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源
                     <video
                       controls
                       preload="metadata"
-                      src={API.getTrialRunArtifactUrl(run.id)}
+                      src={artifactUrl}
                       aria-label={t("ce_trial_artifact")}
                       className="w-full rounded-[8px] border border-hairline bg-black"
                     />

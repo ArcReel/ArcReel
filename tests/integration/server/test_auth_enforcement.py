@@ -37,7 +37,6 @@ SELF_AUTH_OPERATIONS = frozenset(
         "GET /api/v1/projects/{project_name}/events/stream",
         "GET /api/v1/projects/{name}/export",
         "GET /api/v1/projects/{name}/export/jianying-draft",
-        "GET /api/v1/custom-endpoints/trial-runs/{run_id}/artifact",
     }
 )
 
@@ -145,7 +144,6 @@ def test_public_endpoints_stay_reachable(auth_coverage_client):
         "/api/v1/projects/demo/assistant/sessions/s1/entries/stream",
         "/api/v1/projects/demo/assistant/sessions/s1/stream",
         "/api/v1/projects/demo/events/stream",
-        "/api/v1/custom-endpoints/trial-runs/missing/artifact",
     ],
 )
 def test_query_token_endpoints_reject_anonymous(auth_coverage_client, path):
@@ -153,8 +151,8 @@ def test_query_token_endpoints_reject_anonymous(auth_coverage_client, path):
     assert auth_coverage_client.get(path).status_code == 401
 
 
-def test_trial_artifact_accepts_query_token(auth_coverage_client):
-    """原生 video 请求带不了 Authorization header，合法 query token 必须通过认证层。"""
+def test_trial_artifact_rejects_query_token(auth_coverage_client):
+    """试跑产物不应让可复用的会话凭据出现在 URL 里。"""
     token = auth_coverage_client.post(
         "/api/v1/auth/token",
         data={"username": "testuser", "password": "testpass"},
@@ -162,6 +160,18 @@ def test_trial_artifact_accepts_query_token(auth_coverage_client):
     response = auth_coverage_client.get(
         "/api/v1/custom-endpoints/trial-runs/missing/artifact",
         params={"token": token},
+    )
+    assert response.status_code == 401
+
+
+def test_trial_artifact_accepts_bearer_token(auth_coverage_client):
+    token = auth_coverage_client.post(
+        "/api/v1/auth/token",
+        data={"username": "testuser", "password": "testpass"},
+    ).json()["access_token"]
+    response = auth_coverage_client.get(
+        "/api/v1/custom-endpoints/trial-runs/missing/artifact",
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 404
 

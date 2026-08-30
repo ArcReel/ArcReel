@@ -426,7 +426,7 @@ export function EndpointDetail({
                   setDraft(parsed);
                   setJsonIssue(null);
                 }}
-                className={`${INPUT_CLS} resize-y font-mono text-[11.5px] leading-[1.65]`}
+                className={`${INPUT_CLS} resize-y font-mono text-[11.5px] leading-[1.65] read-only:border-accent/25 read-only:bg-bg-grad-b/65 read-only:text-text-2`}
               />
               {jsonIssue !== null && (
                 <span role="alert" className="mt-1.5 block text-[12px] text-warm-bright">

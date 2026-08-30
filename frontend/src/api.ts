@@ -795,7 +795,7 @@ function withAuth(endpoint: string, options: RequestInit = {}): RequestInit {
   return { ...options, headers };
 }
 
-/** 为浏览器原生请求 URL 追加 token query param（用于 EventSource / 媒体元素）。 */
+/** 为 EventSource URL 追加 token query param。 */
 function withAuthQuery(url: string): string {
   const token = getToken();
   if (!token) return url;
@@ -2853,10 +2853,14 @@ class API {
     });
   }
 
-  static getTrialRunArtifactUrl(runId: string): string {
-    return withAuthQuery(
-      `${API_BASE}/custom-endpoints/trial-runs/${encodeURIComponent(runId)}/artifact`,
-    );
+  static async getTrialRunArtifact(
+    runId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<Blob> {
+    const endpoint = `/custom-endpoints/trial-runs/${encodeURIComponent(runId)}/artifact`;
+    const response = await fetch(`${API_BASE}${endpoint}`, withAuth(endpoint, { signal: options.signal }));
+    await throwIfNotOk(response, `HTTP ${response.status}`);
+    return response.blob();
   }
 
   static async cancelTrialRun(runId: string): Promise<void> {

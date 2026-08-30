@@ -36,6 +36,12 @@ const ACTIVE_RANGE_BTN_STYLE: CSSProperties = {
   boxShadow: "0 0 18px -8px var(--color-accent-glow)",
 };
 
+const USAGE_STATUS_KEYS = {
+  pending: "usage_call_status_pending",
+  success: "usage_call_status_success",
+  failed: "usage_call_status_failed",
+} as const;
+
 export function UsageStatsSection() {
   const { t, i18n } = useTranslation("dashboard");
   const search = useSearch();
@@ -142,6 +148,10 @@ export function UsageStatsSection() {
     }
     return { costByCurrency, calls, success };
   }, [stats]);
+  const selectedCallStatus = selectedCallResult?.call?.status;
+  const selectedCallStatusKey = selectedCallStatus
+    ? USAGE_STATUS_KEYS[selectedCallStatus as keyof typeof USAGE_STATUS_KEYS]
+    : undefined;
 
   return (
     <div className="space-y-7">
@@ -172,7 +182,7 @@ export function UsageStatsSection() {
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-text-2">
               <span>{selectedCallResult.call.provider}</span>
               <span>{selectedCallResult.call.model}</span>
-              <span>{selectedCallResult.call.status}</span>
+              <span>{selectedCallStatusKey ? t(selectedCallStatusKey) : selectedCallResult.call.status}</span>
               <span>
                 {formatCurrencyAmount(selectedCallResult.call.currency, selectedCallResult.call.cost_amount, {
                   maximumFractionDigits: 6,
