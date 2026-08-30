@@ -193,6 +193,16 @@ class ResumeEndpointChangedError(RuntimeError):
         )
 
 
+class ArtifactDownloadError(RuntimeError):
+    """供应商任务已成功、仅产物下载耗尽，可接续原任务重试取件。"""
+
+    code = "artifact_download_failed"
+
+    def __init__(self, *, detail: str) -> None:
+        self.params = {"detail": detail}
+        super().__init__(detail)
+
+
 # 图片后缀 → MIME 类型映射（多个后端共用）
 IMAGE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",
@@ -823,25 +833,27 @@ async def download_video(
     *,
     label: str = "",
     timeout: int = 120,
-    headers: Mapping[str, str] | None = None,
-    params: Mapping[str, str] | None = None,
     retry_if: Callable[[Exception], bool] | None = should_retry_download,
     retryable_errors: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS,
     max_wait: float = ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
 ) -> None:
-    """从 URL 流式下载视频到本地文件，重试走共用的产物下载预算。
-
-    ``headers`` / ``params`` 承载与产物 URL 同源时按 auth 节渲染出的凭证；跨源时调用方不传，
-    跳转跨源后的 ``Authorization`` 由 ``follow_redirects`` 下的 httpx 自行剥离。
-    """
+    """从 URL 流式下载视频到本地文件，重试走共用的产物下载预算。"""
 
     async def attempt() -> None:
         async with httpx.AsyncClient(follow_redirects=True) as http_client:
-            await stream_to_file(http_client, url, output_path, timeout=timeout, headers=headers, params=params)
+            await stream_to_file(http_client, url, output_path, timeout=timeout)
 
     await with_artifact_retry(
         attempt, label=label, retry_if=retry_if, retryable_errors=retryable_errors, max_wait=max_wait
     )
+
+
+async def download_resumable_video(url: str, output_path: Path, *, label: str) -> None:
+    """下载可续跑任务的成片；预算耗尽转成可重试下载的稳定失败。"""
+    try:
+        await download_video(url, output_path, label=label)
+    except Exception as exc:
+        raise ArtifactDownloadError(detail=str(exc)) from exc
 
 
 class VideoCapabilityError(RuntimeError):

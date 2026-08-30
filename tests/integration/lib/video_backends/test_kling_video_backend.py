@@ -18,7 +18,12 @@ import pytest
 import respx
 
 from lib.providers import PROVIDER_KLING
-from lib.video_backends.base import VideoAudioMode, VideoCapabilityError, VideoGenerationRequest
+from lib.video_backends.base import (
+    ArtifactDownloadError,
+    VideoAudioMode,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+)
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.registry import effective_generate_audio_for_model
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
@@ -567,6 +572,31 @@ class TestGenerateHappyPath:
 
 
 class TestResume:
+    async def test_download_failure_can_resume_without_resubmit(self, tmp_path):
+        download_ready = False
+
+        def download_response(_request: httpx.Request) -> httpx.Response:
+            if download_ready:
+                return httpx.Response(200, content=b"resumed")
+            return httpx.Response(503, text="cdn unavailable")
+
+        with _kling_api() as routes, bounded_poll_clock(), captured_provider_job_ids() as persisted:
+            routes.submit.mock(return_value=_resp(_submit("task-download")))
+            routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+            routes.download.mock(side_effect=download_response)
+            request = _request(tmp_path, task_id="worker-task", poll_timeout_seconds=1800)
+
+            with pytest.raises(ArtifactDownloadError) as caught:
+                await _jwt_backend().generate(request)
+
+            assert caught.value.code == "artifact_download_failed"
+            download_ready = True
+            result = await _jwt_backend().resume_video(persisted[0]["job_id"], request)
+
+            assert routes.submit.call_count == 1
+
+        assert result.video_path.read_bytes() == b"resumed"
+
     async def test_resume_polls_without_resubmit(self, tmp_path):
         with _kling_api() as routes:
             routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))

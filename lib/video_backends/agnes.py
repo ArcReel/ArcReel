@@ -48,7 +48,7 @@ from lib.video_backends.base import (
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
-    download_video,
+    download_resumable_video,
     poll_with_retry,
     recording_poll,
     should_retry_poll,
@@ -548,4 +548,4 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
     @staticmethod
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
         """下载成片 URL（幂等 GET），走共用的产物下载预算，不回退到重跑生成 POST。"""
-        await download_video(video_url, output_path, label="Agnes")
+        await download_resumable_video(video_url, output_path, label="Agnes")

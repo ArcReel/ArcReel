@@ -17,6 +17,7 @@ from lib.providers import PROVIDER_AGNES
 from lib.video_backends.agnes import AgnesVideoBackend
 from lib.video_backends.base import (
     AmbiguousSubmitError,
+    ArtifactDownloadError,
     ResumeExpiredError,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -644,6 +645,32 @@ class TestSubmitResilience:
 
 
 class TestResume:
+    async def test_download_failure_can_resume_without_resubmit(self, tmp_path: Path):
+        download_ready = False
+
+        def download_response(_request: httpx.Request) -> httpx.Response:
+            if download_ready:
+                return httpx.Response(200, content=b"resumed")
+            return httpx.Response(503, text="cdn unavailable")
+
+        with _agnes_api() as routes, bounded_poll_clock(), captured_provider_job_ids() as persisted:
+            routes.submit.mock(return_value=_queued("task-download"))
+            routes.poll.mock(return_value=_json(_completed("task-download", "https://cdn.agnes/resumed.mp4")))
+            routes.download.mock(side_effect=download_response)
+            request = _request(tmp_path, task_id="worker-task", poll_timeout_seconds=1800)
+            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+
+            with pytest.raises(ArtifactDownloadError) as caught:
+                await backend.generate(request)
+
+            assert caught.value.code == "artifact_download_failed"
+            download_ready = True
+            result = await backend.resume_video(persisted[0]["job_id"], request)
+
+            assert routes.submit.call_count == 1
+
+        assert result.video_path.read_bytes() == b"resumed"
+
     async def test_resume_polls_existing_job_no_submit(self, tmp_path: Path):
         with _agnes_api() as routes:
             routes.poll.mock(return_value=_json(_completed("task-resume", "https://cdn.agnes/resumed.mp4")))
