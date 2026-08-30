@@ -9,12 +9,12 @@ schema 依据 docs/api-docs/providers/dashscope.md 所列一手官方文档。
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 
 import httpx
 
+from lib.async_thread import run_sync_transaction
 from lib.audio_backends.base import (
     AudioCapability,
     AudioSynthesisRequest,
@@ -198,4 +198,8 @@ class DashScopeAudioBackend:
             if not resp.content:
                 # 200 但空体：不写 0 字节 wav
                 raise _EmptyDownloadError(f"DashScope 音频下载返回空内容: {safe_url}")
-            await asyncio.to_thread(output_path.write_bytes, resp.content)
+            # 走 run_sync_transaction 而非裸 to_thread：调用方 MediaGenerator.generate_audio_async
+            # 的 finally 会 unlink staging 路径，取消时线程若仍在写就会与该清理交错
+            # （POSIX 下写出孤儿文件，Windows 下 unlink 报 PermissionError）。写入先结算、
+            # 再放取消传出去。
+            await run_sync_transaction(output_path.write_bytes, resp.content)

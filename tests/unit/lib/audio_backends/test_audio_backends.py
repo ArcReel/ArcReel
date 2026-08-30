@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -269,6 +271,51 @@ class TestDashScopeAudioBackend:
         assert routes.synthesize.call_count == 1
         assert routes.download.call_count == 1, "4xx 不可重试，下载 GET 不应被重试"
         assert not out.exists()
+
+    async def test_download_write_settles_before_cancellation_propagates(self, tmp_path: Path):
+        # 落盘走线程卸载，但 staging 文件的写入必须在取消传播前结算完：调用方
+        # MediaGenerator.generate_audio_async 的 finally 会 unlink staging 路径，
+        # 写入线程若仍在跑就会与该清理交错（POSIX 下写出孤儿文件，Windows 下 unlink 报错）。
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
+
+        started = threading.Event()
+        release = threading.Event()
+        out = _GatedWritePath(tmp_path / "gated.wav").attach(started, release)
+
+        with _dashscope_audio_routes(download=httpx.Response(200, content=b"RIFFwavbytes")):
+            b = DashScopeAudioBackend(api_key="sk")
+            task = asyncio.create_task(
+                b.synthesize(AudioSynthesisRequest(text="你好", output_path=out, voice="Cherry"))
+            )
+            # 事件握手：写入线程已进入 write_bytes 且被闸门挡住
+            await asyncio.to_thread(started.wait, 5)
+            task.cancel()
+            # 线程往返把控制权交还事件循环，可中断实现会在此结束
+            await asyncio.to_thread(lambda: None)
+            assert not task.done(), "取消不得在已启动的 staging 写入结算前返回"
+
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert out.read_bytes() == b"RIFFwavbytes"
+
+
+class _GatedWritePath(Path):
+    """写入被闸门挡住的 ``output_path``：观测取消与线程写入的交错。
+
+    作为请求的输入对象注入，不 patch 生产符号。
+    """
+
+    def attach(self, started: threading.Event, release: threading.Event) -> _GatedWritePath:
+        self._started = started
+        self._release = release
+        return self
+
+    def write_bytes(self, data) -> int:
+        self._started.set()
+        self._release.wait(5)
+        return super().write_bytes(data)
 
 
 class _RecordingSpeechClient:
