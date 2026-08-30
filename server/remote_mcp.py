@@ -105,15 +105,6 @@ from server.tool_runtime import (
     upload_source,
 )
 
-_LOCAL_HOSTS = ["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*", "[::1]", "[::1]:*"]
-_LOCAL_ORIGINS = [
-    "http://127.0.0.1",
-    "http://127.0.0.1:*",
-    "http://localhost",
-    "http://localhost:*",
-    "http://[::1]",
-    "http://[::1]:*",
-]
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
 _REMOTE_DURABLE_BATCH_MEDIA_TOOLS = frozenset(
@@ -142,11 +133,6 @@ class ArcApiKeyVerifier(TokenVerifier):
         if payload is None:
             return None
         return AccessToken(token=token, client_id=payload["sub"], scopes=["arcreel"])
-
-
-def _csv_env(name: str, default: list[str]) -> list[str]:
-    configured = [value.strip() for value in os.environ.get(name, "").split(",") if value.strip()]
-    return configured or default
 
 
 def _authenticated_caller() -> CallerContext:
@@ -362,6 +348,9 @@ def build_remote_mcp_server(
         definition = definition_factory(schema_context)
         media_tools.append(_remote_media_tool(definition, definition_factory, invoke_media))
 
+    # MCP_PUBLIC_URL 只喂 RFC 9728 protected-resource metadata 与 401 challenge：ArcReel 只认
+    # 静态 arc- API Key，ArcApiKeyVerifier 返回的 AccessToken 不带 resource，不参与任何校验。
+    # Bearer 直连的客户端不读这两处，故该变量对常规接入可缺省。
     public_url = AnyHttpUrl(os.environ.get("MCP_PUBLIC_URL", "http://localhost:1241/mcp"))
     server = FastMCP(
         "arcreel",
@@ -376,11 +365,12 @@ def build_remote_mcp_server(
         streamable_http_path="/",
         json_response=False,
         max_request_body_size=_MAX_REQUEST_BODY_BYTES,
-        transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=True,
-            allowed_hosts=_csv_env("MCP_ALLOWED_HOSTS", _LOCAL_HOSTS),
-            allowed_origins=_csv_env("MCP_ALLOWED_ORIGINS", _LOCAL_ORIGINS),
-        ),
+        # 端点每请求强制 arc- API Key，且该 Key 从不以 cookie / session 形式存在于浏览器，
+        # 重绑定到本端点的请求拿不到凭证、只能收 401——Host 白名单在此不构成安全边界，
+        # 只会拦下合法部署；Host 归属由反向代理与部署形态承担。浏览器型客户端的跨源防护由
+        # 应用级 CORSMiddleware（CORS_ORIGINS，见 server/cors_config.py）单点承担。
+        # 关闭该开关不影响 SDK 对 POST 的 Content-Type 校验。
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
 
     @server.tool(name="list_projects", structured_output=False)
@@ -951,4 +941,9 @@ class RemoteMCPHost:
 remote_mcp_host = RemoteMCPHost()
 
 
-__all__ = ["ArcApiKeyVerifier", "RemoteMCPHost", "build_remote_mcp_server", "remote_mcp_host"]
+__all__ = [
+    "ArcApiKeyVerifier",
+    "RemoteMCPHost",
+    "build_remote_mcp_server",
+    "remote_mcp_host",
+]

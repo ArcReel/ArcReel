@@ -43,6 +43,7 @@ from lib.path_safety import try_safe_join
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password, get_current_user
+from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.remote_mcp import remote_mcp_host
@@ -497,21 +498,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置（env 驱动）：
-#   - CORS_ORIGINS 未设置 / 空 / 包含 "*" → 通配 origins，credentials 强制关闭
-#     （CORS spec 不允许通配 + credentials 组合；Starlette 在初始化时会 RuntimeError）
-#   - 否则按逗号分隔解析为白名单，credentials 打开供前端附带 cookie / Authorization 跨域
-#
+# CORS 配置（env 驱动，解析见 server/cors_config.py；远程 MCP 挂载共用同一份白名单）。
 # 须在 register_error_handlers(app) 之前算出：未预期异常的 500 由
 # ServerErrorMiddleware 兜底发送，绕过 CORSMiddleware（见
 # server/error_handlers.py::_cors_headers_for），handler 需要这份配置手工补 CORS 头。
-_cors_raw = os.environ.get("CORS_ORIGINS", "*").strip()
-_allow_origins: list[str] = [o.strip() for o in _cors_raw.split(",") if o.strip()]
-if not _allow_origins or "*" in _allow_origins:
-    _allow_origins = ["*"]
-    _allow_credentials = False
-else:
-    _allow_credentials = True
+_allow_origins, _allow_credentials = resolve_cors_policy()
 
 # app 级异常处理器：异常→状态码→detail 映射的单点（见 server/error_handlers.py）
 register_error_handlers(app, cors_allow_origins=_allow_origins, cors_allow_credentials=_allow_credentials)

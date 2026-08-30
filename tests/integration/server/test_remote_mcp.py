@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -26,6 +27,7 @@ from lib.workflow_state import WorkflowStatus
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
 from server.auth import create_download_token, create_token
+from server.cors_config import resolve_cors_policy
 from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
 from server.media_tools.grid import generate_grid_tool
@@ -203,6 +205,82 @@ async def test_remote_mcp_always_rejects_anonymous(remote_server, monkeypatch, a
     response = await _post_initialize(_mounted(remote_server))
 
     assert response.status_code == 401
+
+
+_INITIALIZE_REQUEST = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {"name": "test", "version": "1"},
+    },
+}
+
+
+async def test_remote_mcp_accepts_non_loopback_host_header(remote_server) -> None:
+    """任意 Host 都能到达端点：边界由每请求强制的 arc- API Key 承担，不由 Host 白名单承担。"""
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="https://arcreel.example.com",
+            follow_redirects=True,
+        ) as client:
+            response = await client.post(
+                "/mcp",
+                headers={
+                    "Accept": "application/json, text/event-stream",
+                    "Authorization": "Bearer arc-valid",
+                },
+                json=_INITIALIZE_REQUEST,
+            )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("origin", "allowed"),
+    [("https://evil.example.com", False), ("https://arcreel.example.com", True)],
+)
+async def test_remote_mcp_mount_inherits_app_cors_allowlist(
+    remote_server, monkeypatch, origin: str, allowed: bool
+) -> None:
+    """浏览器型客户端的跨源防护由应用级 CORSMiddleware 单点承担，``/mcp`` 挂载被一并覆盖。
+
+    MCP 的 POST 带 Authorization 与 JSON body，浏览器必先发预检；不在 ``CORS_ORIGINS`` 里的
+    Origin 在预检阶段即被拒，实际请求不会发出。
+    """
+    monkeypatch.setenv("CORS_ORIGINS", "https://arcreel.example.com")
+    host = RemoteMCPHost(server_factory=lambda: remote_server)
+    app = FastAPI()
+    allow_origins, allow_credentials = resolve_cors_policy()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins,
+        allow_credentials=allow_credentials,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.mount("/mcp", host)
+
+    async with host.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="https://arcreel.example.com",
+        ) as client:
+            preflight = await client.options(
+                "/mcp",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "authorization,content-type",
+                },
+            )
+
+    assert (preflight.headers.get("access-control-allow-origin") == origin) is allowed
+    assert (preflight.status_code == 200) is allowed
 
 
 @pytest.mark.parametrize(

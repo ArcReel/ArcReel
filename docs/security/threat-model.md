@@ -272,9 +272,17 @@ ADR 0069.
 
 ### 9.7 CORS and logging
 
-When `CORS_ORIGINS` is absent, empty, or contains `*`, ArcReel uses wildcard origins with credentials disabled. This does not independently bypass bearer authentication because an attacker-controlled origin does not know the token.
+When `CORS_ORIGINS` is absent, empty, or contains `*`, ArcReel uses wildcard origins with credentials disabled. This does not independently bypass bearer authentication because an attacker-controlled origin does not know the token. The allowlist is parsed once in `server/cors_config.py` and applied by a single application-level `CORSMiddleware` that also wraps the `/mcp` mount; there is no MCP-specific origin list.
 
 Application request logging records URL paths rather than complete query strings. Reverse proxies, ingress controllers, monitoring systems, and diagnostic middleware may still record query parameters.
+
+### 9.8 Remote MCP transport
+
+The remote MCP endpoint is mounted at `/mcp` and enforces an `arc-` API key on every request through `ArcApiKeyVerifier`. `AUTH_ENABLED=false` does not grant it anonymous access, and login JWTs and download tokens are rejected.
+
+The MCP SDK's DNS-rebinding protection is disabled (`TransportSecuritySettings(enable_dns_rebinding_protection=False)`), so ArcReel validates neither the `Host` nor the `Origin` header inside the MCP mount. A rebound request reaches the endpoint but carries no credential, because the API key is never held in a browser cookie or session, and receives 401. Host ownership is delegated to the reverse proxy and deployment topology. Cross-origin protection for browser MCP clients rests entirely on the application-level CORS allowlist described in 9.7. Disabling the flag does not affect the SDK's `Content-Type` validation for POST requests.
+
+`MCP_PUBLIC_URL` populates only the RFC 9728 protected-resource metadata and the 401 challenge. The `AccessToken` returned by `ArcApiKeyVerifier` carries no resource, so neither the issuer nor the resource URL participates in token validation.
 
 ## 10. Attack surfaces and abuse cases
 
