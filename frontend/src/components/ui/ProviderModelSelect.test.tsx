@@ -375,3 +375,83 @@ describe("ProviderModelSelect – search", () => {
     expect(screen.getByPlaceholderText(/搜索模型或供应商/)).toHaveValue("");
   });
 });
+
+const MODEL_NAMES = {
+  "gemini-aistudio/veo-3.1-generate-001": "Veo 3.1",
+  "ark/seedance": "Seedance 1.5 Pro",
+};
+
+describe("ProviderModelSelect – model display names", () => {
+  it("shows the display name on the trigger while keeping the model id in the list", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderModelSelect
+        value="ark/seedance"
+        options={OPTIONS}
+        providerNames={PROVIDER_NAMES}
+        modelNames={MODEL_NAMES}
+        onChange={() => {}}
+      />,
+    );
+    const trigger = screen.getByRole("combobox");
+    expect(trigger).toHaveTextContent(/Ark · Seedance 1\.5 Pro/);
+
+    await user.click(trigger);
+    const option = screen.getByRole("option", { name: /Seedance 1\.5 Pro/ });
+    // model id 仍在选项行内可辨识——同名译名下用户靠它区分具体条目
+    expect(option).toHaveTextContent("seedance");
+  });
+
+  it("falls back to the model id when no display name is registered", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderModelSelect
+        value=""
+        options={OPTIONS}
+        providerNames={PROVIDER_NAMES}
+        modelNames={{}}
+        onChange={() => {}}
+      />,
+    );
+    await user.click(screen.getByRole("combobox"));
+    // 无译名时不补第二行，否则同一串 id 会重复出现两遍
+    expect(screen.getByRole("option", { name: /seedance/ })).toHaveTextContent(/^seedance$/);
+  });
+
+  it("shows the translated name in the fallback hint on the trigger", () => {
+    render(
+      <ProviderModelSelect
+        value=""
+        options={OPTIONS}
+        providerNames={PROVIDER_NAMES}
+        modelNames={MODEL_NAMES}
+        onChange={() => {}}
+        allowDefault
+        fallbackValue="gemini-aistudio/veo-3.1-generate-001"
+      />,
+    );
+    expect(screen.getByRole("combobox")).toHaveTextContent(/跟随全局默认 · Gemini AI Studio · Veo 3\.1/);
+  });
+
+  it("matches the search query against both the model id and its display name", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderModelSelect
+        value=""
+        options={MANY_OPTIONS}
+        providerNames={MANY_PROVIDER_NAMES}
+        modelNames={{ "ark/jimeng": "即梦" }}
+        onChange={() => {}}
+      />,
+    );
+    await user.click(screen.getByRole("combobox"));
+    const input = screen.getByPlaceholderText(/搜索模型或供应商/);
+
+    await user.type(input, "即梦");
+    expect(screen.getAllByRole("option").map((el) => el.textContent)).toEqual(["即梦jimeng"]);
+
+    await user.clear(input);
+    await user.type(input, "jimeng");
+    expect(screen.getAllByRole("option").map((el) => el.textContent)).toEqual(["即梦jimeng"]);
+  });
+});

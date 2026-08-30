@@ -30,6 +30,8 @@ export interface SystemConfigOptions {
   text_backends: string[];
   audio_backends?: string[];
   provider_names?: Record<string, string>;
+  /** "provider_id/model_id" → 按 Accept-Language 成文的模型名；缺键即退回 model id。 */
+  model_names?: Record<string, string>;
 }
 
 export interface GetSystemConfigResponse {
@@ -49,8 +51,10 @@ export interface MediaCandidates {
 export interface ModelCandidatesResponse {
   image: MediaCandidates;
   video: MediaCandidates;
-  /** 仅含自定义供应商的显示名；内置供应商名由前端按 provider_id 本地化。 */
+  /** 供应商 id → 按 Accept-Language 成文的名字；内置与自定义同一口径。 */
   provider_names: Record<string, string>;
+  /** "provider_id/model_id" → 按 Accept-Language 成文的模型名；覆盖全部媒体类型的候选。 */
+  model_names: Record<string, string>;
 }
 
 export interface SystemVersionReleaseInfo {

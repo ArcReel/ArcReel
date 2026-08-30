@@ -36,7 +36,7 @@ from lib.config.resolver import ConfigResolver
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
 from lib.db import get_async_session
 from lib.httpx_shared import get_http_client
-from lib.i18n import Translator
+from lib.i18n import DEFAULT_LOCALE, Locale, Translator, translate_or
 from server.dependencies import get_config_service
 from server.routers._validators import validate_backend_value
 
@@ -65,6 +65,7 @@ class _OptionsDict(TypedDict):
     text_backends: list[str]
     audio_backends: list[str]
     provider_names: dict[str, str]
+    model_names: dict[str, str]
 
 
 _MEDIA_TO_OPTION_LIST = {
@@ -164,15 +165,19 @@ class _ModelCandidate:
     option: str  # "provider_id/model_id"
     media_type: str
     buckets: frozenset[CapabilityBucket]
+    display_name: str  # 按请求语言成文的模型名
 
 
 async def _enumerate_candidates(
-    svc: ConfigService, session: AsyncSession
+    svc: ConfigService, session: AsyncSession, locale: str = DEFAULT_LOCALE
 ) -> tuple[list[_ModelCandidate], dict[str, str]]:
     """列出所有可选模型（内置 ready 供应商 + 已启用的自定义模型），并附任务类型桶归属。
 
     hidden 模型在这里统一剔除：registry 声明 hidden 的语义就是「从 UI 下拉剔除、条目仍保留
     供算价」，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。
+
+    供应商名与模型名走 ``translate_or``，与 ``/providers`` 目录同一条路径：有译名表的按请求
+    语言成文，没有的（纯品牌名、自定义供应商用户自填的名字）原样返回 registry / DB 里的原名。
     """
     statuses = await svc.get_all_providers_status()
     ready_providers = {s.name for s in statuses if s.status == "ready"}
@@ -183,6 +188,7 @@ async def _enumerate_candidates(
     for provider_id, meta in PROVIDER_REGISTRY.items():
         if provider_id not in ready_providers:
             continue
+        provider_names[provider_id] = translate_or(f"provider_name_{provider_id}", meta.display_name, locale)
         for model_id, model_info in meta.models.items():
             if model_info.hidden:
                 continue
@@ -191,6 +197,7 @@ async def _enumerate_candidates(
                     option=f"{provider_id}/{model_id}",
                     media_type=model_info.media_type,
                     buckets=builtin_model_buckets(provider_id, model_id, model_info),
+                    display_name=translate_or(f"model_name_{provider_id}_{model_id}", model_info.display_name, locale),
                 )
             )
 
@@ -218,6 +225,7 @@ async def _enumerate_candidates(
                         capability_overrides=model.capability_overrides,
                         endpoint_spec=endpoint_spec,
                     ),
+                    display_name=model.display_name,
                 )
             )
             if pid not in provider_names and model.provider_id in provider_name_map:
@@ -228,9 +236,18 @@ async def _enumerate_candidates(
     return candidates, provider_names
 
 
-async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsDict:
+def _model_names(candidates: list[_ModelCandidate]) -> dict[str, str]:
+    """``"provider_id/model_id"`` → 已成文的模型名，两个端点共用的那张表。
+
+    不按媒体类型收窄：同屏的文本档位与旁白配音下拉取自 ``/system/config`` 的候选，共用这一份
+    译名表，缺键会让它们退回 model id。
+    """
+    return {c.option: c.display_name for c in candidates}
+
+
+async def _build_options(svc: ConfigService, session: AsyncSession, locale: str = DEFAULT_LOCALE) -> _OptionsDict:
     """Compute available backends from ready providers."""
-    candidates, provider_names = await _enumerate_candidates(svc, session)
+    candidates, provider_names = await _enumerate_candidates(svc, session, locale)
 
     by_media: dict[str, list[str]] = {
         "video_backends": [],
@@ -243,7 +260,7 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
         if key:
             by_media[key].append(candidate.option)
 
-    return {**by_media, "provider_names": provider_names}  # type: ignore[return-value]
+    return {**by_media, "provider_names": provider_names, "model_names": _model_names(candidates)}  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -261,8 +278,11 @@ class MediaCandidates(BaseModel):
 class ModelCandidatesResponse(BaseModel):
     image: MediaCandidates
     video: MediaCandidates
-    # 仅含自定义供应商的显示名（内置供应商名由前端按 provider_id 本地化），与 options 同口径。
+    # 供应商 id → 按请求语言成文的名字；与 options 同口径（同一条 translate_or 路径）。
     provider_names: dict[str, str]
+    # "provider_id/model_id" → 按请求语言成文的模型名；键覆盖全部媒体类型的候选（含 options
+    # 才用到的 text / audio），前端下拉据此显示译名。
+    model_names: dict[str, str]
 
 
 class SystemConfigPatchRequest(BaseModel):
@@ -318,6 +338,7 @@ _STRING_SETTINGS = (
 @router.get("/system/config")
 async def get_system_config(
     svc: Annotated[ConfigService, Depends(get_config_service)],
+    locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     # Read all settings in a single query
@@ -372,7 +393,7 @@ async def get_system_config(
         "text_backend_complex": all_s.get("text_backend_complex") or "",
     }
 
-    options = await _build_options(svc, session)
+    options = await _build_options(svc, session, locale)
 
     return {"settings": settings, "options": options}
 
@@ -380,6 +401,7 @@ async def get_system_config(
 @router.get("/system/config/model-candidates", response_model=ModelCandidatesResponse)
 async def get_model_candidates(
     svc: Annotated[ConfigService, Depends(get_config_service)],
+    locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> ModelCandidatesResponse:
     """任务类型桶下拉的候选数据源：默认层全量 + 每个任务类型桶按能力过滤后的模型列表。
@@ -387,7 +409,7 @@ async def get_model_candidates(
     默认层不过滤 —— 默认层不承诺能力，能力不满足由解析闸报错兜底；只有桶层承诺「配进去的
     组合执行得了」，故按桶过滤。
     """
-    candidates, provider_names = await _enumerate_candidates(svc, session)
+    candidates, provider_names = await _enumerate_candidates(svc, session, locale)
 
     media: dict[str, MediaCandidates] = {}
     for media_type, buckets in BUCKETS_BY_MEDIA_TYPE.items():
@@ -401,6 +423,7 @@ async def get_model_candidates(
         image=media["image"],
         video=media["video"],
         provider_names=provider_names,
+        model_names=_model_names(candidates),
     )
 
 
@@ -448,6 +471,7 @@ async def patch_system_config(
     req: SystemConfigPatchRequest,
     svc: Annotated[ConfigService, Depends(get_config_service)],
     _t: Translator,
+    locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     patch: dict[str, Any] = {}
@@ -530,4 +554,4 @@ async def patch_system_config(
     await session.commit()
 
     # Return updated config
-    return await get_system_config(svc=svc, session=session)
+    return await get_system_config(svc=svc, locale=locale, session=session)

@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import "@/i18n";
+import i18n from "@/i18n";
 import { API } from "@/api";
 import * as providerModels from "@/utils/provider-models";
 import { useAppStore } from "@/stores/app-store";
@@ -360,5 +360,55 @@ describe("MediaModelSection", () => {
     const imageSection = container.querySelectorAll("details")[1];
     expect(imageSection.open).toBe(true);
     expect(screen.getByText("已指定 1 项")).toBeInTheDocument();
+  });
+});
+
+describe("MediaModelSection – 语言切换", () => {
+  // 译名由后端按 Accept-Language 成文，替身按当前语言返回对应译名。
+  function candidatesFor(language: string) {
+    const en = language.startsWith("en");
+    return {
+      ...CANDIDATES,
+      provider_names: { gemini: en ? "Gemini" : "谷歌" },
+      model_names: { "gemini/veo-3": en ? "Veo 3" : "维奥 3" },
+    } as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>;
+  }
+
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.restoreAllMocks();
+    mockConfig();
+    vi.spyOn(API, "getModelCandidates").mockImplementation(async () => candidatesFor(i18n.language));
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
+    vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+  });
+
+  afterEach(async () => {
+    await act(async () => {
+      await i18n.changeLanguage("zh");
+    });
+  });
+
+  it("换语言后下拉改用新语言的译名，未保存的编辑仍在", async () => {
+    const user = userEvent.setup();
+    render(<MediaModelSection />);
+    const trigger = await screen.findByRole("combobox", { name: "默认视频模型" });
+    await waitFor(() => expect(trigger).toHaveTextContent("谷歌 · 维奥 3"));
+
+    const timeout = screen.getByRole("spinbutton", { name: "视频轮询超时（秒）" });
+    await user.clear(timeout);
+    await user.type(timeout, "7200");
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    await waitFor(() => expect(trigger).toHaveTextContent("Gemini · Veo 3"));
+    // 语言切换只重取候选，不重取整页配置——后者会 setDraft({}) 丢掉这里未保存的输入
+    expect(timeout).toHaveValue(7200);
+
+    await user.click(trigger);
+    // 选项行主行为译名，model id 仍在行内可辨识
+    expect(screen.getByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
   });
 });

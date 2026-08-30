@@ -9,7 +9,6 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { DEFAULT_TEMPLATE_ID } from "@/data/style-templates";
-import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { WizardStep1Basics, type WizardStep1Value } from "./create-project/WizardStep1Basics";
@@ -17,6 +16,7 @@ import { WizardStep2Models, type WizardStep2Data } from "./create-project/Wizard
 import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import { catalogDurations } from "@/hooks/useModelCapabilities";
+import { catalogDisplayNames } from "@/utils/provider-models";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 
 // 新建项目对话框 · "Open Reel"
@@ -199,12 +199,15 @@ export function CreateProjectModal() {
           API.listCustomProviders(),
         ]);
         if (cancelled) return;
+        const catalogNames = catalogDisplayNames(providersRes.providers);
         setStep2Data({
           options: {
             video: sysConfig.options.video_backends,
             image: sysConfig.options.image_backends,
             text: sysConfig.options.text_backends,
-            providerNames: { ...PROVIDER_NAMES, ...(sysConfig.options.provider_names ?? {}) },
+            // 目录兜底层在下：候选只列 ready 供应商，而已配置的生效值可能指向失去凭证的那个。
+            providerNames: { ...catalogNames.providerNames, ...(sysConfig.options.provider_names ?? {}) },
+            modelNames: { ...catalogNames.modelNames, ...(sysConfig.options.model_names ?? {}) },
           },
           providers: providersRes.providers,
           customProviders: customRes.providers,

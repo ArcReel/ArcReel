@@ -9,15 +9,6 @@ import ViduColor from "@lobehub/icons/es/Vidu/components/Color";
 import VolcengineColor from "@lobehub/icons/es/Volcengine/components/Color";
 import type { ComponentType } from "react";
 
-export const PROVIDER_NAMES: Record<string, string> = {
-  "gemini-aistudio": "AI Studio",
-  "gemini-vertex": "Vertex AI",
-  ark: "火山方舟",
-  grok: "Grok",
-  openai: "OpenAI",
-  vidu: "Vidu",
-};
-
 /**
  * 内置 provider 的 canonical id → lobehub 具名图标组件。逐个静态 import 保持 tree-shaking。
  * 键为规范化后的小写 id（仅 a-z0-9）；id 与 lobehub 图标名不一致的（如 ark/dashscope）

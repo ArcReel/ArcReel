@@ -1,5 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useEffect } from "react";
+import i18n from "@/i18n";
 import { API } from "@/api";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import type { ModelCandidatesResponse } from "@/types/system";
@@ -108,5 +110,32 @@ describe("useModelCandidates", () => {
     await waitFor(() => expect(signals).toHaveLength(1));
     unmount();
     expect(signals[0].aborted).toBe(true);
+  });
+});
+
+describe("useModelCandidates – 语言切换", () => {
+  afterEach(async () => {
+    await act(async () => {
+      await i18n.changeLanguage("zh");
+    });
+  });
+
+  it("换语言即换掉 reload 的标识，调用点的 effect 据此重取译名", async () => {
+    const spy = vi.spyOn(API, "getModelCandidates").mockResolvedValue(CANDIDATES);
+    renderHook(() => {
+      const { reload } = useModelCandidates();
+      // 调用点惯常写法：把 reload 放进依赖数组
+      useEffect(() => {
+        void reload();
+      }, [reload]);
+    });
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   });
 });

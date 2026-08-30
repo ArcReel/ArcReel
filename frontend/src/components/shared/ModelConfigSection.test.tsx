@@ -214,6 +214,7 @@ describe("ModelConfigSection", () => {
         buckets: { i2v: ["gemini/veo-3"], r2v: ["ark/seedance"] },
       },
       provider_names: {},
+      model_names: {},
     };
 
     function renderWithCandidates(
@@ -1091,6 +1092,7 @@ describe("音频开关的模型可控性", () => {
         buckets: { i2v: ["kling/v3-omni"], r2v: ["kling/v3-omni"] },
       },
       provider_names: {},
+      model_names: {},
     };
 
     function renderDropdowns(usesReferenceImages: boolean) {

@@ -31,6 +31,15 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 
 CANDIDATES_URL = "/api/v1/system/config/model-candidates"
 
+
+def _custom_option(body: dict, model_id: str) -> str:
+    """从响应里取自定义供应商那一项的 "provider/model"。
+
+    provider_names 同时含内置 ready 供应商，故按 custom- 前缀挑，不能取第一个键。
+    """
+    return next(pid for pid in body["provider_names"] if pid.startswith("custom-")) + f"/{model_id}"
+
+
 # dashscope 视频模型（视频能力值取自 backend 声明，见模块 docstring）
 DS_I2V_ONLY = "dashscope/wan2.7-i2v"  # i2v ✓ / r2v ✗
 DS_T2V_ONLY = "dashscope/wan2.7-t2v"  # i2v ✗ / r2v ✗
@@ -198,7 +207,7 @@ class TestCustomProviderBucketFiltering:
                 [{"model_id": "sora-2", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": True}],
             )
             body = client.get(CANDIDATES_URL).json()
-        option = next(iter(body["provider_names"])) + "/sora-2"
+        option = _custom_option(body, "sora-2")
         assert option in body["video"]["buckets"]["r2v"]
         assert option in body["video"]["buckets"]["i2v"]
         assert option in body["video"]["default"]
@@ -219,7 +228,7 @@ class TestCustomProviderBucketFiltering:
                 ],
             )
             body = client.get(CANDIDATES_URL).json()
-        option = next(iter(body["provider_names"])) + "/sora-2"
+        option = _custom_option(body, "sora-2")
         assert option not in body["video"]["buckets"]["r2v"]
         # 覆盖只动了参考图维度，i2v 与默认层不受影响
         assert option in body["video"]["buckets"]["i2v"]
@@ -241,7 +250,7 @@ class TestCustomProviderBucketFiltering:
                 ],
             )
             body = client.get(CANDIDATES_URL).json()
-        option = next(iter(body["provider_names"])) + "/gpt-image-1"
+        option = _custom_option(body, "gpt-image-1")
         assert option in body["image"]["buckets"]["i2i"]
         assert option not in body["image"]["buckets"]["t2i"]
         assert option in body["image"]["default"]
@@ -255,6 +264,50 @@ class TestCustomProviderBucketFiltering:
             )
             body = client.get(CANDIDATES_URL).json()
         assert body["video"]["default"] == []
+
+
+# ---------------------------------------------------------------------------
+# 目录译名（与 /providers 同一条 translate_or 路径）
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogDisplayNames:
+    def test_builtin_provider_and_model_names_follow_accept_language(self, make_client):
+        with make_client(["ark"]) as client:
+            zh = client.get(CANDIDATES_URL, headers={"Accept-Language": "zh"}).json()
+            en = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()
+        assert zh["provider_names"]["ark"] == "火山方舟"
+        assert en["provider_names"]["ark"] == "Volcengine Ark"
+        assert zh["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "豆包 Seed 2.0 Pro"
+        assert en["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "Doubao Seed 2.0 Pro"
+
+    def test_model_names_cover_media_types_without_buckets(self, make_client):
+        """model_names 不按 image/video 收窄——文本 / 音频下拉共用同一份译名表。"""
+        with make_client(["dashscope"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+        assert DS_AUDIO in body["model_names"]
+
+    def test_unregistered_model_falls_back_to_registry_name(self, make_client):
+        """无译名条目的模型返回 registry 里的原名，而不是裸键。"""
+        with make_client(["openai"]) as client:
+            names = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()["model_names"]
+        assert names["openai/sora-2"] == PROVIDER_REGISTRY["openai"].models["sora-2"].display_name
+
+    async def test_custom_model_name_is_the_user_authored_one(self, make_client, session_factory_and_engine):
+        factory, _engine = session_factory_and_engine
+        with make_client([]) as client:
+            await _seed_custom_models(
+                factory,
+                [{"model_id": "sora-2", "display_name": "我的 Sora", "endpoint": "openai-video", "is_enabled": True}],
+            )
+            body = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()
+        assert body["model_names"][_custom_option(body, "sora-2")] == "我的 Sora"
+
+    def test_unconfigured_provider_absent_from_names(self, make_client):
+        with make_client(["ark"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+        assert "openai" not in body["provider_names"]
+        assert not any(k.startswith("openai/") for k in body["model_names"])
 
 
 # ---------------------------------------------------------------------------

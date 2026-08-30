@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -20,12 +20,12 @@ import {
 import { TextTierFields } from "@/components/shared/TextTierFields";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
 import { InlineWarning } from "@/components/ui/InlineWarning";
-import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { catalogDurations } from "@/hooks/useModelCapabilities";
+import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { errMsg } from "@/utils/async";
 import {
@@ -92,9 +92,10 @@ export function MediaModelSection() {
     if (customProviders.length > 0) void fetchEndpointCatalog();
   }, [customProviders.length, fetchEndpointCatalog]);
 
-  const allProviderNames = useMemo(
-    () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
-    [options],
+  const { providerNames: allProviderNames, modelNames: allModelNames } = useDisplayNames(
+    providers,
+    options,
+    candidates,
   );
   const bucketLabels = useCapabilityBucketLabels();
 
@@ -102,7 +103,6 @@ export function MediaModelSection() {
   // 也让重试不必重取整页配置（会连带清空未保存的 draft）。启动后不等它落地——候选接口
   // 慢或悬挂时，整页 spinner 和保存流程都会跟着卡住，而细分区本就有自己的加载叙事。
   const fetchConfig = useCallback(async () => {
-    void reloadCandidates();
     const [res, catalog, custom] = await Promise.all([
       API.getSystemConfig(),
       getProviderModels().catch(() => [] as ProviderInfo[]),
@@ -113,13 +113,19 @@ export function MediaModelSection() {
     setProviders(catalog);
     setCustomProviders(custom);
     setDraft({});
-  }, [reloadCandidates]);
+  }, []);
 
   useEffect(() => {
     // mount/依赖变更时异步拉取配置，回调内 setSettings 等（异步 fetch 后回写）
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchConfig();
   }, [fetchConfig]);
+
+  // 候选独立于配置本体重取：reload 的标识随语言变化，故语言切换时只刷新候选与译名，
+  // 不走 fetchConfig（它会 setDraft({}) 丢掉未保存的编辑）。
+  useEffect(() => {
+    void reloadCandidates();
+  }, [reloadCandidates]);
 
   const handleSave = useCallback(async () => {
     if (Object.keys(draft).length === 0) return;
@@ -130,6 +136,7 @@ export function MediaModelSection() {
       // 后端时改这里会换掉生效模型，而项目字段一个都没变、在用的能力查询不会因 props 重取。
       useCapabilitiesStore.getState().invalidate();
       await fetchConfig();
+      void reloadCandidates();
       void useConfigStatusStore.getState().refresh();
       useAppStore.getState().pushToast(t("media_config_saved"), "success");
     } catch (err) {
@@ -137,7 +144,7 @@ export function MediaModelSection() {
     } finally {
       setSaving(false);
     }
-  }, [draft, fetchConfig, t]);
+  }, [draft, fetchConfig, reloadCandidates, t]);
 
   if (!settings || !options) {
     return (
@@ -302,6 +309,7 @@ export function MediaModelSection() {
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
             providerNames={allProviderNames}
+            modelNames={allModelNames}
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
             subFieldsError={candidatesSubFieldsError}
@@ -395,6 +403,7 @@ export function MediaModelSection() {
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
             providerNames={allProviderNames}
+            modelNames={allModelNames}
             subFields={imageSubFields}
             subFieldsError={candidatesSubFieldsError}
           />
@@ -418,6 +427,7 @@ export function MediaModelSection() {
             }
             options={textBackends}
             providerNames={allProviderNames}
+            modelNames={allModelNames}
             defaultLabel={t("auto_select")}
             defaultHint={t("auto")}
             fallbacks={{
@@ -438,6 +448,7 @@ export function MediaModelSection() {
             value={currentAudioBackend}
             options={audioBackends}
             providerNames={allProviderNames}
+            modelNames={allModelNames}
             onChange={(v) => setDraft((prev) => ({ ...prev, default_audio_backend: v }))}
             allowDefault
             defaultLabel={t("auto_select")}

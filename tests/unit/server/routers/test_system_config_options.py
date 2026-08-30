@@ -378,3 +378,63 @@ class TestBuildOptionsProviderNames:
         options = await _build_options(mock_svc, db_session)
 
         assert options["provider_names"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Tests: _build_options 的名字按语言成文
+# ---------------------------------------------------------------------------
+
+
+class TestBuildOptionsLocalizedNames:
+    async def test_builtin_names_follow_locale(self, session_with_factory):
+        db_session, _factory = session_with_factory
+        mock_svc = _make_mock_svc(ready_providers=["ark"])
+
+        zh = await _build_options(mock_svc, db_session, "zh")
+        en = await _build_options(mock_svc, db_session, "en")
+
+        assert zh["provider_names"]["ark"] == "火山方舟"
+        assert en["provider_names"]["ark"] == "Volcengine Ark"
+        assert zh["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "豆包 Seed 2.0 Pro"
+        assert en["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "Doubao Seed 2.0 Pro"
+
+    async def test_model_names_key_every_listed_backend(self, session_with_factory):
+        """每个候选都能查到名字——缺键会让下拉退回 model id、译名形同虚设。"""
+        db_session, _factory = session_with_factory
+        mock_svc = _make_mock_svc(ready_providers=["ark", "openai"])
+
+        options = await _build_options(mock_svc, db_session)
+
+        listed = [
+            *options["video_backends"],
+            *options["image_backends"],
+            *options["text_backends"],
+            *options["audio_backends"],
+        ]
+        assert listed
+        assert [opt for opt in listed if opt not in options["model_names"]] == []
+
+    async def test_custom_model_name_is_the_user_authored_one(self, session_with_factory):
+        db_session, _factory = session_with_factory
+        repo = CustomProviderRepository(db_session)
+        provider = await repo.create_provider(
+            display_name="我的 LLM 服务",
+            discovery_format="openai",
+            base_url="https://api.example.com/v1",
+            api_key="sk-test",
+            models=[
+                {
+                    "model_id": "my-text-model",
+                    "display_name": "我的文本模型",
+                    "endpoint": "openai-chat",
+                    "is_default": True,
+                    "is_enabled": True,
+                }
+            ],
+        )
+        await db_session.commit()
+
+        options = await _build_options(_make_mock_svc(), db_session, "en")
+
+        assert options["provider_names"][f"custom-{provider.id}"] == "我的 LLM 服务"
+        assert options["model_names"][f"custom-{provider.id}/my-text-model"] == "我的文本模型"
