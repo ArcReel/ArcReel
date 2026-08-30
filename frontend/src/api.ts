@@ -400,20 +400,6 @@ export interface AgentProfileStatus {
   customized_files: string[];
 }
 
-/** 旁白/解说分镜 PATCH 入参（剧情演绎分镜走 {@link API.updateScene}）。 */
-export interface SegmentUpdatePayload {
-  script_file: string;
-  duration_seconds?: number;
-  segment_break?: boolean;
-  image_prompt?: unknown;
-  video_prompt?: unknown;
-  transition_to_next?: string;
-  note?: string;
-  characters_in_segment?: string[];
-  scenes?: string[];
-  props?: string[];
-}
-
 /** Payload for {@link API.createProject}. */
 export interface CreateProjectPayload {
   title: string;
@@ -1435,7 +1421,14 @@ class API {
 
   // ==================== 分镜管理（旁白/解说） ====================
 
-  /** `updates` 字段形状参见 {@link SegmentUpdatePayload}；保留 Record 以兼容 spread 调用。 */
+  /**
+   * 旁白/解说分镜 PATCH（剧情演绎分镜走 {@link API.updateScene}）。`updates` 必带
+   * `script_file`，其余为可选白名单字段：`duration_seconds`、`segment_break`、
+   * `image_prompt`、`video_prompt`、`transition_to_next`、`note`、
+   * `characters_in_segment`、`scenes`、`props`。字段清单以后端为准，
+   * mirrors server/routers/projects.py UpdateSegmentRequest。
+   * 保留 Record 以兼容 spread 调用。
+   */
   static async updateSegment(
     projectName: string,
     segmentId: string,

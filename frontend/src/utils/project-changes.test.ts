@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 import type { ProjectChange } from "@/types";
 import {
+  COMPLETION_ACTIONS,
   formatGroupedDeferredText,
   formatGroupedNotificationText,
-  GENERATION_ACTIONS,
   groupChangesByType,
   type EventsT,
 } from "./project-changes";
@@ -43,8 +43,8 @@ function namedCharacter(name: string): ProjectChange {
 }
 
 describe("project-changes utils", () => {
-  it("includes grid_ready in GENERATION_ACTIONS so grid completion refreshes cost", () => {
-    expect(GENERATION_ACTIONS.has("grid_ready")).toBe(true);
+  it("includes grid_ready in COMPLETION_ACTIONS so grid completion refreshes cost", () => {
+    expect(COMPLETION_ACTIONS.has("grid_ready")).toBe(true);
   });
 
   it("groups changes by entity_type and action", () => {
