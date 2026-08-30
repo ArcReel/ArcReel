@@ -169,7 +169,7 @@ uv run basedpyright
 
 - standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 执行全量扫描
 - tests/ 内 `reportOptional*` 和 `unknown*` 系列降级为 warning，避免大量使用 mock 的测试产生噪声
-- 第三方 untyped 库通过行级 `# pyright: ignore[...]` 处理
+- 抑制注释（`# noqa` / `# pyright: ignore[...]`）仅限工具误报（如第三方 untyped 库），行级、带理由；告警一律改代码，不加 baseline
 
 **Import 分层契约（import-linter）：**
 
@@ -212,6 +212,8 @@ cd website && pnpm format         # prettier 写入
 ### 注释规范
 
 代码与测试注释仅描述当前行为与约束，不写 issue/PR/Spec 编号，也不使用时间性措辞（「最近」「本次」「实测」）；此类信息写在 commit message / PR 描述中。修改文件时一并清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限。
+
+注释、ADR、CONTEXT.md、skill、issue / PR 正文按专业技术文风。
 
 ### ESLint disable 使用规范
 
