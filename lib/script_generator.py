@@ -403,7 +403,7 @@ class ScriptGenerator:
     ) -> tuple[PromptAuthoringScope, Path | None]:
         """解析重写范围，无条目可重写时直接免调用落盘。
 
-        返回的 Path 非 None 即代表本次已走完——调用方原样返回它，不再构造 prompt。
+        返回的 Path 非 None 即代表落盘已在此处走完——调用方原样返回它，不再构造 prompt。
         ``before_save`` 是该变体在免调用落盘前仍要过的准入断言（走文本模型的那条路径上另有一次）。
         """
         authoring_scope = self._resolve_prompt_authoring_scope(
@@ -437,7 +437,7 @@ class ScriptGenerator:
         plan_entries: list[dict],
         scope: str | Iterable[str] | None,
     ) -> list[dict] | None:
-        """dry-run 侧的重写范围；None 表示本次没有条目要重写，调用方改回预览说明。
+        """dry-run 侧的重写范围；None 表示没有条目要重写，调用方改回预览说明。
 
         dry-run 恒以默认文件名为增量基准：它不落盘，也就没有 ``output_filename`` 可言。
         """

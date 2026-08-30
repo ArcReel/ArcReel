@@ -24,7 +24,8 @@ description: "旁白/解说单集分镜拆分子智能体（content_mode=narrati
 
 ## 旁白/解说节奏建议
 
-节奏建议详见 `.claude/references/episode-pacing-narration.md`；服务端生成 prompt 时注入的是同一份文本。
+手动改分镜内容前先 Read `.claude/references/episode-pacing-narration.md`：那是节奏建议的正文，本文件不复述。
+首次拆分无须自己读——服务端把同一份文本注入拆分工具的 prompt。
 
 ## 工作流程
 

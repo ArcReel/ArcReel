@@ -199,7 +199,7 @@ export function CreateProjectModal() {
           API.listCustomProviders(),
         ]);
         if (cancelled) return;
-        const catalogNames = catalogDisplayNames(providersRes.providers);
+        const catalogNames = catalogDisplayNames(providersRes.providers, customRes.providers);
         setStep2Data({
           options: {
             video: sysConfig.options.video_backends,

@@ -40,16 +40,29 @@ export interface CatalogDisplayNames {
 }
 
 /**
- * 从 `/providers` 目录抽出译名表，作为候选响应之外的兜底层：候选只列 ready 供应商，而配置
- * 里的生效值可能指向一个已失去凭证的供应商——那时下拉触发按钮仍要显示名字而非裸 id。
+ * 从目录（`/providers` 与 `/custom-providers`）抽出显示名表，作为候选响应之外的兜底层。
+ *
+ * 两个端点都不按可用性收窄，候选与整页配置则只列 ready 的内置供应商与已启用的自定义模型；
+ * 而生效值可以指向一个已失去凭证的内置供应商，或一个被停用的自定义模型（停用不清引用）。
+ * 那时下拉触发按钮仍要显示名字，而不是 `custom-3 · my-model` 这样的裸 id。
  */
-export function catalogDisplayNames(providers: ProviderInfo[]): CatalogDisplayNames {
+export function catalogDisplayNames(
+  providers: ProviderInfo[],
+  customProviders: CustomProviderInfo[] = [],
+): CatalogDisplayNames {
   const providerNames: Record<string, string> = {};
   const modelNames: Record<string, string> = {};
   for (const provider of providers) {
     providerNames[provider.id] = provider.display_name;
     for (const [modelId, model] of Object.entries(provider.models ?? {})) {
       modelNames[`${provider.id}/${modelId}`] = model.display_name;
+    }
+  }
+  for (const provider of customProviders) {
+    const providerId = `${CUSTOM_PREFIX}${provider.id}`;
+    providerNames[providerId] = provider.display_name;
+    for (const model of provider.models ?? []) {
+      modelNames[`${providerId}/${model.model_id}`] = model.display_name;
     }
   }
   return { providerNames, modelNames };
