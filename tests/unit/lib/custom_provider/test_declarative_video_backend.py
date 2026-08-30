@@ -6,8 +6,13 @@ from pathlib import Path
 import httpx
 import pytest
 
-from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
+from lib.custom_provider.declarative_backend import (
+    DeclarativeRuntimeError,
+    DeclarativeVideoBackend,
+    extract_duration,
+)
 from lib.custom_provider.endpoint_definition import validate_definition
+from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.video_backends.base import (
     VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
     ResumeExpiredError,
@@ -1129,3 +1134,27 @@ class TestDeclarativeVideoBackend:
         )
         assert "声明式视频请求" in logged
         assert "sk-super-secret" not in logged
+
+
+class TestExtractDuration:
+    """``extract_duration`` 直接决定计费时长：越界与不可解析一律回 ``None`` 走缺省计价。"""
+
+    SPEC = {"paths": ["$.usage.duration"], "accept": "scalar"}
+
+    @pytest.mark.parametrize(
+        "raw",
+        [0, -3, MAX_BILLED_DURATION_SECONDS + 1, "not-a-number"],
+        ids=["zero", "negative", "over-max", "non-numeric"],
+    )
+    def test_out_of_range_or_unparsable_values_fall_back_to_none(self, raw):
+        assert extract_duration(self.SPEC, {"usage": {"duration": raw}}) is None
+
+    def test_half_up_rounding_can_push_the_value_out_of_range(self):
+        boundary = MAX_BILLED_DURATION_SECONDS + 0.5
+        assert extract_duration(self.SPEC, {"usage": {"duration": boundary}}) is None
+
+    def test_boundary_values_inside_the_range_are_kept(self):
+        assert extract_duration(self.SPEC, {"usage": {"duration": 1}}) == 1
+        assert extract_duration(self.SPEC, {"usage": {"duration": MAX_BILLED_DURATION_SECONDS}}) == (
+            MAX_BILLED_DURATION_SECONDS
+        )

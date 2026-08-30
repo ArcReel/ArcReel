@@ -89,8 +89,8 @@ class CustomEndpointRepository(BaseRepository):
     async def list_references(self, endpoint_key: str) -> list[EndpointReference]:
         """按 ``endpoint`` 键字面量列出引用它的模型行，供 409 响应说明「谁还在用」。
 
-        引用完整性靠本查询而非 FK：SQLite 默认关闭 foreign_keys pragma，加 FK 列既拦不住写入，
-        又成了第二真相源；而删除路径本就要把引用清单回给客户端，约束只能抛一个 IntegrityError。
+        引用完整性靠本查询而非 FK：409 要回引用清单，FK 约束只能抛一个 IntegrityError，
+        而删除路径本就要先查引用（docs/adr/0067）。
         """
         stmt = (
             select(
