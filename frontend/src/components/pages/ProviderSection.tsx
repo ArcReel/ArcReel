@@ -1,12 +1,9 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { errMsg, voidCall } from "@/utils/async";
+import { useEffect, useMemo, useCallback } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { API } from "@/api";
-import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useProviderCatalog } from "@/hooks/useProviderCatalog";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
-import type { ProviderInfo, CustomProviderInfo } from "@/types";
 import { ProviderDetail } from "./ProviderDetail";
 import { CustomProviderSection } from "./settings/CustomProviderSection";
 import { CustomProviderDetail } from "./settings/CustomProviderDetail";
@@ -61,11 +58,7 @@ type Selection =
 
 export function ProviderSection() {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  const { providers, customProviders, loading, error: loadError, reload, refresh } = useProviderCatalog(i18n.language);
   const [location, navigate] = useLocation();
   const search = useSearch();
 
@@ -104,61 +97,6 @@ export function ProviderSection() {
     };
   }, [search]);
 
-  const refreshPreset = useCallback(async () => {
-    const res = await API.getProviders();
-    setProviders(res.providers);
-    void useConfigStatusStore.getState().refresh();
-  }, []);
-
-  const refreshCustom = useCallback(async () => {
-    const res = await API.listCustomProviders();
-    setCustomProviders(res.providers);
-    void useConfigStatusStore.getState().refresh();
-  }, []);
-
-  // 同一 reloadKey 下的重跑只可能由语言变化触发，此时静默刷新：不置 loading，
-  // 列表与详情面板保持挂载，详情表单里未保存的输入不被卸载丢弃。
-  // 还要有一份拉取成功过的目录可留：首次拉取在途时切语言同样落在同一 reloadKey 上，
-  // 那时静默失败会留下一个空列表且没有重试入口，必须走常规的 loading / 错误面板。
-  const loadedCatalogRef = useRef(false);
-  const loadedKeyRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    let disposed = false;
-    const silent = loadedCatalogRef.current && loadedKeyRef.current === reloadKey;
-    loadedKeyRef.current = reloadKey;
-    // 并行拉取 preset+custom 列表。供应商与模型名由后端按 Accept-Language 成文，
-    // 语言切换后须重取，否则目录停留在切换前的语言。
-    if (!silent) {
-      setLoading(true);
-      setLoadError(null);
-    }
-    voidCall(
-      (async () => {
-        try {
-          const [presetRes, customRes] = await Promise.all([
-            API.getProviders(),
-            API.listCustomProviders(),
-          ]);
-          if (disposed) return;
-          setProviders(presetRes.providers);
-          setCustomProviders(customRes.providers);
-          loadedCatalogRef.current = true;
-          setLoadError(null);
-        } catch (err) {
-          // 静默刷新失败保留上一份目录：loadError 会让整个小节被错误面板取代、
-          // ProviderDetail 随之卸载，未保存的表单输入丢失。译名停留在旧语言远好过丢输入。
-          if (!disposed && !silent) setLoadError(errMsg(err));
-        } finally {
-          if (!disposed) setLoading(false);
-        }
-      })(),
-    );
-    return () => {
-      disposed = true;
-    };
-  }, [reloadKey, i18n.language]);
-
   // 首个 preset 兜底选中：拉取完成后 URL 仍未指定选中项时补一次。
   useEffect(() => {
     if (loading || selection || providers.length === 0) return;
@@ -174,7 +112,7 @@ export function ProviderSection() {
         <p className="text-[12.5px] text-text-2">{loadError}</p>
         <button
           type="button"
-          onClick={() => setReloadKey((k) => k + 1)}
+          onClick={reload}
           className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {t("common:retry")}
@@ -252,21 +190,21 @@ export function ProviderSection() {
       <div className="min-w-0 flex-1">
         {selection?.kind === "preset" && (
           <div className="p-6">
-            <ProviderDetail providerId={selection.id} onSaved={() => void refreshPreset()} />
+            <ProviderDetail providerId={selection.id} onSaved={() => void refresh()} />
           </div>
         )}
         {selection?.kind === "custom" && (
           <CustomProviderDetail
             providerId={selection.id}
             onDeleted={() => {
-              void refreshCustom();
+              void refresh();
               if (providers.length > 0) {
                 setSelection({ kind: "preset", id: providers[0].id });
               } else {
                 setSelection(null);
               }
             }}
-            onSaved={() => void refreshCustom()}
+            onSaved={() => void refresh()}
           />
         )}
         {selection?.kind === "new-custom" && (
@@ -274,16 +212,11 @@ export function ProviderSection() {
             initialBaseUrl={prefill.baseUrl}
             initialEndpoint={prefill.endpoint}
             onSaved={() => {
-              void API.listCustomProviders()
-                .then((res) => {
-                  setCustomProviders(res.providers);
-                  void useConfigStatusStore.getState().refresh();
-                  if (res.providers.length > 0) {
-                    const newest = res.providers[res.providers.length - 1];
-                    setSelection({ kind: "custom", id: newest.id });
-                  }
-                })
-                .catch(() => void refreshCustom());
+              void refresh().then((list) => {
+                if (list.length > 0) {
+                  setSelection({ kind: "custom", id: list[list.length - 1].id });
+                }
+              });
             }}
             onCancel={() => {
               if (providers.length > 0) {

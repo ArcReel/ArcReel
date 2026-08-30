@@ -12,6 +12,7 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
+import { sumItemDuration } from "@/utils/script-shape";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
@@ -43,7 +44,7 @@ function unitKeyFromLabel(label: string): string | null {
 /** unit 卡的统一显示形状：结构化（已晋升）与扁平（草稿）两种来源在这里收敛。 */
 interface DisplayUnit {
   key: string;
-  durationSeconds: number;
+  duration_seconds: number;
   sourceText: string;
   scriptText: string;
   /** true 时可编辑（已晋升内容）；草稿的扁平产物只读，修复由 Agent 在草稿上完成。 */
@@ -61,7 +62,7 @@ function unitStats(scriptText: string, lookup: MentionLookup): { utterances: num
 function structuredDisplayUnits(draft: ReferenceScriptPlanDraft): DisplayUnit[] {
   return draft.units.map((u) => ({
     key: u.unit_id,
-    durationSeconds: u.duration_seconds,
+    duration_seconds: u.duration_seconds,
     sourceText: u.source_text,
     scriptText: u.text,
     editable: true,
@@ -87,7 +88,7 @@ function quarantinedDisplayUnits(
     return [
       {
         key: `E${episode}U${String(i + 1).padStart(2, "0")}`,
-        durationSeconds: typeof u.duration_seconds === "number" ? u.duration_seconds : 0,
+        duration_seconds: typeof u.duration_seconds === "number" ? u.duration_seconds : 0,
         sourceText: typeof u.source_text === "string" ? u.source_text : "",
         scriptText: text,
         editable: false,
@@ -232,7 +233,7 @@ function UnitCard({
         <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{unit.key}</span>
         {durationOptions && onDurationChange ? (
           <select
-            value={unit.durationSeconds}
+            value={unit.duration_seconds}
             onChange={(e) => onDurationChange(Number(e.target.value))}
             disabled={busy}
             aria-label={t("reference_script_plan_duration_label", { unit: unit.key })}
@@ -240,9 +241,9 @@ function UnitCard({
           >
             {/* 存量草稿的秒数可能已不在当前档位表内：补一个当前值选项，否则 select 会静默
                 跳到首档，用户看到的秒数与盘上的对不上。 */}
-            {(durationOptions.includes(unit.durationSeconds)
+            {(durationOptions.includes(unit.duration_seconds)
               ? durationOptions
-              : [...durationOptions, unit.durationSeconds].sort((a, b) => a - b)
+              : [...durationOptions, unit.duration_seconds].sort((a, b) => a - b)
             ).map((d) => (
               <option key={d} value={d}>
                 {t("reference_script_plan_duration_option", { seconds: d })}
@@ -250,7 +251,7 @@ function UnitCard({
             ))}
           </select>
         ) : (
-          <span className="text-[11px] text-text-4">{t("reference_script_plan_duration_option", { seconds: unit.durationSeconds })}</span>
+          <span className="text-[11px] text-text-4">{t("reference_script_plan_duration_option", { seconds: unit.duration_seconds })}</span>
         )}
         {outOfTier && (
           <span className="rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
@@ -430,7 +431,7 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
   }, []);
 
   if (loading) {
-    return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_preprocessing")}</div>;
+    return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_script_plan")}</div>;
   }
 
   if (loadError) {
@@ -453,7 +454,7 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
   const quarantine = state?.quarantine ?? null;
   if (status === "no_script_plan" || (draft == null && quarantine == null)) {
     return (
-      <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_preprocessing_content")}</div>
+      <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_script_plan_content")}</div>
     );
   }
 
@@ -473,7 +474,7 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
         displayUnits
           .filter((u) => {
             const tiers = unitDurationTiers(u, lookup, state?.duration_tiers ?? null);
-            return tiers != null && !tiers.includes(u.durationSeconds);
+            return tiers != null && !tiers.includes(u.duration_seconds);
           })
           .map((u) => u.key),
       );
@@ -584,7 +585,7 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
       {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
       {!quarantined && (
         <EpisodeDurationSummary
-          totalSeconds={displayUnits.reduce((sum, u) => sum + u.durationSeconds, 0)}
+          totalSeconds={sumItemDuration(displayUnits)}
           targetSeconds={state?.episode_target_duration ?? null}
         />
       )}

@@ -27,7 +27,9 @@ from lib.artifact_manifest import ArtifactBasis
 from lib.script_models import NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.script_skeleton import SKELETONS, rewrite_episode_prefix
 
-#: 脚本规划变体，与 ``lib.script_review.ScriptPlanKind`` 同一套取值。
+#: script_plan 变体：drama / narration（按 content_mode）+ reference_video（按项目生成模式，
+#: 跨 content_mode）。决定 script_plan 文件名与结构校验模型；三者共用同一内容确认。
+#: ``lib.script_review`` 从本模块再导出，不另立一份。
 ScriptPlanKind = Literal["drama", "narration", "reference_video"]
 
 #: 剧本条目上持久化的「该条目消费的脚本规划条目内容指纹」字段名。对 LLM 隐藏
@@ -43,43 +45,6 @@ SCRIPT_PLAN_REVISION_FIELD = "script_plan_revision"
 #: 全部条目判成失配、触发一轮整集重写——与 ``SCRIPT_PLAN_BASIS_KIND`` 同属持久化格式。
 ENTRY_BASIS_KIND = "structured-content/script-plan-entry"
 ENTRY_BASIS_KIND_VERSION = 1
-
-#: 脚本规划变体 → 剧本骨架种类（``lib.script_skeleton.SKELETONS`` 的键）。
-SKELETON_BY_PLAN_KIND: dict[str, str] = {
-    "drama": "scenes",
-    "narration": "segments",
-    "reference_video": "video_units",
-}
-
-#: 各变体进指纹的内容字段。口径是「改了它，这个条目的视觉层就该重写」：
-#: 边界与时长决定这一条拍什么、多长；资产引用列表决定画面里有谁；口播 / 原文锚 / 参考单元正文
-#: 是内容真相；drama 的 ``scene_description`` 是视觉层的自由文本基底，改它必须重出提示词。
-#: 条目 id 与运行时状态（``generated_assets`` / ``needs_replan``）不在其列。
-CONTENT_FIELDS: dict[str, tuple[str, ...]] = {
-    "drama": (
-        "duration_seconds",
-        "segment_break",
-        "characters_in_scene",
-        "scenes",
-        "props",
-        "scene_description",
-        "utterances",
-        "source_text",
-    ),
-    "narration": (
-        "duration_seconds",
-        "segment_break",
-        "novel_text",
-        "characters_in_segment",
-        "scenes",
-        "props",
-    ),
-    "reference_video": (
-        "duration_seconds",
-        "text",
-        "source_text",
-    ),
-}
 
 #: 重写一个已存在条目时仍沿用旧值的用户字段。它们是用户对「这一条」的标注与剪辑意图，
 #: 不随内容变化而失真；视觉层重出不构成删除它们的理由。``generated_assets`` /
@@ -100,51 +65,102 @@ PRESERVED_ON_UNCHANGED_FIELDS: tuple[str, ...] = (
 )
 
 
-#: 脚本规划变体 → 该变体中间文件里的条目数组键。与 ``SKELETON_BY_PLAN_KIND``（剧本侧的键）
-#: 不同名：参考生视频的规划文件用 ``units``，剧本里则是 ``video_units``。
-PLAN_ITEMS_KEY: dict[str, str] = {
-    "drama": "scenes",
-    "narration": "segments",
-    "reference_video": "units",
-}
-
-#: 脚本规划变体 → 该变体中间文件的草稿模型。生成侧读脚本规划时用它归一条目，时效判定读同一份
-#: 文件时须走同一道归一，否则两侧摘出的指纹不同源。drama 缺席：它没有草稿模型，生成侧消费原始 dict。
-_PLAN_DRAFT_MODEL: dict[str, type[BaseModel]] = {
-    "narration": NarrationScriptPlanDraft,
-    "reference_video": ReferenceScriptPlanDraft,
-}
-
-
 class ScriptPlanEntryError(ValueError):
     """脚本规划条目集合本身不合法（缺 id / id 重复 / 引用了不存在的条目）。"""
 
 
-def _skeleton(kind: str) -> tuple[str, str]:
+@dataclass(frozen=True, slots=True)
+class ScriptPlanVariant:
+    """一个脚本规划变体的全部按变体分叉的取值。"""
+
+    #: 剧本骨架种类（``lib.script_skeleton.SKELETONS`` 的键）。
+    skeleton_kind: str
+    #: 该变体中间文件里的条目数组键。与 ``skeleton_kind``（剧本侧的键）不同名：参考生视频的
+    #: 规划文件用 ``units``，剧本里则是 ``video_units``。
+    plan_items_key: str
+    #: 进指纹的内容字段。口径是「改了它，这个条目的视觉层就该重写」：边界与时长决定这一条拍
+    #: 什么、多长；资产引用列表决定画面里有谁；口播 / 原文锚 / 参考单元正文是内容真相；drama 的
+    #: ``scene_description`` 是视觉层的自由文本基底，改它必须重出提示词。条目 id 与运行时状态
+    #: （``generated_assets`` / ``needs_replan``）不在其列。
+    content_fields: tuple[str, ...]
+    #: 该变体中间文件的草稿模型。生成侧读脚本规划时用它归一条目，时效判定读同一份文件时须走
+    #: 同一道归一，否则两侧摘出的指纹不同源。drama 为 ``None``：它没有草稿模型，生成侧消费原始 dict。
+    draft_model: type[BaseModel] | None
+
+
+#: 脚本规划变体表，是变体分叉的唯一真相源。
+PLAN_VARIANTS: dict[str, ScriptPlanVariant] = {
+    "drama": ScriptPlanVariant(
+        skeleton_kind="scenes",
+        plan_items_key="scenes",
+        content_fields=(
+            "duration_seconds",
+            "segment_break",
+            "characters_in_scene",
+            "scenes",
+            "props",
+            "scene_description",
+            "utterances",
+            "source_text",
+        ),
+        draft_model=None,
+    ),
+    "narration": ScriptPlanVariant(
+        skeleton_kind="segments",
+        plan_items_key="segments",
+        content_fields=(
+            "duration_seconds",
+            "segment_break",
+            "novel_text",
+            "characters_in_segment",
+            "scenes",
+            "props",
+        ),
+        draft_model=NarrationScriptPlanDraft,
+    ),
+    "reference_video": ScriptPlanVariant(
+        skeleton_kind="video_units",
+        plan_items_key="units",
+        content_fields=(
+            "duration_seconds",
+            "text",
+            "source_text",
+        ),
+        draft_model=ReferenceScriptPlanDraft,
+    ),
+}
+
+
+def plan_variant(kind: ScriptPlanKind) -> ScriptPlanVariant:
+    """变体记录；未知变体 fail-loud。"""
+
+    variant = PLAN_VARIANTS.get(kind)
+    if variant is None:
+        raise ScriptPlanEntryError(f"未知的脚本规划变体: {kind!r}")
+    return variant
+
+
+def _skeleton(kind: ScriptPlanKind) -> tuple[str, str]:
     """返回 (骨架种类, id 字段名)；未知变体 fail-loud。"""
 
-    skeleton_kind = SKELETON_BY_PLAN_KIND.get(kind)
-    if skeleton_kind is None:
-        raise ScriptPlanEntryError(f"未知的脚本规划变体: {kind!r}")
+    skeleton_kind = plan_variant(kind).skeleton_kind
     return skeleton_kind, SKELETONS[skeleton_kind].id_field
 
 
-def entry_id_field(kind: str) -> str:
+def entry_id_field(kind: ScriptPlanKind) -> str:
     """该变体在剧本条目上的 id 字段名。"""
 
     return _skeleton(kind)[1]
 
 
-def entry_revision(kind: str, entry: Mapping[str, object]) -> str:
+def entry_revision(kind: ScriptPlanKind, entry: Mapping[str, object]) -> str:
     """一个脚本规划条目的内容指纹（带 ``sha256-v1:`` 前缀）。
 
     缺失的内容字段按缺失参与摘要（不补默认值）：脚本规划各变体的模型已经规定了哪些字段必填，
     在此补默认值会让「字段缺失」与「字段等于默认值」摘出同一个值，掩盖坏 script_plan。
     """
 
-    fields = CONTENT_FIELDS.get(kind)
-    if fields is None:
-        raise ScriptPlanEntryError(f"未知的脚本规划变体: {kind!r}")
+    fields = plan_variant(kind).content_fields
     return ArtifactBasis.build(
         ENTRY_BASIS_KIND,
         kind_version=ENTRY_BASIS_KIND_VERSION,
@@ -156,7 +172,7 @@ def entry_revision(kind: str, entry: Mapping[str, object]) -> str:
 
 
 def plan_entry_revisions(
-    kind: str,
+    kind: ScriptPlanKind,
     entries: Sequence[Mapping[str, object]],
     *,
     episode: int,
@@ -182,7 +198,7 @@ def plan_entry_revisions(
     return revisions
 
 
-def plan_entries_from_document(kind: str, document: object) -> list[dict[str, object]]:
+def plan_entries_from_document(kind: ScriptPlanKind, document: object) -> list[dict[str, object]]:
     """脚本规划中间文件的内容 → 条目列表；形状不符时返回空列表。
 
     narration / reference_video 的条目先经各自的草稿模型归一（``model_validate`` +
@@ -196,16 +212,15 @@ def plan_entries_from_document(kind: str, document: object) -> list[dict[str, ob
     时长越界）同取这一条，退回整集口径判定。
     """
 
-    items_key = PLAN_ITEMS_KEY.get(kind)
-    if items_key is None:
-        raise ScriptPlanEntryError(f"未知的脚本规划变体: {kind!r}")
+    variant = plan_variant(kind)
+    items_key = variant.plan_items_key
     if not isinstance(document, Mapping):
         return []
     entries = document.get(items_key)
     if not isinstance(entries, list):
         return []
     raw_entries = [entry for entry in entries if isinstance(entry, dict)]
-    draft_model = _PLAN_DRAFT_MODEL.get(kind)
+    draft_model = variant.draft_model
     if draft_model is None or not raw_entries:
         return raw_entries
     try:
@@ -215,7 +230,7 @@ def plan_entries_from_document(kind: str, document: object) -> list[dict[str, ob
     return [item.model_dump() for item in getattr(draft, items_key)]
 
 
-def script_entries_by_id(kind: str, script: Mapping[str, object]) -> dict[str, dict[str, object]]:
+def script_entries_by_id(kind: ScriptPlanKind, script: Mapping[str, object]) -> dict[str, dict[str, object]]:
     """剧本 → ``{条目 id: 条目}``，保持剧本顺序；非对象条目与缺 id 条目跳过。
 
     跳过而非 fail-loud：剧本可能是校验失败降级保存的原始 dict，时效判定不该因为一条脏数据
@@ -262,7 +277,7 @@ class ScriptEntryCurrency:
 
 
 def evaluate_entry_currency(
-    kind: str,
+    kind: ScriptPlanKind,
     *,
     script: Mapping[str, object],
     plan_revisions: Mapping[str, str],
@@ -305,7 +320,7 @@ def evaluate_entry_currency(
 
 
 def backfill_entry_revisions(
-    kind: str,
+    kind: ScriptPlanKind,
     *,
     script: Mapping[str, object],
     plan_revisions: Mapping[str, str],
@@ -375,7 +390,7 @@ def resolve_rewrite_ids(
 
 
 def splice_entries(
-    kind: str,
+    kind: ScriptPlanKind,
     *,
     plan_revisions: Mapping[str, str],
     rewritten: Sequence[Mapping[str, object]],
@@ -422,26 +437,26 @@ def splice_entries(
 
 
 __all__ = [
-    "CONTENT_FIELDS",
     "ENTRY_BASIS_KIND",
     "ENTRY_BASIS_KIND_VERSION",
-    "PLAN_ITEMS_KEY",
+    "PLAN_VARIANTS",
     "PRESERVED_ON_REWRITE_FIELDS",
     "PRESERVED_ON_UNCHANGED_FIELDS",
     "SCOPE_ALL",
     "SCOPE_STALE",
     "SCRIPT_PLAN_ENTRY_REVISION_FIELD",
     "SCRIPT_PLAN_REVISION_FIELD",
-    "SKELETON_BY_PLAN_KIND",
     "ScriptEntryCurrency",
     "ScriptPlanEntryError",
     "ScriptPlanKind",
+    "ScriptPlanVariant",
     "backfill_entry_revisions",
     "entry_id_field",
     "entry_revision",
     "evaluate_entry_currency",
     "plan_entries_from_document",
     "plan_entry_revisions",
+    "plan_variant",
     "resolve_rewrite_ids",
     "script_entries_by_id",
     "splice_entries",

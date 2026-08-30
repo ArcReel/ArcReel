@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from lib.artifact_activation import (
+    ARTIFACT_MANIFEST_SCHEMA_VERSION,
     ArtifactCurrencyResolver,
     ensure_imported_artifact_target_state,
     register_current_resource_artifact,
@@ -33,12 +34,9 @@ from lib.grid.layout import grid_aspect_ratio_for
 from lib.grid.models import GridGeneration, build_frame_chain
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
 from lib.project_manager import ProjectManager
-from lib.project_migrations import CURRENT_SCHEMA_VERSION
+from lib.project_migrations import CURRENT_SCHEMA_VERSION, MIGRATORS
 from lib.project_migrations.runner import cleanup_stale_backups, migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
-from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
-from lib.project_migrations.v9_to_v10_script_plan_naming import migrate_v9_to_v10
-from lib.project_migrations.v10_to_v11_character_voice_binding import migrate_v10_to_v11
 from lib.speech_artifact_provenance import (
     RenditionVariant,
     SelectedMediaEvidence,
@@ -572,11 +570,11 @@ def test_formal_script_plan_write_serializes_with_schema_last_activation(tmp_pat
         activation_ready.set()
         assert release_activation.wait(timeout=5)
         artifact_activation._commit_schema_version(project_dir_arg, project)
-        # 清单激活是迁移链的中间一步，它落的版本不是当前版本；后续步骤在同一个临界区内走完，
-        # 等锁的写入方因此只会看到迁移前后两个完整状态，与启动扫描先迁完再对外服务同口径。
-        migrate_v8_to_v9(project_dir_arg)
-        migrate_v9_to_v10(project_dir_arg)
-        migrate_v10_to_v11(project_dir_arg)
+        # 清单激活是迁移链的中间一步，它落的版本不是当前版本；链尾从 MIGRATORS 推导后在同一个
+        # 临界区内走完，等锁的写入方因此只会看到迁移前后两个完整状态，与启动扫描先迁完再对外
+        # 服务同口径。
+        for version in range(ARTIFACT_MANIFEST_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION):
+            MIGRATORS[version](project_dir_arg)
 
     def _activate() -> None:
         try:

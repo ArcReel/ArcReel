@@ -893,7 +893,7 @@ async def generate_drama_script_plan(
                 ) from exc
 
         return CompensableTextGenerationResult(
-            f"✅ 规范化剧本（结构化内容）已保存: {script_plan_path}\n📊 生成统计: {len(raw_scenes)} 个分镜",
+            _drama_script_plan_result_text(script_plan_path, raw_scenes, action="生成"),
             cancellation_receipt.compensate_cancelled,
         )
     except TextGenerationError:
@@ -1191,8 +1191,8 @@ def _reference_soft_violation_lines(
     """一份扁平产出的全部软违约（声音降级 + 未引用场景）文本行，拆分与草稿流共用的单一出口。
 
     软违约不阻断落盘、不进违约报告，但每条呈现路径都要给出同一组结论：拆分回执、晋升回执、
-    以及晋升被违约挡下时回给 Agent 的报告。派生须留在本函数内，新增一类软违约才会同时到达
-    三条路，而不是只被接到其中一条上、另外两条继续沉默。
+    以及拆分 / 晋升被违约挡下时回给 Agent 的报告。派生须留在本函数内，新增一类软违约才会同时
+    到达四条路，而不是只被接到其中一条上、其余继续沉默。
 
     顺序固定为「声音在前、场景在后」：报告与回执并排比对时，同一份产物在不同路径上给出的
     行序不该抖动。
@@ -1217,6 +1217,25 @@ def render_soft_violation_section(soft_violations: list[str], *, note: str) -> s
     if not soft_violations:
         return ""
     return f"\n⚠️ 降级提示（不阻断，{note}）:\n" + "\n".join(f"- {line}" for line in soft_violations)
+
+
+def _drama_script_plan_result_text(script_plan_path: Path, scenes: list[dict], *, action: str) -> str:
+    """drama script_plan 的落盘回执。``action`` 是「生成」/「晋升」——两条路的统计段同一出口，
+    只在动作词上分叉，Agent 因此按同一种格式读产出与晋升两次结果。
+    """
+    return f"✅ 规范化剧本{action}（结构化内容）已保存: {script_plan_path}\n📊 生成统计: {len(scenes)} 个分镜"
+
+
+def _narration_script_plan_result_text(script_plan_path: Path, segments: list[dict], *, action: str) -> str:
+    """narration script_plan 的落盘回执；``action`` 取「拆分」/「晋升」，理由同 drama 侧。"""
+    total_chars = sum(len(str(segment.get("novel_text") or "")) for segment in segments)
+    total_seconds = sum(int(segment.get("duration_seconds") or 0) for segment in segments)
+    break_count = sum(1 for segment in segments if segment.get("segment_break"))
+    return (
+        f"✅ 旁白/解说分镜{action}（结构化 script_plan）已保存: {script_plan_path}\n"
+        f"📊 生成统计: {len(segments)} 个分镜 / {total_chars} 字，"
+        f"预计总时长 {total_seconds} 秒；segment_break 标记 {break_count} 个"
+    )
 
 
 def _reference_result_text(
@@ -1511,6 +1530,8 @@ async def generate_reference_script_plan(
             caps=split_caps,
             source_language=project.get("source_language"),
         )
+        unit_texts = [flat_unit["text"] for flat_unit in flat_units]
+        soft_violations = _reference_soft_violation_lines(unit_texts, project, episode=episode, voice=split_caps.voice)
         if violations:
             async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
                 _assert_draft_revision(draft_path, draft_baseline)
@@ -1523,7 +1544,11 @@ async def generate_reference_script_plan(
                     request.source,
                     formal_baseline,
                 )
-            raise TextGenerationError(report)
+            # 产出即违约这条路同样带上软违约段：草稿在场、Agent 这一轮就在改它，降级提示留到晋升
+            # 那一刻才第一次出现的话，它已经按不完整的信息改过一遍了。处置说明与晋升被挡下时同口径。
+            raise TextGenerationError(
+                report + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED)
+            )
 
         raw_units = _build_reference_units_from_flat(
             flat_units,
@@ -1555,8 +1580,6 @@ async def generate_reference_script_plan(
                         exc.actual,
                     )
                 ) from exc
-        unit_texts = [flat_unit["text"] for flat_unit in flat_units]
-        soft_violations = _reference_soft_violation_lines(unit_texts, project, episode=episode, voice=split_caps.voice)
         return CompensableTextGenerationResult(
             _reference_result_text(
                 script_review.official_reference_script_plan_path(project_path, episode),
@@ -1701,13 +1724,8 @@ async def generate_narration_script_plan(
                     )
                 ) from exc
 
-        total_chars = sum(len(str(segment.get("novel_text") or "")) for segment in raw_segments)
-        total_seconds = sum(int(segment.get("duration_seconds") or 0) for segment in raw_segments)
-        break_count = sum(1 for segment in raw_segments if segment.get("segment_break"))
         return CompensableTextGenerationResult(
-            f"✅ 旁白/解说分镜拆分（结构化 script_plan）已保存: {script_plan_path}\n"
-            f"📊 生成统计: {len(raw_segments)} 个分镜 / {total_chars} 字，"
-            f"预计总时长 {total_seconds} 秒；segment_break 标记 {break_count} 个",
+            _narration_script_plan_result_text(script_plan_path, raw_segments, action="拆分"),
             cancellation_receipt.compensate_cancelled,
         )
     except TextGenerationError:

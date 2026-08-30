@@ -2549,8 +2549,10 @@ class API {
   // ==================== Provider 管理 API ====================
 
   /** 获取所有 provider 列表及状态。 */
-  static async getProviders(): Promise<{ providers: ProviderInfo[] }> {
-    return this.request("/providers");
+  static async getProviders(
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{ providers: ProviderInfo[] }> {
+    return this.request("/providers", { signal: options.signal });
   }
 
   /** 获取指定 provider 的配置详情（含字段列表）。 */
@@ -2682,8 +2684,10 @@ class API {
 
   // ==================== 自定义供应商 API ====================
 
-  static async listCustomProviders(): Promise<{ providers: CustomProviderInfo[] }> {
-    return this.request("/custom-providers");
+  static async listCustomProviders(
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{ providers: CustomProviderInfo[] }> {
+    return this.request("/custom-providers", { signal: options.signal });
   }
 
   static async listEndpointCatalog(): Promise<{ endpoints: EndpointDescriptor[] }> {

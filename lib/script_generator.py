@@ -101,12 +101,13 @@ from lib.script_models import (
     script_duration_total,
 )
 from lib.script_plan_entries import (
-    SKELETON_BY_PLAN_KIND,
     ScriptEntryCurrency,
     ScriptPlanEntryError,
+    ScriptPlanKind,
     entry_id_field,
     evaluate_entry_currency,
     plan_entry_revisions,
+    plan_variant,
     resolve_rewrite_ids,
     script_entries_by_id,
     splice_entries,
@@ -177,7 +178,7 @@ class PromptAuthoringScope:
     按位合并复用；``plan_revisions`` 与 ``existing`` 用改写后的落盘 id 为键，供装配阶段对齐。
     """
 
-    plan_kind: str
+    plan_kind: ScriptPlanKind
     plan_revisions: dict[str, str]
     existing: dict[str, dict]
     existing_title: str | None
@@ -188,7 +189,7 @@ class PromptAuthoringScope:
     @property
     def items_key(self) -> str:
         """该变体在剧本 dict 里的条目数组键。"""
-        return SKELETON_BY_PLAN_KIND[self.plan_kind]
+        return plan_variant(self.plan_kind).skeleton_kind
 
 
 class ScriptGenerator:
@@ -271,7 +272,7 @@ class ScriptGenerator:
         episode: int,
         filename: str,
         *,
-        plan_kind: str,
+        plan_kind: ScriptPlanKind,
         plan_entries: list[dict],
         scope: str | Iterable[str] | None,
     ) -> PromptAuthoringScope:
@@ -385,6 +386,69 @@ class ScriptGenerator:
         )
         logger.info("第 %d 集无失效条目，剧本按脚本规划顺序装配后已保存至 %s", episode, output_path)
         return output_path
+
+    async def _scope_or_save_without_rewrite(
+        self,
+        episode: int,
+        filename: str,
+        *,
+        plan_kind: ScriptPlanKind,
+        plan_entries: list[dict],
+        scope: str | Iterable[str] | None,
+        rewritten_entry_ids: list[str] | None,
+        title: str | None,
+        before_save: Callable[[], None] | None = None,
+        cancellation_file_receipts: list[FormalWriteReceipt] | None,
+        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None,
+    ) -> tuple[PromptAuthoringScope, Path | None]:
+        """解析重写范围，无条目可重写时直接免调用落盘。
+
+        返回的 Path 非 None 即代表本次已走完——调用方原样返回它，不再构造 prompt。
+        ``before_save`` 是该变体在免调用落盘前仍要过的准入断言（走文本模型的那条路径上另有一次）。
+        """
+        authoring_scope = self._resolve_prompt_authoring_scope(
+            episode,
+            filename,
+            plan_kind=plan_kind,
+            plan_entries=plan_entries,
+            scope=scope,
+        )
+        if rewritten_entry_ids is not None:
+            rewritten_entry_ids[:] = authoring_scope.rewrite_ids
+        if authoring_scope.entries_to_rewrite:
+            return authoring_scope, None
+        if before_save is not None:
+            before_save()
+        output_path = await self._save_without_rewrite(
+            episode,
+            filename,
+            authoring_scope,
+            title=title,
+            cancellation_file_receipts=cancellation_file_receipts,
+            cancellation_manifest_receipts=cancellation_manifest_receipts,
+        )
+        return authoring_scope, output_path
+
+    def _dry_run_entries_to_rewrite(
+        self,
+        episode: int,
+        *,
+        plan_kind: ScriptPlanKind,
+        plan_entries: list[dict],
+        scope: str | Iterable[str] | None,
+    ) -> list[dict] | None:
+        """dry-run 侧的重写范围；None 表示本次没有条目要重写，调用方改回预览说明。
+
+        dry-run 恒以默认文件名为增量基准：它不落盘，也就没有 ``output_filename`` 可言。
+        """
+        authoring_scope = self._resolve_prompt_authoring_scope(
+            episode,
+            episode_script_filename(episode),
+            plan_kind=plan_kind,
+            plan_entries=plan_entries,
+            scope=scope,
+        )
+        return authoring_scope.entries_to_rewrite or None
 
     async def generate(
         self,
@@ -501,25 +565,23 @@ class ScriptGenerator:
         authoring_scope: PromptAuthoringScope | None = None
         filename = output_filename or episode_script_filename(episode)
         if script_plan_units is not None:
-            authoring_scope = self._resolve_prompt_authoring_scope(
+            units_for_admission = script_plan_units
+            authoring_scope, saved_path = await self._scope_or_save_without_rewrite(
                 episode,
                 filename,
                 plan_kind="reference_video",
                 plan_entries=script_plan_units,
                 scope=scope,
+                rewritten_entry_ids=rewritten_entry_ids,
+                title=None,
+                before_save=lambda: self._assert_reference_script_plan_ready(
+                    units_for_admission, caps=caps, gen_mode=gen_mode
+                ),
+                cancellation_file_receipts=cancellation_file_receipts,
+                cancellation_manifest_receipts=cancellation_manifest_receipts,
             )
-            if rewritten_entry_ids is not None:
-                rewritten_entry_ids[:] = authoring_scope.rewrite_ids
-            if not authoring_scope.entries_to_rewrite:
-                self._assert_reference_script_plan_ready(script_plan_units, caps=caps, gen_mode=gen_mode)
-                return await self._save_without_rewrite(
-                    episode,
-                    filename,
-                    authoring_scope,
-                    title=None,
-                    cancellation_file_receipts=cancellation_file_receipts,
-                    cancellation_manifest_receipts=cancellation_manifest_receipts,
-                )
+            if saved_path is not None:
+                return saved_path
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -540,24 +602,19 @@ class ScriptGenerator:
             # narration 两段式：script_plan 透传内容层（novel_text 等），prompt_authoring 仅产视觉层、按 segment_id 合并回 script_plan。
             # drama 已在前面经 _generate_drama_prompt_authoring 早返回；reference 走上面分支，故此 else 必为 narration。
             narration_script_plan = self._load_narration_script_plan(episode, supported_durations)
-            authoring_scope = self._resolve_prompt_authoring_scope(
+            authoring_scope, saved_path = await self._scope_or_save_without_rewrite(
                 episode,
                 filename,
                 plan_kind="narration",
                 plan_entries=narration_script_plan,
                 scope=scope,
+                rewritten_entry_ids=rewritten_entry_ids,
+                title=None,
+                cancellation_file_receipts=cancellation_file_receipts,
+                cancellation_manifest_receipts=cancellation_manifest_receipts,
             )
-            if rewritten_entry_ids is not None:
-                rewritten_entry_ids[:] = authoring_scope.rewrite_ids
-            if not authoring_scope.entries_to_rewrite:
-                return await self._save_without_rewrite(
-                    episode,
-                    filename,
-                    authoring_scope,
-                    title=None,
-                    cancellation_file_receipts=cancellation_file_receipts,
-                    cancellation_manifest_receipts=cancellation_manifest_receipts,
-                )
+            if saved_path is not None:
+                return saved_path
             narration_script_plan = authoring_scope.entries_to_rewrite
             prompt = build_narration_prompt(
                 project_overview=self.project_json.get("overview", {}),
@@ -642,20 +699,19 @@ class ScriptGenerator:
         await self._assert_drama_script_plan_durations(content_scenes, episode=episode, gen_mode=gen_mode)
         filename = output_filename or episode_script_filename(episode)
         title = content.get("title") if isinstance(content.get("title"), str) else None
-        authoring_scope = self._resolve_prompt_authoring_scope(
-            episode, filename, plan_kind="drama", plan_entries=content_scenes, scope=scope
+        authoring_scope, saved_path = await self._scope_or_save_without_rewrite(
+            episode,
+            filename,
+            plan_kind="drama",
+            plan_entries=content_scenes,
+            scope=scope,
+            rewritten_entry_ids=rewritten_entry_ids,
+            title=title,
+            cancellation_file_receipts=cancellation_file_receipts,
+            cancellation_manifest_receipts=cancellation_manifest_receipts,
         )
-        if rewritten_entry_ids is not None:
-            rewritten_entry_ids[:] = authoring_scope.rewrite_ids
-        if not authoring_scope.entries_to_rewrite:
-            return await self._save_without_rewrite(
-                episode,
-                filename,
-                authoring_scope,
-                title=title,
-                cancellation_file_receipts=cancellation_file_receipts,
-                cancellation_manifest_receipts=cancellation_manifest_receipts,
-            )
+        if saved_path is not None:
+            return saved_path
         formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
 
         logger.info(
@@ -1004,17 +1060,13 @@ class ScriptGenerator:
             content = self._load_drama_script_plan_content(episode)
             raw_scenes = content.get("scenes")
             content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
-            drama_scope = self._resolve_prompt_authoring_scope(
-                episode,
-                episode_script_filename(episode),
-                plan_kind="drama",
-                plan_entries=content_scenes,
-                scope=scope,
+            drama_entries = self._dry_run_entries_to_rewrite(
+                episode, plan_kind="drama", plan_entries=content_scenes, scope=scope
             )
-            if not drama_scope.entries_to_rewrite:
+            if drama_entries is None:
                 return _NO_ENTRY_TO_REWRITE_NOTE
             return append_user_instructions(
-                self._build_drama_prompt_authoring_prompt(drama_scope.entries_to_rewrite, episode), instructions
+                self._build_drama_prompt_authoring_prompt(drama_entries, episode), instructions
             )
 
         caps = await self._fetch_video_capabilities()
@@ -1033,16 +1085,12 @@ class ScriptGenerator:
                 episode,
                 self._resolve_raw_supported_durations(caps),
             )
-            reference_scope = self._resolve_prompt_authoring_scope(
-                episode,
-                episode_script_filename(episode),
-                plan_kind="reference_video",
-                plan_entries=script_plan_units,
-                scope=scope,
+            entries_to_rewrite = self._dry_run_entries_to_rewrite(
+                episode, plan_kind="reference_video", plan_entries=script_plan_units, scope=scope
             )
-            if not reference_scope.entries_to_rewrite:
+            if entries_to_rewrite is None:
                 return _NO_ENTRY_TO_REWRITE_NOTE
-            script_plan_units = reference_scope.entries_to_rewrite
+            script_plan_units = entries_to_rewrite
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -1059,16 +1107,15 @@ class ScriptGenerator:
             return append_user_instructions(prompt, instructions)
         # narration 两段式：script_plan 透传内容层（novel_text 等），prompt_authoring 仅产视觉层。
         # drama / ad 已在前面早返回，reference 走上面分支，故此处必为 narration。
-        narration_scope = self._resolve_prompt_authoring_scope(
+        narration_entries = self._dry_run_entries_to_rewrite(
             episode,
-            episode_script_filename(episode),
             plan_kind="narration",
             plan_entries=self._load_narration_script_plan(
                 episode, self._resolve_supported_durations(caps, gen_mode=gen_mode)
             ),
             scope=scope,
         )
-        if not narration_scope.entries_to_rewrite:
+        if narration_entries is None:
             return _NO_ENTRY_TO_REWRITE_NOTE
         prompt = build_narration_prompt(
             project_overview=self.project_json.get("overview", {}),
@@ -1077,7 +1124,7 @@ class ScriptGenerator:
             characters=characters,
             scenes=scenes,
             props=props,
-            script_plan_segments=narration_scope.entries_to_rewrite,
+            script_plan_segments=narration_entries,
             aspect_ratio=self._resolve_aspect_ratio(),
             episode=episode,
             target_language=self.project_json.get("source_language") or "中文",

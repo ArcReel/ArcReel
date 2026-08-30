@@ -902,7 +902,7 @@ export function ReferenceVideoCanvas({
               tab === "preproc" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
             }`}
           >
-            <span>{t("reference_tab_preprocess")}</span>
+            <span>{t("reference_tab_script_plan")}</span>
             {preprocStatus === "loading" ? (
               <Loader2 className="h-3 w-3 animate-spin text-[var(--color-text-4)]" aria-hidden="true" />
             ) : (

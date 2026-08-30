@@ -13,6 +13,7 @@ from lib.reference_video.prompt_render import (
 )
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
+    WARN_SILENT_EPISODE,
     WARN_SILENT_MODEL,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
     WARN_SPEAKER_AUDIO_UNAVAILABLE,
@@ -20,6 +21,7 @@ from lib.reference_video.script_preview import (
     WARN_UNCLOSED_BRACE,
     WARN_UNREGISTERED_MENTION,
     WARN_UNREGISTERED_SPEAKER,
+    build_script_preview,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_models import ReferenceResource
@@ -150,6 +152,60 @@ def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencin
     assert audible.audio_speakers == ["张三", "李四"]
     assert "你终于来了。" in _body(audible.prompt)
     assert _body(silent.prompt) == _body(audible.prompt)
+
+
+@pytest.mark.parametrize(
+    ("silencing", "expected"),
+    [
+        pytest.param(
+            {"requested_generate_audio": False},
+            {"key": WARN_SILENT_EPISODE, "params": {}},
+            id="silent_episode",
+        ),
+        pytest.param(
+            {"voice_consistency": "none"},
+            {"key": WARN_SILENT_MODEL, "params": {"model": "doubao-seedance-2-0"}},
+            id="silent_model",
+        ),
+    ],
+)
+def test_silent_preview_and_execution_reach_the_same_conclusion(silencing: dict, expected: dict):
+    """同一份正文在预览与执行两条路径上给出同一组无声结论。
+
+    两侧的 ``VoiceRenderSettings`` 由不同的构造点拼出（预览侧 ``from_caps``、执行侧逐字段），
+    结论分叉时用户会在预览里看到声音已绑定、生成完才发现是无声成片。
+    """
+    settings = replace(
+        VoiceRenderSettings(
+            voice_consistency="native",
+            max_reference_audio=3,
+            model_id="doubao-seedance-2-0",
+        ),
+        **silencing,
+    )
+    refs = _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑"))
+    preview = build_script_preview(_TEXT, _project(), settings)
+    rendered = render_unit_prompt(_TEXT, _project(), refs, settings)
+
+    assert preview.warnings == [expected]
+    assert rendered.warnings == [expected]
+    # 承诺与实付一致：预览说这一集听不到声音，执行侧就不该绑上任何音频段
+    assert rendered.audio_speakers == []
+    assert "@音频" not in rendered.prompt
+    assert [u.text for u in preview.utterances] == ["今晚的酒，我请。", "你终于来了。"]
+
+
+def test_silent_preview_and_execution_stay_silent_without_any_utterance():
+    """真「无声场景」（正文没有任何发声记号）：两条路径都不发无声知会。"""
+    settings = VoiceRenderSettings(voice_consistency="none", model_id="doubao-seedance-2-0")
+    text = "镜头1：夜色下的 @[酒馆]，@[张三] 推门而入，手按 @[长剑]。"
+    preview = build_script_preview(text, _project(), settings)
+    rendered = render_unit_prompt(
+        text, _project(), _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")), settings
+    )
+
+    assert preview.warnings == []
+    assert rendered.warnings == []
 
 
 def test_first_segment_binds_images_in_reference_order():

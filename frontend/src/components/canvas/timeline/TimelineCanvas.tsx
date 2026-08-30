@@ -255,7 +255,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                   : "var(--color-text-3)",
             }}
           >
-            {t("tab_preprocessing")}
+            {t("tab_script_plan")}
             {activeTab === "preprocessing" && (
               <span
                 aria-hidden="true"

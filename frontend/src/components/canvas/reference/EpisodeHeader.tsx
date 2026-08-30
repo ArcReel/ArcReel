@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
 import { useCostStore } from "@/stores/cost-store";
 import { formatCost, totalBreakdown } from "@/utils/cost-format";
+import { sumItemDuration } from "@/utils/script-shape";
 
 /**
  * 头部统计只需要时长与成片两项，故按结构约束而非绑定具体单元类型：
@@ -28,7 +29,7 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
   const stats = useMemo(() => {
     const total = units.length;
     const ready = units.filter((u) => !!u.generated_assets.video_clip).length;
-    const totalDur = units.reduce((s, u) => s + u.duration_seconds, 0);
+    const totalDur = sumItemDuration(units);
     const percent = total > 0 ? Math.round((ready / total) * 100) : 0;
     return {
       total,
