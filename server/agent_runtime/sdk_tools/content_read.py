@@ -144,8 +144,8 @@ def read_project_file_tool(ctx: ToolContext):
 __all__ = [
     "get_episode_script_tool",
     "get_project_content_tool",
-    "get_source_text_tool",
     "get_script_plan_content_tool",
+    "get_source_text_tool",
     "list_project_files_tool",
     "list_source_files_tool",
     "read_project_file_tool",

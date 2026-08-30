@@ -126,7 +126,7 @@ _TASK_STEP: dict[str, str] = {
     "text_narration_script_plan": "script_plan_content",
     "text_reference_script_plan": "script_plan_content",
     "text_episode_script": "final_script",
-    **{asset_type: "asset_sheets" for asset_type in ASSET_SPECS},
+    **dict.fromkeys(ASSET_SPECS, "asset_sheets"),
     "storyboard": "storyboard",
     "grid": "storyboard",
     "tts": "narration_delivery",
@@ -172,8 +172,7 @@ def _admission_problems(admission: dict[str, Any] | None) -> list[GenerationProb
         raw_problems = unit.get("problems", [])
         if not isinstance(raw_problems, list):
             continue
-        for raw in raw_problems:
-            problems.append(GenerationProblem.model_validate(raw))
+        problems.extend(GenerationProblem.model_validate(raw) for raw in raw_problems)
     return problems
 
 

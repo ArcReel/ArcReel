@@ -152,7 +152,7 @@ async def send_message(
 ):
     try:
         service = get_assistant_service()
-        result = await service.send_or_create(
+        return await service.send_or_create(
             project_name,
             req.content,
             session_id=req.session_id,
@@ -160,13 +160,12 @@ async def send_message(
             locale=get_locale(request),
             client_key=req.client_key,
         )
-        return result
     except SessionCapacityError as exc:
         raise ServiceUnavailableError("session_capacity_exceeded") from exc
     except FileNotFoundError as exc:
         raise NotFoundError("session_or_project_not_found") from exc
-    except TimeoutError:
-        raise HTTPException(status_code=504, detail=_t("sdk_session_timeout"))
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail=_t("sdk_session_timeout")) from exc
     except SessionBusyError as exc:
         logger.warning("会话发送请求冲突: %s", exc)
         raise ConflictError("session_busy") from exc
@@ -183,10 +182,10 @@ async def send_message(
                 session_id=req.session_id,
                 title=_t("agent_startup_failed_title"),
             ),
-        )
-    except Exception:
+        ) from exc
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.post("/sessions/{session_id}/rewrite")
@@ -221,17 +220,17 @@ async def rewrite_message(
         raise ConflictError("session_already_superseded") from exc
     except RewriteUnavailableError as exc:
         raise ServiceUnavailableError("rewrite_unavailable") from exc
-    except InterruptSettleTimeoutError:
-        raise HTTPException(status_code=504, detail=_t("rewrite_interrupt_timeout"))
+    except InterruptSettleTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=_t("rewrite_interrupt_timeout")) from exc
     except SessionBranchError as exc:
         logger.warning("分支会话建立失败: %s", exc)
-        raise HTTPException(status_code=500, detail=_t("rewrite_failed"))
+        raise HTTPException(status_code=500, detail=_t("rewrite_failed")) from exc
     except SessionCapacityError as exc:
         raise ServiceUnavailableError("session_capacity_exceeded") from exc
     except FileNotFoundError as exc:
         raise NotFoundError("session_or_project_not_found") from exc
-    except TimeoutError:
-        raise HTTPException(status_code=504, detail=_t("sdk_session_timeout"))
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail=_t("sdk_session_timeout")) from exc
     except SessionBusyError as exc:
         logger.warning("会话改写请求冲突: %s", exc)
         raise ConflictError("session_busy") from exc
@@ -247,10 +246,10 @@ async def rewrite_message(
                 session_id=session_id,
                 title=_t("agent_startup_failed_title"),
             ),
-        )
-    except Exception:
+        ) from exc
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/sessions")
@@ -268,9 +267,9 @@ async def list_sessions(
         return {"sessions": [s.model_dump() for s in sessions]}
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/sessions/{session_id}")
@@ -281,9 +280,9 @@ async def get_session(project_name: str, session_id: str, _t: Translator):
         return session.model_dump()
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.delete("/sessions/{session_id}")
@@ -297,9 +296,9 @@ async def delete_session(project_name: str, session_id: str, _t: Translator):
         return {"success": True}
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/sessions/{session_id}/messages")
@@ -334,9 +333,9 @@ async def list_entries(
         raise
     except FileNotFoundError as exc:
         raise NotFoundError("session_not_found", session_id=session_id) from exc
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @self_auth_router.get("/sessions/{session_id}/entries/stream", response_class=EventSourceResponse)
@@ -376,9 +375,9 @@ async def stream_entries(
         )
         async for event in service.stream_startup_failure_events(session_id, detail["failure"]):
             yield event
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.post("/sessions/{session_id}/interrupt")
@@ -386,8 +385,7 @@ async def interrupt_session(project_name: str, session_id: str, _t: Translator):
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name, _t)
-        result = await service.interrupt_session(session_id, meta=meta)
-        return result
+        return await service.interrupt_session(session_id, meta=meta)
     except HTTPException:
         raise
     except FileNotFoundError as exc:
@@ -395,9 +393,9 @@ async def interrupt_session(project_name: str, session_id: str, _t: Translator):
     except ValueError as exc:
         logger.warning("会话中断请求非法: %s", exc)
         raise BadRequestError("request_invalid") from exc
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.post("/sessions/{session_id}/questions/{question_id}/answer")
@@ -413,13 +411,12 @@ async def answer_question(
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name, _t)
-        result = await service.answer_user_question(
+        return await service.answer_user_question(
             session_id=session_id,
             question_id=question_id,
             answers=req.answers,
             meta=meta,
         )
-        return result
     except HTTPException:
         raise
     except FileNotFoundError as exc:
@@ -428,9 +425,9 @@ async def answer_question(
         # 会话未运行或无待回答问题
         logger.warning("会话回答请求非法: %s", exc)
         raise BadRequestError("session_question_unavailable") from exc
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @self_auth_router.get("/sessions/{session_id}/stream")
@@ -450,6 +447,6 @@ async def list_skills(project_name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc

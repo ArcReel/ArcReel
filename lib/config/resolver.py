@@ -753,7 +753,7 @@ class ConfigResolver:
 
         优先级：项目级覆盖 > 全局配置 > 默认值(True)。
         """
-        async with self._open_session() as (session, svc):
+        async with self._open_session() as (_session, svc):
             return await self._resolve_video_generate_audio(svc, project_name)
 
     async def video_generate_audio_for_project(self, project: dict | None) -> bool:
@@ -882,7 +882,7 @@ class ConfigResolver:
 
     async def resolve_narration_voice(self, project: dict | None) -> str:
         """解析旁白音色：project.json 顶层 ``narration_voice`` > 全局 setting > 服务默认。"""
-        async with self._open_session() as (session, svc):
+        async with self._open_session() as (_session, svc):
             if project is not None:
                 override = project.get("narration_voice")
                 if isinstance(override, str) and override.strip():
@@ -895,7 +895,7 @@ class ConfigResolver:
         覆盖值宽容解析：数字与数字字符串均接受（口径与 ``default_duration`` 一致）；
         损坏的覆盖值（非数值/非正/非有限）按未设置处理，回退下一级。
         """
-        async with self._open_session() as (session, svc):
+        async with self._open_session() as (_session, svc):
             if project is not None:
                 override = project.get("narration_speed")
                 if isinstance(override, (int, float)) and not isinstance(override, bool):
@@ -1625,7 +1625,7 @@ class ConfigResolver:
 
     async def default_text_backend(self) -> tuple[str, str]:
         """返回 (provider_id, model_id)。"""
-        async with self._open_session() as (session, svc):
+        async with self._open_session() as (_session, svc):
             return await svc.get_default_text_backend()
 
     async def text_backend_for_task(

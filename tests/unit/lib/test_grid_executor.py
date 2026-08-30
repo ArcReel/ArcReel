@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -346,7 +347,7 @@ class TestExecuteGridTask:
 
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
-            return None
+            return
 
         with (
             patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -572,7 +573,7 @@ class TestExecuteGridTask:
                 compensated.append("manifest")
 
         class _SplitResult:
-            updated_scene_ids = ["E1S01"]
+            updated_scene_ids: ClassVar[list[str]] = ["E1S01"]
 
             def compensate_cancelled(self) -> None:
                 compensated.append("split")

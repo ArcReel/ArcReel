@@ -1097,7 +1097,7 @@ class TestVersionsRouter:
 
     def test_non_grid_restore_unaffected_by_grid_gate(self, monkeypatch, tmp_path):
         """闸门只作用于 grids：其它资源类型的还原不因项目宫格配置被拦。"""
-        client, fake_pm = _client(monkeypatch, tmp_path)
+        client, _fake_pm = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
         assert resp.status_code == 200

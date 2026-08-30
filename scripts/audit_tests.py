@@ -1060,18 +1060,18 @@ def conftest_import_lines(tree: ast.Module) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.split(".")[-1] == "conftest":
-                    out.append((node.lineno, alias.name))
+            out.extend((node.lineno, alias.name) for alias in node.names if alias.name.split(".")[-1] == "conftest")
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             if module.split(".")[-1] == "conftest":
                 out.append((node.lineno, module))
                 continue
             # `from tests import conftest`：模块名在 names 里
-            for alias in node.names:
-                if alias.name == "conftest":
-                    out.append((node.lineno, f"{module}.conftest" if module else "conftest"))
+            out.extend(
+                (node.lineno, f"{module}.conftest" if module else "conftest")
+                for alias in node.names
+                if alias.name == "conftest"
+            )
     return out
 
 
@@ -1106,7 +1106,7 @@ def scan_shared_facilities(root: Path, tests_dir: Path) -> list[StructureFinding
                 )
             )
         if path.name == "conftest.py":
-            conftest_fixtures[path.parent] = {name: line for name, line in fixtures}
+            conftest_fixtures[path.parent] = dict(fixtures)
             continue
         test_fixtures[path] = fixtures
 
@@ -1384,51 +1384,51 @@ def gate_violations(result: dict[str, object]) -> list[Violation]:
         assert isinstance(value, list)
         return value
 
-    for case in rows("double_only_cases"):
-        out.append(
-            Violation(
-                "DOUBLE-ONLY",
-                str(case["path"]),
-                int(str(case["line"])),
-                f"`{case['func']}` 的断言全部落在替身调用记录上，改断言真实产出或删除",
-            )
+    out.extend(
+        Violation(
+            "DOUBLE-ONLY",
+            str(case["path"]),
+            int(str(case["line"])),
+            f"`{case['func']}` 的断言全部落在替身调用记录上，改断言真实产出或删除",
         )
-    for case in rows("no_assertion_cases"):
-        out.append(
-            Violation(
-                "NO-ASSERTION",
-                str(case["path"]),
-                int(str(case["line"])),
-                f"`{case['func']}` 零断言，补上要保护的行为断言或删除",
-            )
+        for case in rows("double_only_cases")
+    )
+    out.extend(
+        Violation(
+            "NO-ASSERTION",
+            str(case["path"]),
+            int(str(case["line"])),
+            f"`{case['func']}` 零断言，补上要保护的行为断言或删除",
         )
-    for site in rows("private_patch_sites"):
-        out.append(
-            Violation(
-                "PRIVATE-PATCH",
-                str(site["path"]),
-                int(str(site["line"])),
-                f"patch 生产代码私有符号 `{site['target']}`，改走显式参数注入的 seam",
-            )
+        for case in rows("no_assertion_cases")
+    )
+    out.extend(
+        Violation(
+            "PRIVATE-PATCH",
+            str(site["path"]),
+            int(str(site["line"])),
+            f"patch 生产代码私有符号 `{site['target']}`，改走显式参数注入的 seam",
         )
-    for site in rows("integration_self_patch_sites"):
-        out.append(
-            Violation(
-                "INTEG-SELF-PATCH",
-                str(site["path"]),
-                int(str(site["line"])),
-                f"integration 用例 patch 被测 module 的公共入口 `{site['target']}`，改走真实协作",
-            )
+        for site in rows("private_patch_sites")
+    )
+    out.extend(
+        Violation(
+            "INTEG-SELF-PATCH",
+            str(site["path"]),
+            int(str(site["line"])),
+            f"integration 用例 patch 被测 module 的公共入口 `{site['target']}`，改走真实协作",
         )
-    for finding in rows("shared_facility_findings") + rows("file_shape_findings"):
-        out.append(
-            Violation(
-                str(finding["rule"]),
-                str(finding["path"]),
-                int(str(finding["line"])),
-                f"{finding['detail']}；{finding['guidance']}",
-            )
+        for site in rows("integration_self_patch_sites")
+    )
+    out.extend(
+        Violation(
+            str(finding["rule"]),
+            str(finding["path"]),
+            int(str(finding["line"])),
+            f"{finding['detail']}；{finding['guidance']}",
         )
+        for finding in rows("shared_facility_findings") + rows("file_shape_findings")
+    )
     failures = result["parse_failures"]
     assert isinstance(failures, list)
     for failure in failures:

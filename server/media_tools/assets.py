@@ -149,7 +149,7 @@ async def handle_list_pending_assets(ctx: ToolContext, args: dict[str, Any]) -> 
         if not asset_type and total == 0:
             lines.append(f"\n✅ 项目 '{ctx.project_name}' 所有资产均已有资产图")
         return ToolOutcome(value="\n".join(lines))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return tool_error("list_pending_assets", exc)
 
 
@@ -258,7 +258,7 @@ async def handle_generate_assets(ctx: ToolContext, args: dict[str, Any]) -> Tool
         )
 
         return generation_result_outcome(builder.build(), batch_id=submitted.batch.batch_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return tool_error(_OPERATION, exc)
 
 
@@ -300,6 +300,6 @@ __all__ = [
     "ALL_TYPES",
     "asset_name_of",
     "asset_unit_id",
-    "list_pending_assets_tool",
     "generate_assets_tool",
+    "list_pending_assets_tool",
 ]

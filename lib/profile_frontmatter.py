@@ -32,8 +32,8 @@ def parse_profile_metadata(path: Path) -> ProfileMetadata:
         raise FrontmatterError("frontmatter must start with a YAML delimiter")
     try:
         end = lines.index("---", 1)
-    except ValueError:
-        raise FrontmatterError("frontmatter closing delimiter is missing")
+    except ValueError as exc:
+        raise FrontmatterError("frontmatter closing delimiter is missing") from exc
     source = "\n".join(lines[1:end])
     try:
         loaded: Any = yaml.safe_load(source)

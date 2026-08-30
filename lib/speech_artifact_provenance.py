@@ -404,6 +404,6 @@ __all__ = [
     "build_video_duration_basis",
     "build_video_speech_basis",
     "media_content_digest",
-    "project_subtitle_utterances",
     "project_character_voice_evidence",
+    "project_subtitle_utterances",
 ]

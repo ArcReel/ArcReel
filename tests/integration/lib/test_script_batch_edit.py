@@ -465,7 +465,7 @@ def test_malformed_item_container_returns_schema_failure_without_writes(
     container: str,
     value: object,
 ) -> None:
-    pm, service, project_dir = editor
+    _pm, service, project_dir = editor
     script_path = project_dir / "scripts" / "episode_1.json"
     malformed = json.loads(script_path.read_text(encoding="utf-8"))
     for key in ("segments", "video_units"):

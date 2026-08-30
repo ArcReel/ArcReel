@@ -17,15 +17,15 @@ async def test_active_credential_returns_full_dict(monkeypatch: pytest.MonkeyPat
     cred = type(
         "Cred",
         (),
-        dict(
-            api_key="sk-test",
-            base_url="https://api.anthropic.com",
-            model="claude-opus-4-7",
-            haiku_model="claude-haiku-4-5",
-            sonnet_model="claude-sonnet-4-6",
-            opus_model="claude-opus-4-7",
-            subagent_model="claude-haiku-4-5",
-        ),
+        {
+            "api_key": "sk-test",
+            "base_url": "https://api.anthropic.com",
+            "model": "claude-opus-4-7",
+            "haiku_model": "claude-haiku-4-5",
+            "sonnet_model": "claude-sonnet-4-6",
+            "opus_model": "claude-opus-4-7",
+            "subagent_model": "claude-haiku-4-5",
+        },
     )()
     repo_mock.get_active = AsyncMock(return_value=cred)
 
@@ -104,15 +104,15 @@ async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) 
     cred = type(
         "Cred",
         (),
-        dict(
-            api_key="sk-test",
-            base_url="x",
-            model="y",
-            haiku_model=None,
-            sonnet_model=None,
-            opus_model=None,
-            subagent_model=None,
-        ),
+        {
+            "api_key": "sk-test",
+            "base_url": "x",
+            "model": "y",
+            "haiku_model": None,
+            "sonnet_model": None,
+            "opus_model": None,
+            "subagent_model": None,
+        },
     )()
     repo_mock.get_active = AsyncMock(return_value=cred)
 

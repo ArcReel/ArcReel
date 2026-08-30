@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -76,7 +77,7 @@ class TestGeneratedAssetsNarrationAudio:
 class _FakeAudioBackend:
     name = "fake-audio"
     model = "tts-model"
-    capabilities = {AudioCapability.TEXT_TO_SPEECH}
+    capabilities: ClassVar[set[AudioCapability]] = {AudioCapability.TEXT_TO_SPEECH}
 
     def __init__(self):
         self.calls = []

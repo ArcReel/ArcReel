@@ -80,7 +80,7 @@ async def run_sync_transaction[**P, T](
     except asyncio.CancelledError:
         try:
             await run_noninterruptible_async(worker)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         raise
 

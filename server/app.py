@@ -317,7 +317,7 @@ async def _migrate_source_encoding_on_startup(
                 "skipped": result.skipped,
                 "failed": result.failed,
             }
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception(
                 "源文件编码迁移失败 project=%s，已跳过，server 继续启动",
                 project_dir.name,
@@ -326,7 +326,7 @@ async def _migrate_source_encoding_on_startup(
                 marker_dir.mkdir(exist_ok=True)
                 (marker_dir / "migration_errors.log").write_text(f"FATAL: {exc}\n", encoding="utf-8")
                 marker.touch()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             return {"error": str(exc)}
 

@@ -736,20 +736,19 @@ def _new_speech_problems(
         actionable = admission.problems
         if any(problem.code.value != "needs_replan" for problem in actionable):
             actionable = tuple(problem for problem in actionable if problem.code.value != "needs_replan")
-        for problem in actionable:
-            problems.append(
-                ScriptBatchEditProblem(
-                    code=problem.code.value,
-                    operation_index=operation_index,
-                    unit_id=problem.unit_id,
-                    locations=tuple(
-                        ScriptBatchEditLocation(path=location.path, line=location.line)
-                        for location in problem.locations
-                    ),
-                    reason=problem.reason.value,
-                    next_action=problem.action.value,
-                )
+        problems.extend(
+            ScriptBatchEditProblem(
+                code=problem.code.value,
+                operation_index=operation_index,
+                unit_id=problem.unit_id,
+                locations=tuple(
+                    ScriptBatchEditLocation(path=location.path, line=location.line) for location in problem.locations
+                ),
+                reason=problem.reason.value,
+                next_action=problem.action.value,
             )
+            for problem in actionable
+        )
     return problems
 
 

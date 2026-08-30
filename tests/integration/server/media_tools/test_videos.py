@@ -2165,7 +2165,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
             "generated_assets": {"storyboard_image": "storyboards/scene_S01.png"},
         }
     ]
-    specs, refused = _build_video_specs(
+    specs, _refused = _build_video_specs(
         items=items,
         id_field="segment_id",
         content_mode="narration",
@@ -2422,7 +2422,7 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
             "text": "@张三 推门",
         }
     ]
-    specs, refused = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None)
+    specs, _refused = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None)
     assert len(specs) == 1
     assert specs[0].task_type == "reference_video"
     assert specs[0].resource_id == "E1U1"

@@ -101,5 +101,4 @@ def ensure_anthropic_base_url(url: str | None) -> str | None:
     # [a-zA-Z]* 兼容 /v1beta /v2alpha 等带后缀的版本号
     # 用 [a-zA-Z] 代替 \w：\d+\w* 的重叠会触发 CodeQL polynomial regex 警告
     s = re.sub(r"/v\d+[a-zA-Z]*(?:/messages)?$", "", s)
-    s = re.sub(r"/messages$", "", s)
-    return s
+    return re.sub(r"/messages$", "", s)

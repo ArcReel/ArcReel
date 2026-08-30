@@ -75,7 +75,7 @@ class _FakeGenerator:
 
     def ensure_current_tracked(self, resource_type, resource_id, current_file, prompt, **metadata):
         self.tracked.append({"resource_type": resource_type, "resource_id": resource_id, "prompt": prompt})
-        return None
+        return
 
     def get_versions(self, resource_type, resource_id):
         return {"versions": [{"created_at": "2026-01-01T00:00:00Z"}]}

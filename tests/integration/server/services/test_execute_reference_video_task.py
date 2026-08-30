@@ -8,7 +8,7 @@ import threading
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -1373,7 +1373,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     class _FakeVideoBackend:
         name = "ark"
         model = "doubao-seedance-2-0-260128"
-        capabilities: set = set()
+        capabilities: ClassVar[set] = set()
 
         @property
         def video_capabilities(self):

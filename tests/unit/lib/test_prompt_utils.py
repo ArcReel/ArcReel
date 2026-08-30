@@ -1,4 +1,5 @@
 import unicodedata
+from typing import ClassVar
 
 import pytest
 import yaml
@@ -261,8 +262,8 @@ class TestNormalizeVideoPrompt:
 class TestRenderStoryboardVideoPrompt:
     """文本形态的最终渲染出口：正文即提示词主体，drama 的发声声明由渲染层按 utterances 追加。"""
 
-    ITEM = {"utterances": [{"kind": "dialogue", "speaker": "王", "text": "你来了。"}]}
-    CHARACTERS = {"王": {"voice_style": "低沉沙哑"}}
+    ITEM: ClassVar[dict[str, object]] = {"utterances": [{"kind": "dialogue", "speaker": "王", "text": "你来了。"}]}
+    CHARACTERS: ClassVar[dict[str, object]] = {"王": {"voice_style": "低沉沙哑"}}
 
     def _render(self, prompt: object, *, content_mode: str = "drama") -> str:
         return render_storyboard_video_prompt(

@@ -29,7 +29,7 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
     requests: list[tuple[str, str, str | None, object]] = []
 
     class Handler(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:  # noqa: N802
+        def do_POST(self) -> None:
             size = int(self.headers.get("content-length", "0"))
             body = json.loads(self.rfile.read(size))
             requests.append(("POST", self.path, self.headers.get("authorization"), body))
@@ -49,7 +49,7 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
             self.end_headers()
             self.wfile.write(encoded)
 
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             requests.append(("GET", self.path, self.headers.get("authorization"), None))
             encoded = json.dumps({"id": "run-1", "status": "succeeded"}).encode()
             self.send_response(200)
@@ -161,7 +161,7 @@ def test_cli_sends_endpoint_assets_with_the_shared_multipart_field_names(tmp_pat
     received: list[tuple[str, bytes]] = []
 
     class Handler(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:  # noqa: N802
+        def do_POST(self) -> None:
             size = int(self.headers.get("content-length", "0"))
             received.append((self.headers["content-type"], self.rfile.read(size)))
             encoded = b'{"id":"run-1","status":"running"}'
@@ -238,7 +238,7 @@ def test_cli_sends_endpoint_assets_with_the_shared_multipart_field_names(tmp_pat
 )
 def test_cli_reports_non_json_response_without_traceback(tmp_path: Path, body: bytes, fragment: str) -> None:
     class Handler(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:  # noqa: N802
+        def do_POST(self) -> None:
             size = int(self.headers.get("content-length", "0"))
             self.rfile.read(size)
             encoded = body

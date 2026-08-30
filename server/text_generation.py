@@ -478,7 +478,7 @@ def _parse_script_plan_json(response_text: str, model: type[BaseModel], *, label
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
-        raise ValueError(f"{label} JSON 解析失败: {e}")
+        raise ValueError(f"{label} JSON 解析失败: {e}") from e
     if not isinstance(data, dict):
         raise ValueError(f"{label}结构异常：顶层应为对象 {top_shape}")
     try:
@@ -773,7 +773,7 @@ async def _fetch_caps_with_fallback(
     except (FileNotFoundError, ValueError) as exc:
         logger.info("video_capabilities 不可解析，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
     if not durations:
@@ -963,7 +963,7 @@ async def _fetch_reference_caps_with_fallback(
             caps = await resolve_video_caps(project)
         else:
             caps = await resolve_video_caps(project, config_resolver=config_resolver)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
         # requested_generate_audio 不依赖能力接口（见 generation_context.py 同名字段注释），
@@ -971,7 +971,7 @@ async def _fetch_reference_caps_with_fallback(
         try:
             resolver = config_resolver or ConfigResolver(async_session_factory)
             caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
-        except Exception as inner_exc:  # noqa: BLE001
+        except Exception as inner_exc:
             # 与其余能力字段的「不明时不额外收紧」相反：这里不明时收紧到 False——静默丢掉
             # 一次声音提示，好过在双重解析失败时把用户的无声意图错读成有声。
             logger.warning("video_generate_audio 独立解析也失败，声音提示按无声降级：%s", inner_exc)

@@ -85,11 +85,11 @@ class CredentialRepository(BaseRepository):
         cred_id: int,
         *,
         name: str | None = None,
-        api_key: str | None | object = _UNSET,
+        api_key: str | object | None = _UNSET,
         credentials_path: str | None = None,
-        base_url: str | None | object = _UNSET,
-        access_key: str | None | object = _UNSET,
-        secret_key: str | None | object = _UNSET,
+        base_url: str | object | None = _UNSET,
+        access_key: str | object | None = _UNSET,
+        secret_key: str | object | None = _UNSET,
     ) -> None:
         """更新凭证字段。省略参数（保持 _UNSET）表示不修改；api_key/base_url/access_key/
         secret_key 显式传 None 会清空该字段——凭证切组时用于清空另一组的旧值（见

@@ -127,7 +127,7 @@ def test_write_protected_project_json_denied(policy: AgentAccessPolicy, tool: st
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
-    assert reason and "patch_episode_script" in reason or "patch_project" in (reason or "")
+    assert (reason and "patch_episode_script" in reason) or "patch_project" in (reason or "")
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])

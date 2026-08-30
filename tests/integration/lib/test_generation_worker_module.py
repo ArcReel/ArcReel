@@ -1623,7 +1623,7 @@ class TestGenerationWorker:
 
         await worker._handle_orphan_tasks_on_start()
 
-        failures = {task_id: reason for task_id, reason in queue.failed}
+        failures = dict(queue.failed)
         assert "[restart_lost_no_job_id]" in failures["ref-neither"]
         assert "[restart_lost_checkpoint_no_job_id]" in failures["ref-checkpoint-only"]
         assert "[execution_identity_unrecoverable]" in failures["ref-job-only"]
@@ -1664,7 +1664,7 @@ class TestGenerationWorker:
 
         await worker._handle_orphan_tasks_on_start()
 
-        failures = {task_id: reason for task_id, reason in queue.failed}
+        failures = dict(queue.failed)
         assert "[restart_lost_no_job_id]" in failures["story-neither"]
         assert "[restart_lost_checkpoint_no_job_id]" in failures["story-checkpoint-only"]
         assert "[execution_identity_unrecoverable]" in failures["story-job-only"]
@@ -2021,11 +2021,7 @@ class TestGenerationWorker:
         # 让 dispatcher 自身的 task 跑完（避免 unawaited task 警告）
         for t in list(asyncio.all_tasks()):
             name = t.get_name()
-            if (
-                name in ("orphan-dispatcher",)
-                or name.startswith("orphan-dispatch-")
-                or name.startswith("resume-video-")
-            ):
+            if name in ("orphan-dispatcher",) or name.startswith(("orphan-dispatch-", "resume-video-")):
                 try:
                     await t
                 except Exception:
@@ -2118,7 +2114,7 @@ class TestGenerationWorker:
         # 清理可能的残余
         for t in list(asyncio.all_tasks()):
             name = t.get_name()
-            if name.startswith("orphan-") or name.startswith("resume-video-"):
+            if name.startswith(("orphan-", "resume-video-")):
                 if not t.done():
                     t.cancel()
         await asyncio.sleep(0)

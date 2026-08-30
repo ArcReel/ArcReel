@@ -106,7 +106,7 @@ def upgrade() -> None:
                 },
             )
         savepoint.commit()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # 数据迁移失败不阻塞 schema 升级；用户可在 UI 里手动建。
         # 只打异常类名——SQLAlchemy 异常 str() 会把 SQL 绑定参数（含 api_key）
         # 拼进消息，落进日志/stderr 就是密钥泄漏。

@@ -536,8 +536,8 @@ __all__ = [
     "SubtitleCue",
     "SubtitleTimingPolicy",
     "VideoPresentationTrack",
-    "materialize_speech_presentation",
     "materialize_raw_video_presentation",
-    "subtitles_webvtt",
+    "materialize_speech_presentation",
     "presentation_artifact_paths",
+    "subtitles_webvtt",
 ]

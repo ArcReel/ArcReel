@@ -181,8 +181,9 @@ def normative_lines(text: str) -> list[tuple[str, str, str]]:
     """
     result: list[tuple[str, str, str]] = []
     for line in text.splitlines():
-        for mark in line_speech_marks(line):
-            result.append(("dialogue" if mark.speaker else "voiceover", mark.speaker, mark.text))
+        result.extend(
+            ("dialogue" if mark.speaker else "voiceover", mark.speaker, mark.text) for mark in line_speech_marks(line)
+        )
     return result
 
 

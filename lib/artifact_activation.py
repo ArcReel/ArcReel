@@ -143,8 +143,7 @@ def activate_artifact_target_state(
                 raise
             (commit_schema or _commit_schema_version)(project_dir, plan.project)
             return True
-    changed = adapter.replace_entries_atomically(plan.entries)
-    return changed
+    return adapter.replace_entries_atomically(plan.entries)
 
 
 def ensure_imported_artifact_target_state(
@@ -393,7 +392,7 @@ def prepare_episode_script_manifest_commit(
         frozen_entry = ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=descriptor.digest)
 
     def commit() -> None:
-        replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {key: None for key in orphaned_keys}
+        replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = dict.fromkeys(orphaned_keys)
         if grid_claims:
             grid_replacements, grid_plan = _plan_artifact_claim_reconciliation(project_dir, grid_claims)
             _assert_preflight_unchanged(project_dir, grid_plan)
@@ -481,39 +480,39 @@ def _commit_schema_version(project_dir: Path, project: Mapping[str, Any]) -> Non
 
 
 __all__ = [
+    "ARTIFACT_MANIFEST_SCHEMA_VERSION",
     "ArtifactCurrencyResolver",
     "ArtifactInputClaim",
     "ArtifactRegistrationReceipt",
     "ArtifactTargetStatePlan",
     "EpisodeScriptInput",
-    "ARTIFACT_MANIFEST_SCHEMA_VERSION",
     "activate_artifact_target_state",
     "active_artifact_currency_resolver",
     "artifact_input_is_usable",
     "artifact_is_usable",
-    "bind_artifact_input_claims_to_content_digests",
-    "bind_artifact_input_claims_to_frozen_visuals",
+    "artifact_key_for_resource",
     "assert_artifact_input_claims_usable",
     "assert_current_artifact_input_claims_usable",
-    "artifact_key_for_resource",
+    "bind_artifact_input_claims_to_content_digests",
+    "bind_artifact_input_claims_to_frozen_visuals",
     "ensure_imported_artifact_target_state",
     "forget_current_resource_artifact",
     "forget_unbound_grid_artifacts",
     "forget_unbound_storyboard_artifacts",
     "plan_artifact_target_state",
     "prepare_episode_script_manifest_commit",
-    "register_current_artifact",
+    "reconcile_artifact_target_claims",
     "register_artifact_entries_atomically",
+    "register_current_artifact",
     "register_current_artifact_if_provable",
     "register_current_resource_artifact",
     "register_task_current_resource_artifact",
-    "reconcile_artifact_target_claims",
     "resolve_artifact_episode",
     "resolve_current_artifact_basis",
     "resolve_current_artifact_target",
     "resolve_current_resource_artifact_basis",
-    "resolve_usable_episode_script_input",
     "resolve_usable_artifact_input_claim",
+    "resolve_usable_episode_script_input",
     "resolve_usable_storyboard_video_inputs",
     "snapshot_preserved_artifact_manifest",
     "snapshot_usable_artifact_input_claim",

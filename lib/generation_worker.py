@@ -380,8 +380,7 @@ class SlotTable:
         for key in list(self._slots.keys()):
             bucket = self._slots[key]
             done_ids = [tid for tid, occ in bucket.items() if not occ.pending and occ.task.done()]
-            for tid in done_ids:
-                finished.append((tid, bucket.pop(tid).task))
+            finished.extend((tid, bucket.pop(tid).task) for tid in done_ids)
             if not bucket:
                 del self._slots[key]
         return finished

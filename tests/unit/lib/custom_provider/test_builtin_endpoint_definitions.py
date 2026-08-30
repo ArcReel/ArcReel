@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -100,7 +101,7 @@ def test_foreign_author_fails_loading(tmp_path: Path):
     document = _example_template()
     document["meta"]["author"] = "someone-else"
     _write(tmp_path, "foreign-video", document)
-    with pytest.raises(BuiltinDefinitionError, match="meta.author"):
+    with pytest.raises(BuiltinDefinitionError, match=re.escape("meta.author")):
         load_builtin_definitions(tmp_path)
 
 

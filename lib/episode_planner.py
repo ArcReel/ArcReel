@@ -496,7 +496,9 @@ class EpisodePlanner:
         window = text[start:window_end]
         window_is_final = window_end >= len(text)
         content_mode = str(project.get("content_mode") or "narration")
-        draft_model: type[BaseModel] = DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
+        draft_model: type[NarrationPlanDraft | DramaPlanDraft] = (
+            DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
+        )
         language = _language_of(project)
         # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
         # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无意见路径行为可复现，
@@ -632,7 +634,7 @@ class EpisodePlanner:
 
     async def _request_validated_drafts(
         self,
-        draft_model: type[BaseModel],
+        draft_model: type[NarrationPlanDraft | DramaPlanDraft],
         prompt_builder: Callable[[list[str] | None], str],
         window: str,
         *,
@@ -672,7 +674,7 @@ class EpisodePlanner:
                 raise EpisodePlanningError(str(exc)) from exc
             try:
                 draft = self._parse_draft(result.text, draft_model)
-                drafts = list(getattr(draft, "episodes"))
+                drafts: list[NarrationEpisodeDraft] = list(draft.episodes)
                 if max_episodes is not None and len(drafts) > max_episodes:
                     logger.warning(
                         "规划输出 %d 集超过每批上限 %d，截断保留前 %d 集（其余留给下一批）",
@@ -691,7 +693,9 @@ class EpisodePlanner:
         )
 
     @staticmethod
-    def _parse_draft(response_text: str, draft_model: type[BaseModel]) -> BaseModel:
+    def _parse_draft(
+        response_text: str, draft_model: type[NarrationPlanDraft | DramaPlanDraft]
+    ) -> NarrationPlanDraft | DramaPlanDraft:
         text = strip_json_code_fences(response_text)
         try:
             data = json.loads(text)
@@ -1003,7 +1007,7 @@ class EpisodePlanner:
         return LedgerStats(
             total_episodes=_count_planned_episodes(project),
             smallest=ordered[:5],
-            median_units=int(round(statistics.median(values))) if values else None,
+            median_units=round(statistics.median(values)) if values else None,
             target_units=target if isinstance(target, int) and not isinstance(target, bool) and target >= 1 else None,
         )
 

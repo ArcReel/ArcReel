@@ -46,7 +46,7 @@ def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
 def _build_unit(
     *,
     video_clip: str | None,
-    generated_assets: dict | None | object = _DEFAULT_ASSETS,
+    generated_assets: dict | object | None = _DEFAULT_ASSETS,
     text: str = "镜头一",
 ) -> dict:
     if generated_assets is _DEFAULT_ASSETS:

@@ -68,7 +68,7 @@ async def get_calls(
     end = datetime.fromisoformat(end_date) if end_date else None
 
     async with async_session_factory() as session:
-        result = await UsageRepository(session).get_calls(
+        return await UsageRepository(session).get_calls(
             call_id=call_id,
             project_name=project_name,
             call_type=call_type,
@@ -78,7 +78,6 @@ async def get_calls(
             page=page,
             page_size=page_size,
         )
-    return result
 
 
 @router.get("/usage/projects")

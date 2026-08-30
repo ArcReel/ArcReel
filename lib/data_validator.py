@@ -14,7 +14,7 @@ import re
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import ValidationError
 
@@ -140,19 +140,19 @@ class DataValidator:
 
     # content_mode 严格只表达"内容类型"；"视频来源"维度由项目级 generation_mode 字段表达。
     # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
-    VALID_CONTENT_MODES = set(_VALID_CONTENT_MODES)
+    VALID_CONTENT_MODES: ClassVar[set[str]] = set(_VALID_CONTENT_MODES)
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
-    VALID_SOURCE_KINDS = set(_VALID_SOURCE_KINDS)
+    VALID_SOURCE_KINDS: ClassVar[set[str]] = set(_VALID_SOURCE_KINDS)
     # 生成模式合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
-    VALID_GENERATION_MODES = set(_VALID_GENERATION_MODES)
+    VALID_GENERATION_MODES: ClassVar[set[str]] = set(_VALID_GENERATION_MODES)
     # 参考生视频 unit 时长的结构合理性区间，真相源同上（档位成员校验依赖运行时模型能力，
     # 不在归档层做）。
     VALID_UNIT_DURATION_RANGE = REFERENCE_UNIT_DURATION_RANGE
     ID_PATTERN = STORYBOARD_ITEM_ID_PATTERN
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
-    ALLOWED_ROOT_ENTRIES = {
+    ALLOWED_ROOT_ENTRIES: ClassVar[set[str]] = {
         "project.json",
         "style_reference.png",
         "style_reference.jpg",
@@ -1293,9 +1293,11 @@ class DataValidator:
 
         content_mode = resolve_content_mode(episode, project)
 
-        for deprecated_field in ("characters_in_episode", "scenes_in_episode", "props_in_episode"):
-            if episode.get(deprecated_field) is not None:
-                warnings.append(_m("val_deprecated_field_removable", field=deprecated_field))
+        warnings.extend(
+            _m("val_deprecated_field_removable", field=deprecated_field)
+            for deprecated_field in ("characters_in_episode", "scenes_in_episode", "props_in_episode")
+            if episode.get(deprecated_field) is not None
+        )
 
         novel = episode.get("novel")
         if novel is not None and not isinstance(novel, dict):

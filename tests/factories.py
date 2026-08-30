@@ -95,14 +95,14 @@ def make_session_meta(**overrides) -> SessionMeta:
 
     Any keyword argument overrides the corresponding default field.
     """
-    defaults = dict(
-        id="session-1",
-        project_name="demo",
-        title="demo",
-        status="running",
-        created_at=datetime(2026, 2, 9, 8, 0, 0, tzinfo=UTC),
-        updated_at=datetime(2026, 2, 9, 8, 0, 0, tzinfo=UTC),
-    )
+    defaults = {
+        "id": "session-1",
+        "project_name": "demo",
+        "title": "demo",
+        "status": "running",
+        "created_at": datetime(2026, 2, 9, 8, 0, 0, tzinfo=UTC),
+        "updated_at": datetime(2026, 2, 9, 8, 0, 0, tzinfo=UTC),
+    }
     defaults.update(overrides)
     return SessionMeta(**defaults)
 
@@ -112,15 +112,15 @@ def make_task_params(**overrides) -> dict:
 
     Any keyword argument overrides the corresponding default.
     """
-    defaults = dict(
-        project_name="demo",
-        task_type="storyboard",
-        media_type="image",
-        resource_id="E1S01",
-        payload={"prompt": "test"},
-        script_file="episode_01.json",
-        source="webui",
-    )
+    defaults = {
+        "project_name": "demo",
+        "task_type": "storyboard",
+        "media_type": "image",
+        "resource_id": "E1S01",
+        "payload": {"prompt": "test"},
+        "script_file": "episode_01.json",
+        "source": "webui",
+    }
     defaults.update(overrides)
     return defaults
 

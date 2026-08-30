@@ -134,11 +134,11 @@ class CostCalculator:
             inp = (input_tokens or 0) * price_input
             out = (output_tokens or 0) * (price_output or 0)
             return (inp + out) / 1_000_000, cur
-        elif call_type == "image":
+        if call_type == "image":
             return price_input, cur
-        elif call_type == "video":
+        if call_type == "video":
             return (duration_seconds or 8) * price_input, cur
-        elif call_type == "audio":
+        if call_type == "audio":
             # usage_tokens 承载合成字符数（与 _per_character 同模式）；单价口径为每万字符，
             # 与内置 per_character pricing kind 共用同一计价单位常量。
             return (usage_tokens or 0) / CHARACTERS_PER_PRICING_UNIT * price_input, cur

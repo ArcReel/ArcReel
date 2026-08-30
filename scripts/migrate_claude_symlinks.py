@@ -19,7 +19,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from lib.app_data_dir import app_data_dir  # noqa: E402
+from lib.app_data_dir import app_data_dir
 
 SYMLINKS = {
     ".claude": "../../agent_runtime_profile/.claude",

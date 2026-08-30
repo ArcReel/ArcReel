@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -59,7 +60,7 @@ class TestExtractAudioUrl:
         assert extract_audio_url({"output": {"audio": {"url": "https://x/y.wav"}}}) == "https://x/y.wav"
 
     def test_missing_raises(self):
-        with pytest.raises(RuntimeError, match="audio.url"):
+        with pytest.raises(RuntimeError, match=re.escape("audio.url")):
             extract_audio_url({"output": {}})
 
     def test_failure_reason_surfaced(self):

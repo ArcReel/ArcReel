@@ -258,7 +258,7 @@ class TestTaskSpecFromRequest:
 
     def test_webui_and_sdk_same_input_same_spec(self):
         # 同一非法输入，两路（WebUI / SDK）都经 from_request，结果一致。
-        kwargs = dict(task_type="video", media_type="video", resource_id="S01", prompt={"action": ""})
+        kwargs = {"task_type": "video", "media_type": "video", "resource_id": "S01", "prompt": {"action": ""}}
         with pytest.raises(TaskSpecValidationError) as web:
             TaskSpec.from_request(**kwargs)
         with pytest.raises(TaskSpecValidationError) as sdk:

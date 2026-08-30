@@ -49,12 +49,12 @@ def _translated_errors(script_file: str, _t: Translator) -> Iterator[None]:
     try:
         yield
     except (EndFrameError, UploadValidationError) as e:
-        raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params))
+        raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params)) from e
     except FileNotFoundError as exc:
         # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
         raise NotFoundError("script_not_found", name=script_file) from exc
     except ScriptEditError as e:
-        raise HTTPException(status_code=400, detail=script_edit_detail(e, _t))
+        raise HTTPException(status_code=400, detail=script_edit_detail(e, _t)) from e
     except (HTTPException, ApiError):
         raise
     except Exception as e:

@@ -292,7 +292,7 @@ async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> ToolOutc
             )
 
         return generation_result_outcome(builder.build(), warnings, batch_id=submitted.batch.batch_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return tool_error(_OPERATION, exc)
 
 

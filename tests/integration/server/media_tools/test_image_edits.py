@@ -138,7 +138,7 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
 
         def resolve_usable_entry(self, key, *, artifact_path):
             self.compare(key, artifact_path=artifact_path)
-            return None
+            return
 
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _Currency())

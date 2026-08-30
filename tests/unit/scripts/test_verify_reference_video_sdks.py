@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -122,7 +123,7 @@ class _FakeBackend:
     name = "fake"
     model = "fake-v1"
     video_capabilities = VideoCapabilities(max_reference_images=9)
-    _calls: list[VideoGenerationRequest] = []
+    _calls: ClassVar[list[VideoGenerationRequest]] = []
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         type(self)._calls.append(request)
@@ -321,7 +322,7 @@ async def test_run_with_backend_note_written_when_clamped(tmp_path: Path, monkey
         work_dir=tmp_path / "work",
     )
     assert code == 0
-    content = (list((tmp_path / "reports").glob("reference-video-sdks-*.md"))[0]).read_text(encoding="utf-8")
+    content = (next(iter((tmp_path / "reports").glob("reference-video-sdks-*.md")))).read_text(encoding="utf-8")
     assert "clamped" in content
 
 

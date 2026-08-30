@@ -494,9 +494,11 @@ class DramaScene(BaseModel):
                         utterances.append({"kind": "voiceover", "speaker": None, "text": text})
         voiceover = scene.get("voiceover")
         if isinstance(voiceover, list):
-            for line in voiceover:
-                if isinstance(line, str) and line.strip():
-                    utterances.append({"kind": "voiceover", "speaker": None, "text": line.strip()})
+            utterances.extend(
+                {"kind": "voiceover", "speaker": None, "text": line.strip()}
+                for line in voiceover
+                if isinstance(line, str) and line.strip()
+            )
         return utterances
 
     scene_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")

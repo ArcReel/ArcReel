@@ -88,7 +88,7 @@ _DURATION_RULES: dict[tuple[str, str], list[int]] = {
     ("viduq3-turbo", "/reference2video"): list(range(3, 17)),
     ("viduq3", "/reference2video"): list(range(3, 17)),
     ("viduq3-mix", "/reference2video"): list(range(3, 17)),
-    ("viduq2-pro", "/reference2video"): list(range(0, 11)),  # 0=自动
+    ("viduq2-pro", "/reference2video"): list(range(11)),  # 0=自动
     ("viduq2", "/reference2video"): list(range(1, 11)),
     ("viduq1", "/reference2video"): [5],
     ("vidu2.0", "/reference2video"): [4],
@@ -431,5 +431,4 @@ def _coerce_resolution(model: str, requested: str | None) -> str | None:
             model,
             whitelist,
         )
-    fallback = _DEFAULT_RESOLUTION if _DEFAULT_RESOLUTION in whitelist else whitelist[0]
-    return fallback
+    return _DEFAULT_RESOLUTION if _DEFAULT_RESOLUTION in whitelist else whitelist[0]

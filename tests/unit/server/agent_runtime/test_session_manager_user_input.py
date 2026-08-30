@@ -151,7 +151,7 @@ class TestSessionManagerUserInput:
                 "uuid": "result-1",
             },
         ]
-        meta, managed, client = await _seed(session_manager, meta_store, messages=messages, status="idle")
+        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages, status="idle")
         try:
             await session_manager.send_message(meta.id, "hi")
 
@@ -169,7 +169,7 @@ class TestSessionManagerUserInput:
     async def test_unclaimed_echo_replays_are_reported_once_at_turn_end(self, session_manager, meta_store, caplog):
         """回显没被认领 = 该消息会重复落库且缺身份映射；轮次终结时一次性报出残留数。"""
         messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
-        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        _meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
         try:
             managed.pending_user_echoes.extend([PendingUserEcho(dedup_key="从未被回放", entry_uuid="user-a")] * 2)
 
@@ -181,17 +181,17 @@ class TestSessionManagerUserInput:
             unclaimed = [r for r in caplog.records if "unclaimed" in r.getMessage()]
             assert len(unclaimed) == 1, "一次 drain 只报一条，不逐条刷屏"
             record = unclaimed[0]
-            assert getattr(record, "residue") == 2
-            assert getattr(record, "session_id") == managed.session_id
-            assert getattr(record, "unclaimed_total") == 2
-            assert getattr(record, "reason") == "turn finalized"
+            assert record.residue == 2
+            assert record.session_id == managed.session_id
+            assert record.unclaimed_total == 2
+            assert record.reason == "turn finalized"
         finally:
             await _finish(managed)
 
     async def test_a_fully_claimed_turn_reports_nothing(self, session_manager, meta_store, caplog):
         """登记被回放副本认领后队列自然排空，终结时无残留可报。"""
         messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
-        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        _meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
         try:
             managed.pending_user_echoes.append(PendingUserEcho(dedup_key="你好", entry_uuid="user-a"))
             claimed = match_user_echo(
@@ -221,7 +221,7 @@ class TestSessionManagerUserInput:
         assert managed.pending_user_echoes == [], "记账之后队列要排空，不能只计数"
         unclaimed = [r for r in caplog.records if "unclaimed" in r.getMessage()]
         assert len(unclaimed) == 1
-        assert getattr(unclaimed[0], "reason") == "session evicted"
+        assert unclaimed[0].reason == "session evicted"
 
     async def test_failed_new_session_startup_does_not_count_as_unclaimed(
         self, session_manager, meta_store, monkeypatch, caplog, tmp_path

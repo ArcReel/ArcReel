@@ -208,8 +208,8 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
             # 项目目录外的文件存在性探针
             try:
                 file_path = safe_join(project_dir, path)
-            except PathTraversalError:
-                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+            except PathTraversalError as exc:
+                raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
             if not file_path.exists():
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
@@ -241,8 +241,8 @@ async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
     # （防御 symlink / URL 编码等边界场景）
     try:
         path = safe_join(root, asset_type, filename)
-    except PathTraversalError:
-        raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+    except PathTraversalError as exc:
+        raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
     if not path.is_file():
         raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
@@ -289,8 +289,8 @@ async def upload_file(
     if name:
         try:
             name = validate_asset_name(name)
-        except ValueError:
-            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name)) from exc
 
     # Source 分支早返 — 走 SourceLoader 规范化
     if upload_type == "source":
@@ -313,8 +313,8 @@ async def upload_file(
         if spec.content_check == "audio":
             try:
                 duration = await probe_audio_duration_seconds(content, ext)
-            except ValueError:
-                raise HTTPException(status_code=400, detail=_t("invalid_audio_file"))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=_t("invalid_audio_file")) from exc
             if duration is not None and not (AUDIO_REFERENCE_MIN_SECONDS <= duration <= AUDIO_REFERENCE_MAX_SECONDS):
                 raise HTTPException(
                     status_code=400,
@@ -347,14 +347,14 @@ async def upload_file(
             if spec.content_check == "normalize_image":
                 try:
                     content, normalized_ext = normalize_uploaded_image(content, ext)
-                except ValueError:
-                    raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
                 filename = Path(filename).with_suffix(normalized_ext).name
             elif spec.content_check == "validate_image":
                 try:
                     validate_image_bytes(content)
-                except ValueError:
-                    raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
 
             if spec.naming == "sequenced":
                 # 按序号取唯一文件名，用原子独占创建占位：并发上传同一宿主资产时
@@ -376,8 +376,8 @@ async def upload_file(
                 try:
                     with project_change_source("webui"):
                         manager.install_character_reference_audio(project_name, name, relative_path, content)
-                except KeyError:
-                    raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+                except KeyError as exc:
+                    raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name)) from exc
             else:
                 if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
                     asset_spec = ASSET_SPECS[upload_type]
@@ -408,12 +408,14 @@ async def upload_file(
                         try:
                             with project_change_source("webui"):
                                 spec.metadata_setter(manager, project_name, name, relative_path)
-                        except KeyError:
+                        except KeyError as exc:
                             if spec.host_bucket is not None:
                                 # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
                                 # 已落盘的文件一并清理避免孤儿
                                 target_path.unlink(missing_ok=True)
-                                raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+                                raise HTTPException(
+                                    status_code=404, detail=_t(spec.host_not_found_key, name=name)
+                                ) from exc
                             # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
 
             return {
@@ -429,9 +431,9 @@ async def upload_file(
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.delete("/projects/{project_name}/characters/{name}/reference-audio")
@@ -444,8 +446,8 @@ async def delete_character_reference_audio(project_name: str, name: str, _t: Tra
             try:
                 with project_change_source("webui"):
                     manager.clear_character_reference_audio(project_name, name)
-            except KeyError:
-                raise HTTPException(status_code=404, detail=_t("character_not_found", name=name))
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=_t("character_not_found", name=name)) from exc
 
             return {"success": True}
 
@@ -455,9 +457,9 @@ async def delete_character_reference_audio(project_name: str, name: str, _t: Tra
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 async def _handle_source_upload(
@@ -509,7 +511,7 @@ async def _handle_source_upload(
         raise HTTPException(
             status_code=400,
             detail=_t("source_unsupported_format", ext=exc.ext),
-        )
+        ) from exc
     except FileSizeExceededError as exc:
         raise HTTPException(
             status_code=413,
@@ -519,7 +521,7 @@ async def _handle_source_upload(
                 size_mb=round(exc.size_bytes / 1024 / 1024, 1),
                 limit_mb=round(exc.limit_bytes / 1024 / 1024, 1),
             ),
-        )
+        ) from exc
     except SourceDecodeError as exc:
         raise HTTPException(
             status_code=422,
@@ -528,12 +530,12 @@ async def _handle_source_upload(
                 filename=exc.filename,
                 tried=", ".join(exc.tried_encodings),
             ),
-        )
+        ) from exc
     except CorruptFileError as exc:
         raise HTTPException(
             status_code=422,
             detail=_t("source_corrupt_file", filename=exc.filename, reason=exc.reason),
-        )
+        ) from exc
     except ConflictError as exc:
         raise HTTPException(
             status_code=409,
@@ -546,7 +548,7 @@ async def _handle_source_upload(
                     suggested=exc.suggested_name,
                 ),
             },
-        )
+        ) from exc
 
     relative_path = f"source/{result.normalized_path.name}"
     return {
@@ -613,9 +615,9 @@ async def list_project_files(project_name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/projects/{project_name}/source/{filename}")
@@ -629,8 +631,8 @@ async def get_source_file(project_name: str, filename: str, _t: Translator):
             # 安全检查：确保路径在项目目录内
             try:
                 source_path = safe_join(project_dir, "source", filename)
-            except PathTraversalError:
-                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+            except PathTraversalError as exc:
+                raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
             if not source_path.exists():
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
@@ -642,13 +644,13 @@ async def get_source_file(project_name: str, filename: str, _t: Translator):
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail=_t("invalid_encoding")) from exc
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.put("/projects/{project_name}/source/{filename}")
@@ -669,8 +671,8 @@ async def update_source_file(
                 # 安全检查：确保路径在项目目录内（文件尚不存在也要能通过，此处允许新建）
                 try:
                     source_path = safe_join(project_dir, "source", filename)
-                except PathTraversalError:
-                    raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+                except PathTraversalError as exc:
+                    raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
                 source_path.write_text(content, encoding="utf-8")
             return {"success": True, "path": f"source/{filename}"}
@@ -681,9 +683,9 @@ async def update_source_file(
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.delete("/projects/{project_name}/source/{filename}")
@@ -699,8 +701,8 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator):
                 # 安全检查：确保路径在项目目录内
                 try:
                     source_path = safe_join(project_dir, "source", filename)
-                except PathTraversalError:
-                    raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+                except PathTraversalError as exc:
+                    raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
                 if source_path.exists():
                     source_path.unlink()
@@ -720,9 +722,9 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator):
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 # ==================== 草稿文件管理 ====================
@@ -1001,8 +1003,8 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
             project_dir = get_project_manager().get_project_path(project_name)
             try:
                 content_norm, new_ext = normalize_uploaded_image(content, Path(original_filename).suffix.lower())
-            except ValueError:
-                raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
             style_filename = f"style_reference{new_ext}"
 
             output_path = project_dir / style_filename
@@ -1056,7 +1058,7 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         raise HTTPException(
             status_code=400,
             detail=_t("vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value),
-        )
-    except Exception:
+        ) from e
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc

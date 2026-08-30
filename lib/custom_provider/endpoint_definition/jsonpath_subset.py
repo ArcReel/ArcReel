@@ -246,7 +246,7 @@ class _Parser:
         while not self._eof() and _is_ascii_digit(self._peek()):
             self._pos += 1
         digits = self._source[start : self._pos].lstrip("-")
-        if self._source[start] == "-" and digits == "0" or len(digits) > 1 and digits.startswith("0"):
+        if (self._source[start] == "-" and digits == "0") or (len(digits) > 1 and digits.startswith("0")):
             raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
 
     def _read_number(self) -> None:

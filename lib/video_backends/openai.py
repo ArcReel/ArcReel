@@ -300,7 +300,7 @@ def _is_openai_not_found(exc: BaseException) -> bool:
     try:
         from openai import NotFoundError  # pyright: ignore[reportMissingImports]
     except ImportError:
-        NotFoundError = None  # noqa: N806
+        NotFoundError = None
 
     if NotFoundError is not None and isinstance(exc, NotFoundError):
         return True

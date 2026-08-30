@@ -124,11 +124,11 @@ class ProviderMeta:
 
     @property
     def media_types(self) -> list[str]:
-        return sorted(set(m.media_type for m in self.models.values()))
+        return sorted({m.media_type for m in self.models.values()})
 
     @property
     def capabilities(self) -> list[str]:
-        return sorted(set(c for m in self.models.values() for c in m.capabilities))
+        return sorted({c for m in self.models.values() for c in m.capabilities})
 
     def fully_covered_credential_groups(self, values: Mapping[str, str | None]) -> list[list[str]]:
         """返回被 ``values`` 完整覆盖的凭证组（组内所有 key 均非空）。

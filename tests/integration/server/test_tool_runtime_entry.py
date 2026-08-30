@@ -403,7 +403,7 @@ async def test_retry_migration_settles_write_before_propagating_cancellation(tmp
         started.set()
         release.wait()
         finished.set()
-        return None
+        return
 
     monkeypatch.setattr(tool_runtime_module, "migrate_project_with_verdict", blocking_migration)
     task = asyncio.create_task(

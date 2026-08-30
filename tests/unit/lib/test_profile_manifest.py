@@ -500,7 +500,7 @@ def test_resolve_common_plus_variant_collision_raises(tmp_path: Path) -> None:
     (profile / "CLAUDE.narration.md").write_text("variant")
     (profile / "CLAUDE.drama.md").write_text("variant")
 
-    with pytest.raises(ProfileMisconfiguredError, match="common.*variant"):
+    with pytest.raises(ProfileMisconfiguredError, match=r"common.*variant"):
         resolve_profile_files_for_mode(profile, "narration")
 
 

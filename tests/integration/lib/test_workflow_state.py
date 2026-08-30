@@ -891,7 +891,7 @@ def test_whitespace_only_source_is_missing_project_input(tmp_path: Path) -> None
 
 
 def test_non_boolean_grid_storyboard_blocks_route_dispatch(tmp_path: Path) -> None:
-    pm, project_path = _make_project(tmp_path, "ad")
+    pm, _project_path = _make_project(tmp_path, "ad")
     pm.update_project("demo", lambda project: project.update(grid_storyboard="false"))
 
     status = WorkflowStateService(pm).get_status("demo")
@@ -1313,7 +1313,7 @@ def test_status_survives_a_failed_backfill_write(tmp_path: Path, monkeypatch: py
     script_path = project_path / "scripts" / "episode_1.json"
     before = script_path.read_bytes()
 
-    def _refuse_lock(self: ProjectManager, path: Path):  # noqa: ARG001
+    def _refuse_lock(self: ProjectManager, path: Path):
         raise LockException("锁不可用")
 
     monkeypatch.setattr(ProjectManager, "file_lock", contextmanager(_refuse_lock))

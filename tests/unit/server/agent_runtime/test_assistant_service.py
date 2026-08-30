@@ -577,7 +577,7 @@ class TestAssistantService:
         async def find_by_client_key(session_id, client_key):
             # 模拟另一并发请求在本次查询期间把该 key 更新为新的有效映射。
             service._new_session_client_keys[client_key] = "sdk-fresh"
-            return None  # 旧会话（sdk-deleted）条目已不存在
+            return  # 旧会话（sdk-deleted）条目已不存在
 
         async def find_new_session_by_client_key(client_key):
             return None  # 本测试只关心清理分支，不需要真的兜底恢复

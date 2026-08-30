@@ -1,5 +1,6 @@
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.models.config import ProviderConfig, SystemSetting
@@ -29,7 +30,7 @@ async def test_provider_config_unique_constraint(db_session: AsyncSession):
     db_session.add(row1)
     await db_session.flush()
     db_session.add(row2)
-    with pytest.raises(Exception):  # IntegrityError
+    with pytest.raises(IntegrityError):
         await db_session.flush()
 
 

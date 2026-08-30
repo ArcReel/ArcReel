@@ -97,8 +97,8 @@ async def create_api_key(
                     key_prefix=key_prefix,
                     expires_at=expires_at,
                 )
-    except IntegrityError:
-        raise HTTPException(status_code=409, detail=_t("api_key_name_exists", name=body.name))
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=_t("api_key_name_exists", name=body.name)) from exc
 
     return CreateApiKeyResponse(
         id=row["id"],

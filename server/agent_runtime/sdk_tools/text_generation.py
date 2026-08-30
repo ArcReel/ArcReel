@@ -109,7 +109,7 @@ def open_draft_tool(ctx: ToolContext):
         try:
             locator = DraftLocator.model_validate(args)
             outcome = await open_draft(ToolRequest(locator), ctx.scope, ctx.caller, tool_services(ctx))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
         return _draft_response(outcome)
 
@@ -150,7 +150,7 @@ def patch_draft_tool(ctx: ToolContext):
                 }
             )
             outcome = await patch_draft(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
         return _draft_response(outcome)
 
@@ -172,7 +172,7 @@ def discard_draft_tool(ctx: ToolContext):
         try:
             request = DiscardDraftRequest.model_validate(args)
             outcome = await discard_draft(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
         return _draft_response(outcome)
 
@@ -203,7 +203,7 @@ def promote_draft_tool(ctx: ToolContext):
         try:
             request = PromoteDraftRequest.model_validate(args)
             outcome = await promote_draft(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
         return _draft_response(outcome)
 
@@ -315,12 +315,12 @@ def confirm_script_review_tool(ctx: ToolContext):
 
 
 __all__ = [
-    "get_video_capabilities_tool",
-    "generate_episode_script_tool",
     "confirm_script_review_tool",
+    "discard_draft_tool",
+    "generate_episode_script_tool",
     "generate_script_plan_tool",
+    "get_video_capabilities_tool",
     "open_draft_tool",
     "patch_draft_tool",
     "promote_draft_tool",
-    "discard_draft_tool",
 ]

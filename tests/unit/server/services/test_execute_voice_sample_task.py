@@ -82,7 +82,7 @@ def voice_sample_env(monkeypatch, tmp_path):
 
 class TestExecuteCharacterVoiceSampleTask:
     async def test_success(self, voice_sample_env):
-        pm, gen = voice_sample_env
+        _pm, gen = voice_sample_env
         result = await generation_tasks.execute_character_voice_sample_task(
             "demo", "艾莉", {"prompt": "你好，这是一段声音示例。", "voice": "Cherry"}, task_id="task-1"
         )
@@ -104,7 +104,7 @@ class TestExecuteCharacterVoiceSampleTask:
 
     async def test_resource_id_namespaced_away_from_narration_segments(self, voice_sample_env):
         # 旁白 segment id 与角色名可能撞字面量；voice_sample_resource_id 前缀确保命名空间隔离。
-        pm, gen = voice_sample_env
+        _pm, gen = voice_sample_env
         await generation_tasks.execute_character_voice_sample_task(
             "demo", "E1S01", {"prompt": "文本", "voice": "Ethan"}, task_id="task-1"
         )
@@ -114,7 +114,7 @@ class TestExecuteCharacterVoiceSampleTask:
     async def test_distinct_tasks_get_distinct_files(self, voice_sample_env):
         # 前一次成功样本未确认时重新生成会开新任务：资源 id 必须随 task_id 变化，
         # 否则新任务落盘会原地覆盖前一任务 result.file_path 仍指向的文件。
-        pm, gen = voice_sample_env
+        _pm, gen = voice_sample_env
         await generation_tasks.execute_character_voice_sample_task(
             "demo", "艾莉", {"prompt": "文本 A", "voice": "Cherry"}, task_id="task-A"
         )

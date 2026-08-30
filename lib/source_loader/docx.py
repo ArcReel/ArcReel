@@ -27,7 +27,7 @@ class DocxExtractor:
             if text.strip():
                 return ExtractedText(text=text, used_encoding=None, chapter_count=0)
             logger.warning("docx2txt 返回空文本，回退到 mammoth: %s", path.name)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("docx2txt 抽取失败 (%s)，回退到 mammoth: %s", exc, path.name)
 
         try:
@@ -39,5 +39,5 @@ class DocxExtractor:
             return ExtractedText(text=md_text, used_encoding=None, chapter_count=0)
         except CorruptFileError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise CorruptFileError(filename=path.name, reason=f"DOCX 解析失败: {exc}") from exc

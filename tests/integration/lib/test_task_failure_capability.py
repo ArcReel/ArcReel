@@ -332,8 +332,7 @@ def _scan_param_contracts() -> list[tuple[str, str, set[str]]]:
                 if literals is None:
                     continue
                 provided = {keyword.arg for keyword in node.keywords if keyword.arg and keyword.arg != "code"}
-                for literal in literals:
-                    contracts.append((f"{rel}:{node.lineno}", literal, provided))
+                contracts.extend((f"{rel}:{node.lineno}", literal, provided) for literal in literals)
     return contracts
 
 

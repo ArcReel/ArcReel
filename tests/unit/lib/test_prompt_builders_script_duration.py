@@ -56,32 +56,32 @@ class TestBuildersRequireDurations:
 
 
 def _drama_prompt(**overrides) -> str:
-    kwargs = dict(
-        novel_text="text",
-        project_overview={},
-        style="s",
-        characters={},
-        scenes={},
-        props={},
-        default_duration=None,
-        supported_durations=[4, 8],
-        episode=1,
-    )
+    kwargs = {
+        "novel_text": "text",
+        "project_overview": {},
+        "style": "s",
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "default_duration": None,
+        "supported_durations": [4, 8],
+        "episode": 1,
+    }
     kwargs.update(overrides)
     return build_normalize_prompt(**kwargs)
 
 
 def _narration_prompt(**overrides) -> str:
-    kwargs = dict(
-        novel_text="text",
-        project_overview={},
-        characters={},
-        scenes={},
-        props={},
-        default_duration=None,
-        supported_durations=[4, 8],
-        episode=1,
-    )
+    kwargs = {
+        "novel_text": "text",
+        "project_overview": {},
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "default_duration": None,
+        "supported_durations": [4, 8],
+        "episode": 1,
+    }
     kwargs.update(overrides)
     return build_narration_split_prompt(**kwargs)
 

@@ -506,11 +506,11 @@ __all__ = [
     "build_asset_sheet_visual_basis",
     "build_grid_composite_visual_basis",
     "build_grid_member_storyboard_visual_basis",
-    "build_stale_grid_member_storyboard_visual_basis",
     "build_reference_video_artifact_visual_basis",
+    "build_stale_grid_member_storyboard_visual_basis",
     "build_storyboard_image_visual_basis",
     "build_storyboard_video_artifact_visual_basis",
     "snapshot_visual_references",
-    "visual_references_match_snapshot",
     "visual_file_digest",
+    "visual_references_match_snapshot",
 ]

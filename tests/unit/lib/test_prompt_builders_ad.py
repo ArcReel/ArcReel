@@ -8,25 +8,25 @@ from lib.speech_rate import speech_rate_units_per_second
 
 
 def _build(**overrides):
-    kwargs = dict(
-        project_overview={"synopsis": "速干杯带货短片", "genre": "带货", "theme": "便捷", "world_setting": ""},
-        style="实拍",
-        style_description="真实质感",
-        characters={"小美": {"description": "都市白领"}},
-        scenes={"厨房": {"description": "明亮现代厨房"}},
-        props={},
-        products={
+    kwargs = {
+        "project_overview": {"synopsis": "速干杯带货短片", "genre": "带货", "theme": "便捷", "world_setting": ""},
+        "style": "实拍",
+        "style_description": "真实质感",
+        "characters": {"小美": {"description": "都市白领"}},
+        "scenes": {"厨房": {"description": "明亮现代厨房"}},
+        "props": {},
+        "products": {
             "速干杯": {
                 "description": "30 秒速干的随行杯",
                 "brand": "DryGo",
                 "selling_points": ["30 秒速干", "一键开合"],
             }
         },
-        brief="突出速干卖点，面向通勤人群",
-        target_duration=30,
-        generation_mode="storyboard",
-        supported_durations=[4, 6, 8],
-    )
+        "brief": "突出速干卖点，面向通勤人群",
+        "target_duration": 30,
+        "generation_mode": "storyboard",
+        "supported_durations": [4, 6, 8],
+    }
     kwargs.update(overrides)
     return build_ad_prompt(**kwargs)
 

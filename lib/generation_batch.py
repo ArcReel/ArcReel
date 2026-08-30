@@ -349,7 +349,7 @@ __all__ = [
     "GenerationBatchReadModel",
     "GenerationBatchRequestSnapshot",
     "GenerationBatchRequestedItem",
-    "build_generation_batch_read_model",
     "build_generation_batch_admission",
+    "build_generation_batch_read_model",
     "validate_blocked_items",
 ]

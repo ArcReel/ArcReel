@@ -71,7 +71,7 @@ class GridManager:
         with self._record_lock(path), formal_write_transaction(path):
             try:
                 grid = self._get_unlocked(path)
-            except Exception:  # noqa: BLE001 - optional best-effort restore semantics apply only to the read
+            except Exception:  # best-effort：可选恢复语义只作用于读取
                 if not ignore_invalid:
                     raise
                 if on_miss is not None:

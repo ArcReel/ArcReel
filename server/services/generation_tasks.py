@@ -431,8 +431,8 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
         return
     try:
         numeric = float(duration)
-    except (TypeError, ValueError):
-        raise VideoCapabilityError("video_duration_invalid", duration=duration)
+    except (TypeError, ValueError) as exc:
+        raise VideoCapabilityError("video_duration_invalid", duration=duration) from exc
     if not numeric.is_integer():
         raise VideoCapabilityError("video_duration_invalid", duration=duration)
     seconds = int(numeric)
@@ -686,15 +686,15 @@ def collect_product_references_for_names(
                     "kind": "sheet",
                 }
             )
-        for original in _collect_product_reference_images(project, project_path, canonical) or []:
-            references.append(
-                {
-                    "image": original,
-                    "label": f"商品「{canonical}」实拍原图（保真锚点）",
-                    "name": canonical,
-                    "kind": "original",
-                }
-            )
+        references.extend(
+            {
+                "image": original,
+                "label": f"商品「{canonical}」实拍原图（保真锚点）",
+                "name": canonical,
+                "kind": "original",
+            }
+            for original in _collect_product_reference_images(project, project_path, canonical) or []
+        )
         if len(references) == before:
             logger.warning("商品分镜引用的商品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
     return references
@@ -2691,7 +2691,7 @@ async def execute_video_task(
     )
     try:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
-        output_path, version, _, video_uri = await generator.generate_video_async(
+        _output_path, version, _, video_uri = await generator.generate_video_async(
             prompt=prompt_text,
             resource_type="videos",
             resource_id=resource_id,
@@ -3400,7 +3400,7 @@ async def execute_grid_task(
                 )
                 if not rejected:
                     failure.add_note("generated grid version changed before formal-write compensation")
-            except Exception as compensation_failure:  # noqa: BLE001
+            except Exception as compensation_failure:
                 failure.add_note(f"generated grid compensation also failed: {compensation_failure}")
         # The formal-write transaction restored the durable grid record, but
         # ``grid`` still carries the rejected completion fields in memory.
@@ -3448,7 +3448,7 @@ async def execute_grid_task(
                             "params": {"grid_id": grid.id},
                         }
                     }
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("联合图切分落格失败: grid_id=%s", grid.id)
             for scene_id in report_scene_ids:
                 unit_results[scene_id] = {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -878,7 +879,7 @@ def test_v7_activation_rejects_symlinked_project_control_file_without_writes(tmp
     except (NotImplementedError, OSError):
         pytest.skip("symlinks are unavailable on this platform")
 
-    with pytest.raises(ArtifactManifestError, match="safely|symlink"):
+    with pytest.raises(ArtifactManifestError, match=r"safely|symlink"):
         migrate_v7_to_v8(project_dir)
 
     assert _read_json(external)["schema_version"] == 7
@@ -978,7 +979,7 @@ def test_v7_activation_rolls_back_when_inputs_drift_inside_the_critical_section(
             drifted["title"] = "Drifted inside the lock"
             _write_json(project_path, drifted)
 
-    with pytest.raises(RuntimeError, match="project.json changed after artifact activation preflight"):
+    with pytest.raises(RuntimeError, match=re.escape("project.json changed after artifact activation preflight")):
         artifact_activation.activate_artifact_target_state(
             project_dir, bump_schema=True, backup_file=_drift_project_after_backup
         )
@@ -1098,7 +1099,7 @@ def test_v7_activation_rejects_two_artifact_keys_that_own_one_formal_path(tmp_pa
     )
     _write_json(project_dir / "scripts" / "episode_1.json", script)
 
-    with pytest.raises(ValueError, match="formal artifact path.*multiple keys"):
+    with pytest.raises(ValueError, match=r"formal artifact path.*multiple keys"):
         migrate_v7_to_v8(project_dir)
 
     assert _read_json(project_dir / "project.json")["schema_version"] == 7
@@ -1155,7 +1156,7 @@ def test_v7_preflight_rejection_leaves_a_pending_draft_rename_untouched(tmp_path
         path.relative_to(project_dir): path.read_bytes() for path in sorted(project_dir.rglob("*")) if path.is_file()
     }
 
-    with pytest.raises(ValueError, match="formal artifact path.*multiple keys"):
+    with pytest.raises(ValueError, match=r"formal artifact path.*multiple keys"):
         migrate_v7_to_v8(project_dir)
 
     assert {

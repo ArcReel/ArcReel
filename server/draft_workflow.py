@@ -531,9 +531,10 @@ def _drama_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | 
     scenes = content.get("scenes")
     if not isinstance(scenes, list) or not scenes:
         return None
-    flat: list[Any] = []
-    for scene in scenes:
-        flat.append({k: v for k, v in scene.items() if k != "needs_replan"} if isinstance(scene, dict) else scene)
+    flat: list[Any] = [
+        {k: v for k, v in scene.items() if k != "needs_replan"} if isinstance(scene, dict) else scene
+        for scene in scenes
+    ]
     return {"title": content.get("title", ""), "scenes": flat}
 
 
@@ -1173,7 +1174,7 @@ class DraftWorkflow:
                 return await asyncio.to_thread(self._read, episode, resolved)
         except DraftWorkflowError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise DraftWorkflowError("draft_open_failed", str(exc)) from exc
 
     def _patch_locked(
@@ -1326,7 +1327,7 @@ class DraftWorkflow:
                 ) from exc
             except DraftViolation as exc:
                 raise DraftWorkflowError("draft_invalid", str(exc)) from exc
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 raise DraftWorkflowError("draft_promote_failed", str(exc)) from exc
         value: dict[str, Any] = {
             "episode": episode,

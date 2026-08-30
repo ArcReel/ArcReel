@@ -647,10 +647,7 @@ def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> 
             continue
         image_defaults.append((m.model_id, caps))
 
-    duplicates: dict[str, list[str]] = {}
-    for mt, ids in text_video_defaults.items():
-        if len(ids) > 1:
-            duplicates[mt] = ids
+    duplicates: dict[str, list[str]] = {mt: ids for mt, ids in text_video_defaults.items() if len(ids) > 1}
 
     # image：按 capability 反向索引，任一槽位有 >1 个默认即视为冲突（O(n) 替代 O(n²) 两两 caps 求交）
     cap_to_ids: dict[ImageCapability, list[str]] = {}
@@ -1081,7 +1078,7 @@ async def _run_discover(
         if len(err_msg) > 200:
             err_msg = err_msg[:200] + "..."
         logger.warning("模型发现失败: %s", err_msg)
-        raise HTTPException(status_code=502, detail=_t("discovery_failed", err_msg=err_msg))
+        raise HTTPException(status_code=502, detail=_t("discovery_failed", err_msg=err_msg)) from exc
 
 
 async def _run_connectivity_check(

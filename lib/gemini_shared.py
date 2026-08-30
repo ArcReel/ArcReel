@@ -48,7 +48,8 @@ RETRYABLE_ERRORS: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS
 try:
     from google.api_core import exceptions as google_exceptions  # pyright: ignore[reportMissingImports]
 
-    RETRYABLE_ERRORS = RETRYABLE_ERRORS + (
+    RETRYABLE_ERRORS = (
+        *RETRYABLE_ERRORS,
         google_exceptions.ResourceExhausted,  # 429 Too Many Requests
         google_exceptions.ServiceUnavailable,  # 503
         google_exceptions.DeadlineExceeded,  # 超时
@@ -60,7 +61,8 @@ except ImportError:
 try:
     from google import genai
 
-    RETRYABLE_ERRORS = RETRYABLE_ERRORS + (
+    RETRYABLE_ERRORS = (
+        *RETRYABLE_ERRORS,
         genai.errors.ClientError,  # pyright: ignore[reportAttributeAccessIssue]
         genai.errors.ServerError,  # pyright: ignore[reportAttributeAccessIssue]
     )

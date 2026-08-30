@@ -15,7 +15,7 @@ from lib.project_migrations.runner import (
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
     "MIGRATORS",
+    "cleanup_stale_backups",
     "migrate_project_with_verdict",
     "run_project_migrations",
-    "cleanup_stale_backups",
 ]

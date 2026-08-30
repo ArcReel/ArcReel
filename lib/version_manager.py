@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, ClassVar
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.artifact_manifest import ArtifactManifestError, ProjectArtifactManifestAdapter
@@ -113,7 +113,7 @@ class VersionManager:
 
     # 支持的资源类型与扩展名均派生自单一真相源 lib.resource_paths，避免副本漂移。
     RESOURCE_TYPES = _RESOURCE_TYPES
-    EXTENSIONS = {rt: resource_extension(rt) for rt in _RESOURCE_TYPES}
+    EXTENSIONS: ClassVar[dict[str, str]] = {rt: resource_extension(rt) for rt in _RESOURCE_TYPES}
 
     def __init__(self, project_path: Path):
         """

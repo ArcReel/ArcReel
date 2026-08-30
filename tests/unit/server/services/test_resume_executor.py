@@ -61,11 +61,7 @@ class _FakeGenerator:
         output_path.write_bytes(b"paid-resume-video")
         prepare = kwargs.get("before_formal_commit")
         if prepare is not None:
-            metadata = {
-                key: value
-                for key, value in kwargs.items()
-                if key.startswith("execution_") or key.startswith("artifact_")
-            }
+            metadata = {key: value for key, value in kwargs.items() if key.startswith(("execution_", "artifact_"))}
             await prepare(output_path, int(kwargs.get("duration_seconds") or 8), metadata)
         commit = kwargs.get("commit_formal_output")
         if commit is not None:

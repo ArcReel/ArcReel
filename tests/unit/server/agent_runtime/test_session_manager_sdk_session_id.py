@@ -94,7 +94,7 @@ class TestSessionManagerSdkSessionId:
             },
         )
 
-        async with meta_store._session_factory() as session:  # noqa: SLF001 - test fixture exposes shared DB factory
+        async with meta_store._session_factory() as session:
             row = (
                 await session.execute(
                     select(ApiCall).where(
@@ -136,7 +136,7 @@ class TestSessionManagerSdkSessionId:
             },
         )
 
-        async with meta_store._session_factory() as session:  # noqa: SLF001 - test fixture exposes shared DB factory
+        async with meta_store._session_factory() as session:
             row = (
                 await session.execute(
                     select(ApiCall).where(
@@ -173,7 +173,7 @@ class TestSessionManagerSdkSessionId:
             },
         )
 
-        async with meta_store._session_factory() as session:  # noqa: SLF001 - test fixture exposes shared DB factory
+        async with meta_store._session_factory() as session:
             row = (
                 await session.execute(
                     select(ApiCall).where(
@@ -209,7 +209,7 @@ class TestSessionManagerSdkSessionId:
             },
         )
 
-        async with meta_store._session_factory() as session:  # noqa: SLF001 - test fixture exposes shared DB factory
+        async with meta_store._session_factory() as session:
             row = (
                 await session.execute(
                     select(ApiCall).where(

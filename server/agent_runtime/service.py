@@ -9,7 +9,7 @@ import os
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from claude_agent_sdk import (
     delete_session as sdk_delete_session,
@@ -302,26 +302,25 @@ class AssistantService:
                 client_key=client_key,
             )
             return {"status": "accepted", "session_id": session_id, "entry": entry}
-        else:
-            # New session
-            if not client_key:
-                return await self._create_new_session(project_name, content, images, locale, client_key)
+        # New session
+        if not client_key:
+            return await self._create_new_session(project_name, content, images, locale, client_key)
 
+        existing = await self._find_accepted_new_session(client_key, project_name)
+        if existing is not None:
+            return existing
+
+        # 同一 client_key 的并发请求在此串行化：send_new_session 在途期间
+        # 后来者等锁而非各自建会话，避免重复执行同一 prompt。
+        lock = self._new_session_locks.lock_for(client_key)
+        async with lock:
+            # 双重检查：等锁期间先行者可能已完成同一 client_key 的建会话。
             existing = await self._find_accepted_new_session(client_key, project_name)
             if existing is not None:
                 return existing
-
-            # 同一 client_key 的并发请求在此串行化：send_new_session 在途期间
-            # 后来者等锁而非各自建会话，避免重复执行同一 prompt。
-            lock = self._new_session_locks.lock_for(client_key)
-            async with lock:
-                # 双重检查：等锁期间先行者可能已完成同一 client_key 的建会话。
-                existing = await self._find_accepted_new_session(client_key, project_name)
-                if existing is not None:
-                    return existing
-                result = await self._create_new_session(project_name, content, images, locale, client_key)
-                self._record_new_session_client_key(client_key, result["session_id"])
-                return result
+            result = await self._create_new_session(project_name, content, images, locale, client_key)
+            self._record_new_session_client_key(client_key, result["session_id"])
+            return result
 
     async def _find_accepted_new_session(self, client_key: str, project_name: str) -> dict[str, Any] | None:
         """按幂等键定位已受理的新会话：进程内映射为快路径，事件日志跨会话
@@ -865,7 +864,7 @@ class AssistantService:
         """entry 事件：SSE ``id`` 字段即 seq，EventSource 原生 Last-Event-ID 续传。"""
         return ServerSentEvent(event="entry", data=entry, id=str(entry.get("seq")))
 
-    _TERMINAL_STATUSES = {"idle", "running", "completed", "error", "interrupted"}
+    _TERMINAL_STATUSES: ClassVar[set[str]] = {"idle", "running", "completed", "error", "interrupted"}
 
     def _check_runtime_status_terminal(self, message: dict[str, Any], session_id: str) -> ServerSentEvent | None:
         """Return a status SSE event if *message* carries a terminal runtime status."""
@@ -959,7 +958,7 @@ class AssistantService:
     # lives in ``frontend/src/i18n/{zh,en,vi}/dashboard.ts``).
     # ``tests/unit/test_frontend_skill_i18n.py`` cross-checks SKILL.md against
     # those keys so adding a user-invocable skill without translations fails CI.
-    _SKILL_ICONS: dict[str, str] = {
+    _SKILL_ICONS: ClassVar[dict[str, str]] = {
         "video-workflow": "clapperboard",
         "generate-storyboard": "images",
         "generate-grid": "grid-2x2",

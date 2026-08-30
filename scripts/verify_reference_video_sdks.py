@@ -179,7 +179,7 @@ async def run_once(
             error=None,
             video_path=out_path,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return RunResult(
             **base,
             success=False,

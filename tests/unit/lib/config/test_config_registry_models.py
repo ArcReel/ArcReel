@@ -1,5 +1,7 @@
 """Test ProviderMeta with ModelInfo structure."""
 
+from typing import ClassVar
+
 import pytest
 
 from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
@@ -110,7 +112,7 @@ class TestProviderMeta:
 
 class TestProviderRegistry:
     # vidu 仅图片+视频、kling 为仅身份注册（无 models），均跳过文本相关断言
-    _TEXT_PROVIDERS = [pid for pid in PROVIDER_REGISTRY if pid not in ("vidu", "kling")]
+    _TEXT_PROVIDERS: ClassVar[list[str]] = [pid for pid in PROVIDER_REGISTRY if pid not in ("vidu", "kling")]
 
     def test_all_providers_have_text_models(self):
         for provider_id in self._TEXT_PROVIDERS:

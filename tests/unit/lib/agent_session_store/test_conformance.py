@@ -51,7 +51,7 @@ async def test_db_session_store_passes_sdk_conformance():
         engines.append(engine)
         async with engine.begin() as conn:
             # Import model modules to register tables on Base.metadata.
-            import lib.agent_session_store.models  # noqa: F401
+            import lib.agent_session_store.models
             import lib.db.models  # noqa: F401  (users / agent_sessions / config etc.)
 
             await conn.run_sync(Base.metadata.create_all)
