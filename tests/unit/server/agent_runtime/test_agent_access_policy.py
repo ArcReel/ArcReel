@@ -518,7 +518,7 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     (root / "projects" / ".arcreel.db").write_bytes(b"sqlite-fake")
     (root / "projects" / ".arcreel.db-shm").write_bytes(b"shm")
     profile_dir = tmp_path / "agent_runtime_profile"
-    (profile_dir / ".claude").mkdir(parents=True)
+    (profile_dir / ".claude").mkdir(parents=True, exist_ok=True)
     (profile_dir / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
     (root / "vertex_keys").mkdir()
 

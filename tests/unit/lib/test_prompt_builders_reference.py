@@ -11,7 +11,7 @@ from lib.prompt_rules.episode_target_duration import (
     EPISODE_TARGET_DURATION_RULE_TEMPLATE,
     render_episode_target_duration_rule,
 )
-from lib.reference_video.writing_syntax import SCENE_REFERENCE_RULES, WRITING_SYNTAX_SPEC
+from lib.reference_video.writing_syntax import scene_reference_rules, writing_syntax_spec
 
 
 def _prompt_authoring_prompt(**overrides) -> str:
@@ -160,23 +160,23 @@ def test_build_reference_units_split_prompt_without_outline_leaves_no_empty_bloc
 
 
 def test_both_prompt_levels_share_one_syntax_template():
-    """语法规范唯一真相源：两级 prompt 注入同一份常量，仓库里没有第二份语法全文。"""
+    """语法规范唯一真相源：两级 prompt 注入同一份规范，仓库里没有第二份语法全文。"""
     split = _split_prompt()
     prompt_authoring = _prompt_authoring_prompt()
-    assert WRITING_SYNTAX_SPEC in split
-    assert WRITING_SYNTAX_SPEC in prompt_authoring
+    assert writing_syntax_spec() in split
+    assert writing_syntax_spec() in prompt_authoring
 
 
 def test_scene_reference_rule_reaches_both_prompt_levels():
     """场景引用规则的措辞集中在共享语法规范里，两级 prompt 各再补一条本阶段的落地口径。"""
-    assert SCENE_REFERENCE_RULES in WRITING_SYNTAX_SPEC
+    assert scene_reference_rules() in writing_syntax_spec()
 
     split = _split_prompt()
-    assert SCENE_REFERENCE_RULES in split
+    assert scene_reference_rules() in split
     assert "每个 unit 的正文都要 `@` 引用它发生地的场景资产" in split
 
     prompt_authoring = _prompt_authoring_prompt()
-    assert SCENE_REFERENCE_RULES in prompt_authoring
+    assert scene_reference_rules() in prompt_authoring
     assert "场景引用逐 unit 保留" in prompt_authoring
 
 
