@@ -4,7 +4,7 @@ status: accepted
 
 # Agent 改项目 JSON 数据收归 in-process MCP 工具，裸 Write/Edit/Bash 一律 deny
 
-Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`）直改 `scripts/*.json` 与 `project.json`，只过一个 PreToolUse 的 **JSON 语法** hook——结构错误（`duration_seconds` 越界、缺 `image_prompt`、`ReferenceVideoUnit` 的 shots↔duration 不一致）照样落盘，绕开 `_write_script_unlocked` 统一入口（ADR-0002）。这条旁路让「单一守卫点」是假的。我们决定把 Agent 对项目 JSON 数据的一切写入收归一组 in-process MCP 工具，并在工具外**禁止**裸字节写入这两类文件，使 ADR-0002 的结构校验真正只有一个强制点。
+Agent 在本决策前能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`）直改 `scripts/*.json` 与 `project.json`，只过一个 PreToolUse 的 **JSON 语法** hook——结构错误（`duration_seconds` 越界、缺 `image_prompt`、`ReferenceVideoUnit` 的 shots↔duration 不一致）照样落盘，绕开 `_write_script_unlocked` 统一入口（ADR-0002）。这条旁路让「单一守卫点」是假的。我们决定把 Agent 对项目 JSON 数据的一切写入收归一组 in-process MCP 工具，并在工具外**禁止**裸字节写入这两类文件，使 ADR-0002 的结构校验真正只有一个强制点。
 
 工具集（均为 in-process MCP `arcreel`，跑在 server 进程、不在 agent sandbox 内）：
 
@@ -23,7 +23,7 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 
 - in-process MCP 工具跑在 server 进程、**不在 agent sandbox 内**，故 FS write-deny profile 不约束它们，工具照常写盘；删掉 `add_assets.py` 后，sandbox 内已**无任何合法的 Bash 写 `scripts/*.json`/`project.json`**（`split_episode` 写 `source/`、compose 写视频输出，均不碰），内核级 write-deny 不会误伤。
 - **无 sandbox 回退**（Windows，或 Linux bwrap 探测失败）：内核级堵法不可用，回退到 `_check_write_access` deny（Write/Edit，全平台生效）+ 现有 `_WINDOWS_BASH_PREFIX_WHITELIST`（只放行 `python .claude/skills/`、ffmpeg、ffprobe，任意 `echo>`/`sed`/`python -c` 本就不在白名单）。已复核：删除 `add_assets.py` 后，白名单放行的 `python .claude/skills/` 脚本中无一写 `scripts/*.json`/`project.json`（split 写 `source/`、compose 写视频输出、peek 只读），故无沙箱回退无需额外特殊防御。
-- **denyWrite 内核级生效的实测**：`denyWrite` 走与 `denyRead` 相同的 `filesystem` passthrough（后者已在生产用于保护 `.env` 等，机制可信）。其对 Bash 子进程的内核级写拒绝是 SDK 文档承诺的同字段行为；落地后建议做一次 live smoke test（sandbox 启用时在 Bash 工具内 `echo > scripts/x.json` 应被内核拒、而 MCP 工具写盘正常）以翻 `accepted`。
+- **denyWrite 内核级生效的实测**：`denyWrite` 走与 `denyRead` 相同的 `filesystem` passthrough（后者已在生产用于保护 `.env` 等，机制可信）。其对 Bash 子进程的内核级写拒绝是 SDK 文档承诺的同字段行为；双层拒绝的配置编译与谓词行为由 `server/agent_runtime/agent_access_policy.py` 的单元测试覆盖，内核级实际拒写依赖 SDK 承诺，未做过 live smoke test——在 sandbox 启用环境验证时，预期为 Bash 工具内 `echo > scripts/x.json` 被内核拒、而 MCP 工具写盘正常。
 - **编辑不删除已有媒体，也不改写 `generated_assets`**。改 prompt 后旧媒体由显式重新生成替换；结构 remove 只移除剧本引用，项目内已有文件继续保留。split 的同 id 锚点延续旧资产，新派生 id 清空资产。Manifest currency 在读时由 basis 比较推导，不把 stale 状态写进剧本。
 - **structured basis 只登记正式直接输入**：narration / drama（包括 reference_video 路线）存在 canonical script_plan 时，用该 script_plan 构造 episode-script basis；无 script_plan 时不登记。ad 当前没有 canonical script_plan，编辑服务不以修改后的 script 自身制造 basis，避免产物自引用。
 - 工具**返回文本**是 agent-facing（免 i18n）；工具**显示名**是 user-facing，须在 `ARCREEL_MCP_TOOL_IDS` 注册并补 `tool_name_<id>` 三语（zh/en/vi）。

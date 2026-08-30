@@ -18,7 +18,7 @@ ArcReel 的媒体生成沿 `media_type` 轴扇出：image/video 走 **Generation
 ## Consequences
 
 - **worker 增第三条 lane**：`ProviderPool` 加 `audio_max` / `has_audio_room`，claim 循环 `for media_type in ("image","video")` 扩到含 `"audio"`，并触及 `_resolve_dispatch_provider` / `_any_pool_has_room` / `_pool_full_providers` / `_load_pools_from_db` / `_build_default_pools` 等 lane 相关点（机械改动）。TTS 便宜快，`AUDIO_MAX_WORKERS` 默认放宽，lane 不应成为瓶颈。
-- **agent 工具是 `enqueue_tts(segment_ids?)`**（入队，仿 `enqueue_storyboards`），而非同步 `generate_*`；不传=所有缺失段、传 list=指定批量范围、传单个=单段。
+- **agent 工具是 `generate_narration_audio(segment_ids?)`**（注册名；实现为入队，见 `server/media_tools/narration_audio.py`，仿 storyboard 入队工具），语义是队列化而非同步等待；不传=所有缺失段、传 list=指定批量范围，单段即单元素列表（schema 只接受数组，裸字符串会被参数校验拒绝）。
 - **web 入队 + 复用现有任务面板**：单段与批量都 enqueue，前端轮询 `/api/v1/tasks` 看进度，复用既有取消/续传 UI。
 - **audio backend 保持同步、无 resume/`provider_job_id`**：worker claim → 调同步 backend（秒回）→ 标终态。`docs/adr/0007` 的孤儿处理对 audio 退化为"标 failed、不续传"，因同步且重生成廉价，无需 video 那套 submit-poll-resume 机制。
 - **"同步"是针对"短 segment + 同步 API"的选择，异步是预留扩展点**：v1 选同步因为（a）所选供应商的 TTS API 本就同步返回字节（DashScope Qwen-TTS sync HTTP、OpenAI 兼容 `/v1/audio/speech` 立即返回），（b）按 segment 的旁白短（`duration_seconds ≤ 60`、文本有界）秒级完成。**但长文本 TTS 接口业界是异步的**（MiniMax T2A async、豆包异步长文本 ≤10万字、Google long-audio LRO、Azure batch）。若未来接入只提供异步 API 的供应商，或改为"整集一次性合成长文本"，需要 video 式 submit-poll 生命周期——故 `AudioBackend` Protocol 设计上**预留**异步可能（如 text/video 那样允许各自的 backend 形态），但 v1 只建同步。
