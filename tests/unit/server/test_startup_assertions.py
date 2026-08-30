@@ -72,6 +72,13 @@ def test_empty_string_value_not_treated_as_leak(monkeypatch: pytest.MonkeyPatch)
     assert_no_provider_secrets_in_environ()  # 空值不 raise
 
 
+def test_claude_code_oauth_token_does_not_trigger_startup_rejection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Claude 登录态会在会话环境中清空，但不属于启动期 provider 密钥。"""
+    _clear_secret_envs(monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "user-login-token")
+    assert_no_provider_secrets_in_environ()
+
+
 def test_sandbox_available_macos(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Darwin")
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None)

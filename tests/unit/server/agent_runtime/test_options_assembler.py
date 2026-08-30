@@ -72,6 +72,8 @@ async def test_load_provider_env_overrides_injects_anthropic_and_empties() -> No
 
     assert env["ANTHROPIC_API_KEY"] == "sk-from-db"
     assert env["ANTHROPIC_BASE_URL"] == "https://anthropic.example.com"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == ""
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == ""
     # 其他 provider 空值覆盖
     assert env["ARK_API_KEY"] == ""
     assert env["XAI_API_KEY"] == ""

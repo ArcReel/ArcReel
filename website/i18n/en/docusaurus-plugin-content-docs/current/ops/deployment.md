@@ -176,7 +176,7 @@ The remote MCP endpoint is `/mcp` and always requires an API Key with an `arc-` 
 
 ArcReel's sandbox requires provider secrets to be absent from the parent process environment. If any of the following credential environment variables has a non-empty value, the service refuses to start and prompts you to move the credential to the Web UI Settings page:
 
-- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`
 - `ARK_API_KEY` / `XAI_API_KEY` / `GEMINI_API_KEY` / `VIDU_API_KEY`
 - `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `AGNES_API_KEY` / `OPENAI_API_KEY`
 - `GOOGLE_APPLICATION_CREDENTIALS` (continue storing Vertex credentials in the `vertex_keys/` directory)
