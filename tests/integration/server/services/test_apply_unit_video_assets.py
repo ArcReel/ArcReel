@@ -47,12 +47,14 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
     script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}
     apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
     first_stamp = script["video_units"][0]["generated_assets"]["video_generated_at"]
-    assert isinstance(first_stamp, str) and first_stamp
+    assert isinstance(first_stamp, str)
+    assert first_stamp
 
     # 重新生成（第二次写回）必须刷新时间戳，不能沿用旧值
     apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
     second_stamp = script["video_units"][0]["generated_assets"]["video_generated_at"]
-    assert isinstance(second_stamp, str) and second_stamp
+    assert isinstance(second_stamp, str)
+    assert second_stamp
 
 
 def test_apply_unit_video_assets_preserves_legacy_source_signature_without_reading_it():

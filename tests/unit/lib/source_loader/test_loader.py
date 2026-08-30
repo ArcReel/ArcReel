@@ -35,7 +35,8 @@ def test_load_gbk_txt_writes_raw_backup(tmp_path: Path):
     assert result.normalized_path.read_text(encoding="utf-8").startswith("第一章")
     assert result.raw_path == project_source / "raw" / "old_novel.txt"
     assert result.raw_path.read_bytes().startswith(b"\xb5\xda")  # GBK "第"
-    assert result.used_encoding and result.used_encoding.lower() != "utf-8"
+    assert result.used_encoding
+    assert result.used_encoding.lower() != "utf-8"
 
 
 def test_load_docx_writes_raw_backup(tmp_path: Path, docx_factory):
@@ -180,7 +181,7 @@ def test_load_rolls_back_normalized_when_raw_backup_fails(tmp_path: Path, monkey
 
     monkeypatch.setattr(loader_mod.shutil, "copyfile", _boom)
 
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match=r"simulated disk full"):
         SourceLoader.load(src, project_source, original_filename="old.txt")
 
     # 原子性：normalized .txt 应已回滚，raw/ 也空

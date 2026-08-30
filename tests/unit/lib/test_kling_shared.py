@@ -120,13 +120,13 @@ class TestCredentialResolution:
     def test_jwt_credentials_strip_and_return(self):
         assert resolve_kling_jwt_credentials(" ak ", " sk ") == ("ak", "sk")
 
-    @pytest.mark.parametrize("ak,sk", [(None, "sk"), ("ak", None), ("", "sk"), ("  ", "sk")])
+    @pytest.mark.parametrize(("ak", "sk"), [(None, "sk"), ("ak", None), ("", "sk"), ("  ", "sk")])
     def test_jwt_credentials_missing_raises(self, ak, sk):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"请到系统配置页填写可灵 Kling 的 Access Key 与 Secret Key"):
             resolve_kling_jwt_credentials(ak, sk)
 
     def test_api_key_missing_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"请填写可灵 Kling 的 API Key"):
             resolve_kling_api_key("  ")
 
 
@@ -188,7 +188,8 @@ class TestResponseParsing:
         payload = {"code": 0, "data": {"task_id": "t-1", "task_status": "failed", "task_status_msg": "nsfw"}}
         reason = kling_task_failure_reason(payload)
         assert reason is not None
-        assert "t-1" in reason and "nsfw" in reason
+        assert "t-1" in reason
+        assert "nsfw" in reason
 
     def test_failure_reason_none_on_success(self):
         assert kling_task_failure_reason({"code": 0, "data": {"task_status": "succeed"}}) is None
@@ -200,7 +201,8 @@ class TestResponseParsing:
         # message / task_status_msg 显式为 null 时归一化为空串，不把字面量 'None' 拼进错误描述。
         assert kling_response_error({"code": 5, "message": None}) == "Kling API code=5:"
         reason = kling_task_failure_reason({"code": 0, "data": {"task_id": "t-2", "task_status": "failed"}})
-        assert reason is not None and "None" not in reason
+        assert reason is not None
+        assert "None" not in reason
 
     def test_extract_video_url(self):
         payload = {
@@ -243,4 +245,5 @@ class TestResponseParsing:
         )
         assert reason is not None
         assert "视频" not in reason
-        assert "t-9" in reason and "boom" in reason
+        assert "t-9" in reason
+        assert "boom" in reason

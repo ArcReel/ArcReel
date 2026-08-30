@@ -658,7 +658,8 @@ async def test_remote_media_submission_returns_complete_durable_batch_and_dedupe
             {"project": "demo", "batch_id": first_batch["batch_id"]},
         )
 
-    assert not first.isError and not second.isError
+    assert not first.isError
+    assert not second.isError
     assert first_batch["batch_id"] != second_batch["batch_id"]
     assert first_batch["poll_after_seconds"] > 0
     assert [(member["unit_id"], member["status"]) for member in first_batch["members"]] == [
@@ -668,7 +669,8 @@ async def test_remote_media_submission_returns_complete_durable_batch_and_dedupe
     assert first_batch["members"][0]["task_id"] == second_batch["members"][0]["task_id"]
     assert second_batch["members"][0]["deduped"] is True
     assert len((await queue.list_tasks(project_name="demo"))["items"]) == 1
-    assert not cancelled.isError and not reread.isError
+    assert not cancelled.isError
+    assert not reread.isError
     assert reread.structuredContent["generation_batch"]["members"][0]["status"] == "cancelled"
 
 
@@ -750,8 +752,10 @@ async def test_remote_api_keys_share_the_persisted_single_operator_owner(
         )
 
     second_batch = second.structuredContent["generation_batch"]
-    assert not first.isError and not second.isError
-    assert not foreign_read.isError and not foreign_cancel.isError
+    assert not first.isError
+    assert not second.isError
+    assert not foreign_read.isError
+    assert not foreign_cancel.isError
     assert first_batch["members"][0]["deduped"] is False
     assert second_batch["members"][0]["deduped"] is True
     assert first_batch["members"][0]["task_id"] == second_batch["members"][0]["task_id"]

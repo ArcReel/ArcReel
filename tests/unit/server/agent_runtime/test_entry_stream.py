@@ -74,7 +74,7 @@ class _FakeEntrySessionManager:
         yield _iter()
 
 
-@pytest.fixture()
+@pytest.fixture
 async def entry_service(db_factory, tmp_path):
     store = EventLogStore(session_factory=db_factory)
 

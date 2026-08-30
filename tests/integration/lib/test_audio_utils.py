@@ -93,21 +93,21 @@ class TestFfprobeAvailable:
         assert 2.5 < duration < 3.5
 
     async def test_invalid_bytes_raise_value_error(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"音频文件无法解析"):
             await audio_utils_module.probe_audio_duration_seconds(b"not audio at all", ".wav")
 
     async def test_video_only_file_renamed_to_wav_is_rejected(self):
         """把无音轨的视频文件改名为 .wav 上传时，容器/时长校验会通过，但应无音频流可用而拒绝。"""
         if shutil.which("ffmpeg") is None:
             pytest.skip("ffmpeg not available")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"音频文件无法解析"):
             await audio_utils_module.probe_audio_duration_seconds(_video_only_mp4_bytes(), ".wav")
 
     async def test_m4a_renamed_to_wav_is_rejected(self):
         """m4a 有音轨也能探出时长，但容器不是 wav，改名上传应被拒绝而非当作 wav 收下。"""
         if shutil.which("ffmpeg") is None:
             pytest.skip("ffmpeg not available")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"音频文件无法解析"):
             await audio_utils_module.probe_audio_duration_seconds(_m4a_bytes(), ".wav")
 
     async def test_ffprobe_invoked_with_protocol_whitelist(self):

@@ -341,7 +341,8 @@ def test_a_succeeded_task_can_still_report_a_stale_artifact() -> None:
     assert item.state is GenerationItemState.SUCCEEDED
     assert item.task_state is GenerationTaskState.SUCCEEDED
     assert item.artifact_status is ArtifactStatus.STALE
-    assert item.provider_checkpoint is not None and item.provider_checkpoint.submitted is True
+    assert item.provider_checkpoint is not None
+    assert item.provider_checkpoint.submitted is True
 
 
 def test_a_failed_commit_keeps_the_old_artifact_and_never_claims_current() -> None:
@@ -378,7 +379,8 @@ def test_provider_checkpoint_is_absent_when_the_task_row_says_nothing() -> None:
     assert checkpoint == ProviderCheckpoint(submitted=True, provider_id="vidu", provider_job_id="job-1")
 
     unsubmitted = provider_checkpoint_from_task({"provider_id": "vidu", "provider_job_id": None})
-    assert unsubmitted is not None and unsubmitted.submitted is False
+    assert unsubmitted is not None
+    assert unsubmitted.submitted is False
 
 
 # --- problem mapping -------------------------------------------------------

@@ -145,7 +145,7 @@ async def test_start_and_last_frame_keep_short_durations(tmp_path, seconds):
 
 
 @pytest.mark.parametrize(
-    "model, backend_type",
+    ("model", "backend_type"),
     [
         ("veo-3.1-generate-preview", "aistudio"),
         ("veo-3.1-generate-001", "vertex"),

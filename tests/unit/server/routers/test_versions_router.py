@@ -1042,7 +1042,7 @@ class TestVersionsRouter:
         assert adapter.get_entry(unrelated_key) == unrelated_entry
 
     @pytest.mark.parametrize(
-        "project,expected_detail",
+        ("project", "expected_detail"),
         [
             ({"content_mode": "ad", "generation_mode": "storyboard", "grid_storyboard": True}, "广告/短片项目"),
             (

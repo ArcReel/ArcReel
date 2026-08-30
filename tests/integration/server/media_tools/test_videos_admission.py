@@ -140,8 +140,10 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
     assert out["is_error"] is True
     other_task = await fake_ctx.queue.get_task(other_user["task_id"])
     occupied_task = await fake_ctx.queue.get_task(occupied["task_id"])
-    assert other_task is not None and other_task["user_id"] == "default"
-    assert occupied_task is not None and occupied_task["user_id"] == "tenant-user"
+    assert other_task is not None
+    assert other_task["user_id"] == "default"
+    assert occupied_task is not None
+    assert occupied_task["user_id"] == "tenant-user"
     result = _generation_result(out)
     assert sorted(result.blocked) == ["E1S01", "E1S02"]
     codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
@@ -215,8 +217,10 @@ async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue
     assert out["is_error"] is True
     other_task = await fake_ctx.queue.get_task(other_user["task_id"])
     caller_task = await fake_ctx.queue.get_task(caller_tts["task_id"])
-    assert other_task is not None and other_task["user_id"] == "default"
-    assert caller_task is not None and caller_task["user_id"] == "tenant-user"
+    assert other_task is not None
+    assert other_task["user_id"] == "default"
+    assert caller_task is not None
+    assert caller_task["user_id"] == "tenant-user"
     result = _generation_result(out)
     assert sorted(result.blocked) == ["E1U1", "E1U2"]
     problems = {item.unit_id: item.problem for item in result.items if item.problem is not None}

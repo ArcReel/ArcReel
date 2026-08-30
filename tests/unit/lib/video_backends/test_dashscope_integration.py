@@ -166,7 +166,7 @@ class TestEndpointFallthrough:
 
 class TestInferEndpoint:
     @pytest.mark.parametrize(
-        "model,expected",
+        ("model", "expected"),
         [
             ("happyhorse-1.0-r2v", "dashscope-async-video"),
             ("wan2.7-i2v", "dashscope-async-video"),

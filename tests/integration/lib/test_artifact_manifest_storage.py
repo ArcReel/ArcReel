@@ -357,10 +357,14 @@ def test_project_adapter_blocks_escape_and_symlink_artifact_paths(
     assert absolute.status is ArtifactStatus.BLOCKED
     assert file_link.status is ArtifactStatus.BLOCKED
     assert parent_link.status is ArtifactStatus.BLOCKED
-    assert traversal.blocker is not None and traversal.blocker.code == "artifact_path_invalid"
-    assert absolute.blocker is not None and absolute.blocker.code == "artifact_path_invalid"
-    assert file_link.blocker is not None and file_link.blocker.code == "artifact_symlink"
-    assert parent_link.blocker is not None and parent_link.blocker.code == "artifact_symlink"
+    assert traversal.blocker is not None
+    assert traversal.blocker.code == "artifact_path_invalid"
+    assert absolute.blocker is not None
+    assert absolute.blocker.code == "artifact_path_invalid"
+    assert file_link.blocker is not None
+    assert file_link.blocker.code == "artifact_symlink"
+    assert parent_link.blocker is not None
+    assert parent_link.blocker.code == "artifact_symlink"
     with pytest.raises(ArtifactRegistrationError):
         manifest.register(key, artifact_path="linked-file.json", basis=basis)
     assert outside.read_text(encoding="utf-8") == '{"secret":true}'
@@ -409,7 +413,8 @@ def test_project_adapter_blocks_parent_replaced_by_symlink_during_open(
 
     assert swapped
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "artifact_symlink"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "artifact_symlink"
     assert (outside / "episode.json").read_text(encoding="utf-8") == "outside"
 
 
@@ -448,7 +453,8 @@ def test_project_adapter_blocks_file_symlink_swap_without_no_follow(
 
     assert swapped
     assert not observation.present
-    assert observation.blocker is not None and observation.blocker.code == "artifact_symlink"
+    assert observation.blocker is not None
+    assert observation.blocker.code == "artifact_symlink"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Python identity checks backstop platforms without O_NOFOLLOW")
@@ -485,7 +491,8 @@ def test_project_adapter_blocks_parent_vanishing_during_fallback_revalidation(
 
     assert moved
     assert not observation.present
-    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
+    assert observation.blocker is not None
+    assert observation.blocker.code == "artifact_unreadable"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="FIFO inspection uses POSIX nonblocking file flags")
@@ -502,7 +509,8 @@ def test_project_adapter_rejects_fifo_without_blocking(tmp_path: Path) -> None:
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "artifact_not_regular_file"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "artifact_not_regular_file"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="descriptor traversal is the POSIX storage path")
@@ -525,8 +533,10 @@ def test_project_adapter_hashes_content_only_through_the_explicit_snapshot_seam(
     ordinary = adapter.inspect_artifact("episode.json")
     snapshot = adapter.inspect_artifact_content("episode.json")
 
-    assert ordinary.present and ordinary.content_digest is None
-    assert snapshot.present and snapshot.content_digest == hashlib.sha256(content).hexdigest()
+    assert ordinary.present
+    assert ordinary.content_digest is None
+    assert snapshot.present
+    assert snapshot.content_digest == hashlib.sha256(content).hexdigest()
 
 
 @pytest.mark.parametrize("inspection_path", ["posix", "portable"])
@@ -565,7 +575,8 @@ def test_project_adapter_rejects_in_place_write_during_content_snapshot(
     assert mutated
     assert (artifact.stat().st_dev, artifact.stat().st_ino) == original_identity
     assert not observation.present
-    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
+    assert observation.blocker is not None
+    assert observation.blocker.code == "artifact_unreadable"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="descriptor reads are the POSIX artifact inspection path")
@@ -586,7 +597,8 @@ def test_project_adapter_reports_posix_artifact_read_failure(
     observation = adapter.inspect_artifact("episode.json")
 
     assert not observation.present
-    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
+    assert observation.blocker is not None
+    assert observation.blocker.code == "artifact_unreadable"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="runtime FIFO inspection uses POSIX nonblocking file flags")
@@ -627,7 +639,8 @@ def test_project_adapter_rejects_replaced_portable_project_root(tmp_path: Path) 
     observation = adapter._inspect_artifact_portable("episode.json")
 
     assert not observation.present
-    assert observation.blocker is not None and observation.blocker.code == "artifact_symlink"
+    assert observation.blocker is not None
+    assert observation.blocker.code == "artifact_symlink"
     with pytest.raises(ArtifactManifestError, match="project directory"):
         adapter.put_entry(
             ArtifactKey.episode_script(1),
@@ -650,7 +663,8 @@ def test_project_adapter_rejects_replaced_portable_project_root_identity(tmp_pat
     observation = adapter._inspect_artifact_portable("missing.json")
 
     assert not observation.present
-    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
+    assert observation.blocker is not None
+    assert observation.blocker.code == "artifact_unreadable"
     with pytest.raises(ArtifactManifestError, match="changed after adapter initialization"):
         adapter._assert_portable_project_root_identity()
 
@@ -668,7 +682,8 @@ def test_project_adapter_rejects_replaced_posix_project_root_identity(tmp_path: 
     observation = adapter.inspect_artifact("episode.json")
 
     assert not observation.present
-    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
+    assert observation.blocker is not None
+    assert observation.blocker.code == "artifact_unreadable"
     with pytest.raises(ArtifactManifestError, match="changed after adapter initialization"):
         adapter.put_entry(
             ArtifactKey.episode_script(1),
@@ -735,7 +750,8 @@ def test_project_adapter_rejects_replaced_posix_project_root_symlink_without_no_
     observation = adapter.inspect_artifact("episode.json")
 
     assert not observation.present
-    assert observation.blocker is not None and observation.blocker.code == "artifact_symlink"
+    assert observation.blocker is not None
+    assert observation.blocker.code == "artifact_symlink"
     with pytest.raises(ArtifactManifestError, match="project directory is a symlink"):
         adapter.get_entry(ArtifactKey.episode_script(1))
 
@@ -776,7 +792,8 @@ def test_project_adapter_rejects_swapped_portable_parent(
 
     assert swapped
     assert not observation.present
-    assert observation.blocker is not None and observation.blocker.code == "artifact_symlink"
+    assert observation.blocker is not None
+    assert observation.blocker.code == "artifact_symlink"
     assert (outside / "episode.json").read_text(encoding="utf-8") == "outside"
 
 
@@ -853,7 +870,8 @@ def test_project_adapter_refuses_runtime_file_symlinks(
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "manifest_unreadable"
     with pytest.raises(ArtifactManifestError):
         manifest.register(key, artifact_path="episode.json", basis=basis)
     assert outside.read_text(encoding="utf-8") == "do not touch"
@@ -938,7 +956,8 @@ def test_project_adapter_rejects_manifest_symlink_swap_without_no_follow(
 
     assert swapped
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "manifest_unreadable"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Python identity checks backstop platforms without O_NOFOLLOW")
@@ -980,7 +999,8 @@ def test_project_adapter_rejects_lock_symlink_swap_without_no_follow(
 
     assert swapped
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "manifest_unreadable"
 
 
 def test_project_adapter_revalidates_portable_manifest_identity(tmp_path: Path) -> None:
@@ -1019,7 +1039,8 @@ def test_project_adapter_reports_invalid_manifest_schema_version_as_blocked_with
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "manifest_unreadable"
     with pytest.raises(ArtifactManifestError):
         manifest.register(key, artifact_path="episode.json", basis=basis)
     assert manifest_path.read_bytes() == malformed
@@ -1043,7 +1064,8 @@ def test_project_adapter_reports_oversized_manifest_integer_as_blocked_without_r
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "manifest_unreadable"
     assert manifest_path.read_bytes() == malformed
 
 
@@ -1077,7 +1099,8 @@ def test_project_adapter_reports_recursive_encoded_key_as_blocked_without_reset(
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "manifest_unreadable"
     assert manifest_path.read_bytes() == malformed
 
 
@@ -1113,7 +1136,8 @@ def test_project_adapter_reports_duplicate_manifest_fields_as_blocked_without_re
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "manifest_unreadable"
     with pytest.raises(ArtifactManifestError):
         manifest.register(key, artifact_path="episode.json", basis=basis)
     assert manifest_path.read_bytes() == malformed
@@ -1133,7 +1157,8 @@ def test_project_adapter_reports_excessive_manifest_nesting_as_blocked_without_r
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "manifest_unreadable"
     with pytest.raises(ArtifactManifestError):
         manifest.register(key, artifact_path="episode.json", basis=basis)
     assert manifest_path.read_bytes() == malformed

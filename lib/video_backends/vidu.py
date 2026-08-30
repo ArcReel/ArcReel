@@ -334,7 +334,8 @@ class ViduVideoBackend:
                 refs = refs[:_MAX_REFERENCE_IMAGES]
             body["images"] = [image_to_data_uri(p) for p in refs]
         elif endpoint == "/start-end2video":
-            assert request.start_image is not None and request.end_image is not None
+            assert request.start_image is not None
+            assert request.end_image is not None
             body["images"] = [
                 image_to_data_uri(Path(request.start_image)),
                 image_to_data_uri(Path(request.end_image)),

@@ -16,7 +16,7 @@ from tests.fakes import FakeSDKClient
 SDK_ID = "sdk-e2e-1"
 
 
-@pytest.fixture()
+@pytest.fixture
 async def manager(tmp_path, file_db_factory):
     return SessionManager(
         project_root=tmp_path,

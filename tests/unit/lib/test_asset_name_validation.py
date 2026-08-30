@@ -78,7 +78,7 @@ class TestResolveAssetKey:
         ],
     )
     def test_illegal_names_rejected(self, bad):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"含非法字符|不能为空或仅含空白字符|必须是字符串"):
             validate_asset_name(bad)
 
     @pytest.mark.parametrize(
@@ -108,7 +108,7 @@ class TestResolveAssetKey:
     def test_windows_unsafe_names_rejected(self, bad):
         """名称会拼进文件名，Windows 上保留字符 / 控制字符 / 尾随点 / 保留设备名
         会"校验通过但写盘失败"；项目须可跨平台迁移，所有平台统一拒绝。"""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"含非法字符|是 Windows 保留设备名|不能以点结尾"):
             validate_asset_name(bad)
 
     def test_mention_delimiter_rejected(self):
@@ -140,16 +140,16 @@ def demo_pm(tmp_path):
 
 class TestProjectManagerCreationEntryPoints:
     def test_add_character_rejects_slash(self, demo_pm):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"含非法字符"):
             demo_pm.add_character("demo", "李白/诗人", "desc")
         assert "李白/诗人" not in demo_pm.load_project("demo")["characters"]
 
     def test_add_project_character_rejects_slash(self, demo_pm):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"含非法字符"):
             demo_pm.add_project_character("demo", "李白/诗人", "desc")
 
     def test_add_batch_rejects_slash(self, demo_pm):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"含非法字符"):
             demo_pm.add_scenes_batch("demo", {"庙/宇": {"description": "d"}})
         assert "庙/宇" not in demo_pm.load_project("demo").get("scenes", {})
 
@@ -160,7 +160,7 @@ class TestProjectManagerCreationEntryPoints:
         assert "庙宇" not in demo_pm.load_project("demo").get("scenes", {})
 
     def test_upsert_assets_rejects_slash(self, demo_pm):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"props: 资产名称 .+ 含非法字符"):
             demo_pm.upsert_assets("demo", "props", {"玉/佩": {"description": "d"}})
         assert "玉/佩" not in demo_pm.load_project("demo").get("props", {})
 

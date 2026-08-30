@@ -95,7 +95,7 @@ def _profile_env(tmp_path_factory):
         os.environ["ARCREEL_PROFILE_DIR"] = previous
 
 
-@pytest.fixture()
+@pytest.fixture
 def fd_count():
     """Return a callable that reports the current process file-descriptor count.
 
@@ -177,7 +177,7 @@ def _register_models() -> None:
 
 
 @asynccontextmanager
-async def test_engine(*, dialect_aware: bool = True, file_path: Path | None = None) -> AsyncIterator[AsyncEngine]:
+async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None = None) -> AsyncIterator[AsyncEngine]:
     """DB fixture 的 engine 构造点，唯一例外是 `async_session` 的 PG 分支。
 
     那条分支绑定 CI job 已 `alembic upgrade head` 建好的 public schema，隔离原语是外层
@@ -232,14 +232,14 @@ async def test_engine(*, dialect_aware: bool = True, file_path: Path | None = No
         await engine.dispose()
 
 
-@pytest.fixture()
+@pytest.fixture
 async def db_engine() -> AsyncIterator[AsyncEngine]:
     """内存 SQLite engine —— models / repositories 单测的共享入口。"""
-    async with test_engine(dialect_aware=False) as engine:
+    async with make_test_engine(dialect_aware=False) as engine:
         yield engine
 
 
-@pytest.fixture()
+@pytest.fixture
 async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
     """``db_engine`` 上的 AsyncSession。"""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -247,18 +247,18 @@ async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
         yield session
 
 
-@pytest.fixture()
+@pytest.fixture
 async def file_db_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """文件 SQLite + NullPool 的 factory —— 需要独立连接的并发用例用它。
 
     与 ``file_session_factory`` 的差别只在不带 `uses_db`：unit 档的并发用例
     不该被拉进 postgres-compat 选集。
     """
-    async with test_engine(dialect_aware=False, file_path=tmp_path / "concurrency.db") as engine:
+    async with make_test_engine(dialect_aware=False, file_path=tmp_path / "concurrency.db") as engine:
         yield async_sessionmaker(engine, expire_on_commit=False)
 
 
-@pytest.fixture()
+@pytest.fixture
 async def db_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """``db_engine`` 上的 session factory。"""
     return async_sessionmaker(db_engine, expire_on_commit=False)
@@ -267,14 +267,14 @@ async def db_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]
 @pytest.fixture
 async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """方言敏感的 session factory：PG 下走 per-test schema，否则内存 SQLite。"""
-    async with test_engine() as engine:
+    async with make_test_engine() as engine:
         yield async_sessionmaker(engine, expire_on_commit=False)
 
 
 @pytest.fixture
 async def concurrent_session_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """方言敏感且允许独立连接：PG 走真实 schema，本地 SQLite 走 WAL 文件库。"""
-    async with test_engine(file_path=tmp_path / "concurrency-aware.db") as engine:
+    async with make_test_engine(file_path=tmp_path / "concurrency-aware.db") as engine:
         yield async_sessionmaker(engine, expire_on_commit=False)
 
 
@@ -288,7 +288,7 @@ async def file_session_factory(tmp_path: Path) -> AsyncIterator[async_sessionmak
     Always SQLite regardless of ``DATABASE_URL`` — tests that depend on this
     fixture are SQLite-specific edge cases marked ``@pytest.mark.sqlite_only``.
     """
-    async with test_engine(dialect_aware=False, file_path=tmp_path / "concurrency.db") as engine:
+    async with make_test_engine(dialect_aware=False, file_path=tmp_path / "concurrency.db") as engine:
         yield async_sessionmaker(engine, expire_on_commit=False)
 
 
@@ -297,13 +297,13 @@ async def file_session_factory(tmp_path: Path) -> AsyncIterator[async_sessionmak
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 async def meta_store(db_factory: async_sessionmaker[AsyncSession]) -> SessionMetaStore:
     """Create an async SessionMetaStore backed by in-memory SQLite."""
     return SessionMetaStore(session_factory=db_factory)
 
 
-@pytest.fixture()
+@pytest.fixture
 async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> SessionManager:
     """Create a SessionManager wired to *tmp_path* and *meta_store*."""
     return SessionManager(
@@ -411,7 +411,7 @@ def _enforce_classification_markers(items: list[pytest.Item]) -> None:
         raise pytest.UsageError("\n".join(problems))
 
 
-@pytest.fixture()
+@pytest.fixture
 async def async_session():
     """Generic AsyncSession for repository tests.
 
@@ -426,8 +426,8 @@ async def async_session():
     """
     url = os.environ.get("DATABASE_URL", "")
     if url.startswith("postgresql"):
-        # 唯一不走 `test_engine` 的分支：它绑定 CI job 已 alembic 建好的 public schema，
-        # 而 `test_engine` 建 per-test schema 并 create_all，两者的隔离原语不同。
+        # 唯一不走 `make_test_engine` 的分支：它绑定 CI job 已 alembic 建好的 public schema，
+        # 而 `make_test_engine` 建 per-test schema 并 create_all，两者的隔离原语不同。
         # Per-test engine with NullPool: avoids cross-event-loop reuse of
         # asyncpg connections (each pytest-asyncio test runs on a fresh loop).
         from sqlalchemy.pool import NullPool
@@ -451,7 +451,7 @@ async def async_session():
         return
 
     # SQLite in-memory — engine is throwaway, ORM-driven schema.
-    async with test_engine(dialect_aware=False) as engine:
+    async with make_test_engine(dialect_aware=False) as engine:
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             yield session
@@ -462,7 +462,7 @@ async def async_session():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 async def generation_queue(db_factory: async_sessionmaker[AsyncSession]):
     """Create an async GenerationQueue backed by in-memory SQLite.
 
@@ -479,7 +479,7 @@ async def generation_queue(db_factory: async_sessionmaker[AsyncSession]):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def poll_clock():
     """``bounded_poll_clock`` 的 fixture 形态：整条用例的轮询与退避等待都走假表。
 

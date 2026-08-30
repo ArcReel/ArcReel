@@ -194,7 +194,8 @@ async def test_generate_storyboards_rejects_mismatched_unit_script(fake_ctx: Too
 
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "骨架" in text and "重新拆分" in text
+    assert "骨架" in text
+    assert "重新拆分" in text
 
 
 async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) -> None:

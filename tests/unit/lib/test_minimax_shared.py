@@ -58,12 +58,12 @@ class TestApiKeyResolution:
         assert resolve_minimax_api_key("  sk-abc  ") == "sk-abc"
 
     def test_missing_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"请到系统配置页填写 MiniMax API Key"):
             resolve_minimax_api_key(None)
 
     def test_blank_raises(self):
         # 不走 env fallback：缺失即明确报错
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"请到系统配置页填写 MiniMax API Key"):
             resolve_minimax_api_key("   ")
 
 

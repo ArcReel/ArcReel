@@ -15,14 +15,14 @@ from lib.image_backends.base import ImageCapability, ImageGenerationRequest, Ref
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_rate_limiter():
     rl = MagicMock()
     rl.acquire_async = AsyncMock()
     return rl
 
 
-@pytest.fixture()
+@pytest.fixture
 def _patch_genai():
     """Patch google.genai so GeminiImageBackend can be imported without real SDK."""
     mock_genai = MagicMock()
@@ -39,7 +39,7 @@ def _patch_genai():
         yield mock_genai, mock_types
 
 
-@pytest.fixture()
+@pytest.fixture
 def backend_aistudio(fake_rate_limiter, _patch_genai):
     from lib.image_backends.gemini import GeminiImageBackend
 
@@ -50,7 +50,7 @@ def backend_aistudio(fake_rate_limiter, _patch_genai):
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def backend_vertex(fake_rate_limiter, _patch_genai):
     """Create a Vertex backend, patching credential loading."""
     mock_sa = MagicMock()

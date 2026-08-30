@@ -161,7 +161,8 @@ class TestPromptBuildersScript:
         assert "林清" in rendered
         assert "123" not in rendered
         # 所有动态文本经 _neutralize_tags 全角化：渲染结果不残留 ASCII 尖括号，标签序列被中和
-        assert "<" not in rendered and ">" not in rendered
+        assert "<" not in rendered
+        assert ">" not in rendered
         assert "＜shots＞" in rendered
         assert "＜script＞" in rendered
 
@@ -182,7 +183,8 @@ class TestPromptBuildersScript:
         assert "角色 [无]" in rendered
         assert "场景 [无]" in rendered
         assert "道具 [无]" in rendered
-        assert "林清" not in rendered and "林、清" not in rendered
+        assert "林清" not in rendered
+        assert "林、清" not in rendered
         # 非 list utterances 不渲染口播块
         assert "口播" not in rendered
 
@@ -542,7 +544,8 @@ class TestPromptAuthoringPromptGuards:
                 supported_durations=[4, 6, 8],
             )
         assert "任务类型触发词" in text
-        assert "改成" in text and "延长" in text
+        assert "改成" in text
+        assert "延长" in text
 
     def test_drama_omits_asset_block_without_assets(self):
         """兼容旧调用：不传资产参数时 drama prompt_authoring 不渲染资产块与取材注记。"""
@@ -588,7 +591,7 @@ class TestBuildNarrationSplitPrompt:
     def test_empty_supported_durations_raises(self):
         import pytest
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"supported_durations 不能为空"):
             self._prompt(supported_durations=[])
 
     def test_novel_text_verbatim_instruction(self):

@@ -217,10 +217,10 @@ def test_storyboard_text_basis_tracks_the_style_sent_to_the_request(tmp_path: Pa
 
 @pytest.mark.parametrize(
     "image_prompt",
-    (
+    [
         "Style: 手绘\n\n阿黎站在雨中",
         "Visual style: 柔光\n\n阿黎站在雨中",
-    ),
+    ],
 )
 def test_preformatted_storyboard_prompt_still_consumes_project_style_inputs(image_prompt: str) -> None:
     from lib.prompt_builders import build_storyboard_prompt
@@ -622,7 +622,7 @@ def test_reference_video_visual_basis_tracks_request_asset_identity_order_and_by
     ],
 )
 def test_reference_video_visual_basis_requires_canonical_video_unit(unit: dict[str, object]) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"unit\.(text|unit_id) must be a"):
         build_reference_video_artifact_visual_basis(
             unit=unit,
             request_assets=(),

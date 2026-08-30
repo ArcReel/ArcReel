@@ -568,8 +568,10 @@ def test_bound_reason_preserves_scalar_param_types():
 
     assert len(bounded) <= 2000
     params = json.loads(bounded.split("] ", 1)[1])
-    assert params["retries"] == 3 and isinstance(params["retries"], int)
-    assert params["ratio"] == 1.5 and isinstance(params["ratio"], float)
+    assert params["retries"] == 3
+    assert isinstance(params["retries"], int)
+    assert params["ratio"] == 1.5
+    assert isinstance(params["ratio"], float)
     assert params["expired"] is True
     assert params["note"] is None
     # 超长的那个仍被收窄。

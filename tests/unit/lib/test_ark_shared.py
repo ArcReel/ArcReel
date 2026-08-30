@@ -45,11 +45,11 @@ class TestApiKeyResolution:
         assert resolve_ark_api_key("  sk-abc  ") == "sk-abc"
 
     def test_missing_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"请到系统配置页填写 Ark API Key"):
             resolve_ark_api_key(None)
 
     def test_blank_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"请到系统配置页填写 Ark API Key"):
             resolve_ark_api_key("   ")
 
 

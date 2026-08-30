@@ -21,7 +21,8 @@ def test_templates_count_and_categories():
 def test_template_ids_unique_and_slug_shaped():
     for tpl_id, data in STYLE_TEMPLATES.items():
         assert tpl_id.startswith(("live_", "anim_")), tpl_id
-        assert "prompt" in data and data["prompt"].strip()
+        assert "prompt" in data
+        assert data["prompt"].strip()
         assert data["category"] in ("live", "anim")
 
 

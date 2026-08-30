@@ -66,8 +66,11 @@ class TestDraftAccumulator:
         draft.apply_stream_event(_message_start())
         d1 = draft.apply_stream_event(_text_delta("你"))
         d2 = draft.apply_stream_event(_text_delta("好"))
-        assert d1 is not None and d1["delta_type"] == "text_delta" and d1["text"] == "你"
-        assert d2 is not None and d2["rev"] > d1["rev"]
+        assert d1 is not None
+        assert d1["delta_type"] == "text_delta"
+        assert d1["text"] == "你"
+        assert d2 is not None
+        assert d2["rev"] > d1["rev"]
 
         snapshot = draft.snapshot()
         assert snapshot is not None
@@ -186,7 +189,8 @@ class TestDraftAccumulator:
         d1 = draft.apply_stream_event(_text_delta("a"))
         draft.apply_stream_event(_message_start("msg_02"))
         d2 = draft.apply_stream_event(_text_delta("b"))
-        assert d1 is not None and d2 is not None
+        assert d1 is not None
+        assert d2 is not None
         assert d2["rev"] > d1["rev"]
 
 

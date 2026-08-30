@@ -87,7 +87,7 @@ def test_canonical_json_accepts_non_finite_floats_by_default() -> None:
 
 
 def test_canonical_json_rejects_non_finite_floats_when_strict() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"Out of range float values are not JSON compliant"):
         canonical_json_digest({"value": float("nan")}, allow_nan=False)
 
 

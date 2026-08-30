@@ -135,11 +135,14 @@ class TestRegistry:
         s2v = ENDPOINT_REGISTRY["minimax-s2v-01"].video_caps_for_model
         hailuo = ENDPOINT_REGISTRY["minimax-hailuo-v1"].video_caps_for_model
         fast = ENDPOINT_REGISTRY["minimax-hailuo-v1-fast"].video_caps_for_model
-        assert s2v is not None and s2v("S2V-01").max_reference_images == 1
-        assert hailuo is not None and hailuo("MiniMax-Hailuo-2.3").first_frame is True
+        assert s2v is not None
+        assert s2v("S2V-01").max_reference_images == 1
+        assert hailuo is not None
+        assert hailuo("MiniMax-Hailuo-2.3").first_frame is True
         # Fast 与 2.3 只差这一位：首帧必需 ⇒ text_to_video 推导为 False。
         assert hailuo("MiniMax-Hailuo-2.3").text_to_video is True
-        assert fast is not None and fast("MiniMax-Hailuo-2.3-Fast").text_to_video is False
+        assert fast is not None
+        assert fast("MiniMax-Hailuo-2.3-Fast").text_to_video is False
 
     def test_kling_caps_fn_reads_per_model_limit_without_client(self):
         """kling-video 的 caps_fn 是纯函数：v3-omni / video-o1 多图主体 R2V max_ref=4，turbo 等其余档
@@ -260,7 +263,7 @@ class TestHelpers:
         assert endpoint_to_media_type("gemini-image") == "image"
 
     def test_endpoint_to_media_type_unknown_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"unknown endpoint"):
             endpoint_to_media_type("nope")
 
     def test_list_endpoints_by_media_type(self):
@@ -288,7 +291,7 @@ class TestHelpers:
 
 class TestInferEndpoint:
     @pytest.mark.parametrize(
-        "model_id,discovery_format,expected",
+        ("model_id", "discovery_format", "expected"),
         [
             # ── content-first 纠偏（中转站普遍 discovery_format="openai" 却夹带原生 id）──
             ("gemini-2.5-flash", "openai", "gemini-generate"),  # 不再被错推到 openai-chat
@@ -468,7 +471,7 @@ class TestInferEndpoint:
         assert infer_endpoint(model_id, discovery_format) == expected
 
     @pytest.mark.parametrize(
-        "model_id,discovery_format",
+        ("model_id", "discovery_format"),
         [
             ("seedance-1.0", "openai"),
             ("viduq3-turbo", "openai"),
@@ -520,7 +523,7 @@ def test_existing_image_endpoints_have_full_capabilities():
     assert ENDPOINT_REGISTRY["openai-chat"].image_capabilities is None
     assert endpoint_to_image_capabilities("openai-images") == full
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"is not an image endpoint"):
         endpoint_to_image_capabilities("openai-chat")
 
     # Verify endpoint_spec_to_dict serializes capabilities to sorted list[str]

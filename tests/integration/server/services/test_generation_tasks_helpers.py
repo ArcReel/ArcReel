@@ -46,11 +46,11 @@ class TestGenerationTasks:
             f"Visual style: cinematic\n\n{image_prompt_to_yaml(structured_input, 'Anime')}"
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"image_prompt\.scene must be a non-empty string"):
             generation_tasks._normalize_storyboard_prompt({"scene": ""}, "Anime")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"image_prompt must not be empty"):
             generation_tasks._normalize_storyboard_prompt("", "Anime")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"image_prompt must not be empty"):
             generation_tasks._normalize_storyboard_prompt("   ", "Anime")

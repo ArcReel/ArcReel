@@ -100,7 +100,7 @@ def test_derive_endpoints(user_url: str, expected: AnthropicEndpoints) -> None:
 
 
 def test_empty_url_raises() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"user_url is empty"):
         derive_anthropic_endpoints("")
 
 

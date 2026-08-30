@@ -132,7 +132,8 @@ class TestNumFramesAndSize:
 
         width, height = _resolve_size("720p", "9:16")
         assert (width, height) == (720, 1280)
-        assert width % 8 == 0 and height % 8 == 0
+        assert width % 8 == 0
+        assert height % 8 == 0
 
 
 class TestDurationCoercion:

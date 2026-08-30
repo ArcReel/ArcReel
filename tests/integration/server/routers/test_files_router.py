@@ -894,7 +894,7 @@ class TestFilesRouter:
 
     def test_upload_spec_host_fields_must_be_paired(self):
         """登记宿主约束却漏配 404 文案时，构造期即失败，而非拒收时取到空翻译 key。"""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"host_bucket 与 host_not_found_key 必须成对登记"):
             files.UploadSpec(
                 allowed_exts=(".png",),
                 subdir=("x",),
@@ -903,7 +903,7 @@ class TestFilesRouter:
                 host_bucket="products",
             )
         # 反方向同样是配置错误：登记了文案却没有宿主约束，该文案永远取不到
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"host_bucket 与 host_not_found_key 必须成对登记"):
             files.UploadSpec(
                 allowed_exts=(".png",),
                 subdir=("x",),
@@ -913,7 +913,7 @@ class TestFilesRouter:
             )
 
         # 参考音频的元数据字段是文件唯一指针；清理旧文件的类型不能漏掉宿主存在性约束。
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"tracks_stale_audio 必须登记宿主约束"):
             files.UploadSpec(
                 allowed_exts=(".wav",),
                 subdir=("x",),
@@ -1435,7 +1435,8 @@ class TestSourceMultiFormatUpload:
             assert resp.status_code == 200, resp.text
             body = resp.json()
             assert body["normalized"] is True
-            assert body["used_encoding"] and body["used_encoding"].lower() != "utf-8"
+            assert body["used_encoding"]
+            assert body["used_encoding"].lower() != "utf-8"
             assert body["original_kept"] is True
 
     def test_upload_source_doc_rejected_with_400(self, tmp_path, monkeypatch):

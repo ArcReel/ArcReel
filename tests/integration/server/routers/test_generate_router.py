@@ -1535,7 +1535,8 @@ class TestNoServerPathLeak:
 
     def _assert_no_path(self, resp) -> None:
         detail = resp.json()["detail"]
-        assert isinstance(detail, str) and detail
+        assert isinstance(detail, str)
+        assert detail
         for sentinel in self._PATH_SENTINELS:
             assert sentinel not in detail, f"detail 泄露路径片段 {sentinel!r}: {detail}"
 

@@ -134,13 +134,15 @@ class TestDimensions:
         # 自定义像素 16:9 的 1920*1080 只贡献 min=1080 当短边，比例仍由项目 aspect_ratio=9:16 决定
         size = await self._size(tmp_path, aspect_ratio="9:16", image_size="1920*1080")
         w, h = (int(v) for v in size.split("x"))
-        assert w * 16 == h * 9 and w < h
+        assert w * 16 == h * 9
+        assert w < h
 
     @pytest.mark.parametrize("aspect", ["9:16", "16:9", "1:1", "3:4", "4:3", "2:3", "3:2"])
     async def test_dims_multiple_of_8(self, tmp_path: Path, aspect: str):
         size = await self._size(tmp_path, aspect_ratio=aspect)
         w, h = (int(v) for v in size.split("x"))
-        assert w % 8 == 0 and h % 8 == 0
+        assert w % 8 == 0
+        assert h % 8 == 0
         assert max(w, h) <= 2048
 
 

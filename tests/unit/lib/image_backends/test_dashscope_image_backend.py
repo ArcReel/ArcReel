@@ -142,7 +142,8 @@ class TestTextToImage:
         # min(1920,1080)=1080 → 9:16 精确（t=8）→ 1152*2048，而非输入的 16:9
         size = _sent_size(route)
         w, h = (int(x) for x in size.split("*"))
-        assert w * 16 == h * 9 and w < h
+        assert w * 16 == h * 9
+        assert w < h
         assert size == "1152*2048"
 
     async def test_low_tier_translated_to_aspect_pixels(self, tmp_path: Path):
@@ -185,7 +186,8 @@ class TestTextToImage:
 
         size = _sent_size(route)
         w, h = (int(x) for x in size.split("*"))
-        assert w * 16 == h * 9 and w < h  # 精确 9:16，非输入的 16:9
+        assert w * 16 == h * 9
+        assert w < h
         assert size == "1440*2560"
 
 
@@ -206,7 +208,8 @@ class TestEditSeriesSize:
 
         size = _sent_size(route)
         w, h = (int(x) for x in size.split("*"))
-        assert w * 16 == h * 9 and max(w, h) <= 2048
+        assert w * 16 == h * 9
+        assert max(w, h) <= 2048
         assert size == "1152*2048"
 
 

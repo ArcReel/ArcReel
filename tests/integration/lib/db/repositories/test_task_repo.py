@@ -94,7 +94,7 @@ class TestTaskRepository:
         await repo.persist_provider_job_id(task["task_id"], "job-43", endpoint="ce-1")
         await repo.mark_failed(task["task_id"], encode_failure("artifact_download_failed", detail="403"))
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"task is not eligible for artifact download retry"):
             await repo.retry_artifact_download(task["task_id"])
 
         assert (await repo.get(task["task_id"]))["status"] == "failed"
@@ -182,7 +182,8 @@ class TestTaskRepository:
             script_file="ep1.json",
         )
         claimed = await repo.claim_next("video")
-        assert claimed is not None and claimed["task_id"] == finished["task_id"]
+        assert claimed is not None
+        assert claimed["task_id"] == finished["task_id"]
         await repo.mark_succeeded(finished["task_id"], {"file": "unit2.mp4"})
 
         active = await repo.enqueue(

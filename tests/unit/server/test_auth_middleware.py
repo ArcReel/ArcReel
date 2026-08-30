@@ -31,7 +31,7 @@ def _auth_env():
     auth_module._cached_password_hash = None
 
 
-@pytest.fixture()
+@pytest.fixture
 def middleware_client():
     """创建使用真实 app 的测试客户端。"""
     from server.app import app

@@ -242,7 +242,7 @@ class _FakeQueue:
         return 1
 
 
-@pytest.fixture()
+@pytest.fixture
 async def worker_db(db_factory, monkeypatch):
     """把 worker 直接触达的全局 session factory 换成内存库。
 
@@ -283,7 +283,7 @@ async def _task_status(factory, task_id: str) -> str | None:
         return None if row is None else row.status
 
 
-@pytest.fixture()
+@pytest.fixture
 def staged_project(tmp_path, monkeypatch) -> Path:
     """把 worker 的项目定位指向 tmp 项目，让 staging 清理落在真实文件系统上。"""
     project_path = tmp_path / "demo"
@@ -327,8 +327,8 @@ def _patch_pm(monkeypatch, project: dict | None):
     )
 
 
-@pytest.fixture()
-async def _patch_empty_db(db_factory, monkeypatch):
+@pytest.fixture
+async def patch_empty_db(db_factory, monkeypatch):
     """把全局 async_session_factory 换成空内存库，隔离掉真实数据库。
 
     无 project_name 的 _extract_provider 会用 lib.db.async_session_factory 经 ConfigResolver
@@ -341,7 +341,8 @@ async def _patch_empty_db(db_factory, monkeypatch):
 class TestExtractProvider:
     """_extract_provider 是解析链的薄投影：按 task_type 派发，取 .provider_id。"""
 
-    async def test_video_payload_identity_is_advisory_only(self, _patch_empty_db):
+    @pytest.mark.usefixtures("patch_empty_db")
+    async def test_video_payload_identity_is_advisory_only(self):
         """分镜视频认领忽略 enqueue payload 的旧身份；无当前配置时只回退限流默认。"""
         task = {"payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"}, "task_type": "video"}
         assert await _extract_provider(task) == DEFAULT_PROVIDER
@@ -351,10 +352,11 @@ class TestExtractProvider:
         task = {"payload": {"image_provider": "gemini-vertex"}, "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
 
-    async def test_default_when_unresolvable(self, _patch_empty_db):
+    @pytest.mark.usefixtures("patch_empty_db")
+    async def test_default_when_unresolvable(self):
         """无 project、无 payload、全局未配供应商 → 回退 DEFAULT_PROVIDER（仅供限流）。
 
-        必须隔离全局 DB（_patch_empty_db）——否则会读真实 dev 库，本机配了其它 ready 供应商时
+        必须隔离全局 DB（patch_empty_db）——否则会读真实 dev 库，本机配了其它 ready 供应商时
         auto-resolve 会返回该供应商而非 DEFAULT_PROVIDER，断言被本机环境污染。
         """
         task = {"payload": {}}
@@ -496,7 +498,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "minimax"
 
     async def test_queued_reference_video_reprojects_provider_after_project_edit(
-        self, tmp_path, monkeypatch, _patch_empty_db
+        self, tmp_path, monkeypatch, patch_empty_db
     ):
         """队列行只保存 advisory provider；领取/执行前按项目最新 provider/model 重新投影。"""
 
@@ -520,7 +522,7 @@ class TestExtractProvider:
                 return tmp_path
 
         monkeypatch.setattr("lib.config.resolver.get_project_manager", _PM)
-        queue = GenerationQueue(session_factory=_patch_empty_db)
+        queue = GenerationQueue(session_factory=patch_empty_db)
         enqueued = await queue.enqueue_task(
             project_name="demo",
             task_type="reference_video",
@@ -622,8 +624,8 @@ class TestExtractProviderAlignsWithExecution:
 class TestExecuteTaskPollTimeout:
     """派发时读一次全局轮询超时并写进任务字典下传；只有视频两条 lane 需要它。"""
 
-    @pytest.fixture()
-    def _patch_settings_db(self, db_factory, monkeypatch):
+    @pytest.fixture
+    def patch_settings_db(self, db_factory, monkeypatch):
         @contextlib.asynccontextmanager
         async def _safe_session_factory():
             async with db_factory() as session:
@@ -644,10 +646,10 @@ class TestExecuteTaskPollTimeout:
         return captured
 
     @pytest.mark.parametrize("task_type", ["video", "reference_video"])
-    async def test_video_lanes_carry_configured_timeout(self, _patch_settings_db, monkeypatch, task_type):
+    async def test_video_lanes_carry_configured_timeout(self, patch_settings_db, monkeypatch, task_type):
         from lib.config.service import ConfigService
 
-        async with _patch_settings_db() as session:
+        async with patch_settings_db() as session:
             await ConfigService(session).set_video_poll_timeout_seconds(7200)
             await session.commit()
 
@@ -656,13 +658,15 @@ class TestExecuteTaskPollTimeout:
 
         assert captured["video_poll_timeout_seconds"] == 7200
 
-    async def test_defaults_when_setting_absent(self, _patch_settings_db, monkeypatch):
+    @pytest.mark.usefixtures("patch_settings_db")
+    async def test_defaults_when_setting_absent(self, monkeypatch):
         captured = self._capture_dispatch(monkeypatch)
         await _execute_task({"task_type": "video"})
 
         assert captured["video_poll_timeout_seconds"] == 3600
 
-    async def test_non_video_lane_is_not_stamped(self, _patch_settings_db, monkeypatch):
+    @pytest.mark.usefixtures("patch_settings_db")
+    async def test_non_video_lane_is_not_stamped(self, monkeypatch):
         captured = self._capture_dispatch(monkeypatch)
         await _execute_task({"task_type": "storyboard"})
 
@@ -1017,7 +1021,8 @@ class TestGenerationWorker:
 
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _raise)
         await worker._process_task({"task_id": "t2"})
-        assert queue.failed and queue.failed[0][0] == "t2"
+        assert queue.failed
+        assert queue.failed[0][0] == "t2"
 
     @pytest.mark.asyncio
     async def test_reused_video_result_reaches_the_normal_succeeded_terminal_state(self, monkeypatch):
@@ -1156,7 +1161,8 @@ class TestGenerationWorker:
             _raise_script_edit_error,
         )
         await worker._process_task({"task_id": "t_script_edit"})
-        assert queue.failed and queue.failed[0] == (
+        assert queue.failed
+        assert queue.failed[0] == (
             "t_script_edit",
             '[script_edit_items_not_list] {"kind": "segments", "type_name": "dict"}',
         )
@@ -1177,7 +1183,8 @@ class TestGenerationWorker:
             _raise_unregistered,
         )
         await worker._process_task({"task_id": "t_unregistered"})
-        assert queue.failed and queue.failed[0] == ("t_unregistered", "[script_edit_error]")
+        assert queue.failed
+        assert queue.failed[0] == ("t_unregistered", "[script_edit_error]")
 
     @pytest.mark.asyncio
     async def test_process_task_script_edit_error_circular_params_falls_back(self, monkeypatch):
@@ -1200,7 +1207,8 @@ class TestGenerationWorker:
             _raise_circular_params,
         )
         await worker._process_task({"task_id": "t_circular"})
-        assert queue.failed and queue.failed[0] == ("t_circular", "[script_edit_error]")
+        assert queue.failed
+        assert queue.failed[0] == ("t_circular", "[script_edit_error]")
 
     @pytest.mark.asyncio
     async def test_process_task_cancelled_error_marks_cancelled(self, monkeypatch):
@@ -1214,7 +1222,8 @@ class TestGenerationWorker:
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _cancelled)
         with pytest.raises(asyncio.CancelledError):
             await worker._process_task({"task_id": "tc"})
-        assert queue.cancelled and queue.cancelled[0][0] == "tc"
+        assert queue.cancelled
+        assert queue.cancelled[0][0] == "tc"
 
     @pytest.mark.asyncio
     async def test_process_task_zero_rows_succeeded_falls_through_to_cancelled(self, monkeypatch):
@@ -1229,7 +1238,8 @@ class TestGenerationWorker:
         await worker._process_task({"task_id": "t0rows"})
         # mark_succeeded 调过但返回 0 rows → mark_cancelled 兜底
         assert queue.succeeded == [("t0rows", {"result": "ok"})]
-        assert queue.cancelled and queue.cancelled[0][0] == "t0rows"
+        assert queue.cancelled
+        assert queue.cancelled[0][0] == "t0rows"
 
     @pytest.mark.asyncio
     async def test_request_cancel_signals_inflight_task(self):
@@ -1269,7 +1279,8 @@ class TestGenerationWorker:
         await worker._drain_finished_tasks()
         assert worker._slots.occupied("test", "video") == 0
         # 子任务来不及自落终态时，drain 端兜底 mark_cancelled。
-        assert queue.cancelled and queue.cancelled[0][0] == "tid"
+        assert queue.cancelled
+        assert queue.cancelled[0][0] == "tid"
 
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_drains_success_and_failure(self):
@@ -1351,9 +1362,11 @@ class TestGenerationWorker:
         await asyncio.sleep(0.1)
 
         # _process_task 没机会 mark（cancel 在 try 之前）→ drain 端兜底 mark_cancelled
-        assert queue.cancelled and queue.cancelled[0][0] == "tid"
+        assert queue.cancelled
+        assert queue.cancelled[0][0] == "tid"
         # 主循环仍存活
-        assert worker._main_task is not None and not worker._main_task.done()
+        assert worker._main_task is not None
+        assert not worker._main_task.done()
 
         await asyncio.wait_for(worker.stop(), timeout=2.0)
 
@@ -1386,9 +1399,11 @@ class TestGenerationWorker:
         await asyncio.sleep(0.1)  # 跨多个 loop tick：取消落地 + drain
 
         # 任务被正确 mark_cancelled
-        assert queue.cancelled and queue.cancelled[0][0] == "tid"
+        assert queue.cancelled
+        assert queue.cancelled[0][0] == "tid"
         # 主循环吸收 CancelledError 后仍存活
-        assert worker._main_task is not None and not worker._main_task.done()
+        assert worker._main_task is not None
+        assert not worker._main_task.done()
 
         await asyncio.wait_for(worker.stop(), timeout=2.0)
         assert queue.released
@@ -1448,7 +1463,8 @@ class TestGenerationWorker:
         await asyncio.sleep(0.1)
 
         # 主循环存活 + 三个任务都 mark_cancelled
-        assert worker._main_task is not None and not worker._main_task.done()
+        assert worker._main_task is not None
+        assert not worker._main_task.done()
         assert set(vid_ids) <= {c[0] for c in queue.cancelled}
 
         # 取消后仍能 claim 并 dispatch 新任务
@@ -1489,8 +1505,10 @@ class TestGenerationWorker:
         assert worker.request_cancel("tid") is True
         await asyncio.sleep(0.05)
         # 取消阶段：主循环仍存活
-        assert worker._main_task is not None and not worker._main_task.done()
-        assert queue.cancelled and queue.cancelled[0][0] == "tid"
+        assert worker._main_task is not None
+        assert not worker._main_task.done()
+        assert queue.cancelled
+        assert queue.cancelled[0][0] == "tid"
 
         # 显式 stop → worker 正常退出
         await asyncio.wait_for(worker.stop(), timeout=2.0)
@@ -1515,7 +1533,8 @@ class TestGenerationWorker:
         ]
         worker = GenerationWorker(queue=queue)
         await worker._handle_orphan_tasks_on_start()
-        assert queue.cancelled and queue.cancelled[0][0] == "orphan-cancelling"
+        assert queue.cancelled
+        assert queue.cancelled[0][0] == "orphan-cancelling"
 
     @pytest.mark.asyncio
     async def test_video_orphan_cleanup_removes_provider_media_and_task_output(self, tmp_path, monkeypatch):
@@ -1566,7 +1585,8 @@ class TestGenerationWorker:
         ]
         worker = GenerationWorker(queue=queue)
         await worker._handle_orphan_tasks_on_start()
-        assert queue.failed and queue.failed[0][0] == "orphan-lost"
+        assert queue.failed
+        assert queue.failed[0][0] == "orphan-lost"
         assert "[restart_lost_no_job_id]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
@@ -1915,7 +1935,8 @@ class TestGenerationWorker:
         await worker._handle_orphan_tasks_on_start()
 
         assert await _task_status(worker_db, "img-orphan") == "running", "image 孤儿绝不能被回队重跑"
-        assert queue.failed and queue.failed[0][0] == "img-orphan"
+        assert queue.failed
+        assert queue.failed[0][0] == "img-orphan"
         assert "[restart_lost_image]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
@@ -1931,7 +1952,8 @@ class TestGenerationWorker:
         await worker._handle_orphan_tasks_on_start()
 
         assert await _task_status(worker_db, "grok-orphan") == "running", "不可 resume 的视频孤儿绝不能被回队重跑"
-        assert queue.failed and queue.failed[0][0] == "grok-orphan"
+        assert queue.failed
+        assert queue.failed[0][0] == "grok-orphan"
         assert "[resume_unsupported_provider]" in queue.failed[0][1]
         assert PROVIDER_GROK in queue.failed[0][1]
 
@@ -1994,7 +2016,8 @@ class TestGenerationWorker:
         assert await _task_status(worker_db, "ghost-orphan") == "running"
         assert resumed == []
         assert worker._orphan_dispatcher_task is None
-        assert queue.failed and queue.failed[0][0] == "ghost-orphan"
+        assert queue.failed
+        assert queue.failed[0][0] == "ghost-orphan"
         assert "[resume_unsupported_provider]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
@@ -2104,7 +2127,8 @@ class TestGenerationWorker:
         # 任一时刻 inflight 都不超过容量 2
         assert _inflight() <= 2
         # 每次 promote 进 _process_resume_task 时的 inflight 快照都 ≤ 容量（核心回归点）
-        assert snapshots and all(s <= 2 for s in snapshots), f"inflight 快照越过容量上限: {snapshots}"
+        assert snapshots, "未采集到 inflight 快照"
+        assert all(s <= 2 for s in snapshots), f"inflight 快照越过容量上限: {snapshots}"
 
         # 收尾：释放所有 gate，等 dispatcher 结束
         for gate in gates.values():
@@ -2196,7 +2220,8 @@ class TestGenerationWorker:
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _expire)
         task = _storyboard_resume_task("exp", job_id="x")
         await worker._process_resume_task(task)
-        assert queue.failed and queue.failed[0][0] == "exp"
+        assert queue.failed
+        assert queue.failed[0][0] == "exp"
         assert "[resume_expired_detail]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
@@ -2218,7 +2243,8 @@ class TestGenerationWorker:
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _changed)
         task = _storyboard_resume_task("ep", provider_id="custom-7", job_id="x")
         await worker._process_resume_task(task)
-        assert queue.failed and queue.failed[0][0] == "ep"
+        assert queue.failed
+        assert queue.failed[0][0] == "ep"
         assert "[resume_endpoint_changed_detail]" in queue.failed[0][1]
         # 两侧 endpoint 都进错误详情，用户能归因到「接口被换过」而非泛化失败
         assert "openai-video" in queue.failed[0][1]
@@ -2236,7 +2262,8 @@ class TestGenerationWorker:
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _unsup)
         task = _storyboard_resume_task("uns", provider_id="vidu", job_id="x")
         await worker._process_resume_task(task)
-        assert queue.failed and queue.failed[0][0] == "uns"
+        assert queue.failed
+        assert queue.failed[0][0] == "uns"
         assert "[resume_unsupported_detail]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
@@ -2251,7 +2278,8 @@ class TestGenerationWorker:
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _boom)
         task = _storyboard_resume_task("boom", job_id="x")
         await worker._process_resume_task(task)
-        assert queue.failed and queue.failed[0][0] == "boom"
+        assert queue.failed
+        assert queue.failed[0][0] == "boom"
         # 无 [resume_*] 前缀
         assert not queue.failed[0][1].startswith("[resume_")
 
@@ -2281,7 +2309,8 @@ class TestGenerationWorker:
             "script_file": "scripts/episode_1.json",
         }
         await worker._process_resume_task(task)
-        assert queue.failed and queue.failed[0] == (
+        assert queue.failed
+        assert queue.failed[0] == (
             "resume_script_edit",
             "[script_edit_generated_assets_invalid]",
         )
@@ -2300,7 +2329,8 @@ class TestGenerationWorker:
         task = _storyboard_resume_task("rc", job_id="x")
         with pytest.raises(asyncio.CancelledError):
             await worker._process_resume_task(task)
-        assert queue.cancelled and queue.cancelled[0][0] == "rc"
+        assert queue.cancelled
+        assert queue.cancelled[0][0] == "rc"
 
     @pytest.mark.asyncio
     async def test_process_resume_task_no_job_id_fails_fast(self):
@@ -2316,7 +2346,8 @@ class TestGenerationWorker:
             "project_name": "demo",
         }
         await worker._process_resume_task(task)
-        assert queue.failed and queue.failed[0][0] == "no-job"
+        assert queue.failed
+        assert queue.failed[0][0] == "no-job"
         assert "[restart_lost_no_job_id]" in queue.failed[0][1]
 
 

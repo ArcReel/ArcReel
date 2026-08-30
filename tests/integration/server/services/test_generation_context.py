@@ -349,7 +349,8 @@ class TestAudioLane:
     async def test_narration_defaults_when_unset(self, patched_session_factory, project_env, fake_assemble):
         project = {"audio_backend": "dashscope/tts-model-x"}
         ctx = await resolve_generation_context("demo", None, project=project, audio=AudioLaneRequest())
-        assert isinstance(ctx.audio.narration_voice, str) and ctx.audio.narration_voice
+        assert isinstance(ctx.audio.narration_voice, str)
+        assert ctx.audio.narration_voice
         assert ctx.audio.narration_speed is None
 
     async def test_voice_catalog_snapshot_passed_through(self, patched_session_factory, project_env, monkeypatch):
@@ -431,7 +432,8 @@ class TestBackendCache:
 
         fresh = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
         assert len(built) == 2, "缓存中不得残留失效期间构造的实例，后续访问须重新构造"
-        assert stale is built[0] and fresh is built[1]
+        assert stale is built[0]
+        assert fresh is built[1]
         assert fresh is not stale
 
     async def test_concurrent_same_key_constructs_once(self, monkeypatch):
@@ -499,13 +501,15 @@ class TestBackendCache:
         stale = await leader
         stale_from_follower = await follower
 
-        assert stale is built[0] and stale_from_follower is built[1]
+        assert stale is built[0]
+        assert stale_from_follower is built[1]
         assert stale is not stale_from_follower
 
         fresh = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
         assert len(built) == 3, "leader 与 follower 的旧代际实例均不得写回，后续访问须重新构造"
         assert fresh is built[2]
-        assert fresh is not stale and fresh is not stale_from_follower
+        assert fresh is not stale
+        assert fresh is not stale_from_follower
 
 
 class TestValueObjectAssembly:

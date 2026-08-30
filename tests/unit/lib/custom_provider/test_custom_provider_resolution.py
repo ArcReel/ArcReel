@@ -145,7 +145,7 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "endpoint, model_id, expected_max_refs, generation_mode",
+    ("endpoint", "model_id", "expected_max_refs", "generation_mode"),
     [
         # 显式 int：直接用 endpoint cap（行为零变化）
         ("openai-video", "vid-model", 1, "storyboard"),

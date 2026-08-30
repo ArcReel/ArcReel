@@ -22,7 +22,7 @@ class TestFileToDataUri:
         assert file_to_data_uri(path, "application/octet-stream") == f"data:application/octet-stream;base64,{expected}"
 
     def test_unreadable_file_raises_oserror(self, tmp_path: Path):
-        with pytest.raises(OSError):
+        with pytest.raises(FileNotFoundError, match=r"No such file or directory"):
             file_to_data_uri(tmp_path / "missing.bin", "image/png")
 
 

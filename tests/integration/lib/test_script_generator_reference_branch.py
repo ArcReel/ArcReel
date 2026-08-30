@@ -426,7 +426,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
 
 
 @pytest.mark.parametrize(
-    "caps, expected",
+    ("caps", "expected"),
     [
         ({"max_reference_images": 3}, 3),
         ({"max_reference_images": 1}, 1),
@@ -460,7 +460,7 @@ def test_resolve_max_refs_from_caps(tmp_path: Path, caps, expected):
 
 
 @pytest.mark.parametrize(
-    "video_backend, expected",
+    ("video_backend", "expected"),
     [
         ("grok/grok-imagine-video", 7),
         ("gemini-aistudio/veo-3.1-generate-preview", 3),
@@ -960,7 +960,8 @@ async def test_cancelled_prompt_authoring_quarantine_finishes_without_blocking_e
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(generation, timeout=1)
     assert _prompt_authoring_quarantine(reference_project).exists()
-    assert worker_threads and all(thread != caller_thread for thread in worker_threads)
+    assert worker_threads
+    assert all(thread != caller_thread for thread in worker_threads)
 
 
 @pytest.mark.asyncio
@@ -1128,7 +1129,8 @@ async def test_promote_prompt_authoring_draft_after_repair(reference_project: Pa
     out = await ScriptGenerator(reference_project).promote_reference_prompt_authoring_draft(episode=1)
 
     assert out.exists()
-    assert worker_threads and all(thread != caller_thread for thread in worker_threads)
+    assert worker_threads
+    assert all(thread != caller_thread for thread in worker_threads)
     assert not path.exists()
     data = _json.loads(out.read_text(encoding="utf-8"))
     unit = data["video_units"][0]

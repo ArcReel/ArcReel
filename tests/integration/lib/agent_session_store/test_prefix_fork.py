@@ -169,7 +169,8 @@ async def test_tool_use_and_tool_result_stay_paired(seeded):
                 issued.add(block["id"])
             elif block.get("type") == "tool_result":
                 resolved.add(block["tool_use_id"])
-    assert issued and issued == resolved
+    assert issued
+    assert issued == resolved
 
 
 async def test_subagent_metadata_entry_is_carried(seeded):

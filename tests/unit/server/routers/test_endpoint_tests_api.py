@@ -36,7 +36,7 @@ PARAMETERS = {"model": "video-x", "prompt": "纸船顺流而下", "duration_seco
 INLINE_CREDENTIALS = {"base_url": "https://relay.test", "api_key": "sk-secret-key-1234"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def trial_runs(tmp_path, db_engine) -> TrialRunManager:
     """隔离到 tmp_path 与内存库的登记处，经依赖覆盖注入。"""
     return TrialRunManager(
@@ -46,7 +46,7 @@ def trial_runs(tmp_path, db_engine) -> TrialRunManager:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def endpoint_tests_app(db_engine, trial_runs: TrialRunManager) -> FastAPI:
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
     app = FastAPI()
@@ -64,7 +64,7 @@ def endpoint_tests_app(db_engine, trial_runs: TrialRunManager) -> FastAPI:
     return app
 
 
-@pytest.fixture()
+@pytest.fixture
 def client(endpoint_tests_app: FastAPI) -> Generator[TestClient, None, None]:
     with TestClient(endpoint_tests_app) as test_client:
         yield test_client
@@ -730,7 +730,7 @@ class TestTrialRuns:
         assert fetched["extractions"]["submit"]["task_id"] == "job-42"
 
 
-@pytest.fixture()
+@pytest.fixture
 async def stored_model_row(db_engine) -> dict[str, Any]:
     """一条挂着自定义调用端点的视频模型行，供 ``model_ref`` 用例引用。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -761,7 +761,7 @@ async def stored_model_row(db_engine) -> dict[str, Any]:
         return {"provider_id": make_provider_id(provider.id), "model_id": "video-x"}
 
 
-@pytest.fixture()
+@pytest.fixture
 async def stored_minimax_config(db_engine) -> None:
     """内置 minimax 的凭证配置，供内置直连 ``model_ref`` 用例引用。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -770,7 +770,7 @@ async def stored_minimax_config(db_engine) -> None:
         await session.commit()
 
 
-@pytest.fixture()
+@pytest.fixture
 async def stored_provider_without_api_key(db_engine) -> dict[str, Any]:
     """一条没存 api_key 的供应商行，供「凭证读库缺字段」用例引用。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -786,7 +786,7 @@ async def stored_provider_without_api_key(db_engine) -> dict[str, Any]:
         return {"provider_id": make_provider_id(provider.id)}
 
 
-@pytest.fixture()
+@pytest.fixture
 async def stored_model_row_without_api_key(db_engine) -> dict[str, Any]:
     """同样的模型行，但供应商没存 api_key——定义的 auth 节非空，空凭证发不出合法请求。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -817,7 +817,7 @@ async def stored_model_row_without_api_key(db_engine) -> dict[str, Any]:
         return {"provider_id": make_provider_id(provider.id), "model_id": "video-x"}
 
 
-@pytest.fixture()
+@pytest.fixture
 async def stored_builtin_endpoint_model_row(db_engine) -> dict[str, Any]:
     """挂内置声明式端点（newapi-video）的模型行：定义随版发布，不落 custom_endpoint 表。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -841,7 +841,7 @@ async def stored_builtin_endpoint_model_row(db_engine) -> dict[str, Any]:
         return {"provider_id": make_provider_id(provider.id), "model_id": "video-nv"}
 
 
-@pytest.fixture()
+@pytest.fixture
 async def stored_model_row_without_base_url(db_engine) -> dict[str, Any]:
     """同样的模型行，但供应商没填接口地址——声明式端点的提交 URL 需要它。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -872,7 +872,7 @@ async def stored_model_row_without_base_url(db_engine) -> dict[str, Any]:
         return {"provider_id": make_provider_id(provider.id), "model_id": "video-x"}
 
 
-@pytest.fixture()
+@pytest.fixture
 async def stored_disabled_model_row(db_engine) -> dict[str, Any]:
     """一条已禁用的视频模型行，供拒绝用例引用。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -903,7 +903,7 @@ async def stored_disabled_model_row(db_engine) -> dict[str, Any]:
         return {"provider_id": make_provider_id(provider.id), "model_id": "video-x"}
 
 
-@pytest.fixture()
+@pytest.fixture
 async def stored_provider(db_engine) -> dict[str, Any]:
     """一条自定义供应商行，供「凭证读库」用例引用。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -927,4 +927,5 @@ def _drain(client: TestClient, trial_runs: TrialRunManager, run_id: str) -> None
     """
     assert client.portal is not None
     run = client.portal.call(trial_runs.wait, run_id)
-    assert run is not None and run.status.value in ("succeeded", "failed")
+    assert run is not None
+    assert run.status.value in ("succeeded", "failed")

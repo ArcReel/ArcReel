@@ -193,7 +193,8 @@ class TestSessionManagerUserInput:
                 managed.pending_user_echoes,
                 {"type": "user", "content": "你好"},
             )
-            assert claimed is not None and managed.pending_user_echoes == []
+            assert claimed is not None
+            assert managed.pending_user_echoes == []
 
             with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
                 await session_manager._mark_session_terminal(managed, "interrupted", "user interrupt")
@@ -441,7 +442,7 @@ class TestSessionManagerUserInput:
     async def test_answer_user_question_raises_for_unknown_question(self, session_manager, meta_store):
         meta, managed, _client = await _seed(session_manager, meta_store, status="running")
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match=r"未找到待回答的问题"):
                 await session_manager.answer_user_question(
                     session_id=meta.id,
                     question_id="missing-question-id",

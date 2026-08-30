@@ -402,7 +402,7 @@ class TestNormalizeProviderStatus:
     """跨厂商状态串归一：OpenAI 兼容代理会把底层厂商的状态串原样透传。"""
 
     @pytest.mark.parametrize(
-        "raw,expected",
+        ("raw", "expected"),
         [
             ("completed", ProviderJobStatus.SUCCEEDED),
             ("succeeded", ProviderJobStatus.SUCCEEDED),

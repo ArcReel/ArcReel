@@ -22,7 +22,7 @@ ALL_ASPECTS = ["9:16", "16:9", "1:1", "3:4", "4:3", "2:3", "3:2", "21:9"]
 
 
 @pytest.mark.parametrize(
-    "raw,expected",
+    ("raw", "expected"),
     [
         ("9:16", (9, 16)),
         ("16:9", (16, 9)),
@@ -55,13 +55,14 @@ def test_aspect_size_exact_ratio_and_divisible(aspect, short):
     # 比例零偏差：w/h == aw/ah ⇔ w*ah == h*aw
     assert w * ah == h * aw
     # 均被 16 整除
-    assert w % 16 == 0 and h % 16 == 0
+    assert w % 16 == 0
+    assert h % 16 == 0
     # 宽高方向与比例一致
     assert (w >= h) == (aw >= ah)
 
 
 @pytest.mark.parametrize(
-    "aspect,short,expected",
+    ("aspect", "short", "expected"),
     [
         ("9:16", 720, (720, 1280)),
         ("9:16", 1024, (1008, 1792)),
@@ -97,7 +98,7 @@ def test_aspect_size_max_long_edge_floor_keeps_min_legal():
 
 
 @pytest.mark.parametrize(
-    "aspect,expected",
+    ("aspect", "expected"),
     [
         # DashScope 标准预算 2048²=4194304：各比例最大且精确
         ("9:16", (1440, 2560)),
@@ -148,7 +149,7 @@ def test_resolution_none_returns_default():
 
 
 @pytest.mark.parametrize(
-    "tier,expected",
+    ("tier", "expected"),
     [("512px", 512), ("1K", 1024), ("2K", 1440), ("4K", 2160), ("2k", 1440), ("4K ", 2160)],
 )
 def test_resolution_tier_word(tier, expected):
@@ -156,7 +157,7 @@ def test_resolution_tier_word(tier, expected):
 
 
 @pytest.mark.parametrize(
-    "tier,expected",
+    ("tier", "expected"),
     [("480p", 480), ("720p", 720), ("1080p", 1080), ("4K", 2160), ("1080P", 1080)],
 )
 def test_resolution_video_tier_word(tier, expected):
@@ -164,7 +165,7 @@ def test_resolution_video_tier_word(tier, expected):
 
 
 @pytest.mark.parametrize(
-    "custom,expected",
+    ("custom", "expected"),
     [("1920x1080", 1080), ("1080x1920", 1080), ("2688*1536", 1536), ("1024×1024", 1024)],
 )
 def test_resolution_custom_wh_takes_min(custom, expected):

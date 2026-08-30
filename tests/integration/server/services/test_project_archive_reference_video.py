@@ -389,7 +389,8 @@ class TestProjectArchiveReferenceVideo:
 
         warnings = [item for item in result.diagnostics["warnings"] if item["code"] == "unresolved_mention"]
         assert len(warnings) == 1
-        assert "缺失场景" in warnings[0]["message"] and "缺失道具" in warnings[0]["message"]
+        assert "缺失场景" in warnings[0]["message"]
+        assert "缺失道具" in warnings[0]["message"]
         imported = json.loads(
             (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )

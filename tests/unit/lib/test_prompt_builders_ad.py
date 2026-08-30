@@ -47,7 +47,7 @@ class TestTierSelection:
         assert nearest_ad_tier(target) == expected_tier
 
     def test_invalid_target_duration_rejected(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"target_duration 必须为正整数秒"):
             _build(target_duration=0)
 
 
@@ -113,7 +113,7 @@ class TestDurationConstraint:
         assert "23" in constraint
 
     def test_storyboard_path_requires_supported_durations(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"storyboard 路径必须提供 supported_durations"):
             _build(generation_mode="storyboard", supported_durations=None)
 
     def test_reference_path_cannot_use_storyboard_prompt(self):

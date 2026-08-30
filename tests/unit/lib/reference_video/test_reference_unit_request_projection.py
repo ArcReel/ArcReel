@@ -9,6 +9,7 @@ from lib.reference_video.request_projection import (
     USE_TTS,
     ConfigReferenceCapabilityProjection,
     FilesystemReferenceAssets,
+    ProjectionResolutionError,
     ProviderProjectionCandidate,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
@@ -210,9 +211,11 @@ async def test_projection_uses_tts_floor_only_for_tts_delivery() -> None:
     )
 
     assert tts.duration_input == 9.5
-    assert tts.request_duration is not None and tts.request_duration.seconds == 16
+    assert tts.request_duration is not None
+    assert tts.request_duration.seconds == 16
     assert post.duration_input == 6
-    assert post.request_duration is not None and post.request_duration.seconds == 8
+    assert post.request_duration is not None
+    assert post.request_duration.seconds == 8
 
 
 @pytest.mark.asyncio
@@ -273,7 +276,8 @@ async def test_projection_requires_exact_confirmation_when_fresh_tts_lands_on_a_
         ),
     )
 
-    assert missing.request_duration is not None and missing.request_duration.seconds == 8
+    assert missing.request_duration is not None
+    assert missing.request_duration.seconds == 8
     assert [problem.code for problem in missing.blocking_problems] == ["reference_duration_confirmation_required"]
     assert not accepted.blocking_problems
 
@@ -307,7 +311,8 @@ async def test_projection_compares_the_request_tier_to_the_selected_visual_not_t
         ),
     )
 
-    assert reusable.request_duration is not None and reusable.request_duration.seconds == 8
+    assert reusable.request_duration is not None
+    assert reusable.request_duration.seconds == 8
     assert not reusable.blocking_problems
     assert [problem.code for problem in replacement.blocking_problems] == ["reference_duration_confirmation_required"]
     assert replacement.blocking_problems[0].parameters()["current_visual_duration"] == 4
@@ -557,7 +562,7 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
 
     resolver.empty = True
     adapter = ConfigReferenceCapabilityProjection(resolver)
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ProjectionResolutionError, match=r"reference_supported_durations_missing") as exc_info:
         await adapter.resolve_candidate({}, "r2v")
     assert exc_info.value.code == "reference_supported_durations_missing"
 
@@ -566,7 +571,7 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
             del project, capability
             raise ValueError("supported_durations contains malformed JSON")
 
-    with pytest.raises(ValueError) as invalid_exc:
+    with pytest.raises(ProjectionResolutionError, match=r"reference_supported_durations_invalid") as invalid_exc:
         await ConfigReferenceCapabilityProjection(_InvalidResolver()).resolve_candidate({}, "r2v")
     assert invalid_exc.value.code == "reference_supported_durations_invalid"
 
@@ -577,6 +582,6 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
             payload["supported_durations"] = [4, "bad"]
             return payload
 
-    with pytest.raises(ValueError) as invalid_values_exc:
+    with pytest.raises(ProjectionResolutionError, match=r"reference_supported_durations_invalid") as invalid_values_exc:
         await ConfigReferenceCapabilityProjection(_InvalidValuesResolver()).resolve_candidate({}, "r2v")
     assert invalid_values_exc.value.code == "reference_supported_durations_invalid"

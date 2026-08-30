@@ -38,7 +38,7 @@ PARAMETERS = EndpointTestParameters(model="video-x", prompt="纸船顺流而下"
 CREDENTIALS = EndpointTestCredentials(base_url="https://relay.test", api_key="sk-secret-key-1234")
 
 
-@pytest.fixture()
+@pytest.fixture
 def trial_runs(tmp_path: Path, db_factory: async_sessionmaker) -> TrialRunManager:
     return TrialRunManager(
         root=tmp_path / "trial_runs",
@@ -69,7 +69,8 @@ def _mock_successful_run(router) -> None:
 async def _await_terminal(trial_runs: TrialRunManager, run_id: str):
     """等后台 run 停下并取回终态。"""
     run = await trial_runs.wait(run_id)
-    assert run is not None and run.status in (TrialRunStatus.SUCCEEDED, TrialRunStatus.FAILED)
+    assert run is not None
+    assert run.status in (TrialRunStatus.SUCCEEDED, TrialRunStatus.FAILED)
     return run
 
 

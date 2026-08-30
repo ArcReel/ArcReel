@@ -509,7 +509,8 @@ class TestPlan:
         project_dir = _write_project(tmp_path, source_text=source)
         nfc_anchor = "Tôi yêu tiếng Việt."
         nfd_anchor = unicodedata.normalize("NFD", nfc_anchor)  # 模型回显成分解形
-        assert nfd_anchor != nfc_anchor and len(nfd_anchor) != len(nfc_anchor)
+        assert nfd_anchor != nfc_anchor
+        assert len(nfd_anchor) != len(nfc_anchor)
         fake = _FakeTextGenerator([_plan_response([{"title": "Mở đầu", "hook": "hook", "end_anchor": nfd_anchor}])])
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
@@ -532,7 +533,8 @@ class TestPlan:
         nfc_sub = "Tôi yêu tiếng Việt.\nHôm nay"  # 源文中的精确子串（NFC + \n）
         # 模型回显：组合字符分解（NFD，变长）+ 换行写成 \r\n（再 +1）
         crlf_nfd_anchor = unicodedata.normalize("NFD", nfc_sub).replace("\n", "\r\n")
-        assert "\r\n" in crlf_nfd_anchor and len(crlf_nfd_anchor) > len(nfc_sub)
+        assert "\r\n" in crlf_nfd_anchor
+        assert len(crlf_nfd_anchor) > len(nfc_sub)
 
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "Mở đầu", "hook": "hook", "end_anchor": crlf_nfd_anchor}])]

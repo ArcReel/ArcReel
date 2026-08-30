@@ -432,10 +432,12 @@ class TestOpenAIAudioBackend:
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
             out_dir = tmp_path / "missing-dir"
-            with pytest.raises(OSError):
-                # 父目录不存在 → write_bytes 抛 OSError；伪造含 "timed out" 的消息走最坏路径
-                req = AudioSynthesisRequest(text="hi", output_path=out_dir / "o.wav", voice="alloy")
-                with patch.object(type(req.output_path), "write_bytes", side_effect=OSError("Connection timed out")):
-                    await b.synthesize(req)
+            # 父目录不存在 → write_bytes 抛 OSError；伪造含 "timed out" 的消息走最坏路径
+            req = AudioSynthesisRequest(text="hi", output_path=out_dir / "o.wav", voice="alloy")
+            with (
+                patch.object(type(req.output_path), "write_bytes", side_effect=OSError("Connection timed out")),
+                pytest.raises(OSError, match="Connection timed out"),
+            ):
+                await b.synthesize(req)
 
         assert len(mock_client.requests) == 1, "写盘失败不得重跑计费的合成调用"

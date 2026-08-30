@@ -186,7 +186,7 @@ class TestSystemCapabilities:
             system_video_capabilities(endpoint="openai-chat", model_id="gpt-4o")
 
     def test_unknown_endpoint_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"unknown endpoint"):
             system_video_capabilities(endpoint="no-such-endpoint", model_id="x")
 
 

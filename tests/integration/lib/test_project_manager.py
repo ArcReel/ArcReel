@@ -7,7 +7,7 @@ from threading import Event
 import pytest
 
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
-from lib.project_manager import ProjectManager
+from lib.project_manager import EmptySourceError, ProjectManager
 
 
 def _write(path: Path, text: str):
@@ -198,9 +198,9 @@ class TestProjectManager:
     def test_project_identifier_validation_and_empty_title(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
             pm.create_project("bad name")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
             pm.create_project("bad_name")
 
         pm.create_project("demo")
@@ -585,14 +585,16 @@ class TestProjectManager:
         alice = pm.get_project_character("demo", "Alice")
         assert alice["reference_audio"].endswith("Alice.wav")
         first_stamp = alice["voice_updated_at"]
-        assert isinstance(first_stamp, str) and first_stamp
+        assert isinstance(first_stamp, str)
+        assert first_stamp
 
         # 清空参考音频也须刷新 voice_updated_at（存量过渡横幅的判定基准）
         pm.update_character_reference_audio("demo", "Alice", "")
         cleared = pm.get_project_character("demo", "Alice")
         assert cleared["reference_audio"] == ""
         second_stamp = cleared["voice_updated_at"]
-        assert isinstance(second_stamp, str) and second_stamp
+        assert isinstance(second_stamp, str)
+        assert second_stamp
         assert second_stamp != first_stamp
 
         # scene lifecycle
@@ -749,7 +751,7 @@ class TestProjectManager:
         pm_empty = ProjectManager(tmp_path / "projects-empty")
         pm_empty.create_project("demo")
         pm_empty.create_project_metadata("demo", "Demo")
-        with pytest.raises(ValueError):
+        with pytest.raises(EmptySourceError, match=r"source 目录为空"):
             await pm_empty.generate_overview("demo")
 
     @pytest.mark.parametrize("lang", ["zh", "en", "vi"])
@@ -898,18 +900,18 @@ class TestPathTraversalProtection:
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         # normalize_project_name 的正则先拦截
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
             pm.get_project_path("../etc")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
             pm.get_project_path("demo/../../etc")
 
     def test_normalize_project_name_rejects_special_chars(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
             pm.normalize_project_name("../hack")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
             pm.normalize_project_name("foo/bar")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"项目标识不能为空"):
             pm.normalize_project_name("")
 
     def test_load_script_rejects_traversal_filename(self, tmp_path):

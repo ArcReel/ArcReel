@@ -27,7 +27,7 @@ from tests.factories import custom_endpoint_definition
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def endpoints_app(db_engine) -> FastAPI:
     """绑定内存数据库的应用，同时挂端点路由与供应商路由（目录用例要读同一个库）。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -45,13 +45,13 @@ def endpoints_app(db_engine) -> FastAPI:
     return app
 
 
-@pytest.fixture()
+@pytest.fixture
 def endpoints_client(endpoints_app: FastAPI) -> Generator[TestClient, None, None]:
     with TestClient(endpoints_app) as client:
         yield client
 
 
-@pytest.fixture()
+@pytest.fixture
 async def attach_model(db_engine):
     """把一个自定义模型行挂到指定 endpoint 键上，制造删除时的引用。"""
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)

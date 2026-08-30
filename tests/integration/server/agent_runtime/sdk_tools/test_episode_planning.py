@@ -60,7 +60,9 @@ async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
 
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
-    assert "古玉藏诀" in text and "剑诀来历成谜" in text and "812" in text
+    assert "古玉藏诀" in text
+    assert "剑诀来历成谜" in text
+    assert "812" in text
     assert "城门遇袭" in text
     assert captured["project_path"] == fake_ctx.project_path
     assert captured["plan_instructions"] is None  # 不传时透传 None
@@ -278,7 +280,8 @@ async def test_reset_episode_planning_confirmation_required(fake_ctx: ToolContex
 
     assert out.get("is_error") is not True  # 预期内的流程出口，不是错误
     text = out["content"][0]["text"]
-    assert "已消费" in text and "confirm_consumed" in text
+    assert "已消费" in text
+    assert "confirm_consumed" in text
 
 
 async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, monkeypatch) -> None:

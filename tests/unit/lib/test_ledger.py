@@ -105,7 +105,8 @@ class TestRecordBracket:
             seen_call_id = call.call_id
             call.success(_TextResult(input_tokens=100, output_tokens=50))
 
-        assert seen_call_id is not None and seen_call_id > 0
+        assert seen_call_id is not None
+        assert seen_call_id > 0
         row = await _only_row(db_factory)
         assert row.status == "success"
         assert row.input_tokens == 100

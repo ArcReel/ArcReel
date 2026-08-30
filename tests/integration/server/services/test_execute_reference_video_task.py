@@ -1649,8 +1649,10 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     assert "@图片2" not in prompt
     assert "@图片3" not in prompt
     # 被裁掉的 @酒馆 / @瓶子 仍是画面主体（<X> 与图号解耦），只是没有绑定行、没随请求发图
-    assert "<酒馆>" in prompt and "<瓶子>" in prompt
-    assert "<酒馆>@图片" not in prompt and "<瓶子>@图片" not in prompt
+    assert "<酒馆>" in prompt
+    assert "<瓶子>" in prompt
+    assert "<酒馆>@图片" not in prompt
+    assert "<瓶子>@图片" not in prompt
     from lib.reference_video.request_projection import (
         ProviderProjectionCandidate,
         clamp_reference_assets,

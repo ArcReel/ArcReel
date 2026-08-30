@@ -181,7 +181,7 @@ async def test_falls_through_to_custom_when_project_empty_string(resolver: Confi
 
 
 @pytest.mark.parametrize(
-    "provider_id, expected",
+    ("provider_id", "expected"),
     [
         ("gemini", "1080p"),
         ("gemini-aistudio", "1080p"),  # 短前缀归一化

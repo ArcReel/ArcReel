@@ -18,12 +18,12 @@ from server.agent_runtime.event_log import (
 )
 
 
-@pytest.fixture()
+@pytest.fixture
 async def log_store(db_factory):
     return EventLogStore(session_factory=db_factory)
 
 
-@pytest.fixture()
+@pytest.fixture
 async def file_log_store(file_db_factory):
     """文件 SQLite + NullPool：并发测试需要独立连接（内存库 StaticPool 会串扰）。"""
     return EventLogStore(session_factory=file_db_factory)

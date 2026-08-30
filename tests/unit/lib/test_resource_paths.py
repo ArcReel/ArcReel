@@ -47,7 +47,7 @@ class TestResourceRelativePath:
         assert "\\" not in resource_relative_path("storyboards", "E1S01")
 
     def test_unknown_resource_type_raises_value_error(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"不支持的资源类型: unknown_type"):
             resource_relative_path("unknown_type", "x")
 
 
@@ -70,7 +70,7 @@ class TestResourceExtension:
         assert resource_extension(resource_type) == expected
 
     def test_unknown_resource_type_raises_value_error(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"不支持的资源类型: unknown_type"):
             resource_extension("unknown_type")
 
 

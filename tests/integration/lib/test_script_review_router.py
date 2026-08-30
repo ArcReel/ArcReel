@@ -665,7 +665,8 @@ class TestReferenceVideoRouter:
             # meta.source 完整、重算能正常跑：断言到的是重算算出的真实违约，不是
             # meta 缺失时降级出的 quarantine_unreadable 兜底条目。
             codes = [v["code"] for v in put_body["quarantine"]["violations"]]
-            assert codes and "quarantine_unreadable" not in codes
+            assert codes
+            assert "quarantine_unreadable" not in codes
 
     def test_put_with_stale_base_fingerprint_conflicts_409(self, tmp_path, monkeypatch):
         """PUT 携带的 ``base_fingerprint`` 与盘上现值不一致（编辑期间另一方已保存）→ 409、

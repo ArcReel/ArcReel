@@ -9,7 +9,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture
-async def _usage_env(db_factory, monkeypatch):
+async def usage_env(db_factory, monkeypatch):
     async with db_factory() as session:
         repo = UsageRepository(session)
         cid1 = await repo.start_call(project_name="demo", call_type="image", model="gemini-3.1-flash-image-preview")
@@ -39,8 +39,8 @@ async def _usage_env(db_factory, monkeypatch):
 
 
 class TestUsageRouter:
-    def test_usage_endpoints(self, _usage_env):
-        client = _usage_env
+    def test_usage_endpoints(self, usage_env):
+        client = usage_env
         stats = client.get("/api/v1/usage/stats?project_name=demo")
         assert stats.status_code == 200
         assert stats.json()["total_count"] == 3
@@ -63,9 +63,9 @@ class TestUsageRouter:
         ("accept_language", "expected"),
         [("zh", "火山方舟"), ("en", "Volcengine Ark"), ("vi", "Volcengine Ark")],
     )
-    def test_grouped_provider_display_name_follows_locale(self, _usage_env, accept_language, expected):
+    def test_grouped_provider_display_name_follows_locale(self, usage_env, accept_language, expected):
         """按供应商分组的用量统计里，内置供应商名跟随请求语言。"""
-        resp = _usage_env.get(
+        resp = usage_env.get(
             "/api/v1/usage/stats?group_by=provider",
             headers={"accept-language": accept_language},
         )

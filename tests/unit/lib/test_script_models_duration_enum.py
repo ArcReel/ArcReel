@@ -58,7 +58,7 @@ class TestBuildEpisodeScriptModel:
         assert field_schema.get("const") == 8 or field_schema.get("enum") == [8]
 
     def test_empty_supported_durations_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"supported_durations 为空"):
             build_episode_script_model("narration", [])
 
 

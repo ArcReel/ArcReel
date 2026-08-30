@@ -23,7 +23,7 @@ def clear_cache():
     auth_module._api_key_cache.clear()
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_key_db(db_factory, monkeypatch):
     """把 API Key 查库路径绑到内存库。
 

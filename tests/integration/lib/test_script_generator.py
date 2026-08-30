@@ -536,7 +536,7 @@ class TestScriptGenerator:
         _write_json(project_path / "project.json", {"title": "项目"})
 
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"JSON 解析失败"):
             generator._parse_response("not-json", 1)
 
     async def test_parse_response_validation_error_returns_raw_data(self, tmp_path):
@@ -663,7 +663,8 @@ class TestScriptGenerator:
         await generator.generate(1)
         coordinator.join()
 
-        assert baseline_thread and baseline_thread != [loop_thread]
+        assert baseline_thread
+        assert baseline_thread != [loop_thread]
         assert provider_saw_tick == [True]
 
     async def test_generate_registers_the_basis_frozen_before_the_provider_call(self, tmp_path):
@@ -754,9 +755,7 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path, generator=fake)
         generator._fetch_video_capabilities = _fixed_caps_468
 
-        with pytest.raises(
-            ValueError, match=r"script_plan.*not registered|script_plan.*未登记|not registered.*script_plan"
-        ):
+        with pytest.raises(ValueError, match=r"script_plan artifact is not registered"):
             await generator.generate(1)
 
         assert fake.backend.last_request is None
@@ -1807,26 +1806,26 @@ class TestLoadNarrationScriptPlan:
         path = self._script_plan_path(sg, 1)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json", encoding="utf-8")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"script_plan_segments\.json 解析失败"):
             sg._load_narration_script_plan(1, [4, 6, 8])
 
     def test_invalid_structure_missing_novel_text_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": [{"segment_id": "E1S01", "duration_seconds": 4}]})
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"script_plan_segments\.json 结构校验失败"):
             sg._load_narration_script_plan(1, [4, 6, 8])
 
     def test_duplicate_segment_id_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": [_script_plan_seg("E1S01", "甲"), _script_plan_seg("E1S01", "乙")]})
-        with pytest.raises(ValueError, match=r"重复|E1S01"):
+        with pytest.raises(ValueError, match=r"segment_id 重复"):
             sg._load_narration_script_plan(1, [4, 6, 8])
 
     def test_post_rewrite_collision_raises(self, tmp_path):
-        """原始 id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud。"""
+        """原始 id 互异但改写 episode 前缀后相撞（E1S02 与 E2S02 在 ep2 都成 E2S02）→ fail-loud。"""
         sg = _bare_generator(tmp_path)
-        self._write(sg, 2, {"segments": [_script_plan_seg("E1S02_1", "甲"), _script_plan_seg("E2S02_1", "乙")]})
-        with pytest.raises(ValueError, match=r"改写|E2S02_1"):
+        self._write(sg, 2, {"segments": [_script_plan_seg("E1S02", "甲"), _script_plan_seg("E2S02", "乙")]})
+        with pytest.raises(ValueError, match=r"segment_id 改写到 episode=2 后重复"):
             sg._load_narration_script_plan(2, [4, 6, 8])
 
     def test_duration_outside_supported_raises(self, tmp_path):
@@ -1838,14 +1837,14 @@ class TestLoadNarrationScriptPlan:
     def test_empty_segments_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": []})
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"script_plan_segments\.json segments 为空"):
             sg._load_narration_script_plan(1, [4, 6, 8])
 
     def test_missing_asset_arrays_raises(self, tmp_path):
         """script_plan 资产字段必填：漏写 characters_in_segment/scenes/props → fail-loud（不静默补 []）。"""
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": [{"segment_id": "E1S01", "novel_text": "甲", "duration_seconds": 4}]})
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"script_plan_segments\.json 结构校验失败"):
             sg._load_narration_script_plan(1, [4, 6, 8])
 
     def test_explicit_empty_asset_arrays_pass(self, tmp_path):
@@ -1887,7 +1886,7 @@ class TestLoadReferenceScriptPlan:
     def test_duplicate_unit_id_raises(self, tmp_path):
         sg = self._generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U01")]})
-        with pytest.raises(ValueError, match=r"重复|E1U01"):
+        with pytest.raises(ValueError, match=r"unit_id 重复"):
             sg._load_reference_script_plan(1, [4, 6, 8])
 
     def test_post_rewrite_collision_raises(self, tmp_path):
@@ -1899,7 +1898,7 @@ class TestLoadReferenceScriptPlan:
         """
         sg = self._generator(tmp_path)
         self._write(sg, 2, {"units": [self._unit("E1U01"), self._unit("E2U01")]})
-        with pytest.raises(ValueError, match=r"改写|E2U01"):
+        with pytest.raises(ValueError, match=r"unit_id 改写到 episode=2 后重复"):
             sg._load_reference_script_plan(2, [4, 6, 8])
 
     def test_duration_outside_supported_raises(self, tmp_path):
@@ -1997,7 +1996,7 @@ class TestLoadReferenceScriptPlan:
     def test_empty_units_raises(self, tmp_path):
         sg = self._generator(tmp_path)
         self._write(sg, 1, {"units": []})
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"script_plan_reference_units\.json units 为空"):
             sg._load_reference_script_plan(1, [4, 6, 8])
 
 
@@ -2132,7 +2131,8 @@ class TestAdScriptGeneration:
         generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
-        assert isinstance(prompt, str) and prompt
+        assert isinstance(prompt, str)
+        assert prompt
 
     async def test_generate_writes_ad_script_with_metadata(self, tmp_path):
         """generate 写盘 ad 剧本：shots 骨架、content_mode=ad。"""
@@ -2180,7 +2180,8 @@ class TestAdScriptGeneration:
             await generator.generate(1)
 
         schema = fake.backend.last_request.response_schema
-        assert isinstance(schema, type) and issubclass(schema, AdEpisodeScript)
+        assert isinstance(schema, type)
+        assert issubclass(schema, AdEpisodeScript)
         duration_enums = [
             props["duration_seconds"].get("enum")
             for props in (d.get("properties", {}) for d in schema.model_json_schema().get("$defs", {}).values())

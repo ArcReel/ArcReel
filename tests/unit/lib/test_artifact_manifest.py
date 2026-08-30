@@ -393,7 +393,8 @@ def test_manifest_blocks_windows_drive_like_artifact_path() -> None:
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "artifact_path_invalid"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "artifact_path_invalid"
 
 
 @pytest.mark.parametrize(
@@ -416,7 +417,8 @@ def test_manifest_blocks_windows_normalized_artifact_path_components(artifact_pa
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "artifact_path_invalid"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "artifact_path_invalid"
 
 
 def test_manifest_blocks_non_utf8_artifact_path() -> None:
@@ -429,7 +431,8 @@ def test_manifest_blocks_non_utf8_artifact_path() -> None:
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "artifact_path_invalid"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "artifact_path_invalid"
 
 
 @pytest.mark.parametrize(
@@ -446,4 +449,5 @@ def test_manifest_blocks_windows_aliases_of_runtime_paths(artifact_path: str) ->
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "artifact_path_invalid"
+    assert comparison.blocker is not None
+    assert comparison.blocker.code == "artifact_path_invalid"

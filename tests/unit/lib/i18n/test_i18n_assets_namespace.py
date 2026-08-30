@@ -7,7 +7,8 @@ from lib.i18n import MESSAGES, _
 
 def test_asset_not_found_key_present_both_locales():
     zh = _("asset_not_found", locale="zh", name="X")
-    assert "资产" in zh and "X" in zh
+    assert "资产" in zh
+    assert "X" in zh
     en = _("asset_not_found", locale="en", name="X")
     assert "X" in en
 

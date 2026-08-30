@@ -17,7 +17,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture
-async def _assets_env(db_factory, tmp_path, monkeypatch):
+async def assets_env(db_factory, tmp_path, monkeypatch):
     # 1) per-test ProjectManager pointed at tmp_path/projects
     pm = ProjectManager(tmp_path / "projects")
 
@@ -34,8 +34,8 @@ async def _assets_env(db_factory, tmp_path, monkeypatch):
 
 
 class TestAssetsCRUD:
-    def test_create_and_list(self, _assets_env):
-        client = _assets_env["client"]
+    def test_create_and_list(self, assets_env):
+        client = assets_env["client"]
         r = client.post(
             "/api/v1/assets",
             data={"type": "character", "name": "王小明", "description": "白衣少年"},
@@ -49,15 +49,15 @@ class TestAssetsCRUD:
         assert len(r2.json()["items"]) == 1
         assert r2.json()["items"][0]["id"] == asset_id
 
-    def test_duplicate_type_name_returns_409(self, _assets_env):
-        client = _assets_env["client"]
+    def test_duplicate_type_name_returns_409(self, assets_env):
+        client = assets_env["client"]
         r1 = client.post("/api/v1/assets", data={"type": "prop", "name": "玉佩"})
         assert r1.status_code == 200, r1.text
         r = client.post("/api/v1/assets", data={"type": "prop", "name": "玉佩"})
         assert r.status_code == 409
 
-    def test_patch_and_delete(self, _assets_env):
-        client = _assets_env["client"]
+    def test_patch_and_delete(self, assets_env):
+        client = assets_env["client"]
         r = client.post("/api/v1/assets", data={"type": "scene", "name": "A"})
         assert r.status_code == 200, r.text
         aid = r.json()["asset"]["id"]
@@ -72,14 +72,14 @@ class TestAssetsCRUD:
         r4 = client.get(f"/api/v1/assets/{aid}")
         assert r4.status_code == 404
 
-    def test_invalid_type_returns_400(self, _assets_env):
-        client = _assets_env["client"]
+    def test_invalid_type_returns_400(self, assets_env):
+        client = assets_env["client"]
         r = client.post("/api/v1/assets", data={"type": "invalid", "name": "X"})
         assert r.status_code == 400
 
-    def test_product_type_excluded_from_global_library(self, _assets_env):
+    def test_product_type_excluded_from_global_library(self, assets_env):
         """product 是多图列表型资产，单图列模型的全局库不收：create 与 from-project 均 400。"""
-        client = _assets_env["client"]
+        client = assets_env["client"]
         r = client.post("/api/v1/assets", data={"type": "product", "name": "保温杯"})
         assert r.status_code == 400
 
@@ -93,17 +93,17 @@ class TestAssetsCRUD:
         )
         assert r2.status_code == 400
 
-    def test_list_filters_by_q(self, _assets_env):
-        client = _assets_env["client"]
+    def test_list_filters_by_q(self, assets_env):
+        client = assets_env["client"]
         client.post("/api/v1/assets", data={"type": "character", "name": "王小明"})
         client.post("/api/v1/assets", data={"type": "character", "name": "李小红"})
         r = client.get("/api/v1/assets?type=character&q=小明")
         assert r.status_code == 200
         assert len(r.json()["items"]) == 1
 
-    def test_create_conflict_does_not_leave_orphan_file(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_create_conflict_does_not_leave_orphan_file(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         img_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 
         # First create: succeeds
@@ -127,8 +127,8 @@ class TestAssetsCRUD:
         files_after_dup = list(global_dir.iterdir())
         assert len(files_after_dup) == len(files_after_first), "duplicate upload must not leave orphan files"
 
-    def test_replace_image(self, _assets_env):
-        client = _assets_env["client"]
+    def test_replace_image(self, assets_env):
+        client = assets_env["client"]
         r = client.post("/api/v1/assets", data={"type": "scene", "name": "A"})
         aid = r.json()["asset"]["id"]
 
@@ -140,10 +140,10 @@ class TestAssetsCRUD:
         assert r2.status_code == 200
         assert r2.json()["asset"]["image_path"] is not None
 
-    def test_replace_image_invalid_format_preserves_old_image(self, _assets_env):
+    def test_replace_image_invalid_format_preserves_old_image(self, assets_env):
         """If new upload fails validation, old image must NOT be deleted."""
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
 
         # create asset with a valid image
         img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
@@ -170,9 +170,9 @@ class TestAssetsCRUD:
 
 
 class TestFromProject:
-    def test_from_project_copies_image(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_from_project_copies_image(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         # 造 project + character + sheet 文件
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
@@ -196,13 +196,14 @@ class TestFromProject:
         )
         assert r.status_code == 200, r.text
         ip = r.json()["asset"]["image_path"]
-        assert ip and ip.startswith("_global_assets/character/")
+        assert ip
+        assert ip.startswith("_global_assets/character/")
         # 落盘文件与源文件相同字节
         assert (pm.projects_root / ip).read_bytes() == b"img"
 
-    def test_from_project_conflict_409_and_overwrite(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_from_project_conflict_409_and_overwrite(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
@@ -238,8 +239,8 @@ class TestFromProject:
         )
         assert r3.status_code == 200
 
-    def test_from_project_invalid_type_returns_400(self, _assets_env):
-        client = _assets_env["client"]
+    def test_from_project_invalid_type_returns_400(self, assets_env):
+        client = assets_env["client"]
         r = client.post(
             "/api/v1/assets/from-project",
             json={
@@ -250,8 +251,8 @@ class TestFromProject:
         )
         assert r.status_code == 400
 
-    def test_from_project_missing_project_returns_404(self, _assets_env):
-        client = _assets_env["client"]
+    def test_from_project_missing_project_returns_404(self, assets_env):
+        client = assets_env["client"]
         r = client.post(
             "/api/v1/assets/from-project",
             json={
@@ -262,9 +263,9 @@ class TestFromProject:
         )
         assert r.status_code == 404
 
-    def test_from_project_missing_resource_returns_404(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_from_project_missing_resource_returns_404(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
 
@@ -278,9 +279,9 @@ class TestFromProject:
         )
         assert r.status_code == 404
 
-    def test_from_project_missing_resource_error_localizes_kind(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_from_project_missing_resource_error_localizes_kind(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
 
@@ -300,7 +301,8 @@ class TestFromProject:
             headers={"Accept-Language": "vi"},
         )
 
-        assert "角色" in zh.json()["detail"] and "character" not in zh.json()["detail"]
+        assert "角色" in zh.json()["detail"]
+        assert "character" not in zh.json()["detail"]
         # en 显示名与内部标识同形，区分不了裸透传，只能断言整句按 asset_type_* 渲染
         assert en.json()["detail"] == translate_message(
             "asset_source_resource_not_found",
@@ -309,12 +311,13 @@ class TestFromProject:
             kind=translate_message("asset_type_character", locale="en"),
             name="ghost",
         )
-        assert "nhân vật" in vi.json()["detail"] and "character" not in vi.json()["detail"]
+        assert "nhân vật" in vi.json()["detail"]
+        assert "character" not in vi.json()["detail"]
 
-    def test_from_project_copies_audio(self, _assets_env):
+    def test_from_project_copies_audio(self, assets_env):
         """character 的 reference_audio 随 character_sheet 一起复制到全局资产库。"""
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
@@ -333,13 +336,14 @@ class TestFromProject:
         )
         assert r.status_code == 200, r.text
         ap = r.json()["asset"]["audio_path"]
-        assert ap and ap.startswith("_global_assets/character/")
+        assert ap
+        assert ap.startswith("_global_assets/character/")
         assert (pm.projects_root / ap).read_bytes() == b"audio-bytes"
 
-    def test_from_project_audio_copy_failure_cleans_up_image(self, _assets_env, monkeypatch):
+    def test_from_project_audio_copy_failure_cleans_up_image(self, assets_env, monkeypatch):
         """图片拷贝成功后音频拷贝失败：不留孤儿图片文件，异常正常传播。"""
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
@@ -367,7 +371,7 @@ class TestFromProject:
 
         monkeypatch.setattr(assets.shutil, "copyfile", flaky_copyfile)
 
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, match=r"disk full"):
             client.post(
                 "/api/v1/assets/from-project",
                 json={"project_name": "demo", "resource_type": "character", "resource_id": "王"},
@@ -377,12 +381,12 @@ class TestFromProject:
         leftover = list(global_character_assets.glob("*")) if global_character_assets.exists() else []
         assert leftover == []
 
-    def test_from_project_ignores_reference_audio_outside_refs_audio_dir(self, _assets_env):
+    def test_from_project_ignores_reference_audio_outside_refs_audio_dir(self, assets_env):
         """reference_audio 可经通用角色 PATCH 被写成项目内任意字符串；仅路径不越界
         不足以防止把 project.json 等其它项目文件当作音频复制进全局库，须额外确认
         父目录命中 characters/refs_audio（与 files.py::_resolve_audio_ref_path 同口径）。"""
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
@@ -401,9 +405,9 @@ class TestFromProject:
         assert r.status_code == 200, r.text
         assert r.json()["asset"]["audio_path"] is None
 
-    def test_from_project_without_audio_has_null_audio_path(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_from_project_without_audio_has_null_audio_path(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
@@ -420,10 +424,10 @@ class TestFromProject:
         assert r.status_code == 200
         assert r.json()["asset"]["audio_path"] is None
 
-    def test_from_project_missing_audio_file_degrades_quietly(self, _assets_env):
+    def test_from_project_missing_audio_file_degrades_quietly(self, assets_env):
         """reference_audio 字段指向不存在的文件时静默降级为无音频，不中断入库。"""
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
@@ -440,9 +444,9 @@ class TestFromProject:
         assert r.status_code == 200, r.text
         assert r.json()["asset"]["audio_path"] is None
 
-    def test_from_project_without_sheet_has_null_image_path(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_from_project_without_sheet_has_null_image_path(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
@@ -461,9 +465,9 @@ class TestFromProject:
 
 
 class TestApplyToProject:
-    def test_apply_with_skip_policy(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_apply_with_skip_policy(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
 
@@ -499,9 +503,9 @@ class TestApplyToProject:
         assert len(body2["succeeded"]) == 0
         assert len(body2["skipped"]) == 2
 
-    def test_rename_policy_adds_numeric_suffix(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_rename_policy_adds_numeric_suffix(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
 
@@ -529,11 +533,12 @@ class TestApplyToProject:
         assert r.status_code == 200
         assert r.json()["succeeded"][0]["name"] == "玉佩 (2)"
         data = pm.load_project("target")
-        assert "玉佩" in data["props"] and "玉佩 (2)" in data["props"]
+        assert "玉佩" in data["props"]
+        assert "玉佩 (2)" in data["props"]
 
-    def test_overwrite_policy_replaces_existing(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_overwrite_policy_replaces_existing(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
 
@@ -559,9 +564,9 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert data["characters"]["王"]["description"] == "library desc"
 
-    def test_overwrite_policy_registers_the_imported_formal_sheet_claim(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_overwrite_policy_registers_the_imported_formal_sheet_claim(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         pm.add_project_scene("target", "A", "same description")
@@ -596,9 +601,9 @@ class TestApplyToProject:
             is ArtifactStatus.CURRENT
         )
 
-    def test_rename_policy_registers_the_imported_formal_sheet_claim(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_rename_policy_registers_the_imported_formal_sheet_claim(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         pm.add_project_scene("target", "A", "existing description")
@@ -627,9 +632,9 @@ class TestApplyToProject:
             is ArtifactStatus.CURRENT
         )
 
-    def test_overwrite_policy_rolls_back_when_the_sheet_claim_commit_fails(self, _assets_env, monkeypatch):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_overwrite_policy_rolls_back_when_the_sheet_claim_commit_fails(self, assets_env, monkeypatch):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         pm.add_project_scene("target", "A", "old description")
@@ -663,9 +668,9 @@ class TestApplyToProject:
         assert pm.load_project("target")["scenes"]["A"]["description"] == "old description"
         assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == frozen
 
-    def test_duplicate_overwrite_asset_id_is_idempotent(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_duplicate_overwrite_asset_id_is_idempotent(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         created = client.post(
@@ -688,9 +693,9 @@ class TestApplyToProject:
         assert response.json()["succeeded"] == [{"id": asset_id, "name": "A"}]
         assert (pm.projects_root / "target" / "scenes" / "A.png").read_bytes() == b"image"
 
-    def test_overwrite_policy_rejects_cross_type_name(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_overwrite_policy_rejects_cross_type_name(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         pm.add_project_character("target", "Shared", "character", "")
@@ -709,9 +714,9 @@ class TestApplyToProject:
         assert response.json()["failed"] == [{"id": created.json()["asset"]["id"], "reason": "project_name_conflict"}]
         assert pm.load_project("target")["scenes"] == {}
 
-    def test_rename_policy_uses_project_wide_occupancy(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_rename_policy_uses_project_wide_occupancy(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         pm.add_project_character("target", "Shared", "character", "")
@@ -736,10 +741,10 @@ class TestApplyToProject:
         [("zh", "不能同名"), ("en", "unique names"), ("vi", "tên duy nhất")],
     )
     def test_concurrent_cross_type_conflict_returns_localized_409(
-        self, _assets_env, monkeypatch, locale, localized_fragment
+        self, assets_env, monkeypatch, locale, localized_fragment
     ):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared"})
@@ -774,9 +779,9 @@ class TestApplyToProject:
         assert localized_fragment in response.json()["detail"]
         assert pm.load_project("target")["scenes"] == {}
 
-    def test_concurrent_same_type_conflict_reapplies_skip_inside_lock(self, _assets_env, monkeypatch):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_concurrent_same_type_conflict_reapplies_skip_inside_lock(self, assets_env, monkeypatch):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared", "description": "library"})
@@ -806,9 +811,9 @@ class TestApplyToProject:
         assert response.json()["skipped"] == [{"id": created.json()["asset"]["id"], "name": "Shared"}]
         assert pm.load_project("target")["scenes"]["Shared"]["description"] == "concurrent"
 
-    def test_concurrent_same_type_conflict_reapplies_rename_inside_lock(self, _assets_env, monkeypatch):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_concurrent_same_type_conflict_reapplies_rename_inside_lock(self, assets_env, monkeypatch):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         created = client.post(
@@ -844,8 +849,8 @@ class TestApplyToProject:
         assert project["scenes"]["Shared (2)"]["description"] == "library"
         assert (pm.projects_root / "target" / "scenes" / "Shared (2).png").read_bytes() == b"library-image"
 
-    def test_invalid_policy_returns_400(self, _assets_env):
-        client = _assets_env["client"]
+    def test_invalid_policy_returns_400(self, assets_env):
+        client = assets_env["client"]
         r = client.post(
             "/api/v1/assets/apply-to-project",
             json={
@@ -856,8 +861,8 @@ class TestApplyToProject:
         )
         assert r.status_code == 400
 
-    def test_missing_project_returns_404(self, _assets_env):
-        client = _assets_env["client"]
+    def test_missing_project_returns_404(self, assets_env):
+        client = assets_env["client"]
         r = client.post(
             "/api/v1/assets/apply-to-project",
             json={
@@ -868,9 +873,9 @@ class TestApplyToProject:
         )
         assert r.status_code == 404
 
-    def test_unknown_asset_id_listed_in_failed(self, _assets_env):
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+    def test_unknown_asset_id_listed_in_failed(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
 
@@ -886,10 +891,10 @@ class TestApplyToProject:
         assert len(r.json()["failed"]) == 1
         assert r.json()["failed"][0]["reason"] == "not_found"
 
-    def test_image_missing_adds_to_failed(self, _assets_env):
+    def test_image_missing_adds_to_failed(self, assets_env):
         """If asset.image_path is set but the file on disk is gone, record as failed."""
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
 
@@ -923,10 +928,10 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert "A" not in (data.get("scenes") or {})
 
-    def test_audio_missing_adds_to_failed(self, _assets_env):
+    def test_audio_missing_adds_to_failed(self, assets_env):
         """asset.audio_path 有值但磁盘文件缺失时记 failed，不中断整批（与 image_path 同口径）。"""
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("source")
         pm.create_project_metadata("source", "Source")
         pm.add_project_character("source", "王", "d", "")
@@ -964,10 +969,10 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert "王" not in (data.get("characters") or {})
 
-    def test_audio_copied_to_target_project(self, _assets_env):
+    def test_audio_copied_to_target_project(self, assets_env):
         """端到端：from-project → 资产库 → apply-to-project 把音频也随图一起复制回项目。"""
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("source")
         pm.create_project_metadata("source", "Source")
         pm.add_project_character("source", "王", "d", "")
@@ -1002,10 +1007,10 @@ class TestApplyToProject:
         # 「资产即开关」：导入即视为该项目新设置了这个声音，存量过渡横幅计数须能感知到
         assert data["characters"]["王"]["voice_updated_at"]
 
-    def test_image_copied_to_target_project(self, _assets_env):
+    def test_image_copied_to_target_project(self, assets_env):
         """End-to-end: from-project → asset library → apply-to-project copies the image too."""
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
 
         # 1) Create asset with image directly
         img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
@@ -1035,11 +1040,11 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert data["scenes"]["A"]["scene_sheet"] == "scenes/A.png"
 
-    def test_multi_file_copy_failure_rolls_back_batch(self, _assets_env, monkeypatch):
+    def test_multi_file_copy_failure_rolls_back_batch(self, assets_env, monkeypatch):
         from lib import project_manager as project_manager_module
 
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
         asset_ids = []
@@ -1076,11 +1081,11 @@ class TestApplyToProject:
         assert not list(target_dir.glob(".*.tmp"))
         assert not list(target_dir.glob(".*.bak"))
 
-    def test_second_file_install_failure_restores_all_overwritten_media(self, _assets_env, monkeypatch):
+    def test_second_file_install_failure_restores_all_overwritten_media(self, assets_env, monkeypatch):
         from lib import project_manager as project_manager_module
 
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         asset_ids = []
         for name, content in (("A", b"new-a"), ("B", b"new-b")):
             response = client.post(
@@ -1130,11 +1135,11 @@ class TestApplyToProject:
         assert not list(target_dir.glob(".*.tmp"))
         assert not list(target_dir.glob(".*.bak"))
 
-    def test_project_json_failure_restores_overwritten_media(self, _assets_env, monkeypatch):
+    def test_project_json_failure_restores_overwritten_media(self, assets_env, monkeypatch):
         from lib import project_manager as project_manager_module
 
-        client = _assets_env["client"]
-        pm = _assets_env["pm"]
+        client = assets_env["client"]
+        pm = assets_env["pm"]
         created = client.post(
             "/api/v1/assets",
             data={"type": "scene", "name": "A", "description": "new"},

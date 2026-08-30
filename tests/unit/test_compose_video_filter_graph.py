@@ -36,7 +36,8 @@ if str(REPO_ROOT) not in sys.path:
 def _load_module():
     """以独立模块名加载脚本，避免和别处的 compose_video 冲突。"""
     spec = importlib.util.spec_from_file_location("_compose_video_under_test", SCRIPT_PATH)
-    assert spec is not None and spec.loader is not None
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -380,8 +381,10 @@ class TestConcatenateFinalSingleSegment:
         assert len(captured) == 1
         cmd = captured[0]
         # 关键不变量
-        assert "-c" in cmd and cmd[cmd.index("-c") + 1] == "copy"
-        assert "-movflags" in cmd and cmd[cmd.index("-movflags") + 1] == "+faststart"
+        assert "-c" in cmd
+        assert cmd[cmd.index("-c") + 1] == "copy"
+        assert "-movflags" in cmd
+        assert cmd[cmd.index("-movflags") + 1] == "+faststart"
         # 不能出现 concat filter
         assert not any("concat=" in arg for arg in cmd)
         assert "-filter_complex" not in cmd

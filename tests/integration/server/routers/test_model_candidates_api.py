@@ -80,7 +80,7 @@ def _make_mock_svc(ready_providers: list[str]) -> ConfigService:
     return svc
 
 
-@pytest.fixture()
+@pytest.fixture
 def session_factory_and_engine(db_engine, db_factory):
     return db_factory, db_engine
 
@@ -106,7 +106,7 @@ def _make_app(mock_svc: ConfigService, engine, factory) -> FastAPI:
     return app
 
 
-@pytest.fixture()
+@pytest.fixture
 def make_client(session_factory_and_engine):
     factory, engine = session_factory_and_engine
 

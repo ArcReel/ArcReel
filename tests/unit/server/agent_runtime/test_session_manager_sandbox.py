@@ -191,7 +191,7 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "command,expected",
+    ("command", "expected"),
     [
         (
             "python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.json",

@@ -68,7 +68,8 @@ def test_build_reference_video_prompt_contains_required_sections():
     assert "北宋江湖" in prompt
     assert "水墨渲染风格" in prompt
     # 三类资产名称都必须出现（MentionPicker 候选源）
-    assert "主角" in prompt and "张三" in prompt
+    assert "主角" in prompt
+    assert "张三" in prompt
     assert "酒馆" in prompt
     assert "长剑" in prompt
     # script_plan 正文逐字透传，不加任何分段前缀
@@ -120,7 +121,8 @@ def test_build_reference_units_split_prompt_contains_constraints_and_candidates(
         target_language="中文",
     )
     assert "李明推门走进酒馆" in prompt
-    assert "李明" in prompt and "酒馆" in prompt
+    assert "李明" in prompt
+    assert "酒馆" in prompt
     assert "第 2 集" in prompt
     # 能力约束：档位集合、总时长上限、references 上限、默认偏好
     assert "4, 6, 8" in prompt

@@ -52,7 +52,8 @@ class TestRenderKnownCodes:
         assert render_failure(encoded, _translator("zh")) == "供应商 grok 不支持 image 生成"
         assert render_failure(encoded, _translator("en")) == "Provider grok does not support image generation"
         vi = render_failure(encoded, _translator("vi"))
-        assert "grok" in vi and "image" in vi
+        assert "grok" in vi
+        assert "image" in vi
         # locales differ
         assert render_failure(encoded, _translator("zh")) != render_failure(encoded, _translator("en"))
 
@@ -60,7 +61,9 @@ class TestRenderKnownCodes:
         encoded = encode_failure("restart_lost_image")
         zh = render_failure(encoded, _translator("zh"))
         en = render_failure(encoded, _translator("en"))
-        assert zh and en and zh != en
+        assert zh
+        assert en
+        assert zh != en
         assert "[" not in zh
 
     def test_detail_param_is_interpolated_untranslated(self):

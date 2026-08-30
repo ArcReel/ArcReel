@@ -101,4 +101,5 @@ async def test_admission_guard_closes_its_file_when_unlock_fails(tmp_path, monke
         ):
             pass
 
-    assert captured_handle is not None and captured_handle.closed
+    assert captured_handle is not None
+    assert captured_handle.closed

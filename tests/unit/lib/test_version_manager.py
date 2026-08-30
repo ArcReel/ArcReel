@@ -237,7 +237,7 @@ class TestVersionManager:
 
         current.parent.mkdir(parents=True, exist_ok=True)
         current.write_bytes(b"png")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"不支持的资源类型: bad"):
             vm.ensure_current_tracked("bad", "Alice", current, "p")
 
         with pytest.raises(BadRequestError):

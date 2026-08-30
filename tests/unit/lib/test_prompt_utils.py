@@ -255,7 +255,7 @@ class TestNormalizeVideoPrompt:
 
     @pytest.mark.parametrize("blank", [{"action": ""}, "", "   "])
     def test_blank_prompt_is_rejected(self, blank):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"prompt(\.action)? must not be empty"):
             normalize_video_prompt(blank)
 
 

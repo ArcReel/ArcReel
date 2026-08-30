@@ -129,7 +129,8 @@ class TestBuildGridPrompt:
             style="x",
             reference_image_mapping={"图片1": "角色A"},
         )
-        assert "图片1" in prompt and "角色A" in prompt
+        assert "图片1" in prompt
+        assert "角色A" in prompt
 
     def test_string_prompts(self):
         scenes = [{"scene_id": f"S{i}", "image_prompt": f"text{i}", "video_prompt": f"vid{i}"} for i in range(1, 5)]

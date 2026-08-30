@@ -15,7 +15,7 @@ def _import_fresh():
     return app_data_dir
 
 
-@pytest.fixture()
+@pytest.fixture
 def app_data_dir_fn(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("ARCREEL_DATA_DIR", raising=False)
     monkeypatch.delenv("AI_ANIME_PROJECTS", raising=False)

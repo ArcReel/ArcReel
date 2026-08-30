@@ -16,7 +16,7 @@ from server.routers import auth as auth_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
-@pytest.fixture()
+@pytest.fixture
 def auth_router_client():
     """创建测试客户端，设置固定的认证环境变量"""
     auth_module._cached_token_secret = None

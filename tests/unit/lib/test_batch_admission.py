@@ -165,7 +165,8 @@ def test_refusal_reports_every_requested_unit_including_the_clean_ones():
     result = builder.build()
 
     assert sorted(result.blocked) == ["E1U1", "E1U2"]
-    assert result.succeeded == [] and result.failed == []
+    assert result.succeeded == []
+    assert result.failed == []
     problems = {item.unit_id: item.problem for item in result.items if item.problem is not None}
     assert problems["E1U2"].code == GenerationProblemCode.UNIT_INPUT_UNUSABLE
     withheld = problems["E1U1"]
@@ -210,7 +211,7 @@ def test_recording_a_refusal_on_an_admitted_batch_is_a_programming_error():
     admission = _admission(UnitAdmissionTicket(unit_id="E1U1"))
     builder = GenerationResultBuilder("generate_reference_videos_batch", GenerationSelectionMode.EXPLICIT)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"record_refusal requires a refused admission"):
         admission.record_refusal(builder)
 
 

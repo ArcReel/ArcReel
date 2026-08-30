@@ -331,7 +331,7 @@ async def _run_and_serialize(
 
 
 @router.post("/test-connection", response_model=TestConnectionResponseModel)
-async def test_connection_draft(
+async def run_draft_connection_test(
     body: TestConnectionRequest,
     _t: Translator,
 ) -> TestConnectionResponseModel:
@@ -345,7 +345,7 @@ async def test_connection_draft(
 
 
 @router.post("/credentials/{cred_id}/test", response_model=TestConnectionResponseModel)
-async def test_credential(
+async def run_credential_test(
     cred_id: int,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
