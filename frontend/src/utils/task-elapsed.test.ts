@@ -19,7 +19,7 @@ describe("taskElapsed", () => {
     expect(taskElapsed(timing({}), NOW)).toEqual({ kind: "queued", ms: 600_000 });
   });
 
-  it("执行中任务按 started_at 计运行时长", () => {
+  it("执行中任务按 started_at 计运行时长，无时区后缀的时间戳按 UTC 解析", () => {
     const task = timing({ status: "running", started_at: "2026-01-01T00:09:00" });
     expect(taskElapsed(task, NOW)).toEqual({ kind: "running", ms: 60_000 });
   });
@@ -58,11 +58,6 @@ describe("taskElapsed", () => {
   it("时钟回拨导致的负值收敛为 0，不产生负数时长", () => {
     const task = timing({ status: "running", started_at: "2026-01-01T00:20:00" });
     expect(taskElapsed(task, NOW)).toEqual({ kind: "running", ms: 0 });
-  });
-
-  it("无时区后缀的时间戳按 UTC 解析", () => {
-    const task = timing({ status: "running", started_at: "2026-01-01T00:09:00Z" });
-    expect(taskElapsed(task, NOW)).toEqual({ kind: "running", ms: 60_000 });
   });
 });
 

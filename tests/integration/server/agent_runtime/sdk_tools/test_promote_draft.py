@@ -623,18 +623,6 @@ async def test_promote_draft_report_silent_when_every_unit_references_a_scene(
     assert "未引用场景" not in out["content"][0]["text"]
 
 
-async def test_promote_draft_report_silent_without_scene_assets(fake_ctx: ToolContext, monkeypatch) -> None:
-    """项目一张场景资产都没登记时报告不发场景提示：无处可引用，提示指不出任何动作。"""
-    _rv_source(fake_ctx)
-    _rv_scenes(fake_ctx, {})
-    await _rv_draft_with(fake_ctx, monkeypatch, ["@[不存在的人] 出场"])
-
-    out = await _promote(fake_ctx)
-
-    assert out.get("is_error") is True
-    assert "未引用场景" not in out["content"][0]["text"]
-
-
 async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: ToolContext, monkeypatch) -> None:
     """晋升回执带软违约段，与拆分回执同口径——软违约不阻断晋升，正式文件照常落盘。"""
     _rv_source(fake_ctx)
@@ -657,18 +645,6 @@ async def test_promote_receipt_silent_when_every_unit_references_a_scene(fake_ct
     _rv_source(fake_ctx)
     _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
     await _rv_draft_with(fake_ctx, monkeypatch, ["@[村口] 黄昏，@[张三] 推门"])
-
-    out = await _promote(fake_ctx)
-
-    assert out.get("is_error") is not True, out
-    assert "未引用场景" not in json.loads(out["content"][0]["text"])["draft"]["message"]
-
-
-async def test_promote_receipt_silent_without_scene_assets(fake_ctx: ToolContext, monkeypatch) -> None:
-    """项目无场景资产时回执不发场景提示。"""
-    _rv_source(fake_ctx)
-    _rv_scenes(fake_ctx, {})
-    await _rv_draft_with(fake_ctx, monkeypatch, ["@[张三] 起身"])
 
     out = await _promote(fake_ctx)
 

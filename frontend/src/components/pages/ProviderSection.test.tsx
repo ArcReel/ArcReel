@@ -1,19 +1,23 @@
 import { render, screen, waitFor, within, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import i18n from "@/i18n";
 import { API } from "@/api";
 import { ProviderSection } from "./ProviderSection";
 import type { ProviderInfo, CustomProviderInfo } from "@/types";
 
-let search = "provider=gemini-aistudio";
-const navigateMock = vi.fn((to: string) => {
-  search = to.includes("?") ? to.slice(to.indexOf("?") + 1) : "";
-});
-
-vi.mock("wouter", () => ({
-  useLocation: () => ["/app/settings", navigateMock],
-  useSearch: () => search,
-}));
+function renderAt(path = "/app/settings?provider=gemini-aistudio") {
+  const location = memoryLocation({ path, record: true });
+  return {
+    ...render(
+      <Router hook={location.hook} searchHook={location.searchHook}>
+        <ProviderSection />
+      </Router>,
+    ),
+    location,
+  };
+}
 
 // 后端按 Accept-Language 成文供应商与模型名，这里用替身按当前语言返回对应译名。
 function providersFor(lang: string): { providers: ProviderInfo[] } {
@@ -57,8 +61,6 @@ function customFor(lang: string): { providers: CustomProviderInfo[] } {
 
 describe("ProviderSection", () => {
   beforeEach(() => {
-    search = "provider=gemini-aistudio";
-    navigateMock.mockClear();
     vi.spyOn(API, "getProviders").mockImplementation(() =>
       Promise.resolve(providersFor(i18n.language)),
     );
@@ -75,7 +77,7 @@ describe("ProviderSection", () => {
   });
 
   it("refetches the provider catalog when the interface language changes", async () => {
-    render(<ProviderSection />);
+    renderAt();
 
     const nav = () => screen.getByRole("navigation");
     await screen.findByRole("navigation");
@@ -104,7 +106,7 @@ describe("ProviderSection", () => {
       });
     });
 
-    render(<ProviderSection />);
+    renderAt();
     await screen.findByRole("navigation");
 
     await act(async () => {
@@ -135,7 +137,7 @@ describe("ProviderSection", () => {
       return Promise.reject(new Error("network down"));
     });
 
-    render(<ProviderSection />);
+    renderAt();
     await screen.findByRole("navigation");
 
     await act(async () => {
@@ -158,7 +160,7 @@ describe("ProviderSection", () => {
       return Promise.reject(new Error("network down"));
     });
 
-    render(<ProviderSection />);
+    renderAt();
 
     // 首次拉取尚未返回就切语言：没有可留的目录，失败必须走错误面板而非留下空列表
     await act(async () => {
@@ -170,15 +172,14 @@ describe("ProviderSection", () => {
   });
 
   it("selects the first preset provider when the URL names no selection", async () => {
-    search = "";
+    const { location } = renderAt("/app/settings");
+    const nav = await screen.findByRole("navigation");
 
-    render(<ProviderSection />);
-    await screen.findByRole("navigation");
-
+    // 兜底选中以 replace 写回 URL，并在目录里点亮首个 preset
     await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith("/app/settings?provider=gemini-aistudio", {
-        replace: true,
-      }),
+      expect(within(nav).getByText("Gemini AI Studio（中文）").closest('[aria-current="page"]')).not.toBeNull(),
     );
+    // replace 写回：历史里只剩替换后的一条，不追加
+    expect(location.history).toEqual(["/app/settings?provider=gemini-aistudio"]);
   });
 });
