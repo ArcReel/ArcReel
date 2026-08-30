@@ -53,8 +53,8 @@ def _clean_backend_cache():
 
 
 @pytest.fixture
-async def chain_project(db_factory, tmp_path: Path, monkeypatch) -> Path:
-    """整链共用环境：全局 session 工厂指向内存库 + tmp 真 ProjectManager。
+async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
+    """整链共用环境：全局 session 工厂指向方言敏感测试库 + tmp 真 ProjectManager。
 
     环境阻碍逐项处理，业务链路不打桩：
     - resume 链路上两个全局 session 工厂（``resolve_generation_context`` 函数内
@@ -67,9 +67,9 @@ async def chain_project(db_factory, tmp_path: Path, monkeypatch) -> Path:
       ProjectManager——resolver 等在模块顶部绑定了该名字，只 patch 定义处不生效。
     - 缩略图抽取走 ffprobe 子进程，替换为 no-op 保持测试封闭。
     """
-    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
-    monkeypatch.setattr("lib.db.safe_session_factory", db_factory)
-    monkeypatch.setattr("lib.db.engine.async_session_factory", db_factory)
+    monkeypatch.setattr("lib.db.async_session_factory", session_factory)
+    monkeypatch.setattr("lib.db.safe_session_factory", session_factory)
+    monkeypatch.setattr("lib.db.engine.async_session_factory", session_factory)
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "appdata"))
 
     pm = ProjectManager(tmp_path / "projects")
@@ -107,13 +107,13 @@ async def chain_project(db_factory, tmp_path: Path, monkeypatch) -> Path:
     return project_dir
 
 
-async def _seed_custom_video_rows(db_factory, *, endpoint_count: int = 1, model_endpoint_index: int = 0) -> dict:
+async def _seed_custom_video_rows(session_factory, *, endpoint_count: int = 1, model_endpoint_index: int = 0) -> dict:
     """落自定义供应商三件套：端点定义、供应商、挂端点键的视频模型行。
 
     ``endpoint_count`` > 1 时额外建端点行；``model_endpoint_index`` 决定模型行
     挂哪个端点键——guard 用例据此制造「模型行端点 ≠ checkpoint 冻结端点」。
     """
-    async with db_factory() as session:
+    async with session_factory() as session:
         endpoint_repo = CustomEndpointRepository(session)
         endpoint_keys: list[str] = []
         for index in range(endpoint_count):
@@ -218,10 +218,17 @@ def _storyboard_checkpoint_json(task_id: str, *, provider_id: str, endpoint_guar
     ).to_json()
 
 
-async def _seed_running_video_task(db_factory, *, task_id: str, provider_id: str, checkpoint_json: str) -> None:
+async def _seed_running_video_task(
+    session_factory,
+    *,
+    task_id: str,
+    provider_id: str,
+    checkpoint_json: str,
+    submitted_base_url: str | None = None,
+) -> None:
     """种一行已提交（有 job_id + checkpoint）的 running 视频任务，供孤儿扫描认领。"""
     now = datetime.now(UTC)
-    async with db_factory() as session:
+    async with session_factory() as session:
         session.add(
             Task(
                 task_id=task_id,
@@ -233,6 +240,7 @@ async def _seed_running_video_task(db_factory, *, task_id: str, provider_id: str
                 status="running",
                 provider_id=provider_id,
                 provider_job_id="job-old",
+                submitted_base_url=submitted_base_url,
                 execution_checkpoint_json=checkpoint_json,
                 queued_at=now,
                 started_at=now,
@@ -242,27 +250,31 @@ async def _seed_running_video_task(db_factory, *, task_id: str, provider_id: str
         await session.commit()
 
 
-async def _load_task_row(db_factory, task_id: str) -> Task:
-    async with db_factory() as session:
+async def _load_task_row(session_factory, task_id: str) -> Task:
+    async with session_factory() as session:
         row = await session.get(Task, task_id)
         assert row is not None
         return row
 
 
-async def _run_orphan_recovery(db_factory) -> None:
+async def _run_orphan_recovery(session_factory) -> None:
     """真 worker + 真 queue 驱动一轮启动期孤儿扫描，并等后台 dispatcher 跑完。"""
-    worker = GenerationWorker(queue=GenerationQueue(session_factory=db_factory))
+    worker = GenerationWorker(queue=GenerationQueue(session_factory=session_factory))
     await worker._handle_orphan_tasks_on_start()
     dispatcher = worker._orphan_dispatcher_task
     assert dispatcher is not None
     await asyncio.wait_for(dispatcher, timeout=10)
 
 
-async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: Path, db_factory):
-    """happy path：ce- 行经 resolve 构出真 backend，续跑只 poll+download、不重新提交。"""
-    rows = await _seed_custom_video_rows(db_factory)
+async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: Path, session_factory):
+    """happy path：ce- 行经 resolve 构出真 backend，续跑只 poll+download、不重新提交。
+
+    任务行落了历史提交域名（``submitted_base_url``），而供应商行当前域名已不同：
+    续跑必须按历史域名轮询（域名回放），提交后改 base_url 不能让付费任务失联。
+    """
+    rows = await _seed_custom_video_rows(session_factory)
     await _seed_running_video_task(
-        db_factory,
+        session_factory,
         task_id="T-ce-resume",
         provider_id=rows["provider_id"],
         checkpoint_json=_storyboard_checkpoint_json(
@@ -270,28 +282,32 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
             provider_id=rows["provider_id"],
             endpoint_guard=rows["endpoint_keys"][0],
         ),
+        submitted_base_url="https://old-relay.test",
     )
 
     with capture_http() as router:
         submit = router.post("https://relay.test/v1/video/create")
-        poll = router.get("https://relay.test/v1/video/fetch/job-old").mock(
+        poll_current = router.get("https://relay.test/v1/video/fetch/job-old")
+        poll = router.get("https://old-relay.test/v1/video/fetch/job-old").mock(
             return_value=httpx.Response(
                 200,
-                json={"status": "completed", "video_url": "https://relay.test/files/job-old.mp4"},
+                json={"status": "completed", "video_url": "https://old-relay.test/files/job-old.mp4"},
             )
         )
-        download = router.get("https://relay.test/files/job-old.mp4").mock(
+        download = router.get("https://old-relay.test/files/job-old.mp4").mock(
             return_value=httpx.Response(200, content=b"resumed")
         )
 
-        await _run_orphan_recovery(db_factory)
+        await _run_orphan_recovery(session_factory)
 
-    # resume 不重复提交计费：submit 零请求，接续只按原 job 轮询并取回产物。
+    # resume 不重复提交计费：submit 零请求，接续只按原 job 轮询并取回产物；
+    # 轮询走历史提交域名，不落到供应商行的当前域名。
     assert submit.call_count == 0
+    assert poll_current.call_count == 0
     assert poll.call_count == 1
     assert download.call_count == 1
 
-    row = await _load_task_row(db_factory, "T-ce-resume")
+    row = await _load_task_row(session_factory, "T-ce-resume")
     assert row.status == "succeeded"
     result = json.loads(row.result_json or "{}")
     assert result["resource_id"] == "E1S01"
@@ -300,11 +316,11 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
     assert [path.read_bytes() for path in paid_files] == [b"resumed"]
 
 
-async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_project: Path, db_factory):
+async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_project: Path, session_factory):
     """endpoint guard：模型行改挂另一端点键后，续跑在发出任何 HTTP 请求前失败。"""
-    rows = await _seed_custom_video_rows(db_factory, endpoint_count=2, model_endpoint_index=1)
+    rows = await _seed_custom_video_rows(session_factory, endpoint_count=2, model_endpoint_index=1)
     await _seed_running_video_task(
-        db_factory,
+        session_factory,
         task_id="T-ce-rebound",
         provider_id=rows["provider_id"],
         checkpoint_json=_storyboard_checkpoint_json(
@@ -318,13 +334,13 @@ async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_proje
         submit = router.post("https://relay.test/v1/video/create")
         poll = router.get("https://relay.test/v1/video/fetch/job-old")
 
-        await _run_orphan_recovery(db_factory)
+        await _run_orphan_recovery(session_factory)
 
     # 逐字比对失败在 backend 调用之前：poll/submit 都不该有流量。
     assert submit.call_count == 0
     assert poll.call_count == 0
 
-    row = await _load_task_row(db_factory, "T-ce-rebound")
+    row = await _load_task_row(session_factory, "T-ce-rebound")
     assert row.status == "failed"
     assert row.error_message is not None
     assert "resume_endpoint_changed" in row.error_message
