@@ -99,3 +99,25 @@ class TestAppModule:
         # 退出后 callback 已清
         assert queue._worker_cancel_callback is None
         assert worker.stopped
+
+
+class TestListenEnvVars:
+    """``LISTEN_HOST`` / ``LISTEN_PORT`` 的解析仅在 ``__main__`` 块被 uvicorn 消费，
+    导入 ``server.app`` 不会触发；通过共用的模块级 ``_resolve_listen_addr()`` 函数
+    测试同一份生产解析逻辑，避免测试 / 生产代码漂移。"""
+
+    def test_defaults_match_existing_behavior(self, monkeypatch):
+        monkeypatch.delenv("LISTEN_HOST", raising=False)
+        monkeypatch.delenv("LISTEN_PORT", raising=False)
+        assert app_module._resolve_listen_addr() == ("0.0.0.0", 1241)
+
+    def test_env_overrides_take_effect(self, monkeypatch):
+        monkeypatch.setenv("LISTEN_HOST", "127.0.0.1")
+        monkeypatch.setenv("LISTEN_PORT", "18080")
+        assert app_module._resolve_listen_addr() == ("127.0.0.1", 18080)
+
+    def test_empty_listen_port_falls_back_to_default(self, monkeypatch):
+        """`.env` 误写 `LISTEN_PORT=`（空值）不应让 `int("")` 抛 ValueError。"""
+        monkeypatch.setenv("LISTEN_HOST", "")
+        monkeypatch.setenv("LISTEN_PORT", "")
+        assert app_module._resolve_listen_addr() == ("0.0.0.0", 1241)
