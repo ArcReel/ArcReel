@@ -85,7 +85,7 @@ from lib.project_schema import parse_project_schema_version
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets
-from lib.script_plan_entries import backfill_entry_revisions
+from lib.script_plan_entries import ScriptPlanKind, backfill_entry_revisions
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 from lib.validation_messages import ValidationResult
 
@@ -1290,7 +1290,7 @@ class ProjectManager:
         project_name: str,
         filename: str,
         *,
-        plan_kind: str,
+        plan_kind: ScriptPlanKind,
         plan_revisions: Mapping[str, str],
         whole_plan_revision: str | None,
     ) -> tuple[str, ...]:

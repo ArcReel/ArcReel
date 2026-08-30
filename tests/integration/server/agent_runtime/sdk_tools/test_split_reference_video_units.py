@@ -475,6 +475,27 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
     assert "未引用场景" in text
 
 
+async def test_split_reference_video_units_reports_soft_violations_alongside_the_violation_report(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """产出即违约的报告同样带软违约段：Agent 修草稿这一轮就该看到降级提示，而非等到晋升。"""
+    _rv_source(fake_ctx)
+    fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}  # pyright: ignore[reportAttributeAccessIssue]
+    out = await _run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [_rv_unit("@[酒馆] 内景，@[张三] 推门。"), _rv_unit("@[不存在的人] 出场")],
+    )
+
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "未登记" in text
+    assert "降级提示" in text
+    assert "未引用场景" in text
+    assert "unit E1U02：" in text
+    assert not _rv_script_plan_path(fake_ctx).exists()
+
+
 async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:

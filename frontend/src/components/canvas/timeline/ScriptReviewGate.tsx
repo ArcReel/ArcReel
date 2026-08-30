@@ -287,7 +287,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   }, [state, episode, contentMode, t]);
 
   if (loading) {
-    return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_preprocessing")}</div>;
+    return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_script_plan")}</div>;
   }
 
   // 加载错误态：区别于「无 script_plan 产物」空态，展示错误信息 + 重试入口。
@@ -313,7 +313,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   const quarantine = state?.quarantine ?? null;
   if (status === "no_script_plan" || (draft == null && quarantine == null)) {
     return (
-      <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_preprocessing_content")}</div>
+      <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_script_plan_content")}</div>
     );
   }
 

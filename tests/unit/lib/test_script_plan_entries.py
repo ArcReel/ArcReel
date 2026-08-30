@@ -5,8 +5,6 @@ from __future__ import annotations
 import pytest
 
 from lib.script_plan_entries import (
-    CONTENT_FIELDS,
-    PLAN_ITEMS_KEY,
     PRESERVED_ON_UNCHANGED_FIELDS,
     SCRIPT_PLAN_ENTRY_REVISION_FIELD,
     SCRIPT_PLAN_REVISION_FIELD,
@@ -16,6 +14,7 @@ from lib.script_plan_entries import (
     evaluate_entry_currency,
     plan_entries_from_document,
     plan_entry_revisions,
+    plan_variant,
     resolve_rewrite_ids,
     script_entries_by_id,
     splice_entries,
@@ -84,7 +83,7 @@ class TestEntryRevision:
         """内容字段清单是契约：任何一项改动都必须让该条目失配，否则改它不会触发重写。"""
         entry = PLAN_FACTORIES[kind]()
         baseline = entry_revision(kind, entry)
-        for field in CONTENT_FIELDS[kind]:
+        for field in plan_variant(kind).content_fields:
             value = entry[field]
             mutated = {
                 **entry,
@@ -134,7 +133,7 @@ class TestPlanEntriesFromDocument:
     @pytest.mark.parametrize("kind", ["drama", "narration", "reference_video"])
     def test_reads_each_variant_items_key(self, kind: str) -> None:
         entry = PLAN_FACTORIES[kind]()
-        document = {PLAN_ITEMS_KEY[kind]: [entry]}
+        document = {plan_variant(kind).plan_items_key: [entry]}
         assert len(plan_entries_from_document(kind, document)) == 1
 
     @pytest.mark.parametrize("kind", ["narration", "reference_video"])
@@ -143,13 +142,13 @@ class TestPlanEntriesFromDocument:
         omitted = {"narration": "segment_break", "reference_video": "source_text"}[kind]
         entry = PLAN_FACTORIES[kind]()
         entry.pop(omitted)
-        [normalized] = plan_entries_from_document(kind, {PLAN_ITEMS_KEY[kind]: [entry]})
+        [normalized] = plan_entries_from_document(kind, {plan_variant(kind).plan_items_key: [entry]})
         assert omitted in normalized
 
     @pytest.mark.parametrize("kind", ["narration", "reference_video"])
     def test_entries_the_draft_model_rejects_yield_nothing(self, kind: str) -> None:
         """归一失败即「没有可比对的条目」，判定退回整集口径，不另造一类错误。"""
-        assert plan_entries_from_document(kind, {PLAN_ITEMS_KEY[kind]: [{"乱写": 1}]}) == []
+        assert plan_entries_from_document(kind, {plan_variant(kind).plan_items_key: [{"乱写": 1}]}) == []
 
     @pytest.mark.parametrize("document", [None, [], {"scenes": "坏形状"}, {}])
     def test_malformed_document_yields_no_entries(self, document: object) -> None:

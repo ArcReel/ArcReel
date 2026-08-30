@@ -258,7 +258,7 @@ export function GridImageToVideoCanvas({
           background: "oklch(0.19 0.012 250 / 0.5)",
         }}
       >
-        {showTabs && renderTabButton("preprocessing", t("tab_preprocessing"))}
+        {showTabs && renderTabButton("preprocessing", t("tab_script_plan"))}
         {renderTabButton("grid_preview", t("tab_grid_preview"))}
         {renderTabButton("units", t("tab_timeline"), !hasScript)}
         <span className="flex-1" />

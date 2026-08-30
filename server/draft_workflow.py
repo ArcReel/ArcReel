@@ -53,11 +53,13 @@ from server.text_generation import (
     _collect_reference_flat_violations,
     _commit_single_script_plan,
     _coverage_source_scope,
+    _drama_script_plan_result_text,
     _fetch_caps_with_fallback,
     _fetch_reference_caps_with_fallback,
     _load_novel_source,
     _load_script_plan_source_with_basis,
     _narration_script_plan_path,
+    _narration_script_plan_result_text,
     _reference_result_text,
     _reference_soft_violation_lines,
     _uses_reference_video_units,
@@ -619,8 +621,11 @@ async def _promote_drama_script_plan(
     ctx: DraftContext,
     episode: int,
     draft: QuarantinedDraft,
-) -> None:
-    """按产出时那套校验器全量重判 drama script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。"""
+) -> str:
+    """按产出时那套校验器全量重判 drama script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。
+
+    返回晋升回执文本：与产出回执同一出口（``_drama_script_plan_result_text``）。
+    """
     project_path = ctx.project_path
     project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
     try:
@@ -678,6 +683,12 @@ async def _promote_drama_script_plan(
                 field_hint="content.scenes",
             ),
         ) from conflict
+    raw_scenes = content.get("scenes")
+    return _drama_script_plan_result_text(
+        script_plan_path,
+        raw_scenes if isinstance(raw_scenes, list) else [],
+        action="晋升",
+    )
 
 
 async def _open_drama_script_plan_for_edit(
@@ -820,8 +831,11 @@ async def _promote_narration_script_plan(
     ctx: DraftContext,
     episode: int,
     draft: QuarantinedDraft,
-) -> None:
-    """按产出时那套校验器全量重判 narration script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。"""
+) -> str:
+    """按产出时那套校验器全量重判 narration script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。
+
+    返回晋升回执文本：与拆分回执同一出口（``_narration_script_plan_result_text``）。
+    """
     project_path = ctx.project_path
     project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
     try:
@@ -877,6 +891,12 @@ async def _promote_narration_script_plan(
             field_hint="content.segments",
         )
         raise DraftWorkflowError("formal_revision_conflict", conflict_report) from conflict
+    raw_segments = revalidation.content.get("segments")
+    return _narration_script_plan_result_text(
+        script_plan_path,
+        raw_segments if isinstance(raw_segments, list) else [],
+        action="晋升",
+    )
 
 
 async def _open_narration_script_plan_for_edit(
@@ -1029,7 +1049,7 @@ _SCRIPT_PLAN_EDIT_OPENERS: dict[
 
 _SINGLE_SCRIPT_PLAN_PROMOTERS: dict[
     str,
-    Callable[[DraftContext, int, QuarantinedDraft], Awaitable[None]],
+    Callable[[DraftContext, int, QuarantinedDraft], Awaitable[str]],
 ] = {
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN: _promote_drama_script_plan,
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN: _promote_narration_script_plan,
@@ -1248,9 +1268,10 @@ class DraftWorkflow:
         resolved = await self._kind(episode, doc_type)
         path = quarantine_path(self.ctx.project_path, episode, resolved)
         result_path: Path | None = None
-        # 晋升回执：参考生视频这条路回一段带软违约段的摘要，其余变体没有可随产物呈现的降级提示，
-        # 沿用通用短句。回执由晋升器产出而非在此拼装——软违约的措辞与拆分回执同一出口。
-        message: str | None = None
+        # 晋升回执：script_plan 三个变体各由自己的晋升器产出，统计段与产出侧回执同一出口
+        # （参考生视频那条另接软违约段），本函数不重拼。提示词编写没有对位的产出侧回执——它落的
+        # 是正式剧本、产出侧不发回执——只有路径一项可报，就在下面那条分支里直接成文。
+        message: str
         if before_lock is not None:
             before_lock()
         async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
@@ -1268,7 +1289,7 @@ class DraftWorkflow:
                 )
             try:
                 if resolved in _SINGLE_SCRIPT_PLAN_PROMOTERS:
-                    await _SINGLE_SCRIPT_PLAN_PROMOTERS[resolved](self.ctx, episode, draft)
+                    message = await _SINGLE_SCRIPT_PLAN_PROMOTERS[resolved](self.ctx, episode, draft)
                 elif resolved == QUARANTINE_KIND_SCRIPT_PLAN:
                     message = await _promote_reference_script_plan(
                         self.ctx,
@@ -1296,6 +1317,7 @@ class DraftWorkflow:
                         _prompt_authoring_lock_held=True,
                         **promote_kwargs,
                     )
+                    message = f"✅ 提示词编写晋升（正式剧本）已保存: {result_path}"
             except DraftWorkflowError:
                 raise
             except ScriptWriteConflict as exc:
@@ -1310,7 +1332,7 @@ class DraftWorkflow:
             "episode": episode,
             "doc_type": doc_type,
             "promoted": True,
-            "message": message if message is not None else "草稿已校验并晋升",
+            "message": message,
         }
         if result_path is not None:
             value["path"] = str(result_path)

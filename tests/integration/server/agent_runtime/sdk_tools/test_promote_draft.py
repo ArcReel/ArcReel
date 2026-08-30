@@ -1049,6 +1049,20 @@ async def test_promote_drama_script_plan_rederives_needs_replan(fake_ctx: ToolCo
     assert saved["scenes"][0]["needs_replan"] is True
 
 
+async def test_promote_drama_script_plan_returns_a_receipt_with_statistics(fake_ctx: ToolContext) -> None:
+    """drama 晋升回执与产出回执同格式：Agent 两次都按同一份统计段读结果。"""
+    _drama_project(fake_ctx)
+    _write_drama_script_plan(fake_ctx, [_drama_scene()])
+
+    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    out = await _promote_drama(fake_ctx)
+
+    assert out.get("is_error") is not True, out
+    message = json.loads(out["content"][0]["text"])["draft"]["message"]
+    assert "规范化剧本晋升" in message
+    assert "1 个分镜" in message
+
+
 async def test_promote_drama_script_plan_reports_schema_breach_without_writing(fake_ctx: ToolContext) -> None:
     """草稿被改坏时正式文件不写：草稿留在场、按 violations 继续改再晋升，不丢内容也不污染正式文件。"""
     _drama_project(fake_ctx)
@@ -1459,6 +1473,21 @@ async def test_promote_narration_script_plan_names_source_scope_on_coverage_viol
     assert patched.get("is_error") is not True, patched
     promoted = await _promote_nr(fake_ctx)
     assert promoted.get("is_error") is not True, promoted
+
+
+async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(fake_ctx: ToolContext) -> None:
+    """narration 晋升回执与拆分回执同格式：Agent 两次都按同一份统计段读结果。"""
+    _nr_source(fake_ctx)
+    _write_nr_script_plan(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    out = await _promote_nr(fake_ctx)
+
+    assert out.get("is_error") is not True, out
+    message = json.loads(out["content"][0]["text"])["draft"]["message"]
+    assert "旁白/解说分镜晋升" in message
+    assert "1 个分镜" in message
+    assert "segment_break 标记" in message
 
 
 async def test_generate_episode_script_blocked_by_narration_quarantine(fake_ctx: ToolContext) -> None:

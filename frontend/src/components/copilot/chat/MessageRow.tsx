@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, Paperclip, Pencil, TriangleAlert, X } from "lucide-react";
+import { Paperclip, Pencil, TriangleAlert, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ImagePayload, Turn } from "@/types";
-import { copyText } from "@/utils/clipboard";
+import { CopyButton } from "@/components/ui/CopyButton";
 import { formatClockTime } from "@/utils/date-format";
 import { ChatMessage } from "./ChatMessage";
 import {
@@ -121,40 +121,6 @@ function TimeStamp({ time, className }: { time: string; className: string }) {
     <span className={`${className} text-[10.5px] tabular-nums`} style={{ color: "var(--color-text-4)" }}>
       {time}
     </span>
-  );
-}
-
-/** 无底色图标按钮：hover 出灰色圆角方形背景，复制成功后图标短暂变对勾。 */
-function CopyButton({ text }: { text: string }) {
-  const { t } = useTranslation("dashboard");
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  const Icon = copied ? Check : Copy;
-  const label = copied ? t("message_copied") : t("message_copy");
-
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        // 复制成功才给对勾：非安全上下文走 execCommand 兜底，兜底也失败时不假报成功
-        void copyText(text).then(
-          () => setCopied(true),
-          () => undefined,
-        );
-      }}
-      title={label}
-      aria-label={label}
-      className="focus-ring grid h-6 w-6 place-items-center rounded-md transition-colors hover:bg-white/10"
-      style={{ color: copied ? "var(--color-accent-2)" : "var(--color-text-3)" }}
-    >
-      <Icon aria-hidden className="h-3.5 w-3.5" />
-    </button>
   );
 }
 
