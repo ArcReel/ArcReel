@@ -383,9 +383,18 @@ export function MediaModelSection() {
             value={currentPollTimeout}
             onChange={(e) => {
               const next = Number(e.target.value);
-              if (Number.isInteger(next)) {
+              // 仅过滤非有限数，与 narration_speed 同口径：小数等中间态允许暂存，键入内容
+              // 与草稿不再静默分叉；失焦时归一为整数，下限由保存时后端校验兜底。
+              if (Number.isFinite(next)) {
                 setDraft((prev) => ({ ...prev, video_poll_timeout_seconds: next }));
               }
+            }}
+            onBlur={() => {
+              setDraft((prev) => {
+                const raw = prev.video_poll_timeout_seconds;
+                if (raw === undefined || Number.isInteger(raw)) return prev;
+                return { ...prev, video_poll_timeout_seconds: Math.round(raw) };
+              });
             }}
             className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           />

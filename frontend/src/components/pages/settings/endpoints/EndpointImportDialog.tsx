@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { ACCENT_BTN_SM_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import type { EndpointDefinition, EndpointValidateResponse } from "@/types";
+import { formatNameList } from "@/utils/list-format";
 
 /** 导入确认：先看校验结果与重复血统，再决定新建副本、覆盖既有，还是取消。 */
 export function EndpointImportDialog({
@@ -25,7 +26,7 @@ export function EndpointImportDialog({
   onOverwrite: (id: number) => void;
   onCancel: () => void;
 }) {
-  const { t } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
   const titleId = useId();
 
   const hasErrors = (validation?.errors.length ?? 0) > 0;
@@ -90,7 +91,10 @@ export function EndpointImportDialog({
         {validation?.hints?.suggested_models && validation.hints.suggested_models.length > 0 && (
           <p className="mt-1 text-[12px] text-text-3">
             {t("ce_import_hint_models", {
-              models: validation.hints.suggested_models.map((m) => m.label ?? m.id).join("、"),
+              models: formatNameList(
+                validation.hints.suggested_models.map((m) => m.label ?? m.id),
+                i18n.language,
+              ),
             })}
           </p>
         )}

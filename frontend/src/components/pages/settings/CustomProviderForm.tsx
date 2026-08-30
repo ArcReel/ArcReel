@@ -45,6 +45,7 @@ import {
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
+import { formatNameList } from "@/utils/list-format";
 
 // ---------------------------------------------------------------------------
 // Style constants
@@ -307,7 +308,7 @@ export function CustomProviderForm({
   onSaved,
   onCancel,
 }: CustomProviderFormProps) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const isEdit = !!existing;
 
   // Endpoint catalog（后端单一真相源）：mediaType 推断、price/default 互斥分组都从这里读。
@@ -704,7 +705,7 @@ export function CustomProviderForm({
           </label>
           {noApiKey && keyRequiringModels.length > 0 && (
             <p className="mt-1.5 text-[12px] leading-[1.55] text-warm-bright">
-              {t("cp_no_api_key_conflict", { models: keyRequiringModels.join("、") })}
+              {t("cp_no_api_key_conflict", { models: formatNameList(keyRequiringModels, i18n.language) })}
             </p>
           )}
         </div>
