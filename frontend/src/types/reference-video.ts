@@ -10,9 +10,6 @@ import type { TransitionType } from "./script";
 import type {
   AdmissionProblem,
   VideoRequestCostQuote,
-  BatchAdmissionDecision,
-  BatchAdmissionTier,
-  BatchAdmissionUnit,
   WorkflowAdmission,
 } from "./workflow";
 
@@ -146,30 +143,6 @@ export interface ReferenceDurationPrecheck {
 }
 
 /**
- * 批量视频生成的准入结论——「全有或全无」：三种结局都是评估成功（HTTP 200），
- * 只有 `admitted` 创建了任务；`confirmation_required` 与 `blocked` 一个任务也没建。
- */
-export type ReferenceBatchDecision = BatchAdmissionDecision;
-
-/**
- * 单个目标单元的准入缺口。形状与工作流计划里的同一对象一致，故直接沿用
- * {@link AdmissionProblem}——两处讲的是同一件事，不各留一份定义。
- */
-export type ReferenceBatchProblem = AdmissionProblem;
-
-/**
- * 每个目标单元的结论。受阻时本身没有问题的单元也带一条
- * `generation_batch_admission_withheld`，其 params.blocked_unit_ids 指出是谁拦下的。
- */
-export type ReferenceBatchUnitOutcome = BatchAdmissionUnit;
-
-/**
- * 按申请档位分组的确认项；`cost_amount` 为 null 表示该档报价不全，不展示合计。
- * `request_duration_seconds` 为 null 表示该组档位未解析出来，界面按「档位待定」陈述。
- */
-export type ReferenceBatchConfirmationTier = BatchAdmissionTier;
-
-/**
  * 一个没能入队的目标。已创建的任务不因此被撤销，它们照常执行；这里列出的 unit
  * 本次没有任务、也没有计费，下次「缺失即生成」会正好补上它们。
  */
@@ -241,16 +214,12 @@ export interface ReferenceScriptPlanDraft {
 /**
  * script_plan 的扁平草稿结构（草稿装的是这个，不是落盘的 `ReferenceScriptPlanDraft`）：
  * `unit_id` 机器派生，落盘前才有——草稿中只有时长 + 原文锚 + 一段引用语法正文。
- * Mirrors lib/script_models.py ReferenceScriptPlanFlatUnit / ReferenceScriptPlanFlatDraft。
+ * Mirrors lib/script_models.py ReferenceScriptPlanFlatUnit。
  */
 export interface ReferenceScriptPlanFlatUnit {
   duration_seconds: number;
   source_text: string;
   text: string;
-}
-
-export interface ReferenceScriptPlanFlatDraft {
-  units: ReferenceScriptPlanFlatUnit[];
 }
 
 /**
@@ -284,18 +253,4 @@ export interface ScriptReviewQuarantine {
   /** null 仅在草稿文件已损坏、无法解析信封形状时出现——`violations` 会带一条说明。 */
   content: Record<string, unknown> | null;
   violations: ScriptReviewViolation[];
-}
-
-export interface ReferenceVideoScript {
-  episode: number;
-  title: string;
-  /**
-   * 内容类型——参考生视频剧本继承项目级 narration/drama，决定画面比例等次级配置；
-   * "视频来源"维度由项目的生成模式表达，不落在剧本上。
-   */
-  content_mode?: "narration" | "drama" | "ad";
-  duration_seconds: number;
-  schema_version?: number;
-  novel: { title: string; chapter: string };
-  video_units: ReferenceVideoUnit[];
 }

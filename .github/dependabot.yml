@@ -155,12 +155,6 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      dnd-kit:
-        patterns:
-          - "@dnd-kit/*"
-        update-types:
-          - "minor"
-          - "patch"
       ui-libs:
         patterns:
           - "framer-motion"

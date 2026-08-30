@@ -151,7 +151,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 ## 代码质量
 
-工具报出的问题一律改代码。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`，zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），deptry 见下方「依赖卫生」，ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
+工具报出的问题一律改代码。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`，zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），deptry 见下方「依赖卫生」，knip 写导出上方的 `/** @public 理由 */`，ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
 
 **Lint & Format（ruff）：**
 
@@ -216,6 +216,20 @@ cd frontend && pnpm lint:fix      # 自动修复可修复的问题
 - 规则集：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - typed linting 启用 `projectService: true`，可检查 `no-floating-promises`、`no-misused-promises` 等 async 相关问题
 - CI 中强制检查：`frontend-static` job 的 `Lint` step
+
+**未使用文件 / 导出 / 依赖（前端 knip）：**
+
+```bash
+cd frontend && pnpm knip
+```
+
+- 配置：`frontend/knip.json`；范围仅 `frontend/`，文档站不纳入
+- `ignoreExportsUsedInFile: true`：只在定义文件内被使用的导出不算未使用，「类型定义即模块接口」的写法无需去 `export`
+- 入口全部由 knip 的 vite / vitest 插件推导（`index.html` → `src/main.tsx`、`vitest.config.ts` → `src/test/setup.ts`），`entry` 无须声明
+- `project` 含 `src/**/*.css`，Tailwind 的 `@import "tailwindcss"` 因此被算作依赖引用；含根级 `*.{ts,js}`，vitest / vite / eslint 配置因此进图
+- 按需加载的 i18n 资源由 `import.meta.glob` 表达，knip 原生解析，不需要 ignore
+- 依赖误报的处理顺序是先把真实入口写进 `entry` / `project`，`ignoreDependencies` 是最后手段
+- CI 中强制检查：`frontend-static` job 的 `Knip` step；`pnpm check` 里排在 `lint` 与 `vitest` 之间
 
 **Lint & Format（文档站 ESLint + prettier）：**
 

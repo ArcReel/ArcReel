@@ -279,6 +279,10 @@ jobs:
         working-directory: frontend
         run: pnpm lint
 
+      - name: Knip
+        working-directory: frontend
+        run: pnpm knip
+
       - name: Build
         working-directory: frontend
         run: pnpm build

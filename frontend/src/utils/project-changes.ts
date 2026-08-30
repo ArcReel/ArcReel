@@ -7,8 +7,11 @@ const GROUP_NAME_LIMIT = 5;
 /** 事件通知文案的翻译函数，由调用方从 `events` 命名空间取得。 */
 export type EventsT = TFunction<"events">;
 
-// 生成事件（用于刷新费用等）。
-export const GENERATION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set([
+// 完成事件：一次生成跑完的信号。同时承担两种用途——
+// 一、通知类别（action 本身即类别，与 entity_type 无关）：优先级查表、导航行为、通知文案均不按
+//     entity_type 拆分，五类骨架/任务共用同一套判定；
+// 二、计费信号：生成完成即可能产生供应商费用，命中即重拉成本。
+export const COMPLETION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set([
   "storyboard_ready",
   "video_ready",
   "grid_ready",
@@ -16,10 +19,6 @@ export const GENERATION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set(
   "tts_ready",
   "voice_sample_ready",
 ]);
-
-// 完成事件（action 本身即通知类别，与 entity_type 无关）——优先级查表、导航行为、通知文案均不按
-// entity_type 拆分，五类骨架/任务共用同一套判定。
-export const COMPLETION_ACTIONS: ReadonlySet<ProjectChange["action"]> = GENERATION_ACTIONS;
 
 export interface GroupedProjectChange {
   key: string;
