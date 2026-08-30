@@ -81,6 +81,9 @@ export function MediaModelSection() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
+  // 轮询超时编辑期的原始字符串（null = 未在编辑）：受控 value 若直接取数字，
+  // 「60.」等中间态与清空会被数字化吞掉；失焦时统一解析写回草稿。
+  const [pollTimeoutInput, setPollTimeoutInput] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const isDirty = Object.keys(draft).length > 0;
@@ -377,24 +380,34 @@ export function MediaModelSection() {
           </label>
           <input
             id="video-poll-timeout-input"
-            type="number"
-            min={60}
-            step={1}
-            value={currentPollTimeout}
+            type="text"
+            inputMode="decimal"
+            value={pollTimeoutInput ?? String(currentPollTimeout)}
             onChange={(e) => {
-              const next = Number(e.target.value);
-              // 仅过滤非有限数，与 narration_speed 同口径：小数等中间态允许暂存，键入内容
-              // 与草稿不再静默分叉；失焦时归一为整数，下限由保存时后端校验兜底。
-              if (Number.isFinite(next)) {
+              const raw = e.target.value;
+              setPollTimeoutInput(raw);
+              const next = Number(raw);
+              // 显示以原始字符串为准（「60.」等中间态与清空保真）；有效数值同步进草稿，
+              // 空串或非数值不写入——清空不会产生 0 这类假值。
+              if (raw.trim() !== "" && Number.isFinite(next)) {
                 setDraft((prev) => ({ ...prev, video_poll_timeout_seconds: next }));
               }
             }}
             onBlur={() => {
-              setDraft((prev) => {
-                const raw = prev.video_poll_timeout_seconds;
-                if (raw === undefined || Number.isInteger(raw)) return prev;
-                return { ...prev, video_poll_timeout_seconds: Math.round(raw) };
-              });
+              if (pollTimeoutInput === null) return;
+              const next = Number(pollTimeoutInput);
+              // 失焦归一：有效数值取整写入草稿；空串或非数值撤销该字段的未保存编辑
+              // （连同键入过程写入的中间值），回显已保存值。下限由保存时后端校验兜底。
+              if (pollTimeoutInput.trim() !== "" && Number.isFinite(next)) {
+                setDraft((prev) => ({ ...prev, video_poll_timeout_seconds: Math.round(next) }));
+              } else {
+                setDraft((prev) => {
+                  if (!("video_poll_timeout_seconds" in prev)) return prev;
+                  const { video_poll_timeout_seconds: _dropped, ...rest } = prev;
+                  return rest;
+                });
+              }
+              setPollTimeoutInput(null);
             }}
             className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           />
