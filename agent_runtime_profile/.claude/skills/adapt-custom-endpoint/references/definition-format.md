@@ -59,8 +59,8 @@
 ```bash
 python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py validate definition.json
 python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py check-response definition.json --stage submit --response submit-response.json
-python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py preview-request definition.json --parameters parameters.json --credentials credentials-ref.json
-python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py trial-run definition.json --parameters parameters.json --credentials credentials-ref.json --confirm-cost
+python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py preview-request definition.json --parameters parameters.json --credentials credentials-ref.json --start-image start.png
+python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py trial-run definition.json --parameters parameters.json --credentials credentials-ref.json --reference-images subject-1.png --reference-images subject-2.png --confirm-cost
 python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py trial-status RUN_ID
 python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py save definition.json
 ```
@@ -76,3 +76,7 @@ python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py save defi
 ```json
 {"provider_id":"custom-1"}
 ```
+
+素材参数与 multipart 字段一一对应：`--start-image` → `start_image`、`--end-image` →
+`end_image`、`--reference-images` → `reference_images`、`--reference-audio-files` →
+`reference_audio_files`。后两项可重复传入多个文件；预览请求与测试连接使用同一组参数。

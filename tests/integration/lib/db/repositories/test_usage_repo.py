@@ -75,6 +75,16 @@ class TestUsageRepository:
         page2 = await repo.get_calls(page=2, page_size=2)
         assert len(page2["items"]) == 2
 
+    async def test_filters_calls_by_id(self, db_session):
+        repo = UsageRepository(db_session)
+        wanted = await repo.start_call(project_name="demo", call_type="video", model="wanted")
+        await repo.start_call(project_name="demo", call_type="video", model="other")
+
+        result = await repo.get_calls(call_id=wanted)
+
+        assert result["total"] == 1
+        assert result["items"][0]["id"] == wanted
+
     async def test_last_provider_response_is_bounded(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")

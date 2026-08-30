@@ -416,6 +416,7 @@ class UsageRepository(BaseRepository):
     @staticmethod
     def _build_filters(
         *,
+        call_id: int | None = None,
         project_name: str | None = None,
         provider: str | None = None,
         call_type: CallType | None = None,
@@ -424,6 +425,8 @@ class UsageRepository(BaseRepository):
         end_date: datetime | None = None,
     ) -> list:
         filters: list = []
+        if call_id is not None:
+            filters.append(ApiCall.id == call_id)
         if project_name:
             filters.append(ApiCall.project_name == project_name)
         if provider:
@@ -454,7 +457,6 @@ class UsageRepository(BaseRepository):
             start_date=start_date,
             end_date=end_date,
         )
-
         # Main aggregation query
         main_stmt = (
             select(
@@ -641,6 +643,7 @@ class UsageRepository(BaseRepository):
     async def get_calls(
         self,
         *,
+        call_id: int | None = None,
         project_name: str | None = None,
         call_type: CallType | None = None,
         status: str | None = None,
@@ -650,6 +653,7 @@ class UsageRepository(BaseRepository):
         page_size: int = 20,
     ) -> dict[str, Any]:
         filters = self._build_filters(
+            call_id=call_id,
             project_name=project_name,
             call_type=call_type,
             status=status,

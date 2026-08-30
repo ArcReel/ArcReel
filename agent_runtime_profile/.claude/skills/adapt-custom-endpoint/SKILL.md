@@ -19,9 +19,11 @@ description: 为 JSON 提交并轮询的视频供应商编写、验证、测试�
 3. 运行 `python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py validate <definition.json>`。
    修正到 `errors` 为空。`schema_version` 提示、`warnings` 与 `hints` 自行处理，并向用户转述取舍。
 4. 对供应商的提交与轮询响应分别运行 `check-response`。这一步离线且免费，应先于出站测试。
-5. 运行 `preview-request`，核对 URL、method、打码后的 headers、body 与素材摘要。
+5. 运行 `preview-request`，核对 URL、method、打码后的 headers、body 与素材摘要。定义有必需素材时，
+   用 `--start-image` / `--end-image` / `--reference-images` / `--reference-audio-files` 附上对应文件。
 6. **测试连接会真实请求供应商并可能计费。调用前必须回问用户。** 获得明确同意后才运行
-   `trial-run ... --confirm-cost`，再用 `trial-status <run-id>` 查询到终态，并转述请求、响应、取值与错误。
+   `trial-run ... --confirm-cost`（沿用预览时的素材参数），再用 `trial-status <run-id>` 查询到终态，
+   并转述请求、响应、取值与错误。
 7. 再次 validate。没有同血统端点时用 `save` 新建；有重复时默认另存副本并告知用户。
    **只有覆盖既有端点必须回问用户**；明确同意后才用
    `save ... --endpoint-id <id> --confirm-overwrite`。保存成功以返回 `ce-<id>` 为完成判据。

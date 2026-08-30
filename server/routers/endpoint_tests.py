@@ -61,6 +61,7 @@ from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
+from server.auth import CurrentUserFlexible
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ MAX_ASSET_BYTES = 15 * 1024 * 1024
 MAX_ASSET_FILES = 16
 
 router = APIRouter(tags=["Custom Endpoints"])
+artifact_router = APIRouter(tags=["Custom Endpoints"])
 
 
 def get_trial_run_manager() -> TrialRunManager:
@@ -440,9 +442,10 @@ async def cancel_trial_run(
     return Response(status_code=204)
 
 
-@router.get("/trial-runs/{run_id}/artifact")
+@artifact_router.get("/custom-endpoints/trial-runs/{run_id}/artifact")
 async def get_trial_run_artifact(
     run_id: str,
+    _user: CurrentUserFlexible,
     manager: TrialRunManager = Depends(get_trial_run_manager),
 ) -> FileResponse:
     """播放该测试连接生成的产物。"""

@@ -37,6 +37,7 @@ SELF_AUTH_OPERATIONS = frozenset(
         "GET /api/v1/projects/{project_name}/events/stream",
         "GET /api/v1/projects/{name}/export",
         "GET /api/v1/projects/{name}/export/jianying-draft",
+        "GET /api/v1/custom-endpoints/trial-runs/{run_id}/artifact",
     }
 )
 
@@ -144,11 +145,25 @@ def test_public_endpoints_stay_reachable(auth_coverage_client):
         "/api/v1/projects/demo/assistant/sessions/s1/entries/stream",
         "/api/v1/projects/demo/assistant/sessions/s1/stream",
         "/api/v1/projects/demo/events/stream",
+        "/api/v1/custom-endpoints/trial-runs/missing/artifact",
     ],
 )
-def test_sse_endpoints_reject_anonymous(auth_coverage_client, path):
-    """SSE 不挂 router 级依赖，其 CurrentUserFlexible 必须仍拦住无 token 的请求。"""
+def test_query_token_endpoints_reject_anonymous(auth_coverage_client, path):
+    """不挂 router 级依赖的端点仍须由 CurrentUserFlexible 拦住无 token 请求。"""
     assert auth_coverage_client.get(path).status_code == 401
+
+
+def test_trial_artifact_accepts_query_token(auth_coverage_client):
+    """原生 video 请求带不了 Authorization header，合法 query token 必须通过认证层。"""
+    token = auth_coverage_client.post(
+        "/api/v1/auth/token",
+        data={"username": "testuser", "password": "testpass"},
+    ).json()["access_token"]
+    response = auth_coverage_client.get(
+        "/api/v1/custom-endpoints/trial-runs/missing/artifact",
+        params={"token": token},
+    )
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize(

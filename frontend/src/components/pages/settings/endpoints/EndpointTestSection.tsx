@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API, ApiRequestError } from "@/api";
@@ -12,9 +12,11 @@ import {
 import type {
   CustomProviderInfo,
   EndpointDefinition,
+  EndpointInputSource,
   EndpointPreviewResponse,
   EndpointStageReport,
   EndpointTestCredentials,
+  EndpointTestAssets,
   EndpointTestStage,
   PreviewedRequest,
   TrialRunInfo,
@@ -132,6 +134,18 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   // 轮询放弃态：连续失败达上限后只停读回，不动 run——服务端名额仍被占用，
   // runId 与取消入口必须保留，否则重新创建会撞 trial_run_already_running。
   const [pollStopped, setPollStopped] = useState(false);
+  const [assetFiles, setAssetFiles] = useState<EndpointTestAssets>({});
+
+  const assetInputs = useMemo(() => {
+    const sources = new Map<EndpointInputSource, boolean>();
+    for (const spec of Object.values(definition.inputs ?? {})) {
+      sources.set(spec.source, (sources.get(spec.source) ?? false) || (spec.required ?? false));
+    }
+    return Array.from(sources, ([source, required]) => ({ source, required }));
+  }, [definition.inputs]);
+  const missingRequiredAsset = assetInputs.some(
+    ({ source, required }) => required && !assetFiles[source]?.length,
+  );
 
   const credentials = useCallback((): EndpointTestCredentials => {
     if (credSource === "provider") return { provider_id: `custom-${providerId}` };
@@ -228,11 +242,14 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
     setStarting(true);
     try {
       setRun(
-        await API.createTrialRun({
-          definition,
-          parameters: { model, prompt },
-          credentials: credentials(),
-        }),
+        await API.createTrialRun(
+          {
+            definition,
+            parameters: { model, prompt },
+            credentials: credentials(),
+          },
+          assetFiles,
+        ),
       );
     } catch (e) {
       setRun(null);
@@ -240,7 +257,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
     } finally {
       setStarting(false);
     }
-  }, [definition, model, prompt, credentials]);
+  }, [definition, model, prompt, credentials, assetFiles]);
 
   // 取消会让服务端连同结果一起丢弃这次 run，回读只会拿到 404；就地清空本地状态，
   // 让「开始测试」重新可用。远端任务不受影响，已经发生的费用照算。
@@ -434,11 +451,31 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                   className={`${INPUT_CLS} h-16 resize-y`}
                 />
               </label>
+              {assetInputs.map(({ source, required }) => (
+                <label key={source} className="block">
+                  <span className={LABEL_CLS}>
+                    {t(`ce_input_source_${source}`)}
+                    {required ? t("ce_test_asset_required") : t("ce_test_asset_optional")}
+                  </span>
+                  <input
+                    type="file"
+                    accept={source === "reference_audio_files" ? "audio/*" : "image/*"}
+                    multiple={source === "reference_images" || source === "reference_audio_files"}
+                    required={required}
+                    aria-label={`${t(`ce_input_source_${source}`)}${required ? t("ce_test_asset_required") : t("ce_test_asset_optional")}`}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      setAssetFiles((current) => ({ ...current, [source]: files }));
+                    }}
+                    className={`${INPUT_CLS} file:mr-3 file:rounded file:border-0 file:bg-bg-grad-a file:px-2 file:py-1 file:text-text-2`}
+                  />
+                </label>
+              ))}
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => void handleStartTrial()}
-                  disabled={starting || !model.trim() || (run !== null && !runFinished)}
+                  disabled={starting || !model.trim() || missingRequiredAsset || (run !== null && !runFinished)}
                   className={ACCENT_BTN_SM_CLS}
                   style={ACCENT_BUTTON_STYLE}
                 >
@@ -476,8 +513,25 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                       {run.error}
                     </p>
                   )}
-                  {run.video_url && (
+                  {run.has_artifact ? (
+                    // eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源
+                    <video
+                      controls
+                      preload="metadata"
+                      src={API.getTrialRunArtifactUrl(run.id)}
+                      aria-label={t("ce_trial_artifact")}
+                      className="w-full rounded-[8px] border border-hairline bg-black"
+                    />
+                  ) : run.video_url ? (
                     <p className="truncate font-mono text-[11.5px] text-good/85">{run.video_url}</p>
+                  ) : null}
+                  {run.api_call_id !== null && (
+                    <a
+                      href={`/app/settings?section=usage&call_id=${run.api_call_id}#usage-call-${run.api_call_id}`}
+                      className="inline-flex text-[11.5px] text-accent-2 underline decoration-accent/40 underline-offset-2 hover:text-text"
+                    >
+                      {t("ce_trial_ledger", { id: run.api_call_id })}
+                    </a>
                   )}
                   {(["submit", "poll", "result"] as EndpointTestStage[]).map((s) => {
                     const report = run.extractions[s];

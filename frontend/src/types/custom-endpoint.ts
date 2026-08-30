@@ -196,6 +196,9 @@ export interface EndpointTestCredentials {
   api_key?: string;
 }
 
+/** 端点测试 multipart 素材；键与服务端表单字段同名。 */
+export type EndpointTestAssets = Partial<Record<EndpointInputSource, File[]>>;
+
 export interface PreviewedRequest {
   method: string;
   url: string;
