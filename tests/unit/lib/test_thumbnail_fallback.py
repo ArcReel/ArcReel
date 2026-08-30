@@ -188,8 +188,10 @@ async def test_last_frame_falls_back_to_count_frames(tmp_path: Path):
 
     assert result == out
     assert len(call_log) == 3
-    assert call_log[0][0] == "ffprobe" and "-count_frames" not in call_log[0]
-    assert call_log[1][0] == "ffprobe" and "-count_frames" in call_log[1]
+    assert call_log[0][0] == "ffprobe"
+    assert "-count_frames" not in call_log[0]
+    assert call_log[1][0] == "ffprobe"
+    assert "-count_frames" in call_log[1]
     assert call_log[2][0] == "ffmpeg"
 
 
@@ -245,9 +247,11 @@ async def test_last_frame_retries_precise_count_when_fast_extract_writes_nothing
     assert result == out
     assert out.read_bytes() == b"fresh"
     assert len(call_log) == 4
-    assert call_log[0][0] == "ffprobe" and "-count_frames" not in call_log[0]
+    assert call_log[0][0] == "ffprobe"
+    assert "-count_frames" not in call_log[0]
     assert call_log[1][0] == "ffmpeg"
-    assert call_log[2][0] == "ffprobe" and "-count_frames" in call_log[2]
+    assert call_log[2][0] == "ffprobe"
+    assert "-count_frames" in call_log[2]
     assert call_log[3][0] == "ffmpeg"
 
 

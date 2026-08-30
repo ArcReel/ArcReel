@@ -122,7 +122,8 @@ async def test_partial_transcript_visible_after_simulated_crash(session_factory,
     store_after_restart = DbSessionStore(session_factory, user_id="crash-recover")
 
     raw = await store_after_restart.load(key)
-    assert raw is not None and len(raw) == 2
+    assert raw is not None
+    assert len(raw) == 2
 
     from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 
@@ -172,4 +173,5 @@ async def test_eager_multi_append_round_trip(session_factory, tmp_path: Path):
         await store.append(key, [f])
 
     raw = await store.load(key)
-    assert raw is not None and len(raw) == 20
+    assert raw is not None
+    assert len(raw) == 20

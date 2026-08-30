@@ -540,9 +540,12 @@ class TestReferenceVideoGateFlow:
             narration_pm.get_project_path("demo"), narration_pm.load_project("demo"), 1
         )
 
-        assert drama_path is not None and drama_path.name == "script_plan_normalized_script.invalid.json"
-        assert rv_path is not None and rv_path.name == "script_plan_reference_units.invalid.json"
-        assert narration_path is not None and narration_path.name == "script_plan_segments.invalid.json"
+        assert drama_path is not None
+        assert drama_path.name == "script_plan_normalized_script.invalid.json"
+        assert rv_path is not None
+        assert rv_path.name == "script_plan_reference_units.invalid.json"
+        assert narration_path is not None
+        assert narration_path.name == "script_plan_segments.invalid.json"
 
     def test_quarantine_of_another_variant_does_not_block(self, tmp_path):
         """其他生成模式的遗留草稿不参与当前模式的阻塞判定。"""
@@ -894,7 +897,7 @@ class TestReferenceVideoScriptPlanMigration:
 
         monkeypatch.setattr(pm, "update_project", _fail_first_project_write)
 
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, match=r"project write interrupted"):
             await svc.get_state("demo", 1)
 
         monkeypatch.setattr(pm, "update_project", original_update)
@@ -1333,7 +1336,8 @@ class TestPromptAuthoringEnforcement:
 
         assert result.get("is_error") is True
         text = result["content"][0]["text"]
-        assert "script_plan" in text and "阻塞" in text
+        assert "script_plan" in text
+        assert "阻塞" in text
 
     async def test_confirm_tool_unblocks_prompt_authoring(self, tmp_path):
         """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 script_plan→prompt_authoring 不被破坏）。"""

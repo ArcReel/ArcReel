@@ -344,7 +344,8 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身", duration=4)], **_VEO_CAPS)
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "生效档位" in text and "[8]" in text
+    assert "生效档位" in text
+    assert "[8]" in text
     # 与其余违约类同口径落草稿：档位越界同样是 Agent 改一改草稿就能修好的内容违约
     assert not _rv_script_plan_path(fake_ctx).exists()
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["duration_off_tier"]

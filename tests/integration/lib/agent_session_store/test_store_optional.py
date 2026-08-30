@@ -78,7 +78,8 @@ async def test_delete_subpath_targets_only_that_subpath(session_factory):
 
     main_load = await store.load({"project_key": "p", "session_id": "s1"})
     sub_load = await store.load({"project_key": "p", "session_id": "s1", "subpath": "subagents/x"})
-    assert main_load is not None and len(main_load) == 1
+    assert main_load is not None
+    assert len(main_load) == 1
     assert sub_load is None
 
 

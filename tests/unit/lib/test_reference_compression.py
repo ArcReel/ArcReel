@@ -237,7 +237,8 @@ def test_payload_writes_and_cleans_tempfiles(tmp_path: Path):
     for p in written:
         assert not p.exists()
     # 源文件未被改动
-    assert a.exists() and b.exists()
+    assert a.exists()
+    assert b.exists()
 
 
 def test_payload_preserves_order_and_count(tmp_path: Path):

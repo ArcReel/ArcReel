@@ -100,7 +100,7 @@ def test_rules_exhaust_the_six_content_and_generation_mode_combinations() -> Non
         assert next(step for step in rule.steps if step.id == "narration_delivery").applicable is True
 
 
-@pytest.mark.parametrize("content_mode,generation_mode", sorted(WORKFLOW_RULES))
+@pytest.mark.parametrize(("content_mode", "generation_mode"), sorted(WORKFLOW_RULES))
 @pytest.mark.parametrize("narration_delivery", [POST_PRODUCTION, USE_TTS])
 def test_every_route_keeps_each_transient_narration_delivery_choice(
     content_mode: str,

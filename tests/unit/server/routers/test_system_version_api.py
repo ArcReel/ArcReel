@@ -172,7 +172,7 @@ class TestLoadAppVersion:
         assert system_config._load_app_version(pyproject) == "1.2.3"
 
     def test_missing_file_propagates(self, tmp_path):
-        with pytest.raises(OSError):
+        with pytest.raises(FileNotFoundError, match=r"No such file or directory"):
             system_config._load_app_version(tmp_path / "absent.toml")
 
     def test_empty_version_is_rejected(self, tmp_path):
@@ -229,7 +229,7 @@ class TestGetLatestReleaseCache:
 
 class TestParseVersion:
     @pytest.mark.parametrize(
-        "raw,is_valid",
+        ("raw", "is_valid"),
         [
             ("0.9.0", True),
             ("v0.10.0", True),

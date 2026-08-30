@@ -36,7 +36,7 @@ async def _capture_size(backend, **req_kwargs) -> str:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("aspect,expected", [("9:16", "720x1280"), ("16:9", "1280x720")])
+@pytest.mark.parametrize(("aspect", "expected"), [("9:16", "720x1280"), ("16:9", "1280x720")])
 async def test_standard_aspect_maps_to_exact_legal_size(tmp_path, aspect, expected):
     backend = _make_backend()
     size = await _capture_size(backend, output_path=tmp_path / "o.mp4", aspect_ratio=aspect, resolution=None)
@@ -72,7 +72,7 @@ async def test_size_always_set_and_legal(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("aspect,expected", [("9:16", "1080x1920"), ("16:9", "1920x1080")])
+@pytest.mark.parametrize(("aspect", "expected"), [("9:16", "1080x1920"), ("16:9", "1920x1080")])
 async def test_sora2pro_1080p_uses_exact_high_res(tmp_path, aspect, expected):
     """sora-2-pro + 1080p：返回精确比例的 1080p 档（修复本 PR 把 1080 档丢成 720p 的回归）。"""
     backend = _make_backend(model="sora-2-pro")

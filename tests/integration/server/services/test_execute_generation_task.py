@@ -9,6 +9,7 @@ from lib.generation_queue import CompensableGenerationResult
 from lib.storyboard_sequence import (
     PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
     PREVIOUS_STORYBOARD_REFERENCE_LABEL,
+    StoryboardImageBindingRequired,
 )
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
@@ -128,7 +129,7 @@ class TestGenerationTasks:
         assert emitted_change["entity_id"] == "E1S02"
         assert "asset_fingerprints" in emitted_change
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"unsupported task_type: unknown"):
             await generation_tasks.execute_generation_task(
                 {"task_type": "unknown", "project_name": "demo", "resource_id": "x", "payload": {}}
             )
@@ -240,23 +241,23 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(_FakeGenerator()))
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"script_file is required for storyboard task"):
             await generation_tasks.execute_storyboard_task("demo", "E1S01", {"prompt": "x"})
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"current script unit is missing video_prompt"):
             await generation_tasks.execute_video_task("demo", "E1S01", {"script_file": "episode_1.json"})
 
         (project_path / "storyboards" / "scene_E1S01.png").unlink()
-        with pytest.raises(ValueError):
+        with pytest.raises(StoryboardImageBindingRequired, match=r"storyboard binding missing"):
             await generation_tasks.execute_video_task("demo", "E1S01", {"script_file": "episode_1.json", "prompt": "x"})
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"prompt is required for character task"):
             await generation_tasks.execute_character_task("demo", "Alice", {"prompt": ""})
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"prompt is required for scene task"):
             await generation_tasks.execute_scene_task("demo", "祠堂", {"prompt": ""})
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"prompt is required for prop task"):
             await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": ""})
 
     async def test_tasks_declare_only_needed_lanes(self, monkeypatch, tmp_path):

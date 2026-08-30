@@ -2175,7 +2175,8 @@ def _patch_project_sync(
                     message=_format_settings(diagnostics), operation="settings", changes=diagnostics
                 )
             )
-        assert value.table is not None and value.entries is not None
+        assert value.table is not None
+        assert value.entries is not None
         changes = services.projects.upsert_assets(scope.project_name, value.table, value.entries)
         return ToolOutcome(
             value=PatchProjectResult(message=_format_upsert(value.table, changes), operation="assets", changes=changes)

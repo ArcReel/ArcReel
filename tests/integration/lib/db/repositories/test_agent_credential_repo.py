@@ -45,15 +45,18 @@ async def test_set_active_makes_others_inactive(async_session) -> None:
     await repo.set_active(a.id)
     await async_session.flush()
     active = await repo.get_active()
-    assert active is not None and active.id == a.id
+    assert active is not None
+    assert active.id == a.id
 
     await repo.set_active(b.id)
     await async_session.flush()
     active = await repo.get_active()
-    assert active is not None and active.id == b.id
+    assert active is not None
+    assert active.id == b.id
 
     a_after = await repo.get(a.id)
-    assert a_after is not None and a_after.is_active is False
+    assert a_after is not None
+    assert a_after.is_active is False
 
 
 @pytest.mark.asyncio

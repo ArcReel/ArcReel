@@ -8,7 +8,7 @@ TestClient 范式，同源侧沿用 test_custom_provider_loader.py 的真 repo �
 from __future__ import annotations
 
 from collections.abc import Generator
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -38,12 +38,12 @@ LAST_FRAME_ENDPOINT = "ark-seedance"
 LAST_FRAME_MODEL = "doubao-seedance-1-0-pro-fast-251015"
 
 
-@pytest.fixture()
+@pytest.fixture
 async def app_session_factory(db_engine):
     return async_sessionmaker(db_engine, expire_on_commit=False)
 
 
-@pytest.fixture()
+@pytest.fixture
 def app(app_session_factory) -> FastAPI:
     _app = FastAPI()
 
@@ -58,7 +58,7 @@ def app(app_session_factory) -> FastAPI:
     return _app
 
 
-@pytest.fixture()
+@pytest.fixture
 def capability_client(app) -> Generator[TestClient, None, None]:
     with TestClient(app) as c:
         yield c
@@ -776,8 +776,8 @@ class TestResolverReturnsEffectiveCapabilities:
         caps = await self._resolve(db_session, pid)
         assert caps["last_frame"] is False
 
-    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
-    async def test_resolver_matches_execution_layer(self, _mock_cls, db_session: AsyncSession):
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend", new=MagicMock())
+    async def test_resolver_matches_execution_layer(self, db_session: AsyncSession):
         """展示层与执行层出自同一合成函数：逐字段比对 resolver 与装载出的 backend。"""
         pid = await self._seed(
             db_session, overrides={"last_frame": True}, endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL

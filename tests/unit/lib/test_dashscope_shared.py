@@ -115,7 +115,8 @@ class TestFailureReason:
 
     def test_canceled_returns_reason(self):
         reason = dashscope_failure_reason({"output": {"task_status": "CANCELED"}})
-        assert reason is not None and "CANCELED" in reason
+        assert reason is not None
+        assert "CANCELED" in reason
 
     def test_top_level_submit_error(self):
         reason = dashscope_failure_reason({"code": "InvalidApiKey", "message": "No API-key provided."})
@@ -271,7 +272,8 @@ class TestSafeBodyForLog:
         ):
             view = safe_body_for_log(body)
             assert view["model"] == "wan2.7-r2v"
-            assert "prompt" not in view and "size" not in view
+            assert "prompt" not in view
+            assert "size" not in view
 
     def test_tts_input_text_not_logged(self):
         # TTS 合成文本（input.text）不在白名单内，绝不进日志视图

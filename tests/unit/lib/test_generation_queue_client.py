@@ -217,7 +217,7 @@ class TestTaskSpecFromRequest:
 
     def test_tts_extra_payload_text_rejected(self):
         # text 是 tts 执行层优先读取的字段，必须与 prompt 同走守卫点，不得经 extra_payload 绕过。
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(ValueError, match=r"extra_payload contains reserved keys: text") as exc:
             TaskSpec.from_request(
                 task_type="tts",
                 media_type="audio",
@@ -234,7 +234,7 @@ class TestTaskSpecFromRequest:
 
     def test_extra_payload_cannot_override_reserved_keys(self):
         # extra_payload 携带保留键会绕过单一守卫点，必须拒绝。
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(ValueError, match=r"extra_payload contains reserved keys: prompt") as exc:
             TaskSpec.from_request(
                 task_type="video",
                 media_type="video",
@@ -245,7 +245,7 @@ class TestTaskSpecFromRequest:
         assert "reserved" in str(exc.value)
 
     def test_extra_payload_cannot_override_script_file(self):
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(ValueError, match=r"extra_payload contains reserved keys: script_file") as exc:
             TaskSpec.from_request(
                 task_type="video",
                 media_type="video",

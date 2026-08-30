@@ -887,9 +887,12 @@ class TestCostEstimationService:
         )
         actual = result["project_totals"]["actual"]
 
-        assert "characters" in actual and actual["characters"].get("USD", 0) > 0
-        assert "scenes" in actual and actual["scenes"].get("USD", 0) > 0
-        assert "props" in actual and actual["props"].get("USD", 0) > 0
+        assert "characters" in actual
+        assert actual["characters"].get("USD", 0) > 0
+        assert "scenes" in actual
+        assert actual["scenes"].get("USD", 0) > 0
+        assert "props" in actual
+        assert actual["props"].get("USD", 0) > 0
         # 旧 key 不应出现
         assert "character_and_clue" not in actual
 

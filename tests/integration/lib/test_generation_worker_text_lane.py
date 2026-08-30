@@ -68,7 +68,8 @@ async def test_text_lane_is_serial_and_does_not_block_media(file_db_factory) -> 
         queued_second = await queue.get_task(second["task_id"])
 
         assert image_task["status"] == "succeeded"
-        assert queued_second is not None and queued_second["status"] == "queued"
+        assert queued_second is not None
+        assert queued_second["status"] == "queued"
         assert not second_text_started.is_set()
 
         release_first_text.set()

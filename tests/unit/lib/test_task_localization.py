@@ -81,8 +81,10 @@ class TestWarningRendering:
         en = _localize_task(task, _translator("en"))["result"]["warnings"][0]
         vi = _localize_task(task, _translator("vi"))["result"]["warnings"][0]
 
-        assert "商品" in zh and "merchandise" not in zh
-        assert "merchandise" in en and "product" not in en
+        assert "商品" in zh
+        assert "merchandise" not in zh
+        assert "merchandise" in en
+        assert "product" not in en
         assert "hàng hóa" in vi
 
     @pytest.mark.parametrize("asset_type", sorted(ASSET_SPECS))

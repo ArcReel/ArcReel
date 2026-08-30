@@ -668,7 +668,7 @@ class TestFailureMessage:
     """失败原因要以可读文本落进 task.error_message —— 用户在任务面板读的就是这一句。"""
 
     @pytest.mark.parametrize(
-        "error,expected",
+        ("error", "expected"),
         [
             # SDK 原生形态：带 code / message 的模型，只取 message
             (VideoCreateError(code="moderation_blocked", message="content policy"), "content policy"),

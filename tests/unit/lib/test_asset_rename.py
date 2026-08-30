@@ -872,9 +872,9 @@ class TestRenameAssetCascade:
         assert not versions_dir.exists()
 
     def test_invalid_new_name_rejected(self, pm_with_assets: ProjectManager) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"含非法字符"):
             pm_with_assets.rename_asset("demo", "characters", "角色A", "坏/名字")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"未知资产表"):
             pm_with_assets.rename_asset("demo", "unknown_table", "角色A", "新名")
 
 

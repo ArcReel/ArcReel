@@ -54,7 +54,7 @@ def test_artifact_basis_descriptor_round_trips_strict_source_fact() -> None:
     ],
 )
 def test_artifact_basis_descriptor_rejects_noncanonical_source_fact(value: object) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"artifact basis descriptor "):
         ArtifactBasisDescriptor.from_dict(value)
 
 
@@ -541,7 +541,7 @@ def test_ad_reference_script_basis_excludes_storyboard_only_inputs() -> None:
 
 
 @pytest.mark.parametrize(
-    "generation_mode,content_mode",
+    ("generation_mode", "content_mode"),
     [("storyboard", "drama"), ("storyboard", "narration"), ("reference_video", "narration")],
 )
 def test_script_plan_basis_ignores_an_unset_episode_target_duration(

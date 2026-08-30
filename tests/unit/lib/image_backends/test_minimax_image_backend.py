@@ -176,24 +176,29 @@ class TestDimensions:
     async def test_custom_pixel_strips_embedded_ratio(self, tmp_path: Path):
         # 自定义像素 16:9 的 1920*1080 只贡献 min=1080 当短边，比例仍由项目 aspect_ratio=9:16 决定
         w, h = await self._dims(tmp_path, aspect_ratio="9:16", image_size="1920*1080")
-        assert w * 16 == h * 9 and w < h
+        assert w * 16 == h * 9
+        assert w < h
 
     @pytest.mark.parametrize("aspect", ["9:16", "16:9", "1:1", "3:4", "4:3", "2:3", "3:2", "21:9", "5:1"])
     async def test_dims_within_range_and_multiple_of_8(self, tmp_path: Path, aspect: str):
         w, h = await self._dims(tmp_path, aspect_ratio=aspect)
-        assert 512 <= w <= 2048 and 512 <= h <= 2048
-        assert w % 8 == 0 and h % 8 == 0
+        assert 512 <= w <= 2048
+        assert 512 <= h <= 2048
+        assert w % 8 == 0
+        assert h % 8 == 0
 
     async def test_extreme_ratio_short_edge_clamped_to_512(self, tmp_path: Path):
         # 5:1 超出 4:1 可表达上限，短边自然算出 <512 → 夹到 512（仍 8 整除）
         w, h = await self._dims(tmp_path, aspect_ratio="5:1")
-        assert h == 512 and w == 2040
+        assert h == 512
+        assert w == 2040
 
     async def test_small_custom_size_preserves_ratio(self, tmp_path: Path):
         # 自定义小尺寸（短边 <512）：短边先夹到 _MIN_EDGE，避免 aspect_size 出 <512 边后
         # 被 _clamp_edge 独立夹取破坏比例（16:9 横屏退化成 512x512 的 1:1）
         w, h = await self._dims(tmp_path, aspect_ratio="16:9", image_size="320*180")
-        assert w >= 512 and h >= 512
+        assert w >= 512
+        assert h >= 512
         assert w > h  # 横屏未退化成 1:1
         assert abs(w / h - 16 / 9) < 0.1
 

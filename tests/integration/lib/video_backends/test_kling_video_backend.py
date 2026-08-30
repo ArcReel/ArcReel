@@ -94,15 +94,15 @@ class TestConstructionAndCapabilities:
         assert b.model == "kling-v2-5-turbo"
 
     def test_jwt_missing_credentials_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"请到系统配置页填写可灵 Kling 的 Access Key 与 Secret Key"):
             KlingVideoBackend(auth_mode="jwt", access_key="ak", secret_key=None)
 
     def test_bearer_missing_api_key_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"请填写可灵 Kling 的 API Key"):
             KlingVideoBackend(auth_mode="bearer", api_key=None)
 
     def test_unknown_auth_mode_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"未知 Kling auth_mode"):
             KlingVideoBackend(auth_mode="oauth", api_key="k")
 
     def test_video_capabilities_first_and_last_frame(self):
@@ -152,7 +152,8 @@ class TestPerModelCapabilities:
     def test_v3_t2v_i2v_no_audio_no_reference(self):
         b = _jwt_backend("kling-v3")
         vc = b.video_capabilities
-        assert vc.first_frame is True and vc.last_frame is True
+        assert vc.first_frame is True
+        assert vc.last_frame is True
         assert vc.max_reference_images == 0
 
     def test_v3_omni_declares_reference_images(self):
@@ -192,14 +193,16 @@ class TestPerModelCapabilities:
         # 已登记档，生成时防御与 resolver 裁剪同源——否则编排层放 4 张参考图、backend 却按默认 0 拒收。
         for model in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni", "  provider:kling-v3-omni  "):
             vc = _bearer_backend(model).video_capabilities
-            assert vc.max_reference_images > 0 and vc.max_reference_images == 4
+            assert vc.max_reference_images > 0
+            assert vc.max_reference_images == 4
 
     def test_future_version_does_not_inherit_caps_by_substring(self):
         # kling-v4 含子串 "kling-v3"？不含——但即便形如 kling-v3-omni-pro 也不得被子串误判继承能力；
         # 未登记一律保守默认，不猜未知 model 的参考图上限。
         for model in ("kling-v4", "kling-v3-omni-pro"):
             vc = _bearer_backend(model).video_capabilities
-            assert vc.max_reference_images == 0 and vc.max_reference_images == 0
+            assert vc.max_reference_images == 0
+            assert vc.max_reference_images == 0
 
 
 class TestModeAndResolution:
@@ -288,10 +291,12 @@ class TestMultiImageSubpath:
         subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, reference_images=refs))
         assert subpath == "multi-image2video"
         # image_list 为 [{"image": <base64>}] 形态，无单首帧
-        assert isinstance(payload["image_list"], list) and len(payload["image_list"]) == 2
+        assert isinstance(payload["image_list"], list)
+        assert len(payload["image_list"]) == 2
         assert all(set(e) == {"image"} and isinstance(e["image"], str) and e["image"] for e in payload["image_list"])
         assert not payload["image_list"][0]["image"].startswith("data:")
-        assert "image" not in payload and "image_tail" not in payload
+        assert "image" not in payload
+        assert "image_tail" not in payload
 
     def test_multi_image2video_omits_sound(self, tmp_path):
         refs = self._refs(tmp_path, 1)
@@ -424,7 +429,8 @@ class TestPayloadBuilding:
         img.write_bytes(b"\x89PNG\r\n")
         subpath, payload = _jwt_backend()._build_payload(_request(tmp_path, start_image=img))
         assert subpath == "image2video"
-        assert isinstance(payload["image"], str) and payload["image"]
+        assert isinstance(payload["image"], str)
+        assert payload["image"]
         # 纯 base64，无 data URI 前缀
         assert not payload["image"].startswith("data:")
         assert "image_tail" not in payload
@@ -438,7 +444,8 @@ class TestPayloadBuilding:
         _, payload = _jwt_backend()._build_payload(
             _request(tmp_path, start_image=first, end_image=last, service_tier="pro")
         )
-        assert "image" in payload and "image_tail" in payload
+        assert "image" in payload
+        assert "image_tail" in payload
 
     def test_image2video_end_frame_rejected_at_std_tier(self, tmp_path):
         # kling-v2-5-turbo 首尾帧仅 pro 档生效：std（含未显式指定 service_tier 的默认档）提交
@@ -458,7 +465,8 @@ class TestPayloadBuilding:
         first.write_bytes(b"\x89PNG\r\n1")
         last.write_bytes(b"\x89PNG\r\n2")
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, start_image=first, end_image=last))
-        assert "image" in payload and "image_tail" in payload
+        assert "image" in payload
+        assert "image_tail" in payload
 
     def test_image2video_empty_end_frame_is_omitted(self, tmp_path):
         # 空串 end_image 等价于"无尾帧"，按 truthy 判定跳过，不应误当路径去编码而崩溃。
@@ -466,7 +474,8 @@ class TestPayloadBuilding:
         first.write_bytes(b"\x89PNG\r\n1")
         subpath, payload = _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=""))
         assert subpath == "image2video"
-        assert "image" in payload and "image_tail" not in payload
+        assert "image" in payload
+        assert "image_tail" not in payload
 
     def test_unreadable_start_image_raises(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:

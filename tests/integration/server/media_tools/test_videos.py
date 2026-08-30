@@ -515,8 +515,10 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
     assert "E1U1" in text
-    assert "5" in text and "8" in text
-    assert "费用" in text and "本次请求" in text
+    assert "5" in text
+    assert "8" in text
+    assert "费用" in text
+    assert "本次请求" in text
     assert "confirmed_request_duration_seconds" in text
     projection = out["request_projections"][0]
     assert projection == {
@@ -754,7 +756,7 @@ async def test_generate_videos_scene_force_false_reuses_existing_video(fake_ctx:
 
 
 @pytest.mark.parametrize(
-    "target,force",
+    ("target", "force"),
     [
         ({"scope": "episode"}, False),
         ({"scope": "episode", "episode": 2}, False),
@@ -1066,7 +1068,8 @@ async def test_no_video_tool_enqueues_without_a_declared_narration_delivery(
         assert out["is_error"] is True
         text = out["content"][0]["text"]
         assert "narration_delivery 必填" in text
-        assert "post_production" in text and "use_tts" in text
+        assert "post_production" in text
+        assert "use_tts" in text
 
 
 async def test_generate_videos_episode_scope_reference_honors_requested_narration_delivery(
@@ -1499,7 +1502,8 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     assert pending.get("is_error") is not True, pending
     assert enqueued == []
     text = pending["content"][0]["text"]
-    assert "费用" in text and "本次请求" in text
+    assert "费用" in text
+    assert "本次请求" in text
     assert "confirmed_request_duration_seconds" in text
 
     confirmed = await _call(
@@ -2947,7 +2951,8 @@ async def test_generate_videos_rejects_mismatched_unit_script_on_storyboard_rout
 
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "骨架" in text and "重新拆分" in text
+    assert "骨架" in text
+    assert "重新拆分" in text
 
 
 async def test_generate_videos_episode_scope_rejects_mismatched_storyboard_script_on_reference_route(

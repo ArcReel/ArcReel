@@ -301,7 +301,8 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
             submitted_task_id = submitted.members[0].task_id
             assert submitted_task_id is not None
             submitted_task = await queue.get_task(submitted_task_id)
-            assert submitted_task is not None and submitted_task["batch_id"] == submitted_batch_id
+            assert submitted_task is not None
+            assert submitted_task["batch_id"] == submitted_batch_id
     else:
         assert batch_ids == {historical_batch_id}
     historical = await GenerationQueue.get_generation_batch(queue, project_name="drama", batch_id=historical_batch_id)

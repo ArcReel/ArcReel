@@ -69,7 +69,8 @@ async def test_migrate_imports_local_jsonl(tmp_path, fake_sdk_home, session_fact
     assert stats["failed"] == 0
 
     loaded = await store.load({"project_key": project_key_for_directory(str(proj)), "session_id": sid})
-    assert loaded is not None and len(loaded) == 2
+    assert loaded is not None
+    assert len(loaded) == 2
     assert (data_dir / ".session_store_migration_done").exists()
 
 
@@ -90,7 +91,8 @@ async def test_migrate_is_idempotent_via_marker(tmp_path, fake_sdk_home, session
     s2 = await migrate_local_transcripts_to_store(store, projects_root=projects_root, data_dir=data_dir)
 
     assert s1["imported"] == 1
-    assert s2["imported"] == 0 and s2.get("skipped_via_marker") is True
+    assert s2["imported"] == 0
+    assert s2.get("skipped_via_marker") is True
 
 
 @pytest.mark.asyncio

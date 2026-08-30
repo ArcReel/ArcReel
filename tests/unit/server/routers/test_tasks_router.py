@@ -152,7 +152,8 @@ class TestTaskErrorLocalization:
         assert zh["error_message"] == "供应商 grok 不支持 image 生成"
 
         vi = client.get("/api/v1/tasks", headers={"Accept-Language": "vi"}).json()["items"][0]
-        assert "grok" in vi["error_message"] and "image" in vi["error_message"]
+        assert "grok" in vi["error_message"]
+        assert "image" in vi["error_message"]
         assert vi["error_message"] != en["error_message"]
 
     def test_list_tasks_defaults_to_zh_without_header(self, monkeypatch):

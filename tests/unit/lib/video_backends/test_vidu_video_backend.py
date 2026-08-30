@@ -224,8 +224,8 @@ class TestBuildRequest:
         # text2video 不携带 images
         assert "images" not in body
 
-    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
-    def test_img2video_passes_one_image_no_aspect_ratio(self, _mock, tmp_path: Path, video_output_path: Path):
+    @patch("lib.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
+    def test_img2video_passes_one_image_no_aspect_ratio(self, tmp_path: Path, video_output_path: Path):
         start = tmp_path / "s.png"
         start.write_bytes(b"x")
 
@@ -244,8 +244,8 @@ class TestBuildRequest:
         # img2video 不接受 aspect_ratio
         assert "aspect_ratio" not in body
 
-    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
-    def test_reference2video_with_q3_turbo(self, _mock, tmp_path: Path, video_output_path: Path):
+    @patch("lib.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
+    def test_reference2video_with_q3_turbo(self, tmp_path: Path, video_output_path: Path):
         ref1, ref2 = tmp_path / "r1.png", tmp_path / "r2.png"
         for p in (ref1, ref2):
             p.write_bytes(b"x")
@@ -327,8 +327,8 @@ class TestPromptLength:
             "count": 2001,
         }
 
-    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
-    def test_reference2video_at_limit_passes_untruncated(self, _mock_data_uri, video_output_path: Path):
+    @patch("lib.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
+    def test_reference2video_at_limit_passes_untruncated(self, video_output_path: Path):
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
         prompt = "字" * 2000
         req = VideoGenerationRequest(

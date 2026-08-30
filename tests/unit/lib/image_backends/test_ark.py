@@ -124,7 +124,7 @@ class TestArkImageBackendInit:
 class TestArkImageBackendProperties:
     """属性测试。"""
 
-    @pytest.fixture()
+    @pytest.fixture
     def backend(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
         with patch("lib.image_backends.ark.create_ark_client"):
@@ -156,7 +156,7 @@ class TestArkImageBackendProperties:
 class TestArkImageBackendGenerate:
     """generate() 方法测试。"""
 
-    @pytest.fixture()
+    @pytest.fixture
     def backend_and_client(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
         with _recorded_ark_client() as (_created, client):

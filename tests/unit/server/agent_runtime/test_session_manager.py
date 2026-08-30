@@ -166,7 +166,8 @@ class TestSessionManager:
             managed = await session_manager.get_or_connect(meta.id)
             # Let the actor enter the async-context (connect).
             await asyncio.sleep(0)
-            assert created_clients and created_clients[0].connected
+            assert created_clients
+            assert created_clients[0].connected
             assert managed is await session_manager.get_or_connect(meta.id)
             # Graceful teardown so the actor task doesn't leak.
             await session_manager.close_session(meta.id)
@@ -214,7 +215,7 @@ class TestSessionManager:
     @pytest.mark.asyncio
     async def test_resolve_project_scope_and_status_helpers(self, session_manager, tmp_path, meta_store):
         (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"invalid project name"):
             session_manager._resolve_project_cwd("../evil")
 
         assert await session_manager.get_status("missing") is None
@@ -357,7 +358,7 @@ class TestSessionManager:
         from tests.fakes import build_managed_with_actor
 
         assert await session_manager.get_pending_questions_snapshot("missing") == []
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"会话未运行或无待回答问题"):
             await session_manager.answer_user_question("missing", "q", {"a": "b"})
 
         meta = await meta_store.create("demo", "sdk-buffer-snap")
@@ -1276,5 +1277,6 @@ async def test_send_disconnect_waits_actor_task_done():
     await actor.start()
     await managed.send_disconnect()
     assert managed.status == "closed"
-    assert actor._task is not None and actor._task.done()
+    assert actor._task is not None
+    assert actor._task.done()
     assert client.disconnected

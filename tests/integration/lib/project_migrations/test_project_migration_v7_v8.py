@@ -546,12 +546,12 @@ def test_formal_script_plan_registration_failure_restores_the_previous_file(tmp_
 
     monkeypatch.setattr("lib.artifact_activation.register_current_artifact_if_provable", _fail)
 
+    from lib.script_review import write_script_plan_locked
+
     with (
         pytest.raises(RuntimeError, match="injected manifest failure"),
         ProjectManager(tmp_path).file_lock(formal_path),
     ):
-        from lib.script_review import write_script_plan_locked
-
         write_script_plan_locked(project_dir, 1, {"units": [{"unit_id": "E1U1"}]})
 
     assert not formal_path.exists()
@@ -784,7 +784,8 @@ def test_task_registration_receipt_restores_only_its_own_current_claim(tmp_path:
         script_file="episode_1.json",
     )
     registered = adapter.get_entry(key)
-    assert registered is not None and registered != previous
+    assert registered is not None
+    assert registered != previous
 
     receipt.compensate_cancelled()
     receipt.compensate_cancelled()
@@ -883,7 +884,7 @@ def test_v7_activation_rejects_symlinked_project_control_file_without_writes(tmp
     except (NotImplementedError, OSError):
         pytest.skip("symlinks are unavailable on this platform")
 
-    with pytest.raises(ArtifactManifestError, match=r"safely|symlink"):
+    with pytest.raises(ArtifactManifestError, match=r"artifact cannot be opened safely"):
         migrate_v7_to_v8(project_dir)
 
     assert _read_json(external)["schema_version"] == 7

@@ -285,7 +285,8 @@ class TestGenerateAudioAsync:
         assert out1.exists()
         assert tracked == []
         await gen.generate_audio_async(text="第二次", resource_id="E1S05", voice="Cherry")
-        assert tracked and tracked[0]["resource_type"] == "audio"
+        assert tracked
+        assert tracked[0]["resource_type"] == "audio"
 
     @pytest.mark.parametrize("failure", [RuntimeError("manifest failed"), asyncio.CancelledError()])
     async def test_finalize_failure_or_cancellation_preserves_formal_audio_and_current_version(

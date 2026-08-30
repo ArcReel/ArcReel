@@ -226,7 +226,8 @@ class TestCollectViolations:
     def test_aggregate_flattens_and_renders_as_report(self):
         aggregate = DraftViolations([_violation("a"), _violation("b")])
         assert [v.code for v in violation_items(aggregate)] == ["a", "b"]
-        assert "[a]" in str(aggregate) and "[b]" in str(aggregate)
+        assert "[a]" in str(aggregate)
+        assert "[b]" in str(aggregate)
         # 聚合体仍是 DraftViolation：调用方不必在「一条」与「多条」之间分叉出两套处置路径
         assert isinstance(aggregate, DraftViolation)
 

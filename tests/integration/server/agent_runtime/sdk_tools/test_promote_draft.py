@@ -175,7 +175,8 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
     result = await generation
 
     assert result.message.startswith("✅")
-    assert worker_threads and all(thread != caller_thread for thread in worker_threads)
+    assert worker_threads
+    assert all(thread != caller_thread for thread in worker_threads)
 
 
 async def test_cancelled_reference_script_plan_commit_restores_files_and_manifest(

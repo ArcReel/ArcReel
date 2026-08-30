@@ -179,7 +179,8 @@ def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, regi
     monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: fake_pm)
 
     async def _fake_resolve(project_name, payload, *, project, image=None, **_kwargs):
-        assert image is not None and image.capability == "i2i"
+        assert image is not None
+        assert image.capability == "i2i"
         lane = ImageLaneResult(
             provider_model=ProviderModel("gemini-aistudio", "gemini-image"),
             backend_name="gemini-aistudio",
@@ -538,7 +539,8 @@ class TestExecuteImageEditTask:
             is ArtifactStatus.STALE
         )
         assert current.read_bytes() == b"edited-image"
-        assert provider_reference is not None and not provider_reference.exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
+        assert provider_reference is not None
+        assert not provider_reference.exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
 
         adapter.delete_entry(source_key)
         monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
@@ -902,7 +904,8 @@ class TestImageSizeResolutionEquivalence:
             resolved = await r.resolve_image_backend(project, payload, capability="i2i")
             return await r.resolve_resolution(project, resolved.provider_id, resolved.model_id)
 
-    async def test_model_settings_override(self, patched_session_factory, _ctx_env):
+    @pytest.mark.usefixtures("_ctx_env")
+    async def test_model_settings_override(self, patched_session_factory):
         project = {
             "image_provider_i2i": "gemini-aistudio/gemini-image",
             "model_settings": {"gemini-aistudio/gemini-image": {"resolution": "2048x2048"}},
@@ -912,7 +915,8 @@ class TestImageSizeResolutionEquivalence:
         assert old == "2048x2048"
         assert ctx.image.resolution == old
 
-    async def test_default_falls_back_to_none(self, patched_session_factory, _ctx_env):
+    @pytest.mark.usefixtures("_ctx_env")
+    async def test_default_falls_back_to_none(self, patched_session_factory):
         project = {"image_provider_i2i": "gemini-aistudio/gemini-image"}
         old = await self._old_image_size(patched_session_factory, project, None)
         ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest(capability="i2i"))

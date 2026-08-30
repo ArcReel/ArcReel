@@ -983,7 +983,8 @@ class TestGetOrCreateAudioBackend:
         b1 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
         b2 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
 
-        assert b1 is sentinel and b2 is sentinel
+        assert b1 is sentinel
+        assert b2 is sentinel
         assert calls == [("custom-3", "audio", "tts-1")], "第二次调用须命中缓存，不再重建 backend"
 
     async def test_builtin_created_and_cached(self, monkeypatch):
@@ -1003,7 +1004,8 @@ class TestGetOrCreateAudioBackend:
         b2 = await generation_context._get_or_create_audio_backend(
             "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
         )
-        assert b1 is sentinel and b2 is sentinel
+        assert b1 is sentinel
+        assert b2 is sentinel
         assert created == [("dashscope", "audio", "qwen3-tts-flash")], "第二次调用须命中缓存，不再重建 backend"
 
     async def test_payload_model_overrides_default(self, monkeypatch):

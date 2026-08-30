@@ -534,7 +534,8 @@ class TestPatchEpisodeScript:
         )
         assert out.get("is_error") is True
         text = _text(out)
-        assert "E1S01" in text and "image_prompt.scen.x" in text
+        assert "E1S01" in text
+        assert "image_prompt.scen.x" in text
 
     async def test_prompt_change_includes_regen_hint(self, ctx: ToolContext) -> None:
         """改了 image_prompt / video_prompt 后，返回文本聚合『须重新生成』提示。"""
@@ -1154,7 +1155,8 @@ class TestPatchProject:
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
         )
         text1 = _text(out1)
-        assert "新增" in text1 and "李白" in text1
+        assert "新增" in text1
+        assert "李白" in text1
         assert "合并" not in text1
 
         out2 = await _call(
@@ -1162,7 +1164,8 @@ class TestPatchProject:
             {"table": "characters", "entries": {"李白": {"description": "改后描述"}}},
         )
         text2 = _text(out2)
-        assert "合并改字段" in text2 and "李白" in text2
+        assert "合并改字段" in text2
+        assert "李白" in text2
         assert "新增" not in text2
 
     async def test_response_lists_dropped_non_allowed_fields(self, ctx: ToolContext) -> None:
@@ -1259,7 +1262,7 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is True
         assert "arbitrary_field" not in ctx.pm.load_project("demo")
 
-    @pytest.mark.parametrize("field,value", [("generation_mode", "reference_video"), ("grid_storyboard", True)])
+    @pytest.mark.parametrize(("field", "value"), [("generation_mode", "reference_video"), ("grid_storyboard", True)])
     async def test_route_fields_not_patchable_via_settings(self, ctx: ToolContext, field: str, value: Any) -> None:
         """generation_mode 创建后不可变、grid_storyboard 只能在设置页操作：两者均不入 settings 白名单。"""
         before = ctx.pm.load_project("demo").get(field)
@@ -1592,7 +1595,8 @@ class TestRenameAssetTool:
         assert out.get("is_error") is not True
         assert "主角甲" in _text(out)
         project = rename_ctx.pm.load_project("demo")
-        assert "主角甲" in project["characters"] and "角色A" not in project["characters"]
+        assert "主角甲" in project["characters"]
+        assert "角色A" not in project["characters"]
         assert _load(rename_ctx)["segments"][0]["characters_in_segment"] == ["主角甲"]
 
     async def test_missing_old_name_error_hints_idempotency(self, rename_ctx: ToolContext) -> None:

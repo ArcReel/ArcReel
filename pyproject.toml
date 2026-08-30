@@ -197,7 +197,7 @@ line-length = 120
 exclude = [".worktrees", ".claude/worktrees"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "C4", "PIE", "RET", "PERF", "RUF", "SIM", "ASYNC"]
+select = ["E", "F", "I", "UP", "B", "C4", "PIE", "PT", "RET", "PERF", "RUF", "SIM", "ASYNC"]
 # RUF001-003：中文注释与文案里的全角标点被判为「易混淆 unicode」，对中文仓库是纯噪音。
 ignore = ["E402", "E501", "RUF001", "RUF002", "RUF003"]
 

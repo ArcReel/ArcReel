@@ -5,7 +5,7 @@ import pytest
 from lib.project_manager import ProjectManager
 
 
-@pytest.fixture()
+@pytest.fixture
 def pm_env(tmp_path):
     pm = ProjectManager(str(tmp_path))
     project_name = "demo"

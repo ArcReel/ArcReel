@@ -41,14 +41,16 @@ def test_decode_gbk_via_charset_normalizer():
     text, enc = decode_txt(raw)
     assert "起点" in text
     # charset-normalizer 通常返回 gbk / gb18030 / cp936 之一
-    assert enc and enc.lower() in {"gbk", "gb18030", "cp936"}
+    assert enc
+    assert enc.lower() in {"gbk", "gb18030", "cp936"}
 
 
 def test_decode_big5_via_charset_normalizer():
     raw = ("第一章 起點。" * 50).encode("big5")
     text, enc = decode_txt(raw)
     assert "起點" in text
-    assert enc and "big5" in enc.lower()
+    assert enc
+    assert "big5" in enc.lower()
 
 
 def test_decode_random_bytes_raises():
@@ -83,7 +85,8 @@ def test_extractor_writes_via_decode(tmp_path):
     src.write_bytes(("第一章 内容起点。" * 50).encode("gbk"))
     result = TxtExtractor().extract(src)
     assert "内容" in result.text
-    assert result.used_encoding and result.used_encoding.lower() in {"gbk", "gb18030", "cp936"}
+    assert result.used_encoding
+    assert result.used_encoding.lower() in {"gbk", "gb18030", "cp936"}
     assert result.chapter_count == 0
 
 

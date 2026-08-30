@@ -6,7 +6,7 @@ create_custom_backend（ENDPOINT_REGISTRY 不改）。镜像 test_custom_provide
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -99,13 +99,13 @@ class TestVideoCapabilityOverridesReachExecution:
         db_session.expunge_all()
         return await load_custom_backend(session=db_session, provider_id=pid, model_id=model_id, media_type="video")
 
-    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
-    async def test_null_overrides_follow_system_judgement(self, _mock_cls, db_session):
+    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend", new=MagicMock())
+    async def test_null_overrides_follow_system_judgement(self, db_session):
         backend = await self._load_video_backend(db_session, overrides=None)
         assert backend.video_capabilities == system_video_capabilities(endpoint="openai-video", model_id="sora-2")
 
-    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
-    async def test_override_forces_capability_on(self, _mock_cls, db_session):
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend", new=MagicMock())
+    async def test_override_forces_capability_on(self, db_session):
         # 系统判定 last_frame=False；覆盖强制开启后执行层看到 True，且不再转发被包装 backend
         # endpoint 须支持尾帧（end_image_capable）覆盖才会生效，openai-video 不满足此前提
         backend = await self._load_video_backend(
@@ -114,14 +114,14 @@ class TestVideoCapabilityOverridesReachExecution:
         assert backend.video_capabilities.last_frame is True
         assert backend.video_capabilities.max_reference_images == 0
 
-    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
-    async def test_override_forces_capability_off(self, _mock_cls, db_session):
+    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend", new=MagicMock())
+    async def test_override_forces_capability_off(self, db_session):
         backend = await self._load_video_backend(db_session, overrides={"max_reference_images": 0})
         assert backend.video_capabilities.max_reference_images == 0
         assert backend.video_capabilities.first_frame is True
 
-    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
-    async def test_unknown_key_in_stored_overrides_does_not_break_loading(self, _mock_cls, db_session):
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend", new=MagicMock())
+    async def test_unknown_key_in_stored_overrides_does_not_break_loading(self, db_session):
         # 存量行可能带已下线的键，装载不得失败，该维度按系统判定走
         backend = await self._load_video_backend(
             db_session,
@@ -131,8 +131,8 @@ class TestVideoCapabilityOverridesReachExecution:
         )
         assert backend.video_capabilities.last_frame is True
 
-    @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
-    async def test_non_video_backend_untouched_by_overrides(self, _mock_cls, db_session):
+    @patch("lib.custom_provider.endpoints.OpenAIImageBackend", new=MagicMock())
+    async def test_non_video_backend_untouched_by_overrides(self, db_session):
         pid = await _seed(
             db_session,
             models=[

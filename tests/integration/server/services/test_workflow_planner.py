@@ -461,7 +461,8 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
         batch_unit_id="product/杯子",
     )
     claimed = await queue.claim_next_task("image")
-    assert claimed is not None and claimed["task_id"] == task["task_id"]
+    assert claimed is not None
+    assert claimed["task_id"] == task["task_id"]
     other_task = await queue.enqueue_task(
         project_name="demo",
         task_type="product",

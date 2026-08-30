@@ -21,7 +21,7 @@ from tests.http_capture import capture_http, only_request, request_json
 _ANTHROPIC_OK = {"id": "msg_1", "type": "message", "content": [{"type": "text", "text": "ok"}]}
 
 
-@pytest.fixture()
+@pytest.fixture
 async def probe_client() -> AsyncIterator[httpx.AsyncClient]:
     """真实 httpx 客户端；出站流量由 respx 在 transport 层接管。
 

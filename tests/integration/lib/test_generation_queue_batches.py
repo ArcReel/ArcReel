@@ -87,7 +87,8 @@ async def test_deduped_task_keeps_original_owner_and_belongs_to_both_batches(
 
     assert second == {**first, "deduped": True, "existing_task_id": first["task_id"]}
     task = await batch_queue.get_task(first["task_id"])
-    assert task is not None and task["batch_id"] == first_batch
+    assert task is not None
+    assert task["batch_id"] == first_batch
     first_read = await batch_queue.get_generation_batch(project_name="demo", batch_id=first_batch)
     second_read = await batch_queue.get_generation_batch(project_name="demo", batch_id=second_batch)
     assert [(member.unit_id, member.deduped) for member in first_read.members] == [
@@ -479,10 +480,12 @@ async def test_batch_cancel_uses_task_state_machine_and_is_idempotent(
     )
     running = await _enqueue(batch_queue, batch_id, "running")
     claimed = await batch_queue.claim_next_task("image")
-    assert claimed is not None and claimed["task_id"] == running["task_id"]
+    assert claimed is not None
+    assert claimed["task_id"] == running["task_id"]
     finished = await _enqueue(batch_queue, batch_id, "finished")
     claimed = await batch_queue.claim_next_task("image")
-    assert claimed is not None and claimed["task_id"] == finished["task_id"]
+    assert claimed is not None
+    assert claimed["task_id"] == finished["task_id"]
     await batch_queue.mark_task_succeeded(finished["task_id"], {})
     queued = await _enqueue(batch_queue, batch_id, "queued")
 

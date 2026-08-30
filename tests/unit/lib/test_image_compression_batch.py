@@ -44,5 +44,5 @@ def test_compress_fallback_long_edge_1024_smaller_bytes():
 
 
 def test_compress_rejects_invalid_bytes():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"Invalid image"):
         compress_image_bytes(b"not an image", max_long_edge=1024)

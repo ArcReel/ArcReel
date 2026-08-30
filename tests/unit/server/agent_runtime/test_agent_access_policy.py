@@ -63,7 +63,8 @@ def test_pure_construction_with_fake_roots() -> None:
     assert allowed
     allowed, reason = policy.check_path_access(str(fake / "repo" / ".env"), "Read", cwd)
     assert not allowed
-    assert reason and "敏感文件" in reason
+    assert reason
+    assert "敏感文件" in reason
 
 
 def test_policy_module_does_not_import_sdk_types() -> None:
@@ -152,7 +153,8 @@ def test_write_formal_script_plan_denied(policy: AgentAccessPolicy, tool: str, r
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
-    assert reason and "open_draft" in reason
+    assert reason
+    assert "open_draft" in reason
     assert "promote_draft" in reason
 
 
@@ -200,7 +202,8 @@ def test_write_revisioned_draft_denied(policy: AgentAccessPolicy, tool: str, rel
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
-    assert reason and "patch_draft" in reason
+    assert reason
+    assert "patch_draft" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
@@ -210,7 +213,8 @@ def test_write_protected_scripts_dir_itself_denied(policy: AgentAccessPolicy, to
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / "scripts"), tool, cwd)
     assert not allowed
-    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+    assert reason
+    assert "patch_episode_script" in reason or "patch_project" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
@@ -224,7 +228,8 @@ def test_write_protected_scripts_non_json_denied(policy: AgentAccessPolicy, tool
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
-    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+    assert reason
+    assert "patch_episode_script" in reason or "patch_project" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
@@ -239,7 +244,8 @@ def test_write_protected_case_variants_denied(policy: AgentAccessPolicy, tool: s
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
-    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+    assert reason
+    assert "patch_episode_script" in reason or "patch_project" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
@@ -253,7 +259,8 @@ def test_write_protected_via_symlink_project_json_denied(policy: AgentAccessPoli
     link.symlink_to(real)
     allowed, reason = policy.check_path_access(str(link), tool, cwd)
     assert not allowed, "symlink 形态的 project.json 写入应被拒"
-    assert reason and ("patch_project" in reason or "patch_episode_script" in reason)
+    assert reason
+    assert "patch_project" in reason or "patch_episode_script" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
@@ -267,7 +274,8 @@ def test_write_protected_via_symlink_scripts_dir_denied(policy: AgentAccessPolic
     target = link_dir / "episode_1.json"
     allowed, reason = policy.check_path_access(str(target), tool, cwd)
     assert not allowed, "symlink 形态的 scripts/ 下 .json 写入应被拒"
-    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+    assert reason
+    assert "patch_episode_script" in reason or "patch_project" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
@@ -288,11 +296,13 @@ def test_write_protected_with_symlinked_project_cwd_denied(
     # resolve,就会因为字符串不等漏判。
     allowed, reason = policy.check_path_access(str(link_cwd / "project.json"), tool, link_cwd)
     assert not allowed, "symlinked project_cwd 下 project.json 写入应被拒"
-    assert reason and ("patch_project" in reason or "patch_episode_script" in reason)
+    assert reason
+    assert "patch_project" in reason or "patch_episode_script" in reason
 
     allowed, reason = policy.check_path_access(str(link_cwd / "scripts" / "episode_1.json"), tool, link_cwd)
     assert not allowed, "symlinked project_cwd 下 scripts/*.json 写入应被拒"
-    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+    assert reason
+    assert "patch_episode_script" in reason or "patch_project" in reason
 
 
 def test_protected_json_predicate_normalizes_nfd_and_case() -> None:
@@ -357,7 +367,8 @@ def test_sensitive_file_denied(policy: AgentAccessPolicy, tool: str, relative: s
     target.parent.mkdir(parents=True, exist_ok=True)
     allowed, reason = policy.check_path_access(str(target), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
-    assert reason and "敏感文件" in reason
+    assert reason
+    assert "敏感文件" in reason
 
 
 @pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Glob", "Grep"])
@@ -368,7 +379,8 @@ def test_agent_profile_settings_denied(policy: AgentAccessPolicy, tool: str) -> 
     target.parent.mkdir(parents=True, exist_ok=True)
     allowed, reason = policy.check_path_access(str(target), tool, cwd)
     assert not allowed, f"{tool} agent_profile settings.json 应被拒"
-    assert reason and "敏感文件" in reason
+    assert reason
+    assert "敏感文件" in reason
 
 
 def test_arcreel_db_in_sensitive_list(policy: AgentAccessPolicy) -> None:
@@ -379,7 +391,8 @@ def test_arcreel_db_in_sensitive_list(policy: AgentAccessPolicy) -> None:
     db.write_bytes(b"sqlite-fake")
     allowed, reason = policy.check_path_access(str(db), "Read", cwd)
     assert not allowed
-    assert reason and "敏感文件" in reason
+    assert reason
+    assert "敏感文件" in reason
 
 
 def test_read_host_file_outside_project_root_denied(policy: AgentAccessPolicy, tmp_path: Path) -> None:
@@ -392,7 +405,8 @@ def test_read_host_file_outside_project_root_denied(policy: AgentAccessPolicy, t
     for tool in ("Read", "Glob", "Grep"):
         allowed, reason = policy.check_path_access(str(outside / "id_rsa"), tool, cwd)
         assert not allowed, f"{tool} 不应允许读 project_root 外的 host 文件"
-        assert reason and "项目根外" in reason
+        assert reason
+        assert "项目根外" in reason
 
 
 def test_sensitive_glob_pattern_does_not_overmatch(policy: AgentAccessPolicy) -> None:

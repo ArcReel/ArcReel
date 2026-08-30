@@ -1071,7 +1071,8 @@ class TestProjectEventService:
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1S01" for c in changes)
         shot_changes = [c for c in changes if c["entity_type"] == "shot"]
-        assert shot_changes and all(c["label"].startswith("分镜") for c in shot_changes)
+        assert shot_changes
+        assert all(c["label"].startswith("分镜") for c in shot_changes)
         # ad 镜头走时间线画布：可导航事件的锚点类型为 segment（ShotSplitView 守卫）。
         assert all(c["focus"]["anchor_type"] == "segment" for c in shot_changes if c["focus"] is not None)
 
@@ -1142,7 +1143,8 @@ class TestProjectEventService:
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
         assert any(c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes)
         scene_changes = [c for c in changes if c["entity_type"] == "drama_scene"]
-        assert scene_changes and all(c["label"].startswith("分镜") for c in scene_changes)
+        assert scene_changes
+        assert all(c["label"].startswith("分镜") for c in scene_changes)
         # drama 场景走时间线画布：可导航事件的锚点类型为 segment。
         assert all(c["focus"]["anchor_type"] == "segment" for c in scene_changes if c["focus"] is not None)
 
@@ -1202,11 +1204,13 @@ class TestProjectEventService:
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1U01" for c in changes)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in changes)
         unit_changes = [c for c in changes if c["entity_type"] == "reference_unit"]
-        assert unit_changes and all(c["label"].startswith("视频单元") for c in unit_changes)
+        assert unit_changes
+        assert all(c["label"].startswith("视频单元") for c in unit_changes)
         # 参考生视频单元走参考画布：可导航事件（created/updated）的锚点类型为 reference_unit，
         # 前端据此切到 units tab 并选中对应单元。
         navigable = [c for c in unit_changes if c["action"] in ("created", "updated")]
-        assert navigable and all(c["focus"]["anchor_type"] == "reference_unit" for c in navigable)
+        assert navigable
+        assert all(c["focus"]["anchor_type"] == "reference_unit" for c in navigable)
 
         script = pm.load_script("ref-demo", "episode_1.json")
         script["video_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"

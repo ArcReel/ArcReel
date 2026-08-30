@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from lib.episode_paths import episode_drafts_dir
-from lib.project_migration_failure import MIGRATION_FAILURE_FILENAME, load_migration_failure
+from lib.project_migration_failure import MIGRATION_FAILURE_FILENAME, ProjectMigrationError, load_migration_failure
 from lib.project_migrations.runner import MIGRATORS, migrate_project_dir, migrate_project_with_verdict
 from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 
@@ -200,7 +200,8 @@ def test_script_plan_draft_migrates_alongside_the_episode_script(tmp_path: Path)
         assert script_unit["text"] == "剧本上半\n剧本下半"
         draft_unit = _read_json(_draft_path(project_dir, episode))["units"][0]
         assert draft_unit["text"] == "草稿上半\n草稿下半"
-        assert "shots" not in draft_unit and "references" not in draft_unit
+        assert "shots" not in draft_unit
+        assert "references" not in draft_unit
 
 
 def test_legacy_shot_durations_land_on_the_unit(tmp_path: Path) -> None:
@@ -247,7 +248,7 @@ def test_a_broken_script_leaves_the_project_dir_byte_identical(tmp_path: Path, b
     _write_json(project_dir / "scripts/episode_2.json", _script("narration", broken_units, episode=2))
     before = _snapshot(project_dir)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ProjectMigrationError, match=r"String should have at least 1 character"):
         migrate_v8_to_v9(project_dir)
 
     assert _snapshot(project_dir) == before

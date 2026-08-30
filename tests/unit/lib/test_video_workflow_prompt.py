@@ -106,7 +106,7 @@ def test_plan_reference_documents_every_target_field() -> None:
 # ------------------------------------------------------------------- 旁白交付
 
 
-@pytest.mark.parametrize("path", (WORKFLOW_PLAN_REFERENCE, VIDEO_SKILL))
+@pytest.mark.parametrize("path", [WORKFLOW_PLAN_REFERENCE, VIDEO_SKILL])
 def test_delivery_options_are_both_named_where_the_choice_is_made(path: Path) -> None:
     content = _reference(path)
 

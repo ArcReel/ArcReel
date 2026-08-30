@@ -25,7 +25,7 @@ class TestIsAuthEnabled:
     """``is_auth_enabled()`` 解析 AUTH_ENABLED env 值。"""
 
     @pytest.mark.parametrize(
-        "raw,expected",
+        ("raw", "expected"),
         [
             (None, True),  # 未设置 → 默认开启（向后兼容）
             ("true", True),

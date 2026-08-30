@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from lib.asset_rename import AssetRenameReport
 from lib.episode_reset import EpisodeResetResult
@@ -121,7 +122,8 @@ async def test_create_project_rolls_back_when_metadata_initialization_fails(tmp_
 
     failed = await create_project(request, CallerContext(user_id="test", source="mcp"), services)
 
-    assert failed.problem is not None and failed.problem.code == "internal_error"
+    assert failed.problem is not None
+    assert failed.problem.code == "internal_error"
     assert not (projects_root / "demo").exists()
     ProjectManager(projects_root).create_project("demo")
 
@@ -184,7 +186,8 @@ async def test_list_projects_does_not_persist_readonly_migrations(tmp_path: Path
     )
 
     assert outcome.problem is None
-    assert outcome.value and outcome.value[0]["name"] == "demo"
+    assert outcome.value
+    assert outcome.value[0]["name"] == "demo"
     assert project_file.read_bytes() == before
 
 
@@ -425,7 +428,7 @@ async def test_retry_migration_settles_write_before_propagating_cancellation(tmp
 def test_create_project_request_rejects_mode_specific_fields_before_writing(tmp_path: Path) -> None:
     services = _services(tmp_path)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError, match=r"target_duration 与 brief 仅广告/短片项目可用"):
         CreateProjectToolRequest(name="demo", content_mode="narration", target_duration=30)
 
     assert services.projects.list_projects() == []

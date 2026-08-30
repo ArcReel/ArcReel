@@ -199,7 +199,7 @@ class TestMediaGenerator:
         assert gen._get_output_path("videos", "E1S01").name == "scene_E1S01.mp4"
         assert gen._get_output_path("characters", "Alice").name == "Alice.png"
         assert gen._get_output_path("reference_videos", "E1U1").name == "E1U1.mp4"
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"不支持的资源类型: bad"):
             gen._get_output_path("bad", "x")
 
     async def test_declarative_video_submit_poll_download_and_accounting(self, tmp_path):

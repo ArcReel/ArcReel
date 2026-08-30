@@ -42,12 +42,12 @@ def _example_template_definition() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 async def app_session_factory(db_engine):
     return async_sessionmaker(db_engine, expire_on_commit=False)
 
 
-@pytest.fixture()
+@pytest.fixture
 def app(app_session_factory) -> FastAPI:
     """创建绑定内存数据库的 FastAPI 应用。"""
     _app = FastAPI()
@@ -63,7 +63,7 @@ def app(app_session_factory) -> FastAPI:
     return _app
 
 
-@pytest.fixture()
+@pytest.fixture
 def custom_providers_client(app) -> Generator[TestClient, None, None]:
     with TestClient(app) as c:
         yield c
@@ -1581,7 +1581,6 @@ async def test_split_image_endpoints_may_both_be_default(custom_providers_client
 
 def test_check_unique_defaults_rejects_two_generations_defaults():
     """同 provider 内两条 -generations 都设默认 → 422。"""
-    import pytest as pytest_module
     from fastapi import HTTPException
 
     from server.routers.custom_providers import ModelInput, _check_unique_defaults
@@ -1594,14 +1593,13 @@ def test_check_unique_defaults_rejects_two_generations_defaults():
     def t(key, **params):
         return f"{key}:{params}"
 
-    with pytest_module.raises(HTTPException) as excinfo:
+    with pytest.raises(HTTPException) as excinfo:
         _check_unique_defaults(models, t)
     assert excinfo.value.status_code == 422
 
 
 def test_check_unique_defaults_rejects_wildcard_with_split():
     """通配 + -generations 同时默认 → 不允许（通配占 T2I 槽与 -generations 冲突）。"""
-    import pytest as pytest_module
     from fastapi import HTTPException
 
     from server.routers.custom_providers import ModelInput, _check_unique_defaults
@@ -1614,13 +1612,12 @@ def test_check_unique_defaults_rejects_wildcard_with_split():
     def t(key, **params):
         return f"{key}:{params}"
 
-    with pytest_module.raises(HTTPException):
+    with pytest.raises(HTTPException):
         _check_unique_defaults(models, t)
 
 
 def test_check_unique_defaults_text_still_media_type_exclusive():
     """text/video 维持旧规则：同一 media_type 只能有一个默认。"""
-    import pytest as pytest_module
     from fastapi import HTTPException
 
     from server.routers.custom_providers import ModelInput, _check_unique_defaults
@@ -1633,7 +1630,7 @@ def test_check_unique_defaults_text_still_media_type_exclusive():
     def t(key, **params):
         return f"{key}:{params}"
 
-    with pytest_module.raises(HTTPException):
+    with pytest.raises(HTTPException):
         _check_unique_defaults(models, t)
 
 

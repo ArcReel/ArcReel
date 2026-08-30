@@ -475,7 +475,7 @@ class TestImageChannel:
             ),
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="x" * 600):
             await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="婉儿")
 
         _assert_full_row(
@@ -792,7 +792,7 @@ class TestTextChannel:
             "gemini-aistudio",
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="t" * 600):
             await gen.generate(TextGenerationRequest(prompt="p"), project_name="demo")
 
         _assert_full_row(
@@ -884,7 +884,7 @@ class TestIdentityInvariant:
         assert row["provider"] == "gemini-aistudio"
 
     def test_media_backend_without_provider_id_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"image backend 与 provider_id 必须成对提供"):
             MediaGenerator(
                 tmp_path / "projects" / "demo",
                 image_backend=_FakeImageBackend(provider="gemini", model="m"),
@@ -892,14 +892,14 @@ class TestIdentityInvariant:
             )
 
     def test_media_provider_id_without_backend_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"video backend 与 provider_id 必须成对提供"):
             MediaGenerator(
                 tmp_path / "projects" / "demo",
                 video_provider_id="gemini-aistudio",
             )
 
     def test_text_missing_provider_id_raises(self, acct: _AccountingDb) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"text backend 与 provider_id 必须成对提供"):
             TextGenerator(
                 _FakeTextBackend(provider="gemini", model="m"),
                 Ledger(session_factory=acct.factory),

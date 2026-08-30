@@ -117,7 +117,8 @@ class TestAssetRouterFactory:
             assert resp.status_code == 200
             entry = fake_pm.projects["demo"]["characters"]["Bob"]
             assert entry["reference_audio"] == "characters/refs_audio/Bob.wav"
-            assert isinstance(entry.get("voice_updated_at"), str) and entry["voice_updated_at"]
+            assert isinstance(entry.get("voice_updated_at"), str)
+            assert entry["voice_updated_at"]
 
     def test_character_post_without_reference_audio_does_not_stamp(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
@@ -244,7 +245,8 @@ class TestAssetRouterFactory:
             assert resp.status_code == 200
             entry = fake_pm.projects["demo"]["characters"]["Alice"]
             assert entry["reference_audio"] == "characters/refs_audio/Alice.wav"
-            assert isinstance(entry.get("voice_updated_at"), str) and entry["voice_updated_at"]
+            assert isinstance(entry.get("voice_updated_at"), str)
+            assert entry["voice_updated_at"]
 
     def test_character_patch_reference_audio_unchanged_does_not_stamp(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
@@ -307,12 +309,8 @@ class TestAssetRouterFactory:
     def test_unknown_asset_type_raises(self):
         from server.routers._asset_router_factory import build_asset_router
 
-        try:
+        with pytest.raises(ValueError, match="unknown asset_type"):
             build_asset_router(asset_type="unknown", pm_getter=lambda: None)
-        except ValueError as e:
-            assert "unknown" in str(e)
-        else:
-            raise AssertionError("should have raised ValueError")
 
 
 class TestAssetRouterNoLeak:

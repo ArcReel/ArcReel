@@ -11,7 +11,7 @@ from lib.custom_provider.duration_presets import (
 
 
 @pytest.mark.parametrize(
-    "model_id, expected",
+    ("model_id", "expected"),
     [
         # OpenAI Sora 第一方
         ("sora-2", [4, 8, 12]),

@@ -485,7 +485,8 @@ async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: Tool
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "骨架" in text and "重新拆分" in text
+    assert "骨架" in text
+    assert "重新拆分" in text
 
 
 async def test_generate_narration_audio_rejects_string_segment_ids(fake_ctx: ToolContext) -> None:

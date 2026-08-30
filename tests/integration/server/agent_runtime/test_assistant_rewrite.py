@@ -326,7 +326,8 @@ class TestRewriteRejections:
             await _rewrite(service, session_id, "user-elsewhere")
 
         origin = await service.meta_store.get(session_id)
-        assert origin is not None and origin.superseded_by is None
+        assert origin is not None
+        assert origin.superseded_by is None
         assert runtime.interrupted == [], "被拒的请求不该已经打断用户的轮次"
 
     async def test_anchor_without_a_transcript_copy_is_refused_as_a_bad_anchor(self, rewriting):
@@ -347,7 +348,8 @@ class TestRewriteRejections:
 
         assert runtime.interrupted == [session_id], "锚点过了预检，拒绝确实来自分叉那一步"
         origin = await service.meta_store.get(session_id)
-        assert origin is not None and origin.superseded_by is None
+        assert origin is not None
+        assert origin.superseded_by is None
 
     async def test_pending_question_blocks_the_rewrite(self, rewriting):
         """AC：未决问答卡片存在 → 拒绝且错误可辨识（问答优先）。"""
@@ -358,13 +360,14 @@ class TestRewriteRejections:
             await _rewrite(service, session_id, SECOND_USER_ENTRY)
 
         origin = await service.meta_store.get(session_id)
-        assert origin is not None and origin.superseded_by is None
+        assert origin is not None
+        assert origin.superseded_by is None
         assert runtime.interrupted == []
 
     async def test_empty_content_is_refused_before_any_side_effect(self, rewriting):
         service, runtime, session_id, _ = rewriting
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"消息内容不能为空"):
             await _rewrite(service, session_id, SECOND_USER_ENTRY, content="   ")
 
         assert runtime.interrupted == []
@@ -408,7 +411,8 @@ class TestRewriteRejections:
             await _rewrite(service, session_id, SECOND_USER_ENTRY)
 
         origin = await service.meta_store.get(session_id)
-        assert origin is not None and origin.superseded_by is None
+        assert origin is not None
+        assert origin.superseded_by is None
 
 
 class TestRewriteDispatchFailure:
@@ -421,7 +425,8 @@ class TestRewriteDispatchFailure:
             await _rewrite(service, session_id, SECOND_USER_ENTRY)
 
         origin = await service.meta_store.get(session_id)
-        assert origin is not None and origin.superseded_by is None
+        assert origin is not None
+        assert origin.superseded_by is None
         listed = {meta.id for meta in await service.meta_store.list(project_name=PROJECT_NAME)}
         assert listed == {session_id}, "撤回后不留下顶替原会话的空转分支"
 
@@ -446,7 +451,8 @@ class TestRewriteDispatchFailure:
             await _rewrite(service, session_id, SECOND_USER_ENTRY)
 
         origin = await service.meta_store.get(session_id)
-        assert origin is not None and origin.superseded_by is None
+        assert origin is not None
+        assert origin.superseded_by is None
         listed = {meta.id for meta in await service.meta_store.list(project_name=PROJECT_NAME)}
         assert listed == {session_id}
 

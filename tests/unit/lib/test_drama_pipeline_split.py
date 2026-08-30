@@ -180,7 +180,8 @@ class TestMergeDramaVisualIntoScenes:
             DramaScene.model_validate(scene)
             assert scene["utterances"]
             assert scene["source_text"]
-            assert "image_prompt" in scene and "video_prompt" in scene
+            assert "image_prompt" in scene
+            assert "video_prompt" in scene
             # scene_description 是 script_plan 视觉基底，不进最终 DramaScene
             assert "scene_description" not in scene
 
@@ -248,7 +249,8 @@ class TestEpisodeOutlineContext:
 
     def test_returns_current_and_next(self):
         cur, nxt = episode_outline_context(self._project(), 1)
-        assert cur is not None and cur["hook"] == "少年坠崖"
+        assert cur is not None
+        assert cur["hook"] == "少年坠崖"
         assert cur["story_beats"] == ["下山", "遇敌"]
         assert cur["next_episode_teaser"] == "神秘人相救"
         # 下一集是旧式条目（无 hook/beats/teaser）→ None
@@ -256,15 +258,18 @@ class TestEpisodeOutlineContext:
 
     def test_missing_episode_returns_none(self):
         cur, nxt = episode_outline_context(self._project(), 9)
-        assert cur is None and nxt is None
+        assert cur is None
+        assert nxt is None
 
     def test_corrupt_story_beats_treated_as_missing(self):
         project = {"episodes": [{"episode": 1, "hook": "钩子", "outline": {"story_beats": "非列表"}}]}
         cur, _ = episode_outline_context(project, 1)
-        assert cur is not None and cur["story_beats"] == []
+        assert cur is not None
+        assert cur["story_beats"] == []
 
     def test_non_string_story_beats_items_filtered(self):
         # list 内非字符串项（手编损坏）一并过滤，避免脏数据原样进 script_plan prompt
         project = {"episodes": [{"episode": 1, "hook": "钩子", "outline": {"story_beats": ["下山", 42, None, "遇敌"]}}]}
         cur, _ = episode_outline_context(project, 1)
-        assert cur is not None and cur["story_beats"] == ["下山", "遇敌"]
+        assert cur is not None
+        assert cur["story_beats"] == ["下山", "遇敌"]

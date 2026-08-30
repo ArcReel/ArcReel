@@ -20,7 +20,7 @@ def auth_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 # tests/test_logging_persistence.py 不同——那里 setup_logging() 在每次调用都重新读 env，
 # 不需要 reload。
 @pytest.fixture
-async def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disabled: None):
+async def logs_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disabled: None):
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
@@ -40,8 +40,8 @@ async def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disabled
         yield client, log_dir
 
 
-async def test_download_returns_zip(_client) -> None:
-    client, log_dir = _client
+async def test_download_returns_zip(logs_client) -> None:
+    client, log_dir = logs_client
     (log_dir / "arcreel.log").write_text("test log line\n", encoding="utf-8")
     res = await client.get("/api/v1/system/logs/download")
     assert res.status_code == 200
@@ -49,8 +49,8 @@ async def test_download_returns_zip(_client) -> None:
     assert "attachment" in res.headers.get("content-disposition", "")
 
 
-async def test_zip_contains_diagnostics(_client) -> None:
-    client, _log_dir = _client
+async def test_zip_contains_diagnostics(logs_client) -> None:
+    client, _log_dir = logs_client
     res = await client.get("/api/v1/system/logs/download")
     z = zipfile.ZipFile(io.BytesIO(res.content))
     assert "diagnostics.txt" in z.namelist()
@@ -58,8 +58,8 @@ async def test_zip_contains_diagnostics(_client) -> None:
     assert "App version" in diag
 
 
-async def test_zip_includes_log_files(_client) -> None:
-    client, log_dir = _client
+async def test_zip_includes_log_files(logs_client) -> None:
+    client, log_dir = logs_client
     (log_dir / "arcreel.log").write_text("active log\n", encoding="utf-8")
     (log_dir / "arcreel.log.2026-05-15").write_text("archived log\n", encoding="utf-8")
     res = await client.get("/api/v1/system/logs/download")
@@ -69,16 +69,16 @@ async def test_zip_includes_log_files(_client) -> None:
     assert any(n.endswith("arcreel.log.2026-05-15") for n in names)
 
 
-async def test_empty_logs_dir(_client) -> None:
-    client, _ = _client
+async def test_empty_logs_dir(logs_client) -> None:
+    client, _ = logs_client
     res = await client.get("/api/v1/system/logs/download")
     assert res.status_code == 200
     z = zipfile.ZipFile(io.BytesIO(res.content))
     assert z.namelist() == ["diagnostics.txt"]
 
 
-async def test_oversized_file_skipped(_client) -> None:
-    client, log_dir = _client
+async def test_oversized_file_skipped(logs_client) -> None:
+    client, log_dir = logs_client
     big = log_dir / "arcreel.log.2026-05-10"
     with big.open("wb") as f:
         f.seek(101 * 1024 * 1024 - 1)

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import ClassVar
 
 import pytest
+from pydantic import ValidationError
 
 from lib.async_thread import run_sync_transaction
 from lib.generation_queue import ActiveTaskRequestConflict
@@ -523,8 +524,10 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
     assert sources.problem is None
     assert sources.value is not None
     assert [entry.path for entry in sources.value.files] == ["source/episode_1.txt", "source/novel.txt"]
-    assert source.value is not None and source.value.text == "第一集原文"
-    assert script_plan.value is not None and script_plan.value.content["title"] == "第一集"
+    assert source.value is not None
+    assert source.value.text == "第一集原文"
+    assert script_plan.value is not None
+    assert script_plan.value.content["title"] == "第一集"
     assert files.value is not None
     assert {entry.path for entry in files.value.files} == {
         "project.json",
@@ -533,12 +536,17 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
         "scripts/episode_1.json",
         "drafts/episode_1/script_plan_normalized_script.json",
     }
-    assert script.value is not None and script.value.content["episode"] == 1
+    assert script.value is not None
+    assert script.value.content["episode"] == 1
     assert script.value.etag.startswith("sha256-v1:")
-    assert sensitive.problem is not None and sensitive.problem.code == "unsafe_path"
-    assert linked.problem is not None and linked.problem.code == "unsafe_path"
-    assert nonregular.problem is not None and nonregular.problem.code == "unsafe_path"
-    assert traversal.problem is not None and traversal.problem.code == "unsafe_path"
+    assert sensitive.problem is not None
+    assert sensitive.problem.code == "unsafe_path"
+    assert linked.problem is not None
+    assert linked.problem.code == "unsafe_path"
+    assert nonregular.problem is not None
+    assert nonregular.problem.code == "unsafe_path"
+    assert traversal.problem is not None
+    assert traversal.problem.code == "unsafe_path"
 
 
 async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path, monkeypatch) -> None:
@@ -572,7 +580,8 @@ async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path,
     )
 
     assert outcome.problem is None
-    assert outcome.value is not None and outcome.value.content == "safe"
+    assert outcome.value is not None
+    assert outcome.value.content == "safe"
 
 
 async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) -> None:
@@ -594,17 +603,18 @@ async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) 
         services,
     )
 
-    assert outcome.problem is not None and outcome.problem.code == "file_too_large"
+    assert outcome.problem is not None
+    assert outcome.problem.code == "file_too_large"
 
 
 @pytest.mark.parametrize("episode", [0, -1, True, 1.5, "1"])
 def test_draft_locator_requires_a_strict_positive_episode(episode: object) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError, match=r"DraftLocator\nepisode"):
         DraftLocator(episode=episode, doc_type="reference_script_plan")  # type: ignore[arg-type]
 
 
 def test_draft_locator_rejects_unknown_document_types() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError, match=r"DraftLocator\ndoc_type"):
         DraftLocator(episode=1, doc_type="unsupported")  # type: ignore[arg-type]
 
 

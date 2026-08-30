@@ -186,7 +186,7 @@ class TestAssistantService:
         assert sm.sent == [("s1", "world")]
 
         # send_or_create — empty message raises ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"消息内容不能为空"):
             await service.send_or_create("demo", "   ")
 
         # send_or_create — missing session raises FileNotFoundError
