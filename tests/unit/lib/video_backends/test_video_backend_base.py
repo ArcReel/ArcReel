@@ -14,6 +14,7 @@ from lib.video_backends.base import (
     AmbiguousSubmitError,
     ProviderJobIdPersistenceMixin,
     ProviderJobStatus,
+    ProviderResponseStage,
     ResumeExpiredError,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -658,11 +659,18 @@ class TestSubmitPost:
 
     async def test_returns_response_on_success(self):
         resp = httpx.Response(200, request=httpx.Request("POST", "https://x/v2"), json={"id": "ok"})
+        recorded: list[tuple[str, object]] = []
 
         async def _post() -> httpx.Response:
             return resp
 
-        assert await submit_post(_post, provider="v2") is resp
+        async def _record(stage: ProviderResponseStage, body: object) -> None:
+            recorded.append((stage, body))
+
+        request = VideoGenerationRequest(prompt="p", output_path=Path("out.mp4"), on_provider_response=_record)
+
+        assert await submit_post(_post, provider="v2", request=request) is resp
+        assert recorded == [("submit", {"id": "ok"})]
 
     async def test_not_sent_error_propagates_for_retry(self):
         # 连接建立失败 / 代理握手失败原样抛出，交 should_retry_submit 重试（不包成终态）。
@@ -1081,9 +1089,9 @@ class TestRecordingPoll:
     """轮询留痕：每收到一次响应即写入，早于状态与错误解读。"""
 
     @staticmethod
-    def _request(recorded: list[object]) -> VideoGenerationRequest:
-        async def _record(body: object) -> None:
-            recorded.append(body)
+    def _request(recorded: list[tuple[str, object]]) -> VideoGenerationRequest:
+        async def _record(stage: ProviderResponseStage, body: object) -> None:
+            recorded.append((stage, body))
 
         return VideoGenerationRequest(
             prompt="p",
@@ -1094,7 +1102,7 @@ class TestRecordingPoll:
 
     async def test_terminal_failure_body_is_recorded_before_it_raises(self):
         """终态失败由 is_failed 在 poll_with_retry 内抛出，留痕仍须拿到该响应体。"""
-        recorded: list[object] = []
+        recorded: list[tuple[str, object]] = []
         body = {"status": "failed", "error": "provider said no"}
 
         with pytest.raises(RuntimeError, match="provider said no"):
@@ -1107,28 +1115,39 @@ class TestRecordingPoll:
                 clock=_FakeClock(),
             )
 
-        assert recorded == [body]
+        assert recorded == [("poll", body)]
 
     async def test_http_error_response_body_is_recorded(self):
         """4xx/5xx 响应从 poll_fn 自己抛出，同样是需要诊断的那次调用。"""
-        recorded: list[object] = []
+        recorded: list[tuple[str, object]] = []
         response = httpx.Response(500, json={"detail": "boom"}, request=httpx.Request("GET", "https://x/t"))
         error = httpx.HTTPStatusError("500", request=response.request, response=response)
 
         with pytest.raises(httpx.HTTPStatusError):
             await recording_poll(AsyncMock(side_effect=error), self._request(recorded))()
 
-        assert recorded == [{"detail": "boom"}]
+        assert recorded == [("poll", {"detail": "boom"})]
 
     async def test_non_json_http_error_body_is_recorded_as_text(self):
-        recorded: list[object] = []
+        recorded: list[tuple[str, object]] = []
         response = httpx.Response(502, text="<html>gateway</html>", request=httpx.Request("GET", "https://x/t"))
         error = httpx.HTTPStatusError("502", request=response.request, response=response)
 
         with pytest.raises(httpx.HTTPStatusError):
             await recording_poll(AsyncMock(side_effect=error), self._request(recorded))()
 
-        assert recorded == ["<html>gateway</html>"]
+        assert recorded == [("poll", "<html>gateway</html>")]
+
+    async def test_result_response_uses_requested_stage(self):
+        recorded: list[tuple[str, object]] = []
+
+        await recording_poll(
+            AsyncMock(return_value={"video_url": "https://cdn.test/video.mp4"}),
+            self._request(recorded),
+            stage="result",
+        )()
+
+        assert recorded == [("result", {"video_url": "https://cdn.test/video.mp4"})]
 
     async def test_diagnostic_write_failure_does_not_fail_the_generation(self):
         """留痕列写不进去时任务照常推进——供应商已受理的生成不因诊断数据失败。"""

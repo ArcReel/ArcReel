@@ -30,6 +30,8 @@ VIDEO_POLL_INTERVAL_SECONDS = 5.0
 VIDEO_POLL_MAX_CONSECUTIVE_FAILURES = 10
 VIDEO_POLL_MAX_BACKOFF_SECONDS = 60.0
 
+ProviderResponseStage = Literal["submit", "poll", "result"]
+
 
 # DB 瞬态错误集合：sqlite "database is locked"、pg "could not connect" / 连接已关闭。
 # 故意不收 DBAPIError 父类——会兜住 IntegrityError/DataError/ProgrammingError 等非瞬态
@@ -361,7 +363,7 @@ async def submit_post(
             raise
         raise AmbiguousSubmitError(provider=provider) from exc
     if request is not None:
-        await notify_provider_response(request, _response_body_or_text(resp))
+        await notify_provider_response(request, "submit", _response_body_or_text(resp))
     if resp.status_code >= 400:
         logger.warning("%s create 返回 %s: %s", provider, resp.status_code, resp.text[:500])
         try:
@@ -1076,8 +1078,8 @@ class VideoGenerationRequest:
     # call whose failure cannot prove that the provider rejected the request before accepting a paid job.
     on_provider_resubmit_unsafe: Callable[[], None] | None = None
 
-    # 收到供应商 JSON 响应时覆盖写入当前 ApiCall 的诊断留痕。非账本调用保持 None。
-    on_provider_response: Callable[[object], Awaitable[None]] | None = None
+    # 收到供应商 JSON 响应时携阶段写入诊断留痕。非账本调用保持 None。
+    on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None = None
 
     # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的协议标识，与 job_id
     # 一并持久化到 `tasks.provider_endpoint`，记录本笔供应商任务的协议归属。内置供应商无此维度，
@@ -1110,8 +1112,8 @@ class VideoGenerationResult:
     generate_audio: bool | None = None
 
 
-async def notify_provider_response(request: VideoGenerationRequest, body: object) -> None:
-    """把 HTTP 式调用通道最后一次供应商响应送到可选账本回调。
+async def notify_provider_response(request: VideoGenerationRequest, stage: ProviderResponseStage, body: object) -> None:
+    """把 HTTP 式调用通道的供应商响应及其阶段送到可选诊断回调。
 
     留痕是诊断数据，不参与业务解析：写入失败只记日志，不让一笔已被供应商受理（多半已计费）
     的生成因为诊断列写不进去而失败。
@@ -1119,15 +1121,18 @@ async def notify_provider_response(request: VideoGenerationRequest, body: object
     if request.on_provider_response is None:
         return
     try:
-        await request.on_provider_response(body)
+        await request.on_provider_response(stage, body)
     except Exception:
         logger.warning("供应商响应留痕写入失败 task_id=%s", request.task_id, exc_info=True)
 
 
 def recording_poll[T](
-    poll_fn: Callable[[], Awaitable[T]], request: VideoGenerationRequest
+    poll_fn: Callable[[], Awaitable[T]],
+    request: VideoGenerationRequest,
+    *,
+    stage: ProviderResponseStage = "poll",
 ) -> Callable[[], Awaitable[T]]:
-    """包一层轮询取件：每收到一次供应商响应就留痕，早于状态与错误解读。
+    """包一层轮询或二次取件：每收到一次供应商响应就留痕，早于状态与错误解读。
 
     终态失败由 ``is_failed`` 谓词在 :func:`poll_with_retry` 内部抛出、HTTP 错误响应则从
     ``poll_fn`` 自己抛出，两者都发生在 ``poll_with_retry`` 返回之前。留痕若放在轮询之后，
@@ -1138,9 +1143,9 @@ def recording_poll[T](
         try:
             body = await poll_fn()
         except httpx.HTTPStatusError as exc:
-            await notify_provider_response(request, _response_body_or_text(exc.response))
+            await notify_provider_response(request, stage, _response_body_or_text(exc.response))
             raise
-        await notify_provider_response(request, body)
+        await notify_provider_response(request, stage, body)
         return body
 
     return once

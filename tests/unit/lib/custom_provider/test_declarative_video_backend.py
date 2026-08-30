@@ -15,6 +15,7 @@ from lib.custom_provider.endpoint_definition import validate_definition
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.video_backends.base import (
     VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
+    ProviderResponseStage,
     ResumeExpiredError,
     VideoGenerationRequest,
 )
@@ -568,10 +569,10 @@ class TestDeclarativeVideoBackend:
         assert download.call_count == 3
 
     async def test_failed_submit_body_is_recorded(self, tmp_path: Path):
-        recorded: list[object] = []
+        recorded: list[tuple[str, object]] = []
 
-        async def record(body: object) -> None:
-            recorded.append(body)
+        async def record(stage: ProviderResponseStage, body: object) -> None:
+            recorded.append((stage, body))
 
         with capture_http() as router:
             router.post("https://relay.test/v1/video/create").mock(
@@ -586,7 +587,7 @@ class TestDeclarativeVideoBackend:
                     provider="custom-1",
                 ).generate(_request(tmp_path, on_provider_response=record))
 
-        assert recorded == [{"error": "bad prompt"}]
+        assert recorded == [("submit", {"error": "bad prompt"})]
 
     async def test_download_exhausts_shared_ten_failure_budget(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock():
@@ -732,10 +733,10 @@ class TestDeclarativeVideoBackend:
 
     async def test_non_json_success_response_is_recorded(self, tmp_path: Path):
         """2xx 却不是 JSON（网关 HTML 错误页、被截断的响应）时，原文也要留痕。"""
-        recorded: list[object] = []
+        recorded: list[tuple[str, object]] = []
 
-        async def _record(body: object) -> None:
-            recorded.append(body)
+        async def _record(stage: ProviderResponseStage, body: object) -> None:
+            recorded.append((stage, body))
 
         with capture_http() as router, bounded_poll_clock():
             router.post("https://relay.test/v1/video/create").mock(
@@ -752,7 +753,7 @@ class TestDeclarativeVideoBackend:
                 ).generate(_request(tmp_path, on_provider_response=_record))
 
         assert caught.value.code == "declarative_response_extract_failed"
-        assert recorded[-1] == "<html>gateway timeout</html>"
+        assert recorded[-1] == ("submit", "<html>gateway timeout</html>")
 
     async def test_missing_required_input_fails_before_submitting(self, tmp_path: Path):
         """声明为必需的素材缺席时不许发请求：模板会把该键整个删掉，供应商照样建任务照常计费。"""
@@ -957,10 +958,10 @@ class TestDeclarativeVideoBackend:
             "extract": {"video_url": ["$.video_url"]},
         }
         assert validate_definition(definition).valid
-        recorded: list[object] = []
+        recorded: list[tuple[str, object]] = []
 
-        async def _record(body: object) -> None:
-            recorded.append(body)
+        async def _record(stage: ProviderResponseStage, body: object) -> None:
+            recorded.append((stage, body))
 
         with capture_http() as router, bounded_poll_clock():
             router.post("https://relay.test/v1/video/create").mock(
@@ -986,7 +987,7 @@ class TestDeclarativeVideoBackend:
 
         assert caught.value.code == "artifact_download_failed"
         assert result.call_count == VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
-        assert recorded[-1] == {"error": "result exploded"}
+        assert recorded[-1] == ("result", {"error": "result exploded"})
 
     async def test_request_log_drops_auth_query_credentials(self, tmp_path: Path, caplog):
         """请求日志按键名遮蔽，遮不到拼进 URL 查询串里的 ``auth.query`` 凭证。"""
