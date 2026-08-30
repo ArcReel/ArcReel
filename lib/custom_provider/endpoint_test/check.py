@@ -18,7 +18,7 @@ from lib.custom_provider.declarative_backend import (
     extract_provider_state,
     text_or_none,
 )
-from lib.custom_provider.endpoint_definition import extract_value, normalize_extract_spec
+from lib.custom_provider.endpoint_definition import JsonPathEvaluationError, extract_value, normalize_extract_spec
 from lib.video_backends.base import ProviderJobStatus
 
 from .errors import EndpointTestDefinitionError
@@ -172,6 +172,8 @@ def _field_report(key: str, spec: object, body: object) -> FieldExtraction:
         try:
             # 逐条走同一个 extract_value：优先级语义、json_decode 后缀与 accept 过滤都只有一份实现。
             hit = extract_value({"paths": [item], "accept": accept}, body)
+        except JsonPathEvaluationError as exc:
+            raise EndpointTestDefinitionError.from_render_failure(key, exc) from exc
         except (TypeError, ValueError) as exc:
             raise EndpointTestDefinitionError.from_render_failure(key, str(exc)) from exc
         attempts.append(

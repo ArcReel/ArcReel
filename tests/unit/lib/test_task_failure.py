@@ -86,6 +86,16 @@ class TestRenderKnownCodes:
             "Không thể kết xuất yêu cầu endpoint: enum_maps.duration không có ánh xạ cho '5'"
         )
 
+    def test_jsonpath_evaluation_detail_is_rendered_with_the_outer_failure_locale(self):
+        encoded = encode_failure(
+            "declarative_response_extract_failed",
+            detail={"key": "val_ce_jsonpath_evaluation_failed", "params": {"path_expression": "$[?@.a == 1e400]"}},
+        )
+
+        assert render_failure(encoded, _translator("en")) == (
+            "Endpoint response extraction failed: Could not evaluate extraction path: $[?@.a == 1e400]"
+        )
+
 
 class TestCascadeBlockedDependency:
     def test_renders_nested_structured_reason(self):
@@ -146,6 +156,30 @@ class TestBoundReason:
         assert rendered is not None
         assert "[" not in rendered
         assert "resume_expired_detail" not in rendered
+
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_preserves_oversized_nested_diagnostic_for_locale_rendering(self, locale):
+        path_expression = f"$.{'member' * 500}[?@.a == 1e400]"
+        reason = encode_failure(
+            "declarative_response_extract_failed",
+            detail={
+                "key": "val_ce_jsonpath_evaluation_failed",
+                "params": {"path_expression": path_expression},
+            },
+        )
+
+        bounded = bound_reason(reason, 2000)
+
+        assert len(bounded) <= 2000
+        parsed = parse_failure(bounded)
+        assert parsed is not None
+        detail = parsed[1]["detail"]
+        assert detail["key"] == "val_ce_jsonpath_evaluation_failed"
+        assert detail["params"]["path_expression"]
+        rendered = render_failure(bounded, _translator(locale))
+        assert rendered is not None
+        assert "val_ce_jsonpath_evaluation_failed" not in rendered
+        assert '"key"' not in rendered
 
 
 class TestPassthrough:

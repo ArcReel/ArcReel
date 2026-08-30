@@ -328,6 +328,7 @@ MESSAGES = {
         "Đường dẫn trích xuất không cho phép toán tử khớp biểu thức chính quy (tại ký tự {position}): {path_expression}"
     ),
     "val_ce_jsonpath_syntax": "Lỗi cú pháp đường dẫn trích xuất (tại ký tự {position}): {path_expression}",
+    "val_ce_jsonpath_evaluation_failed": "Không thể đánh giá đường dẫn trích xuất: {path_expression}",
     "val_ce_template_render_failed": "Không dựng được mẫu yêu cầu: {detail}",
     "val_ce_auth_literal_credential": (
         "Giá trị này có vẻ chứa khóa bí mật thật: hãy tham chiếu thông tin xác thực qua placeholder api_key, "

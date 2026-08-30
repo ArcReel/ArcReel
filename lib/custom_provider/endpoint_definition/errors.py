@@ -84,6 +84,7 @@ class DefinitionErrorCode(StrEnum):
     JSONPATH_FILTER_NON_SINGULAR = "jsonpath_filter_non_singular"
     JSONPATH_REGEX_OPERATOR = "jsonpath_regex_operator"
     JSONPATH_SYNTAX = "jsonpath_syntax"
+    JSONPATH_EVALUATION_FAILED = "jsonpath_evaluation_failed"
 
     # ---- 渲染期（端点测试按同一份诊断结构下发）----
     TEMPLATE_RENDER_FAILED = "template_render_failed"

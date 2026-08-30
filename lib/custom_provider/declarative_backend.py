@@ -22,6 +22,7 @@ import httpx
 
 from lib.custom_provider.endpoint_definition import (
     AssetData,
+    JsonPathEvaluationError,
     RenderedRequest,
     TemplateRenderError,
     build_context,
@@ -171,7 +172,7 @@ class DeclarativeRuntimeError(RuntimeError):
             if isinstance(detail, ValidationMessage)
             else detail
         }
-        super().__init__(detail.key if isinstance(detail, ValidationMessage) else detail)
+        super().__init__(detail.render() if isinstance(detail, ValidationMessage) else detail)
 
 
 @dataclass(frozen=True)
@@ -212,6 +213,8 @@ def extract_provider_state(
             result_id=extract_text(extract.get("result_id"), body),
             duration_seconds=extract_duration((extract.get("usage") or {}).get("duration_seconds"), body),
         )
+    except JsonPathEvaluationError as exc:
+        raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=exc.message) from exc
     except (KeyError, TypeError, ValueError) as exc:
         raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
 
@@ -237,6 +240,8 @@ def extract_duration(spec: object | None, body: object) -> int | None:
     raw = extract_value(spec, body)
     try:
         value = int(Decimal(str(raw)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    except JsonPathEvaluationError:
+        raise
     except (InvalidOperation, TypeError, ValueError):
         return None
     return value if 0 < value <= MAX_BILLED_DURATION_SECONDS else None
@@ -417,6 +422,8 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         try:
             job_id = extract_value(section["extract"]["task_id"], body)
             error = extract_text(section["extract"].get("error"), body)
+        except JsonPathEvaluationError as exc:
+            raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=exc.message) from exc
         except (TypeError, ValueError) as exc:
             raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
         # accept="scalar" 的定义可以命中数字或布尔，格式说明的口径是「按字符串化交给下游」；

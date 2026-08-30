@@ -303,6 +303,35 @@ class TestTrialRuns:
         assert artifact.status_code == 200
         assert artifact.content == b"video"
 
+    def test_failed_run_diagnostic_is_rendered_in_the_read_request_locale(
+        self, client: TestClient, trial_runs: TrialRunManager
+    ):
+        definition = custom_endpoint_definition()
+        definition["submit"]["extract"]["task_id"] = ["$[?@.a == 1e400]"]
+        with capture_http() as router:
+            router.post("https://relay.test/v1/video/create").mock(return_value=httpx.Response(200, json={"a": 1}))
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": definition,
+                    "parameters": PARAMETERS,
+                    "credentials": INLINE_CREDENTIALS,
+                },
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        en = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}", headers={"Accept-Language": "en"}).json()
+        vi = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}", headers={"Accept-Language": "vi"}).json()
+        assert en["error"] == (
+            "Endpoint response extraction failed: Could not evaluate extraction path: $[?@.a == 1e400]"
+        )
+        assert vi["error"] == (
+            "Không thể trích xuất phản hồi endpoint: Không thể đánh giá đường dẫn trích xuất: $[?@.a == 1e400]"
+        )
+
     def test_a_second_concurrent_run_is_refused(self, client: TestClient, trial_runs: TrialRunManager):
         with capture_http() as router, bounded_poll_clock():
             router.post("https://relay.test/v1/video/create").mock(

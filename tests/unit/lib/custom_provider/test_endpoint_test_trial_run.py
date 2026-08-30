@@ -191,6 +191,7 @@ class TestTrialRun:
 
         assert run.status is TrialRunStatus.SUCCEEDED, run.error
         assert run.poll_responses == [poll_body]
+        assert run.result_response == result_body
         assert run.extractions["poll"]["status"] == "succeeded"
         assert run.extractions["result"]["video_url"] == result_body["video_url"]
 

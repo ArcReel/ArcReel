@@ -41,6 +41,7 @@ const RUNNING: TrialRunInfo = {
   api_call_id: null,
   request: null,
   submit_response: null,
+  result_response: null,
   poll_responses: [],
   extractions: {},
   video_url: null,

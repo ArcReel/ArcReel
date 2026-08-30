@@ -30,10 +30,11 @@ from urllib.parse import urlsplit
 
 from lib.app_data_dir import app_data_dir
 from lib.config.resolver import ConfigResolver
-from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
+from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import bound_provider_response
 from lib.ledger import Ledger
+from lib.task_failure import encode_failure
 from lib.video_backends.base import ProviderResponseStage, VideoGenerationRequest
 from lib.video_frame_slots import resolve_first_frame_aspect_ratio
 
@@ -120,6 +121,7 @@ class TrialRun:
     request: dict[str, Any] | None = None
     submit_response: object | None = None
     poll_responses: list[object] = field(default_factory=list)
+    result_response: object | None = None
     #: 逐阶段提取，键取自 :data:`check.STAGES`；无定义可读（Python 实现的端点）为空。
     extractions: dict[str, Any] = field(default_factory=dict)
     video_url: str | None = None
@@ -139,6 +141,7 @@ class TrialRun:
             "request": self.request,
             "submit_response": self.submit_response,
             "poll_responses": self.poll_responses,
+            "result_response": self.result_response,
             "extractions": self.extractions,
             "video_url": self.video_url,
             "duration_seconds": self.duration_seconds,
@@ -159,6 +162,7 @@ class TrialRun:
             request=payload.get("request"),
             submit_response=payload.get("submit_response"),
             poll_responses=list(payload.get("poll_responses") or []),
+            result_response=payload.get("result_response"),
             extractions=dict(payload.get("extractions") or {}),
             video_url=_as_str(payload.get("video_url")),
             duration_seconds=_as_int(payload.get("duration_seconds")),
@@ -399,7 +403,7 @@ class TrialRunManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            run.error = str(exc)
+            run.error = encode_failure(exc.code, **exc.params) if isinstance(exc, DeclarativeRuntimeError) else str(exc)
             self._finish(run, target, capture, TrialRunStatus.FAILED)
 
     def _request(
@@ -460,6 +464,7 @@ class TrialRunManager:
         run.finished_at = time.time()
         run.submit_response = capture.submit
         run.poll_responses = list(capture.polls)
+        run.result_response = capture.result
         run.extractions = _stage_reports(target.definition, capture)
         try:
             self._result_file(run.id).write_text(

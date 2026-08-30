@@ -320,6 +320,7 @@ MESSAGES = {
         "The regex match operator is not allowed in extraction paths (at character {position}): {path_expression}"
     ),
     "val_ce_jsonpath_syntax": "Extraction path syntax error (at character {position}): {path_expression}",
+    "val_ce_jsonpath_evaluation_failed": "Could not evaluate extraction path: {path_expression}",
     "val_ce_template_render_failed": "Could not render the request template: {detail}",
     "val_ce_auth_literal_credential": (
         "This value appears to contain an actual secret key: reference the credential with the api_key "

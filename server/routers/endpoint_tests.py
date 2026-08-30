@@ -61,6 +61,7 @@ from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
+from lib.task_failure import render_failure
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +169,7 @@ class TrialRunResponse(BaseModel):
     request: dict[str, Any] | None = None
     submit_response: Any = None
     poll_responses: list[Any] = []
+    result_response: Any = None
     extractions: dict[str, Any] = {}
     video_url: str | None = None
     duration_seconds: int | None = None
@@ -414,19 +416,20 @@ async def start_trial_run(
         # manager 接手前失败（落素材、建结果目录）时临时目录还没有主人，留在盘上没人会回来删。
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    return _run_response(run)
+    return _run_response(run, _t)
 
 
 @router.get("/trial-runs/{run_id}")
 async def get_trial_run(
     run_id: str,
+    _t: Translator,
     manager: TrialRunManager = Depends(get_trial_run_manager),
 ) -> TrialRunResponse:
     """读一次测试连接。运行中读内存、终态读盘；取消或被重启打断的 run 不留结果。"""
     run = manager.get(run_id)
     if run is None:
         raise NotFoundError("trial_run_not_found")
-    return _run_response(run)
+    return _run_response(run, _t)
 
 
 @router.post("/trial-runs/{run_id}/cancel", status_code=204)
@@ -461,8 +464,10 @@ def _previewed(section: Any) -> PreviewedRequestResponse:
     return PreviewedRequestResponse(method=section.method, url=section.url, headers=section.headers, body=section.body)
 
 
-def _run_response(run: TrialRun) -> TrialRunResponse:
-    return TrialRunResponse(**run.to_payload())
+def _run_response(run: TrialRun, translate: Translator) -> TrialRunResponse:
+    payload = run.to_payload()
+    payload["error"] = render_failure(run.error, translate)
+    return TrialRunResponse(**payload)
 
 
 def _has_usable_credentials(meta: ProviderMeta, config: Mapping[str, str]) -> bool:
