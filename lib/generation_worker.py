@@ -63,7 +63,7 @@ from lib.reference_video.execution_checkpoint import (
 from lib.reference_video.request_projection import ReferenceProjectionBlockedError
 from lib.script_editor import ScriptEditError
 from lib.task_failure import encode_failure
-from lib.video_backends.base import VideoCapabilityError
+from lib.video_backends.base import ArtifactDownloadError, VideoCapabilityError
 
 # Default provider used when a task payload does not specify one.
 DEFAULT_PROVIDER = "gemini-aistudio"
@@ -112,7 +112,8 @@ def _encode_task_failure_message(exc: Exception) -> str:
         return _try_encode_failure(exc.key, exc.params) or str(exc)
     if isinstance(
         exc,
-        ImageCapabilityError
+        ArtifactDownloadError
+        | ImageCapabilityError
         | VideoCapabilityError
         | ReferencePayloadFloorError
         | VideoBucketCapabilityError

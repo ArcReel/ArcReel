@@ -40,7 +40,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     VideoRoute,
-    download_video,
+    download_resumable_video,
     recording_poll,
 )
 
@@ -491,4 +491,4 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
 
     @staticmethod
     async def _download_with_retry(download_url: str, output_path: Path) -> None:
-        await download_video(download_url, output_path, label="Kling")
+        await download_resumable_video(download_url, output_path, label="Kling")

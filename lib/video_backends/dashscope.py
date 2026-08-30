@@ -54,7 +54,7 @@ from lib.video_backends.base import (
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
-    download_video,
+    download_resumable_video,
     poll_with_retry,
     recording_poll,
     should_retry_poll,
@@ -798,4 +798,4 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
 
     @staticmethod
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
-        await download_video(video_url, output_path, label="DashScope")
+        await download_resumable_video(video_url, output_path, label="DashScope")

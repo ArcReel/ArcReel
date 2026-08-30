@@ -11,12 +11,14 @@ import pytest
 
 from lib.providers import PROVIDER_DASHSCOPE
 from lib.video_backends.base import (
+    ArtifactDownloadError,
     ReferenceAudioMode,
     ResumeExpiredError,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
+from tests.http_capture import capture_http
 
 
 def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
@@ -94,7 +96,7 @@ def _client(*, post=None, get=None) -> _RecordingClient:
 def _patches(client: _RecordingClient, download: AsyncMock):
     return (
         patch("httpx.AsyncClient", return_value=client),
-        patch("lib.video_backends.dashscope.download_video", download),
+        patch("lib.video_backends.dashscope.download_resumable_video", download),
         bounded_poll_clock(),
     )
 
@@ -522,6 +524,43 @@ class TestPollingAndFailures:
 
 
 class TestResume:
+    async def test_download_failure_can_resume_without_resubmit(self, tmp_path: Path):
+        download_ready = False
+
+        def download_response(_request: httpx.Request) -> httpx.Response:
+            if download_ready:
+                return httpx.Response(200, content=b"resumed")
+            return httpx.Response(503, text="cdn unavailable")
+
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids() as persisted:
+            submit = router.post(
+                "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
+            ).mock(return_value=httpx.Response(200, json=_submit("task-download")))
+            router.get("https://dashscope.aliyuncs.com/api/v1/tasks/task-download").mock(
+                return_value=httpx.Response(200, json=_succeeded(url="https://x/r.mp4"))
+            )
+            router.get("https://x/r.mp4").mock(side_effect=download_response)
+            request = VideoGenerationRequest(
+                prompt="p",
+                output_path=tmp_path / "o.mp4",
+                resolution="720p",
+                task_id="worker-task",
+                poll_timeout_seconds=1800,
+            )
+            from lib.video_backends.dashscope import DashScopeVideoBackend
+
+            backend = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
+            with pytest.raises(ArtifactDownloadError) as caught:
+                await backend.generate(request)
+
+            assert caught.value.code == "artifact_download_failed"
+            download_ready = True
+            result = await backend.resume_video(persisted[0]["job_id"], request)
+
+            assert submit.call_count == 1
+
+        assert result.video_path.read_bytes() == b"resumed"
+
     async def test_resume_polls_without_post(self, tmp_path: Path):
         post = AsyncMock(side_effect=AssertionError("resume 不应 POST"))
         get = AsyncMock(return_value=_resp(_succeeded(url="https://x/r.mp4")))

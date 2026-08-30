@@ -42,7 +42,7 @@ from lib.task_failure import (
     encode_failure,
     render_failure,
 )
-from lib.video_backends.base import VideoCapabilityError
+from lib.video_backends.base import ArtifactDownloadError, VideoCapabilityError
 
 # AST 守卫扫的是真实源码树、渲染断言用的是真实 i18n 目录，不 mock 任何被测入口。
 
@@ -385,6 +385,16 @@ def test_stored_reason_renders_per_locale():
         # 的话，zh/en/vi 模板或 locale 映射被互换仍会通过。
         expected = MESSAGES[locale]["video_duration_not_supported"].format(duration=7, supported="5, 10")
         assert render_failure(stored, _translator(locale)) == expected
+
+
+def test_artifact_download_failure_is_eligible_for_retry_download():
+    stored = _encode_task_failure_message(ArtifactDownloadError(detail="cdn unavailable"))
+
+    assert stored == '[artifact_download_failed] {"detail": "cdn unavailable"}'
+    for locale in ("zh", "en", "vi"):
+        assert render_failure(stored, _translator(locale)) == MESSAGES[locale][
+            "task_fail_artifact_download_failed"
+        ].format(detail="cdn unavailable")
 
 
 def test_encode_covers_every_capability_exception_type():
