@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from lib.custom_provider.endpoint_definition import extract_value, map_status
+import pytest
+
+from lib.custom_provider.endpoint_definition import JsonPathEvaluationError, extract_value, map_status
 from lib.video_backends.base import ProviderJobStatus
 
 COMFYUI_STATUS = {"paths": ["$.code"], "accept": "scalar"}
@@ -66,6 +68,13 @@ def test_all_paths_missing_yields_none():
     assert extract_value(["$.a", "$.b.c"], {"other": "x"}) is None
     assert extract_value({"paths": ["$.a"], "accept": "scalar"}, {"other": "x"}) is None
     assert extract_value([{"path": "$.blob", "json_decode": True, "then": ["$.url"]}], {"blob": "{}"}) is None
+
+
+def test_jsonpath_evaluation_errors_are_normalized():
+    with pytest.raises(JsonPathEvaluationError) as caught:
+        extract_value(["$[?@.a == 1e400]"], {"a": 1})
+
+    assert isinstance(caught.value.__cause__, OverflowError)
 
 
 def test_unknown_and_expired_statuses_do_not_escape_declarative_four_tiers():

@@ -14,7 +14,7 @@ from .errors import (
     message_key,
 )
 from .jsonpath_subset import JsonPathSubsetError, ParsedJsonPath, parse_json_path
-from .response_extractor import extract_value, map_status, normalize_extract_spec
+from .response_extractor import JsonPathEvaluationError, extract_value, map_status, normalize_extract_spec
 from .template_engine import (
     AssetData,
     RenderedRequest,
@@ -48,6 +48,7 @@ __all__ = [
     "DefinitionIssue",
     "AssetData",
     "JsonPathSubsetError",
+    "JsonPathEvaluationError",
     "ParsedJsonPath",
     "RenderedRequest",
     "SchemaVersionLevel",

@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from jsonpath_rfc9535 import find
+from jsonpath_rfc9535 import JSONPathError, find
 
 from lib.video_backends.base import ProviderJobStatus, normalize_provider_status
 
@@ -20,6 +20,13 @@ _DECLARATIVE_STATUSES = frozenset(
         ProviderJobStatus.FAILED,
     }
 )
+
+
+class JsonPathEvaluationError(ValueError):
+    """运行时 JSONPath 实现无法对已通过子集闸门的路径求值。"""
+
+    def __init__(self, path: str, cause: Exception) -> None:
+        super().__init__(f"JSONPath 求值失败：{path}: {cause}")
 
 
 def extract_value(spec: object, response_body: object) -> object | None:
@@ -77,9 +84,12 @@ def normalize_extract_spec(spec: object) -> tuple[Sequence[object], str]:
 
 def _first_acceptable(path: str, target: Any, accept: str) -> object | None:
     parse_json_path(path)
-    for node in find(path, target):
-        if _acceptable(node.value, accept):
-            return node.value
+    try:
+        for node in find(path, target):
+            if _acceptable(node.value, accept):
+                return node.value
+    except (ArithmeticError, JSONPathError) as exc:
+        raise JsonPathEvaluationError(path, exc) from exc
     return None
 
 
