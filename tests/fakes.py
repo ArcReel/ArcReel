@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import threading
 from collections.abc import AsyncIterator, Callable, Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -689,3 +690,67 @@ def captured_backend_construction() -> Generator[list[dict[str, Any]]]:
         for media, table in factories.items():
             table.clear()
             table.update(saved[media])
+
+
+class BlockingFileReadGate:
+    """把某个路径的同步读挡在闸门后，观测 async 生产路径是否把该读卸载到线程。
+
+    读若仍在事件循环线程上跑，循环就停在闸门里，测试协程推进不到 ``release()``，闸门
+    等放行超时后记下 ``event_loop_blocked`` 并照常读完（不抛异常，理由见 ``enter_read``）；
+    读卸载到线程后循环照常推进，放行即读完。裁决由 ``assert_read_was_offloaded()`` 给出，
+    断言的是循环的可推进性，不看调用记录。
+    """
+
+    TIMEOUT_SECONDS = 5.0
+
+    def __init__(self, path: Path, method: str) -> None:
+        self.path = path
+        self.method = method
+        self.event_loop_blocked = False
+        self._started = threading.Event()
+        self._release = threading.Event()
+
+    def enter_read(self) -> None:
+        """在闸门内被调用：登记读已开始，等待测试放行。
+
+        放行等不到只记 ``event_loop_blocked`` 后照常读完，不抛异常——被测路径多带重试
+        装饰器，抛出来会被重试吞掉、第二次穿过已放行的闸门，把红测变绿。
+        """
+        self._started.set()
+        if not self._release.wait(self.TIMEOUT_SECONDS):
+            self.event_loop_blocked = True
+
+    async def wait_until_read_started(self) -> None:
+        """等到闸门内的读开始。读没卸载时事件循环被堵住，本 await 无法返回。"""
+        started = await asyncio.to_thread(self._started.wait, self.TIMEOUT_SECONDS)
+        assert started, f"{self.path.name} 的 {self.method} 未在 {self.TIMEOUT_SECONDS} 秒内开始"
+
+    def release(self) -> None:
+        self._release.set()
+
+    def assert_read_was_offloaded(self) -> None:
+        assert not self.event_loop_blocked, f"{self.path.name} 的 {self.method} 卡在事件循环线程上：该读未卸载到线程"
+
+
+@contextmanager
+def blocking_file_read_gate(
+    monkeypatch: Any,
+    path: Path,
+    *,
+    method: str = "read_bytes",
+) -> Generator[BlockingFileReadGate]:
+    """在文件系统边界上给 *path* 的 ``Path.<method>`` 读装一道闸门。"""
+    gate = BlockingFileReadGate(path, method)
+    original = getattr(Path, method)
+    target = path.resolve()
+
+    def gated(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self.resolve() == target:
+            gate.enter_read()
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, method, gated)
+    try:
+        yield gate
+    finally:
+        gate.release()

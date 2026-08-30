@@ -1,5 +1,6 @@
 """ArkVideoBackend 单元测试 — mock Ark SDK。"""
 
+import asyncio
 import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,7 +17,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
 )
 from lib.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
-from tests.fakes import bounded_poll_clock, captured_ark_clients
+from tests.fakes import blocking_file_read_gate, bounded_poll_clock, captured_ark_clients
 
 
 @pytest.fixture
@@ -129,6 +130,44 @@ class TestArkGenerate:
         assert content_arg[1]["type"] == "image_url"
         assert content_arg[1]["image_url"]["url"].startswith("data:image/")
         assert content_arg[1]["role"] == "first_frame"
+
+    async def test_start_image_encoding_keeps_event_loop_running(self, ark_backend, tmp_path, monkeypatch):
+        """首帧 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""
+        output = tmp_path / "out.mp4"
+        frame = tmp_path / "scene_E1S01.png"
+        frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        create_result = MagicMock()
+        create_result.id = "cgt-i2v-gate"
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+
+        get_result = MagicMock()
+        get_result.status = "succeeded"
+        get_result.content = MagicMock()
+        get_result.content.video_url = "https://cdn.example.com/video-gate.mp4"
+        get_result.usage = MagicMock()
+        get_result.usage.completion_tokens = 1
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+
+        patcher = _mock_httpx_stream()
+        try:
+            request = VideoGenerationRequest(
+                prompt="girl opens eyes",
+                output_path=output,
+                start_image=frame,
+            )
+            with blocking_file_read_gate(monkeypatch, frame) as gate:
+                task = asyncio.create_task(ark_backend.generate(request))
+                await gate.wait_until_read_started()
+                gate.release()
+                result = await task
+                gate.assert_read_was_offloaded()
+        finally:
+            patcher.stop()
+
+        assert result.provider == "ark"
+        content_arg = ark_backend._client.content_generation.tasks.create.call_args.kwargs["content"]
+        assert content_arg[1]["image_url"]["url"].startswith("data:image/png;base64,")
 
     async def test_first_last_frame_role_fields(self, ark_backend, tmp_path):
         """首尾帧：start_image/end_image 必须分别带 role=first_frame / role=last_frame，
@@ -730,6 +769,33 @@ class TestArkReferenceAudio:
         # 顺序即 prompt 中「音频N」的编号：第一段必须是请求里的第一段
         assert audio_items[0]["audio_url"]["url"].startswith("data:audio/mp3;base64,")
         assert audio_items[1]["audio_url"]["url"].startswith("data:audio/wav;base64,")
+
+    async def test_reference_audio_encoding_keeps_event_loop_running(self, tmp_path, monkeypatch):
+        """参考音频 base64 编码要读整段音频，必须卸载到线程，否则事件循环被读堵住。"""
+        ark_backend = self._seedance_2_backend()
+        audio = tmp_path / "voice.mp3"
+        audio.write_bytes(b"ID3" + b"\x00" * 100)
+
+        create_result = MagicMock()
+        create_result.id = "cgt-audio-gate"
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+
+        request = VideoGenerationRequest(
+            prompt="两人对话",
+            output_path=tmp_path / "out.mp4",
+            reference_audio_files=[audio],
+        )
+        with blocking_file_read_gate(monkeypatch, audio) as gate:
+            task = asyncio.create_task(ark_backend._create_task(request))
+            await gate.wait_until_read_started()
+            gate.release()
+            task_id = await task
+            gate.assert_read_was_offloaded()
+
+        assert task_id == "cgt-audio-gate"
+        content = ark_backend._client.content_generation.tasks.create.call_args.kwargs["content"]
+        audio_items = [c for c in content if c["type"] == "audio_url"]
+        assert audio_items[0]["audio_url"]["url"].startswith("data:audio/mp3;base64,")
 
     async def test_no_audio_entries_when_request_has_none(self, tmp_path):
         ark_backend = self._seedance_2_backend()

@@ -312,7 +312,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         if request.start_image:
             from lib.image_backends.base import image_to_base64_data_uri
 
-            data_uri = image_to_base64_data_uri(request.start_image)
+            data_uri = await asyncio.to_thread(image_to_base64_data_uri, request.start_image)
             content.append(
                 {
                     "type": "image_url",
@@ -331,7 +331,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 raise VideoCapabilityError(
                     "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
                 )
-            data_uri = image_to_base64_data_uri(request.end_image)
+            data_uri = await asyncio.to_thread(image_to_base64_data_uri, request.end_image)
             content.append(
                 {
                     "type": "image_url",
@@ -351,32 +351,42 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                     model=self._model,
                     names=", ".join(p.name or str(p) for p in missing),
                 )
-            for ref_path in request.reference_images:
-                data_uri = image_to_base64_data_uri(Path(ref_path))
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": data_uri},
-                        "role": "reference_image",
-                    }
-                )
+            ref_data_uris = await asyncio.gather(
+                *[asyncio.to_thread(image_to_base64_data_uri, Path(ref_path)) for ref_path in request.reference_images]
+            )
+            content.extend(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_uri},
+                    "role": "reference_image",
+                }
+                for data_uri in ref_data_uris
+            )
 
         if request.reference_audio_files:
             # 音频条目与图片条目同列 content 数组，各自按类型独立编号：prompt 里的「音频N」
             # 指的是第 N 个 type="audio_url" 条目（官方《快速入门》提示词规则）。故这里必须
             # 保持 reference_audio_files 的原始顺序、不跳过任何一段——跳过会让编排层拼好的
-            # 指认文本整体错位，把 A 角色的音色安到 B 角色头上。
+            # 指认文本整体错位，把 A 角色的音色安到 B 角色头上。gather 按入参顺序返回，
+            # 并发不影响该编号。读整段音频做 base64 编码是阻塞 I/O，逐段卸载到线程。
+            audio_data_uris = await asyncio.gather(
+                *[
+                    asyncio.to_thread(
+                        reference_audio_to_data_uri,
+                        Path(audio_path),
+                        model=self._model,
+                        mime_types=_REFERENCE_AUDIO_MIME_TYPES,
+                    )
+                    for audio_path in request.reference_audio_files
+                ]
+            )
             content.extend(
                 {
                     "type": "audio_url",
-                    "audio_url": {
-                        "url": reference_audio_to_data_uri(
-                            Path(audio_path), model=self._model, mime_types=_REFERENCE_AUDIO_MIME_TYPES
-                        )
-                    },
+                    "audio_url": {"url": data_uri},
                     "role": "reference_audio",
                 }
-                for audio_path in request.reference_audio_files
+                for data_uri in audio_data_uris
             )
 
         # 2. Build API params

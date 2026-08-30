@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -12,7 +13,7 @@ from openai.types.video_create_error import VideoCreateError
 
 from lib.providers import PROVIDER_OPENAI
 from lib.video_backends.base import VideoGenerationRequest
-from tests.fakes import bounded_poll_clock, captured_openai_clients
+from tests.fakes import blocking_file_read_gate, bounded_poll_clock, captured_openai_clients
 
 
 def _make_mock_video(status="completed", seconds="8", video_id="vid_123"):
@@ -129,6 +130,38 @@ class TestOpenAIVideoBackend:
         assert isinstance(ref, tuple)
         assert ref[0] == "start.png"
         assert isinstance(ref[1], bytes)
+        assert ref[2] == "image/png"
+
+    async def test_start_image_encoding_keeps_event_loop_running(self, tmp_path: Path, monkeypatch):
+        """首帧读字节做 multipart 上传体，必须卸载到线程，否则事件循环被读堵住。"""
+        start_image = tmp_path / "start.png"
+        start_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client, seconds="4")
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            request = VideoGenerationRequest(
+                prompt="Animate this",
+                output_path=tmp_path / "output.mp4",
+                start_image=start_image,
+                duration_seconds=4,
+            )
+            with blocking_file_read_gate(monkeypatch, start_image) as gate:
+                task = asyncio.create_task(backend.generate(request))
+                await gate.wait_until_read_started()
+                gate.release()
+                await task
+                gate.assert_read_was_offloaded()
+
+        ref = mock_client.videos.create.call_args[1]["input_reference"]
+        assert ref[0] == "start.png"
         assert ref[2] == "image/png"
 
     async def test_failed_video_raises(self, tmp_path: Path):
