@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Agent 改项目 JSON 数据收归 in-process MCP 工具，裸 Write/Edit/Bash 一律 deny

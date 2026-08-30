@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Cancel running 任务通过 cancelling 中间态收敛 race，单一状态转移路径

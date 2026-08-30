@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # TTS（audio 媒体类型）走 GenerationQueue/Worker，像 image/video；backend 仍同步、不像内联的 text

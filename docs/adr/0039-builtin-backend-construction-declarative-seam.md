@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 内置 provider 的 backend 构造收口为声明式表，与自定义 endpoint 表对称但不合并
@@ -18,4 +18,4 @@ status: proposed
 - **缓存留在调用方**：`_backend_cache` 是 server 执行层的性能关切，不下沉进缝；缝无状态、纯构造，便于并发与测试。
 - **范围边界**：缝只管「造 backend 实例」，不干涉任务执行、队列调度、计费等生命周期——`provider_job_id` 持久化见 `docs/adr/0007`、队列调度见 `docs/adr/0010`、pricing 见 `docs/adr/0009`，均不在本缝。
 - **与未来插件市场正交**：用户分享/安装第三方供应商适配若落地，是自定义侧 `ENDPOINT_REGISTRY` 的后续独立 epic（`docs/adr/0008` 已为 plugin 指路：plugin 只能接 `api_key`+`base_url`，且需自带「内置 provider 风格」声明才能多字段）。本 ADR 收口的是**内置**侧；「两族不合并」的隔离正为该 epic 保留干净的插槽侧，不在本次范围。
-- **本 ADR status=proposed，实现未落地**：`LoadedConfig` / 内置 `ProviderSpec` / `backend_assembly` 等新名字待实现真正落盘后再收入 `CONTEXT.md` 术语表（项目惯例：术语表只记录概念此刻是什么）。任何后续 PR 想合并两表、引入统一 `BackendRequest`、或把内置构造退回命令式散落分支，须先 deprecate 本 ADR。
+- **变更闸门**：任何后续 PR 想合并两表、引入统一 `BackendRequest`、或把内置构造退回命令式散落分支，须先 deprecate 本 ADR。

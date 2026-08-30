@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 重启后孤儿任务一律不重新触发生成，提交-轮询型按 job_id 恢复轮询

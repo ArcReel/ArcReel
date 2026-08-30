@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 自定义供应商凭证模型固定为 `api_key` + `base_url`，多字段凭证协议只能走内置供应商

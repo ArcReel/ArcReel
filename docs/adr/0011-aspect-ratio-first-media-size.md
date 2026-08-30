@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 媒体尺寸：比例由 aspect_ratio 唯一决定、永远优先；分辨率仅决定清晰度

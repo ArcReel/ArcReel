@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 自定义调用端点采用声明式定义，统一「JSON in/out + 提交/轮询」流派

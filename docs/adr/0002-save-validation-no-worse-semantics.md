@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 剧本保存校验采用「不更坏」语义，资产回写热路径豁免
