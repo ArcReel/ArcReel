@@ -94,6 +94,7 @@ export function MediaModelSection() {
 
   const { providerNames: allProviderNames, modelNames: allModelNames } = useDisplayNames(
     providers,
+    customProviders,
     options,
     candidates,
   );

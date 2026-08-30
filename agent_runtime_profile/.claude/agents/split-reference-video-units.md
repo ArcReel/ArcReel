@@ -26,7 +26,8 @@ description: "参考生视频单集视频单元拆分子智能体（generation_m
 
 正文是一段自由文本（可多行），一个视频单元一次生成调用。记号只有三种，可出现在正文任意位置：`@[名称]` 引用资产、`@[角色名]{台词}` 表示该角色说话、`{台词}` 表示画外音。花括号只用于台词与画外音。不要写 `镜头N：` 之类的分段前缀——它没有语法含义，会被逐字带进生成提示词。
 
-场景引用规则详见 `.claude/references/reference-video-scene-rules.md`。
+手动改单元正文前先 Read `.claude/references/reference-video-scene-rules.md`：那是场景引用规则的正文，本文件不复述。
+首次拆分无须自己读——服务端把同一份文本随完整语法规范注入拆分工具的 prompt。
 
 > 完整语法规范由服务端在两级 prompt 中注入：其余各段由 `lib/reference_video/writing_syntax.py` 提供，场景引用段读的就是上面那份 references 文件。本文件只留概览，不复制全文。
 

@@ -176,6 +176,7 @@ export function ProjectSettingsPage() {
 
   const { providerNames: allProviderNames, modelNames: allModelNames } = useDisplayNames(
     providers,
+    customProviders,
     options,
     candidates,
   );
