@@ -686,7 +686,9 @@ async def test_business_file_readers_reject_non_string_paths(tmp_path: Path, pat
     project_file = await read_project_file(ToolRequest(path), scope, caller, services)
 
     assert source_text.problem is not None
+    assert source_text.problem.code == "unsafe_path"
     assert project_file.problem is not None
+    assert project_file.problem.code == "unsafe_path"
 
 
 @pytest.mark.parametrize("entry_ids", [(1,), (["E1U01"],), ({"id": "E1U01"},)])
