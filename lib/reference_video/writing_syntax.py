@@ -1,31 +1,26 @@
 """参考生视频「引用语法」规范——唯一真相源。
 
 LLM 在 script_plan / prompt_authoring 产出的 unit 正文与人在编辑器里写的是同一种格式，因此语法规范
-只能有一份措辞：本模块的 :data:`WRITING_SYNTAX_SPEC` 由两级 prompt builder
+只能有一份措辞：:func:`writing_syntax_spec` 由两级 prompt builder
 （``build_reference_units_split_prompt`` / ``build_reference_video_prompt``）共同注入，
 agent 侧文档只留概览并指向工具，前端语法提示另走 i18n 三语，均不复制全文。
 
 放在 ``lib/reference_video/`` 与 :mod:`lib.reference_video.text_parser` 同域：规范措辞与
 执行它的解析器同进同退，改语法时两者在同一目录里对照修改。
+
+其中的场景引用规则同时要进 ``split-reference-video-units`` 子智能体，故正文存放在
+``agent_runtime_profile/.claude/references/reference-video-scene-rules.md``，由
+:func:`scene_reference_rules` 读入拼进本规范；子智能体直接读同一个文件。
 """
 
 from __future__ import annotations
 
-#: 场景引用规则。单列而非直接内联进 :data:`WRITING_SYNTAX_SPEC`：
-#: ``split-reference-video-units.md`` 的概览段逐字复制本段，
-#: ``tests/unit/lib/prompt_rules/test_subagent_md_sync.py`` 据此锚定两者不漂移。
-SCENE_REFERENCE_RULES = """场景引用（逐个视频单元判定，不是整份产出判一次）：
+from lib.agent_profile import read_profile_reference
 
-- 每个视频单元的画面描述必须 `@` 引用该单元发生地的场景资产：没有引用时画面地点由模型自由决定，
-  室内外交替的相邻单元会各自发挥、对不上。
-- 相邻单元地点变化时，改引用新地点的场景资产。
-- 同一地点的连续单元**逐条重复引用**同一个场景资产，不能只在第一个单元写一次。
-- 只有候选表里没有匹配该地点的场景资产时，才改用文字描述地点；这种情况下同一地点的各单元
-  保持同一句地点描述。"""
+#: 场景引用规则文件在 ``.claude/references/`` 下的文件名。
+SCENE_REFERENCE_RULES_FILE = "reference-video-scene-rules.md"
 
-
-WRITING_SYNTAX_SPEC = (
-    """每个视频单元的正文是一段**自由书写的文本**，按行书写即可。
+_SYNTAX_HEAD = """每个视频单元的正文是一段**自由书写的文本**，按行书写即可。
 不要写 `镜头1：` 之类的分段前缀：正文是一段连续描述，前缀没有语法含义，会被逐字带进生成提示词。
 
 记号只有三种，与输出语言无关，可出现在正文任意位置：
@@ -55,8 +50,8 @@ WRITING_SYNTAX_SPEC = (
   泛指群演（老人甲 / 村民若干）直接写进描述即可，不用 `@` 引用。
 
 """
-    + SCENE_REFERENCE_RULES
-    + """
+
+_SYNTAX_TAIL = """
 
 示例（一个视频单元的正文）：
 
@@ -65,6 +60,14 @@ WRITING_SYNTAX_SPEC = (
 他走向柜台，把 @[长剑] 横放在台面上，指节在剑鞘上叩了两下。
 {他知道，今晚不会太平。}
 ```"""
-)
 
-__all__ = ["SCENE_REFERENCE_RULES", "WRITING_SYNTAX_SPEC"]
+
+def scene_reference_rules() -> str:
+    return read_profile_reference(SCENE_REFERENCE_RULES_FILE)
+
+
+def writing_syntax_spec() -> str:
+    return _SYNTAX_HEAD + scene_reference_rules() + _SYNTAX_TAIL
+
+
+__all__ = ["SCENE_REFERENCE_RULES_FILE", "scene_reference_rules", "writing_syntax_spec"]

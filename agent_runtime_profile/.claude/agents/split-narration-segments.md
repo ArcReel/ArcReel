@@ -24,11 +24,7 @@ description: "旁白/解说单集分镜拆分子智能体（content_mode=narrati
 
 ## 旁白/解说节奏建议
 
-旁白/解说节奏建议：
-- 首段画面（朗读前 ~4 秒）服务于钩子：用强冲击 / 悬念 / 危机匹配钩子台词，
-  避免平铺式开场。
-- 末段画面服务于卡点留悬（特写人物 / 关键物件 / 极端表情），
-  shot_type 倾向 Close-up / Extreme Close-up。
+节奏建议详见 `.claude/references/episode-pacing-narration.md`；服务端生成 prompt 时注入的是同一份文本。
 
 ## 工作流程
 

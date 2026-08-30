@@ -40,6 +40,8 @@ from lib.db.base import Base
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 @pytest.fixture(autouse=True)
 def _reset_app_data_dir_cache():
@@ -77,6 +79,12 @@ def _profile_env(tmp_path_factory):
     """
     profile_dir = tmp_path_factory.mktemp("agent-runtime-profile")
     (profile_dir / "CLAUDE.md").write_text("", encoding="utf-8")
+    # ``.claude/references/`` 下的规则正文由 prompt builder 在运行时读入，桩 profile 须原样带上，
+    # 否则任何构建 prompt 的测试都会撞 FileNotFoundError。
+    references = profile_dir / ".claude" / "references"
+    references.mkdir(parents=True, exist_ok=True)
+    for rule_file in (REPO_ROOT / "agent_runtime_profile" / ".claude" / "references").glob("*.md"):
+        (references / rule_file.name).write_text(rule_file.read_text(encoding="utf-8"), encoding="utf-8")
 
     previous = os.environ.get("ARCREEL_PROFILE_DIR")
     os.environ["ARCREEL_PROFILE_DIR"] = str(profile_dir)

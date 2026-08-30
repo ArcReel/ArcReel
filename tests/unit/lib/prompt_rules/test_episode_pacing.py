@@ -1,20 +1,23 @@
-"""``render_pacing_section`` 只按 content_mode 交回对应常量，断言对照常量本身，不抄文案措辞。"""
+"""``render_pacing_section`` 按 content_mode 交回 ``.claude/references/`` 下对应的规则文件，测试不抄文案措辞。"""
+
+from pathlib import Path
 
 import pytest
 
-from lib.prompt_rules.episode_pacing import (
-    DRAMA_PACING_RULES,
-    NARRATION_PACING_RULES,
-    render_pacing_section,
-)
+from lib.prompt_rules.episode_pacing import PACING_RULE_FILES, render_pacing_section
 
 
-def test_drama_mode_renders_the_drama_constant() -> None:
-    assert render_pacing_section("drama") == DRAMA_PACING_RULES
+@pytest.mark.parametrize("content_mode", sorted(PACING_RULE_FILES))
+def test_rules_come_from_the_profile_directory_at_call_time(
+    content_mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """规则正文住在 agent profile 里，换 profile 目录即换文本——不在导入时定死。"""
+    references = tmp_path / ".claude" / "references"
+    references.mkdir(parents=True)
+    (references / PACING_RULE_FILES[content_mode]).write_text("替身节奏规则", encoding="utf-8")
+    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path))
 
-
-def test_narration_mode_renders_the_narration_constant() -> None:
-    assert render_pacing_section("narration") == NARRATION_PACING_RULES
+    assert render_pacing_section(content_mode) == "替身节奏规则"
 
 
 def test_unknown_mode_raises() -> None:

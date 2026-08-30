@@ -21,7 +21,7 @@ from lib.prompt_builders_script import (
     _format_duration_constraint,
     _format_names,
 )
-from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
+from lib.reference_video.writing_syntax import writing_syntax_spec
 from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
@@ -409,7 +409,7 @@ unit_id、references、generated_assets、needs_replan 均由系统派生，不�
 
 # 统一引用语法
 
-{WRITING_SYNTAX_SPEC}
+{writing_syntax_spec()}
 
 商品、角色、场景、道具都使用同一个 `@[名称]` 语法。名称只可逐字取自候选表，不要发明资产。
 """

@@ -7,14 +7,14 @@
 - 跨 backend 时长 / references 上限通过参数显式注入，不在文本里硬编码秒数。
 
 两级 prompt 注入的引用语法规范取自同一份常量
-（``lib.reference_video.writing_syntax.WRITING_SYNTAX_SPEC``）：LLM 产出与人在编辑器写的
+（``lib.reference_video.writing_syntax.writing_syntax_spec``）：LLM 产出与人在编辑器写的
 是同一种格式，语法只能有一份措辞，本模块不复写。
 """
 
 from __future__ import annotations
 
 from lib.prompt_rules.episode_target_duration import render_episode_target_duration_rule
-from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
+from lib.reference_video.writing_syntax import writing_syntax_spec
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
 
@@ -244,7 +244,7 @@ def build_reference_units_split_prompt(
 
 # 正文书写语法
 
-{WRITING_SYNTAX_SPEC}
+{writing_syntax_spec()}
 
 # 本阶段的正文写作指引
 
@@ -359,7 +359,7 @@ def build_reference_video_prompt(
 
 # 正文书写语法
 
-{WRITING_SYNTAX_SPEC}
+{writing_syntax_spec()}
 
 # 提示词编写写作指引
 

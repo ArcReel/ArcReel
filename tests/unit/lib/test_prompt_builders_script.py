@@ -10,7 +10,7 @@ from lib.prompt_builders_script import (
     build_overview_prompt,
     render_drama_content_for_prompt_authoring,
 )
-from lib.prompt_rules.episode_pacing import DRAMA_PACING_RULES, NARRATION_PACING_RULES
+from lib.prompt_rules.episode_pacing import render_pacing_section
 from lib.speech_rate import speech_rate_units_per_second
 
 
@@ -292,8 +292,8 @@ class TestScreenplaySourceKind:
         assert "她推开门" not in self._normalize_prompt("novel")
 
     def test_normalize_injects_pacing(self):
-        # script_plan（normalize）与 prompt_authoring 一样无条件注入节奏建议，二者共享同一份 DRAMA_PACING_RULES
-        assert self._squash(DRAMA_PACING_RULES) in self._squash(self._normalize_prompt("novel"))
+        # script_plan（normalize）与 prompt_authoring 一样无条件注入节奏建议，二者共享同一份 render_pacing_section("drama")
+        assert self._squash(render_pacing_section("drama")) in self._squash(self._normalize_prompt("novel"))
 
 
 class TestOverviewPrompt:
@@ -459,10 +459,10 @@ class TestPromptAuthoringPromptGuards:
         )
 
     def test_drama_prompt_injects_pacing(self):
-        assert self._squash(DRAMA_PACING_RULES) in self._squash(self._drama_prompt())
+        assert self._squash(render_pacing_section("drama")) in self._squash(self._drama_prompt())
 
     def test_narration_prompt_injects_pacing(self):
-        assert self._squash(NARRATION_PACING_RULES) in self._squash(self._narration_prompt())
+        assert self._squash(render_pacing_section("narration")) in self._squash(self._narration_prompt())
 
     def test_drama_no_enum_dump_in_prompt(self):
         """schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。"""
@@ -579,7 +579,7 @@ class TestBuildNarrationSplitPrompt:
 
     def test_mirrors_narration_pacing_rules(self):
         text = self._prompt()
-        assert NARRATION_PACING_RULES[:40] in text
+        assert render_pacing_section("narration")[:40] in text
 
     def test_drifted_default_treated_as_null_not_raised(self):
         """default 漂移到 supported_durations 之外时按 null 处理、不 fail-loud（软偏好口径）。"""
