@@ -386,9 +386,9 @@ describe("ProjectSettingsPage – style picker", () => {
     renderAt("/app/projects/demo/settings");
 
     // 字段缺省即默认档：提示词软约束选中，参考音频未选中
-    const promptOption = await screen.findByRole("radio", { name: /按声音描述|By voice description/ });
+    const promptOption = await screen.findByRole("radio", { name: /^提示词约束$|^Prompt constraint$/ });
     expect(promptOption).toBeChecked();
-    const audioOption = screen.getByRole("radio", { name: /按参考音频|By reference audio/ });
+    const audioOption = screen.getByRole("radio", { name: /^参考音频$|^Reference audio$/ });
     fireEvent.click(audioOption);
 
     fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
@@ -420,7 +420,7 @@ describe("ProjectSettingsPage – style picker", () => {
     renderAt("/app/projects/demo/settings");
 
     const toggle = await screen.findByRole("switch", { name: /多宫格分镜/ });
-    expect(screen.queryByRole("radio", { name: /按声音描述|By voice description/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /^提示词约束$|^Prompt constraint$/ })).not.toBeInTheDocument();
     fireEvent.click(toggle);
 
     fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
