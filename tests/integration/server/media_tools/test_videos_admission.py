@@ -15,24 +15,24 @@ from server.media_tools.context import ToolContext
 from server.services.narration_delivery_tasks import ResolvedTtsSettingsResolver, active_tts_resource_ids
 from server.tool_runtime import CallerContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
-    _call,
-    _generation_result,
-    _reference_video_script,
-    _use_reference_route,
-    _videos_tool_for_scope,
+    call,
+    read_generation_result,
+    reference_video_script,
+    use_reference_route,
+    videos_tool_for_scope,
 )
 
 
 def _episode_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "episode")
+    return videos_tool_for_scope(ctx, "episode")
 
 
 def _all_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "all")
+    return videos_tool_for_scope(ctx, "all")
 
 
 def _selected_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "selected")
+    return videos_tool_for_scope(ctx, "selected")
 
 
 async def test_generate_videos_episode_scope_reports_an_interrupted_batch_enqueue_per_id(
@@ -78,7 +78,7 @@ async def test_generate_videos_episode_scope_reports_an_interrupted_batch_enqueu
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _interrupted)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     payload = out["generation_result"]
     assert payload["succeeded"] == ["E1S01"]
@@ -135,7 +135,7 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
     assert (await fake_ctx.queue.get_task(other_user["task_id"])) is not None
     assert [task["task_id"] for task in caller_active] == [occupied["task_id"]]
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out["is_error"] is True
     other_task = await fake_ctx.queue.get_task(other_user["task_id"])
@@ -144,7 +144,7 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
     assert other_task["user_id"] == "default"
     assert occupied_task is not None
     assert occupied_task["user_id"] == "tenant-user"
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert sorted(result.blocked) == ["E1S01", "E1S02"]
     codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
     assert codes["E1S02"] == "generation_active_task_conflict"
@@ -159,12 +159,12 @@ async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue
     fake_ctx.tts_settings_resolver = ResolvedTtsSettingsResolver(
         TtsSynthesisSettings(provider_id="dashscope", model_id="qwen3-tts-flash", voice="Cherry", speed=None)
     )
-    _use_reference_route(fake_ctx)
+    use_reference_route(fake_ctx)
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),
         encoding="utf-8",
     )
-    script = _reference_video_script()
+    script = reference_video_script()
     script["video_units"][0]["text"] = "海面。\n{风从远方吹来。}"
     script["video_units"].append(
         {
@@ -209,7 +209,7 @@ async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue
         queue=fake_ctx.queue,
     ) == frozenset({"E1U1"})
 
-    out = await _call(
+    out = await call(
         _episode_scope(fake_ctx),
         {"script": "episode_1.json", "narration_delivery": "use_tts"},
     )
@@ -221,7 +221,7 @@ async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue
     assert other_task["user_id"] == "default"
     assert caller_task is not None
     assert caller_task["user_id"] == "tenant-user"
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert sorted(result.blocked) == ["E1U1", "E1U2"]
     problems = {item.unit_id: item.problem for item in result.items if item.problem is not None}
     assert problems["E1U1"].code == "tts_missing"
@@ -277,7 +277,7 @@ async def test_generate_videos_all_scope_creates_zero_tasks_when_one_artifact_st
     monkeypatch.setattr(mod, "select_generation_targets", _one_unavailable)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(_all_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_all_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("batch_admission") is not None, out
     assert out["batch_admission"]["decision"] == "blocked"
@@ -330,10 +330,10 @@ async def test_generate_videos_all_scope_admits_legacy_narration_stored_under_sc
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
-    out = await _call(_all_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_all_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert list(result.succeeded) == ["E1S01"]
 
 
@@ -362,7 +362,7 @@ async def test_generate_videos_all_scope_reports_an_all_unreadable_selection_as_
     monkeypatch.setattr(mod, "select_generation_targets", _all_unavailable)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(_all_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_all_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("batch_admission") is not None, out
     assert out["batch_admission"]["decision"] == "blocked"
@@ -379,15 +379,15 @@ async def test_generate_reference_episode_refuses_a_non_scalar_unit_id(
     """整集参考生成遇到非标量 unit_id：它按位置记名拒收，健康的兄弟条目不会独自入队计费。"""
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    script = _reference_video_script()
+    use_reference_route(fake_ctx)
+    script = reference_video_script()
     healthy = script["video_units"][0]
     script["video_units"] = [{**healthy, "unit_id": ["U9"]}, healthy]
     fake_ctx.pm.script_payload = script
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     enqueue.assert_not_awaited()
     codes = {
@@ -403,15 +403,15 @@ async def test_generate_reference_units_refuses_a_duplicated_named_unit(
     """点名的 unit 在剧本里有两份：无从判定要做哪一条，整批停在建任务之前。"""
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    script = _reference_video_script()
+    use_reference_route(fake_ctx)
+    script = reference_video_script()
     script["video_units"] = [*script["video_units"], {**script["video_units"][0]}]
     fake_ctx.pm.script_payload = script
     duplicated_id = script["video_units"][0]["unit_id"]
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(
+    out = await call(
         _selected_scope(fake_ctx),
         {"script": "episode_1.json", "scene_ids": [duplicated_id]},
     )

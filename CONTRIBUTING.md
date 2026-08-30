@@ -101,6 +101,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 - **优先级**：真实对象（内存 SQLite、`tmp_path`）＞ `tests/fakes.py` 手写替身（收录边界见其模块 docstring）＞ 带 `spec`/`autospec` 的 Mock ＞ 裸 `MagicMock`/`AsyncMock`。Mock 只替换仓库边界（第三方 SDK、网络传输、子进程、文件系统、时钟）；仓库内协作者用真实对象或手写 fake。
 - **禁止 patch 生产代码私有符号**（闸门，无豁免）：`patch("lib.x._y")`、`monkeypatch.setattr(mod, "_y")`、`patch.object(Cls, "_y")` 三种形式一律禁止。需要控制内部行为时走 seam。
 - **seam 即显式参数注入**：构造参数或关键字参数，带生产默认值，不改变生产行为，如 `retry_async(operation, *, clock=..., jitter=...)`；不引入模块级可替换全局。适用范围：轮询时钟/间隔/退避、能力解析器、HTTP 探测客户端、文件系统与子进程。
+- **进程级缓存的重置钩子取公开名**：生产模块用 `functools.cache` 之类的进程级缓存时，为测试暴露的重置入口写成公开的 `reset_*_for_tests()`（如 `lib.app_data_dir.reset_for_tests`），不写下划线私有名——测试 import 私有符号既撞上上一条禁令，也会被 basedpyright 的 `reportUnusedFunction` 判成死代码。钩子只清缓存、不改生产行为。它是过渡形态，新代码优先按上一条做参数注入。
 - **出站 HTTP 断言用 respx**：保留真实 httpx 客户端，在 transport 层拦截（`AsyncOpenAI` 流量同样被捕获），断言真实序列化后的请求。
 - **patch 收编**（闸门）：同一 patch 目标字符串出现在 ≥3 个测试文件时收编为共享 fixture / helper，各文件不再各自定义；FastAPI 路由依赖优先 `app.dependency_overrides` 而非 patch。
 
@@ -151,7 +152,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 ## 代码质量
 
-工具报出的问题一律改代码，不加 baseline 或计数阈值。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`（典型场景是第三方 untyped 库），zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），actionlint 见下方「Workflow 语法与安全」，deptry 见下方「依赖卫生」，knip 写导出上方的 `/** @public 理由 */`，ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
+工具报出的问题一律改代码，不加 baseline 或计数阈值。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`（典型场景是第三方 untyped 库；同一注册块内成批重复的同一条误报例外，理由写在块开头一条注释里，见下方「类型检查」节的 `reportUnusedFunction`），zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），actionlint 见下方「Workflow 语法与安全」，deptry 见下方「依赖卫生」，knip 写导出上方的 `/** @public 理由 */`，ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
 
 **Lint & Format（ruff）：**
 
@@ -171,7 +172,9 @@ uv run basedpyright --warnings
 ```
 
 - standard 模式 + `reportMissingTypeStubs = false`；`--warnings` 让 warning 也返回非 0，CI 与 pre-push hook 均以此执行全量扫描，闸门判据是 error 与 warning 双零
-- 额外开启 `reportUnnecessaryIsInstance` / `reportUnnecessaryComparison` / `reportUnnecessaryTypeIgnoreComment` / `reportUnusedImport` / `reportUnusedVariable` / `reportUnusedClass` / `reportDeprecated`，级别 warning
+- 额外开启 `reportUnnecessaryIsInstance` / `reportUnnecessaryComparison` / `reportUnnecessaryTypeIgnoreComment` / `reportUnusedImport` / `reportUnusedVariable` / `reportUnusedClass` / `reportUnusedFunction` / `reportUnreachable` / `reportDeprecated`，级别 warning
+- `reportUnreachable` 不用忽略注释绕过：穷尽分支后的防御性兜底改 `assert_never(x)`，真正的死分支删除；回调里产出、外层消费的结果用单元素列表当信箱，别写 `x: T | None = None` + `nonlocal`（basedpyright 不跟踪回调里的赋值，会把外层的空值判定当成恒真）
+- `reportUnusedFunction` 把函数作用域内的任何符号一律判为私有，装饰器就地注册的处理器（`@app.exception_handler`、`@router.*`、`@server.tool`、`@event.listens_for`）因此被误报：逐个挂 `# pyright: ignore[reportUnusedFunction]`，并在注册块开头写一条注释说明理由。模块级的 `_` 前缀函数若被别的模块 import，改公开名而不是加豁免；模块级 pytest fixture 同理取公开名（由 pytest 按名收集、无人 import，本规则一律判它未被访问）
 - tests/ 内 `reportOptional*`、`reportArgumentType`、`reportAttributeAccessIssue` 等设为 `none`（不做闸门）：测试的断言式访问与 mock 返回值 narrow 噪声大。scripts/ 与 alembic/ 的 `reportMissingImports` 同理，两处都用 `sys.path` 注入或运行期注入符号，静态不可解析
 - 标注表达期望、判定负责实际：从磁盘 JSON 重建的数据类，其构造期形状校验走 `lib/schema_guards.py`（谓词以 `object` 收参），不要写成对自身标注的同义反复；只校验外层容器类型的访问器把元素标注写成 `Any`，别写成 `dict[str, Any]`
 

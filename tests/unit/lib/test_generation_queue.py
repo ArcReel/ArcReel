@@ -22,10 +22,10 @@ class TestGenerationQueue:
         tmp_path,
         monkeypatch,
     ):
-        from lib.app_data_dir import _reset_for_tests
+        from lib.app_data_dir import reset_for_tests
 
         monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "app-data"))
-        _reset_for_tests()
+        reset_for_tests()
         async with generation_admission_lock(
             project_name="admission-demo",
             script_file="scripts/episode_01.json",

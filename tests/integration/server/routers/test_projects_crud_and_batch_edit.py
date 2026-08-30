@@ -14,15 +14,15 @@ from server.error_handlers import register_error_handlers
 from server.routers import projects
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.integration.server.routers.projects_router_support import (
-    _client,
     _FakePM,
-    _override,
+    build_projects_client,
+    override,
 )
 
 
 class TestProjectsRouter:
     def test_list_and_create_and_delete(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             listed = client.get("/api/v1/projects")
             assert listed.status_code == 200
@@ -87,7 +87,7 @@ class TestProjectsRouter:
             assert delete_ok.status_code == 200
 
     def test_create_persists_source_kind_and_defaults_novel(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             # 显式 screenplay 持久化于 project.json 顶层
             screenplay = client.post(
@@ -126,7 +126,7 @@ class TestProjectsRouter:
 
     def test_source_kind_silently_ignored_on_patch(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
             assert resp.status_code == 200
@@ -135,7 +135,7 @@ class TestProjectsRouter:
 
     def test_project_details_and_updates(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             detail = client.get("/api/v1/projects/ready")
@@ -278,8 +278,8 @@ class TestProjectsRouter:
                     revision=revision,
                 )
 
-        client = _client(monkeypatch, fake_pm)
-        _override(client, projects.get_script_batch_editor_factory, lambda: lambda _manager=None: CapturingEditor())
+        client = build_projects_client(monkeypatch, fake_pm)
+        override(client, projects.get_script_batch_editor_factory, lambda: lambda _manager=None: CapturingEditor())
 
         with client:
             response = client.post(
@@ -295,7 +295,7 @@ class TestProjectsRouter:
         assert observed_sources == ["webui"]
 
     def test_revisioned_batch_endpoint_rejects_invalid_project_name(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
 
         with client:
             response = client.post(

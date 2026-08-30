@@ -7,9 +7,9 @@ from typing import Any
 from server.media_tools.context import ToolContext
 from server.media_tools.storyboards import generate_storyboards_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
-    _activate_unbound_project,
-    _call,
-    _generation_result,
+    activate_unbound_project,
+    call,
+    read_generation_result,
 )
 
 # ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
     }
     fake_ctx.pm.script_payload["segments"][0]["image_prompt"] = semantic_prompt
     tool_obj = generate_storyboards_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
     assert captured[0].payload["prompt"] == semantic_prompt
 
@@ -119,9 +119,9 @@ async def test_generate_storyboards_legacy_project_reverifies_image_file_on_disk
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
-    out = await _call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert enqueued == ["E1S02"]
     assert result.succeeded == ["E1S02"]
     assert [entry.unit_id for entry in result.skipped] == ["E1S01"]
@@ -133,7 +133,7 @@ async def test_generate_storyboards_rejects_unbound_active_script_before_enqueue
 ) -> None:
     from server.media_tools import storyboards as mod
 
-    _activate_unbound_project(fake_ctx)
+    activate_unbound_project(fake_ctx)
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}
     enqueued = False
 
@@ -144,7 +144,7 @@ async def test_generate_storyboards_rejects_unbound_active_script_before_enqueue
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
-    out = await _call(mod.generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await call(mod.generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     assert "not bound" in out["content"][0]["text"]
@@ -177,7 +177,7 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = "corrupt"
     tool_obj = generate_storyboards_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in captured] == ["E1S01"]
 
@@ -190,7 +190,7 @@ async def test_generate_storyboards_rejects_mismatched_unit_script(fake_ctx: Too
         "video_units": [{"unit_id": "E1U1"}],
     }
     tool_obj = generate_storyboards_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
@@ -204,7 +204,7 @@ async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) ->
 
     fake_ctx.pm.load_script = boom
     tool_obj = generate_storyboards_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
 
 
@@ -243,10 +243,10 @@ async def test_generate_storyboards_reports_a_partial_batch_per_id(fake_ctx: Too
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
-    out = await _call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.succeeded == ["E1S01"]
     assert result.failed == ["E1S02"]
     assert set(result.requested) == {"E1S01", "E1S02"}
@@ -263,6 +263,6 @@ async def test_generate_storyboards_reports_a_partial_batch_per_id(fake_ctx: Too
 async def test_generate_storyboards_rejects_path_in_script_arg(fake_ctx: ToolContext) -> None:
     """Agent 传带路径分隔符的 script 名必须被 handler 拒绝（共享 validate_script_filename 防御）。"""
     tool_obj = generate_storyboards_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "../etc/passwd"})
+    out = await call(tool_obj, {"script": "../etc/passwd"})
     assert out.get("is_error") is True
     assert "路径分隔符" in out["content"][0]["text"]

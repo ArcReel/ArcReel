@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, assert_never
 
 from lib.artifact_manifest import (
     ArtifactBasis,
@@ -388,7 +388,7 @@ def prepare_narration_delivery(
     """Project current TTS currency into one non-persistent delivery request."""
 
     if delivery not in (POST_PRODUCTION, USE_TTS):
-        raise ValueError(f"unsupported narration delivery: {delivery!r}")
+        assert_never(delivery)
 
     problems = _speech_problems(preparation)
     basis_digest: str | None = None

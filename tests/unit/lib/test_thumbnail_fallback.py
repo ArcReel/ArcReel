@@ -11,10 +11,10 @@ import lib.thumbnail as thumbnail_module
 
 
 @pytest.fixture(autouse=True)
-def _reset_ffmpeg_cache():
-    thumbnail_module._reset_for_tests()
+def reset_ffmpeg_cache():
+    thumbnail_module.reset_for_tests()
     yield
-    thumbnail_module._reset_for_tests()
+    thumbnail_module.reset_for_tests()
 
 
 @pytest.mark.asyncio

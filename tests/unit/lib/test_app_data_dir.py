@@ -9,9 +9,9 @@ import pytest
 
 def _import_fresh():
     """Re-import the module fresh — `@functools.cache` traps env values."""
-    from lib.app_data_dir import _reset_for_tests, app_data_dir
+    from lib.app_data_dir import app_data_dir, reset_for_tests
 
-    _reset_for_tests()
+    reset_for_tests()
     return app_data_dir
 
 

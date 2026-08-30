@@ -19,9 +19,9 @@ from server.agent_runtime.sdk_tools.text_generation import (
 from server.media_tools.context import ToolContext
 from server.text_generation import TextGenerationRequest, _parse_normalized_content
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
-    _call,
-    _fake_caps_resolver,
-    _use_fake_caps,
+    call,
+    fake_caps_resolver,
+    use_fake_caps,
 )
 
 # i2v 桶不可解析：不带图档位随之回退按 r2v 桶求值（``reference_unit_duration_tiers``）。
@@ -33,29 +33,29 @@ _NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
 
 
 async def test_get_video_capabilities_happy(fake_ctx: ToolContext) -> None:
-    _use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
+    use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     tool_obj = get_video_capabilities_tool(fake_ctx)
     assert tool_obj.name == "get_video_capabilities"
     assert isinstance(tool_obj.input_schema, dict)
     assert "project" not in tool_obj.input_schema["properties"]
-    out = await _call(tool_obj, {})
+    out = await call(tool_obj, {})
     assert out.get("is_error") is not True
     assert json.loads(out["content"][0]["text"])["video_capabilities"]["provider_id"] == "fake"
 
 
 async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext) -> None:
     """能力按项目生成模式解析：工具不收集号，多余的集号入参被忽略、不改变解析口径。"""
-    resolver = _use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
+    resolver = use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     tool_obj = get_video_capabilities_tool(fake_ctx)
-    assert (await _call(tool_obj, {})).get("is_error") is not True
-    assert (await _call(tool_obj, {"episode": 3})).get("is_error") is not True
+    assert (await call(tool_obj, {})).get("is_error") is not True
+    assert (await call(tool_obj, {"episode": 3})).get("is_error") is not True
     assert resolver.capability_calls == [None, None]
 
 
 async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext) -> None:
     """参考路径项目另返回两套逐 unit 生效档位，供手工改 script_plan 时与生成侧对同一份数字。"""
     fake_ctx.pm.project_payload["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}
-    _use_fake_caps(
+    use_fake_caps(
         fake_ctx,
         provider_id="gemini-aistudio",
         model="veo-3.1-generate-preview",
@@ -63,7 +63,7 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
         generation_mode="reference_video",
         capability_errors=_NO_I2V,
     )
-    out = await _call(get_video_capabilities_tool(fake_ctx), {})
+    out = await call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
     payload = json.loads(out["content"][0]["text"])["video_capabilities"]
     assert payload["reference_unit_durations"] == {"with_references": [8], "without_references": [4, 6, 8]}
@@ -79,7 +79,7 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
     fake_ctx: ToolContext, generation_mode: str, content_mode: str
 ) -> None:
     """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 分镜时长也不受档位枚举管辖。"""
-    _use_fake_caps(
+    use_fake_caps(
         fake_ctx,
         provider_id="gemini-aistudio",
         model="veo-3.1-generate-preview",
@@ -87,7 +87,7 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
         generation_mode=generation_mode,
         content_mode=content_mode,
     )
-    out = await _call(get_video_capabilities_tool(fake_ctx), {})
+    out = await call(get_video_capabilities_tool(fake_ctx), {})
     payload = json.loads(out["content"][0]["text"])["video_capabilities"]
     assert "reference_unit_durations" not in payload
 
@@ -97,17 +97,17 @@ async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: Too
 
     解析器不按项目名回到全局项目目录，非默认 projects_root 的会话也读取闭包里的项目。
     """
-    resolver = _use_fake_caps(fake_ctx, provider_id="kling", model="kling-v3-omni", supported_durations=[5])
-    out = await _call(get_video_capabilities_tool(fake_ctx), {})
+    resolver = use_fake_caps(fake_ctx, provider_id="kling", model="kling-v3-omni", supported_durations=[5])
+    out = await call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
     assert json.loads(out["content"][0]["text"])["video_capabilities"]["model"] == "kling-v3-omni"
     assert resolver.project_payloads == [fake_ctx.pm.project_payload]
 
 
 async def test_get_video_capabilities_error(fake_ctx: ToolContext) -> None:
-    _use_fake_caps(fake_ctx, error=FileNotFoundError("missing project.json"))
+    use_fake_caps(fake_ctx, error=FileNotFoundError("missing project.json"))
     tool_obj = get_video_capabilities_tool(fake_ctx)
-    out = await _call(tool_obj, {})
+    out = await call(tool_obj, {})
     assert out.get("is_error") is True
 
 
@@ -116,10 +116,10 @@ async def test_generate_script_plan_rejects_inapplicable_content_modes(
     fake_ctx: ToolContext, content_mode: str
 ) -> None:
     fake_ctx.pm.project_payload["content_mode"] = content_mode
-    resolver = _use_fake_caps(fake_ctx)
+    resolver = use_fake_caps(fake_ctx)
     caller_thread = threading.get_ident()
 
-    out = await _call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
 
     assert out.get("is_error") is True
     assert json.loads(out["content"][0]["text"])["problem"]["code"] == "generation_refused"
@@ -157,14 +157,14 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
     tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1, "dry_run": True})
+    out = await call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
     assert "fake prompt" in out["content"][0]["text"]
 
 
 async def test_generate_episode_script_missing_script_plan(fake_ctx: ToolContext) -> None:
     tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 99})
+    out = await call(tool_obj, {"episode": 99})
     assert out.get("is_error") is True
 
 
@@ -204,7 +204,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
     tool_obj = generate_episode_script_tool(fake_ctx)
 
-    out = await _call(tool_obj, {"episode": 1})
+    out = await call(tool_obj, {"episode": 1})
     assert out.get("is_error") is not True
     # handler 不再传 output_path —— ScriptGenerator 自己决定写到哪里
     assert "output_path" not in captured["calls"]
@@ -229,7 +229,7 @@ async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolContex
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
     tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await call(tool_obj, {"episode": 1})
     assert out.get("is_error") is not True
 
 
@@ -256,12 +256,12 @@ async def test_generate_episode_script_scope_reaches_the_generator(fake_ctx: Too
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
     tool_obj = generate_episode_script_tool(fake_ctx)
 
-    out = await _call(tool_obj, {"episode": 1, "entry_ids": ["E1S02"]})
+    out = await call(tool_obj, {"episode": 1, "entry_ids": ["E1S02"]})
     assert out.get("is_error") is not True
     assert captured["scope"] == ("E1S02",)
     assert "E1S02" in out["content"][0]["text"]
 
-    await _call(tool_obj, {"episode": 1, "scope": "all"})
+    await call(tool_obj, {"episode": 1, "scope": "all"})
     assert captured["scope"] == "all"
 
 
@@ -286,7 +286,7 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
             raise ScriptPlanEntryError("scope 指定的条目 id 不在当前脚本规划内: ['E9U99']")
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1, "entry_ids": ["E9U99"]})
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "entry_ids": ["E9U99"]})
 
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
@@ -297,7 +297,7 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
 async def test_generate_episode_script_rejects_entry_ids_with_scope_all(fake_ctx: ToolContext) -> None:
     """两种范围同时给出即请求自相矛盾，在入口拒绝而不是任选其一。"""
     tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1, "scope": "all", "entry_ids": ["E1S01"]})
+    out = await call(tool_obj, {"episode": 1, "scope": "all", "entry_ids": ["E1S01"]})
     assert out.get("is_error") is True
 
 
@@ -311,7 +311,7 @@ async def test_generate_episode_script_scope_does_not_bypass_the_review_gate(fak
     tool_obj = generate_episode_script_tool(fake_ctx)
 
     for args in ({"episode": 1}, {"episode": 1, "scope": "all"}, {"episode": 1, "entry_ids": ["E1S01"]}):
-        out = await _call(tool_obj, args)
+        out = await call(tool_obj, args)
         assert out.get("is_error") is True, args
         assert "内容确认" in out["content"][0]["text"]
 
@@ -347,7 +347,7 @@ async def test_fetch_caps_with_fallback_uses_write_layer_default() -> None:
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
     from server import text_generation as mod
 
-    resolver = _fake_caps_resolver(error=ValueError("no provider configured"))
+    resolver = fake_caps_resolver(error=ValueError("no provider configured"))
     default, durations = await mod._fetch_caps_with_fallback({}, 1, config_resolver=resolver)
     assert default is None
     assert durations == DEFAULT_FALLBACK
@@ -364,12 +364,12 @@ async def test_fetch_caps_with_fallback_drops_out_of_range_default() -> None:
     veo = {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview"}
     project_1080p = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
 
-    narrowed = _fake_caps_resolver(supported_durations=[4, 6, 8], default_duration=4, **veo)
+    narrowed = fake_caps_resolver(supported_durations=[4, 6, 8], default_duration=4, **veo)
     default, durations = await mod._fetch_caps_with_fallback(project_1080p, 1, config_resolver=narrowed)
     assert default is None
     assert durations == [8]
 
-    in_range = _fake_caps_resolver(supported_durations=[4, 6, 8], default_duration=8, **veo)
+    in_range = fake_caps_resolver(supported_durations=[4, 6, 8], default_duration=8, **veo)
     default, durations = await mod._fetch_caps_with_fallback({}, 1, config_resolver=in_range)
     assert default == 8
     assert durations == [4, 6, 8]
@@ -383,7 +383,7 @@ async def test_fetch_video_caps_narrows_durations_by_constraints() -> None:
     """
     from server.media_tools import context as ctx_mod
 
-    resolver = _fake_caps_resolver(
+    resolver = fake_caps_resolver(
         provider_id="gemini-aistudio",
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
@@ -419,9 +419,9 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext) -> None:
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1, "dry_run": True})
+    out = await call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
     assert "DRY RUN" in out["content"][0]["text"]
 
@@ -441,9 +441,9 @@ async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: Too
         return original(*args, **kwargs)
 
     monkeypatch.setattr(artifact_provenance, "project_script_plan_prompt_inputs", counted_projection)
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
 
-    result = await _call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    result = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
 
     assert result.get("is_error") is not True, result
     assert calls == 1
@@ -460,9 +460,9 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("once upon a time", encoding="utf-8")
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1, "dry_run": True})
+    out = await call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
     assert "English" in out["content"][0]["text"]
 
@@ -486,11 +486,11 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     async def fake_create(task_type, project_name=None):
         return _EmptyGenerator()
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
     # 空 scenes 不写盘，避免生成阶段才必然失败
     assert not (project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json").exists()
@@ -504,9 +504,9 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     src.mkdir(parents=True)
     (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 2, "dry_run": True, "source": "source/chapter2.txt"})
+    out = await call(tool_obj, {"episode": 2, "dry_run": True, "source": "source/chapter2.txt"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
     assert "E2S01" in prompt_text
@@ -530,9 +530,9 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
         }
     ]
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1, "dry_run": True})
+    out = await call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
     assert "少年下山" in prompt_text
@@ -584,11 +584,11 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
         captured["create_project_name"] = project_name
         return _FakeGenerator()
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await call(tool_obj, {"episode": 1})
 
     assert out.get("is_error") is not True, out
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
@@ -661,10 +661,10 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     async def fake_create(_task_type, project_name=None):
         return _Generator()
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await _call(
+    result = await call(
         generate_script_plan_tool(fake_ctx),
         {"episode": 1, "source": "source/selected.txt"},
     )
@@ -737,10 +737,10 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
     async def fake_create(_task_type, project_name=None):
         return _Generator()
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await _call(
+    result = await call(
         generate_script_plan_tool(fake_ctx),
         {"episode": 1, "source": "source/selected.txt"},
     )
@@ -792,10 +792,10 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     async def fake_create(_task_type, project_name=None):
         return _FakeGenerator()
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await _call(generate_script_plan_tool(fake_ctx), {"episode": 1})
+    result = await call(generate_script_plan_tool(fake_ctx), {"episode": 1})
 
     assert result.get("is_error") is not True, result
     saved = json.loads(
@@ -807,7 +807,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
 
 async def test_normalize_drama_script_no_source(fake_ctx: ToolContext) -> None:
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
 
 
@@ -817,9 +817,9 @@ async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
-    _use_fake_caps(fake_ctx)
+    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"})
+    out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
     assert "# 用户意见" in prompt_text
@@ -867,11 +867,11 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
     tool_obj = generate_episode_script_tool(fake_ctx)
 
-    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "偏好特写镜头"})
+    out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "偏好特写镜头"})
     assert out.get("is_error") is not True, out
     assert captured["build_prompt"] == "偏好特写镜头"
 
-    out = await _call(tool_obj, {"episode": 1, "instructions": "偏好特写镜头"})
+    out = await call(tool_obj, {"episode": 1, "instructions": "偏好特写镜头"})
     assert out.get("is_error") is not True, out
     assert captured["generate"] == "偏好特写镜头"
 
@@ -895,7 +895,7 @@ async def test_generate_episode_script_reference_legacy_md_hints_resplit(fake_ct
     (drafts / "script_plan_reference_units.md").write_text("| E1U1 |", encoding="utf-8")
 
     tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "调用 generate_script_plan" in text

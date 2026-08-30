@@ -3656,9 +3656,3 @@ def get_project_manager() -> ProjectManager:
     if _project_manager is None:
         _project_manager = ProjectManager(app_data_dir())
     return _project_manager
-
-
-def _reset_project_manager_for_tests() -> None:
-    """清空缓存的单例，供测试在不同 app_data_dir 场景间重置。"""
-    global _project_manager
-    _project_manager = None

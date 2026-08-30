@@ -3,15 +3,15 @@
 import pytest
 
 from tests.integration.server.routers.projects_router_support import (
-    _client,
     _FakePM,
+    build_projects_client,
 )
 
 
 class TestProjectsRouter:
     def test_create_project_with_style_template_id_expands_prompt(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -32,7 +32,7 @@ class TestProjectsRouter:
 
     def test_create_project_with_unknown_template_id_returns_400(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -48,7 +48,7 @@ class TestProjectsRouter:
 
     def test_create_project_with_model_fields_persists(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -77,7 +77,7 @@ class TestProjectsRouter:
     def test_create_project_persists_episode_target_duration(self, tmp_path, monkeypatch):
         """单集目标时长在创建向导写入；越界值 422 且不留下半成品项目。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -107,7 +107,7 @@ class TestProjectsRouter:
     def test_create_project_with_image_default_layer(self, tmp_path, monkeypatch):
         """项目默认图片模型（default_image_backend）可在创建时写入，不必配桶。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -128,7 +128,7 @@ class TestProjectsRouter:
     def test_video_bucket_fields_create_patch_and_clear(self, tmp_path, monkeypatch):
         """项目级视频桶键（video_provider_i2v/r2v）可创建时写入、PATCH 设置；空值 = 清除、回退默认层。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             created = client.post(
@@ -163,7 +163,7 @@ class TestProjectsRouter:
     def test_create_project_ignores_legacy_image_backend(self, tmp_path, monkeypatch):
         """退役的 image_backend 字段已从写模型移除，传入时被静默忽略。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -181,7 +181,7 @@ class TestProjectsRouter:
 
     def test_create_project_empty_model_fields_not_written(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -202,7 +202,7 @@ class TestProjectsRouter:
     def test_create_project_persists_speech_rate(self, tmp_path, monkeypatch):
         """创建时可选填口播语速估算：区间内落盘，未填不落盘（回退语言默认）。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -227,7 +227,7 @@ class TestProjectsRouter:
     @pytest.mark.parametrize("bad", [0, -1, 20.5])
     def test_create_project_rejects_out_of_range_speech_rate(self, tmp_path, monkeypatch, bad):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -245,7 +245,7 @@ class TestProjectsRouter:
     def test_create_project_rejects_boolean_speech_rate(self, tmp_path, monkeypatch, value):
         """JSON 布尔不得被 Pydantic 折成 1.0 / 0.0 混进语速覆盖，两个取值都应 422 且不建目录。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -263,7 +263,7 @@ class TestProjectsRouter:
     def test_create_project_with_invalid_backend_returns_400(self, tmp_path, monkeypatch):
         """非法 backend 字符串应被校验器拒绝。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -278,7 +278,7 @@ class TestProjectsRouter:
             assert resp.status_code == 400
 
     def test_create_requires_binary_generation_mode(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             # 缺失 generation_mode：必填无默认值，不被悄悄锁进某种生成模式
             missing = client.post(
@@ -304,7 +304,7 @@ class TestProjectsRouter:
                 assert created.json()["project"]["generation_mode"] == mode
 
     def test_create_persists_grid_storyboard(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             # 缺省 false 也落盘为显式值
             default_off = client.post(

@@ -371,13 +371,15 @@ def build_remote_mcp_server(
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
 
+    # 以下工具全部由 @server.tool 就地注册（闭包捕获 services），模块内无其它引用；basedpyright
+    # 把函数作用域内的符号一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @server.tool(name="list_projects", structured_output=False)
-    async def remote_list_projects() -> CallToolResult:
+    async def remote_list_projects() -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """List ArcReel projects that can be addressed by subsequent tools."""
         return _to_mcp_result("projects", await list_projects(ToolRequest(None), _authenticated_caller(), services))
 
     @server.tool(name="create_project", structured_output=False)
-    async def remote_create_project(
+    async def remote_create_project(  # pyright: ignore[reportUnusedFunction]
         name: str,
         title: str = "",
         content_mode: Literal["narration", "drama", "ad"] = "narration",
@@ -408,7 +410,7 @@ def build_remote_mcp_server(
         return _to_mcp_result("project", await create_project(ToolRequest(request), _authenticated_caller(), services))
 
     @server.tool(name="upload_source", structured_output=False)
-    async def remote_upload_source(
+    async def remote_upload_source(  # pyright: ignore[reportUnusedFunction]
         project: str,
         filename: str,
         content: str,
@@ -425,7 +427,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="open_draft", structured_output=False)
-    async def remote_open_draft(
+    async def remote_open_draft(  # pyright: ignore[reportUnusedFunction]
         project: str,
         episode: PositiveEpisode,
         doc_type: DraftDocType,
@@ -442,7 +444,7 @@ def build_remote_mcp_server(
         return _to_mcp_result("draft", await open_draft(ToolRequest(request), scope, _authenticated_caller(), services))
 
     @server.tool(name="patch_draft", structured_output=False)
-    async def remote_patch_draft(
+    async def remote_patch_draft(  # pyright: ignore[reportUnusedFunction]
         project: str,
         episode: PositiveEpisode,
         doc_type: DraftDocType,
@@ -475,7 +477,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="promote_draft", structured_output=False)
-    async def remote_promote_draft(
+    async def remote_promote_draft(  # pyright: ignore[reportUnusedFunction]
         project: str, episode: PositiveEpisode, doc_type: DraftDocType, base_revision: str
     ) -> CallToolResult:
         """Validate and promote one editing draft into its formal document."""
@@ -491,7 +493,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="discard_draft", structured_output=False)
-    async def remote_discard_draft(
+    async def remote_discard_draft(  # pyright: ignore[reportUnusedFunction]
         project: str, episode: PositiveEpisode, doc_type: DraftDocType, base_revision: str
     ) -> CallToolResult:
         """Discard one editing draft without changing its formal document."""
@@ -513,7 +515,7 @@ def build_remote_mcp_server(
         ),
         structured_output=False,
     )
-    async def remote_generate_episode_script(
+    async def remote_generate_episode_script(  # pyright: ignore[reportUnusedFunction]
         project: str,
         episode: PositiveEpisode,
         context: Context,
@@ -559,7 +561,7 @@ def build_remote_mcp_server(
         ),
         structured_output=False,
     )
-    async def remote_generate_script_plan(
+    async def remote_generate_script_plan(  # pyright: ignore[reportUnusedFunction]
         project: str,
         episode: PositiveEpisode,
         context: Context,
@@ -590,7 +592,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="confirm_script_review", structured_output=False)
-    async def remote_confirm_script_review(project: str, episode: int) -> CallToolResult:
+    async def remote_confirm_script_review(project: str, episode: int) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Confirm one episode's script_plan review before visual generation."""
         try:
             scope = _project_scope(project, projects)
@@ -604,7 +606,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="patch_episode_script", structured_output=False)
-    async def remote_patch_episode_script(
+    async def remote_patch_episode_script(  # pyright: ignore[reportUnusedFunction]
         project: str,
         script: str,
         base_revision: str,
@@ -626,7 +628,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="get_workflow_plan", structured_output=False)
-    async def remote_workflow_plan(
+    async def remote_workflow_plan(  # pyright: ignore[reportUnusedFunction]
         project: str,
         episode: int | None = None,
         narration_delivery: NarrationDelivery | None = None,
@@ -650,7 +652,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="get_generation_batch", structured_output=False)
-    async def remote_get_generation_batch(project: str, batch_id: str) -> CallToolResult:
+    async def remote_get_generation_batch(project: str, batch_id: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Read durable member states, counts, polling guidance and the terminal generation result."""
         try:
             scope = _project_scope(project, projects)
@@ -663,7 +665,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="cancel_generation_batch", structured_output=False)
-    async def remote_cancel_generation_batch(project: str, batch_id: str) -> CallToolResult:
+    async def remote_cancel_generation_batch(project: str, batch_id: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Cancel every non-terminal member through the normal queue cancellation path."""
         try:
             scope = _project_scope(project, projects)
@@ -679,7 +681,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="get_video_capabilities", structured_output=False)
-    async def remote_video_capabilities(project: str) -> CallToolResult:
+    async def remote_video_capabilities(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Return video capabilities for one explicit ArcReel project."""
         try:
             scope = _project_scope(project, projects)
@@ -695,7 +697,7 @@ def build_remote_mcp_server(
         description="Plan the next source window for one explicit project." + _REMOTE_DURABLE_BATCH_DESCRIPTION,
         structured_output=False,
     )
-    async def remote_plan_episodes(project: str, instructions: str | None = None) -> CallToolResult:
+    async def remote_plan_episodes(project: str, instructions: str | None = None) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Plan the next source window for one explicit project."""
         try:
             scope = _project_scope(project, projects)
@@ -707,7 +709,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="reset_episode_planning", structured_output=False)
-    async def remote_reset_episode_planning(
+    async def remote_reset_episode_planning(  # pyright: ignore[reportUnusedFunction]
         project: str, from_episode: int, confirm_consumed: bool = False
     ) -> CallToolResult:
         """Reset episode planning from one episode while preserving transactional safeguards."""
@@ -722,7 +724,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="patch_project", structured_output=False)
-    async def remote_patch_project(
+    async def remote_patch_project(  # pyright: ignore[reportUnusedFunction]
         project: str,
         table: str | None = None,
         entries: dict[str, Any] | None = None,
@@ -740,7 +742,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="patch_episode_meta", structured_output=False)
-    async def remote_patch_episode_meta(
+    async def remote_patch_episode_meta(  # pyright: ignore[reportUnusedFunction]
         project: str, script: str, field: Literal["title"], value: str
     ) -> CallToolResult:
         """Atomically patch episode-level metadata for one explicit project."""
@@ -755,7 +757,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="rename_asset", structured_output=False)
-    async def remote_rename_asset(project: str, table: str, old_name: str, new_name: str) -> CallToolResult:
+    async def remote_rename_asset(project: str, table: str, old_name: str, new_name: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Transactionally rename an asset and all project-local references."""
         try:
             scope = _project_scope(project, projects)
@@ -767,7 +769,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="retry_project_migration", structured_output=False)
-    async def remote_retry_project_migration(project: str) -> CallToolResult:
+    async def remote_retry_project_migration(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Retry the project migration chain and return the current workflow plan."""
         try:
             scope = _project_scope(project, projects)
@@ -779,7 +781,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="complete_asset_inventory", structured_output=False)
-    async def remote_complete_asset_inventory(
+    async def remote_complete_asset_inventory(  # pyright: ignore[reportUnusedFunction]
         project: str,
         scope: SourceScope,
         expected_source_revision: str,
@@ -801,7 +803,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="complete_script_plan_rebuild", structured_output=False)
-    async def remote_complete_script_plan_rebuild(
+    async def remote_complete_script_plan_rebuild(  # pyright: ignore[reportUnusedFunction]
         project: str, episode: int, expected_stale_script_plan_revision: str | None
     ) -> CallToolResult:
         """Record completion of a stale script_plan rebuild using its expected revision."""
@@ -818,7 +820,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="get_project_content", structured_output=False)
-    async def remote_project_content(project: str) -> CallToolResult:
+    async def remote_project_content(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Return project creative content and its canonical revision."""
         try:
             scope = _project_scope(project, projects)
@@ -829,7 +831,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="get_prompt_preview", structured_output=False)
-    async def remote_prompt_preview(project: str, script: str, item_id: str) -> CallToolResult:
+    async def remote_prompt_preview(project: str, script: str, item_id: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Return one shot's final image and video prompts, verbatim as generation would send them."""
         try:
             scope = _project_scope(project, projects)
@@ -842,7 +844,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="list_source_files", structured_output=False)
-    async def remote_source_files(project: str) -> CallToolResult:
+    async def remote_source_files(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """List source text files with revision and etags."""
         try:
             scope = _project_scope(project, projects)
@@ -853,7 +855,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="get_source_text", structured_output=False)
-    async def remote_source_text(project: str, path: str) -> CallToolResult:
+    async def remote_source_text(project: str, path: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Read one UTF-8 source text file and its revision."""
         try:
             scope = _project_scope(project, projects)
@@ -864,7 +866,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="get_episode_script", structured_output=False)
-    async def remote_episode_script(project: str, script: str) -> CallToolResult:
+    async def remote_episode_script(project: str, script: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Read an episode script body and the canonical revision used for patching."""
         try:
             scope = _project_scope(project, projects)
@@ -875,7 +877,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="get_script_plan_content", structured_output=False)
-    async def remote_script_plan_content(project: str, episode: int) -> CallToolResult:
+    async def remote_script_plan_content(project: str, episode: int) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Read the current formal script_plan body and its canonical revision."""
         try:
             scope = _project_scope(project, projects)
@@ -887,7 +889,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="list_project_files", structured_output=False)
-    async def remote_project_files(project: str) -> CallToolResult:
+    async def remote_project_files(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """List the allowlisted project business files available for diagnostics."""
         try:
             scope = _project_scope(project, projects)
@@ -898,7 +900,7 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="read_project_file", structured_output=False)
-    async def remote_project_file(project: str, path: str) -> CallToolResult:
+    async def remote_project_file(project: str, path: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Read one allowlisted project business file and its revision/etag."""
         try:
             scope = _project_scope(project, projects)

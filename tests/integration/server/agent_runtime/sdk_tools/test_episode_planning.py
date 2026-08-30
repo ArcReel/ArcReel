@@ -8,7 +8,7 @@ import pytest
 
 from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
-    _call,
+    call,
 )
 
 # ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
         cursor={"source_file": "source/novel.txt", "offset": 1715},
     )
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {})
 
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
@@ -81,7 +81,7 @@ async def test_plan_episodes_forwards_instructions(fake_ctx: ToolContext, monkey
         cursor=None,
     )
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": "  按章节对齐切分  "})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {"instructions": "  按章节对齐切分  "})
 
     assert out.get("is_error") is not True
     assert captured["plan_instructions"] == "按章节对齐切分"
@@ -96,7 +96,7 @@ async def test_plan_episodes_blank_instructions_treated_as_none(fake_ctx: ToolCo
     monkeypatch.setattr(
         mod, "EpisodePlanner", _fake_planner_cls(PlanResult(episodes=[], cursor=None, source_exhausted=True), captured)
     )
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": "   \n "})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {"instructions": "   \n "})
 
     assert out.get("is_error") is not True
     assert captured["plan_instructions"] is None
@@ -108,7 +108,7 @@ async def test_plan_episodes_rejects_non_string_instructions(fake_ctx: ToolConte
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(PlanResult(episodes=[], cursor=None)))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": ["按章切"]})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {"instructions": ["按章切"]})
 
     assert out.get("is_error") is True
     assert "instructions" in out["content"][0]["text"]
@@ -120,7 +120,7 @@ async def test_plan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(PlanResult(episodes=[], cursor=None)))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": "章" * (mod.MAX_INSTRUCTIONS_LEN + 1)})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {"instructions": "章" * (mod.MAX_INSTRUCTIONS_LEN + 1)})
 
     assert out.get("is_error") is True
     assert "过长" in out["content"][0]["text"]
@@ -140,7 +140,7 @@ async def test_plan_episodes_accepts_boundary_length_instructions(fake_ctx: Tool
     )
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
     text = "章" * mod.MAX_INSTRUCTIONS_LEN
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": text})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {"instructions": text})
 
     assert out.get("is_error") is not True
     assert captured["plan_instructions"] == text
@@ -153,7 +153,7 @@ async def test_plan_episodes_planner_value_error_not_mislabeled_as_param_error(
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(ValueError("未找到可用的 text 供应商")))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {})
 
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
@@ -167,7 +167,7 @@ async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch
 
     result = PlanResult(episodes=[], cursor=None, source_exhausted=True)
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {})
 
     assert out.get("is_error") is not True
     assert "全部规划" in out["content"][0]["text"]
@@ -181,7 +181,7 @@ async def test_plan_episodes_source_exhausted_includes_ledger_stats(fake_ctx: To
     stats = LedgerStats(total_episodes=30, smallest=[(30, 57), (12, 640)], median_units=812, target_units=800)
     result = PlanResult(episodes=[], cursor=None, source_exhausted=True, ledger_stats=stats)
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {})
 
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
@@ -208,7 +208,7 @@ async def test_plan_episodes_normal_batch_reports_total_planned_line_only(fake_c
         ledger_stats=None,
     )
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {})
 
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
@@ -222,7 +222,7 @@ async def test_plan_episodes_error_envelope(fake_ctx: ToolContext, monkeypatch) 
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(EpisodePlanningError("校验耗尽")))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+    out = await call(mod.plan_episodes_tool(fake_ctx), {})
 
     assert out.get("is_error") is True
     assert "校验耗尽" in out["content"][0]["text"]
@@ -257,7 +257,7 @@ async def test_reset_episode_planning_happy(fake_ctx: ToolContext, monkeypatch) 
     )
     monkeypatch.setattr(mod, "reset_episode_planning", _fake_reset(result, captured))
 
-    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1})
+    out = await call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1})
 
     assert out.get("is_error") is not True
     assert captured["args"][1:] == (1, False)
@@ -276,7 +276,7 @@ async def test_reset_episode_planning_confirmation_required(fake_ctx: ToolContex
         "reset_episode_planning",
         _fake_reset(ResetConfirmationRequired(consumed_episodes=[1, 3], archived_files=[])),
     )
-    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1})
+    out = await call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1})
 
     assert out.get("is_error") is not True  # 预期内的流程出口，不是错误
     text = out["content"][0]["text"]
@@ -292,7 +292,7 @@ async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, mo
     result = EpisodeResetResult(removed_episodes=[1], deleted_files=[], archived_files=[], consumed_episodes=[1])
     monkeypatch.setattr(mod, "reset_episode_planning", _fake_reset(result, captured))
 
-    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1, "confirm_consumed": True})
+    out = await call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1, "confirm_consumed": True})
 
     assert captured["args"][1:] == (1, True)
     assert "未删除" in out["content"][0]["text"]  # 产物保留须对主 Agent 说明
@@ -306,7 +306,7 @@ async def test_reset_episode_planning_partial_reset_error(fake_ctx: ToolContext,
     monkeypatch.setattr(
         mod, "reset_episode_planning", _fake_reset(EpisodeResetError("源文件已被修改或移除：source/novel.txt"))
     )
-    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 3})
+    out = await call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 3})
 
     assert out.get("is_error") is True
     assert "源文件已被修改或移除" in out["content"][0]["text"]
@@ -322,7 +322,7 @@ async def test_reset_episode_planning_partial_reset_success_message(fake_ctx: To
     )
     monkeypatch.setattr(mod, "reset_episode_planning", _fake_reset(result))
 
-    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 2})
+    out = await call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 2})
 
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
@@ -337,7 +337,7 @@ async def test_reset_episode_planning_rejects_string_confirm_consumed(fake_ctx: 
     """confirm_consumed 是确认安全边界：非布尔值必须拒绝而非真值化。"""
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
-    out = await _call(
+    out = await call(
         mod.reset_episode_planning_tool(fake_ctx),
         {"from_episode": 1, "confirm_consumed": "true"},
     )
@@ -349,7 +349,7 @@ async def test_reset_episode_planning_rejects_string_confirm_consumed(fake_ctx: 
 async def test_reset_episode_planning_rejects_bad_from_episode(fake_ctx: ToolContext, bad: Any) -> None:
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
-    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": bad})
+    out = await call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": bad})
     assert out.get("is_error") is True
     assert "from_episode" in out["content"][0]["text"]
 
@@ -357,5 +357,5 @@ async def test_reset_episode_planning_rejects_bad_from_episode(fake_ctx: ToolCon
 async def test_reset_episode_planning_requires_from_episode(fake_ctx: ToolContext) -> None:
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
-    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {})
+    out = await call(mod.reset_episode_planning_tool(fake_ctx), {})
     assert out.get("is_error") is True

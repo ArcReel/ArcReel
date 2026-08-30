@@ -229,11 +229,9 @@ async def commit_manual_video_upload(
         selected_thumbnail = thumbnail_rel if extracted is not None and staged_thumbnail.is_file() else None
 
         def _commit() -> int:
-            committed_version: int | None = None
+            committed_version: list[int] = []
 
             def _activate(_script_path: Path) -> None:
-                nonlocal committed_version
-
                 def _forget_claim() -> None:
                     # Manual uploads have no self-verifying paid-request facts, so an older
                     # current-basis claim cannot survive their formal replacement.
@@ -254,20 +252,22 @@ async def commit_manual_video_upload(
                     metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
                     if original_filename:
                         metadata["original_filename"] = original_filename
-                    committed_version = versions.commit_staged_version(
-                        resource_type,
-                        resource_id,
-                        "",
-                        staged_file=staged_video,
-                        current_file=current_video,
-                        on_commit=_forget_claim,
-                        **metadata,
+                    committed_version.append(
+                        versions.commit_staged_version(
+                            resource_type,
+                            resource_id,
+                            "",
+                            staged_file=staged_video,
+                            current_file=current_video,
+                            on_commit=_forget_claim,
+                            **metadata,
+                        )
                     )
 
             commit_metadata(selected_thumbnail, _activate)
-            if committed_version is None:
+            if not committed_version:
                 raise RuntimeError("manual video metadata commit skipped staged activation")
-            return committed_version
+            return committed_version[0]
 
         return await run_noninterruptible_sync(_commit)
     finally:

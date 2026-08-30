@@ -76,7 +76,7 @@ def project_env(monkeypatch, tmp_path: Path):
 
 
 @pytest.fixture(autouse=True)
-def _clean_backend_cache():
+def clean_backend_cache():
     """除清空缓存条目外，同时清空 per-key 锁。
 
     ``invalidate_backend_cache()`` 按设计只清条目、不清 ``_locks``（生产环境同一事件循环

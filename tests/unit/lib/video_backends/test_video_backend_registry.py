@@ -19,7 +19,7 @@ class _FakeBackend:
 
 
 @pytest.fixture(autouse=True)
-def _clean_video_registry():
+def clean_video_registry():
     saved = dict(_BACKEND_FACTORIES)
     _BACKEND_FACTORIES.clear()
     yield

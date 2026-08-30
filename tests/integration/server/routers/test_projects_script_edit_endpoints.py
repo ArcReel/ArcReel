@@ -7,8 +7,8 @@ from copy import deepcopy
 import pytest
 
 from tests.integration.server.routers.projects_router_support import (
-    _client,
     _FakePM,
+    build_projects_client,
 )
 
 
@@ -24,7 +24,7 @@ class TestProjectsRouter:
             "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
         }
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             patch_scene = client.patch(
@@ -76,7 +76,7 @@ class TestProjectsRouter:
             ],
         }
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
@@ -123,7 +123,7 @@ class TestProjectsRouter:
                 }
             ],
         }
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             response = client.patch(
@@ -149,7 +149,7 @@ class TestProjectsRouter:
                 }
             ],
         }
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             response = client.patch(
@@ -173,7 +173,7 @@ class TestProjectsRouter:
             "scenes": [{"scene_id": "E1S01"}],
         }
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.patch(
@@ -198,7 +198,7 @@ class TestProjectsRouter:
             raise ValueError("脚本内 episode=1 与文件名 episode_10 不一致")
 
         monkeypatch.setattr(fake_pm, "locked_script", _raising_locked_script)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             resp = client.patch(
@@ -226,7 +226,7 @@ class TestProjectsRouter:
             ],
         }
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
@@ -280,7 +280,7 @@ class TestProjectsRouter:
             ],
         }
 
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         utterances = [
             {"kind": "dialogue", "speaker": "Alice", "text": "你来了。"},
             {"kind": "voiceover", "speaker": None, "text": "命运就此转向。"},
@@ -308,7 +308,7 @@ class TestProjectsRouter:
             "content_mode": "drama",
             "scenes": [{"scene_id": "001", "duration_seconds": 8, "utterances": utterances}],
         }
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             response = client.patch(
@@ -336,7 +336,7 @@ class TestProjectsRouter:
                 }
             ],
         }
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             response = client.patch(
@@ -382,7 +382,7 @@ class TestProjectsRouter:
     def test_update_shot_edits_voiceover_section_duration(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01", "E1S02"])
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             patched = client.patch(
@@ -412,7 +412,7 @@ class TestProjectsRouter:
         script = self._ad_script(["E1S01"])
         script["shots"][0]["video_prompt"] = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
         fake_pm.scripts[("ad-ready", "episode_1.json")] = script
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             response = client.patch(
@@ -435,7 +435,7 @@ class TestProjectsRouter:
         }
         script["shots"][0]["needs_replan"] = True
         fake_pm.scripts[("ad-ready", "episode_1.json")] = script
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             response = client.patch(
@@ -458,7 +458,7 @@ class TestProjectsRouter:
     def test_update_shot_ignores_non_whitelisted_fields(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01"])
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             patched = client.patch(
@@ -476,7 +476,7 @@ class TestProjectsRouter:
 
     def test_update_shot_rejects_non_ad_script(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             rejected = client.patch(
@@ -488,7 +488,7 @@ class TestProjectsRouter:
     def test_update_shot_unknown_id_404(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01"])
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             missing = client.patch(
@@ -500,7 +500,7 @@ class TestProjectsRouter:
     def test_reorder_shots_full_permutation(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01", "E1S02", "E1S03"])
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             reordered = client.post(
@@ -515,7 +515,7 @@ class TestProjectsRouter:
     def test_reorder_shots_rejects_mismatched_ids(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01", "E1S02"])
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             # 数量不一致
@@ -542,7 +542,7 @@ class TestProjectsRouter:
 
     def test_reorder_shots_rejects_non_ad_script(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             rejected = client.post(
@@ -555,7 +555,7 @@ class TestProjectsRouter:
         """shots 非列表 / 含非对象元素时返回 422，且不被 reorder 空排列覆盖成 []。"""
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = {"content_mode": "ad", "shots": "oops"}
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
             # 非列表 shots：reorder 传空排列也必须 422，不得把损坏数据覆盖成空列表
@@ -665,7 +665,7 @@ class TestProjectsRouter:
         fake_pm = _FakePM(tmp_path)
         record_migration_failure(fake_pm.base / project_name, ValueError("坏数据"), schema_version=7)
         monkeypatch.setattr(guard, "get_project_manager", lambda: fake_pm)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         before_project_data = deepcopy(fake_pm.project_data)
         before_scripts = deepcopy(fake_pm.scripts)
 
@@ -753,7 +753,7 @@ class TestProjectsRouter:
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[(project_name, script_file)] = script
         before = deepcopy(script)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         body = {"script_file": script_file, **request_body}
 
         with client:

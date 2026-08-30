@@ -13,8 +13,8 @@ from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.media_tools.context import ToolContext
 from server.media_tools.grid import generate_grid_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
-    _call,
-    _generation_result,
+    call,
+    read_generation_result,
 )
 
 
@@ -72,7 +72,7 @@ async def test_generate_grid_list_only(fake_ctx: ToolContext) -> None:
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
     tool_obj = generate_grid_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
+    out = await call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is not True
     assert "分组" in out["content"][0]["text"]
 
@@ -100,7 +100,7 @@ async def test_generate_grid_list_only_respects_4k_gate(
 
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     tool_obj = generate_grid_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
+    out = await call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
     assert expected in text
@@ -122,7 +122,7 @@ async def test_generate_grid_list_only_shows_split_for_oversized_group(
 
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     tool_obj = generate_grid_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
+    out = await call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
     assert "2 张宫格: grid_9 (3×3) + grid_4 (2×2)" in text
@@ -166,7 +166,7 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
     monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
     tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
 
     assert [p["video_aspect_ratio"] for p in payloads] == ["9:16"]
@@ -201,10 +201,10 @@ async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id
     batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
     monkeypatch.setattr("server.media_tools.grid.apply_grid_split", failing_split)
 
-    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.succeeded == []
     # 逐分镜 ID 报告：一张宫格覆盖的四个分镜各自拿到自己的失败结论。
     assert result.failed == ["E1S01", "E1S02", "E1S03", "E1S04"]
@@ -253,12 +253,12 @@ async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     batch_waiter = _fake_grid_waiter(failing_enqueue)
 
-    out = await _call(
+    out = await call(
         generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json", "scene_ids": ["E1S01"]}
     )
 
     assert out.get("is_error") is True
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.failed == ["E1S01"]
     item = result.items[0]
     assert item.artifact_path == "storyboards/E1S01.png"
@@ -291,9 +291,9 @@ async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
 
-    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.succeeded == []
     assert result.failed == ["E1S01", "E1S02", "E1S03", "E1S04"]
     item = result.items[0]
@@ -338,9 +338,9 @@ async def test_generate_grid_reports_each_scene_of_a_shared_grid(
     batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
     monkeypatch.setattr("server.media_tools.grid.apply_grid_split", partial_split)
 
-    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.succeeded == ["E1S01", "E1S02", "E1S03"]
     assert result.failed == ["E1S04"]
     assert set(result.requested) == set(result.succeeded) | set(result.failed) | set(result.blocked)
@@ -404,9 +404,9 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
     )
     batch_waiter = _fake_grid_waiter(fake_enqueue)
 
-    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert enqueued == []
     assert sorted(result.blocked) == ["E1S01", "E1S02", "E1S03", "E1S04"]
     assert result.succeeded == []
@@ -467,9 +467,9 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
     )
     batch_waiter = _fake_grid_waiter(fake_enqueue)
 
-    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert enqueued == []
     assert sorted(result.blocked) == ["E1S01", "E1S02", "E1S04"]
     assert "E1S03" not in result.requested
@@ -481,7 +481,7 @@ async def test_generate_grid_rejects_an_explicitly_empty_scene_selection(fake_ct
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
 
-    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "scene_ids": []})
+    out = await call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "scene_ids": []})
 
     assert out.get("is_error") is True
     assert "不能为空数组" in out["content"][0]["text"]
@@ -553,7 +553,7 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
     gm.save(other_group)
 
     tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
 
     remaining = gm.list_all()
@@ -630,7 +630,7 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
     gm.save(fully_reusable_chunk)
 
     tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
 
     remaining_ids = {g.id for g in gm.list_all()}
@@ -653,7 +653,7 @@ async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(
 
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     tool_obj = generate_grid_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
+    out = await call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is not True
     assert "grid_4 (2×2)" in out["content"][0]["text"]
 
@@ -699,7 +699,7 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
     monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
     tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
     # 每张生成成功的宫格都被显式切分
     assert len(split_calls) == 2
@@ -720,7 +720,7 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
 async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
     # 项目未开启 grid_storyboard → error
     tool_obj = generate_grid_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
 
 
@@ -729,7 +729,7 @@ async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolCon
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
     tool_obj = generate_grid_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
+    out = await call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is True
 
 
@@ -748,7 +748,7 @@ async def test_generate_grid_legacy_unresolvable_episode_fails_before_enqueue(
     enqueue = AsyncMock(side_effect=AssertionError("must not enqueue"))
     batch_waiter = enqueue
 
-    out = await _call(mod.generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "draft.json"})
+    out = await call(mod.generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "draft.json"})
 
     assert out.get("is_error") is True
     assert "无法确定集号" in out["content"][0]["text"]

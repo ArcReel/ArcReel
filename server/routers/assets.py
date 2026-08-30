@@ -349,6 +349,8 @@ async def from_project(
     # 两次拷贝共用一个失败边界：任一失败都清理已落盘的另一个文件，不留孤儿。
     new_image_path: str | None = None
     new_audio_path: str | None = None
+    # 已落盘的拷贝按发生顺序登记，失败路径统一按这张清单回删，不重复逐个变量判空。
+    copied_paths: list[str] = []
     try:
         if source_sheet_path is not None:
             ext = source_sheet_path.suffix.lower() or ".png"
@@ -357,6 +359,7 @@ async def from_project(
             target = root / f"{uid}{ext}"
             await asyncio.to_thread(shutil.copyfile, source_sheet_path, target)
             new_image_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+            copied_paths.append(new_image_path)
 
         if source_audio_path is not None:
             ext = source_audio_path.suffix.lower() or ".wav"
@@ -365,11 +368,10 @@ async def from_project(
             target = root / f"{uid}{ext}"
             await asyncio.to_thread(shutil.copyfile, source_audio_path, target)
             new_audio_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+            copied_paths.append(new_audio_path)
     except Exception:
-        if new_image_path:
-            _delete_global_asset_file(new_image_path)
-        if new_audio_path:
-            _delete_global_asset_file(new_audio_path)
+        for copied in copied_paths:
+            _delete_global_asset_file(copied)
         raise
 
     # 6) 写 DB：失败路径清理拷贝文件
@@ -413,10 +415,8 @@ async def from_project(
                     await s.refresh(a)
                 except IntegrityError as exc:
                     await s.rollback()
-                    if new_image_path:
-                        _delete_global_asset_file(new_image_path)
-                    if new_audio_path:
-                        _delete_global_asset_file(new_audio_path)
+                    for copied in copied_paths:
+                        _delete_global_asset_file(copied)
                     raise HTTPException(
                         status_code=409,
                         detail=_t("asset_already_exists", name=asset_name),
@@ -424,10 +424,8 @@ async def from_project(
     except HTTPException:
         raise
     except Exception:
-        if new_image_path:
-            _delete_global_asset_file(new_image_path)
-        if new_audio_path:
-            _delete_global_asset_file(new_audio_path)
+        for copied in copied_paths:
+            _delete_global_asset_file(copied)
         raise
 
     return {"asset": _serialize(a)}

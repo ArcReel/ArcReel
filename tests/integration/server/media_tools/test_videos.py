@@ -23,33 +23,33 @@ from server.media_tools.context import ToolContext
 from server.media_tools.videos import generate_videos_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _CLAIMED_BASIS_DIGEST,
-    _activate_unbound_project,
-    _call,
-    _fake_caps_resolver,
-    _fake_reference_projection,
-    _fake_scene_batch,
-    _generation_result,
-    _reference_video_script,
-    _use_reference_route,
-    _videos_tool_for_scope,
+    activate_unbound_project,
+    call,
+    fake_caps_resolver,
+    fake_reference_projection,
+    fake_scene_batch,
+    read_generation_result,
+    reference_video_script,
+    use_reference_route,
+    videos_tool_for_scope,
 )
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
 def _episode_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "episode")
+    return videos_tool_for_scope(ctx, "episode")
 
 
 def _scene_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "scene")
+    return videos_tool_for_scope(ctx, "scene")
 
 
 def _all_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "all")
+    return videos_tool_for_scope(ctx, "all")
 
 
 def _selected_scope(ctx: ToolContext):
-    return _videos_tool_for_scope(ctx, "selected")
+    return videos_tool_for_scope(ctx, "selected")
 
 
 def _select_manual_video(
@@ -152,7 +152,7 @@ async def test_generate_videos_episode_scope_happy(fake_ctx: ToolContext, monkey
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
 
 
@@ -163,12 +163,12 @@ async def test_generate_videos_episode_scope_declares_the_missing_only_selection
     from server.media_tools import videos as mod
 
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_scene_batch)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.selection.value == "missing_only"
     assert result.succeeded == ["E1S01"]
 
@@ -216,10 +216,10 @@ async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolCo
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert enqueued == []
     assert result.succeeded == []
     assert [entry.unit_id for entry in result.skipped] == ["E1S01"]
@@ -272,9 +272,9 @@ async def test_generate_videos_episode_scope_blocks_a_clip_whose_manifest_state_
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert enqueued == []
     assert result.succeeded == []
     assert result.blocked == ["E1S01"]
@@ -290,7 +290,7 @@ async def test_generate_videos_episode_scope_rejects_unbound_active_script_befor
     from lib.generation_queue_client import TaskSpec
     from server.media_tools import videos as mod
 
-    _activate_unbound_project(fake_ctx)
+    activate_unbound_project(fake_ctx)
     spec = TaskSpec.from_request(
         task_type="video",
         media_type="video",
@@ -306,7 +306,7 @@ async def test_generate_videos_episode_scope_rejects_unbound_active_script_befor
     monkeypatch.setattr(mod, "build_storyboard_video_specs", fake_build_specs)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     assert "not bound" in out["content"][0]["text"]
@@ -358,10 +358,10 @@ async def test_generate_videos_episode_scope_resolves_episode_from_canonical_fil
 
     monkeypatch.setattr(mod, "build_storyboard_video_specs", _capture_episode)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_2.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_2.json"})
 
     assert captured == {"episode": 2}
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.blocked == ["E1S01"]
     assert _blocked_problems_of(result) == {"E1S01": ("generation_unit_input_unusable", "generate_dependency")}
 
@@ -398,11 +398,11 @@ async def test_generate_videos_episode_scope_non_dict_generated_assets_does_not_
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     # E1S01 的分镜图绑定不可用：整批准入不成立，零任务入队，合法条目也如实报告被搁置的原因。
     assert enqueued == []
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert sorted(result.blocked) == ["E1S01", "E1S02"]
     codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
     assert codes["E1S01"] == "generation_unit_input_unusable"
@@ -413,7 +413,7 @@ async def test_generate_videos_episode_scope_non_dict_generated_assets_does_not_
 async def test_generate_videos_episode_scope_error(fake_ctx: ToolContext) -> None:
     fake_ctx.pm.script_payload = {"content_mode": "narration", "segments": [], "episode": 1}
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
 
 
@@ -423,12 +423,12 @@ async def test_generate_reference_video_rejects_unbound_active_script_before_gen
 ) -> None:
     from server.media_tools import videos as mod
 
-    _activate_unbound_project(fake_ctx, generation_mode="reference_video")
-    fake_ctx.pm.script_payload = _reference_video_script()
+    activate_unbound_project(fake_ctx, generation_mode="reference_video")
+    fake_ctx.pm.script_payload = reference_video_script()
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     assert "not bound" in out["content"][0]["text"]
@@ -441,13 +441,13 @@ async def test_generate_reference_video_legacy_unresolvable_episode_fails_before
 ) -> None:
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
     fake_ctx.pm.script_payload.pop("episode")
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "draft.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "draft.json"})
 
     assert out.get("is_error") is True
     assert "无法确定集号" in out["content"][0]["text"]
@@ -457,7 +457,7 @@ async def test_generate_reference_video_legacy_unresolvable_episode_fails_before
 async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_container(fake_ctx: ToolContext) -> None:
     """``video_units`` 非数组：生成模式闸门只问键在不在，容器校验落在入队侧，
     须报出可定位的结构错误而不是下传到 unit 迭代抛 TypeError。"""
-    _use_reference_route(fake_ctx)
+    use_reference_route(fake_ctx)
     for malformed in (
         {"E1U1": {}},
         {},
@@ -467,9 +467,9 @@ async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_co
     ):
         # 键在场即按类型判定，不看真值：``{}`` / ``""`` / ``False`` 同样是类型错误，
         # 报成「为空」会把成因埋掉。
-        fake_ctx.pm.script_payload = _reference_video_script(video_units=malformed)
+        fake_ctx.pm.script_payload = reference_video_script(video_units=malformed)
         tool_obj = _episode_scope(fake_ctx)
-        out = await _call(tool_obj, {"script": "episode_1.json"})
+        out = await call(tool_obj, {"script": "episode_1.json"})
         assert out.get("is_error") is True
         text = out["content"][0]["text"]
         assert "video_units 必须是数组" in text
@@ -482,8 +482,8 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
@@ -494,21 +494,18 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project, _episode=None, *, capability=None):
-        return None
-
     async def fake_active_tasks(**_kwargs):
         return []
 
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck),
+        fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr("server.services.video_batch_admission.get_active_tasks_for_resources", fake_active_tasks)
 
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True
     text = out["content"][0]["text"]
@@ -558,7 +555,7 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
     }
     assert enqueued == []
     # 待确认不是 prose-only 的死角：调用方能拿到机器可读结论，不必解析文本猜测。
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.blocked == ["E1U1"]
     item = result.items[0]
     assert item.problem is not None
@@ -573,8 +570,8 @@ async def test_generate_videos_episode_scope_reference_returns_structured_projec
     """Agent 失败信封保留公共投影的稳定 problem 字段，不只返回人读文本。"""
     from lib.reference_video.request_projection import ProjectionProblem
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
 
     class _BlockedProjection:
         unit_id = "E1U1"
@@ -611,7 +608,7 @@ async def test_generate_videos_episode_scope_reference_returns_structured_projec
 
     monkeypatch.setattr("server.services.video_batch_admission.project_reference_unit_request", _blocked)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     assert out["request_projections"][0] == {
@@ -666,8 +663,8 @@ async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
@@ -688,17 +685,14 @@ async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None, *, capability=None):
-        return None
-
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck),
+        fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(
+    out = await call(
         tool_obj,
         {"script": "episode_1.json", "confirmed_request_duration_seconds": 8},
     )
@@ -708,19 +702,19 @@ async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues
 
 
 async def test_generate_videos_reference_force_false_reuses_existing_video(fake_ctx: ToolContext, db_factory) -> None:
-    _use_reference_route(fake_ctx)
+    use_reference_route(fake_ctx)
     video_path = _select_manual_video(
         fake_ctx.project_path,
         resource_type="reference_videos",
         resource_id="E1U1",
         content=b"existing-video",
     )
-    script = _reference_video_script()
+    script = reference_video_script()
     script["video_units"][0]["generated_assets"] = {"video_clip": video_path}
     fake_ctx.pm.script_payload = script
     fake_ctx.queue = GenerationQueue(session_factory=db_factory)
 
-    out = await _call(
+    out = await call(
         generate_videos_tool(fake_ctx),
         {
             "script": "episode_1.json",
@@ -743,7 +737,7 @@ async def test_generate_videos_scene_force_false_reuses_existing_video(fake_ctx:
     )
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"]["video_clip"] = video_path
 
-    out = await _call(
+    out = await call(
         generate_videos_tool(fake_ctx),
         {"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1S01"]}},
     )
@@ -776,7 +770,7 @@ async def test_generate_videos_rejects_invalid_target_or_non_explicit_force(
     target: dict[str, Any],
     force: bool,
 ) -> None:
-    out = await _call(
+    out = await call(
         generate_videos_tool(fake_ctx),
         {"script": "episode_1.json", "target": target, "force": force},
     )
@@ -790,9 +784,9 @@ async def test_generate_videos_ignores_legacy_batch_checkpoint_files(fake_ctx: T
     checkpoint = fake_ctx.project_path / "videos" / ".checkpoint_ep1.json"
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
     checkpoint.write_text("not-json", encoding="utf-8")
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_scene_batch)
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True
     assert checkpoint.read_text(encoding="utf-8") == "not-json"
@@ -824,7 +818,7 @@ def test_generate_videos_definition_has_only_the_unified_name_and_no_resume(fake
 
 
 async def test_generate_videos_rejects_retired_resume_parameter(fake_ctx: ToolContext) -> None:
-    out = await _call(
+    out = await call(
         generate_videos_tool(fake_ctx),
         {
             "script": "episode_1.json",
@@ -855,7 +849,7 @@ async def test_generate_videos_resubmits_only_remaining_ids_from_a_durable_batch
     queue = fake_ctx.queue
     fake_ctx.caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
 
-    first = await _call(
+    first = await call(
         generate_videos_tool(fake_ctx),
         {"script": "episode_1.json", "target": {"scope": "episode", "episode": 1}},
     )
@@ -880,7 +874,7 @@ async def test_generate_videos_resubmits_only_remaining_ids_from_a_durable_batch
     assert terminal.generation_result.succeeded == ["E1S01"]
     assert terminal.generation_result.failed == ["E1S02"]
 
-    retried = await _call(
+    retried = await call(
         generate_videos_tool(fake_ctx),
         {
             "script": "episode_1.json",
@@ -904,8 +898,8 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script(
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script(
         video_units=[
             {
                 "unit_id": "E1U1",
@@ -943,13 +937,13 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
 
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck),
+        fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = _episode_scope(fake_ctx)
 
     # 未确认：两个档位都在结论里，零任务入队。
-    unconfirmed = await _call(tool_obj, {"script": "episode_1.json"})
+    unconfirmed = await call(tool_obj, {"script": "episode_1.json"})
     assert enqueued == []
     listed = {
         tier["request_duration_seconds"]: tier["unit_ids"]
@@ -957,7 +951,7 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
     }
     assert listed == {8: ["E1U1"], 12: ["E1U2"]}
 
-    out = await _call(
+    out = await call(
         tool_obj,
         {"script": "episode_1.json", "confirmed_request_durations": {"E1U1": 8, "E1U2": 12}},
     )
@@ -1077,8 +1071,8 @@ async def test_generate_videos_episode_scope_reference_honors_requested_narratio
     from lib.generation_queue_client import BatchTaskResult
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
 
     enqueued: list[Any] = []
 
@@ -1098,7 +1092,7 @@ async def test_generate_videos_episode_scope_reference_honors_requested_narratio
         return [], []
 
     projected_deliveries: list[str] = []
-    base_projection = _fake_reference_projection()
+    base_projection = fake_reference_projection()
 
     async def _capture_delivery(**kwargs):
         projected_deliveries.append(kwargs["options"].narration_delivery)
@@ -1110,7 +1104,7 @@ async def test_generate_videos_episode_scope_reference_honors_requested_narratio
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = _episode_scope(fake_ctx)
 
-    completed = await _call(
+    completed = await call(
         tool_obj,
         {"script": "episode_1.json", "narration_delivery": "post_production"},
     )
@@ -1124,7 +1118,7 @@ async def test_generate_videos_episode_scope_reference_honors_requested_narratio
     }
 
     projected_deliveries.clear()
-    await _call(tool_obj, {"script": "episode_1.json", "narration_delivery": "use_tts"})
+    await call(tool_obj, {"script": "episode_1.json", "narration_delivery": "use_tts"})
     assert projected_deliveries == ["use_tts"]
     active_tts.assert_awaited()
 
@@ -1153,8 +1147,8 @@ async def test_generate_videos_episode_scope_reference_duration_repeat_without_c
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
@@ -1165,18 +1159,15 @@ async def test_generate_videos_episode_scope_reference_duration_repeat_without_c
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project, _episode=None, *, capability=None):
-        return None
-
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck),
+        fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = _episode_scope(fake_ctx)
-    await _call(tool_obj, {"script": "episode_1.json"})
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    await call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True
     assert enqueued == []
@@ -1189,8 +1180,8 @@ async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_d
     from lib.reference_video.duration_slots import EXACT, DurationSlot
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=5, total_seconds=5, adjustment=EXACT)
@@ -1214,17 +1205,14 @@ async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_d
                 on_success(done)
         return successes, []
 
-    async def fake_duration_context(_project, _episode=None, *, capability=None):
-        return None
-
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck),
+        fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in enqueued] == ["E1U1"]
@@ -1242,9 +1230,9 @@ async def test_generate_videos_episode_scope_reference_duration_skips_unit_witho
     from lib.reference_video.duration_slots import EXACT, DurationSlot
     from server.media_tools import videos as mod
 
-    script = _reference_video_script()
+    script = reference_video_script()
     script["video_units"].append({"unit_id": "E1U2", "duration_seconds": 5})
-    _use_reference_route(fake_ctx)
+    use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script
 
     precheck_calls: list[str] = []
@@ -1272,22 +1260,19 @@ async def test_generate_videos_episode_scope_reference_duration_skips_unit_witho
                 on_success(done)
         return successes, []
 
-    async def fake_duration_context(_project, _episode=None, *, capability=None):
-        return None
-
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck),
+        fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert precheck_calls == ["E1U1"]
     # 整批准入不成立，本次零任务入队。
     assert enqueued == []
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert sorted(result.blocked) == ["E1U1", "E1U2"]
     codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
     assert codes["E1U2"] == "generation_unit_request_invalid"
@@ -1301,7 +1286,7 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
-    script = _reference_video_script()
+    script = reference_video_script()
     script["video_units"].append(
         {
             "unit_id": "E1U2",
@@ -1316,7 +1301,7 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
             "duration_seconds": 5,
         }
     )
-    _use_reference_route(fake_ctx)
+    use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script
 
     context_calls: list[Any] = []
@@ -1332,12 +1317,12 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
 
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck, calls=context_calls),
+        fake_reference_projection(fake_precheck, calls=context_calls),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     # 三个 unit 均 5 秒、申请 8 秒 → 都需确认，本批不入队；实际水合桶随每个结果可观察。
     assert out.get("is_error") is not True, out
@@ -1352,10 +1337,10 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
     重构不能让「全部已完成/全部被跳过」的批次凭空多付一轮 DB 往返。"""
     from server.media_tools import videos as mod
 
-    script = _reference_video_script()
+    script = reference_video_script()
     for unit in script["video_units"]:
         unit["text"] = ""
-    _use_reference_route(fake_ctx)
+    use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script
 
     projection_calls: list[str] = []
@@ -1365,12 +1350,12 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
 
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(calls=projection_calls),
+        fake_reference_projection(calls=projection_calls),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = _episode_scope(fake_ctx)
-    await _call(tool_obj, {"script": "episode_1.json"})
+    await call(tool_obj, {"script": "episode_1.json"})
 
     assert projection_calls == []
 
@@ -1382,10 +1367,10 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
     不能先触发项目能力解析再让 build_specs 事后跳过。"""
     from server.media_tools import videos as mod
 
-    script = _reference_video_script()
+    script = reference_video_script()
     for unit in script["video_units"]:
         unit["text"] = "   "
-    _use_reference_route(fake_ctx)
+    use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script
 
     projection_calls: list[str] = []
@@ -1395,12 +1380,12 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
 
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(calls=projection_calls),
+        fake_reference_projection(calls=projection_calls),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert projection_calls == []
     assert "E1U1" in out["content"][0]["text"]
@@ -1425,17 +1410,14 @@ async def test_generate_videos_episode_scope_ad_reference_duration_needs_confirm
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project, _episode=None, *, capability=None):
-        return None
-
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck),
+        fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = _episode_scope(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
     assert enqueued == []
@@ -1459,8 +1441,8 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
@@ -1481,21 +1463,18 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None, *, capability=None):
-        return None
-
     async def fake_active_tasks(**_kwargs):
         return []
 
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck),
+        fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr("server.services.video_batch_admission.get_active_tasks_for_resources", fake_active_tasks)
 
     tool_obj = make_tool(fake_ctx)
-    pending = await _call(tool_obj, {"script": "episode_1.json", **extra_args})
+    pending = await call(tool_obj, {"script": "episode_1.json", **extra_args})
 
     assert pending.get("is_error") is not True, pending
     assert enqueued == []
@@ -1504,7 +1483,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     assert "本次请求" in text
     assert "confirmed_request_duration_seconds" in text
 
-    confirmed = await _call(
+    confirmed = await call(
         tool_obj,
         {"script": "episode_1.json", **extra_args, "confirmed_request_duration_seconds": 8},
     )
@@ -1522,8 +1501,8 @@ async def test_generate_videos_scene_scope_reference_use_tts_exposes_the_shared_
     from server.media_tools import videos as mod
     from server.services.cost_estimation import VideoRequestQuote
 
-    _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
 
     def fake_precheck(_ctx, _unit):
         return DurationSlot(seconds=8, total_seconds=8, adjustment=EXACT)
@@ -1557,7 +1536,7 @@ async def test_generate_videos_scene_scope_reference_use_tts_exposes_the_shared_
     )
     monkeypatch.setattr(
         "server.services.video_batch_admission.project_reference_unit_request",
-        _fake_reference_projection(fake_precheck),
+        fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(
         "server.services.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
@@ -1572,7 +1551,7 @@ async def test_generate_videos_scene_scope_reference_use_tts_exposes_the_shared_
     )
     tool_obj = _scene_scope(fake_ctx)
 
-    pending = await _call(
+    pending = await call(
         tool_obj,
         {"script": "episode_1.json", "scene_id": "E1U1", "narration_delivery": "use_tts"},
     )
@@ -1589,7 +1568,7 @@ async def test_generate_videos_scene_scope_reference_use_tts_exposes_the_shared_
     assert "现有视觉档位 4s，将申请 8s（成片更长 4s）" in pending["content"][0]["text"]
     assert enqueued == []
 
-    accepted = await _call(
+    accepted = await call(
         tool_obj,
         {
             "script": "episode_1.json",
@@ -1608,9 +1587,9 @@ async def test_generate_videos_scene_scope_reference_use_tts_exposes_the_shared_
 async def test_generate_videos_scene_scope_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.media_tools import videos as mod
 
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_scene_batch)
     tool_obj = _scene_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
+    out = await call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
     assert out.get("is_error") is not True
 
 
@@ -1661,7 +1640,7 @@ async def test_generate_videos_scene_scope_use_tts_returns_structured_blocker_wi
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(
+    out = await call(
         _scene_scope(fake_ctx),
         {"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "use_tts"},
     )
@@ -1705,7 +1684,7 @@ async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queue
             cost=VideoRequestCostFacts("openai", "sora-2", "720p", 12, True),
         )
 
-    enqueue = AsyncMock(side_effect=_fake_scene_batch)
+    enqueue = AsyncMock(side_effect=fake_scene_batch)
     monkeypatch.setattr(
         "server.services.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
     )
@@ -1720,7 +1699,7 @@ async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queue
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
     tool_obj = _scene_scope(fake_ctx)
 
-    pending = await _call(
+    pending = await call(
         tool_obj,
         {"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "use_tts"},
     )
@@ -1736,7 +1715,7 @@ async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queue
     assert "1.2 USD" in pending["content"][0]["text"]
     enqueue.assert_not_awaited()
 
-    completed = await _call(
+    completed = await call(
         tool_obj,
         {
             "script": "episode_1.json",
@@ -1802,7 +1781,7 @@ async def test_generate_videos_scene_scope_use_tts_blocks_when_exact_cost_is_una
     monkeypatch.setattr("server.services.video_batch_admission.quote_video_request", AsyncMock(return_value=None))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    result = await _call(
+    result = await call(
         _scene_scope(fake_ctx),
         {"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "use_tts"},
     )
@@ -1838,8 +1817,8 @@ async def test_generate_videos_scene_scope_accepts_legacy_drama_dialogue(fake_ct
         ],
     }
 
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
-    out = await _call(_scene_scope(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_scene_batch)
+    out = await call(_scene_scope(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
 
     assert out.get("is_error") is not True, out
 
@@ -1864,8 +1843,8 @@ async def test_generate_videos_scene_scope_accepts_speech_free_legacy_drama(fake
         ],
     }
 
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
-    out = await _call(_scene_scope(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_scene_batch)
+    out = await call(_scene_scope(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
 
     assert out.get("is_error") is not True, out
 
@@ -1889,8 +1868,8 @@ async def test_generate_videos_scene_scope_accepts_legacy_narration_string_promp
         ],
     }
 
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
-    out = await _call(_scene_scope(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_scene_batch)
+    out = await call(_scene_scope(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
 
     assert out.get("is_error") is not True, out
 
@@ -1931,11 +1910,11 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_sp
         "server.services.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
     )
 
-    out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert enqueued == []
     assert out["is_error"] is True
-    result = _generation_result(out)
+    result = read_generation_result(out)
     codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
     assert codes["E1S01"] == "mixed_speech"
     assert codes["E1S02"] == "generation_batch_admission_withheld"
@@ -1959,7 +1938,7 @@ async def test_six_route_agent_single_video_generation_returns_structured_admiss
         "server.services.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
     )
 
-    out = await _call(_scene_scope(fake_ctx), {"script": "episode_1.json", "scene_id": case.unit_id})
+    out = await call(_scene_scope(fake_ctx), {"script": "episode_1.json", "scene_id": case.unit_id})
 
     assert out.get("is_error") is True
     problem = out["speech_admission"]["problems"][0]
@@ -1973,7 +1952,7 @@ async def test_six_route_agent_single_video_generation_returns_structured_admiss
 
 async def test_generate_videos_scene_scope_missing(fake_ctx: ToolContext) -> None:
     tool_obj = _scene_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "NO_SUCH"})
+    out = await call(tool_obj, {"script": "episode_1.json", "scene_id": "NO_SUCH"})
     assert out.get("is_error") is True
 
 
@@ -1990,7 +1969,7 @@ async def test_generate_videos_scene_scope_rejects_invalid_storyboard_image(
 ) -> None:
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {"storyboard_image": storyboard_value}
     tool_obj = _scene_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
+    out = await call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
     assert out.get("is_error") is True
     # 锁定 resolve_storyboard_image_ref 抛出的 canonical 消息，而不是模糊子串或通用失败文本
     assert f"invalid storyboard image path: {storyboard_value!r}" in out["content"][0]["text"]
@@ -2012,7 +1991,7 @@ async def test_generate_videos_all_scope_happy(fake_ctx: ToolContext, monkeypatc
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = _all_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
 
 
@@ -2058,7 +2037,7 @@ async def test_generate_videos_all_scope_preserves_the_selected_manual_upload(
     monkeypatch.setattr(mod, "build_storyboard_video_specs", lambda **_kwargs: ([spec], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(_all_scope(fake_ctx), {"script": "episode_1.json"})
+    out = await call(_all_scope(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
     # 选中的手动上传照旧可用：既不进 requested 也不重生，只作为 skipped 报告。
@@ -2066,7 +2045,7 @@ async def test_generate_videos_all_scope_preserves_the_selected_manual_upload(
         assert out["generation_batch"]["members"] == []
         assert [entry["unit_id"] for entry in out["generation_batch"]["skipped"]] == ["E1S01"]
     else:
-        result = _generation_result(out)
+        result = read_generation_result(out)
         assert result.requested == []
         assert [entry.unit_id for entry in result.skipped] == ["E1S01"]
         assert out["batch_id"]
@@ -2079,7 +2058,7 @@ async def test_generate_videos_all_scope_error(fake_ctx: ToolContext) -> None:
 
     fake_ctx.pm.load_script = boom
     tool_obj = _all_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
 
 
@@ -2103,13 +2082,13 @@ async def test_generate_videos_selected_scope_happy(fake_ctx: ToolContext, monke
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = _selected_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1S01"]})
+    out = await call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1S01"]})
     assert out.get("is_error") is not True
 
 
 async def test_generate_videos_selected_scope_no_match(fake_ctx: ToolContext) -> None:
     tool_obj = _selected_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["NO_SUCH"]})
+    out = await call(tool_obj, {"script": "episode_1.json", "scene_ids": ["NO_SUCH"]})
     assert out.get("is_error") is True
 
 
@@ -2280,7 +2259,7 @@ async def test_generate_videos_scene_scope_generated_assets_non_dict_readable_re
     不应在单条路径上抛未处理 AttributeError。"""
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = ["bad"]
     tool_obj = _scene_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
+    out = await call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
     assert out.get("is_error") is True
     assert "请先运行 generate_storyboards" in out["content"][0]["text"]
 
@@ -2517,7 +2496,7 @@ def _ad_reference_unit(**overrides: Any) -> dict[str, Any]:
 
 @pytest.fixture
 def ad_reference_ctx(fake_ctx: ToolContext) -> ToolContext:
-    fake_ctx.config_resolver = _fake_caps_resolver(supported_durations=(5,), default_duration=5)
+    fake_ctx.config_resolver = fake_caps_resolver(supported_durations=(5,), default_duration=5)
 
     pm = fake_ctx.pm
     pm.project_payload.update(
@@ -2576,14 +2555,14 @@ async def test_generate_videos_episode_scope_reference_skips_malformed_unit_entr
     enqueued: list[Any] = []
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
 
-    out = await _call(
+    out = await call(
         _episode_scope(ad_reference_ctx),
         {"script": "episode_1.json"},
     )
 
     # 脏 unit 逐条记为 blocked（没有 unit_id 可寻址时按位置编号），并拦住整批。
     assert enqueued == []
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert sorted(result.blocked) == ["E1U1", "video_units[0]", "video_units[1]"]
     codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
     assert codes["E1U1"] == "generation_batch_admission_withheld"
@@ -2598,7 +2577,7 @@ async def test_generate_videos_episode_scope_ad_reference_enqueues_existing_vide
     enqueued: list[Any] = []
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
 
-    out = await _call(
+    out = await call(
         _episode_scope(ad_reference_ctx),
         {"script": "episode_1.json"},
     )
@@ -2622,7 +2601,7 @@ async def test_generate_videos_episode_scope_ad_reference_does_not_claim_orphan_
     enqueued: list[Any] = []
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
 
-    out = await _call(
+    out = await call(
         _episode_scope(ad_reference_ctx),
         {"script": "episode_1.json"},
     )
@@ -2651,10 +2630,10 @@ async def test_generate_videos_episode_scope_ad_reference_preserves_the_selected
     monkeypatch.setattr(mod, "artifact_is_usable", lambda *_args: False)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(_all_scope(ad_reference_ctx), {"script": "episode_1.json"})
+    out = await call(_all_scope(ad_reference_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.requested == []
     assert [entry.unit_id for entry in result.skipped] == ["E1U1"]
     enqueue.assert_not_awaited()
@@ -2704,9 +2683,9 @@ async def test_generate_videos_episode_scope_reference_blocks_a_clip_whose_manif
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
-    out = await _call(_episode_scope(ad_reference_ctx), {"script": "episode_1.json"})
+    out = await call(_episode_scope(ad_reference_ctx), {"script": "episode_1.json"})
 
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.succeeded == []
     assert result.blocked == ["E1U1"]
     blocked_item = next(item for item in result.items if item.unit_id == "E1U1")
@@ -2739,7 +2718,7 @@ async def test_generate_videos_episode_scope_ad_reference_replan_shell_cannot_en
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fail_if_enqueued)
 
-    out = await _call(
+    out = await call(
         _episode_scope(ad_reference_ctx),
         {"script": "episode_1.json"},
     )
@@ -2778,7 +2757,7 @@ async def test_generate_videos_episode_scope_ad_reference_replan_unit_cannot_reu
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fail_if_enqueued)
 
-    out = await _call(
+    out = await call(
         _episode_scope(ad_reference_ctx),
         {"script": "episode_1.json"},
     )
@@ -2797,7 +2776,7 @@ async def test_generate_videos_selected_scope_ad_reference_regenerates_named_uni
     enqueued: list[Any] = []
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
 
-    out = await _call(
+    out = await call(
         _selected_scope(ad_reference_ctx),
         {"script": "episode_1.json", "scene_ids": ["E1U1"]},
     )
@@ -2902,15 +2881,15 @@ async def test_post_production_video_never_asks_for_the_missing_tts(fake_ctx: To
 
     fake_ctx.pm.project_payload["content_mode"] = "narration"
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_scene_batch)
 
-    out = await _call(
+    out = await call(
         _scene_scope(fake_ctx),
         {"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "post_production"},
     )
 
     assert out.get("is_error") is not True, out
-    result = _generation_result(out)
+    result = read_generation_result(out)
     assert result.succeeded == ["E1S01"]
     assert all(item.problem is None for item in result.items)
 
@@ -2936,8 +2915,8 @@ async def test_generate_videos_rejects_mismatched_unit_script_on_storyboard_rout
         "episode": 1,
         "video_units": [{"unit_id": "E1U1", "text": "x", "duration_seconds": 5}],
     }
-    tool_obj = _videos_tool_for_scope(fake_ctx, scope)
-    out = await _call(tool_obj, args)
+    tool_obj = videos_tool_for_scope(fake_ctx, scope)
+    out = await call(tool_obj, args)
 
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
@@ -2952,7 +2931,7 @@ async def test_generate_videos_episode_scope_rejects_mismatched_storyboard_scrip
 
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
     tool_obj = _episode_scope(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
+    out = await call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     assert "generate_script_plan" in out["content"][0]["text"]

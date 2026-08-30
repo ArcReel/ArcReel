@@ -137,8 +137,10 @@ def build_asset_router(
 
     router = APIRouter()
 
+    # 以下四个处理器由 @router.* 就地注册，模块内无其它引用；basedpyright 把函数作用域内的符号
+    # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @router.post(f"/projects/{{project_name}}/{spec.subdir}")
-    async def add_entry(
+    async def add_entry(  # pyright: ignore[reportUnusedFunction]
         project_name: str,
         req: _CreateRequest,
         _t: Translator,
@@ -206,7 +208,7 @@ def build_asset_router(
             raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     @router.patch(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}")
-    async def update_entry(
+    async def update_entry(  # pyright: ignore[reportUnusedFunction]
         project_name: str,
         entry_name: str,
         req: dict[str, Any],
@@ -268,7 +270,7 @@ def build_asset_router(
             raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     @router.post(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}/rename")
-    async def rename_entry(
+    async def rename_entry(  # pyright: ignore[reportUnusedFunction]
         project_name: str,
         entry_name: str,
         req: _RenameRequest,
@@ -325,7 +327,7 @@ def build_asset_router(
             raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     @router.delete(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}")
-    async def delete_entry(project_name: str, entry_name: str, _t: Translator):
+    async def delete_entry(project_name: str, entry_name: str, _t: Translator):  # pyright: ignore[reportUnusedFunction]
         try:
 
             def _sync():

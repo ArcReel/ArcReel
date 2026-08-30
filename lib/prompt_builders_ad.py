@@ -18,8 +18,8 @@ from lib.prompt_builders_script import (
     _LIGHTING_WRITING_GUIDE,
     _SCENE_WRITING_GUIDE,
     _format_aspect_ratio_desc,
-    _format_duration_constraint,
     _format_names,
+    format_duration_constraint,
 )
 from lib.reference_video.writing_syntax import writing_syntax_spec
 from lib.schema_guards import is_int
@@ -163,7 +163,7 @@ def _shot_duration_constraint(generation_mode: str | None, supported_durations: 
         raise ValueError("reference_video 路径须使用 build_ad_reference_prompt")
     if not supported_durations:
         raise ValueError("storyboard 路径必须提供 supported_durations（视频模型的合法时长集合）")
-    return _format_duration_constraint(supported_durations, None)
+    return format_duration_constraint(supported_durations, None)
 
 
 # ---------------------------------------------------------------------------

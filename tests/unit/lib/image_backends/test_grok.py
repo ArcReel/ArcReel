@@ -26,7 +26,7 @@ def _image_download(url: str, content: bytes) -> Generator[respx.Route]:
 
 
 @pytest.fixture
-def _patch_xai_sdk():
+def patch_xai_sdk():
     """Patch create_grok_client 以免依赖真实 SDK。"""
     mock_client_instance = MagicMock()
     with patch("lib.image_backends.grok.create_grok_client", return_value=mock_client_instance):
@@ -34,14 +34,14 @@ def _patch_xai_sdk():
 
 
 @pytest.fixture
-def grok_backend(_patch_xai_sdk):
+def grok_backend(patch_xai_sdk):
     from lib.image_backends.grok import GrokImageBackend
 
     return GrokImageBackend(api_key="fake-xai-key")
 
 
 @pytest.fixture
-def backend_pro(_patch_xai_sdk):
+def backend_pro(patch_xai_sdk):
     from lib.image_backends.grok import GrokImageBackend
 
     return GrokImageBackend(api_key="fake-xai-key", model="grok-imagine-image-pro")

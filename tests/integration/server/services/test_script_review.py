@@ -110,7 +110,7 @@ def _stub_video_caps(
 
 
 @pytest.fixture(autouse=True)
-def _unresolvable_video_caps(monkeypatch: pytest.MonkeyPatch) -> None:
+def unresolvable_video_caps(monkeypatch: pytest.MonkeyPatch) -> None:
     """本模块默认让能力查询解析不到型号：不碰 DB，也不让系统级默认模型的档位漂进断言。
 
     需要具体档位表的用例用 ``_stub_video_caps`` 就地覆盖。

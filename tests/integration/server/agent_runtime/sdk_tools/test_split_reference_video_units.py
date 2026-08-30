@@ -11,16 +11,16 @@ from server.agent_runtime.sdk_tools.text_generation import (
 from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
-    _call,
-    _derived_reference_names,
-    _fake_caps_resolver,
-    _read_rv_quarantine,
-    _run_rv_split,
-    _rv_generator_returning,
-    _rv_script_plan_path,
-    _rv_source,
-    _rv_unit,
-    _use_fake_caps,
+    call,
+    derived_reference_names,
+    fake_caps_resolver,
+    read_rv_quarantine,
+    run_rv_split,
+    rv_generator_returning,
+    rv_script_plan_path,
+    rv_source,
+    rv_unit,
+    use_fake_caps,
 )
 
 # i2v 桶不可解析：不带图档位随之回退按 r2v 桶求值（``reference_unit_duration_tiers``）。
@@ -49,7 +49,7 @@ async def test_fetch_reference_caps_with_fallback_returns_declared_slots() -> No
     """unit 时长就是发给供应商的那个值，档位原样取自模型声明（不与任何静态区间求交）。"""
     from server import text_generation as mod
 
-    resolver = _fake_caps_resolver(
+    resolver = fake_caps_resolver(
         supported_durations=[1, 8, 16, 18],
         default_duration=16,
         max_reference_images=None,
@@ -73,7 +73,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap() ->
     """
     from server import text_generation as mod
 
-    resolver = _fake_caps_resolver(
+    resolver = fake_caps_resolver(
         provider_id="minimax",
         model="MiniMax-Hailuo-2.3",
         supported_durations=[6, 10],
@@ -91,7 +91,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution() 
     """分辨率联动约束同样收窄 unit 档位：Veo 1080p 下只接受 8 秒。"""
     from server import text_generation as mod
 
-    resolver = _fake_caps_resolver(
+    resolver = fake_caps_resolver(
         provider_id="gemini-aistudio",
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
@@ -131,7 +131,7 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
         project,
         {"provider_id": "p", "model": "m"},
         [4, 6, 8],
-        config_resolver=_fake_caps_resolver(capability_errors=_NO_I2V),
+        config_resolver=fake_caps_resolver(capability_errors=_NO_I2V),
     )
 
     assert with_refs == [4, 6, 8]
@@ -144,7 +144,7 @@ async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket() ->
     须与该桶模型的声明一致，否则会放行 r2v 独有档位、漏掉 i2v 独有档位。"""
     from server.media_tools import context as _context
 
-    resolver = _fake_caps_resolver(
+    resolver = fake_caps_resolver(
         by_capability={
             "i2v": {
                 "provider_id": "ark",
@@ -171,7 +171,7 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
     """
     from server import text_generation as mod
 
-    resolver = _fake_caps_resolver(
+    resolver = fake_caps_resolver(
         provider_id="gemini-aistudio",
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
@@ -194,7 +194,7 @@ async def test_fetch_reference_caps_with_fallback_uses_write_layer_default() -> 
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
     from server import text_generation as mod
 
-    resolver = _fake_caps_resolver(error=ValueError("no provider configured"))
+    resolver = fake_caps_resolver(error=ValueError("no provider configured"))
     caps = await mod._fetch_reference_caps_with_fallback({}, 1, config_resolver=resolver)
     assert caps.default_duration is None
     assert caps.durations == DEFAULT_FALLBACK
@@ -210,7 +210,7 @@ async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_fai
     """
     from server import text_generation as mod
 
-    resolver = _fake_caps_resolver(
+    resolver = fake_caps_resolver(
         error=ValueError("no provider configured"),
         requested_generate_audio=False,
     )
@@ -227,7 +227,7 @@ async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_fail
     """
     from server import text_generation as mod
 
-    resolver = _fake_caps_resolver(
+    resolver = fake_caps_resolver(
         error=ValueError("no provider configured"),
         generate_audio_error=RuntimeError("db unavailable"),
     )
@@ -237,11 +237,11 @@ async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_fail
 
 
 async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext) -> None:
-    _rv_source(fake_ctx)
-    _use_fake_caps(fake_ctx)
+    rv_source(fake_ctx)
+    use_fake_caps(fake_ctx)
 
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1, "dry_run": True})
+    out = await call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
     assert "DRY RUN" in prompt_text
@@ -257,23 +257,23 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
     """happy path：LLM 只写扁平正文，正文逐字落盘，只有 unit_id 由工具机械派生。"""
     from server import text_generation as mod
 
-    _rv_source(fake_ctx)
+    rv_source(fake_ctx)
     captured: dict[str, Any] = {}
     text = "@[张三] 走向 @[村口]\n@[张三] 停下脚步"
-    units = [_rv_unit(text)]
-    _use_fake_caps(fake_ctx)
-    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units, captured))
+    units = [rv_unit(text)]
+    use_fake_caps(fake_ctx)
+    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units, captured))
 
-    out = await _call(generate_script_plan_tool(fake_ctx), {"episode": 1})
+    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is not True, out
 
-    saved = json.loads(_rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     unit = saved["units"][0]
     assert unit["unit_id"] == "E1U01"
     assert unit["text"] == text
     # 参考图不落盘：读侧一律从正文的 @[名称] 派生
     assert "references" not in unit
-    assert _derived_reference_names(fake_ctx, unit["text"]) == ["张三", "村口"]
+    assert derived_reference_names(fake_ctx, unit["text"]) == ["张三", "村口"]
     assert unit["source_text"] == _RV_NOVEL
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
     assert captured["create_project_name"] == "demo"
@@ -282,11 +282,11 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
 
 async def test_split_reference_video_units_numbers_unit_ids_by_order(fake_ctx: ToolContext, monkeypatch) -> None:
     """unit_id 按数组序号机械编号：LLM 不写 id，也就不存在重复 / 错集号可写。"""
-    _rv_source(fake_ctx)
-    units = [_rv_unit("@[张三] 起身"), _rv_unit("@[张三] 出门")]
-    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+    rv_source(fake_ctx)
+    units = [rv_unit("@[张三] 起身"), rv_unit("@[张三] 出门")]
+    out = await run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is not True, out
-    saved = json.loads(_rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert [u["unit_id"] for u in saved["units"]] == ["E1U01", "E1U02"]
 
 
@@ -294,40 +294,38 @@ async def test_split_reference_video_units_derives_dialogue_without_reference_im
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """台词记号的说话人位不进参考图（画外说话的角色附参考图会诱导入画）。"""
-    _rv_source(fake_ctx)
-    units = [_rv_unit("门开了\n@[张三]：{我来了。}")]
-    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+    rv_source(fake_ctx)
+    units = [rv_unit("门开了\n@[张三]：{我来了。}")]
+    out = await run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is not True, out
-    saved = json.loads(_rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
-    assert _derived_reference_names(fake_ctx, saved["units"][0]["text"]) == []
+    saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    assert derived_reference_names(fake_ctx, saved["units"][0]["text"]) == []
 
 
 async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: ToolContext, monkeypatch) -> None:
     """正文引用未登记资产名 → fail-loud，不写盘（资产名引用完整性）。"""
-    _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
+    rv_source(fake_ctx)
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
     assert out.get("is_error") is True
     assert "未登记" in out["content"][0]["text"]
-    assert not _rv_script_plan_path(fake_ctx).exists()
+    assert not rv_script_plan_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_unregistered_speaker(fake_ctx: ToolContext, monkeypatch) -> None:
     """说话人位未登记同样阻断：说话人决定该句台词绑哪段参考音频。"""
-    _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("门开了\n@[无名氏]：{我来了。}")])
+    rv_source(fake_ctx)
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("门开了\n@[无名氏]：{我来了。}")])
     assert out.get("is_error") is True
     assert "说话人未登记" in out["content"][0]["text"]
-    assert not _rv_script_plan_path(fake_ctx).exists()
+    assert not rv_script_plan_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolContext, monkeypatch) -> None:
-    _rv_source(fake_ctx)
-    out = await _run_rv_split(
-        fake_ctx, monkeypatch, [_rv_unit("@[张三] 与 @[李四] 在 @[村口]")], max_reference_images=2
-    )
+    rv_source(fake_ctx)
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 与 @[李四] 在 @[村口]")], max_reference_images=2)
     assert out.get("is_error") is True
     assert "参考图数" in out["content"][0]["text"]
-    assert not _rv_script_plan_path(fake_ctx).exists()
+    assert not rv_script_plan_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_duration_off_reference_tier(
@@ -337,97 +335,97 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
 
     枚举卡的是两套档位的并集，这类越界过得了 schema；不在此拦，执行期才会申请不到。
     """
-    _rv_source(fake_ctx)
+    rv_source(fake_ctx)
     _veo_720p(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身", duration=4)], **_VEO_CAPS)
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 起身", duration=4)], **_VEO_CAPS)
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "生效档位" in text
     assert "[8]" in text
     # 与其余违约类同口径落草稿：档位越界同样是 Agent 改一改草稿就能修好的内容违约
-    assert not _rv_script_plan_path(fake_ctx).exists()
-    assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["duration_off_tier"]
+    assert not rv_script_plan_path(fake_ctx).exists()
+    assert [v["code"] for v in read_rv_quarantine(fake_ctx)["violations"]] == ["duration_off_tier"]
 
 
 async def test_split_reference_video_units_accepts_wide_tier_without_references(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """无 `@` 引用的 unit 不受「参考图↔时长」约束，仍可取更短的档位。"""
-    _rv_source(fake_ctx)
+    rv_source(fake_ctx)
     _veo_720p(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("门被风吹开", duration=4)], **_VEO_CAPS)
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("门被风吹开", duration=4)], **_VEO_CAPS)
     assert out.get("is_error") is not True, out
-    saved = json.loads(_rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["units"][0]["duration_seconds"] == 4
-    assert _derived_reference_names(fake_ctx, saved["units"][0]["text"]) == []
+    assert derived_reference_names(fake_ctx, saved["units"][0]["text"]) == []
 
 
 async def test_split_reference_video_units_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
     """本地校验复用动态 schema：超出 supported_durations 的 unit 时长被拦截，不落盘。"""
-    _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身", duration=5)])
+    rv_source(fake_ctx)
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 起身", duration=5)])
     assert out.get("is_error") is True
     assert "script_plan 拆分内容结构校验失败" in out["content"][0]["text"]
-    assert not _rv_script_plan_path(fake_ctx).exists()
+    assert not rv_script_plan_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolContext, monkeypatch) -> None:
-    _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [])
+    rv_source(fake_ctx)
+    out = await run_rv_split(fake_ctx, monkeypatch, [])
     assert out.get("is_error") is True
-    assert not _rv_script_plan_path(fake_ctx).exists()
+    assert not rv_script_plan_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_non_verbatim_source_text(fake_ctx: ToolContext, monkeypatch) -> None:
     """source_text 非源文逐字子串 → 响亮失败（模型转述 / 杜撰原文）。"""
-    _rv_source(fake_ctx)
-    units = [_rv_unit("@[张三] 起身", source_text="张三在城里等人")]
-    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+    rv_source(fake_ctx)
+    units = [rv_unit("@[张三] 起身", source_text="张三在城里等人")]
+    out = await run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is True
     assert "不是小说原文的逐字片段" in out["content"][0]["text"]
-    assert not _rv_script_plan_path(fake_ctx).exists()
+    assert not rv_script_plan_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_accepts_source_text_substring(fake_ctx: ToolContext, monkeypatch) -> None:
     """锚只需是源文子串：unit 是画面单元，不必覆盖整段原文。"""
-    _rv_source(fake_ctx)
-    units = [_rv_unit("@[张三] 起身", source_text="张三在村口")]
-    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+    rv_source(fake_ctx)
+    units = [rv_unit("@[张三] 起身", source_text="张三在村口")]
+    out = await run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is not True, out
 
 
 async def test_split_reference_video_units_rejects_dialogue_overload(fake_ctx: ToolContext, monkeypatch) -> None:
     """台词量按语速估算超过 unit 时长（宽容系数外）→ 阻断。"""
-    _rv_source(fake_ctx)
+    rv_source(fake_ctx)
     long_line = "这是一段非常长的台词" * 6  # 60 字，zh 语速 5 字/秒 → 约 12 秒
-    units = [_rv_unit(f"@[张三] 起身\n@[张三]：{{{long_line}}}", duration=4)]
-    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+    units = [rv_unit(f"@[张三] 起身\n@[张三]：{{{long_line}}}", duration=4)]
+    out = await run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is True
     assert "超过该 unit" in out["content"][0]["text"]
-    assert not _rv_script_plan_path(fake_ctx).exists()
+    assert not rv_script_plan_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_braces_in_description(fake_ctx: ToolContext, monkeypatch) -> None:
     """画面描述误用花括号保留语法 → 阻断（没被识别成发声记号的花括号须响亮失败）。"""
-    _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 推门，音量 {}，转身离开")])
+    rv_source(fake_ctx)
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 推门，音量 {}，转身离开")])
     assert out.get("is_error") is True
     assert "花括号" in out["content"][0]["text"]
-    assert not _rv_script_plan_path(fake_ctx).exists()
+    assert not rv_script_plan_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> None:
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
 
 
 async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolContext) -> None:
-    _rv_source(fake_ctx)
-    _use_fake_caps(fake_ctx)
+    rv_source(fake_ctx)
+    use_fake_caps(fake_ctx)
 
     tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单 unit 出场人物尽量不超过两人"})
+    out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单 unit 出场人物尽量不超过两人"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
     assert "# 用户意见" in prompt_text
@@ -438,18 +436,18 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """三类声音降级 warning 不阻断落盘，但随产物呈现——否则直到生成后才听得出声音打了折。"""
-    _rv_source(fake_ctx)
-    out = await _run_rv_split(
+    rv_source(fake_ctx)
+    out = await run_rv_split(
         fake_ctx,
         monkeypatch,
-        [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}")],
+        [rv_unit("@[张三] 起身\n@[张三]：{我来了。}")],
         voice_consistency="native",
         max_reference_audio_count=2,
         model="m",
     )
 
     assert out.get("is_error") is not True, out
-    assert _rv_script_plan_path(fake_ctx).exists()
+    assert rv_script_plan_path(fake_ctx).exists()
     text = out["content"][0]["text"]
     assert "降级提示" in text
     assert "未设置参考音频" in text
@@ -459,12 +457,12 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """未引用场景的 unit 逐条指名：地点由模型自由决定，室内外交替的相邻 unit 会对不上。"""
-    _rv_source(fake_ctx)
+    rv_source(fake_ctx)
     fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}
-    out = await _run_rv_split(
+    out = await run_rv_split(
         fake_ctx,
         monkeypatch,
-        [_rv_unit("@[酒馆] 内景，@[张三] 推门。"), _rv_unit("@[张三] 起身。")],
+        [rv_unit("@[酒馆] 内景，@[张三] 推门。"), rv_unit("@[张三] 起身。")],
     )
 
     assert out.get("is_error") is not True, out
@@ -478,12 +476,12 @@ async def test_split_reference_video_units_reports_soft_violations_alongside_the
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """产出即违约的报告同样带软违约段：Agent 修草稿这一轮就该看到降级提示，而非等到晋升。"""
-    _rv_source(fake_ctx)
+    rv_source(fake_ctx)
     fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}
-    out = await _run_rv_split(
+    out = await run_rv_split(
         fake_ctx,
         monkeypatch,
-        [_rv_unit("@[酒馆] 内景，@[张三] 推门。"), _rv_unit("@[不存在的人] 出场")],
+        [rv_unit("@[酒馆] 内景，@[张三] 推门。"), rv_unit("@[不存在的人] 出场")],
     )
 
     assert out.get("is_error") is True
@@ -492,7 +490,7 @@ async def test_split_reference_video_units_reports_soft_violations_alongside_the
     assert "降级提示" in text
     assert "未引用场景" in text
     assert "unit E1U02：" in text
-    assert not _rv_script_plan_path(fake_ctx).exists()
+    assert not rv_script_plan_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(
@@ -503,15 +501,15 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
     开着 ``reference_audio_per_image`` 而不给参考图集合，会把每个说话人都判成「无画面可挂」，
     那条 warning 不在容忍列表内会被丢弃——超出段数上限这类提示反而不见了。
     """
-    _rv_source(fake_ctx)
+    rv_source(fake_ctx)
     fake_ctx.pm.project_payload["characters"] = {
         "张三": {"description": "主角", "reference_audio": "characters/refs_audio/张三.wav"},
         "李四": {"description": "", "reference_audio": "characters/refs_audio/李四.wav"},
     }
-    out = await _run_rv_split(
+    out = await run_rv_split(
         fake_ctx,
         monkeypatch,
-        [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
+        [rv_unit("@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
         voice_consistency="native",
         max_reference_audio_count=1,
         model="m",

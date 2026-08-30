@@ -45,7 +45,7 @@ def _release_body(version: str) -> dict[str, str]:
 
 
 @pytest.fixture(autouse=True)
-def _shared_http_client():
+def shared_http_client():
     """生产由 app lifespan 建共享客户端；这里自己建一个，respx 在 transport 层拦它。"""
     asyncio.run(startup_http_client())
     yield
@@ -53,7 +53,7 @@ def _shared_http_client():
 
 
 @pytest.fixture(autouse=True)
-def _clear_release_cache():
+def clear_release_cache():
     """`_latest_release_cache` 与 `_read_app_version` 的 lru_cache 都是模块级进程内状态。"""
     system_config._latest_release_cache.update({"expires_at": None, "payload": None, "fetched_at": None})
     system_config._read_app_version.cache_clear()

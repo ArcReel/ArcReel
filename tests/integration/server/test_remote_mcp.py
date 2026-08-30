@@ -37,7 +37,7 @@ from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import _call
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import call
 
 
 class _Planner:
@@ -1013,7 +1013,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
                 pm=projects,
                 queue=queue,
             )
-            embedded = asyncio.create_task(_call(generate_episode_script_tool(embedded_ctx), {"episode": 1}))
+            embedded = asyncio.create_task(call(generate_episode_script_tool(embedded_ctx), {"episode": 1}))
             await queue.deduped.wait()
 
             assert not embedded.done()

@@ -468,7 +468,7 @@ def reset_episode_planning(
         )
 
     # 结果只能在锁内（按锁内复扫的实际处置）拼出，用闭包变量带回锁外
-    committed: EpisodeResetResult | None = None
+    committed: list[EpisodeResetResult] = []
     commit_plan: _ResetPlan | None = None
     manifest_expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
     manifest_removals: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
@@ -514,7 +514,6 @@ def reset_episode_planning(
         commit_plan = current
 
     def _commit_side_effects(_project_file: Path) -> None:
-        nonlocal committed
         if commit_plan is None:  # pragma: no cover - update_project calls mutate before on_commit
             raise EpisodeResetError("重置未执行：文件处置计划未生成")
         _assert_source_directory_safe(project_dir)
@@ -540,25 +539,28 @@ def reset_episode_planning(
                 )
             elif recover_unreadable_manifest:
                 ProjectArtifactManifestAdapter(project_dir).replace_unreadable_entries_atomically({})
-        committed = EpisodeResetResult(
-            removed_episodes=commit_plan.episode_nums,
-            deleted_files=deleted,
-            archived_files=archived,
-            consumed_episodes=commit_plan.consumed,
+        committed.append(
+            EpisodeResetResult(
+                removed_episodes=commit_plan.episode_nums,
+                deleted_files=deleted,
+                archived_files=archived,
+                consumed_episodes=commit_plan.consumed,
+            )
         )
 
     pm.update_project(project_name, _commit, on_commit=_commit_side_effects)
-    if committed is None:  # pragma: no cover - update_project 必然调用 mutate_fn
+    if not committed:  # pragma: no cover - update_project 必然调用 mutate_fn
         raise EpisodeResetError("重置未执行：账本更新回调未被调用")
+    result = committed[0]
     logger.info(
         "分集规划已%s重置：项目 %s，清空 %d 集，删除派生文件 %d 个，留底 %d 个",
         "全量" if from_episode == 1 else f"部分（从第 {from_episode} 集起）",
         project_name,
-        len(committed.removed_episodes),
-        len(committed.deleted_files),
-        len(committed.archived_files),
+        len(result.removed_episodes),
+        len(result.deleted_files),
+        len(result.archived_files),
     )
-    return committed
+    return result
 
 
 __all__ = [

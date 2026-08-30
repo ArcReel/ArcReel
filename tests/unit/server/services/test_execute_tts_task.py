@@ -9,7 +9,7 @@ import copy
 import json
 import math
 import re
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -512,10 +512,8 @@ class TestExecuteTtsTask:
         formal.write_bytes(b"paid-old-audio")
         pm.project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json"}]
 
-        @contextmanager
-        def _failed_transaction(*_args, **_kwargs):
+        def _failed_transaction(*_args, **_kwargs) -> AbstractContextManager[object]:
             raise OSError("project snapshot unavailable")
-            yield
 
         monkeypatch.setattr(pm, "locked_episode_script", _failed_transaction)
 

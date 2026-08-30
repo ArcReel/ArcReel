@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 
 import pytest
@@ -283,10 +283,8 @@ def test_selection_guard_failure_still_archives_the_paid_video(tmp_path: Path) -
     currency = _currency("submitted", parent_version=old_version)
     basis = currency.video_descriptor
 
-    @contextmanager
-    def _failed_guard() -> Generator[object]:
+    def _failed_guard() -> AbstractContextManager[object]:
         raise OSError("project snapshot unavailable")
-        yield object()
 
     with pytest.raises(OSError, match="project snapshot unavailable"):
         commit_paid_video_artifact(

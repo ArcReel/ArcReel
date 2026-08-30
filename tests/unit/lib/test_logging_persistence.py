@@ -14,7 +14,7 @@ from lib import logging_config
 
 
 @pytest.fixture(autouse=True)
-def _reset_root_logger():
+def reset_root_logger():
     """每个用例前后清空 root logger handlers，避免污染。
 
     setup_logging() / attach_file_handler() 不止改 root.handlers——还动
@@ -134,9 +134,9 @@ def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
     monkeypatch.delenv("ARCREEL_LOG_DIR", raising=False)
     monkeypatch.setattr(logging_config, "PROJECT_ROOT", project_root)
-    app_data_dir_mod._reset_for_tests()
+    app_data_dir_mod.reset_for_tests()
     yield tmp_path
-    app_data_dir_mod._reset_for_tests()
+    app_data_dir_mod.reset_for_tests()
 
 
 def test_resolve_log_dir_default_is_project_root(isolated_data_dir: Path) -> None:
@@ -276,7 +276,7 @@ def test_migrate_noop_when_paths_equal(tmp_path: Path, monkeypatch: pytest.Monke
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("ARCREEL_LOG_DIR", raising=False)
     monkeypatch.setattr(logging_config, "PROJECT_ROOT", tmp_path)
-    app_data_dir_mod._reset_for_tests()
+    app_data_dir_mod.reset_for_tests()
     try:
         logs = tmp_path / "logs"
         logs.mkdir()
@@ -286,7 +286,7 @@ def test_migrate_noop_when_paths_equal(tmp_path: Path, monkeypatch: pytest.Monke
 
         assert (logs / "arcreel.log").read_text(encoding="utf-8") == "hi\n"
     finally:
-        app_data_dir_mod._reset_for_tests()
+        app_data_dir_mod.reset_for_tests()
 
 
 def test_migrate_falls_back_to_copy_on_exdev(isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:

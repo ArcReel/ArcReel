@@ -1,14 +1,14 @@
 """Tests for projects_ad_creation."""
 
 from tests.integration.server.routers.projects_router_support import (
-    _client,
     _FakePM,
+    build_projects_client,
 )
 
 
 class TestProjectsRouter:
     def test_create_ad_project(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             # 默认档位：不传 target_duration → 60；brief 可空；episodes 恒单条；无 default_duration
             created = client.post(
@@ -45,7 +45,7 @@ class TestProjectsRouter:
             assert custom.json()["project"]["brief"] == "卖点"
 
     def test_create_ad_project_rejects_incompatible_fields(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             # ad 不暴露 default_duration
             with_default = client.post(
@@ -99,7 +99,7 @@ class TestProjectsRouter:
 
     def test_patch_ad_project_fields(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             ignored_mode = client.patch(
                 "/api/v1/projects/ready",

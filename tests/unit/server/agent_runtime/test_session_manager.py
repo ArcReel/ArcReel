@@ -12,7 +12,7 @@ from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionRead
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession, SessionBusyError
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeSDKClient
+from tests.fakes import FakeSDKClient, empty_sdk_response_stream
 
 
 class _FakeOptions:
@@ -48,9 +48,8 @@ class _FakeClaudeClient:
     async def interrupt(self):
         pass
 
-    async def receive_response(self):
-        if False:
-            yield None
+    def receive_response(self):
+        return empty_sdk_response_stream()
 
 
 def _dummy_actor() -> SessionActor:
@@ -1222,9 +1221,8 @@ async def test_send_query_raises_on_cmd_error():
         async def interrupt(self):
             pass
 
-        async def receive_response(self):
-            if False:
-                yield {}
+        def receive_response(self):
+            return empty_sdk_response_stream()
 
     actor = SessionActor(client_factory=lambda: _Explode(), on_message=lambda m: None)
     managed = ManagedSession(session_id="t", actor=actor, status="idle", project_name="p")

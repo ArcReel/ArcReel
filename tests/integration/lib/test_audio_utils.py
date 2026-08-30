@@ -16,10 +16,10 @@ from tests.factories import make_test_video_with_audio_tail, wav_bytes
 
 
 @pytest.fixture(autouse=True)
-def _reset_ffprobe_cache():
-    audio_utils_module._reset_for_tests()
+def reset_ffprobe_cache():
+    audio_utils_module.reset_for_tests()
     yield
-    audio_utils_module._reset_for_tests()
+    audio_utils_module.reset_for_tests()
 
 
 def _video_only_mp4_bytes(duration_seconds: float = 1.0) -> bytes:

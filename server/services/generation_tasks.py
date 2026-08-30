@@ -114,7 +114,6 @@ from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
     get_storyboard_items,
-    group_scenes_by_segment_break,
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
@@ -1847,7 +1846,8 @@ async def execute_tts_task(
 
     audio_rel = resource_relative_path("audio", resource_id)
     duration_seconds: float | None = None
-    tts_selection_error: BaseException | None = None
+    # 选片依据的解析失败在回调里发生、在外层消费，用单元素信箱传递而非 nonlocal 哨兵。
+    tts_selection_errors: list[BaseException] = []
     tts_settings_bridge = EventLoopBridge.capture()
     selected_current = True
     missing_narration_audio = object()
@@ -1859,19 +1859,19 @@ async def execute_tts_task(
         pass
 
     async def _measure_staged(staged_path: Path) -> None:
-        nonlocal duration_seconds, tts_selection_error
+        nonlocal duration_seconds
         try:
             measured_duration = await probe_existing_audio_duration_seconds(staged_path)
         except (Exception, asyncio.CancelledError) as exc:
-            tts_selection_error = exc
+            tts_selection_errors.append(exc)
             return
         if measured_duration is None or not math.isfinite(measured_duration) or measured_duration <= 0:
-            tts_selection_error = RuntimeError("generated narration audio duration is unavailable")
+            tts_selection_errors.append(RuntimeError("generated narration audio duration is unavailable"))
             return
         duration_seconds = float(measured_duration)
 
     def _commit_staged(staged_path: Path, output_path: Path) -> int | PaidVersionCommit:
-        nonlocal prior_narration_audio, selected_current, tts_selection_error
+        nonlocal prior_narration_audio, selected_current
         if script_file is None or preparation is None or episode is None or basis is None:
             selected_current = False
             return generator.versions.commit_staged_paid_version(
@@ -1893,9 +1893,9 @@ async def execute_tts_task(
         committed_episode = episode
         committed_basis = basis
         pm = get_project_manager()
-        committed_outcome: PaidVersionCommit | None = None
+        committed_outcome: list[PaidVersionCommit] = []
         should_select = False
-        guarded_project: dict[str, Any] | None = None
+        guarded_project: list[dict[str, Any]] = []
 
         version_metadata = {
             "tts_provider_id": settings.provider_id,
@@ -1920,10 +1920,10 @@ async def execute_tts_task(
                 **version_metadata,
             )
 
-        if tts_selection_error is not None:
-            committed_outcome = _archive_paid_history()
+        if tts_selection_errors:
+            committed_outcome.append(_archive_paid_history())
             selected_current = False
-            return committed_outcome
+            return committed_outcome[-1]
 
         def _register_basis() -> None:
             register_narration_audio_transactionally(
@@ -1934,27 +1934,28 @@ async def execute_tts_task(
             )
 
         def _activate(_script_path: Path) -> None:
-            nonlocal committed_outcome, prior_manifest_captured, prior_manifest_entry
+            nonlocal prior_manifest_captured, prior_manifest_entry
             if should_select:
                 manifest_adapter = ProjectArtifactManifestAdapter(project_path)
                 prior_manifest_entry = manifest_adapter.get_entry(
                     ArtifactKey.episode_audio(committed_episode, resource_id)
                 )
                 prior_manifest_captured = True
-            committed_outcome = generator.versions.commit_staged_paid_version(
-                resource_type="audio",
-                resource_id=resource_id,
-                prompt=text,
-                staged_file=staged_path,
-                current_file=output_path,
-                select_current=lambda: should_select,
-                on_select=_register_basis,
-                **version_metadata,
+            committed_outcome.append(
+                generator.versions.commit_staged_paid_version(
+                    resource_type="audio",
+                    resource_id=resource_id,
+                    prompt=text,
+                    staged_file=staged_path,
+                    current_file=output_path,
+                    select_current=lambda: should_select,
+                    on_select=_register_basis,
+                    **version_metadata,
+                )
             )
 
         def _same_script(_project: dict) -> str:
-            nonlocal guarded_project
-            guarded_project = _project
+            guarded_project.append(_project)
             current_binding = resolve_episode_script_binding(_project, committed_episode, str(script_file))
             if current_binding is None:
                 raise EpisodeScriptReboundError(f"episode {committed_episode} script binding changed before TTS commit")
@@ -1967,7 +1968,7 @@ async def execute_tts_task(
                 validate=False,
                 on_commit=_activate,
             ) as current_script:
-                if guarded_project is None:
+                if not guarded_project:
                     raise RuntimeError("TTS commit guard did not expose the current project")
                 try:
                     current_commit_settings = tts_settings_bridge.run(
@@ -1976,10 +1977,10 @@ async def execute_tts_task(
                             user_id=user_id,
                             project_path=project_path,
                             context_resolver=resolve_generation_context,
-                        ).resolve_tts_synthesis_settings(guarded_project)
+                        ).resolve_tts_synthesis_settings(guarded_project[-1])
                     )
                 except (Exception, asyncio.CancelledError) as exc:
-                    tts_selection_error = exc
+                    tts_selection_errors.append(exc)
                     raise _TtsSelectionResolutionFailed from exc
                 items, id_field, current_kind = _resolve_tts_task_items(
                     current_script,
@@ -1994,7 +1995,7 @@ async def execute_tts_task(
                     None,
                 )
                 current_basis = None
-                if tts_selection_error is None and item is not None:
+                if not tts_selection_errors and item is not None:
                     current_admission = admit_script_unit(current_kind, item)
                     try:
                         current_basis = build_narration_audio_basis(
@@ -2020,7 +2021,7 @@ async def execute_tts_task(
                     assets["narration_audio"] = audio_rel
                     pm.update_scene_status(item)
         except (EpisodeScriptReboundError, _TtsSelectionResolutionFailed):
-            committed_outcome = _archive_paid_history()
+            committed_outcome.append(_archive_paid_history())
         except BaseException as failure:
             if staged_path.is_file():
                 try:
@@ -2029,8 +2030,10 @@ async def execute_tts_task(
                     failure.add_note(f"paid TTS history archival also failed: {archive_failure}")
             raise
 
-        selected_current = committed_outcome.selected
-        return committed_outcome
+        if not committed_outcome:
+            raise RuntimeError("paid TTS commit produced no version record")
+        selected_current = committed_outcome[-1].selected
+        return committed_outcome[-1]
 
     async def _before_submit() -> None:
         await asyncio.to_thread(
@@ -2054,8 +2057,8 @@ async def execute_tts_task(
         tts_basis_digest=basis.digest if basis is not None else None,
     )
 
-    if tts_selection_error is not None:
-        raise tts_selection_error
+    if tts_selection_errors:
+        raise tts_selection_errors[-1]
 
     version_record: dict[str, Any] | None = None
     try:
@@ -2996,14 +2999,6 @@ async def execute_product_task(
     task_id: str | None = None,
 ) -> dict[str, Any]:
     return await execute_design_task("product", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
-
-
-def _group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:
-    """Groups consecutive scene dicts, breaking at segment_break=True.
-
-    Delegates to :func:`lib.storyboard_sequence.group_scenes_by_segment_break`.
-    """
-    return group_scenes_by_segment_break(items, id_field)
 
 
 def _collect_grid_reference_images(

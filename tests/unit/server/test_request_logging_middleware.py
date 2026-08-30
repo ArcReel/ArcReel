@@ -21,16 +21,18 @@ def _build_app_with_ok_routes() -> FastAPI:
     app = FastAPI()
     app.middleware("http")(request_logging_middleware)
 
+    # 以下路由桩由装饰器就地注册，函数体内无其它引用；basedpyright 把函数作用域内的符号一律
+    # 判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @app.get("/api/v1/tasks")
-    async def _tasks() -> dict:
+    async def _tasks() -> dict:  # pyright: ignore[reportUnusedFunction]
         return {"tasks": []}
 
     @app.get("/api/v1/tasks/stats")
-    async def _tasks_stats() -> dict:
+    async def _tasks_stats() -> dict:  # pyright: ignore[reportUnusedFunction]
         return {"stats": {}}
 
     @app.get("/api/v1/projects")
-    async def _projects() -> dict:
+    async def _projects() -> dict:  # pyright: ignore[reportUnusedFunction]
         return {"projects": []}
 
     return app
@@ -59,8 +61,10 @@ async def test_quiet_endpoint_5xx_still_info(caplog: pytest.LogCaptureFixture) -
     app = FastAPI()
     app.middleware("http")(request_logging_middleware)
 
+    # 以下路由桩由装饰器就地注册，函数体内无其它引用；basedpyright 把函数作用域内的符号一律
+    # 判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @app.get("/api/v1/tasks")
-    async def _tasks_error() -> dict:
+    async def _tasks_error() -> dict:  # pyright: ignore[reportUnusedFunction]
         raise HTTPException(status_code=500, detail="boom")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

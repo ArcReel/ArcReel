@@ -433,7 +433,7 @@ class _FakeSummaries:
         )
 
 
-def _client(monkeypatch, fake_pm, fake_summaries=None):
+def build_projects_client(monkeypatch, fake_pm, fake_summaries=None):
     monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
 
     app = FastAPI()
@@ -448,6 +448,6 @@ def _client(monkeypatch, fake_pm, fake_summaries=None):
     return TestClient(app)
 
 
-def _override(client: TestClient, dependency: Callable[..., Any], provider: Callable[..., Any]) -> None:
-    """给 ``_client`` 建好的 app 补挂依赖覆盖（``TestClient.app`` 的静态类型只是裸 ASGI 可调用）。"""
+def override(client: TestClient, dependency: Callable[..., Any], provider: Callable[..., Any]) -> None:
+    """给 ``build_projects_client`` 建好的 app 补挂依赖覆盖（``TestClient.app`` 的静态类型只是裸 ASGI 可调用）。"""
     cast(FastAPI, client.app).dependency_overrides[dependency] = provider

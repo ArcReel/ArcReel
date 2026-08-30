@@ -238,9 +238,6 @@ def get_shared_rate_limiter(
     - request_gap：最小请求间隔（None 时从环境变量 GEMINI_REQUEST_GAP 读取，默认 3.1）
     """
     global _shared_rate_limiter
-    if _shared_rate_limiter is not None:
-        return _shared_rate_limiter
-
     with _shared_rate_limiter_lock:
         if _shared_rate_limiter is not None:
             return _shared_rate_limiter

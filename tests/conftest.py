@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 # 所以覆写必须发生在下方任何会传染到该模块的 import 之前。未显式指定时它落在仓库根的
 # `projects/.arcreel.db`：一份文件被 xdist 的多个 worker 共用，且 schema 只由某个先跑到
 # 的用例顺带建出——用例间因此存在隐式顺序依赖。钉到本进程独占的临时库上，schema 由
-# `_shared_db_schema` 显式建立。DATABASE_URL 已由外部给定（postgres-compat job、
+# `shared_db_schema` 显式建立。DATABASE_URL 已由外部给定（postgres-compat job、
 # 逐个用例 monkeypatch 的 alembic 用例）时不介入。
 #
 # xdist 的 worker 从 controller 继承 environ，会连这里写下的 URL 一起带过去；
@@ -44,19 +44,19 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
-def _reset_app_data_dir_cache():
+def reset_app_data_dir_cache():
     """``app_data_dir()`` uses ``functools.cache`` for production; reset it between
     tests so per-test monkeypatching of ARCREEL_DATA_DIR / AI_ANIME_PROJECTS takes
     effect immediately."""
-    from lib.app_data_dir import _reset_for_tests
+    from lib.app_data_dir import reset_for_tests
 
-    _reset_for_tests()
+    reset_for_tests()
     yield
-    _reset_for_tests()
+    reset_for_tests()
 
 
 @pytest.fixture(autouse=True)
-def _stub_sandbox_check(monkeypatch, request):
+def stub_sandbox_check(monkeypatch, request):
     """Mock ``check_sandbox_available`` 返回 True，避免测试机不满足真实 bwrap probe。
 
     GitHub Actions Ubuntu 24.04 runner 上 ``apparmor_restrict_unprivileged_userns=1``
@@ -72,7 +72,7 @@ def _stub_sandbox_check(monkeypatch, request):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _profile_env(tmp_path_factory):
+def profile_env(tmp_path_factory):
     """Provide one minimal runtime profile per pytest worker.
 
     Tests exercising another profile location set ``ARCREEL_PROFILE_DIR`` explicitly.
@@ -119,7 +119,7 @@ def fd_count():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _shared_db_schema():
+def shared_db_schema():
     """把模块级 engine 所指的库迁到 head，使任何用例都能直接用它。
 
     只对本 conftest 自建的临时库执行：外部给定 DATABASE_URL 时（postgres-compat job）
@@ -218,8 +218,10 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
     else:
         engine = create_async_engine(f"sqlite+aiosqlite:///{file_path}", poolclass=pool.NullPool)
 
+        # 由 SQLAlchemy 的 event.listens_for 注册，模块内无其它引用；basedpyright 把函数作用域内的
+        # 符号一律判为私有，本处的 reportUnusedFunction 是工具误报。
         @event.listens_for(engine.sync_engine, "connect")
-        def _set_sqlite_pragma(dbapi_conn, _record):
+        def _set_sqlite_pragma(dbapi_conn, _record):  # pyright: ignore[reportUnusedFunction]
             cursor = dbapi_conn.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA busy_timeout=30000")
