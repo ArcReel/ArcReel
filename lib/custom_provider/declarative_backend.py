@@ -33,6 +33,7 @@ from lib.custom_provider.endpoint_definition import (
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.logging_utils import format_kwargs_for_log
 from lib.retry import retry_async
+from lib.validation_messages import ValidationMessage
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     ProviderJobIdPersistenceMixin,
@@ -162,10 +163,14 @@ def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any])
 class DeclarativeRuntimeError(RuntimeError):
     """声明式定义执行失败，携带可持久化、本地化的稳定错误码。"""
 
-    def __init__(self, code: str, *, detail: str) -> None:
+    def __init__(self, code: str, *, detail: str | ValidationMessage) -> None:
         self.code = code
-        self.params = {"detail": detail}
-        super().__init__(detail)
+        self.params = {
+            "detail": {"key": detail.key, "params": dict(detail.params)}
+            if isinstance(detail, ValidationMessage)
+            else detail
+        }
+        super().__init__(detail.key if isinstance(detail, ValidationMessage) else detail)
 
 
 @dataclass(frozen=True)
@@ -330,7 +335,9 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 encoded,
                 self._definition.get("defaults"),
             )
-        except (OSError, TemplateRenderError) as exc:
+        except TemplateRenderError as exc:
+            raise DeclarativeRuntimeError("declarative_template_render_failed", detail=exc.message) from exc
+        except OSError as exc:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=str(exc)) from exc
 
     @staticmethod
@@ -356,7 +363,9 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 enum_maps=self._definition.get("enum_maps"),
                 auth=self._definition.get("auth"),
             )
-        except (KeyError, TypeError, ValueError, TemplateRenderError) as exc:
+        except TemplateRenderError as exc:
+            raise DeclarativeRuntimeError("declarative_template_render_failed", detail=exc.message) from exc
+        except (KeyError, TypeError, ValueError) as exc:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=str(exc)) from exc
 
     def _endpoint_origin(

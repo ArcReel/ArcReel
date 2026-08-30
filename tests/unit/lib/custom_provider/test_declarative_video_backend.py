@@ -709,6 +709,27 @@ class TestDeclarativeVideoBackend:
         assert caught.value.code == "declarative_template_render_failed"
         assert submit.call_count == 0
 
+    async def test_template_failure_keeps_its_detail_locale_neutral(self, tmp_path: Path):
+        definition = _definition()
+        definition["enum_maps"] = {"duration": {"10": 10}}
+
+        with capture_http() as router:
+            submit = router.post("https://relay.test/v1/video/create")
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=definition,
+                    provider="custom-1",
+                ).generate(_request(tmp_path))
+
+        assert caught.value.params["detail"] == {
+            "key": "val_ce_enum_map_value_missing",
+            "params": {"name": "duration", "value": "5"},
+        }
+        assert submit.call_count == 0
+
     async def test_non_json_success_response_is_recorded(self, tmp_path: Path):
         """2xx 却不是 JSON（网关 HTML 错误页、被截断的响应）时，原文也要留痕。"""
         recorded: list[object] = []

@@ -185,6 +185,11 @@ MESSAGES = {
     "val_ce_invalid_enum_value": "取值不在允许范围内，可选：{allowed}",
     "val_ce_invalid_value": "取值不符合格式约定：{detail}",
     "val_ce_schema_violation": "不符合定义格式：{detail}",
+    "val_ce_schema_minimum_constraint": "允许的最小值或数量：{limit}",
+    "val_ce_schema_maximum_constraint": "允许的最大值或数量：{limit}",
+    "val_ce_schema_format_constraint": "不符合要求的格式：{constraint}",
+    "val_ce_schema_forbidden_constraint": "取值落入了禁止范围",
+    "val_ce_schema_generic_constraint": "未满足定义约束（{keyword}）",
     "val_ce_removed_reason_request_query": "静态与动态 query 都写进 url 模板，凭证 query 归 auth.query",
     "val_ce_removed_reason_status_codes": "HTTP 码策略归运行时：2xx 成功、429 与 5xx 重试、其余失败",
     "val_ce_removed_reason_polling_policy": "轮询间隔与超时是运行时策略，不进定义",
@@ -238,6 +243,11 @@ MESSAGES = {
     "val_ce_jsonpath_syntax": "取值路径语法错误（第 {position} 个字符）：{path_expression}",
     "val_ce_template_render_failed": "请求模板渲染失败：{detail}",
     "val_ce_auth_literal_credential": "该值疑似直接填写了真实密钥：请改用 api_key 占位符引用凭证，否则导出或分享定义时会泄露该密钥",
+    "val_ce_template_url_not_string": "URL 模板必须渲染为字符串",
+    "val_ce_unknown_asset_encoding": "未知素材编码：{encoding}",
+    "val_ce_enum_map_value_missing": "enum_maps.{name} 缺少 '{value}' 的映射",
+    "val_ce_template_text_variable_null": "变量 {name} 为空，不能嵌入混合文本",
+    "val_ce_each_value_not_list": "$each.in 指向的 {name} 在运行时不是列表",
     "val_ce_poll_without_task_id": "轮询请求没有引用 task_id，请确认这是有意的",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} 含通配：对象通配只取首个，键序在前端预览与后端执行之间可能不同"

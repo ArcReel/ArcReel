@@ -87,6 +87,11 @@ class DefinitionErrorCode(StrEnum):
 
     # ---- 渲染期（端点测试按同一份诊断结构下发）----
     TEMPLATE_RENDER_FAILED = "template_render_failed"
+    TEMPLATE_URL_NOT_STRING = "template_url_not_string"
+    UNKNOWN_ASSET_ENCODING = "unknown_asset_encoding"
+    ENUM_MAP_VALUE_MISSING = "enum_map_value_missing"
+    TEMPLATE_TEXT_VARIABLE_NULL = "template_text_variable_null"
+    EACH_VALUE_NOT_LIST = "each_value_not_list"
 
     # ---- warning ----
     POLL_WITHOUT_TASK_ID = "poll_without_task_id"

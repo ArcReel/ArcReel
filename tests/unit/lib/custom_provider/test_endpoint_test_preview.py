@@ -14,6 +14,7 @@ from lib.custom_provider.endpoint_test import (
     parse_response_body,
     preview_request,
 )
+from lib.i18n import _
 from tests.factories import custom_endpoint_definition
 from tests.http_capture import capture_http
 
@@ -141,7 +142,10 @@ class TestPreviewRequest:
 
         issue = exc_info.value.diagnostics.errors[0]
         assert issue.path == "submit"
-        assert issue.code.value == "template_render_failed"
+        assert issue.code.value == "enum_map_value_missing"
+        assert issue.to_payload(lambda key, **params: _(key, locale="en", **params))["message"] == (
+            "enum_maps.duration has no entry for '5'"
+        )
 
 
 class TestCheckResponse:

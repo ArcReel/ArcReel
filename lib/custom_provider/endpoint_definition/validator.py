@@ -21,7 +21,7 @@ from urllib.parse import parse_qsl
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
-from lib.validation_messages import MessageRef
+from lib.validation_messages import MessageRef, ValidationMessage
 from lib.video_backends.base import ProviderJobStatus, ReferenceAudioMode, audio_capability_pair_is_coherent
 
 from .errors import ROOT_PATH, DefinitionDiagnostics, DefinitionErrorCode, DefinitionIssue, join_path
@@ -149,6 +149,10 @@ _VALUE_SHAPE_KEYWORDS = frozenset(
     {"pattern", "format", "minLength", "maxLength", "minimum", "maximum", "minItems", "minProperties", "propertyNames"}
 )
 
+_MINIMUM_KEYWORDS = frozenset({"minLength", "minimum", "minItems", "minProperties"})
+_MAXIMUM_KEYWORDS = frozenset({"maxLength", "maximum"})
+_FORMAT_KEYWORDS = frozenset({"pattern", "format", "propertyNames"})
+
 
 @cache
 def load_schema() -> dict[str, Any]:
@@ -230,9 +234,31 @@ def _translate_schema_error(error: ValidationError) -> Iterator[DefinitionIssue]
         )
         return
     if keyword in _VALUE_SHAPE_KEYWORDS:
-        yield DefinitionIssue(path, DefinitionErrorCode.INVALID_VALUE, {"detail": error.message})
+        yield DefinitionIssue(
+            path,
+            DefinitionErrorCode.INVALID_VALUE,
+            {"detail": _schema_detail(error)},
+        )
         return
-    yield DefinitionIssue(path, DefinitionErrorCode.SCHEMA_VIOLATION, {"detail": error.message})
+    yield DefinitionIssue(
+        path,
+        DefinitionErrorCode.SCHEMA_VIOLATION,
+        {"detail": _schema_detail(error)},
+    )
+
+
+def _schema_detail(error: ValidationError) -> ValidationMessage:
+    """把 jsonschema 的英文散文收成少量 locale-neutral 约束模板。"""
+    keyword = str(error.validator)
+    if keyword in _MINIMUM_KEYWORDS:
+        return ValidationMessage("val_ce_schema_minimum_constraint", {"limit": error.validator_value})
+    if keyword in _MAXIMUM_KEYWORDS:
+        return ValidationMessage("val_ce_schema_maximum_constraint", {"limit": error.validator_value})
+    if keyword in _FORMAT_KEYWORDS:
+        return ValidationMessage("val_ce_schema_format_constraint", {"constraint": error.validator_value})
+    if keyword == "not":
+        return ValidationMessage("val_ce_schema_forbidden_constraint")
+    return ValidationMessage("val_ce_schema_generic_constraint", {"keyword": keyword})
 
 
 def _missing_field_issues(error: ValidationError, path: str) -> Iterator[DefinitionIssue]:

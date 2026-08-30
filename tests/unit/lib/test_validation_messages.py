@@ -33,6 +33,13 @@ class TestValidationMessage:
         assert "角色" in message.render()
         assert "角色" not in message.render(_translator("en"))
 
+    def test_validation_message_param_is_rendered_in_the_same_locale(self):
+        detail = ValidationMessage("val_ce_schema_minimum_constraint", {"limit": 1})
+        message = ValidationMessage("val_ce_invalid_value", {"detail": detail})
+
+        assert message.render(_translator("en")) == "Value does not match the format: Minimum allowed: 1"
+        assert message.render(_translator("zh")) == "取值不符合格式约定：允许的最小值或数量：1"
+
     def test_message_join_renders_fragments_with_separator(self):
         message = ValidationMessage(
             "val_missing_field",

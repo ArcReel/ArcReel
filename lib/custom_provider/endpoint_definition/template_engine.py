@@ -11,6 +11,9 @@ from typing import Any
 from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 from lib.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
+from lib.validation_messages import ValidationMessage
+
+from .errors import DefinitionErrorCode, message_key
 
 _PLACEHOLDER = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*}}")
 _WHOLE_PLACEHOLDER = re.compile(r"^\s*{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*}}\s*$")
@@ -19,6 +22,11 @@ _DROP = object()
 
 class TemplateRenderError(ValueError):
     """模板无法在给定上下文中安全渲染。"""
+
+    def __init__(self, code: DefinitionErrorCode, **params: object) -> None:
+        self.code = code
+        self.message = ValidationMessage(message_key(code), params)
+        super().__init__(code.value)
 
 
 @dataclass(frozen=True)
@@ -99,7 +107,7 @@ def render_request(
     maps = enum_maps or {}
     url = _render_string(request["url"], context, maps)
     if not isinstance(url, str):
-        raise TemplateRenderError("URL 模板必须渲染为字符串")
+        raise TemplateRenderError(DefinitionErrorCode.TEMPLATE_URL_NOT_STRING)
 
     auth = auth or {}
     auth_header_names = {name.lower() for name in auth.get("headers", {})}
@@ -131,14 +139,14 @@ def _encode_asset(asset: AssetData, encoding: str) -> str:
         return payload
     if encoding == "data_uri":
         return f"data:{asset.mime_type};base64,{payload}"
-    raise TemplateRenderError(f"未知素材编码：{encoding}")
+    raise TemplateRenderError(DefinitionErrorCode.UNKNOWN_ASSET_ENCODING, encoding=encoding)
 
 
 def _lookup(context: Mapping[str, object], name: str) -> object:
     current: object = context
     for part in name.split("."):
         if not isinstance(current, Mapping) or part not in current:
-            raise TemplateRenderError(f"占位符引用了未声明的变量：{name}")
+            raise TemplateRenderError(DefinitionErrorCode.UNDECLARED_VARIABLE, name=name)
         current = current[part]
     return current
 
@@ -159,7 +167,7 @@ def _resolve(
     mapping = enum_maps[name]
     key = enum_map_key(value)
     if key not in mapping:
-        raise TemplateRenderError(f"enum_maps.{name} 缺少 {key!r}")
+        raise TemplateRenderError(DefinitionErrorCode.ENUM_MAP_VALUE_MISSING, name=name, value=key)
     return mapping[key]
 
 
@@ -186,7 +194,7 @@ def _render_string(
     def replace(match: re.Match[str]) -> str:
         value = _resolve(match.group(1), context, enum_maps)
         if value is None:
-            raise TemplateRenderError(f"混合文本中的变量为空：{match.group(1)}")
+            raise TemplateRenderError(DefinitionErrorCode.TEMPLATE_TEXT_VARIABLE_NULL, name=match.group(1))
         return _stringify(value)
 
     return _PLACEHOLDER.sub(replace, template)
@@ -254,7 +262,7 @@ def _each_values(directive: Mapping[str, Any], context: Mapping[str, object]) ->
     if values is None:
         return ()
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-        raise TemplateRenderError(f"$each.in 不是列表：{directive['in']}")
+        raise TemplateRenderError(DefinitionErrorCode.EACH_VALUE_NOT_LIST, name=directive["in"])
     return values
 
 
@@ -285,7 +293,7 @@ def _append_auth_query(url: str, auth_query: Mapping[str, str]) -> str:
     existing = {name for name, _ in parse_qsl(parts.query, keep_blank_values=True)}
     overlap = existing & auth_query.keys()
     if overlap:
-        raise TemplateRenderError(f"URL 与 auth.query 重复参数：{sorted(overlap)[0]}")
+        raise TemplateRenderError(DefinitionErrorCode.AUTH_QUERY_CONFLICT, param=sorted(overlap)[0])
     appended = [f"{quote(name, safe='')}={quote(value, safe='')}" for name, value in auth_query.items()]
     query = "&".join([parts.query, *appended]) if parts.query else "&".join(appended)
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))

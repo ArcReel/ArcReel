@@ -70,6 +70,22 @@ class TestRenderKnownCodes:
         assert "HTTP 404 job gone" in zh
         assert "HTTP 404 job gone" in en
 
+    def test_locale_neutral_detail_is_rendered_with_the_outer_failure_locale(self):
+        encoded = encode_failure(
+            "declarative_template_render_failed",
+            detail={"key": "val_ce_enum_map_value_missing", "params": {"name": "duration", "value": "5"}},
+        )
+
+        assert render_failure(encoded, _translator("en")) == (
+            "Endpoint request rendering failed: enum_maps.duration has no entry for '5'"
+        )
+        assert render_failure(encoded, _translator("zh")) == (
+            "调用端点请求渲染失败：enum_maps.duration 缺少 '5' 的映射"
+        )
+        assert render_failure(encoded, _translator("vi")) == (
+            "Không thể kết xuất yêu cầu endpoint: enum_maps.duration không có ánh xạ cho '5'"
+        )
+
 
 class TestCascadeBlockedDependency:
     def test_renders_nested_structured_reason(self):
