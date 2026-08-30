@@ -213,10 +213,10 @@ class TestGenerate:
 
         from lib.script_models import (
             AdReferenceFlatScript,
-            ReferenceStep2FlatScript,
+            ReferencePromptAuthoringFlatScript,
             build_drama_normalized_script_model,
             build_episode_script_model,
-            build_reference_units_step1_model,
+            build_reference_units_script_plan_model,
         )
 
         schemas = [
@@ -228,11 +228,11 @@ class TestGenerate:
             AdReferenceFlatScript,
             build_drama_normalized_script_model([4, 6, 8]),
             build_drama_normalized_script_model([8]),
-            build_reference_units_step1_model([4, 6, 8]),
+            build_reference_units_script_plan_model([4, 6, 8]),
             # 单值档位渲染为 const，与多值 enum 走不同归一路径
-            build_reference_units_step1_model([8]),
-            # step2 的实际 response_schema（静态，无枚举收窄）同样过这条通道
-            ReferenceStep2FlatScript,
+            build_reference_units_script_plan_model([8]),
+            # prompt_authoring 的实际 response_schema（静态，无枚举收窄）同样过这条通道
+            ReferencePromptAuthoringFlatScript,
         ]
         assert schemas, "schema 清单为空时下面的循环形同虚设"
         for schema in schemas:

@@ -25,7 +25,7 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 - **无 sandbox 回退**（Windows，或 Linux bwrap 探测失败）：内核级堵法不可用，回退到 `_check_write_access` deny（Write/Edit，全平台生效）+ 现有 `_WINDOWS_BASH_PREFIX_WHITELIST`（只放行 `python .claude/skills/`、ffmpeg、ffprobe，任意 `echo>`/`sed`/`python -c` 本就不在白名单）。已复核：删除 `add_assets.py` 后，白名单放行的 `python .claude/skills/` 脚本中无一写 `scripts/*.json`/`project.json`（split 写 `source/`、compose 写视频输出、peek 只读），故无沙箱回退无需额外特殊防御。
 - **denyWrite 内核级生效的实测**：`denyWrite` 走与 `denyRead` 相同的 `filesystem` passthrough（后者已在生产用于保护 `.env` 等，机制可信）。其对 Bash 子进程的内核级写拒绝是 SDK 文档承诺的同字段行为；落地后建议做一次 live smoke test（sandbox 启用时在 Bash 工具内 `echo > scripts/x.json` 应被内核拒、而 MCP 工具写盘正常）以翻 `accepted`。
 - **编辑不删除已有媒体，也不改写 `generated_assets`**。改 prompt 后旧媒体由显式重新生成替换；结构 remove 只移除剧本引用，项目内已有文件继续保留。split 的同 id 锚点延续旧资产，新派生 id 清空资产。Manifest currency 在读时由 basis 比较推导，不把 stale 状态写进剧本。
-- **structured basis 只登记正式直接输入**：narration / drama（包括 reference_video 路线）存在 canonical step1 时，用该 step1 构造 episode-script basis；无 step1 时不登记。ad 当前没有 canonical step1，编辑服务不以修改后的 script 自身制造 basis，避免产物自引用。
+- **structured basis 只登记正式直接输入**：narration / drama（包括 reference_video 路线）存在 canonical script_plan 时，用该 script_plan 构造 episode-script basis；无 script_plan 时不登记。ad 当前没有 canonical script_plan，编辑服务不以修改后的 script 自身制造 basis，避免产物自引用。
 - 工具**返回文本**是 agent-facing（免 i18n）；工具**显示名**是 user-facing，须在 `ARCREEL_MCP_TOOL_IDS` 注册并补 `tool_name_<id>` 三语（zh/en/vi）。
 - 与 ADR-0002 同源：本 ADR 是其「Agent 裸写入面收归」承诺的兑现。reference_video 的结构工具作用于顶层 `video_units`；unit 的 `duration_seconds` 是独立编排字段，不从成员 shots 求和。结构校验 / 编辑核心 / metadata 重算共用 `script_editor.resolve_items` 判别。
 

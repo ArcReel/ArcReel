@@ -55,9 +55,15 @@ from lib.content_digest import canonical_json_digest
 from lib.draft_quarantine import QUARANTINE_FILENAMES
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import (
-    REFERENCE_VIDEO_STEP1_FILENAME,
-    STEP1_FILENAMES,
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    SCRIPT_PLAN_FILENAMES,
     episode_script_relpath,
+)
+from lib.episode_target_duration import (
+    EPISODE_TARGET_DURATION_FIELD,
+    MAX_EPISODE_TARGET_DURATION,
+    MIN_EPISODE_TARGET_DURATION,
+    is_valid_episode_target_duration,
 )
 from lib.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
@@ -79,6 +85,7 @@ from lib.project_schema import parse_project_schema_version
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets
+from lib.script_plan_entries import backfill_entry_revisions
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 from lib.validation_messages import ValidationResult
 
@@ -1278,6 +1285,41 @@ class ProjectManager:
                 self._persist_script_json(real, script)
         return script
 
+    def backfill_script_plan_entry_revisions(
+        self,
+        project_name: str,
+        filename: str,
+        *,
+        plan_kind: str,
+        plan_revisions: Mapping[str, str],
+        whole_plan_revision: str | None,
+    ) -> tuple[str, ...]:
+        """在剧本锁内为无条目指纹的存量条目补齐指纹并回写，返回被回填的条目 id。
+
+        条目指纹只在提示词编写的装配出口写入，存量剧本因此一条都没有；它们在脚本规划被改动
+        之前必须补齐，否则整集指纹一失配就退回整集口径，整集重写会覆盖用户精修过的视觉层
+        （回填的准入判定见 ``lib.script_plan_entries.backfill_entry_revisions``）。调用方给出
+        当前脚本规划的条目指纹与整集指纹，本方法只管在锁内落盘。
+
+        与 ``load_script`` 的存量迁移同一形状：锁内重读最新内容再判再写（无锁读到的内容可能
+        已被并发写者取代），且不走 ``_write_script_unlocked``——补齐只是格式收编，不该刷新
+        ``metadata.updated_at``、不触发 project.json 同步与变更提示。
+        """
+        norm = self.normalize_script_filename(filename)
+        with self._script_lock(project_name, norm):
+            script, _migrated = self._read_script_unlocked(project_name, norm)
+            backfilled = backfill_entry_revisions(
+                plan_kind,
+                script=script,
+                plan_revisions=plan_revisions,
+                whole_plan_revision=whole_plan_revision,
+            )
+            if not backfilled:
+                return ()
+            real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
+            self._persist_script_json(real, script)
+        return backfilled
+
     def load_script_readonly(self, project_name: str, filename: str) -> dict:
         """Load a script with in-memory compatibility migrations but never persist them."""
         norm = self.normalize_script_filename(filename)
@@ -1935,7 +1977,7 @@ class ProjectManager:
 
         lock 文件命名为 `.{basename}.lock`（以 `.` 开头），位于该文件所在目录，
         与 `_project_lock` / `_script_lock` 同一约定，自动被目录 glob 过滤排除。
-        供同一份文件存在多个读-改-写入口（如 step1 草稿的迁移写回与正文保存）
+        供同一份文件存在多个读-改-写入口（如 script_plan 草稿的迁移写回与正文保存）
         且需要相互串行化时使用——各入口对同一 real path 取本锁即可互斥，不必
         知道彼此的存在。
         """
@@ -2330,6 +2372,7 @@ class ProjectManager:
         content_mode: str | None = "narration",
         aspect_ratio: str | None = "9:16",
         default_duration: int | None = None,
+        episode_target_duration: int | None = None,
         style_template_id: str | None = None,
         extras: dict | None = None,
         target_duration: int | None = None,
@@ -2345,7 +2388,10 @@ class ProjectManager:
         （解析链不再读取、写边界已拒绝），调用方不应再传入。
 
         `target_duration` / `brief` 仅 content_mode=ad 可用；ad 项目不持有
-        `default_duration`，且 episodes 恒为第 1 集单条。
+        `default_duration` 与 `episode_target_duration`，且 episodes 恒为第 1 集单条。
+
+        `episode_target_duration` 为单集目标时长（秒），取值区间见
+        `lib.episode_target_duration`；软偏好，只注入脚本规划提示词与审核面板对比，不做阻断。
 
         `source_kind` 为源文件性质（novel / screenplay），缺省 novel，创建即定、之后不可变
         （可变性守卫在路由 PATCH 层，与 content_mode 同性质）。
@@ -2361,6 +2407,8 @@ class ProjectManager:
         if resolved_mode == "ad":
             if default_duration is not None:
                 raise ValueError("广告/短片项目不持有 default_duration（分镜时长按 target_duration 预算逐个分镜规划）")
+            if episode_target_duration is not None:
+                raise ValueError("广告/短片项目不持有 episode_target_duration（整集体量按 target_duration 预算规划）")
             if target_duration is not None and (
                 not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0
             ):
@@ -2404,6 +2452,13 @@ class ProjectManager:
             project["episodes"] = [dict(self.AD_SINGLE_EPISODE)]
         if default_duration is not None:
             project["default_duration"] = default_duration
+        if episode_target_duration is not None:
+            if not is_valid_episode_target_duration(episode_target_duration):
+                raise ValueError(
+                    f"episode_target_duration 必须是 {MIN_EPISODE_TARGET_DURATION}–"
+                    f"{MAX_EPISODE_TARGET_DURATION} 秒的整数，当前为 {episode_target_duration!r}"
+                )
+            project[EPISODE_TARGET_DURATION_FIELD] = episode_target_duration
         if style_template_id is not None:
             project["style_template_id"] = style_template_id
         if extras:
@@ -2413,7 +2468,13 @@ class ProjectManager:
                 raise ValueError("image_backend 已废弃，请改用 image_provider_t2i / image_provider_i2i")
             # extras 只许追加可选字段，不得覆盖上方已校验/已构造的核心字段——
             # 否则非路由调用方可借 extras 绕过模式互斥守卫（如 ad 项目写回 default_duration）。
-            reserved = set(project) | {"default_duration", "style_template_id", "target_duration", "brief"}
+            reserved = set(project) | {
+                "default_duration",
+                EPISODE_TARGET_DURATION_FIELD,
+                "style_template_id",
+                "target_duration",
+                "brief",
+            }
             forbidden = reserved & set(extras)
             if forbidden:
                 raise ValueError(f"extras 不允许覆盖核心字段: {sorted(forbidden)}")
@@ -2754,15 +2815,15 @@ class ProjectManager:
         """剔除旧式 type/importance 字段（schema 演进遗留），返回新 dict。"""
         return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
 
-    #: 级联重命名须一并改写的 step1 正式内容、可编辑草稿与待修复草稿文件名（结构化 JSON——它们承载
+    #: 级联重命名须一并改写的 script_plan 正式内容、可编辑草稿与待修复草稿文件名（结构化 JSON——它们承载
     #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。草稿部分取
     #: ``lib.draft_quarantine`` 的登记表全集而非逐个列举：漏一种来源就会让那条路线的草稿留着
     #: 旧名，晋升时被「引用未登记」判违约、直到人工改草稿才解得开。旧版 ``.md`` 自由文本别名
     #: 不在列：读取层仅兼认浏览，写盘与生成侧已不认。
     _RENAME_DRAFT_FILENAMES = frozenset(
         {
-            *STEP1_FILENAMES.values(),
-            REFERENCE_VIDEO_STEP1_FILENAME,
+            *SCRIPT_PLAN_FILENAMES.values(),
+            REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
             *QUARANTINE_FILENAMES,
         }
     )
@@ -2773,7 +2834,7 @@ class ProjectManager:
         """资产级联重命名的单一事务入口（UI 与 Agent 共用，见 docs/adr/0057）。
 
         在「全部剧本锁（按文件名排序）→ 草稿文件锁 → 项目锁」内一次完成：扫描全部剧集
-        剧本与 step1 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」
+        剧本与 script_plan 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」
         结构校验；``dry_run=True`` 时到此为止只返回影响报告（预览与执行共用同一套扫描，
         数字必然一致），否则按 剧本 → 草稿 → 关联文件 → 版本历史 → project.json →
         Artifact Manifest 的顺序落盘。Manifest 以整份文件的一次 CAS 最后重键；若进程在

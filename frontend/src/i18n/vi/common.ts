@@ -50,4 +50,10 @@ export default {
   'not_found_title': 'Không tìm thấy trang',
   'not_found_back': 'Về trang chủ',
   'recommended': 'Được khuyến nghị',
+  'elapsed_seconds': '{{seconds}} giây',
+  'elapsed_minutes': '{{minutes}} phút {{seconds}} giây',
+  'elapsed_hours': '{{hours}} giờ {{minutes}} phút',
+  'elapsed_running': 'Đã chạy {{duration}}',
+  'elapsed_queued': 'Đã chờ {{duration}}',
+  'elapsed_total': 'Mất {{duration}}',
 } satisfies Record<keyof typeof enCommon, string>;

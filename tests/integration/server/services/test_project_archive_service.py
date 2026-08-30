@@ -132,7 +132,7 @@ def _create_project(
     pm.save_project(name, project)
 
     _write_text(project_dir / "source" / "chapter.txt", "source")
-    _write_text(project_dir / "drafts" / "episode_1" / "step1_segments.md", "draft")
+    _write_text(project_dir / "drafts" / "episode_1" / "script_plan_segments.md", "draft")
     (project_dir / "drafts" / "episode_2").mkdir(parents=True, exist_ok=True)
     _write_bytes(project_dir / "style_reference.png", b"png")
     _write_bytes(project_dir / "characters" / "Hero.png", b"png")
@@ -278,7 +278,7 @@ class TestProjectArchiveService:
             assert "demo/project.json" in names
             assert "demo/source/chapter.txt" in names
             assert "demo/scripts/episode_1.json" in names
-            assert "demo/drafts/episode_1/step1_segments.md" in names
+            assert "demo/drafts/episode_1/script_plan_segments.md" in names
             assert "demo/drafts/episode_2/" in names
             assert "demo/characters/Hero.png" in names
             assert "demo/characters/refs/Hero.png" in names
@@ -455,22 +455,22 @@ class TestProjectArchiveService:
             is ArtifactStatus.STALE
         )
 
-    def test_official_round_trip_preserves_a_stale_script_after_step1_is_deleted(self, tmp_path):
+    def test_official_round_trip_preserves_a_stale_script_after_script_plan_is_deleted(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
         _write_text(project_dir / "source" / "episode_1.txt", "原文")
-        step1_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
-        _write_json(step1_path, {"segments": [{"segment_id": "E1S01", "text": "原文"}]})
+        script_plan_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
+        _write_json(script_plan_path, {"segments": [{"segment_id": "E1S01", "text": "原文"}]})
         _activate_artifact_manifest(project_dir)
 
         key = ArtifactKey.episode_script(1)
         before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
         assert before is not None
-        assert script_review.delete_step1_file(project_dir, 1, step1_path)
-        assert ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_step1(1)) is None
+        assert script_review.delete_script_plan_file(project_dir, 1, script_plan_path)
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_script_plan(1)) is None
         assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == before
         assert (
             ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scripts/episode_1.json").status

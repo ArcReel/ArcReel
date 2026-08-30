@@ -1286,6 +1286,24 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is True
         assert "source_language" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.parametrize("binding", ["prompt", "reference_audio"])
+    async def test_set_character_voice_binding_allowed_values(self, ctx: ToolContext, binding: str) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"character_voice_binding": binding}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["character_voice_binding"] == binding
+
+    async def test_clear_character_voice_binding(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"settings": {"character_voice_binding": "reference_audio"}})
+        out = await _call(patch_project_tool(ctx), {"settings": {"character_voice_binding": None}})
+        assert out.get("is_error") is not True
+        assert "character_voice_binding" not in ctx.pm.load_project("demo")
+
+    @pytest.mark.parametrize("bad", ["native", "soft", "PROMPT", "", 1, True, ["prompt"]])
+    async def test_invalid_character_voice_binding_rejected(self, ctx: ToolContext, bad: Any) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"character_voice_binding": bad}})
+        assert out.get("is_error") is True
+        assert "character_voice_binding" not in ctx.pm.load_project("demo")
+
     @pytest.mark.parametrize("bad_value", [0, -5, 1.5, True, "10.5", "10.0", "abc", ""])
     async def test_invalid_value_rejected(self, ctx: ToolContext, bad_value: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": bad_value}})
@@ -1485,6 +1503,44 @@ class TestPatchProjectOverview:
             {"overview": {"synopsis": "x"}, "table": "characters", "entries": {"a": {"description": "b"}}},
         )
         assert out.get("is_error") is True
+
+
+class TestPatchProjectEpisodeTargetDurationSetting:
+    """单集目标时长经 settings 白名单写入/清除；区间校验与 ad 互斥与 REST 路径同一把尺。"""
+
+    @pytest.fixture
+    def ad_ctx(self, tmp_path: Path) -> ToolContext:
+        pm = ProjectManager(str(tmp_path))
+        pm.create_project("ad-demo", content_mode="ad")
+        pm.create_project_metadata("ad-demo", "Ad Demo", "Realistic", "ad", target_duration=60)
+        return ToolContext(project_name="ad-demo", projects_root=tmp_path, pm=pm)
+
+    async def test_set_episode_target_duration(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_duration": 120}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["episode_target_duration"] == 120
+
+    async def test_clear_episode_target_duration(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"settings": {"episode_target_duration": 120}})
+        out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_duration": None}})
+        assert out.get("is_error") is not True
+        assert "episode_target_duration" not in ctx.pm.load_project("demo")
+
+    async def test_accepts_digit_string(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_duration": "120"}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["episode_target_duration"] == 120
+
+    @pytest.mark.parametrize("bad", [5, 900, 0, -30, 120.0, True, "abc", ""])
+    async def test_out_of_range_or_dirty_value_rejected(self, ctx: ToolContext, bad: Any) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_duration": bad}})
+        assert out.get("is_error") is True
+        assert "episode_target_duration" not in ctx.pm.load_project("demo")
+
+    async def test_rejected_on_ad_project(self, ad_ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ad_ctx), {"settings": {"episode_target_duration": 120}})
+        assert out.get("is_error") is True
+        assert "episode_target_duration" not in ad_ctx.pm.load_project("ad-demo")
 
 
 class TestPatchProjectBriefSetting:

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { errMsg, voidCall } from "@/utils/async";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
@@ -60,7 +60,7 @@ type Selection =
   | null;
 
 export function ProviderSection() {
-  const { t } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,6 +95,15 @@ export function ProviderSection() {
     [search, location, navigate],
   );
 
+  // 从「调用端点」小节的「新建供应商并使用此端点」接线过来的预填。
+  const prefill = useMemo(() => {
+    const params = new URLSearchParams(search);
+    return {
+      baseUrl: params.get("base_url") ?? undefined,
+      endpoint: params.get("endpoint") ?? undefined,
+    };
+  }, [search]);
+
   const refreshPreset = useCallback(async () => {
     const res = await API.getProviders();
     setProviders(res.providers);
@@ -107,12 +116,23 @@ export function ProviderSection() {
     void useConfigStatusStore.getState().refresh();
   }, []);
 
+  // 同一 reloadKey 下的重跑只可能由语言变化触发，此时静默刷新：不置 loading，
+  // 列表与详情面板保持挂载，详情表单里未保存的输入不被卸载丢弃。
+  // 还要有一份拉取成功过的目录可留：首次拉取在途时切语言同样落在同一 reloadKey 上，
+  // 那时静默失败会留下一个空列表且没有重试入口，必须走常规的 loading / 错误面板。
+  const loadedCatalogRef = useRef(false);
+  const loadedKeyRef = useRef<number | null>(null);
+
   useEffect(() => {
     let disposed = false;
-    // mount 时重置 loading/error 后并行拉取 preset+custom 列表
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true);
-    setLoadError(null);
+    const silent = loadedCatalogRef.current && loadedKeyRef.current === reloadKey;
+    loadedKeyRef.current = reloadKey;
+    // 并行拉取 preset+custom 列表。供应商与模型名由后端按 Accept-Language 成文，
+    // 语言切换后须重取，否则目录停留在切换前的语言。
+    if (!silent) {
+      setLoading(true);
+      setLoadError(null);
+    }
     voidCall(
       (async () => {
         try {
@@ -123,16 +143,12 @@ export function ProviderSection() {
           if (disposed) return;
           setProviders(presetRes.providers);
           setCustomProviders(customRes.providers);
-          const params = new URLSearchParams(search);
-          if (
-            !params.get("provider") &&
-            !params.get("custom") &&
-            presetRes.providers.length > 0
-          ) {
-            setSelection({ kind: "preset", id: presetRes.providers[0].id });
-          }
+          loadedCatalogRef.current = true;
+          setLoadError(null);
         } catch (err) {
-          if (!disposed) setLoadError(errMsg(err));
+          // 静默刷新失败保留上一份目录：loadError 会让整个小节被错误面板取代、
+          // ProviderDetail 随之卸载，未保存的表单输入丢失。译名停留在旧语言远好过丢输入。
+          if (!disposed && !silent) setLoadError(errMsg(err));
         } finally {
           if (!disposed) setLoading(false);
         }
@@ -141,7 +157,13 @@ export function ProviderSection() {
     return () => {
       disposed = true;
     };
-  }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reloadKey, i18n.language]);
+
+  // 首个 preset 兜底选中：拉取完成后 URL 仍未指定选中项时补一次。
+  useEffect(() => {
+    if (loading || selection || providers.length === 0) return;
+    setSelection({ kind: "preset", id: providers[0].id });
+  }, [loading, selection, providers, setSelection]);
 
   if (loadError) {
     return (
@@ -249,6 +271,8 @@ export function ProviderSection() {
         )}
         {selection?.kind === "new-custom" && (
           <CustomProviderForm
+            initialBaseUrl={prefill.baseUrl}
+            initialEndpoint={prefill.endpoint}
             onSaved={() => {
               void API.listCustomProviders()
                 .then((res) => {

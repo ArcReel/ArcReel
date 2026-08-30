@@ -67,6 +67,15 @@ class TestCreateAndVerifyToken:
             assert "iat" in payload
             assert "exp" in payload
 
+    def test_create_token_accepts_a_shorter_expiry(self):
+        """内嵌 Agent 可签发短时效会话 JWT，不改变网页登录默认时效。"""
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            token = auth_module.create_token("embedded-agent", expiry_seconds=900)
+            payload = auth_module.verify_token(token)
+
+        assert payload is not None
+        assert payload["exp"] - payload["iat"] == 900
+
     def test_verify_token_invalid(self):
         """无效 token 返回 None"""
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):

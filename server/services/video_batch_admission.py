@@ -59,11 +59,8 @@ from lib.narration_delivery import (
     video_request_reuses_current_visual,
 )
 from lib.prompt_utils import (
-    build_drama_video_prompt,
-    build_drama_video_prompt_from_legacy_dialogue,
     is_structured_video_prompt,
-    strip_voice_profiles,
-    video_prompt_to_yaml,
+    render_storyboard_video_prompt,
 )
 from lib.reference_video.request_projection import (
     ProjectionProblem,
@@ -805,28 +802,15 @@ def storyboard_video_prompt(
     if not prompt:
         item_id = item.get("segment_id") or item.get("scene_id")
         raise ValueError(f"分镜缺少 video_prompt 字段: {item_id}")
-    if is_structured_video_prompt(prompt):
-        # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 系的机械派生：剧本 JSON
-        # 里残留的 voice_profiles 一律先剥离，不因门控不触发（narration/ad、或 drama 无
-        # utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
-        prompt = strip_voice_profiles(prompt)
-        if content_mode == "drama":
-            # drama 口型台词单一真相源在分镜级有序 utterances：取 dialogue-kind 注入 video YAML 的
-            # dialogue 出口（drama video_prompt 已不带 dialogue）。utterances 迁移前的存量剧本
-            # （load_script 按原始 JSON 读盘不过 pydantic，不会被 DramaScene._migrate_legacy
-            # 自动补齐）台词仍留在 video_prompt.dialogue，改走 legacy 出口。
-            if "utterances" in item:
-                prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
-            else:
-                prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
-        return video_prompt_to_yaml(prompt)
-    if isinstance(prompt, dict):
+    if isinstance(prompt, dict) and not is_structured_video_prompt(prompt):
         item_id = item.get("segment_id") or item.get("scene_id")
         raise ValueError(f"分镜 video_prompt 为对象但格式不符合结构化规范: {item_id}")
-    if not isinstance(prompt, str):
+    if not isinstance(prompt, (dict, str)):
         item_id = item.get("segment_id") or item.get("scene_id")
         raise TypeError(f"分镜 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
-    return prompt
+    # 与执行路径共用 render_storyboard_video_prompt：入队快照与实发文本同构，反向约束尾词
+    # 由该出口统一追加（执行期对已带尾词的字符串幂等）。
+    return render_storyboard_video_prompt(prompt, item, content_mode=content_mode, voice_characters=voice_characters)
 
 
 async def resolve_voice_context(project: dict[str, Any], content_mode: str) -> dict[str, Any] | None:

@@ -27,7 +27,11 @@ from lib.generation_queue import (
     get_generation_queue,
     read_queue_poll_interval,
 )
-from lib.prompt_utils import is_structured_image_prompt, is_structured_video_prompt
+from lib.prompt_utils import (
+    is_structured_image_prompt,
+    is_structured_video_prompt,
+    require_storyboard_scene,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -358,8 +362,12 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
     if task_type in _IMAGE_STRUCTURED_TASK_TYPES and isinstance(prompt, dict):
         if not is_structured_image_prompt(prompt):
             raise TaskSpecValidationError("prompt_must_be_string_or_scene_object")
-        if not str(prompt.get("scene") or "").strip():
-            raise TaskSpecValidationError("prompt_scene_empty")
+        # 与渲染出口共用 scene 判据，入队与执行期的接受集合完全一致；
+        # 入队不做归一化快照，投影结果由执行期从 script_file 重新取得。
+        try:
+            require_storyboard_scene(prompt)
+        except ValueError as exc:
+            raise TaskSpecValidationError("prompt_scene_empty") from exc
         return
 
     # Asset (character/scene/prop) and string-form storyboard prompts: non-empty string.

@@ -192,6 +192,62 @@ class TestListProviders:
         assert models["imagen-4.0-generate-001"]["audio_track"] == "always_off"
         assert models["imagen-4.0-generate-001"]["voice_consistency"] == "none"
 
+    def _mock_svc_with_catalog_names(self) -> ConfigService:
+        """一个有译名的模型（可灵 v3）与一个纯品牌名模型（Kling 2.1），校验两条解析路径。"""
+        svc = MagicMock(spec=ConfigService)
+        svc.get_all_providers_status = AsyncMock(
+            return_value=[
+                ProviderStatus(
+                    name="kling",
+                    display_name="可灵 Kling",
+                    description="Kling",
+                    status="ready",
+                    media_types=["video"],
+                    capabilities=["text_to_video"],
+                    required_keys=["api_key"],
+                    configured_keys=["api_key"],
+                    missing_keys=[],
+                    models={
+                        "kling-v3": {
+                            "display_name": "可灵 v3",
+                            "media_type": "video",
+                            "capabilities": [],
+                            "default": False,
+                            "supported_durations": [5, 10],
+                            "duration_resolution_constraints": {},
+                            "resolutions": [],
+                        },
+                        "kling-v2-1": {
+                            "display_name": "Kling 2.1",
+                            "media_type": "video",
+                            "capabilities": [],
+                            "default": False,
+                            "supported_durations": [5, 10],
+                            "duration_resolution_constraints": {},
+                            "resolutions": [],
+                        },
+                    },
+                ),
+            ]
+        )
+        return svc
+
+    @pytest.mark.parametrize(
+        ("accept_language", "expected"),
+        [("zh", "可灵 v3"), ("en", "Kling v3"), ("vi", "Kling v3")],
+    )
+    def test_model_display_name_follows_request_locale(self, accept_language: str, expected: str):
+        with _make_client(self._mock_svc_with_catalog_names()) as client:
+            resp = client.get("/api/v1/providers", headers={"accept-language": accept_language})
+        assert resp.json()["providers"][0]["models"]["kling-v3"]["display_name"] == expected
+
+    @pytest.mark.parametrize("accept_language", ["zh", "en", "vi"])
+    def test_model_without_translation_keeps_registry_name(self, accept_language: str):
+        """未入译名表的纯品牌名原样返回，而不是回落成裸 key。"""
+        with _make_client(self._mock_svc_with_catalog_names()) as client:
+            resp = client.get("/api/v1/providers", headers={"accept-language": accept_language})
+        assert resp.json()["providers"][0]["models"]["kling-v2-1"]["display_name"] == "Kling 2.1"
+
     def test_unknown_mocked_model_id_defaults_safely(self):
         """mock 里的 model_id 若不在真实 PROVIDER_REGISTRY 中（如本测试的 imagen-4.0-generate-001），
         两个新字段须安全回落默认值，不抛错。"""

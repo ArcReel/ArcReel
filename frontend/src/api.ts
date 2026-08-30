@@ -44,6 +44,16 @@ import type {
   CustomProviderModelInput,
   DiscoveredModel,
   EndpointDescriptor,
+  CustomEndpointInfo,
+  EndpointDefinition,
+  EndpointValidateResponse,
+  EndpointTestParameters,
+  EndpointTestCredentials,
+  EndpointPreviewResponse,
+  EndpointStageReport,
+  EndpointTestStage,
+  TrialRunInfo,
+  TrialRunModelRef,
   CustomProviderCredentials,
   AnthropicDiscoverRequest,
   AnthropicDiscoverResponse,
@@ -59,10 +69,11 @@ import type {
   ReferenceBatchGenerateRequest,
   ReferenceRequestOptions,
   ScriptPreview,
+  ItemPromptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
-  NarrationStep1Draft,
-  ReferenceStep1Draft,
+  NarrationScriptPlanDraft,
+  ReferenceScriptPlanDraft,
   VideoCapabilities,
 } from "@/types";
 import type { GenerationRoute } from "@/utils/generation-mode";
@@ -237,7 +248,12 @@ export class SpeechAdmissionError extends Error {
  * `diagnostic` 是可选的技术细节（字段名、schema、异常原文），只用于诊断展示，不拼进 `message`。
  */
 export class ApiRequestError extends Error {
-  constructor(message: string, public readonly diagnostic?: string) {
+  constructor(
+    message: string,
+    public readonly diagnostic?: string,
+    /** HTTP 状态码；调用方据此区分「资源已不存在」与瞬时网络/服务错误。 */
+    public readonly status?: number,
+  ) {
     super(message);
     this.name = "ApiRequestError";
   }
@@ -411,6 +427,8 @@ export interface CreateProjectPayload {
   /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
   speech_rate_units_per_second?: number | null;
   default_duration?: number | null;
+  /** 单集目标时长（秒）；未设即不传。ad 项目服务端拒绝该字段。 */
+  episode_target_duration?: number | null;
   /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
   target_duration?: number;
   /** 仅 ad：创作诉求短文本（可空）。 */
@@ -510,7 +528,7 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
     if (isSpeechAdmission(detail)) {
       throw new SpeechAdmissionError(detail);
     }
-    throw new ApiRequestError(messageFromDetail(detail, fallbackMsg), error.diagnostic);
+    throw new ApiRequestError(messageFromDetail(detail, fallbackMsg), error.diagnostic, response.status);
   }
 }
 
@@ -824,7 +842,7 @@ class API {
       if (isSpeechAdmission(error.detail)) {
         throw new SpeechAdmissionError(error.detail);
       }
-      throw new ApiRequestError(messageFromDetail(error.detail, "请求失败"), error.diagnostic);
+      throw new ApiRequestError(messageFromDetail(error.detail, "请求失败"), error.diagnostic, response.status);
     }
 
     if (response.status === 204) {
@@ -1317,6 +1335,25 @@ class API {
     );
   }
 
+  /**
+   * 条目最终提示词预览：分镜图与视频各一份，逐字等于执行期发给模型的文本。
+   *
+   * 只读——不向供应商发请求、不产生费用。读的是**已保存**的剧本内容，草稿未保存时
+   * 预览仍是上一次保存的结果。不可用原因由后端按请求语言渲染，前端不再二次翻译。
+   */
+  static async previewScriptItemPrompts(
+    projectName: string,
+    itemId: string,
+    scriptFile: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ItemPromptPreview> {
+    const query = new URLSearchParams({ script_file: scriptFile }).toString();
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/script-items/${encodeURIComponent(itemId)}/prompt-preview?${query}`,
+      { signal: options?.signal },
+    );
+  }
+
   /** 更新分集顶层元数据（当前仅 title）。以剧本顶层 title 为唯一真相源，后端会镜像到 project.json。 */
   static async updateEpisode(
     projectName: string,
@@ -1332,9 +1369,9 @@ class API {
     );
   }
 
-  // ==================== step1 → step2 内容确认 ====================
+  // ==================== script_plan → prompt_authoring 内容确认 ====================
 
-  /** 读取该集 step1 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */
+  /** 读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */
   static async getScriptReview(
     projectName: string,
     episode: number,
@@ -1348,12 +1385,12 @@ class API {
 
   /** 保存手动 / Agent 编辑后的结构化中间态，返回最新状态（重新等待确认）。
    *
-   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 Agent 晋升）
+   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 script_plan 被另一写入方（如 Agent 晋升）
    * 改过时服务端 409 冲突、不落盘，避免静默覆盖对方的修改；不传则不比对。 */
   static async saveScriptReviewContent(
     projectName: string,
     episode: number,
-    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft,
+    content: DramaNormalizedScript | NarrationScriptPlanDraft | ReferenceScriptPlanDraft,
     baseFingerprint?: string | null
   ): Promise<ScriptReviewState> {
     const query = baseFingerprint
@@ -1368,7 +1405,7 @@ class API {
     );
   }
 
-  /** 用户显式确认 step1 内容，放行 step2 视觉生成。 */
+  /** 用户显式确认 script_plan 内容，放行 prompt_authoring 视觉生成。 */
   static async confirmScriptReview(
     projectName: string,
     episode: number
@@ -1712,9 +1749,9 @@ class API {
   static async getDraftContent(
     projectName: string,
     episode: number,
-    stepNum: number
+    stage: string
   ): Promise<string> {
-    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`;
+    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`;
     const response = await fetch(
       `${API_BASE}${url}`,
       withAuth(url)
@@ -1729,10 +1766,10 @@ class API {
   static async saveDraft(
     projectName: string,
     episode: number,
-    stepNum: number,
+    stage: string,
     content: string
   ): Promise<SuccessResponse> {
-    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`;
+    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`;
     const response = await fetch(
       `${API_BASE}${url}`,
       withAuth(url, {
@@ -1751,10 +1788,10 @@ class API {
   static async deleteDraft(
     projectName: string,
     episode: number,
-    stepNum: number
+    stage: string
   ): Promise<SuccessResponse> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`,
+      `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`,
       { method: "DELETE" }
     );
   }
@@ -2705,6 +2742,102 @@ class API {
       method: "POST",
       body: JSON.stringify(data),
       signal: options.signal,
+    });
+  }
+
+  // ==================== 自定义调用端点 API ====================
+  // 导入导出零封套：请求体与导出文件都是 definition 原样 JSON，不加封套字段。
+
+  static async listCustomEndpoints(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ endpoints: CustomEndpointInfo[] }> {
+    return this.request("/custom-endpoints", { signal: options.signal });
+  }
+
+  static async createCustomEndpoint(definition: unknown): Promise<CustomEndpointInfo> {
+    return this.request("/custom-endpoints", { method: "POST", body: JSON.stringify(definition) });
+  }
+
+  static async updateCustomEndpoint(id: number, definition: unknown): Promise<CustomEndpointInfo> {
+    return this.request(`/custom-endpoints/${id}`, { method: "PUT", body: JSON.stringify(definition) });
+  }
+
+  static async deleteCustomEndpoint(id: number): Promise<void> {
+    return this.request(`/custom-endpoints/${id}`, { method: "DELETE" });
+  }
+
+  /**
+   * 无状态校验：保存、导入与诊断卡共用同一校验器，永远返回 200，判定在 body 里。
+   * @param excludeId - 覆盖既有定义时排除自身，避免把自己判成重复血统。
+   */
+  static async validateCustomEndpoint(
+    definition: unknown,
+    options: { excludeId?: number; signal?: AbortSignal } = {},
+  ): Promise<EndpointValidateResponse> {
+    const query = options.excludeId === undefined ? "" : `?exclude_id=${options.excludeId}`;
+    return this.request(`/custom-endpoints/validate${query}`, {
+      method: "POST",
+      body: JSON.stringify(definition),
+      signal: options.signal,
+    });
+  }
+
+  /** 内置声明式端点的定义原样 JSON，供「复制为我的」；Python 实现的内置端点 404。 */
+  static async getBuiltinEndpointDefinition(key: string): Promise<EndpointDefinition> {
+    return this.request(`/custom-providers/endpoints/${encodeURIComponent(key)}/definition`);
+  }
+
+  static async previewEndpointRequest(
+    body: {
+      definition: unknown;
+      parameters: EndpointTestParameters;
+      credentials?: EndpointTestCredentials;
+    },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EndpointPreviewResponse> {
+    return this.request("/custom-endpoints/preview-request", {
+      method: "POST",
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
+  }
+
+  static async checkEndpointResponse(
+    body: { definition: unknown; stage: EndpointTestStage; response_body: unknown },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EndpointStageReport> {
+    return this.request("/custom-endpoints/check-response", {
+      method: "POST",
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
+  }
+
+  /** 测试连接：真实调用一次生成，产生费用。definition 与 model_ref 互斥且必居其一。 */
+  static async createTrialRun(body: {
+    definition?: unknown;
+    model_ref?: TrialRunModelRef;
+    parameters: EndpointTestParameters;
+    credentials?: EndpointTestCredentials;
+  }): Promise<TrialRunInfo> {
+    return this.request("/custom-endpoints/trial-runs", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  static async getTrialRun(
+    runId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<TrialRunInfo> {
+    return this.request(`/custom-endpoints/trial-runs/${encodeURIComponent(runId)}`, {
+      signal: options.signal,
+    });
+  }
+
+  static async cancelTrialRun(runId: string): Promise<void> {
+    return this.request(`/custom-endpoints/trial-runs/${encodeURIComponent(runId)}/cancel`, {
+      method: "POST",
     });
   }
 

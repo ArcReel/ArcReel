@@ -21,6 +21,7 @@ from lib.artifact_manifest import (
 )
 from lib.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
 from lib.asset_types import asset_name_comparison_key
+from lib.character_voice import character_voice_binding
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
 from lib.project_manager import ProjectManager, resolve_episode_script_binding
 from lib.reference_video.duration_slots import resolve_duration_slot
@@ -122,7 +123,11 @@ def build_current_video_artifact_basis(
     audio_speakers = _execution_reference_audio_speakers(version_metadata.get("execution_provider_media"))
     if audio_speakers is None:
         return None
-    available_audio = resolve_reference_audio_paths(project, project_path)
+    # 角色声音绑定方式属于交付内容（ADR 0062 的分界线：这一位改变用户拿到的成品）：项目切回提示词
+    # 软约束后，已挂过参考音频的成片不再对得上当前设置，投影里因此不再重放那批音频，条目随之判
+    # stale。反向切换不触发——那批成片本就没挂过音频，参考音频档下渲染出的画面与声明与它们一致。
+    replay_audio = character_voice_binding(project) == "reference_audio"
+    available_audio = resolve_reference_audio_paths(project, project_path) if replay_audio else {}
     selected_audio = {speaker: available_audio[speaker] for speaker in audio_speakers if speaker in available_audio}
     speech = build_video_speech_basis(
         admission.preparation,

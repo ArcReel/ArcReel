@@ -12,7 +12,7 @@ from mcp.client.streamable_http import streamable_http_client
 from lib.api_errors import ConflictError
 from lib.artifact_activation import register_current_artifact_if_provable
 from lib.artifact_manifest import ArtifactKey
-from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_STEP1, read_quarantine
+from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_quarantine
 from lib.generation_batch import GenerationBatchRequestSnapshot
 from lib.generation_queue import GenerationQueue
 from lib.generation_queue_client import submit_generation_batch
@@ -54,11 +54,11 @@ class _Planner:
                 },
                 "state": "FINAL_SCRIPT",
                 "blockers": [],
-                "gates": {"step1_review": {"state": "not_applicable", "revision": None}},
+                "gates": {"script_plan_review": {"state": "not_applicable", "revision": None}},
                 "artifacts": {
                     "asset_inventory": {"state": "not_applicable"},
                     "asset_sheets": {},
-                    "step1": {"state": "not_applicable"},
+                    "script_plan": {"state": "not_applicable"},
                     "script": {"state": "missing"},
                     "storyboards": {"current_ids": [], "stale_ids": [], "missing_ids": []},
                     "videos": {"current_ids": [], "stale_ids": [], "missing_ids": []},
@@ -97,7 +97,7 @@ def remote_projects(tmp_path: Path) -> ProjectManager:
     (project_dir / "scripts" / "episode_1.json").write_text('{"episode":1,"scenes":[]}', encoding="utf-8")
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_normalized_script.json").write_text(
+    (drafts / "script_plan_normalized_script.json").write_text(
         '{"title":"第一集","scenes":[{"scene_id":"E1S01","duration_seconds":4,'
         '"segment_break":false,"characters_in_scene":[],"scenes":[],"props":[],'
         '"scene_description":"山门前。","utterances":[],"source_text":"第一集原文"}]}',
@@ -242,7 +242,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
                     script = await session.call_tool(
                         "get_episode_script", {"project": "demo", "script": "episode_1.json"}
                     )
-                    step1 = await session.call_tool("get_step1_content", {"project": "demo", "episode": 1})
+                    script_plan = await session.call_tool("get_script_plan_content", {"project": "demo", "episode": 1})
                     project_files = await session.call_tool("list_project_files", {"project": "demo"})
                     project_file = await session.call_tool(
                         "read_project_file", {"project": "demo", "path": "project.json"}
@@ -262,21 +262,22 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "rename_asset",
         "retry_project_migration",
         "complete_asset_inventory",
-        "complete_step1_rebuild",
+        "complete_script_plan_rebuild",
     }
     readers = {
         "get_project_content",
+        "get_prompt_preview",
         "list_source_files",
         "get_source_text",
         "get_episode_script",
-        "get_step1_content",
+        "get_script_plan_content",
         "list_project_files",
         "read_project_file",
     }
     drafts = {"open_draft", "patch_draft", "promote_draft", "discard_draft"}
     text_and_script = {
         "generate_episode_script",
-        "generate_step1",
+        "generate_script_plan",
         "confirm_script_review",
         "patch_episode_script",
     }
@@ -288,7 +289,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "insert_segment",
         "remove_segment",
         "split_segment",
-        "open_step1_for_edit",
+        "open_script_plan_for_edit",
         "validate_and_promote_draft",
         "get_episode_script_revision",
         "generate_video_episode",
@@ -324,7 +325,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "generate_grid",
         "generate_videos",
         "generate_episode_script",
-        "generate_step1",
+        "generate_script_plan",
         "plan_episodes",
     }
     for name, definition in definitions.items():
@@ -402,7 +403,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         source_files,
         source_text,
         script,
-        step1,
+        script_plan,
         project_files,
         project_file,
     ):
@@ -718,7 +719,7 @@ async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_ser
             async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    args = {"project": "demo", "episode": 1, "doc_type": "drama_step1"}
+                    args = {"project": "demo", "episode": 1, "doc_type": "drama_script_plan"}
                     opened = await session.call_tool("open_draft", args)
                     first_content = opened.structuredContent["draft"]["content"]
                     first_content["title"] = "第一次修改"
@@ -788,8 +789,8 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools = {tool.name: tool for tool in (await session.list_tools()).tools}
-                    step1 = await session.call_tool(
-                        "generate_step1",
+                    script_plan = await session.call_tool(
+                        "generate_script_plan",
                         {
                             "project": "demo",
                             "episode": 1,
@@ -814,11 +815,11 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
                         },
                     )
 
-    assert not step1.isError
-    assert "dry_run=true" in tools["generate_step1"].description
-    assert "prompt immediately without a generation_batch; do not poll" in tools["generate_step1"].description
-    assert set(step1.structuredContent) == {"text_generation"}
-    assert step1.structuredContent["text_generation"]["message"]
+    assert not script_plan.isError
+    assert "dry_run=true" in tools["generate_script_plan"].description
+    assert "prompt immediately without a generation_batch; do not poll" in tools["generate_script_plan"].description
+    assert set(script_plan.structuredContent) == {"text_generation"}
+    assert script_plan.structuredContent["text_generation"]["message"]
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
     assert not script.isError
@@ -826,7 +827,7 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert "prompt immediately without a generation_batch; do not poll" in tools["generate_episode_script"].description
     assert set(script.structuredContent) == {"text_generation"}
     assert "DRY RUN" in script.structuredContent["text_generation"]["message"]
-    assert progress_messages == ["Generating step1", "Generating episode script"]
+    assert progress_messages == ["Generating script_plan", "Generating episode script"]
     assert patched.isError
     assert patched.structuredContent["script_patch"]["problems"][0]["code"] == "revision_conflict"
 
@@ -950,7 +951,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
         queue.set_worker_cancel_callback(None)
 
 
-@pytest.mark.parametrize("tool", ["generate_step1", "generate_episode_script"])
+@pytest.mark.parametrize("tool", ["generate_script_plan", "generate_episode_script"])
 async def test_remote_mcp_generation_rejects_non_positive_episode(remote_server, tool: str) -> None:
     app = _mounted(remote_server)
     async with remote_server.session_manager.run():
@@ -982,12 +983,12 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
                     args = {
                         "project": "demo",
                         "episode": 1,
-                        "doc_type": "drama_step1",
+                        "doc_type": "drama_script_plan",
                         "source": "source/episode_1.txt",
                     }
                     opened = await session.call_tool("open_draft", args)
                     (
-                        remote_projects.get_project_path("demo") / "drafts/episode_1/step1_normalized_script.json"
+                        remote_projects.get_project_path("demo") / "drafts/episode_1/script_plan_normalized_script.json"
                     ).unlink()
                     patched = await session.call_tool(
                         "patch_draft",
@@ -1002,7 +1003,7 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
                         },
                     )
 
-    draft = read_quarantine(remote_projects.get_project_path("demo"), 1, QUARANTINE_KIND_DRAMA_STEP1)
+    draft = read_quarantine(remote_projects.get_project_path("demo"), 1, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
     assert not patched.isError
     assert draft is not None
     assert draft.meta["base_fingerprint"] is None
@@ -1031,7 +1032,7 @@ async def test_remote_mcp_draft_respects_migration_failure_gate(remote_server, r
                         {
                             "project": "demo",
                             "episode": 1,
-                            "doc_type": "drama_step1",
+                            "doc_type": "drama_script_plan",
                             "base_revision": "sha256-v1:" + "0" * 64,
                         },
                     )

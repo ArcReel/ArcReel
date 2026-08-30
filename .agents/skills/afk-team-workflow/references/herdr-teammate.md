@@ -1,6 +1,6 @@
 # Herdr 跨 harness 委派
 
-仅在 `HERDR_ENV=1` 时读本页，并先调用已安装的 `herdr` skill。同 harness teammate 使用 harness 原生团队能力；跨 harness teammate 使用 Herdr。
+仅在 `HERDR_ENV=1` 时读本页，并先使用 Skill 工具调用 `herdr`。同 harness teammate 使用 harness 原生团队能力；跨 harness teammate 使用 Herdr。
 
 ## Workspace
 

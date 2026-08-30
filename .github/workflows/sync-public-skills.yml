@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "skills/**"
+      - "agent_runtime_profile/.claude/skills/adapt-custom-endpoint/**"
 
 permissions:
   contents: read
@@ -42,6 +43,7 @@ jobs:
       - name: Mirror skills
         run: |
           rsync -a --delete --exclude /LICENSE --exclude /README.md source/skills/ distribution/skills/
+          rsync -a --delete source/agent_runtime_profile/.claude/skills/adapt-custom-endpoint/ distribution/skills/adapt-custom-endpoint/
           cp source/skills/LICENSE distribution/LICENSE
 
       - name: Push changes

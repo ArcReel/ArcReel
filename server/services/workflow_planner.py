@@ -196,12 +196,12 @@ class WorkflowPlanner:
             episode_ids = [f"episode-{status.target.episode}"]
             text_queries.append(("text_episode_script", episode_ids))
             if status.project.content_mode != "ad":
-                step1_type = (
-                    "text_reference_step1"
+                script_plan_type = (
+                    "text_reference_script_plan"
                     if status.project.generation_mode == "reference_video"
-                    else f"text_{status.project.content_mode}_step1"
+                    else f"text_{status.project.content_mode}_script_plan"
                 )
-                text_queries.append((step1_type, episode_ids))
+                text_queries.append((script_plan_type, episode_ids))
         for task_type, resource_ids in text_queries:
             rows.extend(
                 await get_active_tasks_for_resources(

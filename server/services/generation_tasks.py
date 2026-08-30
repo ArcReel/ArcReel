@@ -87,21 +87,13 @@ from lib.project_manager import (
     resolve_episode_script_binding,
 )
 from lib.prompt_builders import (
-    append_product_fidelity_tail,
     build_character_prompt,
     build_product_prompt,
     build_prop_prompt,
     build_scene_prompt,
-    build_storyboard_prompt,
+    render_storyboard_image_prompt,
 )
-from lib.prompt_utils import (
-    build_drama_video_prompt,
-    build_drama_video_prompt_from_legacy_dialogue,
-    strip_voice_profiles,
-)
-from lib.prompt_utils import (
-    normalize_video_prompt as _normalize_video_prompt,
-)
+from lib.prompt_utils import render_storyboard_video_prompt
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     ProviderMediaInput,
@@ -397,10 +389,17 @@ def _commit_staged_formal_image(
     )
 
 
-def _normalize_storyboard_prompt(prompt: object, style: str, style_description: str = "") -> str:
+def _normalize_storyboard_prompt(
+    prompt: object,
+    style: str,
+    style_description: str = "",
+    product_names: Sequence[str] | None = None,
+) -> str:
     """Render one semantic storyboard prompt through the shared provider projection."""
 
-    return build_storyboard_prompt(prompt, style, style_description)
+    return render_storyboard_image_prompt(
+        prompt, style=style, style_description=style_description, product_names=product_names
+    )
 
 
 def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:
@@ -604,7 +603,7 @@ def _collect_reference_images(
     return reference_images or None
 
 
-def _collect_shot_product_references(
+def collect_shot_product_references(
     project: dict,
     project_path: Path,
     item: dict,
@@ -648,7 +647,7 @@ def collect_product_references_for_names(
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
     """按商品名列表收集商品参考集（注入二元规则的装配核心，条目语义见
-    ``_collect_shot_product_references``）。分镜图按分镜注入与广告/短片的参考生视频
+    ``collect_shot_product_references``）。分镜图按分镜注入与广告/短片的参考生视频
     按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
     """
     spec = ASSET_SPECS["product"]
@@ -1622,7 +1621,6 @@ async def execute_storyboard_task(
         _style_description = _project.get("style_description", "")
         if not isinstance(_style, str) or not isinstance(_style_description, str):
             raise ValueError("storyboard style and style description must be strings")
-        _prompt_text = _normalize_storyboard_prompt(_semantic_prompt, _style, _style_description)
         _visual_references: list[VisualReference] = []
         _ref_images = _collect_reference_images(
             _project,
@@ -1641,7 +1639,7 @@ async def execute_storyboard_task(
         )
         # 商品分镜：商品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
         # 并附高保真还原指令；氛围分镜零商品图，既有装配不变。
-        _product_refs = _collect_shot_product_references(
+        _product_refs = collect_shot_product_references(
             _project,
             _project_path,
             _target_item,
@@ -1651,7 +1649,12 @@ async def execute_storyboard_task(
         if _product_refs:
             _ref_images = _product_refs + (_ref_images or [])
             _visual_references = _product_visual_references(_product_refs) + _visual_references
-            _prompt_text = append_product_fidelity_tail(_prompt_text, _product_names_in_references(_product_refs))
+        _prompt_text = _normalize_storyboard_prompt(
+            _semantic_prompt,
+            _style,
+            _style_description,
+            _product_names_in_references(_product_refs) if _product_refs else None,
+        )
         _frozen = freeze_image_references(_ref_images, _visual_references)
         try:
             _formal_claims = list(
@@ -2387,28 +2390,18 @@ async def execute_video_task(
 
     visual_basis_digest = await asyncio.to_thread(_current_visual_basis_digest)
 
-    # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 的机械派生：调用方（WebUI
-    # 请求体 / 剧本 JSON 残留）自带的 voice_profiles 一律先剥离，不因 utterances 门控不触发
-    # （narration/ad、或 drama 无 utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
-    if isinstance(prompt, dict):
-        prompt = strip_voice_profiles(prompt)
-
-    # drama 口型台词单一真相源在分镜级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
-    # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad
-    # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
-    if isinstance(item, dict) and isinstance(prompt, dict) and content_mode == "drama":
-        # 无声（C 类模型不产音、或本集关闭音频）传 characters=None 即不注入 Voice_Profiles；
-        # 有音轨模型（含恒有声、开关不可控的型号）机械派生角色声音风格。
-        # 两条无声路径同口径，判据落在 VideoLaneResult.is_silent。台词不受影响、照常下发。
-        voice_characters = None if ctx.video.is_silent else (project.get("characters") or {})
-        if "utterances" in item:
-            prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
-        else:
-            # utterances 迁移前的存量剧本：load_script 按原始 JSON 读盘不过 pydantic，不会
-            # 被 DramaScene._migrate_legacy 自动补齐，台词仍留在 video_prompt.dialogue。
-            prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
-
-    prompt_text = _normalize_video_prompt(prompt)
+    # 最终文本的合成收敛在 render_storyboard_video_prompt：voice_profiles 剥离、drama 口型台词
+    # 注入（分镜级有序 utterances 为单一真相源）、YAML 渲染与反向约束尾词都在其内完成，预览
+    # 接口与批量准入读同一出口。无声（C 类模型不产音、或本集关闭音频）传 characters=None 即不
+    # 注入 Voice_Profiles，两条无声路径同口径，判据落在 VideoLaneResult.is_silent。
+    prompt_text = render_storyboard_video_prompt(
+        prompt,
+        item if isinstance(item, dict) else None,
+        content_mode=content_mode,
+        voice_characters=(None if ctx.video.is_silent else (project.get("characters") or {}))
+        if content_mode == "drama"
+        else None,
+    )
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
     # provider / model / 能力 / 分辨率均取自单次解析的 video lane：能力按 backend 实际身份

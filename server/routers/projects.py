@@ -37,9 +37,17 @@ logger = logging.getLogger(__name__)
 from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.asset_types import asset_name_comparison_key
+from lib.character_voice import PROJECT_FIELD as CHARACTER_VOICE_BINDING_FIELD
+from lib.character_voice import VALID_CHARACTER_VOICE_BINDINGS
 from lib.config.registry import default_model_for_provider
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.db import async_session_factory
+from lib.episode_target_duration import (
+    EPISODE_TARGET_DURATION_FIELD,
+    MAX_EPISODE_TARGET_DURATION,
+    MIN_EPISODE_TARGET_DURATION,
+    is_valid_episode_target_duration,
+)
 from lib.i18n import Translator
 from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import ContentMode
@@ -65,6 +73,7 @@ from server.services.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project_cover import resolve_project_cover
+from server.services.prompt_preview import ScriptItemNotFound, preview_item_prompts
 
 router = APIRouter()
 
@@ -163,6 +172,24 @@ def _reject_bool_speech_rate(value: object) -> object:
 SpeechRateOverride = Annotated[float | None, BeforeValidator(_reject_bool_speech_rate)]
 
 
+def _validated_episode_target_duration(value: int, _t: Translator) -> int:
+    """把创建 / PATCH 传入的单集目标时长收进硬区间，越界即 422。
+
+    区间与 ``lib.episode_target_duration`` 的读时守卫、``patch_project`` 的强制转换、
+    前端输入校验同一把尺（``is_valid_episode_target_duration``），不在这里另写边界数字。
+    """
+    if not is_valid_episode_target_duration(value):
+        raise HTTPException(
+            status_code=422,
+            detail=_t(
+                "episode_target_duration_out_of_range",
+                min=MIN_EPISODE_TARGET_DURATION,
+                max=MAX_EPISODE_TARGET_DURATION,
+            ),
+        )
+    return value
+
+
 def _validated_speech_rate(value: float, _t: Translator) -> float:
     """把创建 / PATCH 传入的口播语速估算收进硬区间，越界即 422。
 
@@ -186,6 +213,8 @@ class CreateProjectRequest(BaseModel):
     source_kind: SourceKind | None = None
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
+    # 单集目标时长（秒）：可选软偏好，非 ad 项目适用；区间校验在 _validated_episode_target_duration。
+    episode_target_duration: int | None = None
     # 仅 content_mode=ad：目标总时长（秒）。UI 给四档（15/30/60/90，默认 60），
     # 数据层不硬枚举，任意正整数合法。
     target_duration: int | None = Field(default=None, gt=0)
@@ -231,6 +260,8 @@ class UpdateProjectRequest(BaseModel):
     style: str | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
+    # 单集目标时长（秒）：显式 null 清除该偏好；ad 项目对字段出现本身即拒绝
+    episode_target_duration: int | None = None
     # 仅 ad 项目：目标总时长（秒），任意正整数合法，不可清空
     target_duration: int | None = Field(default=None, gt=0)
     # 仅 ad 项目：创作诉求短文本；显式 null 清为空字符串
@@ -244,6 +275,8 @@ class UpdateProjectRequest(BaseModel):
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
     video_generate_audio: bool | None = None
+    # 角色声音绑定方式：prompt（默认，voice_style 提示词软约束）/ reference_audio（挂角色参考音频）
+    character_voice_binding: str | None = None
     # 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速；留空 = 跟随全局默认
     audio_backend: str | None = None
     narration_voice: str | None = None
@@ -614,6 +647,8 @@ async def create_project(
             if content_mode == "ad":
                 if req.default_duration is not None:
                     raise HTTPException(status_code=400, detail=_t("ad_no_default_duration"))
+                if req.episode_target_duration is not None:
+                    raise HTTPException(status_code=400, detail=_t("ad_no_episode_target_duration"))
                 if req.grid_storyboard:
                     raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
             else:
@@ -634,6 +669,12 @@ async def create_project(
                 None
                 if req.speech_rate_units_per_second is None
                 else _validated_speech_rate(req.speech_rate_units_per_second, _t)
+            )
+            # 单集目标时长：同理在 create_project 之前判，越界请求不留下半成品项目目录。
+            episode_target_duration = (
+                None
+                if req.episode_target_duration is None
+                else _validated_episode_target_duration(req.episode_target_duration, _t)
             )
 
             try:
@@ -657,6 +698,7 @@ async def create_project(
                     req.content_mode,
                     aspect_ratio=req.aspect_ratio,
                     default_duration=req.default_duration,
+                    episode_target_duration=episode_target_duration,
                     style_template_id=req.style_template_id,
                     extras=extras or None,
                     target_duration=req.target_duration,
@@ -887,6 +929,15 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project.pop("video_generate_audio", None)
                     else:
                         project["video_generate_audio"] = req.video_generate_audio
+                # 角色声音绑定方式：枚举，null / 空串 = 清除、回落默认（提示词软约束）
+                if "character_voice_binding" in req.model_fields_set:
+                    binding = (req.character_voice_binding or "").strip()
+                    if not binding:
+                        project.pop(CHARACTER_VOICE_BINDING_FIELD, None)
+                    elif binding in VALID_CHARACTER_VOICE_BINDINGS:
+                        project[CHARACTER_VOICE_BINDING_FIELD] = binding
+                    else:
+                        raise HTTPException(status_code=422, detail=_t("character_voice_binding_invalid"))
                 # 旁白音色：照供应商文档填的字符串 id；空串 = 清除回落全局默认
                 if "narration_voice" in req.model_fields_set:
                     voice = (req.narration_voice or "").strip()
@@ -925,6 +976,16 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project.pop("default_duration", None)
                     else:
                         project["default_duration"] = req.default_duration
+                if "episode_target_duration" in req.model_fields_set:
+                    # 与 default_duration 同口径：ad 项目对字段出现本身即拒绝（含 null）
+                    if is_ad:
+                        raise HTTPException(status_code=400, detail=_t("ad_no_episode_target_duration"))
+                    if req.episode_target_duration is None:
+                        project.pop(EPISODE_TARGET_DURATION_FIELD, None)
+                    else:
+                        project[EPISODE_TARGET_DURATION_FIELD] = _validated_episode_target_duration(
+                            req.episode_target_duration, _t
+                        )
                 if "target_duration" in req.model_fields_set:
                     if not is_ad:
                         raise HTTPException(status_code=400, detail=_t("ad_only_field", field="target_duration"))
@@ -1083,6 +1144,49 @@ async def edit_script_batch(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+@router.get(
+    "/projects/{name}/script-items/{item_id}/prompt-preview",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def preview_script_item_prompts(
+    name: str,
+    item_id: str,
+    _t: Translator,
+    script_file: str = Query(..., description="剧本文件名"),
+):
+    """渲染该条目当前会送进图像 / 视频模型的最终提示词文本。
+
+    与执行路径共用同一渲染出口，结果逐字等于本次生成实际发出的提示词。只读：不向供应商
+    发请求、不产生费用、不写产物清单。某一侧缺提示词或形状不合规时，该侧返回不可用原因、
+    另一侧照常渲染，半成品条目仍能看到已写好的那一半。
+
+    挂迁移闸门与生成入口同判据：商品参考的装配读产物清单，且被阻断的项目本就无法生成，
+    此时报「先修复」比渲染一份不会被发出的文本诚实。
+    """
+    try:
+        preview = await preview_item_prompts(name, script_file, item_id)
+    except ScriptItemNotFound as exc:
+        raise NotFoundError("script_item_not_found", id=item_id) from exc
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=script_file) from exc
+    except ValueError as exc:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+
+    def _side(rendered):
+        return {
+            "text": rendered.text,
+            "unavailable": _t(rendered.unavailable) if rendered.unavailable else None,
+            "is_text_form": rendered.is_text_form,
+        }
+
+    return {
+        "item_id": preview.item_id,
+        "content_mode": preview.content_mode,
+        "storyboard_image": _side(preview.storyboard_image),
+        "video": _side(preview.video),
+    }
 
 
 class UpdateSceneRequest(BaseModel):

@@ -2,8 +2,8 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
 import type {
-  ReferenceStep1Draft,
-  ReferenceStep1FlatUnit,
+  ReferenceScriptPlanDraft,
+  ReferenceScriptPlanFlatUnit,
   ScriptReviewState,
   ScriptReviewViolation,
 } from "@/types";
@@ -12,13 +12,14 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
+import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { extractMentions } from "@/utils/reference-mentions";
 
-interface ReferenceStep1PreviewPanelProps {
+interface ReferenceScriptPlanPreviewPanelProps {
   projectName: string;
   episode: number;
   /** Asset name → kind, for mention coloring — same lookup the editor/parse preview share. */
@@ -57,7 +58,7 @@ function unitStats(scriptText: string, lookup: MentionLookup): { utterances: num
   };
 }
 
-function structuredDisplayUnits(draft: ReferenceStep1Draft): DisplayUnit[] {
+function structuredDisplayUnits(draft: ReferenceScriptPlanDraft): DisplayUnit[] {
   return draft.units.map((u) => ({
     key: u.unit_id,
     durationSeconds: u.duration_seconds,
@@ -81,7 +82,7 @@ function quarantinedDisplayUnits(
   if (!Array.isArray(units)) return [];
   return units.flatMap((raw: unknown, i) => {
     if (raw == null || typeof raw !== "object") return [];
-    const u = raw as Partial<ReferenceStep1FlatUnit>;
+    const u = raw as Partial<ReferenceScriptPlanFlatUnit>;
     const text = typeof u.text === "string" ? u.text : "";
     return [
       {
@@ -141,6 +142,18 @@ function unitDurationTiers(
   return hasReferences ? tiers.with_references : tiers.without_references;
 }
 
+/**
+ * 该 unit 一个已登记场景资产都没引用——画面地点由模型自由决定，室内外交替的相邻 unit 会
+ * 各自发挥、对不上。镜像后端 `lib/reference_video/script_preview.py::unit_lacks_scene_reference`。
+ *
+ * 与档位收窄同样按当前正文实时判、不取服务端快照：本面板可就地改正文，补上 `@[场景]` 必须
+ * 当场撤下提示，等保存后才由服务端回话会让提示与眼前的正文对不上。
+ */
+function unitLacksSceneReference(scriptText: string, lookup: MentionLookup, projectHasScene: boolean): boolean {
+  if (!projectHasScene) return false;
+  return !extractMentions(scriptText).some((name) => lookup[name] === "scene");
+}
+
 function InlineViolations({ violations }: { violations: ScriptReviewViolation[] }) {
   const { t } = useTranslation("dashboard");
   if (!violations.length) return null;
@@ -169,6 +182,7 @@ function UnitCard({
   unit,
   violations,
   lookup,
+  projectHasScene,
   quarantined,
   onScrollRef,
   editing,
@@ -182,6 +196,8 @@ function UnitCard({
   unit: DisplayUnit;
   violations: UnitViolations;
   lookup: MentionLookup;
+  /** 项目登记了场景资产——没有可引用的场景时不发「未引用场景」提示（纯商品的广告项目即属此列）。 */
+  projectHasScene: boolean;
   quarantined: boolean;
   onScrollRef: (key: string, el: HTMLElement | null) => void;
   editing: boolean;
@@ -198,6 +214,10 @@ function UnitCard({
   const hasViolation = violations.anchorSource.length + violations.byLine.size + violations.aggregate.length > 0;
   const anchorBroken = violations.anchorSource.length > 0;
   const stats = useMemo(() => unitStats(unit.scriptText, lookup), [unit.scriptText, lookup]);
+  const lacksScene = useMemo(
+    () => unitLacksSceneReference(unit.scriptText, lookup, projectHasScene),
+    [unit.scriptText, lookup, projectHasScene],
+  );
   // 档位表解析不到、或内容不可编辑（草稿）时退回只读秒数：能选的档位必须是保存后
   // 后端收编不会再改的那一档，拿不到权威档位表就不提供会被静默改掉的选择。
   const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
@@ -215,7 +235,7 @@ function UnitCard({
             value={unit.durationSeconds}
             onChange={(e) => onDurationChange(Number(e.target.value))}
             disabled={busy}
-            aria-label={t("reference_step1_duration_label", { unit: unit.key })}
+            aria-label={t("reference_script_plan_duration_label", { unit: unit.key })}
             className="rounded-[6px] border border-hairline bg-bg-grad-a/40 px-1 py-0.5 text-[11px] text-text-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
           >
             {/* 存量草稿的秒数可能已不在当前档位表内：补一个当前值选项，否则 select 会静默
@@ -225,27 +245,27 @@ function UnitCard({
               : [...durationOptions, unit.durationSeconds].sort((a, b) => a - b)
             ).map((d) => (
               <option key={d} value={d}>
-                {t("reference_step1_duration_option", { seconds: d })}
+                {t("reference_script_plan_duration_option", { seconds: d })}
               </option>
             ))}
           </select>
         ) : (
-          <span className="text-[11px] text-text-4">{t("reference_step1_duration_option", { seconds: unit.durationSeconds })}</span>
+          <span className="text-[11px] text-text-4">{t("reference_script_plan_duration_option", { seconds: unit.durationSeconds })}</span>
         )}
         {outOfTier && (
           <span className="rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
-            {t("reference_step1_duration_out_of_tier")}
+            {t("reference_script_plan_duration_out_of_tier")}
           </span>
         )}
         <span className="text-[11px] text-text-4">
-          {t("reference_step1_unit_stats", { utterances: stats.utterances })}
+          {t("reference_script_plan_unit_stats", { utterances: stats.utterances })}
         </span>
         <span className="flex-1" />
         {onTextChange && (
           <button
             type="button"
             onClick={onToggleEdit}
-            aria-label={editing ? t("reference_step1_edit_done") : t("reference_step1_edit_text")}
+            aria-label={editing ? t("reference_script_plan_edit_done") : t("reference_script_plan_edit_text")}
             className={`rounded-[6px] p-1 transition-colors ${editing ? "bg-accent/20 text-accent" : "text-text-4 hover:text-text"}`}
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -256,10 +276,10 @@ function UnitCard({
       <details open className="group mt-3">
         <summary className="flex cursor-pointer list-none items-center gap-1 font-mono text-[10px] tracking-[0.08em] text-text-4">
           <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" aria-hidden="true" />
-          {t("reference_step1_source_text_label")}
+          {t("reference_script_plan_source_text_label")}
           {anchorBroken && (
             <span className="ml-1 rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
-              {t("reference_step1_source_anchor_broken")}
+              {t("reference_script_plan_source_anchor_broken")}
             </span>
           )}
         </summary>
@@ -279,7 +299,7 @@ function UnitCard({
             value={unit.scriptText}
             onChange={onTextChange}
             disabled={busy}
-            aria-label={t("reference_step1_unit_text_label", { unit: unit.key })}
+            aria-label={t("reference_script_plan_unit_text_label", { unit: unit.key })}
             className="text-text-3"
           />
         ) : (
@@ -293,27 +313,35 @@ function UnitCard({
 
       <InlineViolations violations={violations.aggregate} />
 
+      {/* 降级提示（不阻断确认），与违约的红标区分开：正文合法，只是画面地点没被钉住。 */}
+      {lacksScene && (
+        <p className="mt-2 flex items-start gap-1.5 pl-1 text-[11px] leading-snug text-amber-300">
+          <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+          <span>{t("reference_script_plan_unit_without_scene")}</span>
+        </p>
+      )}
+
       {quarantined && hasViolation && (
-        <p className="mt-2 text-[10.5px] text-text-4">{t("reference_step1_quarantined_unit_hint")}</p>
+        <p className="mt-2 text-[10.5px] text-text-4">{t("reference_script_plan_quarantined_unit_hint")}</p>
       )}
     </article>
   );
 }
 
 /** 本面板只编辑 reference_video 变体的 units 内容；其余变体的内容不属于这里。 */
-function selectUnitsContent(state: ScriptReviewState): ReferenceStep1Draft | null {
+function selectUnitsContent(state: ScriptReviewState): ReferenceScriptPlanDraft | null {
   return state.content != null && "units" in state.content ? state.content : null;
 }
 
 /**
- * reference_video step1 拆分结果的按集预览：与 drama/narration 的 `ScriptReviewGate` 同级、
+ * reference_video script_plan 拆分结果的按集预览：与 drama/narration 的 `ScriptReviewGate` 同级、
  * 专属 reference_video 变体的内容确认面板——文稿流布局（unit 卡：头部 + 原文 + 高亮正文），
- * 草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 step2。
+ * 草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 prompt_authoring。
  *
  * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（无待处置
  * 草稿）内容上开放；草稿的修复走 Agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
  */
-export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: ReferenceStep1PreviewPanelProps) {
+export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }: ReferenceScriptPlanPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
 
@@ -327,7 +355,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     if (useProjectsStore.getState().currentProjectName !== projectName) return;
     pushToast(t("dashboard:review_confirmed"), "success");
     // 确认放行 + 预填继续消息到会话输入框——只填不发送，用户自行核对后发送。
-    useAssistantStore.getState().setInput(t("reference_step1_confirm_continue_prefill", { episode }));
+    useAssistantStore.getState().setInput(t("reference_script_plan_confirm_continue_prefill", { episode }));
     useAppStore.getState().setAssistantPanelOpen(true);
   }, [projectName, episode, pushToast, t]);
 
@@ -344,7 +372,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     save: handleSave,
     confirm: handleConfirm,
     confirming,
-  } = useScriptReviewDraft<ReferenceStep1Draft>({
+  } = useScriptReviewDraft<ReferenceScriptPlanDraft>({
     projectName,
     episode,
     selectContent: selectUnitsContent,
@@ -381,14 +409,16 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     const violations = state?.quarantine?.violations ?? [];
     const report =
       violations.length === 0
-        ? t("dashboard:review_fix_request_promote_prefill", { episode, docType: "reference_step1" })
+        ? t("dashboard:review_fix_request_promote_prefill", { episode, docType: "reference_script_plan" })
         : [
-            t("reference_step1_fix_request_prefill_header", { episode, count: violations.length }),
+            t("reference_script_plan_fix_request_prefill_header", { episode, count: violations.length }),
             ...violations.map((v, i) => `${i + 1}. ${v.message}`),
           ].join("\n");
     useAssistantStore.getState().setInput(report);
     useAppStore.getState().setAssistantPanelOpen(true);
   }, [state, episode, t]);
+
+  const projectHasScene = useMemo(() => Object.values(lookup).some((kind) => kind === "scene"), [lookup]);
 
   const cardRefs = useRef(new Map<string, HTMLElement>());
   const setCardRef = useCallback((key: string, el: HTMLElement | null) => {
@@ -419,9 +449,9 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     );
   }
 
-  const status = state?.status ?? "no_step1";
+  const status = state?.status ?? "no_script_plan";
   const quarantine = state?.quarantine ?? null;
-  if (status === "no_step1" || (draft == null && quarantine == null)) {
+  if (status === "no_script_plan" || (draft == null && quarantine == null)) {
     return (
       <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_preprocessing_content")}</div>
     );
@@ -435,8 +465,8 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
       ? structuredDisplayUnits(draft)
       : [];
   // 收窄后的档位表若已不再包含某 unit 存量存盘的时长（模型 / 分辨率 / 参考图配置变化所致），
-  // 该值仍保留展示（避免 select 静默跳首档），但不能放行确认——_assert_reference_step1_ready
-  // 会在 step2 落盘前硬拒同一个越档值，此处先一步拦下，而不是让用户确认后才在别处失败。
+  // 该值仍保留展示（避免 select 静默跳首档），但不能放行确认——_assert_reference_script_plan_ready
+  // 会在 prompt_authoring 落盘前硬拒同一个越档值，此处先一步拦下，而不是让用户确认后才在别处失败。
   const outOfTierUnitKeys = quarantined
     ? new Set<string>()
     : new Set(
@@ -479,7 +509,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
           <div className="flex flex-col">
             <span className="text-[12.5px] font-medium text-text">
               {quarantined
-                ? t(hasDraftViolations ? "reference_step1_status_quarantined" : "reference_step1_status_editable")
+                ? t(hasDraftViolations ? "reference_script_plan_status_quarantined" : "reference_script_plan_status_editable")
                 : confirmed
                   ? t("dashboard:review_status_confirmed")
                   : t("dashboard:review_status_pending")}
@@ -500,12 +530,12 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
                     </span>
                   ))}
                   {unassignedViolations.length > 0 && (
-                    <span> · {t("reference_step1_unassigned_violations", { count: unassignedViolations.length })}</span>
+                    <span> · {t("reference_script_plan_unassigned_violations", { count: unassignedViolations.length })}</span>
                   )}
-                  <span> — {t("reference_step1_click_to_locate")}</span>
+                  <span> — {t("reference_script_plan_click_to_locate")}</span>
                 </>
               ) : quarantined ? (
-                t("reference_step1_editable_hint")
+                t("reference_script_plan_editable_hint")
               ) : confirmed ? (
                 t("dashboard:review_confirmed_hint")
               ) : (
@@ -518,7 +548,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         <div className="flex shrink-0 items-center gap-2">
           {quarantined && (
             <button type="button" onClick={handleRequestFix} className={GHOST_BTN_CLS}>
-              {t("reference_step1_request_fix")}
+              {t("reference_script_plan_request_fix")}
             </button>
           )}
           {!quarantined && dirty && (
@@ -535,9 +565,9 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
             style={ACCENT_BUTTON_STYLE}
             title={
               quarantined
-                ? t(hasDraftViolations ? "reference_step1_confirm_blocked_hint" : "reference_step1_editable_hint")
+                ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
                 : outOfTierUnitKeys.size > 0
-                  ? t("reference_step1_duration_out_of_tier_hint")
+                  ? t("reference_script_plan_duration_out_of_tier_hint")
                   : undefined
             }
           >
@@ -546,10 +576,18 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
               ? t("dashboard:review_confirming")
               : confirmed
                 ? t("dashboard:review_confirmed_badge")
-                : t("reference_step1_confirm_continue")}
+                : t("reference_script_plan_confirm_continue")}
           </button>
         </div>
       </header>
+
+      {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
+      {!quarantined && (
+        <EpisodeDurationSummary
+          totalSeconds={displayUnits.reduce((sum, u) => sum + u.durationSeconds, 0)}
+          targetSeconds={state?.episode_target_duration ?? null}
+        />
+      )}
 
       <div className="flex flex-col gap-2.5">
         {displayUnits.map((unit, i) => (
@@ -558,6 +596,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
             unit={unit}
             violations={partitionViolations(allViolations, unit.key)}
             lookup={lookup}
+            projectHasScene={projectHasScene}
             quarantined={quarantined}
             onScrollRef={setCardRef}
             editing={!quarantined && editingUnitKey === unit.key}
@@ -574,7 +613,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
       {(unassignedViolations.length > 0 || rawFallback) && (
         <section className="rounded-[10px] border border-red-500/45 p-4" style={CARD_STYLE}>
           <h3 className="font-mono text-[10px] tracking-[0.08em] text-text-4">
-            {t("reference_step1_unanchored_section")}
+            {t("reference_script_plan_unanchored_section")}
           </h3>
           <InlineViolations violations={unassignedViolations} />
           {rawFallback && (

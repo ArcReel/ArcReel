@@ -5,7 +5,7 @@
  * - lib/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
  */
 
-import type { ReferenceStep1Draft, ScriptReviewQuarantine } from "./reference-video";
+import type { ReferenceScriptPlanDraft, ScriptReviewQuarantine } from "./reference-video";
 
 export const SHOT_TYPES = [
   "Extreme Close-up",
@@ -106,9 +106,9 @@ export interface VoiceoverUtterance {
 export type Utterance = DialogueUtterance | VoiceoverUtterance;
 
 /**
- * step1 结构化中间态（内容确认的可审 / 可改对象）。映射后端 lib/script_models.py 的
- * DramaSceneContent / DramaNormalizedScript 与 NarrationStep1Segment / NarrationStep1Draft：
- * step1 已定内容层，step2 视觉生成（image_prompt / video_prompt）由用户确认后才触发。
+ * script_plan 结构化中间态（内容确认的可审 / 可改对象）。映射后端 lib/script_models.py 的
+ * DramaSceneContent / DramaNormalizedScript 与 NarrationScriptPlanSegment / NarrationScriptPlanDraft：
+ * script_plan 已定内容层，prompt_authoring 视觉生成（image_prompt / video_prompt）由用户确认后才触发。
  */
 export interface DramaSceneContent {
   scene_id: string;
@@ -117,7 +117,7 @@ export interface DramaSceneContent {
   characters_in_scene: string[];
   scenes: string[];
   props: string[];
-  /** 视觉改编自由文本（供 step2 生成画面，不内嵌口播）。 */
+  /** 视觉改编自由文本（供 prompt_authoring 生成画面，不内嵌口播）。 */
   scene_description: string;
   /** 分镜级有序发声序列：台词 / 画外音按时序排列（内容确认的富编辑对象）。 */
   utterances: Utterance[];
@@ -130,7 +130,7 @@ export interface DramaNormalizedScript {
   scenes: DramaSceneContent[];
 }
 
-export interface NarrationStep1Segment {
+export interface NarrationScriptPlanSegment {
   segment_id: string;
   /** 小说原文（逐字保留，内容确认的可编辑对象）。 */
   novel_text: string;
@@ -141,26 +141,26 @@ export interface NarrationStep1Segment {
   props: string[];
 }
 
-export interface NarrationStep1Draft {
-  segments: NarrationStep1Segment[];
+export interface NarrationScriptPlanDraft {
+  segments: NarrationScriptPlanSegment[];
   episode?: number;
 }
 
 export type ScriptReviewStatus =
   | "not_applicable"
-  | "no_step1"
+  | "no_script_plan"
   | "pending_review"
   | "confirmed";
 
-/** step1→step2 内容确认状态（后端 server/routers/script_review.py 的 GET 响应）。 */
+/** script_plan→prompt_authoring 内容确认状态（后端 server/routers/script_review.py 的 GET 响应）。 */
 export interface ScriptReviewState {
   episode: number;
   content_mode: string | null;
   status: ScriptReviewStatus;
   fingerprint: string | null;
   confirmed_at: string | null;
-  content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft | null;
-  /** 草稿在场时非 null（三条 step1 路线都可能出现），否则 null。 */
+  content: DramaNormalizedScript | NarrationScriptPlanDraft | ReferenceScriptPlanDraft | null;
+  /** 草稿在场时非 null（三条 script_plan 路线都可能出现），否则 null。 */
   quarantine: ScriptReviewQuarantine | null;
   /**
    * unit 时长可选档位，reference_video 变体才非 null（项目未配置视频型号而解析不到时也为
@@ -169,10 +169,15 @@ export interface ScriptReviewState {
    */
   supported_durations: number[] | null;
   /**
-   * 按「是否带参考图」收窄后的逐 unit 生效档位，与 step2 落盘前的校验同一把尺；无法解析型号
+   * 按「是否带参考图」收窄后的逐 unit 生效档位，与 prompt_authoring 落盘前的校验同一把尺；无法解析型号
    * 时为 null，呈现层退回 `supported_durations` 的未收窄全集。
    */
   duration_tiers: { with_references: number[]; without_references: number[] } | null;
+  /**
+   * 项目级「单集目标时长」偏好（秒），未设时 null。审核面板据它渲染「本集合计 / 目标」对比；
+   * 超出目标只提示，不阻断确认与后续生成。
+   */
+  episode_target_duration: number | null;
 }
 
 export interface Composition {
@@ -324,3 +329,22 @@ export interface AdEpisodeScript {
 }
 
 export type EpisodeScript = NarrationEpisodeScript | DramaEpisodeScript | AdEpisodeScript;
+
+/**
+ * 一侧提示词的最终渲染结果。`text` 与 `unavailable` 恰有一个非 null；
+ * `unavailable` 已是后端按请求语言渲染的成品文案，前端不再二次翻译。
+ */
+export interface RenderedPromptPreview {
+  text: string | null;
+  unavailable: string | null;
+  /** 该条目的这一侧提示词当前是文本形态。 */
+  is_text_form: boolean;
+}
+
+/** 条目最终提示词预览：与执行期同一渲染出口，逐字等于实际发给模型的文本。 */
+export interface ItemPromptPreview {
+  item_id: string;
+  content_mode: "narration" | "drama" | "ad";
+  storyboard_image: RenderedPromptPreview;
+  video: RenderedPromptPreview;
+}

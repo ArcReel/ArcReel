@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, useCallback } from "react";
-import { ChevronDown, Type, Image as ImageIcon, Film, AudioLines } from "lucide-react";
+import { ChevronDown, Type, Image as ImageIcon, Film, AudioLines, Settings2 } from "lucide-react";
+import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Popover } from "@/components/ui/Popover";
 import type { EndpointKey, ImageCap, MediaType } from "@/types";
@@ -41,10 +42,16 @@ interface EndpointSelectProps {
   ariaLabel?: string;
   /** Disable interaction */
   disabled?: boolean;
+  /**
+   * 拦截「管理端点」跳转：宿主表单据此在有未保存改动时先行确认，确认后调用 proceed
+   * 执行跳转。缺省直接跳转。
+   */
+  onManageNavigate?: (proceed: () => void) => void;
 }
 
-export function EndpointSelect({ value, onChange, ariaLabel, disabled }: EndpointSelectProps) {
+export function EndpointSelect({ value, onChange, ariaLabel, disabled, onManageNavigate }: EndpointSelectProps) {
   const { t } = useTranslation("dashboard");
+  const [, navigate] = useLocation();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
@@ -306,6 +313,22 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
             );
           })}
         </div>
+        {/* 变体 C 入口：行内不展开编辑，跳到设置页「调用端点」小节管理定义。 */}
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            const params = new URLSearchParams({ section: "endpoints" });
+            if (value) params.set("endpoint", value);
+            const proceed = () => navigate(`/app/settings?${params.toString()}`);
+            if (onManageNavigate) onManageNavigate(proceed);
+            else proceed();
+          }}
+          className="flex shrink-0 items-center gap-1.5 border-t border-hairline-soft px-3.5 py-2 text-left text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a/50 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Settings2 aria-hidden="true" className="h-3 w-3" />
+          {t("ce_manage_entry")}
+        </button>
       </Popover>
     </>
   );

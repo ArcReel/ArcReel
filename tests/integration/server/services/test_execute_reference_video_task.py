@@ -1179,9 +1179,10 @@ async def test_execute_reference_video_task_blocks_an_unmigrated_project_before_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """产物清单是读取已生成产物的唯一口径：项目没迁到 v8 就在付费前阻断。"""
+    """产物清单是读取已生成产物的唯一口径：项目未达到当前 schema 版本时在付费前阻断。"""
 
     from lib.project_migration_failure import ProjectMigrationError
+    from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
     from server.services import reference_video_tasks as rvt
 
     proj_dir = _write_project(tmp_path)
@@ -1219,7 +1220,7 @@ async def test_execute_reference_video_task_blocks_an_unmigrated_project_before_
     fake_queue.persist_execution_checkpoint = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
-    with pytest.raises(ProjectMigrationError, match="did not reach v9"):
+    with pytest.raises(ProjectMigrationError, match=f"did not reach v{CURRENT_PROJECT_SCHEMA_VERSION}"):
         await rvt.execute_reference_video_task(
             "demo",
             "E1U1",

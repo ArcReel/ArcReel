@@ -119,6 +119,28 @@ class TestProjectsRouter:
             assert resp.status_code == 200
             assert "narration_voice" not in fake_pm.project_data["ready"]
 
+    def test_update_project_persists_character_voice_binding(self, tmp_path, monkeypatch):
+        """PATCH 角色声音绑定方式：合法枚举写入，空值回落默认（从 project.json 移除）。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"character_voice_binding": "reference_audio"})
+            assert resp.status_code == 200
+            assert fake_pm.project_data["ready"]["character_voice_binding"] == "reference_audio"
+
+            resp = client.patch("/api/v1/projects/ready", json={"character_voice_binding": None})
+            assert resp.status_code == 200
+            assert "character_voice_binding" not in fake_pm.project_data["ready"]
+
+    def test_update_project_rejects_unknown_character_voice_binding(self, tmp_path, monkeypatch):
+        """非法枚举 422，且不写回 project.json。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"character_voice_binding": "native"})
+            assert resp.status_code == 422
+            assert "character_voice_binding" not in fake_pm.project_data["ready"]
+
     def test_update_project_rejects_non_positive_narration_speed(self, tmp_path, monkeypatch):
         """语速 0/负数应 422，且不写回 project.json。"""
         fake_pm = _FakePM(tmp_path)
@@ -160,6 +182,28 @@ class TestProjectsRouter:
             resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": value})
             assert resp.status_code == 422
             assert "speech_rate_units_per_second" not in fake_pm.project_data["ready"]
+
+    def test_update_project_persists_and_clears_episode_target_duration(self, tmp_path, monkeypatch):
+        """PATCH 单集目标时长：区间内写入 project.json，null 清除回落「未设目标」。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"episode_target_duration": 120})
+            assert resp.status_code == 200
+            assert fake_pm.project_data["ready"]["episode_target_duration"] == 120
+
+            resp = client.patch("/api/v1/projects/ready", json={"episode_target_duration": None})
+            assert resp.status_code == 200
+            assert "episode_target_duration" not in fake_pm.project_data["ready"]
+
+    @pytest.mark.parametrize("bad", [5, 900, 0, -30])
+    def test_update_project_rejects_out_of_range_episode_target_duration(self, tmp_path, monkeypatch, bad):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"episode_target_duration": bad})
+            assert resp.status_code == 422
+            assert "episode_target_duration" not in fake_pm.project_data["ready"]
 
     def test_update_project_rejects_invalid_audio_backend(self, tmp_path, monkeypatch):
         """audio_backend 非法 provider 应 400（复用 backend 格式校验）。"""

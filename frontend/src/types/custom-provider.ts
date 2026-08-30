@@ -13,6 +13,8 @@ export interface EndpointDescriptor {
   family: string;
   /** 实现形态：python = backend 代码，declarative = 随版声明式定义。 */
   kind: "python" | "declarative";
+  /** 归属：builtin = 随版发布、只读，custom = 用户自建，可编辑删除。 */
+  source: "builtin" | "custom";
   display_name_key: string;
   /** 声明式端点的显示名（定义里的 meta.name，专有名词不翻译）；Python 内置为 null，取 display_name_key 的文案。 */
   display_name: string | null;

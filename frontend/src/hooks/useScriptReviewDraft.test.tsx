@@ -15,6 +15,7 @@ function reviewState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSt
     quarantine: null,
     supported_durations: null,
     duration_tiers: null,
+    episode_target_duration: null,
     content: {
       title: "第一集",
       scenes: [
@@ -105,9 +106,9 @@ describe("useScriptReviewDraft", () => {
     });
     expect(result.current.dirty).toBe(true);
 
-    // agent 改了 step1 → 外部刷新把服务端态换成新版，但用户草稿仍基于旧版
+    // agent 改了 script_plan → 外部刷新把服务端态换成新版，但用户草稿仍基于旧版
     act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
     // 未保存编辑在外部刷新后保留，不被服务端内容覆盖
@@ -165,7 +166,7 @@ describe("useScriptReviewDraft", () => {
 
     // 外部刷新发出 GET，它在用户保存完成前都不 resolve——读到的是保存前的旧内容
     act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
 
@@ -211,13 +212,13 @@ describe("useScriptReviewDraft", () => {
     act(() => {
       result.current.setDraft((prev) => (prev ? editFirstUtterance(prev, "我的本地编辑") : prev));
     });
-    // 保存在途时 agent 改了 step1，外部刷新发出 GET；它与保存的先后无法在客户端判定，一律作废
+    // 保存在途时 agent 改了 script_plan，外部刷新发出 GET；它与保存的先后无法在客户端判定，一律作废
     let saving: Promise<void>;
     act(() => {
       saving = result.current.save();
     });
     act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
 

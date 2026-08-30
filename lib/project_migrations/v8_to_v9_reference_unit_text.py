@@ -12,7 +12,7 @@
   结构不复存在后这条 provenance 没有可指向的对象；它蕴含的 ``needs_replan`` 原样保留，问题
   单元仍然阻断生成、仍需重新规划。
 
-同一套改写作用于剧集脚本与 step1 草稿：草稿是同一份正文的上一形态，留在旧形状会让审阅 gate
+同一套改写作用于剧集脚本与 script_plan 草稿：草稿是同一份正文的上一形态，留在旧形状会让审阅 gate
 读不出内容。
 
 写入顺序沿用本目录约定：先只读预检全部文件并算出目标载荷，全部通过后才创建备份、再逐文件
@@ -33,14 +33,30 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME, episode_drafts_dir
+from lib.episode_paths import episode_drafts_dir
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
 from lib.project_migration_failure import ProjectMigrationError
 from lib.reference_video.duration_migration import migrate_unit_durations
-from lib.script_models import ReferenceStep1Unit, ReferenceVideoUnit
+from lib.script_models import ReferenceScriptPlanUnit, ReferenceVideoUnit
 
 _TARGET_VERSION = 9
+
+#: 本步可能遇到的两个参考生视频脚本规划草稿名，按查找顺序排列。起点低于 v8 的项目在 v7→v8
+#: 已被前置改名为 ``script_plan_*``；起点正好是 v8 的项目没经过那一步，草稿仍是 v8 的落盘事实
+#: ``step1_*``。两个名字都是历史事实，写死在这一步，不跟随当前命名。
+_REFERENCE_UNITS_FILENAMES = ("script_plan_reference_units.json", "step1_reference_units.json")
+
+
+def _reference_units_draft_path(project_dir: Path, episode: int) -> Path:
+    """取该集在盘上的脚本规划草稿路径；两个名字都不在时返回首选名（读取侧按不存在处理）。"""
+
+    drafts_dir = episode_drafts_dir(project_dir, episode)
+    for name in _REFERENCE_UNITS_FILENAMES:
+        candidate = drafts_dir / name
+        if candidate.exists():
+            return candidate
+    return drafts_dir / _REFERENCE_UNITS_FILENAMES[0]
 
 
 def _unit_text(unit: dict[str, Any], location: str) -> str:
@@ -102,15 +118,15 @@ def migrate_reference_script(payload: dict[str, Any], *, location: str) -> dict[
     return migrated
 
 
-def migrate_reference_step1_draft(payload: dict[str, Any], *, location: str) -> dict[str, Any]:
-    """纯转换一份 step1 草稿；已是 v9 形状的草稿原样校验后返回。"""
+def migrate_reference_script_plan_draft(payload: dict[str, Any], *, location: str) -> dict[str, Any]:
+    """纯转换一份 script_plan 草稿；已是 v9 形状的草稿原样校验后返回。"""
 
     units = payload.get("units")
     if not isinstance(units, list):
         raise ValueError(f"{location}.units 必须是数组")
     migrated = copy.deepcopy(payload)
     migrated["units"] = [
-        _migrate_unit(unit, f"{location}.units[{index}]", ReferenceStep1Unit) for index, unit in enumerate(units)
+        _migrate_unit(unit, f"{location}.units[{index}]", ReferenceScriptPlanUnit) for index, unit in enumerate(units)
     ]
     return migrated
 
@@ -195,12 +211,12 @@ def migrate_v8_to_v9(project_dir: Path) -> None:
                 if payload is not None:
                     plans.append((script_path, migrate_reference_script(payload, location=f"剧本 {label}")))
 
-            draft_path = episode_drafts_dir(project_dir, episode) / REFERENCE_VIDEO_STEP1_FILENAME
-            draft_label = f"第 {episode} 集 {REFERENCE_VIDEO_STEP1_FILENAME}"
-            with _located(episode, REFERENCE_VIDEO_STEP1_FILENAME):
+            draft_path = _reference_units_draft_path(project_dir, episode)
+            draft_label = f"第 {episode} 集 {draft_path.name}"
+            with _located(episode, draft_path.name):
                 draft = _readable_file(draft_path, draft_label)
                 if draft is not None:
-                    plans.append((draft_path, migrate_reference_step1_draft(draft, location=draft_label)))
+                    plans.append((draft_path, migrate_reference_script_plan_draft(draft, location=draft_label)))
 
     # 预检全部成功后才创建备份；所有文件（含 project.json）先备份完，再开始替换。
     for path, _payload in [*plans, (project_file, project)]:
@@ -213,4 +229,4 @@ def migrate_v8_to_v9(project_dir: Path) -> None:
     atomic_write_json(project_file, migrated_project)
 
 
-__all__ = ["migrate_reference_script", "migrate_reference_step1_draft", "migrate_v8_to_v9"]
+__all__ = ["migrate_reference_script", "migrate_reference_script_plan_draft", "migrate_v8_to_v9"]

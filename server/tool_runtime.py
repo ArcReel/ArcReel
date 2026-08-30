@@ -30,18 +30,19 @@ from lib.asset_inventory import (
 )
 from lib.asset_types import ASSET_SPECS
 from lib.async_thread import run_sync_transaction as _run_sync_transaction
+from lib.character_voice import VALID_CHARACTER_VOICE_BINDINGS
 from lib.config.resolver import ConfigResolver
 from lib.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.db import async_session_factory
 from lib.episode_paths import (
-    DRAMA_STEP1_QUARANTINE_FILENAME,
-    NARRATION_STEP1_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_STEP1_FILENAME,
-    REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
-    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
-    STEP1_FILENAMES,
-    STEP1_LEGACY_FILENAMES,
+    DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    SCRIPT_PLAN_FILENAMES,
+    SCRIPT_PLAN_LEGACY_FILENAMES,
 )
 from lib.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
 from lib.episode_reset import (
@@ -50,6 +51,12 @@ from lib.episode_reset import (
 )
 from lib.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
+)
+from lib.episode_target_duration import (
+    EPISODE_TARGET_DURATION_FIELD,
+    MAX_EPISODE_TARGET_DURATION,
+    MIN_EPISODE_TARGET_DURATION,
+    is_valid_episode_target_duration,
 )
 from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.generation_batch import (
@@ -112,7 +119,8 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
-from lib.script_review import Step1RebuildCompletionError, complete_stale_step1_rebuild, step1_kind
+from lib.script_plan_entries import SCOPE_STALE
+from lib.script_review import ScriptPlanRebuildCompletionError, complete_stale_script_plan_rebuild, script_plan_kind
 from lib.source_loader import (
     ConflictError,
     CorruptFileError,
@@ -134,6 +142,7 @@ from server.draft_workflow import (
     PatchDraftRequest,
     PromoteDraftRequest,
 )
+from server.services.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
 from server.services.video_caps import annotate_reference_unit_tiers
 from server.services.workflow_planner import WorkflowPlanner
 from server.text_generation import (
@@ -142,9 +151,9 @@ from server.text_generation import (
     TextGenerationRequest,
     TextGenerationResult,
     _episode_generation_preflight,
-    generate_drama_step1,
-    generate_narration_step1,
-    generate_reference_step1,
+    generate_drama_script_plan,
+    generate_narration_script_plan,
+    generate_reference_script_plan,
 )
 from server.text_generation import (
     confirm_script_review as confirm_script_review_handler,
@@ -390,9 +399,9 @@ async def _run_text_generation(
 
 
 _TEXT_EPISODE_SCRIPT = "text_episode_script"
-_TEXT_DRAMA_STEP1 = "text_drama_step1"
-_TEXT_NARRATION_STEP1 = "text_narration_step1"
-_TEXT_REFERENCE_STEP1 = "text_reference_step1"
+_TEXT_DRAMA_SCRIPT_PLAN = "text_drama_script_plan"
+_TEXT_NARRATION_SCRIPT_PLAN = "text_narration_script_plan"
+_TEXT_REFERENCE_SCRIPT_PLAN = "text_reference_script_plan"
 _TEXT_EPISODE_PLAN = "text_episode_plan"
 _TEXT_TASK_SERVICES: dict[str, Services] = {}
 
@@ -550,14 +559,14 @@ async def generate_episode_script(
         task_type=_TEXT_EPISODE_SCRIPT,
         operation="generate_episode_script",
         unit_id=f"episode-{request.value.episode}",
-        payload=asdict(request.value),
+        payload=request.value.to_payload(),
         scope=scope,
         caller=_caller,
         services=services,
     )
 
 
-async def generate_step1(
+async def generate_script_plan(
     request: ToolRequest[TextGenerationRequest],
     scope: ProjectScope,
     _caller: CallerContext,
@@ -567,26 +576,26 @@ async def generate_step1(
         project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
         content_mode = project.get("content_mode", "narration")
         if content_mode == "ad":
-            raise TextGenerationError("广告/短片项目无 step1，请直接调用 generate_episode_script")
+            raise TextGenerationError("广告/短片项目无 script_plan，请直接调用 generate_episode_script")
         if is_reference_video_project(project):
-            handler, task_type = generate_reference_step1, _TEXT_REFERENCE_STEP1
+            handler, task_type = generate_reference_script_plan, _TEXT_REFERENCE_SCRIPT_PLAN
         elif content_mode == "narration":
-            handler, task_type = generate_narration_step1, _TEXT_NARRATION_STEP1
+            handler, task_type = generate_narration_script_plan, _TEXT_NARRATION_SCRIPT_PLAN
         elif content_mode == "drama":
-            handler, task_type = generate_drama_step1, _TEXT_DRAMA_STEP1
+            handler, task_type = generate_drama_script_plan, _TEXT_DRAMA_SCRIPT_PLAN
         else:
             raise TextGenerationError(f"不支持的创作类型: {content_mode}")
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:  # noqa: BLE001
-        return ToolOutcome(problem=ToolProblem("internal_error", f"generate_step1 失败: {exc}"))
+        return ToolOutcome(problem=ToolProblem("internal_error", f"generate_script_plan 失败: {exc}"))
     if request.value.dry_run:
-        return await _execute_text_handler("generate_step1", handler, request.value, scope, services)
+        return await _execute_text_handler("generate_script_plan", handler, request.value, scope, services)
     return await _submit_text_task(
         task_type=task_type,
-        operation="generate_step1",
+        operation="generate_script_plan",
         unit_id=f"episode-{request.value.episode}",
-        payload=asdict(request.value),
+        payload=request.value.to_payload(),
         scope=scope,
         caller=_caller,
         services=services,
@@ -639,7 +648,7 @@ class SourceTextContent(BaseModel):
     text: str
 
 
-class Step1Content(BaseModel):
+class ScriptPlanContent(BaseModel):
     revision: str
     etag: str
     episode: int
@@ -661,16 +670,16 @@ class ProjectFileContent(BaseModel):
 
 _EPISODE_DIR_RE = re.compile(r"episode_[1-9][0-9]*\Z")
 BUSINESS_FILE_MAX_BYTES = 50 * 1024 * 1024
-_STEP1_BUSINESS_FILENAMES = frozenset(
+_SCRIPT_PLAN_BUSINESS_FILENAMES = frozenset(
     {
-        *STEP1_FILENAMES.values(),
-        *(name for names in STEP1_LEGACY_FILENAMES.values() for name in names),
-        REFERENCE_VIDEO_STEP1_FILENAME,
-        REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
-        DRAMA_STEP1_QUARANTINE_FILENAME,
-        NARRATION_STEP1_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+        *SCRIPT_PLAN_FILENAMES.values(),
+        *(name for names in SCRIPT_PLAN_LEGACY_FILENAMES.values() for name in names),
+        REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+        REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
+        DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
+        NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
     }
 )
 
@@ -690,7 +699,7 @@ def _business_path_parts(value: str) -> tuple[str, ...]:
             len(parts) == 3
             and parts[0] == "drafts"
             and _EPISODE_DIR_RE.fullmatch(parts[1]) is not None
-            and parts[2] in _STEP1_BUSINESS_FILENAMES
+            and parts[2] in _SCRIPT_PLAN_BUSINESS_FILENAMES
         )
     )
     if not allowed:
@@ -851,6 +860,46 @@ async def get_episode_script(
     )
 
 
+class PromptPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    script: str = Field(min_length=1, description="剧本文件名（纯文件名）")
+    item_id: str = Field(min_length=1, description="分镜条目 id")
+
+
+async def get_prompt_preview(
+    request: ToolRequest[PromptPreviewRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[ItemPromptPreview]:
+    """渲染一个条目当前会送进图像 / 视频模型的最终提示词文本。
+
+    与执行路径共用同一渲染出口，结果逐字等于本次生成实际发出的提示词。只读：不向供应商
+    发请求、不产生费用、不写产物清单。``unavailable`` 是稳定的机器可读原因码，两个 host
+    原样透传，UI 侧的成品文案由 REST 路由按请求语言渲染。
+    """
+    filename = request.value.script
+    if "/" in filename or "\\" in filename or filename in {".", ".."}:
+        return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
+    try:
+        failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
+        if failure is not None:
+            return ToolOutcome(problem=ToolProblem(MIGRATION_FAILURE_CODE, failure.reason))
+        preview = await preview_item_prompts(
+            scope.project_name, filename, request.value.item_id, projects=services.projects
+        )
+    except ScriptItemNotFound:
+        return ToolOutcome(problem=ToolProblem("item_not_found", f"剧本中不存在分镜 {request.value.item_id}"))
+    except FileNotFoundError as exc:
+        return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
+    except (TypeError, ValueError) as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"get_prompt_preview 失败: {exc}"))
+    return ToolOutcome(value=preview)
+
+
 async def list_source_files(
     _request: ToolRequest[None],
     scope: ProjectScope,
@@ -888,15 +937,17 @@ async def get_source_text(
         return ToolOutcome(problem=_file_problem("get_source_text", exc))
 
 
-def _get_step1_content_sync(project_name: str, episode: int, projects: ProjectManager) -> Step1Content | None:
+def _get_script_plan_content_sync(
+    project_name: str, episode: int, projects: ProjectManager
+) -> ScriptPlanContent | None:
     project = projects.load_project_readonly(project_name)
-    kind = step1_kind(project)
+    kind = script_plan_kind(project)
     if kind is None:
         return None
     names = (
-        (REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_LEGACY_FILENAME)
+        (REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME, REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME)
         if kind == "reference_video"
-        else (STEP1_FILENAMES[kind], *STEP1_LEGACY_FILENAMES.get(kind, ()))
+        else (SCRIPT_PLAN_FILENAMES[kind], *SCRIPT_PLAN_LEGACY_FILENAMES.get(kind, ()))
     )
     project_dir = projects.get_project_path(project_name)
     for name in names:
@@ -905,26 +956,26 @@ def _get_step1_content_sync(project_name: str, episode: int, projects: ProjectMa
             content, revision, etag, _size = _decode_business_file(project_dir, relative)
         except FileNotFoundError:
             continue
-        return Step1Content(revision=revision, etag=etag, episode=episode, path=relative, content=content)
+        return ScriptPlanContent(revision=revision, etag=etag, episode=episode, path=relative, content=content)
     raise FileNotFoundError
 
 
-async def get_step1_content(
+async def get_script_plan_content(
     request: ToolRequest[int],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
-) -> ToolOutcome[Step1Content]:
+) -> ToolOutcome[ScriptPlanContent]:
     episode = request.value
     if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
         return ToolOutcome(problem=ToolProblem("invalid_request", "episode 必须是正整数"))
     try:
-        result = await asyncio.to_thread(_get_step1_content_sync, scope.project_name, episode, services.projects)
+        result = await asyncio.to_thread(_get_script_plan_content_sync, scope.project_name, episode, services.projects)
         if result is None:
-            return ToolOutcome(problem=ToolProblem("step1_not_applicable", "当前项目没有 step1 中间态"))
+            return ToolOutcome(problem=ToolProblem("script_plan_not_applicable", "当前项目没有 script_plan 中间态"))
         return ToolOutcome(value=result)
     except Exception as exc:  # noqa: BLE001
-        return ToolOutcome(problem=_file_problem("get_step1_content", exc))
+        return ToolOutcome(problem=_file_problem("get_script_plan_content", exc))
 
 
 async def list_project_files(
@@ -1476,12 +1527,14 @@ MAX_INSTRUCTIONS_LEN = 4000
 ASSET_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 PROJECT_SETTINGS = (
     "episode_target_units",
+    EPISODE_TARGET_DURATION_FIELD,
     "source_language",
     "brief",
     "planning_window_chars",
     "planning_max_episodes",
     "narration_voice",
     "narration_speed",
+    "character_voice_binding",
 )
 PROJECT_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
 EPISODE_META_FIELDS = ("title",)
@@ -1637,16 +1690,16 @@ class CompleteAssetInventoryResult(BaseModel):
     counts: dict[str, int]
 
 
-class CompleteStep1RebuildRequest(BaseModel):
+class CompleteScriptPlanRebuildRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     episode: int = Field(strict=True, ge=1)
-    expected_stale_step1_revision: str | None
+    expected_stale_script_plan_revision: str | None
 
 
-class CompleteStep1RebuildResult(BaseModel):
+class CompleteScriptPlanRebuildResult(BaseModel):
     episode: int
-    step1_revision: str
+    script_plan_revision: str
 
 
 def _unexpected(name: str, exc: BaseException) -> ToolProblem:
@@ -1834,12 +1887,14 @@ async def execute_queued_text_task(
             source=payload.get("source"),
             instructions=payload.get("instructions"),
             dry_run=bool(payload.get("dry_run")),
+            scope=payload.get("scope") or SCOPE_STALE,
+            entry_ids=tuple(payload.get("entry_ids") or ()),
         )
         handlers = {
             _TEXT_EPISODE_SCRIPT: ("generate_episode_script", generate_episode_script_handler),
-            _TEXT_DRAMA_STEP1: ("generate_step1", generate_drama_step1),
-            _TEXT_NARRATION_STEP1: ("generate_step1", generate_narration_step1),
-            _TEXT_REFERENCE_STEP1: ("generate_step1", generate_reference_step1),
+            _TEXT_DRAMA_SCRIPT_PLAN: ("generate_script_plan", generate_drama_script_plan),
+            _TEXT_NARRATION_SCRIPT_PLAN: ("generate_script_plan", generate_narration_script_plan),
+            _TEXT_REFERENCE_SCRIPT_PLAN: ("generate_script_plan", generate_reference_script_plan),
         }
         try:
             operation, handler = handlers[task_type]
@@ -1892,7 +1947,7 @@ async def reset_episode_planning(
             else f"这些集的账本条目被清除后需要重新规划，第 1..{value.from_episode - 1} 集保留不动"
         )
         lines = [
-            f"⚠️ 本次重置会波及已消费集（已有 step1/剧本/媒体产物）：第 {episodes} 集。尚未执行任何改动。",
+            f"⚠️ 本次重置会波及已消费集（已有 script_plan/剧本/媒体产物）：第 {episodes} 集。尚未执行任何改动。",
             "请把影响范围告知用户；用户确认后带 confirm_consumed=true 重新调用"
             f"（剧本与媒体产物不会被删除，但{aftermath}）。",
         ]
@@ -1955,6 +2010,18 @@ def _coerce_setting_value(key: str, value: Any) -> Any:
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"{key} 必须是正整数或 null,收到 {value!r}")
         return value
+    if key == EPISODE_TARGET_DURATION_FIELD:
+        if value is None:
+            return None
+        message = (
+            f"{EPISODE_TARGET_DURATION_FIELD} 必须是 {MIN_EPISODE_TARGET_DURATION}-"
+            f"{MAX_EPISODE_TARGET_DURATION} 秒的整数或 null,收到 {value!r}"
+        )
+        if isinstance(value, str):
+            value = _coerce_numeric_string(value, int, message)
+        if not is_valid_episode_target_duration(value):
+            raise ValueError(message)
+        return value
     if key == "source_language":
         if value is not None and (not isinstance(value, str) or value not in _SOURCE_LANGUAGE_VALUES):
             raise ValueError(f"source_language 必须是 {list(_SOURCE_LANGUAGE_VALUES)} 之一或 null,收到 {value!r}")
@@ -1962,6 +2029,12 @@ def _coerce_setting_value(key: str, value: Any) -> Any:
     if key == "brief":
         if value is not None and not isinstance(value, str):
             raise ValueError(f"brief 必须是字符串或 null,收到 {value!r}")
+        return value
+    if key == "character_voice_binding":
+        if value is not None and (not isinstance(value, str) or value not in VALID_CHARACTER_VOICE_BINDINGS):
+            raise ValueError(
+                f"character_voice_binding 必须是 {sorted(VALID_CHARACTER_VOICE_BINDINGS)} 之一或 null,收到 {value!r}"
+            )
         return value
     if key == "narration_voice":
         if value is not None and (not isinstance(value, str) or not value.strip()):
@@ -2078,6 +2151,10 @@ def _patch_project_sync(
             def mutate_settings(project_data: dict[str, Any]) -> None:
                 if "brief" in coerced and project_data.get("content_mode") != "ad":
                     raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
+                if EPISODE_TARGET_DURATION_FIELD in coerced and project_data.get("content_mode") == "ad":
+                    raise ValueError(
+                        f"{EPISODE_TARGET_DURATION_FIELD} 不适用广告/短片项目（整集体量按 target_duration 预算规划）"
+                    )
                 for key, field_value in coerced.items():
                     current = project_data.get(key)
                     if field_value is None:
@@ -2266,15 +2343,15 @@ async def complete_asset_inventory(
     )
 
 
-async def complete_step1_rebuild(
-    request: ToolRequest[CompleteStep1RebuildRequest],
+async def complete_script_plan_rebuild(
+    request: ToolRequest[CompleteScriptPlanRebuildRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
     *,
     run_sync: Callable[..., Awaitable[Any]] = asyncio.to_thread,
-    complete: Callable[..., Any] = complete_stale_step1_rebuild,
-) -> ToolOutcome[CompleteStep1RebuildResult]:
+    complete: Callable[..., Any] = complete_stale_script_plan_rebuild,
+) -> ToolOutcome[CompleteScriptPlanRebuildResult]:
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     value = request.value
@@ -2284,20 +2361,20 @@ async def complete_step1_rebuild(
             services.projects,
             scope.project_name,
             value.episode,
-            value.expected_stale_step1_revision,
+            value.expected_stale_script_plan_revision,
         )
-    except Step1RebuildCompletionError as exc:
+    except ScriptPlanRebuildCompletionError as exc:
         return ToolOutcome(problem=ToolProblem(exc.code, str(exc)))
     except Exception as exc:  # noqa: BLE001
-        return ToolOutcome(problem=_unexpected("complete_step1_rebuild", exc))
-    return ToolOutcome(value=CompleteStep1RebuildResult(episode=value.episode, step1_revision=revision))
+        return ToolOutcome(problem=_unexpected("complete_script_plan_rebuild", exc))
+    return ToolOutcome(value=CompleteScriptPlanRebuildResult(episode=value.episode, script_plan_revision=revision))
 
 
 __all__ = [
     "ASSET_TABLES",
     "CallerContext",
     "CompleteAssetInventoryRequest",
-    "CompleteStep1RebuildRequest",
+    "CompleteScriptPlanRebuildRequest",
     "CreateProjectToolRequest",
     "GenerationBatchToolRequest",
     "EpisodeScriptContent",
@@ -2315,7 +2392,7 @@ __all__ = [
     "ProjectContent",
     "SourceFilesContent",
     "SourceTextContent",
-    "Step1Content",
+    "ScriptPlanContent",
     "DraftLocator",
     "DiscardDraftRequest",
     "PatchDraftRequest",
@@ -2330,23 +2407,25 @@ __all__ = [
     "ToolOutcome",
     "ToolProblem",
     "ToolRequest",
+    "PromptPreviewRequest",
     "UploadSourceRequest",
     "complete_asset_inventory",
     "cancel_generation_batch",
-    "complete_step1_rebuild",
+    "complete_script_plan_rebuild",
     "create_project",
     "discard_draft",
     "get_episode_script",
     "get_generation_batch",
     "get_project_content",
+    "get_prompt_preview",
     "get_source_text",
-    "get_step1_content",
+    "get_script_plan_content",
     "get_video_capabilities",
     "get_workflow_plan",
     "list_projects",
     "confirm_script_review",
     "generate_episode_script",
-    "generate_step1",
+    "generate_script_plan",
     "list_project_files",
     "list_source_files",
     "patch_episode_meta",

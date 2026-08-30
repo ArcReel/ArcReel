@@ -332,4 +332,41 @@ describe("CharacterCard", () => {
       expect(field).toHaveAttribute("readonly");
     }
   });
+
+  describe("角色声音绑定方式", () => {
+    const character = { description: "hero desc", voice_style: "warm" };
+
+    it("默认档（提示词软约束）把参考音频区折叠为可选，并说明怎样才生效", () => {
+      render(
+        <CharacterCard
+          name="Hero"
+          character={character}
+          projectName="demo"
+          onSave={vi.fn()}
+          onGenerate={vi.fn()}
+        />,
+      );
+
+      // 声音描述仍是主输入；参考音频区退到折叠壳内
+      expect(screen.getByLabelText("声音风格")).toHaveValue("warm");
+      expect(screen.getByText(/可选：参考音频/)).toBeInTheDocument();
+      expect(screen.getByText(/按声音描述配音，参考音频暂不生效/)).toBeInTheDocument();
+    });
+
+    it("参考音频档下参考音频区照常直接展示", () => {
+      render(
+        <CharacterCard
+          name="Hero"
+          character={character}
+          projectName="demo"
+          voiceBinding="reference_audio"
+          onSave={vi.fn()}
+          onGenerate={vi.fn()}
+        />,
+      );
+
+      expect(screen.queryByText(/可选：参考音频/)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /上传参考音频/ })).toBeInTheDocument();
+    });
+  });
 });

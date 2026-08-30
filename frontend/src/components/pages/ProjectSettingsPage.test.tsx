@@ -367,6 +367,68 @@ describe("ProjectSettingsPage – style picker", () => {
     expect(screen.queryByRole("switch", { name: /多宫格分镜/ })).not.toBeInTheDocument();
   });
 
+  it("saves the character voice binding switch on the reference-video route", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "reference_video",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    // 字段缺省即默认档：提示词软约束选中，参考音频未选中
+    const promptOption = await screen.findByRole("radio", { name: /按声音描述|By voice description/ });
+    expect(promptOption).toBeChecked();
+    const audioOption = screen.getByRole("radio", { name: /按参考音频|By reference audio/ });
+    fireEvent.click(audioOption);
+
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({ character_voice_binding: "reference_audio" }),
+      );
+    });
+  });
+
+  it("omits the character voice binding on the storyboard route", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "storyboard",
+        character_voice_binding: "reference_audio",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    const toggle = await screen.findByRole("switch", { name: /多宫格分镜/ });
+    expect(screen.queryByRole("radio", { name: /按声音描述|By voice description/ })).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    // 参考音频通道只属于参考生视频路线：分镜图生视频下该键与项目无关，不写
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("character_voice_binding");
+  });
+
   it("saves the grid assembly toggle on the storyboard route", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
@@ -397,6 +459,79 @@ describe("ProjectSettingsPage – style picker", () => {
     });
     // 生成模式不在 PATCH 面上
     expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("generation_mode");
+  });
+
+  it("loads, edits and clears the episode target duration", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "storyboard",
+        episode_target_duration: 90,
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    const input = await screen.findByLabelText(/单集目标时长/);
+    expect(input).toHaveValue(90);
+
+    fireEvent.change(input, { target: { value: "120" } });
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({ episode_target_duration: 120 }),
+      );
+    });
+
+    // 清空即写回 null（后端据此删除该偏好）
+    fireEvent.change(screen.getByLabelText(/单集目标时长/), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenLastCalledWith(
+        "demo",
+        expect.objectContaining({ episode_target_duration: null }),
+      );
+    });
+  });
+
+  it("blocks saving while the episode target duration is out of range", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", generation_mode: "storyboard", episodes: [], characters: {}, clues: {} },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+
+    renderAt("/app/projects/demo/settings");
+
+    fireEvent.change(await screen.findByLabelText(/单集目标时长/), { target: { value: "5" } });
+    expect(screen.getByRole("button", { name: /^(保存|Save)$/i })).toBeDisabled();
+  });
+
+  it("hides the episode target duration for ad projects", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        content_mode: "ad",
+        generation_mode: "storyboard",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+
+    renderAt("/app/projects/demo/settings");
+
+    expect(await screen.findByText(/先为每个分镜生成分镜图/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/单集目标时长/)).not.toBeInTheDocument();
   });
 
   it("hides the grid toggle for ad projects", async () => {

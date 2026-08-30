@@ -41,6 +41,8 @@ from server.tool_runtime import (
 # planning_window_chars / planning_max_episodes: 分集规划工具的窗口字数与每批集数覆盖项,
 # null 时回退工具内部默认。
 # narration_voice / narration_speed: 项目级旁白音色与语速覆盖项,null 时回退全局配置。
+# episode_target_duration: 单集目标时长(秒)软偏好,注入三条脚本规划提示词决定拆多少个单元;
+# 区间校验取 lib.episode_target_duration 的同一把尺,ad 项目拒写。
 def patch_project_tool(ctx: ToolContext):
     @tool(
         "patch_project",

@@ -16,10 +16,11 @@ import {
 import { useTranslation } from "react-i18next";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useAppStore } from "@/stores/app-store";
-import { isTerminalStatus, useTasksStore } from "@/stores/tasks-store";
+import { useTasksStore } from "@/stores/tasks-store";
 import { API } from "@/api";
-import type { TaskItem } from "@/types";
+import { isTerminalStatus, type TaskItem } from "@/types";
 import { GlassPopover } from "@/components/ui/GlassPopover";
+import { TaskElapsedReadout } from "@/components/shared/TaskElapsedReadout";
 
 // ---------------------------------------------------------------------------
 // Theme tokens — v3 cool oklch + accent purple
@@ -228,6 +229,11 @@ function TaskRow({
         >
           {statusLabel[task.status]}
         </span>
+        <TaskElapsedReadout
+          task={task}
+          className="text-[10.5px]"
+          style={{ color: "var(--color-text-4)" }}
+        />
         {task.status === "queued" && onCancel && (
           <button
             type="button"

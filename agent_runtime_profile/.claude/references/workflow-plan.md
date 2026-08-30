@@ -81,8 +81,8 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `analyze_assets` | dispatch `analyze-assets` 子智能体 |
 | `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`，按 `next_action.args` 传参 |
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
-| `prepare_step1` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
-| `confirm_step1` | `mcp__arcreel__confirm_script_review` |
+| `prepare_script_plan` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
+| `confirm_script_plan` | `mcp__arcreel__confirm_script_review` |
 | `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
 | `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
 | `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
@@ -97,7 +97,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
 | `none` | 展示 `blockers` 并停止变更 |
 
-`next_action.args.preprocessor` 是权威的内容整理子智能体名，**不要自己按创作类型×
+`next_action.args.preprocessor` 是权威的脚本规划子智能体名，**不要自己按创作类型×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
 
 ### 整批被拒时交回的逐问题动作

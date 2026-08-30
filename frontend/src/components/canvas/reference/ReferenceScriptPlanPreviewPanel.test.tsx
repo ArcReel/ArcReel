@@ -4,9 +4,9 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { ReferenceStep1PreviewPanel } from "./ReferenceStep1PreviewPanel";
+import { ReferenceScriptPlanPreviewPanel } from "./ReferenceScriptPlanPreviewPanel";
 import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
-import type { ReferenceStep1Draft, ScriptReviewState } from "@/types";
+import type { ReferenceScriptPlanDraft, ScriptReviewState } from "@/types";
 
 const LOOKUP: MentionLookup = { 阿离: "character", 长街: "scene" };
 
@@ -20,6 +20,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     quarantine: null,
     supported_durations: [4, 8],
     duration_tiers: null,
+    episode_target_duration: null,
     content: {
       units: [
         {
@@ -43,6 +44,7 @@ function quarantinedState(): ScriptReviewState {
     confirmed_at: null,
     supported_durations: [4, 8],
     duration_tiers: null,
+    episode_target_duration: null,
     content: null,
     quarantine: {
       content: {
@@ -62,7 +64,7 @@ function quarantinedState(): ScriptReviewState {
   };
 }
 
-describe("ReferenceStep1PreviewPanel", () => {
+describe("ReferenceScriptPlanPreviewPanel", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
@@ -75,7 +77,7 @@ describe("ReferenceStep1PreviewPanel", () => {
   // `@[名称]` 在正文里高亮；参考图仅在执行期解析，无独立参考图清单。
   it("renders the clean pending state with the highlighted body and no reference list", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
     expect(screen.getByText("阿离撑伞走过长街。")).toBeInTheDocument();
@@ -101,10 +103,50 @@ describe("ReferenceStep1PreviewPanel", () => {
     }];
     vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
 
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     expect(await screen.findByText(/视频单元 E1U01.*同时包含角色台词和旁白/)).toHaveTextContent("text:2");
     expect(screen.queryByText("raw agent message")).not.toBeInTheDocument();
+  });
+
+  // 场景引用提示：与解析预览面板同判据，落在 unit 卡内，不阻断确认。
+  it("warns on units that reference no scene while the project registers scene assets", async () => {
+    const state = pendingState();
+    state.content = { units: [{ unit_id: "E1U01", text: "@[阿离] 推门。", duration_seconds: 8, source_text: "阿离推门。" }] };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    expect(await screen.findByText("本单元未引用场景，画面地点将由模型自由决定")).toBeInTheDocument();
+    // 降级提示不进确认闸门：正文合法，只是画面地点没被钉住。
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
+  });
+
+  it("drops the scene warning once the edited body references a scene", async () => {
+    const state = pendingState();
+    state.content = { units: [{ unit_id: "E1U01", text: "@[阿离] 推门。", duration_seconds: 8, source_text: "阿离推门。" }] };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "E1U01 正文" }), {
+      target: { value: "@[阿离] 推门走进 @[长街]。" },
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText("本单元未引用场景，画面地点将由模型自由决定")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("stays silent about scenes when the project registers none", async () => {
+    const state = pendingState();
+    state.content = { units: [{ unit_id: "E1U01", text: "@[阿离] 推门。", duration_seconds: 8, source_text: "阿离推门。" }] };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={{ 阿离: "character" }} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    expect(screen.queryByText("本单元未引用场景，画面地点将由模型自由决定")).not.toBeInTheDocument();
   });
 
   it("confirms, then prefills a continue message into the assistant input without sending", async () => {
@@ -113,7 +155,7 @@ describe("ReferenceStep1PreviewPanel", () => {
       .spyOn(API, "confirmScriptReview")
       .mockResolvedValue(pendingState({ status: "confirmed", quarantine: null }));
 
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     await waitFor(() => expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: /确认拆分，继续生成/ }));
@@ -133,7 +175,7 @@ describe("ReferenceStep1PreviewPanel", () => {
       }),
     );
 
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     fireEvent.click(await screen.findByRole("button", { name: /确认拆分，继续生成/ }));
 
     // 确认请求在途时用户切到了另一个项目（本组件所在的 tab 可能因此被卸载，但即使还挂载着
@@ -160,7 +202,7 @@ describe("ReferenceStep1PreviewPanel", () => {
       }),
     );
 
-    const { unmount } = render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    const { unmount } = render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     fireEvent.click(await screen.findByRole("button", { name: /确认拆分，继续生成/ }));
 
     unmount();
@@ -172,7 +214,7 @@ describe("ReferenceStep1PreviewPanel", () => {
 
   it("quarantined state anchors a line-level violation inline and aggregates the unit-level one, blocking confirm", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
     expect(screen.getByText("unit E1U01 使用了全角花括号")).toBeInTheDocument();
@@ -183,41 +225,42 @@ describe("ReferenceStep1PreviewPanel", () => {
 
   it("prefills a structured fix-request report on 'ask the assistant to fix it', without sending", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByRole("button", { name: "让 Agent 修复" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "让 Agent 修复" }));
 
     const input = useAssistantStore.getState().input;
     expect(input).toContain("第 1 集");
-    expect(input).toContain("doc_type=reference_step1");
+    expect(input).toContain("doc_type=reference_script_plan");
     expect(input).toContain("open_draft 返回的 revision 作为 base_revision");
     expect(input).toContain("1. unit E1U01 使用了全角花括号");
     expect(input).toContain("2. unit E1U01 的台词念不完");
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
   });
 
-  it("shows an empty state when there is no step1 content", async () => {
+  it("shows an empty state when there is no script_plan content", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       episode: 1,
       content_mode: "narration",
-      status: "no_step1",
+      status: "no_script_plan",
       fingerprint: null,
       confirmed_at: null,
       content: null,
       quarantine: null,
       supported_durations: null,
       duration_tiers: null,
+      episode_target_duration: null,
     });
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    await waitFor(() => expect(screen.getByText("暂无内容整理结果")).toBeInTheDocument());
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    await waitFor(() => expect(screen.getByText("暂无脚本规划结果")).toBeInTheDocument());
   });
 
   it("edits the unit body in the non-quarantined state and persists the units draft", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
 
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
@@ -238,7 +281,7 @@ describe("ReferenceStep1PreviewPanel", () => {
 
   it("renders the spoken-line count in the unit header", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     // 草稿正文一行描述 + 一行全角花括号「台词」：统计与正文高亮同一套切分口径，全角花括号
     // 不被解析器认作台词（这正是该草稿的 fullwidth_braces 违约），故台词数为 0。
@@ -247,10 +290,10 @@ describe("ReferenceStep1PreviewPanel", () => {
 
   it("counts a well-formed dialogue line as a spoken line", async () => {
     const withDialogue = pendingState();
-    (withDialogue.content as ReferenceStep1Draft).units[0].text =
+    (withDialogue.content as ReferenceScriptPlanDraft).units[0].text =
       "@[阿离] 撑伞走过 @[长街]\n@[阿离]：{我来了。}";
     vi.spyOn(API, "getScriptReview").mockResolvedValue(withDialogue);
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("1 句台词")).toBeInTheDocument());
   });
@@ -259,7 +302,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
 
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     const select = await screen.findByRole("combobox", { name: "E1U01 时长" });
     fireEvent.change(select, { target: { value: "4" } });
 
@@ -270,7 +313,7 @@ describe("ReferenceStep1PreviewPanel", () => {
 
   it("falls back to a read-only duration when no tier list is available", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: null }));
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("8 秒")).toBeInTheDocument());
     expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
@@ -278,7 +321,7 @@ describe("ReferenceStep1PreviewPanel", () => {
 
   it("keeps the duration select on a stored value that is no longer a supported tier, sorted into place", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: [4, 6] }));
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
     expect(select.value).toBe("8");
@@ -296,7 +339,7 @@ describe("ReferenceStep1PreviewPanel", () => {
         violations: [{ code: "schema_invalid", label: "", message: "待修复草稿的 content.units 必须是非空数组", line: null }],
       },
     });
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("无法锚定的违约")).toBeInTheDocument());
     expect(screen.getByText("待修复草稿的 content.units 必须是非空数组")).toBeInTheDocument();
@@ -313,7 +356,7 @@ describe("ReferenceStep1PreviewPanel", () => {
       }),
     );
 
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
     const textarea = await screen.findByDisplayValue("@[阿离] 撑伞走过 @[长街]");
     fireEvent.change(textarea, { target: { value: "@[阿离] 缓步走过 @[长街]" } });
@@ -335,7 +378,7 @@ describe("ReferenceStep1PreviewPanel", () => {
         duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
       }),
     );
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     // unit 带 @[阿离]/@[长街] 引用：按 with_references 档位收窄，4/6 秒不再可选。
     const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
@@ -347,11 +390,11 @@ describe("ReferenceStep1PreviewPanel", () => {
       supported_durations: [4, 6, 8],
       duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
     });
-    (state.content as ReferenceStep1Draft).units[0].text = "@[保温杯] 特写";
-    (state.content as ReferenceStep1Draft).units[0].duration_seconds = 8;
+    (state.content as ReferenceScriptPlanDraft).units[0].text = "@[保温杯] 特写";
+    (state.content as ReferenceScriptPlanDraft).units[0].duration_seconds = 8;
     vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
     render(
-      <ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={{ ...LOOKUP, 保温杯: "product" }} />,
+      <ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={{ ...LOOKUP, 保温杯: "product" }} />,
     );
 
     // 商品与其它资产同规则派生参考图，档位按 with_references 收窄。
@@ -367,7 +410,7 @@ describe("ReferenceStep1PreviewPanel", () => {
         duration_tiers: { with_references: [4, 6], without_references: [4, 6, 8] },
       }),
     );
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
     expect(select.value).toBe("8");
@@ -382,10 +425,10 @@ describe("ReferenceStep1PreviewPanel", () => {
       // 反映档位切换本身，而不是与该兜底行为的展示叠在一起。
       duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
     });
-    (withoutReferences.content as ReferenceStep1Draft).units[0].text = "门开了";
-    (withoutReferences.content as ReferenceStep1Draft).units[0].duration_seconds = 8;
+    (withoutReferences.content as ReferenceScriptPlanDraft).units[0].text = "门开了";
+    (withoutReferences.content as ReferenceScriptPlanDraft).units[0].duration_seconds = 8;
     vi.spyOn(API, "getScriptReview").mockResolvedValue(withoutReferences);
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     // 初始无引用：按 without_references 档位，4/6/8 全可选。
     let select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
@@ -405,7 +448,7 @@ describe("ReferenceStep1PreviewPanel", () => {
       ...quarantinedState(),
       quarantine: { content: quarantinedState().quarantine!.content, violations: [] },
     });
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     expect(await screen.findByText("草稿由 Agent 处理")).toBeInTheDocument();
     expect(screen.queryByText("待修复草稿 — 拆分未通过校验")).not.toBeInTheDocument();
@@ -414,7 +457,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     const input = useAssistantStore.getState().input;
     expect(input).toContain("open_draft");
     expect(input).toContain("promote_draft");
-    expect(input).toContain("doc_type=reference_step1");
+    expect(input).toContain("doc_type=reference_script_plan");
     expect(input).toContain("revision");
     expect(input).toContain("base_revision");
     expect(input).not.toContain("违约待修复");
@@ -438,7 +481,7 @@ describe("ReferenceStep1PreviewPanel", () => {
         ],
       },
     });
-    const { container } = render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    const { container } = render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     await screen.findByRole("button", { name: "E1U01 · 1" });
 
     // 两个按钮之间的可见文本要有分隔符，不能粘连成 "E1U01 · 1E1U02 · 1"——按钮各自的可访问名
@@ -447,5 +490,21 @@ describe("ReferenceStep1PreviewPanel", () => {
     const statusBar = container.querySelector("span.text-\\[11px\\].text-text-4");
     expect(statusBar?.textContent).toMatch(/E1U01 · 1.+E1U02 · 1/);
     expect(statusBar?.textContent).not.toContain("1E1U02");
+  });
+
+  it("compares the episode total against the project target", async () => {
+    // pendingState 只有一个 8 秒 unit
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ episode_target_duration: 30 }));
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("本集合计 8 秒 / 目标 30 秒")).toBeInTheDocument());
+  });
+
+  it("shows no comparison when the project has no target", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    expect(screen.queryByText(/本集合计/)).not.toBeInTheDocument();
   });
 });

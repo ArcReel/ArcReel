@@ -17,6 +17,9 @@ MESSAGES = {
     "title_required": "Project title cannot be empty",
     "project_exists": "Project '{name}' already exists",
     "script_not_found": "Script '{name}' does not exist",
+    "script_item_not_found": "Shot '{id}' does not exist in this script",
+    "prompt_preview_missing": "This shot has no prompt written yet",
+    "prompt_preview_invalid": "The prompt cannot be rendered: check its format",
     "scene_not_found": "Scene '{id}' does not exist",
     "segment_not_found": "Segment '{id}' does not exist",
     "script_missing": "Script does not exist",
@@ -62,7 +65,7 @@ MESSAGES = {
     "task_fail_artifact_download_failed": "Video generation succeeded but artifact download failed; retry the download: {detail}",
     "task_fail_cascade_blocked_dependency": "Blocked by failed dependency task {dependency_task_id}: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt must be a string or an object containing scene/composition",
-    "prompt_scene_empty": "prompt.scene cannot be empty",
+    "prompt_scene_empty": "prompt.scene must be non-empty text",
     "prompt_must_be_string_or_object": "prompt must be a string or an object",
     "prompt_text_empty": "prompt must not be empty",
     "storyboard_task_submitted": "Storyboard generation task for '{segment_id}' submitted",
@@ -119,8 +122,10 @@ MESSAGES = {
     "video_shorter_than_tts": "The generated video is {video_duration:.1f}s, shorter than the {tts_duration:.1f}s narration audio; regenerate it without truncating or speeding up speech",
     "audio_provider_not_configured": "Please configure an audio provider first: add a text-to-speech capable provider in Settings → Providers",
     "narration_speed_must_be_positive": "Narration speed must be a positive number",
+    "character_voice_binding_invalid": "Character voice binding must be either prompt-based or reference audio",
     "video_poll_timeout_minimum": "Video polling timeout must be at least 60 seconds",
     "speech_rate_out_of_range": "Spoken pace must be between {min} and {max} (characters or words per second)",
+    "episode_target_duration_out_of_range": "Episode target length must be between {min} and {max} seconds",
     "character_not_found": "Character '{name}' does not exist",
     "character_task_submitted": "Character asset sheet generation task for '{name}' submitted",
     "voice_sample_voice_required": "Please select a voice first",
@@ -151,16 +156,16 @@ MESSAGES = {
     "asset_field_invalid_value": "this field has an invalid value",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",
-    "invalid_step_num": "Invalid step number: {step_num}",
+    "invalid_draft_stage": "Invalid draft stage: {stage}",
     "draft_file_not_found": "Draft file does not exist",
-    "draft_invalid_json": "The content organization draft has an invalid structure; please check and retry",
-    "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no content organization result to confirm)",
-    "script_review_no_step1": "No content organization result to confirm yet; please finish content organization first",
+    "draft_invalid_json": "The script plan draft has an invalid structure; please check and retry",
+    "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no script plan result to confirm)",
+    "script_review_no_script_plan": "No script plan result to confirm yet; please finish the script plan first",
     "script_review_quarantined": (
         "This episode has a draft needing fixes; let the agent fix and promote it before confirming"
     ),
     "script_review_conflict": (
-        "The content organization draft was modified by another editor while you were editing; your save was not applied. "
+        "The script plan draft was modified by another editor while you were editing; your save was not applied. "
         "Refresh to see the latest content, merge your changes, then save again"
     ),
     "script_review_invalid_content": "Content confirmation draft structure validation failed; please check and retry",
@@ -257,6 +262,7 @@ MESSAGES = {
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
     "ad_no_default_duration": "Ad/short-video projects do not support a default duration; shot lengths are planned against the target duration",
+    "ad_no_episode_target_duration": "Ad/short-video projects do not support an episode target length; the overall length is planned against the target duration",
     "ad_grid_not_supported": "Ad/short-video projects do not support Multi-grid Storyboard to Video",
     "grid_storyboard_not_enabled": "Multi-grid Storyboard is not enabled for this project",
     "ad_target_duration_required": "Ad/short-video projects require a target duration (positive integer seconds)",
@@ -345,6 +351,9 @@ MESSAGES = {
     "ref_warn_speaker_audio_needs_image": (
         "Character '{name}' has no reference image (off-screen only): the current video model requires "
         "reference audio to be attached per reference image, so the model decides this character's dialogue voice"
+    ),
+    "ref_warn_unit_without_scene": (
+        "This unit references no scene; the model decides the location of the shot on its own"
     ),
     "ref_warn_silent_model": (
         "The current video model '{model}' generates no audio; dialogue is used only as prompt context"

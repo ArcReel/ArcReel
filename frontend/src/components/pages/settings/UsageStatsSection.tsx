@@ -79,7 +79,8 @@ export function UsageStatsSection() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 依赖变化时重新获取统计数据，fetchStats 内部有 setState
     void fetchStats();
-  }, [fetchStats]);
+    // 供应商名由后端按 Accept-Language 成文，语言切换后须重取，否则列表停留在切换前的语言。
+  }, [fetchStats, i18n.language]);
 
   const providers = useMemo(() => {
     const locale = i18n.language;

@@ -140,7 +140,7 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function CreateProjectModal() {
-  const { t } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
   const [, navigate] = useLocation();
   const { setShowCreateModal } = useProjectsStore();
 
@@ -155,6 +155,7 @@ export function CreateProjectModal() {
     gridStoryboard: false,
     targetDuration: 60,
     speechRate: null,
+    episodeTargetDuration: null,
   });
 
   const [models, setModels] = useState<ModelConfigValue>({
@@ -182,8 +183,9 @@ export function CreateProjectModal() {
 
   const [creating, setCreating] = useState(false);
 
-  // Step2 的远端数据 hoist 到此处：只在 modal 挂载时 fetch 一次，
-  // 前进/后退切 step 时 Step2 unmount/mount 不再触发 HTTP。
+  // Step2 的远端数据 hoist 到此处：前进/后退切 step 时 Step2 unmount/mount 不再触发 HTTP，
+  // 只在 modal 挂载与界面语言变化时 fetch。供应商与模型名由后端按 Accept-Language 成文，
+  // 语言切换后须重取，否则目录停留在切换前的语言。
   const [step2Data, setStep2Data] = useState<WizardStep2Data | null>(null);
   const [step2Error, setStep2Error] = useState<string | null>(null);
 
@@ -218,6 +220,8 @@ export function CreateProjectModal() {
             textComplex: sysConfig.settings.text_backend_complex ?? "",
           },
         });
+        // 重取成功即清掉上一轮的错误，否则错误面板会一直遮住新数据。
+        setStep2Error(null);
       } catch (err) {
         if (!cancelled) setStep2Error(errMsg(err));
       }
@@ -225,7 +229,7 @@ export function CreateProjectModal() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [i18n.language]);
 
   // blob: URL 所有权集中在此：StylePicker 只通过 onChange 更换引用，
   // revoke 统一由本 effect 在 URL 变更或 unmount 时触发。非 blob: 跳过。
@@ -313,7 +317,13 @@ export function CreateProjectModal() {
         // ad 不暴露 default_duration（按目标总时长逐个分镜规划），改传 target_duration
         ...(isAd
           ? { target_duration: basics.targetDuration }
-          : { default_duration: models.defaultDuration }),
+          : {
+              default_duration: models.defaultDuration,
+              // 未设目标即不传（服务端不落盘，脚本规划不注入该软约束）
+              ...(basics.episodeTargetDuration !== null
+                ? { episode_target_duration: basics.episodeTargetDuration }
+                : {}),
+            }),
         style_template_id: style.mode === "template" ? style.templateId : null,
         video_backend: models.videoBackend || null,
         default_image_backend: models.imageBackendDefault || null,

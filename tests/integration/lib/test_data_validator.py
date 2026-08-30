@@ -561,6 +561,26 @@ class TestDataValidator:
         result = validate_project("demo", projects_root=str(tmp_path / "projects"))
         assert result.valid, result.errors
 
+    def test_validate_project_rejects_out_of_range_episode_target_duration(self, tmp_path):
+        # 出现即须是落在硬区间内的整数秒；越界 / 浮点 / 非数字都是 error
+        for index, bad in enumerate((5, 900, 120.0, "120")):
+            case_root = tmp_path / f"etd-{index}"
+            project_dir = case_root / "projects" / "demo"
+            payload = _project_payload("drama")
+            payload["episode_target_duration"] = bad
+            _write_json(project_dir / "project.json", payload)
+            result = validate_project("demo", projects_root=str(case_root / "projects"))
+            assert not result.valid
+            assert any("episode_target_duration" in e for e in result.errors)
+
+    def test_validate_project_accepts_in_range_episode_target_duration(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload("drama")
+        payload["episode_target_duration"] = 120
+        _write_json(project_dir / "project.json", payload)
+        result = validate_project("demo", projects_root=str(tmp_path / "projects"))
+        assert result.valid, result.errors
+
     def test_validate_episode_drama_speech_overflow_counts_voiceover(self, tmp_path):
         # 说话量含画外音：台词 + 画外音一并计入估算（与字幕派生同口径）
         long_vo = "旁白" * 60
@@ -1084,6 +1104,11 @@ class TestAdProjectValidation:
         assert not result.valid
         assert any("default_duration" in e for e in result.errors)
 
+    def test_ad_with_episode_target_duration_rejected(self, tmp_path):
+        result = self._validate(tmp_path, _ad_project_payload(episode_target_duration=120))
+        assert not result.valid
+        assert any("episode_target_duration" in e for e in result.errors)
+
     def test_ad_episodes_must_be_single_episode_one(self, tmp_path):
         multi = _ad_project_payload(
             episodes=[
@@ -1590,7 +1615,7 @@ class TestRouteSkeletonMismatchValidation:
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
-        assert any("generate_step1" in error for error in result.errors), result.errors
+        assert any("generate_script_plan" in error for error in result.errors), result.errors
 
     def test_reference_route_script_with_residual_segments_is_not_a_mismatch(self, tmp_path):
         """参考生视频剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""

@@ -26,6 +26,7 @@ from lib.backend_assembly.specs import (
     builtin_effective_generate_audio_for_model,
     builtin_video_capabilities_for_model,
 )
+from lib.character_voice import CharacterVoiceBinding, character_voice_binding
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     default_model_for_provider,
@@ -43,6 +44,7 @@ from lib.config.service import (
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.episode_target_duration import project_episode_target_duration
 from lib.project_manager import get_project_manager
 from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 
@@ -435,21 +437,29 @@ def derive_voice_consistency(
     reference_audio_mode: str,
     generation_mode: str | None,
     has_audio: bool,
+    character_voice_binding: CharacterVoiceBinding | None,
 ) -> VoiceConsistency:
-    """三级声音一致性标识派生（native / soft / none），模型能力 × 生效 generation_mode 二维。
+    """三级声音一致性标识派生（native / soft / none）：模型能力 × 生效 generation_mode × 绑定方式。
 
     全仓库唯一派生点：项目内场景经 `_resolve_video_caps_for_model` 走这里，无项目上下文的
-    目录场景由 `server/routers/providers.py` 以 ``generation_mode=None`` 调同一函数，前端不
-    复制第二份公式。
+    目录场景由 `server/routers/providers.py` 以 ``generation_mode=None`` /
+    ``character_voice_binding=None`` 调同一函数，前端不复制第二份公式。
 
     ``reference_audio_mode`` 按字面量比较（``ReferenceAudioMode`` 是 ``StrEnum``，两者可
     直接 ``==``），不在 lib.config 层导入 lib.video_backends（分层契约，config 是最底层）。
 
-    native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none。``has_audio``
-    问的是「成片有没有音轨」而非「开关可不可控」，故恒有声（开关不可控）的型号同样算有音轨；
-    调用方由 :func:`builtin_video_audio_track` 得出该位，不各自解读一份声明。
+    native 蕴含有音轨：generation_mode 非参考生视频、或项目选的是提示词软约束
+    （``character_voice_binding == "prompt"``，默认档）时一律降格 soft，不降到 none。降格是全链路
+    的总闸：脚本预览的参考音频类 warning、提示词里的 ``@音频N`` 编号与执行期的参考音频挂线都只认
+    ``native``，因此绑定方式不必再沿渲染链逐层传递。``has_audio`` 问的是「成片有没有音轨」而非
+    「开关可不可控」，故恒有声（开关不可控）的型号同样算有音轨；调用方由
+    :func:`builtin_video_audio_track` 得出该位，不各自解读一份声明。
     """
-    if reference_audio_mode == "direct" and generation_mode == "reference_video":
+    if (
+        reference_audio_mode == "direct"
+        and generation_mode == "reference_video"
+        and character_voice_binding == "reference_audio"
+    ):
         return "native"
     return "soft" if has_audio else "none"
 
@@ -924,9 +934,10 @@ class ConfigResolver:
               "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
+              "episode_target_duration": int | None,  # 用户设置的单集目标时长（秒）软偏好，非模型能力
               "content_mode": str | None,
               "generation_mode": str | None,       # 项目生成模式（无项目上下文时 None）
-              "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode 二维派生
+              "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode × 绑定方式
             }
 
         Raises:
@@ -1519,6 +1530,10 @@ class ConfigResolver:
 
         default_duration: int | None = None
         content_mode: str | None = None
+        # 单集目标时长不是模型能力，随能力查询一起回传只因它与 default_duration 同为「决定时长时
+        # 要看的项目偏好」：脚本规划子智能体一次 get_video_capabilities 就能拿齐决策所需的全部输入，
+        # 不必为一个偏好字段另开一个工具往返。解析走 lib.episode_target_duration 的读时守卫。
+        episode_target_duration = project_episode_target_duration(project)
         if project is not None:
             raw_default = project.get("default_duration")
             if isinstance(raw_default, int):
@@ -1534,6 +1549,7 @@ class ConfigResolver:
             reference_audio_mode=reference_audio_mode,
             generation_mode=generation_mode,
             has_audio=has_audio,
+            character_voice_binding=character_voice_binding(project),
         )
 
         return {
@@ -1551,6 +1567,7 @@ class ConfigResolver:
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,
             "default_duration": default_duration,
+            "episode_target_duration": episode_target_duration,
             "content_mode": content_mode,
             "generation_mode": generation_mode,
             "voice_consistency": voice_consistency,

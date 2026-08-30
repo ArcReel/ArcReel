@@ -1,20 +1,20 @@
-"""step1→step2 内容确认的核心逻辑：适用性判定、step1 路径、内容指纹、确认状态派生，
-以及参考生视频正式 step1 的单一写盘出口（``step1_write_lock`` / ``write_step1_locked``）。
+"""script_plan→prompt_authoring 内容确认的核心逻辑：适用性判定、script_plan 路径、内容指纹、确认状态派生，
+以及参考生视频正式 script_plan 的单一写盘出口（``script_plan_write_lock`` / ``write_script_plan_locked``）。
 
-gate 横跨两处消费：SDK 工具（``generate_episode_script`` 的 step2 阻塞 enforcement）与 web
-router / service（结构化中间态查看 / 编辑 / 确认）。状态派生只依赖 step1 文件 + project dict
+gate 横跨两处消费：SDK 工具（``generate_episode_script`` 的 prompt_authoring 阻塞 enforcement）与 web
+router / service（结构化中间态查看 / 编辑 / 确认）。状态派生只依赖 script_plan 文件 + project dict
 的纯计算；写盘出口另持 ``ProjectManager.file_lock`` 的 per-path 锁，四条写路径（Web 端保存、
-重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 step2 草稿清理只存在一处。
+重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 prompt_authoring 草稿清理只存在一处。
 
-真值只存「确认指纹」于 project.json ``episodes[i].step1_review``；pending / confirmed 由读时
-比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、Agent
-经草稿晋升改写 step1、web 手改 step1 都会让指纹漂移、自动重新等待确认，无需各写入路径各自
+真值只存「确认指纹」于 project.json ``episodes[i].script_plan_review``；pending / confirmed 由读时
+比对 live script_plan 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、Agent
+经草稿晋升改写 script_plan、web 手改 script_plan 都会让指纹漂移、自动重新等待确认，无需各写入路径各自
 上报。
 
-适用范围（拥有结构化 step1 中间态的三条内容/视觉两段式路径）：
-- drama / narration 的图生 / 宫格路径：step1_normalized_script.json / step1_segments.json；
-- reference_video 路径（跨 narration / drama content_mode）：step1_reference_units.json。
-三者的 step1 变体由 ``step1_kind`` 统一判定（reference_video 按项目生成模式优先）。ad 无 step1，
+适用范围（拥有结构化 script_plan 中间态的三条内容/视觉两段式路径）：
+- drama / narration 的图生 / 宫格路径：script_plan_normalized_script.json / script_plan_segments.json；
+- reference_video 路径（跨 narration / drama content_mode）：script_plan_reference_units.json。
+三者的 script_plan 变体由 ``script_plan_kind`` 统一判定（reference_video 按项目生成模式优先）。ad 无 script_plan，
 不纳入 gate。
 """
 
@@ -31,16 +31,16 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from lib.content_digest import canonical_json_digest
 from lib.draft_quarantine import (
-    QUARANTINE_KIND_DRAMA_STEP1,
-    QUARANTINE_KIND_NARRATION_STEP1,
-    QUARANTINE_KIND_STEP1,
-    QUARANTINE_KIND_STEP2,
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+    QUARANTINE_KIND_PROMPT_AUTHORING,
+    QUARANTINE_KIND_SCRIPT_PLAN,
     clear_quarantine,
     quarantine_path,
 )
 from lib.episode_paths import (
-    REFERENCE_VIDEO_STEP1_FILENAME,
-    STEP1_FILENAMES,
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    SCRIPT_PLAN_FILENAMES,
     episode_drafts_dir,
     episode_script_relpath,
 )
@@ -48,6 +48,7 @@ from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.reference_video.duration_migration import migrate_unit_durations
+from lib.script_plan_entries import SCRIPT_PLAN_REVISION_FIELD as SCRIPT_PLAN_REVISION_FIELD
 from lib.validation_messages import ValidationMessage
 
 if TYPE_CHECKING:
@@ -55,95 +56,96 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: 内容确认状态：not_applicable=该集不走 gate；no_step1=适用但 step1 未产出；
-#: pending_review=step1 已产出但未经确认（或确认后内容又变）→ 阻塞 step2；confirmed=已确认放行。
-ReviewStatus = Literal["not_applicable", "no_step1", "pending_review", "confirmed"]
+#: 内容确认状态：not_applicable=该集不走 gate；no_script_plan=适用但 script_plan 未产出；
+#: pending_review=script_plan 已产出但未经确认（或确认后内容又变）→ 阻塞 prompt_authoring；confirmed=已确认放行。
+ReviewStatus = Literal["not_applicable", "no_script_plan", "pending_review", "confirmed"]
 
 #: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
-REVIEW_FIELD = "step1_review"
+REVIEW_FIELD = "script_plan_review"
 
-#: stale 账本条目记录重规划提交时旧 step1 的内容指纹；live 指纹变化即证明 step1 已按新账本重建。
-STALE_STEP1_REVISION_FIELD = "stale_step1_revision"
+#: stale 账本条目记录重规划提交时旧 script_plan 的内容指纹；live 指纹变化即证明 script_plan 已按新账本重建。
+STALE_SCRIPT_PLAN_REVISION_FIELD = "stale_script_plan_revision"
 
-#: stale 分集的 step1 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
-STALE_STEP1_REBUILT_REVISION_FIELD = "stale_step1_rebuilt_revision"
+#: stale 分集的 script_plan 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
+STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD = "stale_script_plan_rebuilt_revision"
 
-#: 最终剧本 metadata 记录其实际消费的 step1 内容指纹；workflow status 用它识别 step1
-#: 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 step2 已完成。
-SCRIPT_STEP1_REVISION_FIELD = "step1_revision"
+# SCRIPT_PLAN_REVISION_FIELD（最终剧本 metadata 记录其实际消费的 script_plan 内容指纹；workflow
+# status 用它识别 script_plan 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 prompt_authoring
+# 已完成）的字面量定义在 lib.script_plan_entries——它是条目指纹的整集对位，存量条目的回填按它
+# 开门——由本模块顶部的 import 再导出，既有读法不变。
 
-#: step1 变体：drama / narration（按 content_mode）+ reference_video（按项目生成模式，跨 content_mode）。
-#: 决定 step1 文件名与结构校验模型；三者共用同一内容确认。
-Step1Kind = Literal["drama", "narration", "reference_video"]
+#: script_plan 变体：drama / narration（按 content_mode）+ reference_video（按项目生成模式，跨 content_mode）。
+#: 决定 script_plan 文件名与结构校验模型；三者共用同一内容确认。
+ScriptPlanKind = Literal["drama", "narration", "reference_video"]
 
 
-def step1_kind(project: dict[str, Any]) -> Step1Kind | None:
-    """项目的 step1 变体；无结构化 step1 中间态（如 ad）时返回 None。
+def script_plan_kind(project: dict[str, Any]) -> ScriptPlanKind | None:
+    """项目的 script_plan 变体；无结构化 script_plan 中间态（如 ad）时返回 None。
 
     reference_video 是 generation_mode 维度、跨 content_mode（narration / drama 均可），按项目
     生成模式优先判定；否则按 content_mode 落 drama / narration。content_mode 非
-    STEP1_FILENAMES 成员（ad）即无 step1，reference_video 亦不适用。变体由项目两轴唯一决定，
+    SCRIPT_PLAN_FILENAMES 成员（ad）即无 script_plan，reference_video 亦不适用。变体由项目两轴唯一决定，
     不随集号变化。
     """
     content_mode = project.get("content_mode")
-    if content_mode not in STEP1_FILENAMES:
+    if content_mode not in SCRIPT_PLAN_FILENAMES:
         return None
     if is_reference_video_project(project):
         return "reference_video"
-    return content_mode  # "drama" | "narration"（STEP1_FILENAMES 成员）
+    return content_mode  # "drama" | "narration"（SCRIPT_PLAN_FILENAMES 成员）
 
 
 def is_applicable(project: dict[str, Any]) -> bool:
-    """gate 是否适用于该项目：拥有结构化 step1 变体（drama / narration / reference_video）。"""
-    return step1_kind(project) is not None
+    """gate 是否适用于该项目：拥有结构化 script_plan 变体（drama / narration / reference_video）。"""
+    return script_plan_kind(project) is not None
 
 
-def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
-    """该集结构化 step1 中间态文件路径；不适用 gate 时返回 None。"""
-    kind = step1_kind(project)
+def script_plan_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
+    """该集结构化 script_plan 中间态文件路径；不适用 gate 时返回 None。"""
+    kind = script_plan_kind(project)
     if kind is None:
         return None
-    filename = REFERENCE_VIDEO_STEP1_FILENAME if kind == "reference_video" else STEP1_FILENAMES[kind]
+    filename = REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME if kind == "reference_video" else SCRIPT_PLAN_FILENAMES[kind]
     return episode_drafts_dir(project_path, episode) / filename
 
 
-#: step1 变体 → 该变体的草稿来源。三条路线各有一位；缺席即「该变体无草稿位」，
-#: 内容确认与生成侧据此不阻塞（ad 无结构化 step1，本就取不到变体）。
-_STEP1_QUARANTINE_KIND: dict[str, str] = {
-    "reference_video": QUARANTINE_KIND_STEP1,
-    "drama": QUARANTINE_KIND_DRAMA_STEP1,
-    "narration": QUARANTINE_KIND_NARRATION_STEP1,
+#: script_plan 变体 → 该变体的草稿来源。三条路线各有一位；缺席即「该变体无草稿位」，
+#: 内容确认与生成侧据此不阻塞（ad 无结构化 script_plan，本就取不到变体）。
+_SCRIPT_PLAN_QUARANTINE_KIND: dict[str, str] = {
+    "reference_video": QUARANTINE_KIND_SCRIPT_PLAN,
+    "drama": QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+    "narration": QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
 }
 
 
-def step1_quarantine_kind(project: dict[str, Any]) -> str | None:
-    """该项目 step1 变体对应的草稿来源；该变体无草稿位时返回 None。"""
-    kind = step1_kind(project)
-    return _STEP1_QUARANTINE_KIND.get(kind) if kind is not None else None
+def script_plan_quarantine_kind(project: dict[str, Any]) -> str | None:
+    """该项目 script_plan 变体对应的草稿来源；该变体无草稿位时返回 None。"""
+    kind = script_plan_kind(project)
+    return _SCRIPT_PLAN_QUARANTINE_KIND.get(kind) if kind is not None else None
 
 
-def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
-    """该集 step1 草稿的路径；该变体无草稿位时返回 None。
+def script_plan_quarantine_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
+    """该集 script_plan 草稿的路径；该变体无草稿位时返回 None。
 
-    只回路径、不判存在性——存在性判断在 ``step1_quarantined``，两者分开是为了让调用方在
+    只回路径、不判存在性——存在性判断在 ``script_plan_quarantined``，两者分开是为了让调用方在
     需要报错文案时能拿到路径。
     """
-    quarantine_kind = step1_quarantine_kind(project)
+    quarantine_kind = script_plan_quarantine_kind(project)
     if quarantine_kind is None:
         return None
     return quarantine_path(project_path, episode, quarantine_kind)
 
 
-def step1_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """该集 step1 是否有草稿在场——gate 与 step2 的阻塞判据。
+def script_plan_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
+    """该集 script_plan 是否有草稿在场——gate 与 prompt_authoring 的阻塞判据。
 
-    待处置草稿与「正式 step1 的内容指纹」相互独立：待修复草稿或可编辑草稿在场时正式文件
-    保持不变，仅检查指纹会错误放行 step2。草稿在场因此独立阻塞。
+    待处置草稿与「正式 script_plan 的内容指纹」相互独立：待修复草稿或可编辑草稿在场时正式文件
+    保持不变，仅检查指纹会错误放行 prompt_authoring。草稿在场因此独立阻塞。
 
-    草稿按项目当前生成模式解析（见 ``step1_quarantine_path``）；其他生成模式的遗留草稿
+    草稿按项目当前生成模式解析（见 ``script_plan_quarantine_path``）；其他生成模式的遗留草稿
     不参与判定，否则该集会被一份没有当前写入方清理的文件永久卡死。
     """
-    path = step1_quarantine_path(project_path, project, episode)
+    path = script_plan_quarantine_path(project_path, project, episode)
     return path is not None and path.exists()
 
 
@@ -158,11 +160,11 @@ def content_fingerprint_of_data(data: object) -> str:
 
 
 def content_fingerprint(path: Path) -> str | None:
-    """step1 内容指纹：合法 JSON 取规范化 dump 的 sha256（键序 / 空白重排不改指纹、语义变更才改），
+    """script_plan 内容指纹：合法 JSON 取规范化 dump 的 sha256（键序 / 空白重排不改指纹、语义变更才改），
     非 JSON 退化为原始字节 sha256；文件不存在（FileNotFoundError）时 None。
 
-    只把「文件不存在」降级为 None（→ no_step1、gate 放行）；权限不足、目录占位、短暂 I/O 等其它
-    OSError 一律向上抛，避免把真实文件系统故障静默当成「step1 未产出」而误放行 step2。
+    只把「文件不存在」降级为 None（→ no_script_plan、gate 放行）；权限不足、目录占位、短暂 I/O 等其它
+    OSError 一律向上抛，避免把真实文件系统故障静默当成「script_plan 未产出」而误放行 prompt_authoring。
 
     对已读入内存的对象取指纹（如迁移前 snapshot）用 ``content_fingerprint_of_data``，不要对同一
     文件再调一次本函数——两次独立读取之间的并发写入会被此函数的第二次读取吞掉，见其 docstring。
@@ -179,7 +181,7 @@ def content_fingerprint(path: Path) -> str | None:
 
 
 class _UncheckedFingerprint(enum.Enum):
-    """``write_step1_locked`` 的 ``expected_fingerprint`` 哨兵类型：区分「不做基线比对」与
+    """``write_script_plan_locked`` 的 ``expected_fingerprint`` 哨兵类型：区分「不做基线比对」与
     「基线是 None（写入方取基线时正式文件不存在）」——两者都要能表达，``None`` 只够表达后者。"""
 
     TOKEN = 0
@@ -189,29 +191,29 @@ class _UncheckedFingerprint(enum.Enum):
 UNCHECKED_FINGERPRINT = _UncheckedFingerprint.TOKEN
 
 
-class Step1WriteConflict(Exception):
-    """正式 step1 的乐观并发冲突：写入方的基线指纹与盘上现值不一致。
+class ScriptPlanWriteConflict(Exception):
+    """正式 script_plan 的乐观并发冲突：写入方的基线指纹与盘上现值不一致。
 
     携带盘上现值（``current_content``，非法 JSON 时 None）与两侧指纹，供编辑方渲染冲突报告、
     对照最新内容合并——单一写盘出口在锁内比对后抛出，后写方收到本异常而非静默覆盖先写方。
     """
 
     def __init__(self, *, expected: str | None, actual: str | None, current_content: dict[str, Any] | None):
-        super().__init__(f"step1 并发冲突：基线指纹 {expected}，盘上现值指纹 {actual}")
+        super().__init__(f"script_plan 并发冲突：基线指纹 {expected}，盘上现值指纹 {actual}")
         self.expected = expected
         self.actual = actual
         self.current_content = current_content
 
 
-class Step1RebuildCompletionError(ValueError):
-    """A stale step1 rebuild cannot be recorded against the current ledger state."""
+class ScriptPlanRebuildCompletionError(ValueError):
+    """A stale script_plan rebuild cannot be recorded against the current ledger state."""
 
     def __init__(self, code: str, detail: str):
         super().__init__(detail)
         self.code = code
 
 
-def complete_stale_step1_rebuild(
+def complete_stale_script_plan_rebuild(
     pm: ProjectManager,
     project_name: str,
     episode: int,
@@ -219,7 +221,7 @@ def complete_stale_step1_rebuild(
 ) -> str:
     """Record preprocessing completion for a stale entry, including byte-identical rebuilds."""
     if isinstance(episode, bool) or episode < 1:
-        raise Step1RebuildCompletionError("invalid_episode", "episode must be a positive integer")
+        raise ScriptPlanRebuildCompletionError("invalid_episode", "episode must be a positive integer")
 
     project_path = pm.get_project_path(project_name)
     committed: dict[str, str] = {}
@@ -227,18 +229,18 @@ def complete_stale_step1_rebuild(
     def _commit(project: dict[str, Any]) -> None:
         entry = find_episode(project, episode)
         if entry is None or entry.get("ledger_status") != "stale":
-            raise Step1RebuildCompletionError("not_stale", "episode is not awaiting a stale step1 rebuild")
-        if STALE_STEP1_REVISION_FIELD not in entry:
-            raise Step1RebuildCompletionError("missing_baseline", "stale episode has no rebuild baseline")
-        if entry.get(STALE_STEP1_REVISION_FIELD) != expected_stale_revision:
-            raise Step1RebuildCompletionError(
-                "baseline_conflict", "stale step1 baseline changed; refresh workflow status"
+            raise ScriptPlanRebuildCompletionError("not_stale", "episode is not awaiting a stale script_plan rebuild")
+        if STALE_SCRIPT_PLAN_REVISION_FIELD not in entry:
+            raise ScriptPlanRebuildCompletionError("missing_baseline", "stale episode has no rebuild baseline")
+        if entry.get(STALE_SCRIPT_PLAN_REVISION_FIELD) != expected_stale_revision:
+            raise ScriptPlanRebuildCompletionError(
+                "baseline_conflict", "stale script_plan baseline changed; refresh workflow status"
             )
-        path = step1_path(project_path, project, episode)
+        path = script_plan_path(project_path, project, episode)
         revision = content_fingerprint(path) if path is not None else None
         if revision is None:
-            raise Step1RebuildCompletionError("step1_missing", "rebuilt step1 file is missing")
-        entry[STALE_STEP1_REBUILT_REVISION_FIELD] = revision
+            raise ScriptPlanRebuildCompletionError("script_plan_missing", "rebuilt script_plan file is missing")
+        entry[STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD] = revision
         committed["revision"] = revision
 
     pm.update_project(project_name, _commit)
@@ -246,10 +248,10 @@ def complete_stale_step1_rebuild(
 
 
 def assert_base_fingerprint(path: Path, expected: str | None | _UncheckedFingerprint) -> None:
-    """乐观并发比对：``expected`` 与 ``path`` 盘上现值不一致时抛 ``Step1WriteConflict``、不落盘。
+    """乐观并发比对：``expected`` 与 ``path`` 盘上现值不一致时抛 ``ScriptPlanWriteConflict``、不落盘。
 
     ``expected`` 是写入方取基线时的文件指纹（``None`` 表示彼时文件不存在），
-    ``UNCHECKED_FINGERPRINT`` 跳过比对。三个 step1 变体共用本函数，比对语义只存在这一处。
+    ``UNCHECKED_FINGERPRINT`` 跳过比对。三个 script_plan 变体共用本函数，比对语义只存在这一处。
 
     调用方须已持该路径的排他锁：比对与随后的写盘不在同一临界区内，比对就只是一次过期读。
     """
@@ -259,30 +261,30 @@ def assert_base_fingerprint(path: Path, expected: str | None | _UncheckedFingerp
     if expected == actual:
         return
     current = load_json_or_none(path)
-    raise Step1WriteConflict(
+    raise ScriptPlanWriteConflict(
         expected=expected,
         actual=actual,
         current_content=current if isinstance(current, dict) else None,
     )
 
 
-def official_reference_step1_path(project_path: Path, episode: int) -> Path:
-    """该集参考生视频正式 step1 的路径（``drafts/episode_N/step1_reference_units.json``）。
+def official_reference_script_plan_path(project_path: Path, episode: int) -> Path:
+    """该集参考生视频正式 script_plan 的路径（``drafts/episode_N/script_plan_reference_units.json``）。
 
-    与 ``step1_path`` 的区别：后者按项目变体判定文件名、不适用时 None；本函数是 rv 写盘出口
+    与 ``script_plan_path`` 的区别：后者按项目变体判定文件名、不适用时 None；本函数是 rv 写盘出口
     的路径真相源，不依赖 project dict。"""
-    return episode_drafts_dir(project_path, episode) / REFERENCE_VIDEO_STEP1_FILENAME
+    return episode_drafts_dir(project_path, episode) / REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
 
 
 @contextmanager
-def formal_step1_lock(project_path: Path, episode: int, path: Path) -> Iterator[Path]:
-    """任一变体正式 step1 的写临界区：建目录 + per-path 排他锁，yield 该正式文件路径。
+def formal_script_plan_lock(project_path: Path, episode: int, path: Path) -> Iterator[Path]:
+    """任一变体正式 script_plan 的写临界区：建目录 + per-path 排他锁，yield 该正式文件路径。
 
     与迁移读改写、Web 端保存、重拆分 / 晋升共用同一把 ``ProjectManager.file_lock``（per-path，
     进程间排他、不可重入）。凡要「读正式文件后据此写盘或写草稿」的操作都应整段包在本
     临界区内——读与写拆开在锁外各做一次，就是并发覆盖窗口。
 
-    路径由调用方按变体传入（``step1_path`` / ``official_reference_step1_path``）：三个 step1
+    路径由调用方按变体传入（``script_plan_path`` / ``official_reference_script_plan_path``）：三个 script_plan
     变体的正式文件名不同，锁的粒度是文件本身，不能按变体各自造一把。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -292,23 +294,25 @@ def formal_step1_lock(project_path: Path, episode: int, path: Path) -> Iterator[
 
 
 @contextmanager
-def step1_write_lock(project_path: Path, episode: int) -> Iterator[Path]:
-    """参考生视频正式 step1 的写临界区（``formal_step1_lock`` 绑定该变体路径的具名入口）。"""
-    with formal_step1_lock(project_path, episode, official_reference_step1_path(project_path, episode)) as path:
+def script_plan_write_lock(project_path: Path, episode: int) -> Iterator[Path]:
+    """参考生视频正式 script_plan 的写临界区（``formal_script_plan_lock`` 绑定该变体路径的具名入口）。"""
+    with formal_script_plan_lock(
+        project_path, episode, official_reference_script_plan_path(project_path, episode)
+    ) as path:
         yield path
 
 
 @contextmanager
-def formal_step1_write_transaction(
+def formal_script_plan_write_transaction(
     project_path: Path,
     episode: int,
     *paths: Path,
     basis: ArtifactBasis | None = None,
 ) -> Iterator[None]:
-    """Commit formal step1 files and their active Manifest claim as one unit.
+    """Commit formal script_plan files and their active Manifest claim as one unit.
 
     Callers own the canonical per-path lock.  Every Python write path for a
-    drama, narration, or reference-video step1 enters this context so a
+    drama, narration, or reference-video script_plan enters this context so a
     successful write refreshes the same typed claim, while registration
     failure restores every supplied formal file byte-for-byte.
     """
@@ -323,12 +327,12 @@ def formal_step1_write_transaction(
 
         # A successful no-op write can still repair a missing claim after a
         # temporarily unavailable source made activation skip this target.
-        key = ArtifactKey.episode_step1(episode)
+        key = ArtifactKey.episode_script_plan(episode)
         if basis is None:
             register_current_artifact_if_provable(project_path, key)
         else:
             if not paths:
-                raise ValueError("a frozen step1 basis requires its formal artifact path")
+                raise ValueError("a frozen script_plan basis requires its formal artifact path")
             register_current_artifact(
                 project_path,
                 key,
@@ -337,19 +341,19 @@ def formal_step1_write_transaction(
             )
 
 
-def delete_step1_file(project_path: Path, episode: int, path: Path) -> bool:
-    """Delete a formal step1 and forget its active claim through the same transaction."""
+def delete_script_plan_file(project_path: Path, episode: int, path: Path) -> bool:
+    """Delete a formal script_plan and forget its active claim through the same transaction."""
 
     pm = ProjectManager(str(project_path.parent))
     with pm.file_lock(path):
         if not path.exists():
             return False
-        with formal_step1_write_transaction(project_path, episode, path):
+        with formal_script_plan_write_transaction(project_path, episode, path):
             path.unlink()
     return True
 
 
-def write_formal_step1_locked(
+def write_formal_script_plan_locked(
     project_path: Path,
     episode: int,
     path: Path,
@@ -360,22 +364,22 @@ def write_formal_step1_locked(
     clear_dependent_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
 ) -> bool:
-    """任一变体正式 step1 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
+    """任一变体正式 script_plan 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
     下游草稿。返回内容是否发生变化。
 
-    调用方须已持有该文件的排他锁（``formal_step1_lock``，或同一路径的
+    调用方须已持有该文件的排他锁（``formal_script_plan_lock``，或同一路径的
     ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）；指定
-    ``dependent_quarantine`` 时还须先持有该草稿锁，统一锁序为「下游草稿 → 正式 step1」。三个变体
-    的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、迁移回写）汇入本函数。正式 step1
+    ``dependent_quarantine`` 时还须先持有该草稿锁，统一锁序为「下游草稿 → 正式 script_plan」。三个变体
+    的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、迁移回写）汇入本函数。正式 script_plan
     之所以对 Agent 写禁，正是因为写盘只发生在这一个持锁的出口。
 
     ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
-    与盘上现值不一致时抛 ``Step1WriteConflict``、不落盘——后写方拿冲突报告去合并，先写方的
+    与盘上现值不一致时抛 ``ScriptPlanWriteConflict``、不落盘——后写方拿冲突报告去合并，先写方的
     内容不被静默覆盖。传 ``UNCHECKED_FINGERPRINT`` 跳过比对：重拆分是刻意的整份重建，
     同临界区读改写（迁移、确认）则读写之间本就无并发窗口。
 
-    ``dependent_quarantine`` 是以本文件为基底的下游草稿来源（只有参考生视频的 step2；
-    drama / narration step1 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都
+    ``dependent_quarantine`` 是以本文件为基底的下游草稿来源（只有参考生视频的 prompt_authoring；
+    drama / narration script_plan 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都
     按字节回滚，不会留下「正式文件是旧的、草稿已被清掉」的半场。基底真的变了才作废它——迁移回写是机械
     格式收编、不是内容编辑，调用方传 ``clear_dependent_quarantine=False`` 保留。
     """
@@ -384,71 +388,71 @@ def write_formal_step1_locked(
     changed = previous != content
     quarantine = None if dependent_quarantine is None else quarantine_path(project_path, episode, dependent_quarantine)
     paths = (path,) if quarantine is None else (path, quarantine)
-    with formal_step1_write_transaction(project_path, episode, *paths, basis=basis):
+    with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis):
         atomic_write_json(path, content)
         if changed and clear_dependent_quarantine and dependent_quarantine is not None:
             clear_quarantine(project_path, episode, dependent_quarantine)
     return changed
 
 
-def write_step1_locked(
+def write_script_plan_locked(
     project_path: Path,
     episode: int,
     content: dict[str, Any],
     *,
     expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
-    clear_step2_quarantine: bool = True,
+    clear_prompt_authoring_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
 ) -> bool:
-    """参考生视频正式 step1 的写盘出口（``write_formal_step1_locked`` 绑定该变体路径与其
-    下游 step2 草稿的具名入口）。"""
-    return write_formal_step1_locked(
+    """参考生视频正式 script_plan 的写盘出口（``write_formal_script_plan_locked`` 绑定该变体路径与其
+    下游 prompt_authoring 草稿的具名入口）。"""
+    return write_formal_script_plan_locked(
         project_path,
         episode,
-        official_reference_step1_path(project_path, episode),
+        official_reference_script_plan_path(project_path, episode),
         content,
         expected_fingerprint=expected_fingerprint,
-        dependent_quarantine=QUARANTINE_KIND_STEP2,
-        clear_dependent_quarantine=clear_step2_quarantine,
+        dependent_quarantine=QUARANTINE_KIND_PROMPT_AUTHORING,
+        clear_dependent_quarantine=clear_prompt_authoring_quarantine,
         basis=basis,
     )
 
 
-def write_step1(
+def write_script_plan(
     project_path: Path,
     episode: int,
     content: dict[str, Any],
     *,
     expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
-    clear_step2_quarantine: bool = True,
+    clear_prompt_authoring_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
     before_lock: Callable[[], None] | None = None,
 ) -> bool:
-    """Run the reference step1 transaction in global lock order: step2 draft, then formal step1."""
-    step2_path = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
+    """Run the reference script_plan transaction in global lock order: prompt_authoring draft, then formal script_plan."""
+    prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
     pm = ProjectManager(str(project_path.parent))
     if before_lock is not None:
         before_lock()
-    with pm.file_lock(step2_path), step1_write_lock(project_path, episode):
-        return write_step1_locked(
+    with pm.file_lock(prompt_authoring_path), script_plan_write_lock(project_path, episode):
+        return write_script_plan_locked(
             project_path,
             episode,
             content,
             expected_fingerprint=expected_fingerprint,
-            clear_step2_quarantine=clear_step2_quarantine,
+            clear_prompt_authoring_quarantine=clear_prompt_authoring_quarantine,
             basis=basis,
         )
 
 
 def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:
-    """该集已存的确认记录（``episodes[i].step1_review``），缺失或形状坏时返回空 dict。"""
+    """该集已存的确认记录（``episodes[i].script_plan_review``），缺失或形状坏时返回空 dict。"""
     ep = find_episode(project, episode)
     review = ep.get(REVIEW_FIELD) if ep else None
     return review if isinstance(review, dict) else {}
 
 
-def step2_generated(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """该集 step2 产物（生成的剧本 JSON）是否已存在——存量 grandfather 判据。
+def prompt_authoring_generated(project_path: Path, project: dict[str, Any], episode: int) -> bool:
+    """该集 prompt_authoring 产物（生成的剧本 JSON）是否已存在——存量 grandfather 判据。
 
     取自 episode 条目的 ``script_file``（缺省回退约定路径 ``scripts/episode_N.json``，与
     ScriptGenerator 固定写出口径一致）。
@@ -461,44 +465,44 @@ def step2_generated(project_path: Path, project: dict[str, Any], episode: int) -
 def review_status(project_path: Path, project: dict[str, Any], episode: int) -> ReviewStatus:
     """派生该集内容确认状态。
 
-    穷举 {step1 有无 × step2 有无 × step1_review 有无}：
-    - 无 step1（或 gate 不适用）：not_applicable / no_step1；
-    - 有确认指纹：与 live step1 内容指纹一致 → confirmed，不一致（step1 改过）→ pending_review；
-    - 无确认指纹（存量 / 首次）：已产 step2（存量项目升级前已通过该集）→ grandfather 放行 confirmed，
-      避免新 gate 无谓阻塞存量 step2 重跑；未产 step2（feature 后首次产 step1）→ pending_review 待确认。
+    穷举 {script_plan 有无 × prompt_authoring 有无 × script_plan_review 有无}：
+    - 无 script_plan（或 gate 不适用）：not_applicable / no_script_plan；
+    - 有确认指纹：与 live script_plan 内容指纹一致 → confirmed，不一致（script_plan 改过）→ pending_review；
+    - 无确认指纹（存量 / 首次）：已产 prompt_authoring（存量项目升级前已通过该集）→ grandfather 放行 confirmed，
+      避免新 gate 无谓阻塞存量 prompt_authoring 重跑；未产 prompt_authoring（feature 后首次产 script_plan）→ pending_review 待确认。
     """
-    path = step1_path(project_path, project, episode)
+    path = script_plan_path(project_path, project, episode)
     if path is None:
         return "not_applicable"
     # 草稿在场先于指纹判定：未满足约束的产物尚未处置，无论正式文件是缺失、旧版还是已确认，
-    # 该集都还没有一份「可放行」的 step1。判 pending_review 而非新增状态——gate 的消费方
-    # （阻塞 step2、web 状态展示）要的正是「未放行」这一位，加状态会波及全部消费点。
-    if step1_quarantined(project_path, project, episode):
+    # 该集都还没有一份「可放行」的 script_plan。判 pending_review 而非新增状态——gate 的消费方
+    # （阻塞 prompt_authoring、web 状态展示）要的正是「未放行」这一位，加状态会波及全部消费点。
+    if script_plan_quarantined(project_path, project, episode):
         return "pending_review"
     live = content_fingerprint(path)
     if live is None:
-        return "no_step1"
+        return "no_script_plan"
     stored_fingerprint = stored_review(project, episode).get("fingerprint")
     if stored_fingerprint is not None:
         return "confirmed" if stored_fingerprint == live else "pending_review"
-    # 无确认指纹（存量 / 首次）：用 step2 产物是否已存在做 grandfather 判据。
-    # 过渡态局限：存量集没有指纹基线，无法区分「step1 未动」与「step1 已重拆但未确认」——
-    # 只要旧 step2 文件仍在，重拆后的 step1 也会被放行、不重新阻塞。这是「不无谓阻塞存量重跑」的
+    # 无确认指纹（存量 / 首次）：用 prompt_authoring 产物是否已存在做 grandfather 判据。
+    # 过渡态局限：存量集没有指纹基线，无法区分「script_plan 未动」与「script_plan 已重拆但未确认」——
+    # 只要旧 prompt_authoring 文件仍在，重拆后的 script_plan 也会被放行、不重新阻塞。这是「不无谓阻塞存量重跑」的
     # 取舍代价，且自愈：用户或 Agent 首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
-    return "confirmed" if step2_generated(project_path, project, episode) else "pending_review"
+    return "confirmed" if prompt_authoring_generated(project_path, project, episode) else "pending_review"
 
 
-def gate_blocks_step2(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """step2 是否应被 gate 阻塞——仅 pending_review 阻塞；not_applicable / no_step1 / confirmed 放行。
+def gate_blocks_prompt_authoring(project_path: Path, project: dict[str, Any], episode: int) -> bool:
+    """prompt_authoring 是否应被 gate 阻塞——仅 pending_review 阻塞；not_applicable / no_script_plan / confirmed 放行。
 
-    no_step1 不在此阻塞：step2 入口对缺 step1 另有「未找到 Step 1 文件」的早返提示，
-    本 gate 只负责「step1 在但未确认」这一道。
+    no_script_plan 不在此阻塞：prompt_authoring 入口对缺 script_plan 另有「未找到脚本规划文件」的早返提示，
+    本 gate 只负责「script_plan 在但未确认」这一道。
     """
     return review_status(project_path, project, episode) == "pending_review"
 
 
 def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, confirmed_at: str) -> bool:
-    """就地把确认记录写入 project ``episodes[i].step1_review``；集条目不存在返回 False。
+    """就地把确认记录写入 project ``episodes[i].script_plan_review``；集条目不存在返回 False。
 
     供 service 层在 ProjectManager.update_project 的 RMW 回调内调用，确认指纹的持久化 shape
     单一真相源在此。
@@ -511,10 +515,10 @@ def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, 
 
 
 def carry_confirmation_through_migration(project: dict[str, Any], episode: int, before: str, after: str) -> bool:
-    """存量 step1 草稿的时长收编迁移是机械格式收编、不是内容编辑，但回写会让内容指纹漂移。
+    """存量 script_plan 草稿的时长收编迁移是机械格式收编、不是内容编辑，但回写会让内容指纹漂移。
 
     若该集确认指纹恰好记的是迁移前内容（``before``），就把它平移到迁移后的值（``after``），
-    避免一个早已确认的分集仅因被迁移回写就重新等待确认；指纹本就对不上（step1 在迁移外确实被
+    避免一个早已确认的分集仅因被迁移回写就重新等待确认；指纹本就对不上（script_plan 在迁移外确实被
     改过）时不动，返回 False，照常按待确认处理。
 
     仅适用于迁移无 warnings 的情形（纯格式收编，时长取值未被 clamp 改写）：调用方须在迁移
@@ -532,7 +536,7 @@ def carry_confirmation_through_migration(project: dict[str, Any], episode: int, 
     return True
 
 
-def migrate_step1_draft_in_place(
+def migrate_script_plan_draft_in_place(
     project_path: Path,
     content: object,
     *,
@@ -540,18 +544,18 @@ def migrate_step1_draft_in_place(
     update_project: Callable[[Callable[[dict[str, Any]], None]], dict[str, Any]],
     supported_durations: Sequence[int] | None = None,
 ) -> tuple[dict[str, Any] | None, list[ValidationMessage]]:
-    """对已读入内存的 step1 草稿就地做一次性时长收编迁移并回写；返回 ``(最新 project, warnings)``。
+    """对已读入内存的 script_plan 草稿就地做一次性时长收编迁移并回写；返回 ``(最新 project, warnings)``。
 
-    调用方须按「step2 草稿 → 正式 step1」顺序持有两把排他锁；回写经单一写盘出口
-    ``write_step1_locked``，与 Web 端保存 / 重拆分写盘同一把 per-path 锁。迁移是机械格式
-    收编、不是内容编辑，不作废 step2 草稿；同临界区读改写也无并发窗口，不做基线比对。
+    调用方须按「prompt_authoring 草稿 → 正式 script_plan」顺序持有两把排他锁；回写经单一写盘出口
+    ``write_script_plan_locked``，与 Web 端保存 / 重拆分写盘同一把 per-path 锁。迁移是机械格式
+    收编、不是内容编辑，不作废 prompt_authoring 草稿；同临界区读改写也无并发窗口，不做基线比对。
     未发生迁移时不回写，返回 ``(None, [])``。
 
     迁移多数情况下是机械格式收编，回写会让内容指纹漂移：经 ``update_project`` 在锁内把该集
     确认指纹平移到迁移后的值（``carry_confirmation_through_migration``），避免已确认分集仅因
     被加载就重新等待确认。``warnings`` 非空说明迁移按档位 / 结构区间 clamp 改写了实际时长取值——
     那是内容变更，不平移确认，已确认分集经指纹比对照常重新等待确认；从未存过指纹、靠 grandfather
-    判据（step2 产物已存在）放行的存量集则显式记下迁移前内容的指纹，使其同样失配、等待确认。
+    判据（prompt_authoring 产物已存在）放行的存量集则显式记下迁移前内容的指纹，使其同样失配、等待确认。
     该标记的持久化不区分 dry-run 与真实生成：迁移幂等落盘后重试不再产生 warnings，只有落盘
     的标记能保证后续生成仍被内容确认阻塞。
 
@@ -559,18 +563,18 @@ def migrate_step1_draft_in_place(
     重跑迁移即自愈。反序则草稿已丢失旧字段、重跑判 ``changed=False``，标记永久缺失——靠
     grandfather 判据放行的存量集会带着被 clamp 的时长停在 confirmed，绕过内容确认。
 
-    ``supported_durations`` 给定时（step2 加载侧持有模型档位）收编结果直接取档；缺省
+    ``supported_durations`` 给定时（prompt_authoring 加载侧持有模型档位）收编结果直接取档；缺省
     （web gate 侧，能力解析是 async + DB、同步拿不到档位）只做结构区间 clamp。
 
     ``lib.script_generator.ScriptGenerator`` 与 ``server.services.script_review`` 的两处
-    step1 读取入口共用本函数，迁移与确认平移的判断不各自重复。
+    script_plan 读取入口共用本函数，迁移与确认平移的判断不各自重复。
     """
     if not isinstance(content, dict):
         return None, []
     before = content_fingerprint_of_data(content)
     changed, warnings = migrate_unit_durations(content.get("units"), supported_durations=supported_durations)
     for message in warnings:
-        logger.warning("step1 草稿 %s 时长收编迁移: %s", REFERENCE_VIDEO_STEP1_FILENAME, message.render())
+        logger.warning("script_plan 草稿 %s 时长收编迁移: %s", REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME, message.render())
     if not changed:
         return None, []
 
@@ -592,5 +596,5 @@ def migrate_step1_draft_in_place(
 
         updated = update_project(_carry)
 
-    write_step1_locked(project_path, episode, content, clear_step2_quarantine=False)
+    write_script_plan_locked(project_path, episode, content, clear_prompt_authoring_quarantine=False)
     return updated, warnings

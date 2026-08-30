@@ -17,6 +17,9 @@ MESSAGES = {
     "title_required": "Tên dự án không được để trống",
     "project_exists": "Dự án '{name}' đã tồn tại",
     "script_not_found": "Kịch bản '{name}' không tồn tại",
+    "script_item_not_found": "Không có phân cảnh '{id}' trong kịch bản này",
+    "prompt_preview_missing": "Phân cảnh này chưa có lời nhắc",
+    "prompt_preview_invalid": "Không thể kết xuất lời nhắc, hãy kiểm tra định dạng",
     "scene_not_found": "Cảnh '{id}' không tồn tại",
     "segment_not_found": "Đoạn '{id}' không tồn tại",
     "script_missing": "Kịch bản không tồn tại",
@@ -62,7 +65,7 @@ MESSAGES = {
     "task_fail_artifact_download_failed": "Đã tạo video nhưng tải tệp xuống thất bại; hãy thử tải lại: {detail}",
     "task_fail_cascade_blocked_dependency": "Bị chặn do tác vụ phụ thuộc {dependency_task_id} thất bại: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt phải là chuỗi hoặc đối tượng chứa scene/composition",
-    "prompt_scene_empty": "prompt.scene không được để trống",
+    "prompt_scene_empty": "prompt.scene phải là văn bản không rỗng",
     "prompt_must_be_string_or_object": "prompt phải là chuỗi hoặc đối tượng",
     "prompt_text_empty": "prompt không được để trống",
     "storyboard_task_submitted": "Đã gửi tác vụ tạo phân cảnh cho '{segment_id}'",
@@ -119,8 +122,10 @@ MESSAGES = {
     "video_shorter_than_tts": "Video đã tạo dài {video_duration:.1f}s, ngắn hơn âm thanh thuyết minh {tts_duration:.1f}s; hãy tạo lại mà không cắt hoặc tăng tốc lời nói",
     "audio_provider_not_configured": "Vui lòng cấu hình nhà cung cấp âm thanh trước: thêm nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói trong Cài đặt → Nhà cung cấp",
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
+    "character_voice_binding_invalid": "Cách ràng buộc giọng nhân vật chỉ có thể là theo mô tả hoặc âm thanh tham chiếu",
     "video_poll_timeout_minimum": "Thời gian chờ thăm dò video phải ít nhất 60 giây",
     "speech_rate_out_of_range": "Nhịp đọc phải nằm trong khoảng {min} đến {max} (ký tự hoặc từ mỗi giây)",
+    "episode_target_duration_out_of_range": "Thời lượng mục tiêu mỗi tập phải nằm trong khoảng {min} đến {max} giây",
     "character_not_found": "Nhân vật '{name}' không tồn tại",
     "character_task_submitted": "Đã gửi tác vụ tạo hình tài sản nhân vật cho '{name}'",
     "voice_sample_voice_required": "Vui lòng chọn giọng đọc trước",
@@ -151,14 +156,14 @@ MESSAGES = {
     "asset_field_invalid_value": "giá trị trường này không hợp lệ",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
-    "invalid_step_num": "Số bước không hợp lệ: {step_num}",
+    "invalid_draft_stage": "Giai đoạn bản nháp không hợp lệ: {stage}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
-    "draft_invalid_json": "Bản nháp tổ chức nội dung có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
-    "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả tổ chức nội dung để xác nhận)",
-    "script_review_no_step1": "Chưa có kết quả tổ chức nội dung để xác nhận; vui lòng hoàn tất tổ chức nội dung trước",
+    "draft_invalid_json": "Bản nháp kế hoạch kịch bản có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
+    "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả kế hoạch kịch bản để xác nhận)",
+    "script_review_no_script_plan": "Chưa có kết quả kế hoạch kịch bản để xác nhận; vui lòng hoàn tất kế hoạch kịch bản trước",
     "script_review_quarantined": ("Tập này có bản nháp cần sửa; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"),
     "script_review_conflict": (
-        "Bản nháp tổ chức nội dung đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
+        "Bản nháp kế hoạch kịch bản đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
         "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
     ),
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp xác nhận nội dung thất bại; vui lòng kiểm tra và thử lại",
@@ -255,6 +260,7 @@ MESSAGES = {
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",
     "ad_no_default_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mặc định; thời lượng cảnh quay được lên kế hoạch theo tổng thời lượng mục tiêu",
+    "ad_no_episode_target_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mục tiêu mỗi tập; tổng thời lượng được lên kế hoạch theo tổng thời lượng mục tiêu",
     "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ phân cảnh đa lưới",
     "grid_storyboard_not_enabled": "Dự án chưa bật phân cảnh đa lưới",
     "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
@@ -345,6 +351,9 @@ MESSAGES = {
         "Nhân vật '{name}' không có ảnh tham chiếu (chỉ xuất hiện ngoài hình): mô hình video hiện tại yêu cầu "
         "âm thanh tham chiếu phải gắn theo từng ảnh tham chiếu, giọng lời thoại của nhân vật này sẽ do mô hình "
         "tự quyết định"
+    ),
+    "ref_warn_unit_without_scene": (
+        "Đơn vị này không tham chiếu bối cảnh nào; địa điểm của khung hình sẽ do mô hình tự quyết định"
     ),
     "ref_warn_silent_model": (
         "Mô hình video hiện tại '{model}' không tạo âm thanh, lời thoại chỉ dùng làm gợi ý cho prompt"

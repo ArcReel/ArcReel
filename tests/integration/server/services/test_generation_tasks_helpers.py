@@ -54,22 +54,3 @@ class TestGenerationTasks:
 
         with pytest.raises(ValueError):
             generation_tasks._normalize_storyboard_prompt("   ", "Anime")
-
-        video_yaml = generation_tasks._normalize_video_prompt(
-            {
-                "action": "行走",
-                "camera_motion": "",
-                "ambiance_audio": "风声",
-                "dialogue": [{"speaker": "Alice", "line": "hello"}],
-            }
-        )
-        assert "Camera_Motion" in video_yaml
-
-        with pytest.raises(ValueError):
-            generation_tasks._normalize_video_prompt({"action": ""})
-
-        with pytest.raises(ValueError):
-            generation_tasks._normalize_video_prompt("")
-
-        with pytest.raises(ValueError):
-            generation_tasks._normalize_video_prompt("   ")

@@ -1,7 +1,7 @@
 """SDK MCP tool：资产级联重命名（character / scene / prop / product）。
 
 独立于 ``patch_project``：后者的章程限定 project.json 字段写入，而重命名是跨全部剧集
-剧本 + step1 草稿 + 文件系统的级联事务（见 docs/adr/0057），经
+剧本 + script_plan 草稿 + 文件系统的级联事务（见 docs/adr/0057），经
 ``ProjectManager.rename_asset`` 在锁内一次完成——资产桶 key、剧本引用（引用数组 /
 speaker / ``@[名称]`` mention）、按名命名的关联文件与版本历史同步改齐。目标名冲突
 （NFC 归一判定）时整体拒绝、不落盘。
@@ -29,7 +29,7 @@ from server.tool_runtime import (
 def rename_asset_tool(ctx: ToolContext):
     @tool(
         "rename_asset",
-        "级联重命名资产:一次改齐资产表 key、全部剧集剧本与 step1 草稿的名称引用"
+        "级联重命名资产:一次改齐资产表 key、全部剧集剧本与 script_plan 草稿的名称引用"
         "(引用数组 / speaker / @[名称] mention)以及按名命名的关联文件与版本历史。"
         "新名与既有同类型资产冲突时整体拒绝、不落盘。改名不影响全局资产库。"
         "用 patch_project 改名等于「新名新建 + 旧名残留」,改名一律用本工具。",

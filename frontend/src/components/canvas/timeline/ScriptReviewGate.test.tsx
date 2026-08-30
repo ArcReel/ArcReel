@@ -16,6 +16,7 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     quarantine: null,
     supported_durations: null,
     duration_tiers: null,
+    episode_target_duration: null,
     content: {
       title: "第一集",
       scenes: [
@@ -49,6 +50,7 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     quarantine: null,
     supported_durations: null,
     duration_tiers: null,
+    episode_target_duration: null,
     content: {
       segments: [
         {
@@ -118,6 +120,32 @@ describe("ScriptReviewGate", () => {
     expect(baseFingerprint).toBe("fp1");
   });
 
+  it("compares the episode total against the project target", async () => {
+    // dramaState 只有一个 8 秒场景，目标 30 秒 → 未超出，用中性对比文案
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ episode_target_duration: 30 }));
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("本集合计 8 秒 / 目标 30 秒")).toBeInTheDocument());
+  });
+
+  it("flags an over-target episode without blocking confirmation", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ episode_target_duration: 5 }));
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/本集合计 8 秒，比目标 5 秒多 3 秒/)).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeEnabled();
+  });
+
+  it("shows no comparison when the project has no target", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("E1S01")).toBeInTheDocument());
+    expect(screen.queryByText(/目标/)).not.toBeInTheDocument();
+  });
+
   it("renders narration novel_text as editable", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(narrationState());
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
@@ -158,7 +186,7 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(screen.getByText("让 Agent 修复"));
     const input = useAssistantStore.getState().input;
     expect(input).toContain("1 处违约待修复");
-    expect(input).toContain("doc_type=narration_step1");
+    expect(input).toContain("doc_type=narration_script_plan");
     expect(input).toContain("open_draft 返回的 revision 作为 base_revision");
     expect(input).toContain("1. segment E1S01 的时长 5 不在模型档位 [4, 6, 8] 内");
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
@@ -180,7 +208,7 @@ describe("ScriptReviewGate", () => {
     const input = useAssistantStore.getState().input;
     expect(input).toContain("open_draft");
     expect(input).toContain("promote_draft");
-    expect(input).toContain("doc_type=drama_step1");
+    expect(input).toContain("doc_type=drama_script_plan");
     expect(input).toContain("revision");
     expect(input).toContain("base_revision");
     expect(input).not.toContain("违约待修复");
@@ -198,9 +226,9 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
 
-    // 模拟 agent 在外部改了 step1 → revision 变 → 触发重新拉取
+    // 模拟 agent 在外部改了 script_plan → revision 变 → 触发重新拉取
     act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
 
     await waitFor(() => expect(screen.getByDisplayValue("agent 改写后的台词")).toBeInTheDocument());
@@ -223,9 +251,9 @@ describe("ScriptReviewGate", () => {
     fireEvent.change(screen.getByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
     await screen.findByText("修复后保存");
 
-    // 外部刷新到来（agent 改 step1 → revision 变）→ 应保留用户草稿、不被服务端内容覆盖
+    // 外部刷新到来（agent 改 script_plan → revision 变）→ 应保留用户草稿、不被服务端内容覆盖
     act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
 
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
@@ -233,42 +261,42 @@ describe("ScriptReviewGate", () => {
     expect(screen.queryByDisplayValue("服务端覆盖文案")).not.toBeInTheDocument();
   });
 
-  it("shows an empty state when there is no step1 content", async () => {
+  it("shows an empty state when there is no script_plan content", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
-      dramaState({ status: "no_step1", content: null, fingerprint: null }),
+      dramaState({ status: "no_script_plan", content: null, fingerprint: null }),
     );
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    await waitFor(() => expect(screen.getByText("暂无内容整理结果")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("暂无脚本规划结果")).toBeInTheDocument());
   });
 
   it("renders a load-error state distinct from the empty state", async () => {
     vi.spyOn(API, "getScriptReview").mockRejectedValue(new Error("网络异常"));
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
 
-    await waitFor(() => expect(screen.getByText("无法加载内容整理结果")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("无法加载脚本规划结果")).toBeInTheDocument());
     // 错误态展示服务端错误信息与重试入口，且不与空态文案混淆。
     expect(screen.getByText("网络异常")).toBeInTheDocument();
     expect(screen.getByText("重试")).toBeInTheDocument();
-    expect(screen.queryByText("暂无内容整理结果")).not.toBeInTheDocument();
+    expect(screen.queryByText("暂无脚本规划结果")).not.toBeInTheDocument();
   });
 
   it("surfaces an error with retry when a refetch fails after an empty state", async () => {
     const get = vi
       .spyOn(API, "getScriptReview")
-      .mockResolvedValueOnce(dramaState({ status: "no_step1", content: null, fingerprint: null }))
+      .mockResolvedValueOnce(dramaState({ status: "no_script_plan", content: null, fingerprint: null }))
       .mockRejectedValue(new Error("刷新失败"));
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    await waitFor(() => expect(screen.getByText("暂无内容整理结果")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("暂无脚本规划结果")).toBeInTheDocument());
 
     // 空态无真实内容可保留：revision 静默刷新失败应进错误态（区别于空态）并给重试，不滞留在过时空态。
     act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
 
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("无法加载内容整理结果")).toBeInTheDocument();
+    expect(screen.getByText("无法加载脚本规划结果")).toBeInTheDocument();
     expect(screen.getByText("重试")).toBeInTheDocument();
-    expect(screen.queryByText("暂无内容整理结果")).not.toBeInTheDocument();
+    expect(screen.queryByText("暂无脚本规划结果")).not.toBeInTheDocument();
   });
 
   it("keeps existing content when a silent refetch fails", async () => {
@@ -281,13 +309,13 @@ describe("ScriptReviewGate", () => {
 
     // revision 触发静默刷新失败：应保留已加载内容，不闪错误态 / 空态。
     act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
 
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
     expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument();
-    expect(screen.queryByText("无法加载内容整理结果")).not.toBeInTheDocument();
-    expect(screen.queryByText("暂无内容整理结果")).not.toBeInTheDocument();
+    expect(screen.queryByText("无法加载脚本规划结果")).not.toBeInTheDocument();
+    expect(screen.queryByText("暂无脚本规划结果")).not.toBeInTheDocument();
   });
 
   it("retries after a load error and recovers to normal content", async () => {
@@ -302,7 +330,7 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(screen.getByText("重试"));
 
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
-    expect(screen.queryByText("无法加载内容整理结果")).not.toBeInTheDocument();
+    expect(screen.queryByText("无法加载脚本规划结果")).not.toBeInTheDocument();
     expect(get).toHaveBeenCalledTimes(2);
   });
 });

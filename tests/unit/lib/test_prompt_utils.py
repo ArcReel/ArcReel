@@ -1,5 +1,6 @@
 import unicodedata
 
+import pytest
 import yaml
 
 from lib.prompt_utils import (
@@ -8,6 +9,8 @@ from lib.prompt_utils import (
     is_structured_image_prompt,
     is_structured_video_prompt,
     normalize_style,
+    normalize_video_prompt,
+    render_storyboard_video_prompt,
     utterances_to_dialogue,
     validate_camera_motion,
     validate_shot_type,
@@ -235,3 +238,51 @@ class TestUtterancesToDialogue:
         # 词表从 lib.script_models 的 Literal 派生，扩充后的值应直接可校验
         assert validate_camera_motion("Orbit")
         assert not validate_camera_motion("Teleport")
+
+
+class TestNormalizeVideoPrompt:
+    def test_structured_prompt_renders_yaml_with_defaults_filled(self):
+        rendered = normalize_video_prompt(
+            {
+                "action": "行走",
+                "camera_motion": "",
+                "ambiance_audio": "风声",
+                "dialogue": [{"speaker": "Alice", "line": "hello"}],
+            }
+        )
+        assert "Camera_Motion" in rendered
+
+    @pytest.mark.parametrize("blank", [{"action": ""}, "", "   "])
+    def test_blank_prompt_is_rejected(self, blank):
+        with pytest.raises(ValueError):
+            normalize_video_prompt(blank)
+
+
+class TestRenderStoryboardVideoPrompt:
+    """文本形态的最终渲染出口：正文即提示词主体，drama 的发声声明由渲染层按 utterances 追加。"""
+
+    ITEM = {"utterances": [{"kind": "dialogue", "speaker": "王", "text": "你来了。"}]}
+    CHARACTERS = {"王": {"voice_style": "低沉沙哑"}}
+
+    def _render(self, prompt: object, *, content_mode: str = "drama") -> str:
+        return render_storyboard_video_prompt(
+            prompt, self.ITEM, content_mode=content_mode, voice_characters=self.CHARACTERS
+        )
+
+    def test_text_form_body_leads_and_speech_sections_follow(self):
+        rendered = self._render("镜头缓缓推近")
+        assert rendered.startswith("镜头缓缓推近")
+        assert "Voice_Style: 低沉沙哑" in rendered
+        assert "Line: 你来了。" in rendered
+
+    def test_speech_sections_already_in_body_are_not_appended_twice(self):
+        """结构化 → 文本以当前渲染结果为初值：正文已带发声声明段时不叠出第二份。"""
+        seed = self._render({"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"})
+
+        assert self._render(seed) == seed
+        assert seed.count("Line: 你来了。") == 1
+        assert seed.count("Voice_Style: 低沉沙哑") == 1
+
+    def test_non_drama_text_form_gets_no_speech_sections(self):
+        rendered = self._render("镜头缓缓推近", content_mode="narration")
+        assert "Line:" not in rendered

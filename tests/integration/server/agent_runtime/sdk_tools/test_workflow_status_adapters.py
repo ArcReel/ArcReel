@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
 from lib.workflow_state import WorkflowRequestError, WorkflowStateService
-from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool
+from server.agent_runtime.sdk_tools.workflow_status import complete_script_plan_rebuild_tool
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.media_tools.context import ToolContext
@@ -40,7 +40,7 @@ async def test_rest_serializes_the_authoritative_workflow_status(
     assert response.json() == expected
 
 
-async def test_complete_step1_rebuild_mcp_forwards_explicit_baseline(
+async def test_complete_script_plan_rebuild_mcp_forwards_explicit_baseline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pm = _project(tmp_path)
@@ -51,23 +51,25 @@ async def test_complete_step1_rebuild_mcp_forwards_explicit_baseline(
         calls.append(args)
         return "rebuilt-revision"
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.workflow_status.complete_stale_step1_rebuild", _complete)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.workflow_status.complete_stale_script_plan_rebuild", _complete)
 
-    result = await complete_step1_rebuild_tool(ctx).handler({"episode": 2, "expected_stale_step1_revision": "baseline"})
+    result = await complete_script_plan_rebuild_tool(ctx).handler(
+        {"episode": 2, "expected_stale_script_plan_revision": "baseline"}
+    )
 
     assert result.get("is_error") is not True
-    assert json.loads(result["content"][0]["text"])["step1_rebuild"] == {
+    assert json.loads(result["content"][0]["text"])["script_plan_rebuild"] == {
         "episode": 2,
-        "step1_revision": "rebuilt-revision",
+        "script_plan_revision": "rebuilt-revision",
     }
     assert calls == [(pm, "demo", 2, "baseline")]
 
 
-async def test_complete_step1_rebuild_mcp_requires_explicit_baseline(tmp_path: Path) -> None:
+async def test_complete_script_plan_rebuild_mcp_requires_explicit_baseline(tmp_path: Path) -> None:
     pm = _project(tmp_path)
     ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
 
-    result = await complete_step1_rebuild_tool(ctx).handler({"episode": 1})
+    result = await complete_script_plan_rebuild_tool(ctx).handler({"episode": 1})
 
     assert result["is_error"] is True
     assert json.loads(result["content"][0]["text"])["problem"]["code"] == "invalid_request"

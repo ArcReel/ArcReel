@@ -85,9 +85,9 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         encoding="utf-8",
     )
 
-    # 生产项目一律处于当前 schema，剧本连同其取证链（分集原文 → step1）都已登记进产物清单。
+    # 生产项目一律处于当前 schema，剧本连同其取证链（分集原文 → script_plan）都已登记进产物清单。
     (proj_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
-    (proj_dir / "drafts" / "episode_1" / "step1_reference_units.json").write_text(
+    (proj_dir / "drafts" / "episode_1" / "script_plan_reference_units.json").write_text(
         json.dumps({"episode": 1, "video_units": []}, ensure_ascii=False),
         encoding="utf-8",
     )

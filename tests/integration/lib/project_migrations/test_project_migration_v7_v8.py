@@ -28,7 +28,7 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
-from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_step1_basis
+from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_script_plan_basis
 from lib.grid.layout import grid_aspect_ratio_for
 from lib.grid.models import GridGeneration, build_frame_chain
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
@@ -37,6 +37,9 @@ from lib.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.project_migrations.runner import cleanup_stale_backups, migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
+from lib.project_migrations.v9_to_v10_script_plan_naming import migrate_v9_to_v10
+from lib.project_migrations.v10_to_v11_character_voice_binding import migrate_v10_to_v11
+from lib.project_migrations.v11_to_v12_script_plan_artifact_key_repair import migrate_v11_to_v12
 from lib.speech_artifact_provenance import (
     RenditionVariant,
     SelectedMediaEvidence,
@@ -214,7 +217,7 @@ def _project(tmp_path: Path) -> tuple[Path, dict, dict, dict]:
             }
         ],
     }
-    step1 = {"segments": [{"novel_text": "雨夜"}]}
+    script_plan = {"segments": [{"novel_text": "雨夜"}]}
     script = {
         "episode": 1,
         "title": "第一集",
@@ -234,7 +237,7 @@ def _project(tmp_path: Path) -> tuple[Path, dict, dict, dict]:
     _write_json(project_dir / "project.json", project)
     (project_dir / "source").mkdir()
     (project_dir / "source" / "episode_1.txt").write_text("雨夜", encoding="utf-8")
-    _write_json(project_dir / "drafts" / "episode_1" / "step1_segments.json", step1)
+    _write_json(project_dir / "drafts" / "episode_1" / "script_plan_segments.json", script_plan)
     _write_json(project_dir / "scripts" / "episode_1.json", script)
     (project_dir / "characters").mkdir()
     (project_dir / "characters" / "阿离.png").write_bytes(b"character")
@@ -247,7 +250,7 @@ def _project(tmp_path: Path) -> tuple[Path, dict, dict, dict]:
     (project_dir / "products" / "refs" / "咖啡.png").write_bytes(b"original")
     (project_dir / "storyboards").mkdir()
     (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"storyboard")
-    return project_dir, project, step1, script
+    return project_dir, project, script_plan, script
 
 
 def _stored_entries(project_dir: Path) -> dict[str, dict[str, str]]:
@@ -283,7 +286,7 @@ def _reference_video_facts(resource_id: str, *, episode: int = 1) -> VideoArtifa
 
 
 def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp_path: Path) -> None:
-    project_dir, project, step1, _script = _project(tmp_path)
+    project_dir, project, script_plan, _script = _project(tmp_path)
     orphan = project_dir / "output" / "orphan.srt"
     orphan.parent.mkdir()
     orphan.write_text("history", encoding="utf-8")
@@ -351,13 +354,13 @@ def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp
                 ),
             ).digest,
         ),
-        ArtifactKey.episode_step1(1): ArtifactManifestEntry(
-            artifact_path="drafts/episode_1/step1_segments.json",
-            basis_digest=build_step1_basis("雨夜", episode=1, project=project).digest,
+        ArtifactKey.episode_script_plan(1): ArtifactManifestEntry(
+            artifact_path="drafts/episode_1/script_plan_segments.json",
+            basis_digest=build_script_plan_basis("雨夜", episode=1, project=project).digest,
         ),
         ArtifactKey.episode_script(1): ArtifactManifestEntry(
             artifact_path="scripts/episode_1.json",
-            basis_digest=build_episode_script_basis(step1, project=project).digest,
+            basis_digest=build_episode_script_basis(script_plan, project=project).digest,
         ),
         ArtifactKey.episode_storyboard(1, "E1S01"): ArtifactManifestEntry(
             artifact_path="storyboards/scene_E1S01.png",
@@ -383,7 +386,7 @@ def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp
 
 
 def test_v7_activation_preserves_verified_presentation_claims_in_the_complete_target(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     subtitle_key, subtitle_entry, presentation_key, presentation_entry = _write_verified_presentation_claims(
         project_dir
     )
@@ -426,7 +429,7 @@ def test_v7_activation_preserves_verified_presentation_claims_in_the_complete_ta
 
 
 def test_schema8_archive_activation_reconstructs_only_self_proving_presentation_pairs(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     subtitle_key, subtitle_entry, presentation_key, presentation_entry = _write_verified_presentation_claims(
         project_dir
     )
@@ -447,7 +450,7 @@ def test_schema8_archive_activation_reconstructs_only_self_proving_presentation_
 
 
 def test_schema8_archive_activation_rejects_tampered_presentation_evidence(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     subtitle_key, _subtitle_entry, presentation_key, presentation_entry = _write_verified_presentation_claims(
         project_dir
     )
@@ -465,7 +468,7 @@ def test_schema8_archive_activation_rejects_tampered_presentation_evidence(tmp_p
 
 
 def test_runtime_resolver_plans_storyboards_only_once_per_snapshot(tmp_path: Path, monkeypatch) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     migrate_project_dir(project_dir)
     from lib import artifact_planner
 
@@ -487,7 +490,7 @@ def test_runtime_resolver_plans_storyboards_only_once_per_snapshot(tmp_path: Pat
 
 
 def test_runtime_single_episode_resolution_ignores_a_malformed_sibling_script(tmp_path: Path) -> None:
-    project_dir, project, _step1, _script = _project(tmp_path)
+    project_dir, project, _script_plan, _script = _project(tmp_path)
     migrate_project_dir(project_dir)
     project = _read_json(project_dir / "project.json")
     project["episodes"].append(
@@ -516,7 +519,7 @@ def test_runtime_single_episode_resolution_ignores_a_malformed_sibling_script(tm
 
 
 def test_formal_script_registration_failure_restores_script_and_project(tmp_path: Path, monkeypatch) -> None:
-    project_dir, _project_data, _step1, script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, script = _project(tmp_path)
     migrate_project_dir(project_dir)
     pm = ProjectManager(tmp_path)
     script_path = project_dir / "scripts" / "episode_1.json"
@@ -535,10 +538,10 @@ def test_formal_script_registration_failure_restores_script_and_project(tmp_path
     assert (script_path.read_bytes(), project_path.read_bytes()) == before
 
 
-def test_formal_step1_registration_failure_restores_the_previous_file(tmp_path: Path, monkeypatch) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+def test_formal_script_plan_registration_failure_restores_the_previous_file(tmp_path: Path, monkeypatch) -> None:
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     migrate_v7_to_v8(project_dir)
-    formal_path = project_dir / "drafts" / "episode_1" / "step1_reference_units.json"
+    formal_path = project_dir / "drafts" / "episode_1" / "script_plan_reference_units.json"
 
     def _fail(*_args, **_kwargs):
         raise RuntimeError("injected manifest failure")
@@ -547,19 +550,19 @@ def test_formal_step1_registration_failure_restores_the_previous_file(tmp_path: 
 
     with pytest.raises(RuntimeError, match="injected manifest failure"):
         with ProjectManager(tmp_path).file_lock(formal_path):
-            from lib.script_review import write_step1_locked
+            from lib.script_review import write_script_plan_locked
 
-            write_step1_locked(project_dir, 1, {"units": [{"unit_id": "E1U1"}]})
+            write_script_plan_locked(project_dir, 1, {"units": [{"unit_id": "E1U1"}]})
 
     assert not formal_path.exists()
 
 
-def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Path) -> None:
+def test_formal_script_plan_write_serializes_with_schema_last_activation(tmp_path: Path) -> None:
     from lib import artifact_activation
-    from lib.script_review import formal_step1_lock, write_formal_step1_locked
+    from lib.script_review import formal_script_plan_lock, write_formal_script_plan_locked
 
-    project_dir, _project_data, step1, _script = _project(tmp_path)
-    formal_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
+    project_dir, _project_data, script_plan, _script = _project(tmp_path)
+    formal_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
     replacement = {"segments": [{"novel_text": "activation overlap replacement"}]}
     activation_ready = Event()
     release_activation = Event()
@@ -573,6 +576,9 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
         # 清单激活是迁移链的中间一步，它落的版本不是当前版本；后续步骤在同一个临界区内走完，
         # 等锁的写入方因此只会看到迁移前后两个完整状态，与启动扫描先迁完再对外服务同口径。
         migrate_v8_to_v9(project_dir_arg)
+        migrate_v9_to_v10(project_dir_arg)
+        migrate_v10_to_v11(project_dir_arg)
+        migrate_v11_to_v12(project_dir_arg)
 
     def _activate() -> None:
         try:
@@ -584,8 +590,8 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
 
     def _write() -> None:
         try:
-            with formal_step1_lock(project_dir, 1, formal_path):
-                write_formal_step1_locked(project_dir, 1, formal_path, replacement)
+            with formal_script_plan_lock(project_dir, 1, formal_path):
+                write_formal_script_plan_locked(project_dir, 1, formal_path, replacement)
         except Exception as exc:
             failures.append(exc)
         finally:
@@ -609,23 +615,23 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
     assert _read_json(formal_path) == replacement
     migrate_project_dir(project_dir)
     comparison = ArtifactCurrencyResolver(project_dir).compare(
-        ArtifactKey.episode_step1(1),
-        artifact_path="drafts/episode_1/step1_segments.json",
+        ArtifactKey.episode_script_plan(1),
+        artifact_path="drafts/episode_1/script_plan_segments.json",
     )
     assert comparison.status is ArtifactStatus.CURRENT
-    assert step1 != replacement
+    assert script_plan != replacement
 
 
-def test_formal_step1_transaction_holds_the_project_lock_through_the_write(tmp_path: Path) -> None:
+def test_formal_script_plan_transaction_holds_the_project_lock_through_the_write(tmp_path: Path) -> None:
     from lib import artifact_activation
     from lib.formal_write import project_metadata_lock
-    from lib.script_review import formal_step1_write_transaction
+    from lib.script_review import formal_script_plan_write_transaction
 
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     # 正式写事务要登记产物清单，只在已迁移到 v8 的项目上成立。
     assert artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True) is True
     migrate_project_dir(project_dir)
-    formal_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
+    formal_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
     transaction_entered = Event()
     release_transaction = Event()
     competing_lock_acquired = Event()
@@ -634,7 +640,7 @@ def test_formal_step1_transaction_holds_the_project_lock_through_the_write(tmp_p
     def _write() -> None:
         try:
             with ProjectManager(tmp_path).file_lock(formal_path):
-                with formal_step1_write_transaction(project_dir, 1, formal_path):
+                with formal_script_plan_write_transaction(project_dir, 1, formal_path):
                     transaction_entered.set()
                     assert release_transaction.wait(timeout=5)
         except Exception as exc:
@@ -671,7 +677,7 @@ def test_v7_activation_holds_the_project_lock_while_backing_up_its_frozen_inputs
     from lib import artifact_activation
     from lib.formal_write import project_metadata_lock
 
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     project_path = project_dir / "project.json"
     script_path = project_dir / "scripts" / "episode_1.json"
     frozen_project = project_path.read_bytes()
@@ -736,7 +742,7 @@ def test_v7_activation_holds_the_project_lock_while_backing_up_its_frozen_inputs
 
 
 def test_v7_preflight_failure_writes_no_manifest_schema_or_backups(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     script_path = project_dir / "scripts" / "episode_1.json"
     script_path.write_text("{broken", encoding="utf-8")
     project_before = (project_dir / "project.json").read_bytes()
@@ -750,7 +756,7 @@ def test_v7_preflight_failure_writes_no_manifest_schema_or_backups(tmp_path: Pat
 
 
 def test_v7_activation_replaces_an_interrupted_backup_on_retry(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     project_path = project_dir / "project.json"
     project_before = project_path.read_bytes()
     (project_dir / "project.json.bak.v7-interrupted").write_bytes(b"partial")
@@ -761,7 +767,7 @@ def test_v7_activation_replaces_an_interrupted_backup_on_retry(tmp_path: Path) -
 
 
 def test_task_registration_receipt_restores_only_its_own_current_claim(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, script = _project(tmp_path)
     migrate_project_dir(project_dir)
     key = ArtifactKey.episode_storyboard(1, "E1S01")
     adapter = ProjectArtifactManifestAdapter(project_dir)
@@ -794,7 +800,7 @@ def test_task_registration_receipt_restores_only_its_own_current_claim(tmp_path:
 
 
 def test_v7_activation_does_not_backfill_sheet_with_dangling_declared_reference(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     (project_dir / "products" / "refs" / "咖啡.png").unlink()
 
     migrate_v7_to_v8(project_dir)
@@ -802,38 +808,38 @@ def test_v7_activation_does_not_backfill_sheet_with_dangling_declared_reference(
     assert ArtifactKey.asset_sheet("product", "咖啡").encode() not in _stored_entries(project_dir)
 
 
-def test_v7_activation_backfills_formal_step1_before_final_script_exists(tmp_path: Path) -> None:
-    project_dir, _project_data, step1, _script = _project(tmp_path)
+def test_v7_activation_backfills_formal_script_plan_before_final_script_exists(tmp_path: Path) -> None:
+    project_dir, _project_data, script_plan, _script = _project(tmp_path)
     (project_dir / "scripts" / "episode_1.json").unlink()
 
     migrate_v7_to_v8(project_dir)
 
     entries = _stored_entries(project_dir)
     assert (
-        entries[ArtifactKey.episode_step1(1).encode()]["basis_digest"]
-        == build_step1_basis(
+        entries[ArtifactKey.episode_script_plan(1).encode()]["basis_digest"]
+        == build_script_plan_basis(
             "雨夜",
             episode=1,
             project=_read_json(project_dir / "project.json"),
         ).digest
     )
     assert ArtifactKey.episode_script(1).encode() not in entries
-    assert step1 == _read_json(project_dir / "drafts" / "episode_1" / "step1_segments.json")
+    assert script_plan == _read_json(project_dir / "drafts" / "episode_1" / "script_plan_segments.json")
 
 
-def test_v7_activation_does_not_backfill_script_from_an_unclaimed_step1(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+def test_v7_activation_does_not_backfill_script_from_an_unclaimed_script_plan(tmp_path: Path) -> None:
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     (project_dir / "source" / "episode_1.txt").unlink()
 
     migrate_v7_to_v8(project_dir)
 
     entries = _stored_entries(project_dir)
-    assert ArtifactKey.episode_step1(1).encode() not in entries
+    assert ArtifactKey.episode_script_plan(1).encode() not in entries
     assert ArtifactKey.episode_script(1).encode() not in entries
 
 
 def test_v7_activation_does_not_use_unowned_same_name_storyboard_as_previous_input(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, script = _project(tmp_path)
     script["segments"][0]["generated_assets"] = {}
     script["segments"].append(
         {
@@ -866,7 +872,7 @@ def test_v7_activation_does_not_use_unowned_same_name_storyboard_as_previous_inp
 
 
 def test_v7_activation_rejects_symlinked_project_control_file_without_writes(tmp_path: Path) -> None:
-    project_dir, project, _step1, _script = _project(tmp_path)
+    project_dir, project, _script_plan, _script = _project(tmp_path)
     project_path = project_dir / "project.json"
     external = tmp_path / "external-project.json"
     _write_json(external, project)
@@ -885,7 +891,7 @@ def test_v7_activation_rejects_symlinked_project_control_file_without_writes(tmp
 
 
 def test_v7_schema_commit_failure_leaves_complete_manifest_retryable(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     from lib import artifact_activation
 
     def fail_schema(*_args: object, **_kwargs: object) -> None:
@@ -912,7 +918,7 @@ def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(tmp_
     写入方在临界区内被放行，因而必然排在 activation 的整个提交之后拿到锁——它读到的是已提升
     到 v8 的 project.json，标题与版本号须同时存活。
     """
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     from lib import artifact_activation
 
     project_path = project_dir / "project.json"
@@ -962,7 +968,7 @@ def test_v7_activation_rolls_back_when_inputs_drift_inside_the_critical_section(
     这一判在清单替换之后，回滚不彻底的话项目会停在「清单已是新态、schema 仍是 v7」的半提交
     状态上，而下一次迁移会拿它当起点。
     """
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     from lib import artifact_activation
 
     project_path = project_dir / "project.json"
@@ -992,7 +998,7 @@ def test_script_save_rechecks_manifest_activation_inside_the_project_lock(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project_dir, _project_data, _step1, script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, script = _project(tmp_path)
     pm = ProjectManager(tmp_path)
     replacement = {
         **script,
@@ -1045,7 +1051,7 @@ def test_v7_activation_restores_manifest_when_a_dependency_changes_after_its_com
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     script_path = project_dir / "scripts" / "episode_1.json"
     orphan_path = project_dir / "output" / "orphan.srt"
     orphan_path.parent.mkdir()
@@ -1082,7 +1088,7 @@ def test_v7_activation_restores_manifest_when_a_dependency_changes_after_its_com
 
 
 def test_v7_activation_rejects_two_artifact_keys_that_own_one_formal_path(tmp_path: Path) -> None:
-    project_dir, _project_data, _step1, script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, script = _project(tmp_path)
     script["segments"].append(
         {
             "segment_id": "E1S02",
@@ -1104,11 +1110,70 @@ def test_v7_activation_rejects_two_artifact_keys_that_own_one_formal_path(tmp_pa
     assert not list(project_dir.rglob("*.bak.v7-*"))
 
 
+def _rename_draft_to_v9_name(project_dir: Path) -> Path:
+    """把 fixture 写在新名下的脚本规划草稿退回 v9 落盘事实，模拟起点低于 v8 的存量项目。"""
+
+    drafts_dir = project_dir / "drafts" / "episode_1"
+    legacy = drafts_dir / "step1_segments.json"
+    (drafts_dir / "script_plan_segments.json").replace(legacy)
+    return legacy
+
+
+def test_v7_activation_registers_a_pre_rename_script_plan_at_its_canonical_path(tmp_path: Path) -> None:
+    """草稿仍在 v9 旧名下：激活按旧名读取，登记的却是改名后的规范路径，改名与备份随后落盘。"""
+
+    project_dir, project, script_plan, _script = _project(tmp_path)
+    legacy = _rename_draft_to_v9_name(project_dir)
+    drafts_dir = legacy.parent
+
+    migrate_v7_to_v8(project_dir)
+
+    assert not legacy.exists()
+    assert _read_json(drafts_dir / "script_plan_segments.json") == script_plan
+    assert list(drafts_dir.glob("step1_segments.json.bak.v7-*"))
+    assert _stored_entries(project_dir)[ArtifactKey.episode_script_plan(1).encode()] == {
+        "artifact_path": "drafts/episode_1/script_plan_segments.json",
+        "basis_digest": build_script_plan_basis("雨夜", episode=1, project=project).digest,
+    }
+    assert _read_json(project_dir / "project.json")["schema_version"] == 8
+
+
+def test_v7_preflight_rejection_leaves_a_pending_draft_rename_untouched(tmp_path: Path) -> None:
+    """激活预检拒绝时草稿改名一并不落盘：项目目录与迁移前逐字节一致。"""
+
+    project_dir, _project_data, _script_plan, script = _project(tmp_path)
+    legacy = _rename_draft_to_v9_name(project_dir)
+    script["segments"].append(
+        {
+            "segment_id": "E1S02",
+            "image_prompt": "同一张正式图的第二个身份",
+            "video_prompt": "镜头前推",
+            "characters_in_segment": [],
+            "scenes": [],
+            "props": [],
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+        }
+    )
+    _write_json(project_dir / "scripts" / "episode_1.json", script)
+    before = {
+        path.relative_to(project_dir): path.read_bytes() for path in sorted(project_dir.rglob("*")) if path.is_file()
+    }
+
+    with pytest.raises(ValueError, match="formal artifact path.*multiple keys"):
+        migrate_v7_to_v8(project_dir)
+
+    assert {
+        path.relative_to(project_dir): path.read_bytes() for path in sorted(project_dir.rglob("*")) if path.is_file()
+    } == before
+    assert legacy.is_file()
+    assert not (project_dir / MANIFEST_FILENAME).exists()
+
+
 def test_v7_activation_restores_manifest_when_a_formal_image_changes_after_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     sheet_path = project_dir / "characters" / "阿离.png"
     orphan_path = project_dir / "output" / "orphan.srt"
     orphan_path.parent.mkdir()
@@ -1143,7 +1208,7 @@ def test_v7_activation_restores_manifest_when_typed_media_changes_after_prefligh
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     _write_verified_presentation_claims(project_dir)
     video_path = project_dir / "videos" / "scene_E1S01.mp4"
     manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
@@ -1172,7 +1237,7 @@ def test_v7_activation_retry_refreshes_matching_backups_before_startup_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     original_replace = ProjectArtifactManifestAdapter.replace_entries_atomically
     attempts = 0
 
@@ -1205,7 +1270,7 @@ def test_v7_activation_retry_refreshes_matching_backups_before_startup_cleanup(
 
 
 def test_workflow_uses_the_activation_asset_identity_for_legacy_whitespace(tmp_path: Path) -> None:
-    project_dir, project, _step1, _script = _project(tmp_path)
+    project_dir, project, _script_plan, _script = _project(tmp_path)
     raw_name = "  阿离  "
     project["characters"] = {raw_name: project["characters"]["阿离"]}
     _write_json(project_dir / "project.json", project)

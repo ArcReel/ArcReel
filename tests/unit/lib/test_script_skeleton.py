@@ -95,21 +95,21 @@ class TestDeclaredResolver:
 class TestScriptResolver:
     """取证解析阶梯逐台阶（判别顺序 1→4 + 终兜底）。"""
 
-    def test_step1_video_units_alone(self):
+    def test_script_plan_video_units_alone(self):
         # video_units 在场且 segments/scenes/shots 都不在 → reference。
         assert resolve_script_kind({"video_units": []}) == "video_units"
 
-    def test_step1_floating_video_units_does_not_hijack_storyboard(self):
+    def test_script_plan_floating_video_units_does_not_hijack_storyboard(self):
         # 游离 video_units 不抢走 storyboard 脚本的判别。
         assert resolve_script_kind({"video_units": [], "segments": [], "content_mode": "narration"}) == "segments"
 
-    def test_step1_floating_video_units_hijack_guard_without_content_mode(self):
-        # 游离 video_units + segments 并存但无 content_mode：step1 守卫仍挡住 video_units 抢判，
+    def test_script_plan_floating_video_units_hijack_guard_without_content_mode(self):
+        # 游离 video_units + segments 并存但无 content_mode：script_plan 守卫仍挡住 video_units 抢判，
         # 缺 content_mode 落键存在性阶梯（step4/终兜底）返回 segments。覆盖历史脏数据 storyboard
         # 脚本（被误塞游离 video_units、无 content_mode 戳）不被误判为 reference 的取证路径。
         assert resolve_script_kind({"video_units": [], "segments": []}) == "segments"
 
-    def test_step2_content_mode_authority(self):
+    def test_prompt_authoring_content_mode_authority(self):
         assert resolve_script_kind({"content_mode": "ad"}) == "shots"
         assert resolve_script_kind({"content_mode": "drama"}) == "scenes"
         assert resolve_script_kind({"content_mode": "narration", "segments": []}) == "segments"
@@ -189,7 +189,7 @@ class TestRouteSkeletonGate:
             ensure_route_skeleton(script, "narration", "reference_video")
         assert exc.value.expected == "video_units"
         assert exc.value.actual == "segments"
-        assert "generate_step1" in str(exc.value)
+        assert "generate_script_plan" in str(exc.value)
 
     def test_storyboard_route_rejects_script_without_any_skeleton_array(self):
         # 三个分镜键全缺：resolve_script_kind 会按 content_mode 合成 segments，若据此放行，

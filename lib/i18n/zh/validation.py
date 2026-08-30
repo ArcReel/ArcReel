@@ -13,7 +13,8 @@ MESSAGES = {
     "val_field_type_string": "字段类型错误: {field} 应为字符串",
     "val_field_type_bool": "字段类型错误: {field} 应为布尔值",
     "val_field_type_number": "字段类型错误: {field} 应为数字",
-    "val_speech_rate_out_of_range": "{field} 的值 {value} 超出范围，应在 {min} 到 {max} 之间",
+    "val_field_type_integer": "字段类型错误: {field} 应为整数",
+    "val_field_out_of_range": "{field} 的值 {value} 超出范围，应在 {min} 到 {max} 之间",
     "val_field_must_be_string": "{field} 必须是字符串",
     "val_field_must_be_string_typed": "{field} 必须是字符串，当前为 {actual}",
     "val_field_must_be_array": "{field} 必须是数组",
@@ -54,6 +55,7 @@ MESSAGES = {
     "val_ad_missing_target_duration": "缺少必填字段: target_duration（广告/短片项目的目标总时长，秒）",
     "val_ad_target_duration_invalid": "target_duration 值无效: {value}，必须为正整数秒",
     "val_ad_no_default_duration": "广告/短片项目不持有 default_duration（分镜时长按 target_duration 预算逐个分镜规划）",
+    "val_ad_no_episode_target_duration": "广告/短片项目不持有 episode_target_duration（整集体量按 target_duration 预算规划）",
     "val_ad_no_grid_storyboard": "广告/短片项目不支持多宫格分镜（grid_storyboard）",
     "val_ad_episodes_single": "广告/短片项目 episodes 必须恒为第 1 集单条",
     "val_ad_shots_missing": "ad 脚本缺少 shots 数组或为空",
@@ -112,22 +114,22 @@ MESSAGES = {
     "val_skeleton_mismatch_reference_known": (
         "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本是 {actual}（{actual_noun}）骨架。"
-        "请调用 generate_step1 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
+        "请调用 generate_script_plan 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_reference_none": (
         "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本没有任何骨架数组。"
-        "请调用 generate_step1 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
+        "请调用 generate_script_plan 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_known": (
         "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本是 {actual}（{actual_noun}）骨架。"
-        "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
+        "请重跑分集拆分（script_plan）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_none": (
         "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本没有任何骨架数组。"
-        "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
+        "请重跑分集拆分（script_plan）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     # ---- 参考生视频时长收编迁移 ----
     "val_unit_duration_clamped": "unit {unit_id} 时长 {target}s 超出 {low}-{high}s 合理区间，已裁剪为 {clamped}s",

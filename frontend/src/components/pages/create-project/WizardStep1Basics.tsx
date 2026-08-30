@@ -3,6 +3,10 @@ import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GenerationRouteCards } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
+import {
+  EpisodeTargetDurationField,
+  isValidEpisodeTargetDuration,
+} from "@/components/shared/EpisodeTargetDurationField";
 import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
@@ -22,6 +26,8 @@ export interface WizardStep1Value {
   targetDuration: number;
   /** 口播语速估算（阅读单位 / 秒）；null = 未填，按项目语言的默认速度估算。 */
   speechRate: number | null;
+  /** 单集目标时长（秒）；null = 未设目标。ad 不持有（整集体量按 targetDuration 预算）。 */
+  episodeTargetDuration: number | null;
 }
 
 /** 广告/短片目标总时长的 UI 档位（数据层不硬枚举，任意正整数秒合法）。 */
@@ -60,6 +66,7 @@ export function WizardStep1Basics({
     if (!value.generationRoute) return;
     // 口播语速越界不放行（区间与后端同一把尺）；未填合法
     if (!isValidSpeechRate(value.speechRate)) return;
+    if (!isValidEpisodeTargetDuration(value.episodeTargetDuration)) return;
     onNext();
   };
 
@@ -220,6 +227,14 @@ export function WizardStep1Basics({
             })}
           </div>
         </div>
+      )}
+
+      {/* 单集目标时长（非 ad）：ad 的整集体量由上面的目标总时长表达，两者互斥 */}
+      {value.contentMode !== "ad" && (
+        <EpisodeTargetDurationField
+          value={value.episodeTargetDuration}
+          onChange={(next) => onChange({ ...value, episodeTargetDuration: next })}
+        />
       )}
 
       {/* 口播语速估算：项目还没有语言事实（source_language 由内容分析写入），单位按未知语言呈现 */}

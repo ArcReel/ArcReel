@@ -278,3 +278,34 @@ def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
     bak = backups[0]
     assert (bak / "玉佩.png").read_bytes() == b"prop-image"
     assert (bak / "nested" / "deep.png").read_bytes() == b"deep"
+
+
+def test_cleanup_reclaims_every_backup_the_draft_rename_leaves_behind(tmp_projects: Path) -> None:
+    """v9→v10 会为每个被改名的草稿与产物清单落备份，回收侧必须逐个覆盖，否则它们永久残留。"""
+    import os
+
+    project_dir = _write_project(
+        tmp_projects,
+        "p1",
+        {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        },
+    )
+    drafts_dir = project_dir / "drafts" / "episode_1"
+    drafts_dir.mkdir(parents=True)
+    backups = [
+        drafts_dir / "step1_normalized_script.json.bak.v9-100000000",
+        drafts_dir / "step1_segments.invalid.json.bak.v9-100000000",
+        drafts_dir / "step1_reference_units.md.bak.v9-100000000",
+        drafts_dir / "script_plan_segments.json.bak.v7-100000000",
+        project_dir / ".arcreel_artifacts.json.bak.v9-100000000",
+    ]
+    expired = time.time() - 8 * 86400
+    for backup in backups:
+        backup.write_text("stale", encoding="utf-8")
+        os.utime(backup, (expired, expired))
+
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert [backup for backup in backups if backup.exists()] == []

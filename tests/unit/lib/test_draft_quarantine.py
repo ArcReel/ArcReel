@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 
 from lib.draft_quarantine import (
-    QUARANTINE_KIND_DRAMA_STEP1,
-    QUARANTINE_KIND_NARRATION_STEP1,
-    QUARANTINE_KIND_STEP1,
-    QUARANTINE_KIND_STEP2,
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+    QUARANTINE_KIND_PROMPT_AUTHORING,
+    QUARANTINE_KIND_SCRIPT_PLAN,
     clear_quarantine,
     quarantine_exists,
     quarantine_path,
@@ -44,16 +44,16 @@ class TestEnvelope:
         path = write_quarantine(
             tmp_path,
             3,
-            QUARANTINE_KIND_STEP1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
             content={"units": [{"text": "镜头1：门开了"}]},
             violations=[_violation()],
             meta={"source": "source/episode_3.txt"},
         )
-        assert path == quarantine_path(tmp_path, 3, QUARANTINE_KIND_STEP1)
+        assert path == quarantine_path(tmp_path, 3, QUARANTINE_KIND_SCRIPT_PLAN)
 
-        draft = read_quarantine(tmp_path, 3, QUARANTINE_KIND_STEP1)
+        draft = read_quarantine(tmp_path, 3, QUARANTINE_KIND_SCRIPT_PLAN)
         assert draft is not None
-        assert draft.kind == QUARANTINE_KIND_STEP1
+        assert draft.kind == QUARANTINE_KIND_SCRIPT_PLAN
         assert draft.episode == 3
         assert draft.content == {"units": [{"text": "镜头1：门开了"}]}
         assert draft.violations == [
@@ -67,52 +67,56 @@ class TestEnvelope:
         assert draft.meta == {"source": "source/episode_3.txt"}
 
     def test_write_creates_missing_drafts_dir(self, tmp_path: Path):
-        """该集从未产出过 step1 时目录还不存在——首次拆分就违约是常态，不能因此写不下去。"""
+        """该集从未产出过 script_plan 时目录还不存在——首次拆分就违约是常态，不能因此写不下去。"""
         assert not (tmp_path / "drafts").exists()
-        write_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP2, content={"units": []}, violations=[_violation()])
-        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_STEP2)
+        write_quarantine(
+            tmp_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": []}, violations=[_violation()]
+        )
+        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
 
-    def test_step1_and_step2_drafts_are_separate_files(self, tmp_path: Path):
-        write_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1, content={"units": []}, violations=[])
-        write_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP2, content={"units": []}, violations=[])
-        assert quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1) != quarantine_path(
-            tmp_path, 1, QUARANTINE_KIND_STEP2
+    def test_script_plan_and_prompt_authoring_drafts_are_separate_files(self, tmp_path: Path):
+        write_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN, content={"units": []}, violations=[])
+        write_quarantine(tmp_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": []}, violations=[])
+        assert quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN) != quarantine_path(
+            tmp_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING
         )
 
     def test_broken_json_reads_as_none_but_still_counts_as_present(self, tmp_path: Path):
         """Agent 手改草稿改坏 JSON 是可预期的中间态：读不出内容，但不能因此被当成「无草稿」
-        而放行 gate 与 step2。"""
-        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1)
+        而放行 gate 与 prompt_authoring。"""
+        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         path.parent.mkdir(parents=True)
         path.write_text("{不是 JSON", encoding="utf-8")
 
-        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1) is None
-        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_STEP1) is True
+        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN) is None
+        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN) is True
 
     def test_envelope_without_content_object_reads_as_none(self, tmp_path: Path):
-        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1)
+        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         path.parent.mkdir(parents=True)
-        path.write_text(json.dumps({"kind": QUARANTINE_KIND_STEP1, "content": []}), encoding="utf-8")
-        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1) is None
+        path.write_text(json.dumps({"kind": QUARANTINE_KIND_SCRIPT_PLAN, "content": []}), encoding="utf-8")
+        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN) is None
 
     def test_envelope_with_non_numeric_episode_reads_as_none(self, tmp_path: Path):
         """episode 被手改成非数字与 content 形状坏同口径：返回 None 而非抛出，exists 仍为真。"""
-        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1)
+        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         path.parent.mkdir(parents=True)
         path.write_text(
-            json.dumps({"kind": QUARANTINE_KIND_STEP1, "episode": "一", "content": {"units": []}}, ensure_ascii=False),
+            json.dumps(
+                {"kind": QUARANTINE_KIND_SCRIPT_PLAN, "episode": "一", "content": {"units": []}}, ensure_ascii=False
+            ),
             encoding="utf-8",
         )
-        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1) is None
-        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_STEP1) is True
+        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN) is None
+        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN) is True
 
     @pytest.mark.parametrize(
         "envelope",
         [
-            {"kind": QUARANTINE_KIND_STEP2, "episode": 1, "content": {"units": []}},
-            {"kind": QUARANTINE_KIND_STEP1, "episode": 2, "content": {"units": []}},
+            {"kind": QUARANTINE_KIND_PROMPT_AUTHORING, "episode": 1, "content": {"units": []}},
+            {"kind": QUARANTINE_KIND_SCRIPT_PLAN, "episode": 2, "content": {"units": []}},
             {"episode": 1, "content": {"units": []}},
-            {"kind": QUARANTINE_KIND_STEP1, "content": {"units": []}},
+            {"kind": QUARANTINE_KIND_SCRIPT_PLAN, "content": {"units": []}},
         ],
         ids=["kind_mismatch", "episode_mismatch", "kind_missing", "episode_missing"],
     )
@@ -120,30 +124,30 @@ class TestEnvelope:
         """kind / episode 对不上或缺失按形状坏处理，不退回请求值。
 
         不校验就等于把这两个字段解析出来又丢掉：一份从别集拷过来的信封会带着它自己的
-        meta.source 过原文锚校验，再按本集的 unit_id 重建、覆盖本集的正式 step1。
+        meta.source 过原文锚校验，再按本集的 unit_id 重建、覆盖本集的正式 script_plan。
         """
-        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1)
+        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1) is None
-        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_STEP1) is True
+        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN) is None
+        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN) is True
 
     def test_clear_is_idempotent(self, tmp_path: Path):
-        write_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1, content={"units": []}, violations=[])
-        clear_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1)
-        clear_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1)
-        assert not quarantine_exists(tmp_path, 1, QUARANTINE_KIND_STEP1)
+        write_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN, content={"units": []}, violations=[])
+        clear_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        clear_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        assert not quarantine_exists(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
 
 
 class TestReport:
     def test_report_names_draft_field_and_promote_tool(self, tmp_path: Path):
         """处置指引要写「改哪个文件的哪个字段、改完调什么」——Agent 不知道产物还在盘上就会重抽。"""
-        path = quarantine_path(tmp_path, 2, QUARANTINE_KIND_STEP1)
-        text = render_report(path, QUARANTINE_KIND_STEP1, [_violation()], episode=2)
+        path = quarantine_path(tmp_path, 2, QUARANTINE_KIND_SCRIPT_PLAN)
+        text = render_report(path, QUARANTINE_KIND_SCRIPT_PLAN, [_violation()], episode=2)
         assert str(path) in text
         assert "按报告字段路径修复" in text
         assert "content.units[i]" in text
-        assert 'promote_draft({"episode": 2, "doc_type": "reference_step1", "base_revision":' in text
+        assert 'promote_draft({"episode": 2, "doc_type": "reference_script_plan", "base_revision":' in text
         assert "无轮次上限" in text
 
     def test_report_numbers_each_violation_with_its_class(self):
@@ -151,41 +155,45 @@ class TestReport:
         assert text.splitlines()[0].startswith("1. [unregistered_asset] ")
         assert text.splitlines()[1].startswith("2. [too_many_shots] ")
 
-    def test_drama_step1_report_points_at_scene_fields(self, tmp_path: Path):
+    def test_drama_script_plan_report_points_at_scene_fields(self, tmp_path: Path):
         """drama 草稿改的是分镜内容表，不是参考生视频的 units——指引里报错字段路径写错，
         Agent 会照着改一个不存在的字段再晋升，白跑一轮。"""
-        path = quarantine_path(tmp_path, 3, QUARANTINE_KIND_DRAMA_STEP1)
-        text = render_report(path, QUARANTINE_KIND_DRAMA_STEP1, [_violation()], episode=3)
+        path = quarantine_path(tmp_path, 3, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
+        text = render_report(path, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, [_violation()], episode=3)
 
-        assert path.name == "step1_normalized_script.invalid.json"
+        assert path.name == "script_plan_normalized_script.invalid.json"
         assert "content.scenes[i]" in text
         assert "units[i]" not in text
-        assert 'promote_draft({"episode": 3, "doc_type": "drama_step1", "base_revision":' in text
+        assert 'promote_draft({"episode": 3, "doc_type": "drama_script_plan", "base_revision":' in text
 
-    def test_narration_step1_report_points_at_segment_fields(self, tmp_path: Path):
+    def test_narration_script_plan_report_points_at_segment_fields(self, tmp_path: Path):
         """narration 草稿改的是分镜表：指引里的字段路径写错，Agent 会照着改一个不存在的字段
         再晋升，白跑一轮。"""
-        path = quarantine_path(tmp_path, 4, QUARANTINE_KIND_NARRATION_STEP1)
-        text = render_report(path, QUARANTINE_KIND_NARRATION_STEP1, [_violation()], episode=4)
+        path = quarantine_path(tmp_path, 4, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+        text = render_report(path, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, [_violation()], episode=4)
 
-        assert path.name == "step1_segments.invalid.json"
+        assert path.name == "script_plan_segments.invalid.json"
         assert "content.segments[i]" in text
         assert "units[i]" not in text
         assert "scenes[i]" not in text
-        assert 'promote_draft({"episode": 4, "doc_type": "narration_step1", "base_revision":' in text
+        assert 'promote_draft({"episode": 4, "doc_type": "narration_script_plan", "base_revision":' in text
 
-    def test_each_step1_variant_has_its_own_draft_file(self, tmp_path: Path):
-        """三条路线的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让换过路线的项目上
+    def test_each_script_plan_variant_has_its_own_draft_file(self, tmp_path: Path):
+        """三条路线的 script_plan 草稿同目录并存而不互相覆盖：共用一个文件名会让换过路线的项目上
         残留的草稿被当成本路线的待处置件读进来。"""
         names = {
             quarantine_path(tmp_path, 1, kind).name
-            for kind in (QUARANTINE_KIND_STEP1, QUARANTINE_KIND_DRAMA_STEP1, QUARANTINE_KIND_NARRATION_STEP1)
+            for kind in (
+                QUARANTINE_KIND_SCRIPT_PLAN,
+                QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+                QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+            )
         }
         assert len(names) == 3
 
-    def test_step2_report_only_points_at_text(self, tmp_path: Path):
-        """step2 的 unit 只有正文可改：时长与原文锚是 step1 已确认的内容契约，不在这一层修。"""
-        text = render_report(tmp_path / "d.json", QUARANTINE_KIND_STEP2, [_violation()], episode=1)
+    def test_prompt_authoring_report_only_points_at_text(self, tmp_path: Path):
+        """prompt_authoring 的 unit 只有正文可改：时长与原文锚是 script_plan 已确认的内容契约，不在这一层修。"""
+        text = render_report(tmp_path / "d.json", QUARANTINE_KIND_PROMPT_AUTHORING, [_violation()], episode=1)
         assert "content.units[i].text" in text
         assert "source_text" not in text
 

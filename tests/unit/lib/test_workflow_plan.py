@@ -52,11 +52,11 @@ def _status(
             ),
             "state": state,
             "blockers": [],
-            "gates": {"step1_review": {"state": "confirmed", "revision": "sha256-v1:step1"}},
+            "gates": {"script_plan_review": {"state": "confirmed", "revision": "sha256-v1:script_plan"}},
             "artifacts": {
                 "asset_inventory": {"state": "current" if content_mode != "ad" else "not_applicable"},
                 "asset_sheets": {},
-                "step1": {"state": "current" if content_mode != "ad" else "not_applicable"},
+                "script_plan": {"state": "current" if content_mode != "ad" else "not_applicable"},
                 "script": {"state": "current", "path": "scripts/episode_1.json"},
                 "storyboards": {"current_ids": ["E1S01"], "stale_ids": [], "missing_ids": []},
                 "videos": {

@@ -54,7 +54,7 @@ from server.text_generation import TextGenerationRequest
 from server.tool_runtime import (
     CallerContext,
     CompleteAssetInventoryRequest,
-    CompleteStep1RebuildRequest,
+    CompleteScriptPlanRebuildRequest,
     CreateProjectToolRequest,
     GenerationBatchToolRequest,
     PatchEpisodeMetaRequest,
@@ -63,6 +63,7 @@ from server.tool_runtime import (
     PatchProjectRequest,
     PlanEpisodesRequest,
     ProjectScope,
+    PromptPreviewRequest,
     RenameAssetRequest,
     ResetEpisodePlanningRequest,
     Services,
@@ -72,17 +73,18 @@ from server.tool_runtime import (
     UploadSourceRequest,
     cancel_generation_batch,
     complete_asset_inventory,
-    complete_step1_rebuild,
+    complete_script_plan_rebuild,
     confirm_script_review,
     create_project,
     discard_draft,
     generate_episode_script,
-    generate_step1,
+    generate_script_plan,
     get_episode_script,
     get_generation_batch,
     get_project_content,
+    get_prompt_preview,
+    get_script_plan_content,
     get_source_text,
-    get_step1_content,
     get_video_capabilities,
     get_workflow_plan,
     list_project_files,
@@ -528,35 +530,48 @@ def build_remote_mcp_server(
         episode: PositiveEpisode,
         context: Context,
         instructions: str | None = None,
+        scope: Literal["stale", "all"] = "stale",
+        entry_ids: list[str] | None = None,
         dry_run: bool = False,
     ) -> CallToolResult:
-        """Generate an episode script, or return its prompt when dry_run is true."""
+        """Generate an episode script, or return its prompt when dry_run is true.
+
+        Existing scripts are rewritten incrementally: only entries whose script_plan content
+        changed (``scope="stale"``, the default) or the entries named by ``entry_ids`` are
+        re-authored; every other entry keeps its prompts, note, end frame and generated assets.
+        """
         try:
-            scope = _project_scope(project, projects)
-            request = TextGenerationRequest(episode=episode, instructions=instructions, dry_run=dry_run)
+            project_scope = _project_scope(project, projects)
+            request = TextGenerationRequest(
+                episode=episode,
+                instructions=instructions,
+                scope=scope,
+                entry_ids=tuple(entry_ids or ()),
+                dry_run=dry_run,
+            )
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(scope, services):
+        if problem := await migration_gate(project_scope, services):
             return _to_mcp_result("text_generation", ToolOutcome(problem=problem))
         return _to_long_task_result(
             "text_generation",
             await _with_progress(
-                generate_episode_script(ToolRequest(request), scope, _authenticated_caller(), services),
+                generate_episode_script(ToolRequest(request), project_scope, _authenticated_caller(), services),
                 context,
                 "Generating episode script",
             ),
         )
 
     @server.tool(
-        name="generate_step1",
+        name="generate_script_plan",
         description=(
-            "Generate the project-appropriate structured step1 document."
+            "Generate the project-appropriate structured script_plan document."
             + _REMOTE_DURABLE_BATCH_DESCRIPTION
             + _REMOTE_TEXT_DRY_RUN_DESCRIPTION
         ),
         structured_output=False,
     )
-    async def remote_generate_step1(
+    async def remote_generate_script_plan(
         project: str,
         episode: PositiveEpisode,
         context: Context,
@@ -564,7 +579,7 @@ def build_remote_mcp_server(
         instructions: str | None = None,
         dry_run: bool = False,
     ) -> CallToolResult:
-        """Generate the project-appropriate structured step1 document."""
+        """Generate the project-appropriate structured script_plan document."""
         try:
             scope = _project_scope(project, projects)
             request = TextGenerationRequest(
@@ -580,15 +595,15 @@ def build_remote_mcp_server(
         return _to_long_task_result(
             "text_generation",
             await _with_progress(
-                generate_step1(ToolRequest(request), scope, _authenticated_caller(), services),
+                generate_script_plan(ToolRequest(request), scope, _authenticated_caller(), services),
                 context,
-                "Generating step1",
+                "Generating script_plan",
             ),
         )
 
     @server.tool(name="confirm_script_review", structured_output=False)
     async def remote_confirm_script_review(project: str, episode: int) -> CallToolResult:
-        """Confirm one episode's step1 review before visual generation."""
+        """Confirm one episode's script_plan review before visual generation."""
         try:
             scope = _project_scope(project, projects)
         except (FileNotFoundError, ValueError) as exc:
@@ -797,21 +812,21 @@ def build_remote_mcp_server(
             await complete_asset_inventory(ToolRequest(request), project_scope, _authenticated_caller(), services),
         )
 
-    @server.tool(name="complete_step1_rebuild", structured_output=False)
-    async def remote_complete_step1_rebuild(
-        project: str, episode: int, expected_stale_step1_revision: str | None
+    @server.tool(name="complete_script_plan_rebuild", structured_output=False)
+    async def remote_complete_script_plan_rebuild(
+        project: str, episode: int, expected_stale_script_plan_revision: str | None
     ) -> CallToolResult:
-        """Record completion of a stale step1 rebuild using its expected revision."""
+        """Record completion of a stale script_plan rebuild using its expected revision."""
         try:
             scope = _project_scope(project, projects)
-            request = CompleteStep1RebuildRequest(
-                episode=episode, expected_stale_step1_revision=expected_stale_step1_revision
+            request = CompleteScriptPlanRebuildRequest(
+                episode=episode, expected_stale_script_plan_revision=expected_stale_script_plan_revision
             )
         except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("step1_rebuild", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+            return _to_mcp_result("script_plan_rebuild", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
-            "step1_rebuild",
-            await complete_step1_rebuild(ToolRequest(request), scope, _authenticated_caller(), services),
+            "script_plan_rebuild",
+            await complete_script_plan_rebuild(ToolRequest(request), scope, _authenticated_caller(), services),
         )
 
     @server.tool(name="get_project_content", structured_output=False)
@@ -823,6 +838,19 @@ def build_remote_mcp_server(
             return _to_mcp_result("project_content", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         return _to_mcp_result(
             "project_content", await get_project_content(ToolRequest(None), scope, _authenticated_caller(), services)
+        )
+
+    @server.tool(name="get_prompt_preview", structured_output=False)
+    async def remote_prompt_preview(project: str, script: str, item_id: str) -> CallToolResult:
+        """Return one shot's final image and video prompts, verbatim as generation would send them."""
+        try:
+            scope = _project_scope(project, projects)
+            request = PromptPreviewRequest(script=script, item_id=item_id)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("prompt_preview", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result(
+            "prompt_preview",
+            await get_prompt_preview(ToolRequest(request), scope, _authenticated_caller(), services),
         )
 
     @server.tool(name="list_source_files", structured_output=False)
@@ -858,15 +886,16 @@ def build_remote_mcp_server(
             "episode_script", await get_episode_script(ToolRequest(script), scope, _authenticated_caller(), services)
         )
 
-    @server.tool(name="get_step1_content", structured_output=False)
-    async def remote_step1_content(project: str, episode: int) -> CallToolResult:
-        """Read the current formal step1 body and its canonical revision."""
+    @server.tool(name="get_script_plan_content", structured_output=False)
+    async def remote_script_plan_content(project: str, episode: int) -> CallToolResult:
+        """Read the current formal script_plan body and its canonical revision."""
         try:
             scope = _project_scope(project, projects)
         except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("step1_content", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
+            return _to_mcp_result("script_plan_content", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         return _to_mcp_result(
-            "step1_content", await get_step1_content(ToolRequest(episode), scope, _authenticated_caller(), services)
+            "script_plan_content",
+            await get_script_plan_content(ToolRequest(episode), scope, _authenticated_caller(), services),
         )
 
     @server.tool(name="list_project_files", structured_output=False)

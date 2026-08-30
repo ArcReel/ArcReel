@@ -42,6 +42,7 @@ WARN_REFERENCE_AUDIO_OVERFLOW = "ref_warn_reference_audio_overflow"
 WARN_SILENT_MODEL = "ref_warn_silent_model"
 WARN_SILENT_EPISODE = "ref_warn_silent_episode"
 WARN_SPEAKER_AUDIO_NEEDS_IMAGE = "ref_warn_speaker_audio_needs_image"
+WARN_UNIT_WITHOUT_SCENE = "ref_warn_unit_without_scene"
 
 
 @dataclass(frozen=True)
@@ -197,6 +198,23 @@ def derive_voice_bindings(
     return VoiceBindings(speakers=registered, audio_speakers=audio_speakers, warnings=warnings)
 
 
+def unit_lacks_scene_reference(text: str, project: dict) -> bool:
+    """该单元正文一个已登记场景资产都没引用（项目登记了场景时才成立）。
+
+    未引用场景时画面地点由模型自由决定，室内外交替的相邻单元会各自发挥、对不上；项目一张
+    场景资产都没登记时恒为 False——那时没有可引用的场景，提示指不出任何动作（商品为主体的
+    广告项目即属此列）。
+
+    判据的唯一出口：编辑器预览的读时 warning 与拆分回执的逐 unit 提示都经本函数，分成两处
+    各自判定时，同一份正文会在两个面板给出相反的结论。按未裁剪的派生结果判定：这条问的是
+    作者写没写场景引用，与能力上限裁掉了哪几张图无关。
+    """
+    if not (project.get(BUCKET_KEY["scene"]) or {}):
+        return False
+    references, _missing = derive_references_from_text(text, project)
+    return not any(ref.type == "scene" for ref in references)
+
+
 def build_script_preview(
     text: str,
     project: dict,
@@ -224,6 +242,8 @@ def build_script_preview(
     references, missing = derive_references_from_text(text, project)
 
     warnings = [_warning(WARN_UNREGISTERED_MENTION, name=name) for name in missing]
+    if unit_lacks_scene_reference(text, project):
+        warnings.append(_warning(WARN_UNIT_WITHOUT_SCENE))
     utterances, syntax_warnings = derive_utterances(text)
     warnings.extend(syntax_warnings)
 

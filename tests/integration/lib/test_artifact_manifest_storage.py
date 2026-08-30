@@ -36,7 +36,7 @@ project = Path(sys.argv[1])
 comparison = ArtifactManifest(ProjectArtifactManifestAdapter(project)).compare(
     ArtifactKey.episode_script(1),
     artifact_path="episode.json",
-    basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+    basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"}),
 )
 print(json.dumps({
     "status": comparison.status.value,
@@ -209,7 +209,7 @@ def test_project_adapter_serializes_concurrent_manifest_updates(tmp_path: Path) 
     project = tmp_path / "project"
     artifact_dir = project / "scripts"
     artifact_dir.mkdir(parents=True)
-    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "same"})
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "same"})
     episodes = list(range(1, 17))
     for episode in episodes:
         (artifact_dir / f"episode_{episode}.json").write_text("{}", encoding="utf-8")
@@ -288,7 +288,7 @@ def test_project_adapter_replace_failure_preserves_manifest_and_cleans_temp_file
     scripts.mkdir(parents=True)
     (scripts / "episode_1.json").write_text("{}", encoding="utf-8")
     (scripts / "episode_2.json").write_text("{}", encoding="utf-8")
-    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"})
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
     first_key = ArtifactKey.episode_script(1)
     second_key = ArtifactKey.episode_script(2)
@@ -346,7 +346,7 @@ def test_project_adapter_blocks_escape_and_symlink_artifact_paths(
         ProjectArtifactManifestAdapter(project, nofollow_supported=not force_python_link_fallback)
     )
     key = ArtifactKey.episode_script(1)
-    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"})
 
     traversal = manifest.compare(key, artifact_path="../outside.json", basis=basis)
     absolute = manifest.compare(key, artifact_path=str(outside), basis=basis)
@@ -404,7 +404,7 @@ def test_project_adapter_blocks_parent_replaced_by_symlink_during_open(
     comparison = manifest.compare(
         ArtifactKey.episode_script(1),
         artifact_path="scripts/episode.json",
-        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"}),
     )
 
     assert swapped
@@ -498,7 +498,7 @@ def test_project_adapter_rejects_fifo_without_blocking(tmp_path: Path) -> None:
     comparison = manifest.compare(
         ArtifactKey.episode_script(1),
         artifact_path="artifact.fifo",
-        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"}),
     )
 
     assert comparison.status is ArtifactStatus.BLOCKED
@@ -821,7 +821,7 @@ def test_project_adapter_keeps_manifest_write_on_opened_root_during_swap(
     assert ArtifactManifest(adapter).register(
         ArtifactKey.episode_script(1),
         artifact_path="episode.json",
-        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"}),
     )
 
     assert swapped
@@ -848,7 +848,7 @@ def test_project_adapter_refuses_runtime_file_symlinks(
         ProjectArtifactManifestAdapter(project, nofollow_supported=not force_python_link_fallback)
     )
     key = ArtifactKey.episode_script(1)
-    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"})
 
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
 
@@ -1014,7 +1014,7 @@ def test_project_adapter_reports_invalid_manifest_schema_version_as_blocked_with
     manifest_path.write_bytes(malformed)
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
     key = ArtifactKey.episode_script(1)
-    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"})
 
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
 
@@ -1090,7 +1090,7 @@ def test_project_adapter_reports_duplicate_manifest_fields_as_blocked_without_re
     project.mkdir()
     (project / "episode.json").write_text("{}", encoding="utf-8")
     key = ArtifactKey.episode_script(1)
-    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"})
     encoded_key = key.encode()
     entry = json.dumps(
         {"artifact_path": "episode.json", "basis_digest": basis.digest},
@@ -1128,7 +1128,7 @@ def test_project_adapter_reports_excessive_manifest_nesting_as_blocked_without_r
     manifest_path.write_bytes(malformed)
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
     key = ArtifactKey.episode_script(1)
-    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"})
 
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
 

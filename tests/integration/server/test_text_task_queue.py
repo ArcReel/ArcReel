@@ -19,8 +19,8 @@ from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.task import GenerationBatch
 from lib.draft_quarantine import (
-    QUARANTINE_KIND_NARRATION_STEP1,
-    QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+    QUARANTINE_KIND_SCRIPT_PLAN,
     quarantine_path,
 )
 from lib.episode_planner import EpisodePlanner, EpisodePlanningError, EpisodePlanSummary, PlanResult
@@ -47,7 +47,7 @@ from server.tool_runtime import (
     ToolRequest,
     execute_queued_text_task,
     generate_episode_script,
-    generate_step1,
+    generate_script_plan,
     plan_episodes,
 )
 
@@ -103,9 +103,9 @@ def _cancel_batch_after_text_commit(
     ("project_name", "content_mode", "generation_mode", "handler", "expected_task_type"),
     [
         ("script", "ad", "storyboard", "script", "text_episode_script"),
-        ("drama", "drama", "storyboard", "step1", "text_drama_step1"),
-        ("narration", "narration", "storyboard", "step1", "text_narration_step1"),
-        ("reference", "narration", "reference_video", "step1", "text_reference_step1"),
+        ("drama", "drama", "storyboard", "script_plan", "text_drama_script_plan"),
+        ("narration", "narration", "storyboard", "script_plan", "text_narration_script_plan"),
+        ("reference", "narration", "reference_video", "script_plan", "text_reference_script_plan"),
         ("planning", "narration", "storyboard", "plan", "text_episode_plan"),
     ],
 )
@@ -134,8 +134,8 @@ async def test_all_text_long_calls_submit_single_member_batches(
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
     if handler == "script":
         outcome = await generate_episode_script(ToolRequest(TextGenerationRequest(episode=1)), scope, caller, services)
-    elif handler == "step1":
-        outcome = await generate_step1(ToolRequest(TextGenerationRequest(episode=1)), scope, caller, services)
+    elif handler == "script_plan":
+        outcome = await generate_script_plan(ToolRequest(TextGenerationRequest(episode=1)), scope, caller, services)
     else:
         outcome = await plan_episodes(ToolRequest(PlanEpisodesRequest()), scope, caller, services)
 
@@ -165,7 +165,7 @@ async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state
         queue=queue,
     )
 
-    outcome = await generate_step1(
+    outcome = await generate_script_plan(
         ToolRequest(TextGenerationRequest(episode=1)),
         ProjectScope(project_name="drama", projects_root=projects.projects_root),
         CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
@@ -198,7 +198,7 @@ async def test_text_mcp_migration_rejection_cleans_only_the_fresh_batch(
     request = ToolRequest(TextGenerationRequest(episode=1))
     scope = ProjectScope(project_name="drama", projects_root=projects.projects_root)
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
-    submitted = await generate_step1(request, scope, caller, services)
+    submitted = await generate_script_plan(request, scope, caller, services)
     assert submitted.value is not None
     existing_batch_id = submitted.value.batch_id
     record_migration_failure(
@@ -208,7 +208,7 @@ async def test_text_mcp_migration_rejection_cleans_only_the_fresh_batch(
     )
 
     with pytest.raises(ConflictError, match="project_migration_failed"):
-        await generate_step1(request, scope, caller, services)
+        await generate_script_plan(request, scope, caller, services)
 
     assert (await queue.list_tasks(project_name="drama"))["total"] == 1
     existing_batch = await queue.get_generation_batch(project_name="drama", batch_id=existing_batch_id)
@@ -259,16 +259,12 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
     historical_task = await GenerationQueue.enqueue_task(
         queue,
         project_name="drama",
-        task_type="text_drama_step1",
+        task_type="text_drama_script_plan",
         media_type="text",
         resource_id="episode-1" if cancel_state == "membership" else "old",
-        payload={
-            "episode": 1,
-            "source": None,
-            "instructions": None,
-            "dry_run": False,
-            "projects_root": str(projects.projects_root),
-        },
+        # payload 取请求对象自己的投影：本用例的 membership 变体要让新提交与这条在跑任务
+        # 判成同一件事，两边的事实必须逐字段相同，写死字面量会随请求字段增删而失效。
+        payload=TextGenerationRequest(episode=1).to_payload() | {"projects_root": str(projects.projects_root)},
         batch_id=historical_batch_id,
         batch_unit_id="episode-1" if cancel_state == "membership" else "old",
     )
@@ -280,7 +276,7 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
     )
 
     submission = asyncio.create_task(
-        generate_step1(
+        generate_script_plan(
             ToolRequest(TextGenerationRequest(episode=1)),
             ProjectScope(project_name="drama", projects_root=projects.projects_root),
             CallerContext(user_id=DEFAULT_USER_ID, source=source),
@@ -359,18 +355,18 @@ async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(
     assert problem.action is GenerationAction.RETRY
 
 
-async def test_queued_step1_preserves_runtime_cancellation_receipt(tmp_path: Path, monkeypatch) -> None:
+async def test_queued_script_plan_preserves_runtime_cancellation_receipt(tmp_path: Path, monkeypatch) -> None:
     compensations: list[str] = []
 
     async def handler(*_args, **_kwargs):
         return CompensableTextGenerationResult("committed", lambda: compensations.append("restored"))
 
-    monkeypatch.setattr(tool_runtime, "generate_reference_step1", handler)
+    monkeypatch.setattr(tool_runtime, "generate_reference_script_plan", handler)
     result = await execute_queued_text_task(
         {
-            "task_id": "task-step1",
+            "task_id": "task-script_plan",
             "project_name": "demo",
-            "task_type": "text_reference_step1",
+            "task_type": "text_reference_script_plan",
             "payload": {"episode": 1, "projects_root": str(tmp_path)},
         }
     )
@@ -732,20 +728,20 @@ async def test_cancel_during_started_episode_plan_commit_restores_batch_and_ledg
         (
             "reference",
             "reference_video",
-            QUARANTINE_KIND_STEP1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
             '{"units":[{"duration_seconds":4,"source_text":"张三走向村口。","text":"@[未登记角色] 出场"}]}',
         ),
         (
             "narration",
             "storyboard",
-            QUARANTINE_KIND_NARRATION_STEP1,
+            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
             '{"episode":1,"segments":[{"segment_id":"E1S01","novel_text":"张三走向村口。",'
             '"duration_seconds":4,"segment_break":false,"characters_in_segment":["未登记角色"],'
             '"scenes":[],"props":[]}]}',
         ),
     ],
 )
-async def test_cancel_during_invalid_step1_quarantine_leaves_no_workflow_blocker(
+async def test_cancel_during_invalid_script_plan_quarantine_leaves_no_workflow_blocker(
     tmp_path: Path,
     file_db_factory,
     monkeypatch,
@@ -794,7 +790,7 @@ async def test_cancel_during_invalid_step1_quarantine_leaves_no_workflow_blocker
         queue=queue,
     )
     try:
-        submitted = await generate_step1(
+        submitted = await generate_script_plan(
             ToolRequest(TextGenerationRequest(episode=1)),
             ProjectScope(project_name=project_name, projects_root=projects.projects_root),
             CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
@@ -821,4 +817,4 @@ async def test_cancel_during_invalid_step1_quarantine_leaves_no_workflow_blocker
     assert batch.members[0].status == "cancelled"
     assert not draft_path.exists()
     status = WorkflowStateService(projects).get_status(project_name)
-    assert all(blocker.code != "step1_quarantined" for blocker in status.blockers)
+    assert all(blocker.code != "script_plan_quarantined" for blocker in status.blockers)

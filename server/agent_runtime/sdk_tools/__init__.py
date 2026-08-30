@@ -22,8 +22,8 @@ from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_invent
 from server.agent_runtime.sdk_tools.content_read import (
     get_episode_script_tool,
     get_project_content_tool,
+    get_script_plan_content_tool,
     get_source_text_tool,
-    get_step1_content_tool,
     list_project_files_tool,
     list_source_files_tool,
     read_project_file_tool,
@@ -48,20 +48,21 @@ from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
     patch_episode_script_tool,
 )
+from server.agent_runtime.sdk_tools.prompt_preview import get_prompt_preview_tool
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     confirm_script_review_tool,
     discard_draft_tool,
     generate_episode_script_tool,
-    generate_step1_tool,
+    generate_script_plan_tool,
     get_video_capabilities_tool,
     open_draft_tool,
     patch_draft_tool,
     promote_draft_tool,
 )
 from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
-from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool
+from server.agent_runtime.sdk_tools.workflow_status import complete_script_plan_rebuild_tool
 from server.media_tools.context import (
     ToolContext,
     migration_failure_for,
@@ -83,15 +84,16 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "create_project",
     "upload_source",
     "complete_asset_inventory",
-    "complete_step1_rebuild",
+    "complete_script_plan_rebuild",
     "get_workflow_plan",
+    "get_prompt_preview",
     "get_generation_batch",
     "cancel_generation_batch",
     "get_project_content",
     "list_source_files",
     "get_source_text",
     "get_episode_script",
-    "get_step1_content",
+    "get_script_plan_content",
     "list_project_files",
     "read_project_file",
     "list_pending_assets",
@@ -102,7 +104,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_videos",
     "generate_narration_audio",
     "generate_episode_script",
-    "generate_step1",
+    "generate_script_plan",
     "confirm_script_review",
     "open_draft",
     "patch_draft",
@@ -139,7 +141,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
 MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
         "complete_asset_inventory",
-        "complete_step1_rebuild",
+        "complete_script_plan_rebuild",
         "generate_assets",
         "generate_storyboards",
         "edit_images",
@@ -147,7 +149,7 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "generate_videos",
         "generate_narration_audio",
         "generate_episode_script",
-        "generate_step1",
+        "generate_script_plan",
         "confirm_script_review",
         "open_draft",
         "patch_draft",
@@ -193,15 +195,16 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         create_project_tool(ctx),
         upload_source_tool(ctx),
         complete_asset_inventory_tool(ctx),
-        complete_step1_rebuild_tool(ctx),
+        complete_script_plan_rebuild_tool(ctx),
         get_workflow_plan_tool(ctx),
+        get_prompt_preview_tool(ctx),
         get_generation_batch_tool(ctx),
         cancel_generation_batch_tool(ctx),
         get_project_content_tool(ctx),
         list_source_files_tool(ctx),
         get_source_text_tool(ctx),
         get_episode_script_tool(ctx),
-        get_step1_content_tool(ctx),
+        get_script_plan_content_tool(ctx),
         list_project_files_tool(ctx),
         read_project_file_tool(ctx),
         list_pending_assets_tool(ctx),
@@ -212,7 +215,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         generate_videos_tool(ctx),
         generate_narration_audio_tool(ctx),
         generate_episode_script_tool(ctx),
-        generate_step1_tool(ctx),
+        generate_script_plan_tool(ctx),
         confirm_script_review_tool(ctx),
         open_draft_tool(ctx),
         patch_draft_tool(ctx),

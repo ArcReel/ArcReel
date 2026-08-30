@@ -15,7 +15,8 @@ import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
 import { VoiceSampleButton } from "./VoiceSampleButton";
-import type { Character } from "@/types";
+import type { Character, CharacterVoiceBinding } from "@/types";
+import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 
 interface CharacterSavePayload {
   description: string;
@@ -42,8 +43,34 @@ interface CharacterCardProps {
   onRestoreVersion?: () => Promise<void> | void;
   onReload?: () => Promise<unknown> | void;
   generating?: boolean;
+  /** 项目的角色声音绑定方式；prompt（默认）下参考音频不生效，折叠为可选项。 */
+  voiceBinding?: CharacterVoiceBinding;
   /** 只读展示（引导演示项目）：所有改写入口不渲染，文本字段不可编辑。 */
   readOnly?: boolean;
+}
+
+/** 参考音频区的外壳：绑定方式为提示词软约束时折叠，并说明它当前不生效、怎样才生效。 */
+function ReferenceAudioSection({
+  collapsed,
+  summary,
+  hint,
+  children,
+}: {
+  collapsed: boolean;
+  summary: string;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  if (!collapsed) return <>{children}</>;
+  return (
+    <details className="mt-1.5">
+      <summary className="cursor-pointer text-[11px] text-[var(--color-text-4)]">{summary}</summary>
+      <p className="mt-1 text-[10px] leading-[1.5]" style={{ color: "var(--color-text-4)" }}>
+        {hint}
+      </p>
+      {children}
+    </details>
+  );
 }
 
 const FIELD_STYLE: React.CSSProperties = {
@@ -63,6 +90,7 @@ export function CharacterCard({
   onRestoreVersion,
   onReload,
   generating = false,
+  voiceBinding = DEFAULT_CHARACTER_VOICE_BINDING,
   readOnly = false,
 }: CharacterCardProps) {
   const { t } = useTranslation(["dashboard", "assets"]);
@@ -551,6 +579,11 @@ export function CharacterCard({
         />
 
         {readOnly && !displayedAudioUrl ? null : (
+        <ReferenceAudioSection
+          collapsed={voiceBinding === "prompt"}
+          summary={t("character_voice_binding_optional_summary")}
+          hint={t("character_voice_binding_optional_hint")}
+        >
         <div className="mt-1.5">
           {displayedAudioUrl ? (
             <div
@@ -680,6 +713,7 @@ export function CharacterCard({
             className="hidden"
           />
         </div>
+        </ReferenceAudioSection>
         )}
       </div>
 

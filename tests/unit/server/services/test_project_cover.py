@@ -136,7 +136,7 @@ def test_missing_script_file_does_not_break_fallback():
 
 
 def test_episode_without_script_file_is_skipped():
-    """episode 条目里没 script_file 键（内容整理未完成）：跳过即可，不报错。"""
+    """episode 条目里没 script_file 键（脚本规划未完成）：跳过即可，不报错。"""
     project = {
         "episodes": [{"episode": 1}],
         "characters": {"X": {"character_sheet": "characters/x.png"}},

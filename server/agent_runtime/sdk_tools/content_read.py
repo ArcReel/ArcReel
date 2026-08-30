@@ -17,8 +17,8 @@ from server.tool_runtime import (
     ToolRequest,
     get_episode_script,
     get_project_content,
+    get_script_plan_content,
     get_source_text,
-    get_step1_content,
     list_project_files,
     list_source_files,
     read_project_file,
@@ -89,10 +89,10 @@ def get_episode_script_tool(ctx: ToolContext):
     return _handler
 
 
-def get_step1_content_tool(ctx: ToolContext):
+def get_script_plan_content_tool(ctx: ToolContext):
     @tool(
-        "get_step1_content",
-        "读取指定集当前正式 step1 正文与 canonical revision。",
+        "get_script_plan_content",
+        "读取指定集当前正式 script_plan 正文与 canonical revision。",
         {
             "type": "object",
             "properties": {"episode": {"type": "integer", "minimum": 1}},
@@ -101,8 +101,8 @@ def get_step1_content_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         return tool_outcome_response(
-            "step1_content",
-            await get_step1_content(ToolRequest(args["episode"]), ctx.scope, ctx.caller, tool_services(ctx)),
+            "script_plan_content",
+            await get_script_plan_content(ToolRequest(args["episode"]), ctx.scope, ctx.caller, tool_services(ctx)),
         )
 
     return _handler
@@ -145,7 +145,7 @@ __all__ = [
     "get_episode_script_tool",
     "get_project_content_tool",
     "get_source_text_tool",
-    "get_step1_content_tool",
+    "get_script_plan_content_tool",
     "list_project_files_tool",
     "list_source_files_tool",
     "read_project_file_tool",
