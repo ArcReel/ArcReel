@@ -9,7 +9,7 @@ status: accepted
 `project_archive` 真正的领域知识泄漏只有「重复的形状常量」：
 
 - **canonical 资源路径**（`resource_type` → 项目内相对路径，如 `characters/{id}.png`、`videos/scene_{id}.mp4`）此前三处各抄一份——`MediaGenerator.OUTPUT_PATTERNS`（写侧）、`versions.py::_resolve_resource_path`（回溯侧）、`project_archive._canonical_resource_path`（导入侧）。收敛为单一函数，三处统一消费。
-- **content_mode → 剧本字段名分派**（narration 用 `segments`/`segment_id`、drama 用 `scenes`/`scene_id`）此前 archive 手写 `if/else` 重抄了 `script_models` 已声明的字段。收敛到 `script_models`，archive 调用而非自推导。
+- **content_mode → 剧本字段名分派**（narration 用 `segments`/`segment_id`、drama 用 `scenes`/`scene_id`）此前 archive 手写 `if/else` 重抄了模型层已声明的字段。收敛到 `lib/script_skeleton` 的骨架注册表（`SKELETONS` / `resolve_declared_kind` / `resolve_kind_items`），archive 调用而非自推导。
 
 `generated_assets` 模板已委托 `PM.create_generated_assets`（非副本），无需处理。
 
@@ -17,4 +17,4 @@ status: accepted
 
 - 与候选 6（拆分 PM 上帝模块）**解耦**：本决策不动 PM，可独立随时落地，不必等 PM 拆分。走查原文说「与候选 6 天然配套」在此反转。
 - 保存统一入口仍是剧本写入的单一守卫点（ADR-0002/0003）；导入是**刻意的例外**——它在装入项目目录前先急救脏归档，这层修复发生在统一入口之外。记此 ADR 即为拦住未来「把导入也并进统一入口」的好心改动。
-- canonical 路径函数实际跨两个家族：媒体资源（storyboards/videos/grids/reference_videos，归 `MediaGenerator.OUTPUT_PATTERNS`）与角色/场景/道具 sheet（归 `asset_types.bucket_key`）；另有 `characters/refs/{name}.png`（reference_image）不在任何现有 map 内。函数内部分流或先合并这些源，属实现细节。
+- canonical 路径函数实际跨两个家族：媒体资源（storyboards/videos/grids/reference_videos）与角色/场景/道具 sheet——两个家族的路径模式现已统一注册在 `lib/resource_paths.py` 的 `_PATTERNS` 一张表内，经 `resource_relative_path` 供 MediaGenerator、versions router 与 project_archive 消费；另有 `characters/refs/{name}.png`（reference_image）不在该表内。

@@ -697,7 +697,7 @@ class GenerationQueue:
         return affected
 
     async def mark_task_cancelled(self, task_id: str, *, cancelled_by: str = "user") -> int:
-        """Worker finally 0-rows-cancelled 协议兜底入口（SQL 守卫 status IN queued|cancelling）。
+        """Worker finally 0-rows-cancelled 协议兜底入口（SQL 守卫 status IN queued|cancelling|running）。
 
         Repository 返回 ``{"rows", "cancelling"}``：cancelling 是级联出来的 running 下游
         task_id 列表——这里同步调 worker callback 分发 in-process cancel（与 cancel_task

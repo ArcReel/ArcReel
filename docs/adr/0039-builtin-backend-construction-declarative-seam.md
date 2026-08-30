@@ -4,7 +4,7 @@ status: accepted
 
 # 内置 provider 的 backend 构造收口为声明式表，与自定义 endpoint 表对称但不合并
 
-内置 provider 的 backend 构造（从 provider config + 解析出的 model 组装构造 kwargs）当前在 `server/services/generation_tasks.py` 的 `_get_or_create_video_backend` / `_get_or_create_image_backend` / `_get_or_create_audio_backend` 三处 + `lib/text_backends/factory.py` 各写一遍命令式 `if gemini / elif kling / else`，per-provider 知识全泄漏到调用方——gemini 的 `aistudio|vertex` 双模式、kling 的 JWT 双 secret + `api_model_name` 解耦、各家 base_url 优先级与 dashscope/minimax 文本走 OpenAI-compat 等差异，散落在这四处分支。`PROVIDER_ID_TO_BACKEND` 映射还存在两份（媒体侧与文本侧），已经漂移：文本侧把 dashscope/minimax 认作 `openai`，媒体侧不认。而自定义 provider 侧早已用 `lib/custom_provider/endpoints.py` 的 `ENDPOINT_REGISTRY`（每条 `EndpointSpec` 挂一个 `build_backend` 闭包）+ `factory.py` 两行转发，把同一件事做成一张声明式深表。两套平行写法，是本决策要消除的浅层重复（shallow duplication）。
+内置 provider 的 backend 构造（从 provider config + 解析出的 model 组装构造 kwargs）在本决策前于 `server/services/generation_tasks.py` 的 `_get_or_create_video_backend` / `_get_or_create_image_backend` / `_get_or_create_audio_backend` 三处 + `lib/text_backends/factory.py` 各写一遍命令式 `if gemini / elif kling / else`（这些函数现居 `server/services/generation_context.py`，已按下述决策委托 `lib/backend_assembly`），per-provider 知识全泄漏到调用方——gemini 的 `aistudio|vertex` 双模式、kling 的 JWT 双 secret + `api_model_name` 解耦、各家 base_url 优先级与 dashscope/minimax 文本走 OpenAI-compat 等差异，散落在这四处分支。`PROVIDER_ID_TO_BACKEND` 映射当时还存在两份（媒体侧与文本侧），且已漂移：文本侧把 dashscope/minimax 认作 `openai`，媒体侧不认。而自定义 provider 侧早已用 `lib/custom_provider/endpoints.py` 的 `ENDPOINT_REGISTRY`（每条 `EndpointSpec` 挂一个 `build_backend` 闭包）+ `factory.py` 两行转发，把同一件事做成一张声明式深表。两套平行写法，是本决策要消除的浅层重复（shallow duplication）。
 
 我们决定把内置侧抬到与自定义侧同一水位，收口为一条「provider config + model → backend」的缝（seam）：① 新建 `lib/backend_assembly/`（落 lib——缝跨内置+自定义两族，且 lib 不能 import server），暴露一个统一入口 `assemble_backend(provider_id, media_type, model_id, ...)`，内部按 `is_custom_provider` 分流到两族适配器；② 内置侧新立一张 `(provider_id, media_type) → ProviderSpec` 表，每条挂一个 build 闭包，与自定义侧 `EndpointSpec` 同构；③ 构造拆成 **async 装载**（查 DB/config，产出 `LoadedConfig` 信封：凭证 overlay + `PROVIDER_REGISTRY` meta + 共享 rate_limiter）/ **sync 构造**（纯闭包读信封拼 backend）两段，sync 段是可脱离 DB 直接单测的深模块核心；④ 自定义侧 `ENDPOINT_REGISTRY` 一行不改，`_create_custom_backend` 的 DB 装载逻辑从 server 下移到 lib，与 text factory 内联的那份重复合一。
 
@@ -12,7 +12,7 @@ status: accepted
 
 ## Consequences
 
-- **新增内置 provider 从「改 4 文件 5 处」降到「加一行」**：简单族加一条 `ProviderSpec`，特例族加一条 + 一个 build 闭包，与自定义侧加一条 `EndpointSpec` 对称；不再触动 `generation_tasks.py` 的三个 `_get_or_create_*` 与 text factory。
+- **新增内置 provider 从「改 4 文件 5 处」降到「加一行」**：简单族加一条 `ProviderSpec`，特例族加一条 + 一个 build 闭包，与自定义侧加一条 `EndpointSpec` 对称；不再触动 `generation_context.py` 的三个 `_get_or_create_*` 与 text factory。
 - **两份 `PROVIDER_ID_TO_BACKEND` 合并**进 `ProviderSpec` 的 registry 字段（每个 `(provider, media)` 行各自声明映射到哪个 registry backend），漂移在数据结构层面不再可能。
 - **构造核心可脱离 DB 单测**：手搓一个 `LoadedConfig` 信封 + model_id 直接断言造出的 backend 构造参数（kling 双 secret 透传、gemini `backend_type` 分叉、dashscope 文本 base_url 派生、kling `api_model_name` 解耦），无需起 DB 或 mock resolver；async 装载段用内存 DB（local-substitutable）测。内置表的校验分两档：`build` 可调用、`(provider, media)` 唯一这类内表自洽检查放 import 期 fail-fast（同 `endpoints.py::_validate_video_caps_declarations`、等量轻）；而「`registry` 名都在媒体后端 registry 里」需 import 全部 `lib.{image,video,text}_backends` 才能断言，为免轻量场景（CLI / 迁移）因 import 本缝而被动拉起全部后端，归入单测（测内 import 全集无碍），不进 import 期。
 - **缓存留在调用方**：`_backend_cache` 是 server 执行层的性能关切，不下沉进缝；缝无状态、纯构造，便于并发与测试。
