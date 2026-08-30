@@ -64,7 +64,7 @@
   "$defs": {
     "semver": {
       "type": "string",
-      "$comment": "这份 schema 前后端共用，pattern 只写两个运行时都成立的构造：用 [0-9] 而非 \\d（Python 的 \\d 含 Unicode 十进制数字），另加禁换行的 not（Python 的 $ 还匹配末尾换行前的位置，而 ECMA-262 没有 \\Z）。",
+      "$comment": "这份 schema 前后端共用，pattern 只写两个运行时都成立的构造：用 [0-9] 而非 \\d（Python 的 \\d 含 Unicode 十进制数字），另加禁换行的 not（Python 的 $ 还匹配末尾换行前的位置，而 ECMA-262 没有 \\Z）。另外 format 在 jsonschema 里默认只是注解、本仓也未装格式检查器，写 format 只当文档，约束力必须由同字段的 pattern 提供。",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
       "not": { "pattern": "\\n" }
     },
