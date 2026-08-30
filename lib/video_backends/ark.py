@@ -325,7 +325,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             from lib.image_backends.base import image_to_base64_data_uri
 
             end_path = Path(request.end_image)
-            if not end_path.is_file():
+            if not end_path.is_file():  # noqa: ASYNC240 -- 尾帧存在性检查，本地元数据
                 # 尾帧缺失不静默跳过：跳过后任务照常提交并计费，用户拿到一段没有尾帧、
                 # 与分镜衔接不上的视频却无从知道原因。
                 raise VideoCapabilityError(

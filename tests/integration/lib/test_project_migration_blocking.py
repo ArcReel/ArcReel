@@ -367,7 +367,7 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
     assert blocked["problem"]["action"] == GenerationAction.RETRY_PROJECT_MIGRATION
     assert blocked["problem"]["detail"] == failure.reason
     # The blocked set names real tools, and never the retry tool — it is the way out.
-    assert sdk_tools.MIGRATION_BLOCKED_TOOL_IDS <= set(sdk_tools.ARCREEL_MCP_TOOL_IDS)
+    assert set(sdk_tools.ARCREEL_MCP_TOOL_IDS) >= sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
     assert "retry_project_migration" not in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
 
 

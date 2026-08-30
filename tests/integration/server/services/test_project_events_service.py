@@ -43,7 +43,7 @@ def _terminal_task_change(task_id: str) -> dict:
     }
 
 
-async def _next_event(stream, *, timeout: float) -> tuple[str, dict]:
+async def _next_event(stream, *, timeout: float) -> tuple[str, dict]:  # noqa: ASYNC109 -- 测试轮询 helper 的等待上限，非生产取消语义
     """Pull the next real (event_name, payload) tuple, skipping ``_idle`` sentinels."""
 
     async def _pull() -> tuple[str, dict]:

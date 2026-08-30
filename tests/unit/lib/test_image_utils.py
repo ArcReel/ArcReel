@@ -152,4 +152,4 @@ class TestUploadPixelBudget:
 
     def test_grid_sized_composite_passes_default_budget(self):
         """4K 见方的联合图在默认上限内，不被误拦。"""
-        assert 4096 * 4096 < image_utils.MAX_UPLOAD_PIXELS
+        assert image_utils.MAX_UPLOAD_PIXELS > 4096 * 4096

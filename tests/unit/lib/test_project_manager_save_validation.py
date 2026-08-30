@@ -64,10 +64,9 @@ class TestNoWorseSemantics:
         pm = _pm(tmp_path)
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
-        with pytest.raises(ScriptStructureValidationError):
-            with pm.locked_script("demo", "episode_1.json") as script:
-                # 把合法 segment 的 duration 改成越界值
-                script["segments"][0]["duration_seconds"] = 999
+        with pytest.raises(ScriptStructureValidationError), pm.locked_script("demo", "episode_1.json") as script:
+            # 把合法 segment 的 duration 改成越界值
+            script["segments"][0]["duration_seconds"] = 999
 
     def test_invalid_to_invalid_is_allowed(self, tmp_path: Path):
         """前非法 → 放行（不为历史遗留背锅），即使后仍非法。"""
@@ -113,9 +112,9 @@ class TestValidateDefaultsOn:
         pm = _pm(tmp_path)
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
-        with pytest.raises(ScriptStructureValidationError):
-            with pm.locked_script("demo", "episode_1.json") as script:  # 不传 validate
-                script["segments"][0]["video_prompt"] = 123
+        # locked_script 不传 validate
+        with pytest.raises(ScriptStructureValidationError), pm.locked_script("demo", "episode_1.json") as script:
+            script["segments"][0]["video_prompt"] = 123
 
     def test_validate_false_bypasses_guard(self, tmp_path: Path):
         """显式 validate=False 时即便引入非法结构也放行。"""
@@ -184,9 +183,8 @@ class TestUtterancesEditGuard:
         pm = _pm_drama(tmp_path)
         pm.save_script("demo", _valid_drama_script(), "episode_1.json")
 
-        with pytest.raises(ScriptStructureValidationError):
-            with pm.locked_script("demo", "episode_1.json") as script:
-                script["scenes"][0]["utterances"] = [{"kind": "dialogue", "speaker": "", "text": "无主台词"}]
+        with pytest.raises(ScriptStructureValidationError), pm.locked_script("demo", "episode_1.json") as script:
+            script["scenes"][0]["utterances"] = [{"kind": "dialogue", "speaker": "", "text": "无主台词"}]
 
         saved = pm.load_script("demo", "episode_1.json")["scenes"][0]["utterances"]
         assert saved == [{"kind": "dialogue", "speaker": "角色A", "text": "你来了。"}]

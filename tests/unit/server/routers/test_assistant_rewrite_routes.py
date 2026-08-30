@@ -57,9 +57,8 @@ def _post(rewrite_result, body: dict | None = None):
         fake.side_effect = rewrite_result
     else:
         fake.return_value = rewrite_result
-    with patch.object(assistant.assistant_service, "rewrite_message", new=fake):
-        with _build_client() as client:
-            return client.post(REWRITE_URL, json=payload), fake
+    with patch.object(assistant.assistant_service, "rewrite_message", new=fake), _build_client() as client:
+        return client.post(REWRITE_URL, json=payload), fake
 
 
 class TestRewriteContract:

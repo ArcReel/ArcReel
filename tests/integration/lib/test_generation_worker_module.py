@@ -1421,9 +1421,12 @@ class TestGenerationWorker:
 
         release = asyncio.Event()
         entered: set[str] = set()
+        all_entered = asyncio.Event()
 
         async def _block(task):
             entered.add(task["task_id"])
+            if set(vid_ids) <= entered:
+                all_entered.set()
             await release.wait()
             return {"ok": True}
 
@@ -1438,8 +1441,7 @@ class TestGenerationWorker:
             worker._slots.register("gemini-aistudio", "video", tid, t)
 
         await worker.start()
-        while not set(vid_ids) <= entered:  # 等三个任务都进入 execute
-            await asyncio.sleep(0)
+        await all_entered.wait()  # 等三个任务都进入 execute
 
         for tid in vid_ids:
             assert worker.request_cancel(tid) is True
@@ -2022,10 +2024,8 @@ class TestGenerationWorker:
         for t in list(asyncio.all_tasks()):
             name = t.get_name()
             if name in ("orphan-dispatcher",) or name.startswith(("orphan-dispatch-", "resume-video-")):
-                try:
+                with contextlib.suppress(Exception):
                     await t
-                except Exception:
-                    pass
         assert len(dispatched) == 1
         assert dispatched[0]["task_id"] == "ark-orphan"
 
@@ -2114,9 +2114,8 @@ class TestGenerationWorker:
         # 清理可能的残余
         for t in list(asyncio.all_tasks()):
             name = t.get_name()
-            if name.startswith(("orphan-", "resume-video-")):
-                if not t.done():
-                    t.cancel()
+            if name.startswith(("orphan-", "resume-video-")) and not t.done():
+                t.cancel()
         await asyncio.sleep(0)
 
     @pytest.mark.asyncio

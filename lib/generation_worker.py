@@ -15,6 +15,7 @@ GenerationWorker，二者生命周期一致。因此 cancel 信号走进程内�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -562,12 +563,10 @@ class GenerationWorker:
         """Wake the local worker without changing cross-process polling."""
         self._wake_event.set()
 
-    async def _wait_for_wake(self, timeout: float) -> None:
-        try:
+    async def _wait_for_wake(self, timeout: float) -> None:  # noqa: ASYNC109 -- 本地唤醒的等待上限，由 asyncio.wait_for 实现；仓库无 trio/anyio cancel scope
+        # No local wake is normal; cross-process work is discovered on the polling timeout.
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
-        except TimeoutError:
-            # No local wake is normal; cross-process work is discovered on the polling timeout.
-            pass
         self._wake_event.clear()
 
     # ------------------------------------------------------------------

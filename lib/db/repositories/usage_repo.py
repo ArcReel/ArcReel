@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -602,10 +603,9 @@ class UsageRepository(BaseRepository):
         for stat in stats:
             p = stat["provider"]
             if p and is_custom_provider(p):
-                try:
+                # 防御畸形 provider 字符串（如 "custom-abc"）
+                with contextlib.suppress(ValueError):
                     custom_ids.add(parse_provider_id(p))
-                except ValueError:
-                    pass  # 防御畸形 provider 字符串（如 "custom-abc"）
 
         custom_names: dict[int, str] = {}
         if custom_ids:

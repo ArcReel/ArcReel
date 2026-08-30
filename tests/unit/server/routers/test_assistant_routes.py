@@ -100,44 +100,50 @@ class TestAssistantRoutes:
                 "interrupt_session",
                 new=AsyncMock(return_value=interrupt_payload),
             ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.post(f"{PREFIX}/sessions/session-1/interrupt")
+            response = client.post(f"{PREFIX}/sessions/session-1/interrupt")
 
         assert response.status_code == 200
         assert response.json() == interrupt_payload
 
     def test_send_unexpected_error_no_leak(self):
         """send 末端 catch-all：未预期异常返回通用 500，不泄露内部细节。"""
-        with patch.object(
-            assistant.assistant_service,
-            "send_or_create",
-            new=AsyncMock(side_effect=RuntimeError("LEAK_send")),
+        with (
+            patch.object(
+                assistant.assistant_service,
+                "send_or_create",
+                new=AsyncMock(side_effect=RuntimeError("LEAK_send")),
+            ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.post(f"{PREFIX}/sessions/send", json={"content": "hi"})
+            response = client.post(f"{PREFIX}/sessions/send", json={"content": "hi"})
 
         _assert_generic_500(response, "LEAK_send")
 
     def test_list_sessions_unexpected_error_no_leak(self):
-        with patch.object(
-            assistant.assistant_service,
-            "list_sessions",
-            new=AsyncMock(side_effect=RuntimeError("LEAK_list")),
+        with (
+            patch.object(
+                assistant.assistant_service,
+                "list_sessions",
+                new=AsyncMock(side_effect=RuntimeError("LEAK_list")),
+            ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.get(f"{PREFIX}/sessions")
+            response = client.get(f"{PREFIX}/sessions")
 
         _assert_generic_500(response, "LEAK_list")
 
     def test_get_session_unexpected_error_no_leak(self):
-        with patch.object(
-            assistant.assistant_service,
-            "get_session",
-            new=AsyncMock(side_effect=RuntimeError("LEAK_get")),
+        with (
+            patch.object(
+                assistant.assistant_service,
+                "get_session",
+                new=AsyncMock(side_effect=RuntimeError("LEAK_get")),
+            ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.get(f"{PREFIX}/sessions/session-1")
+            response = client.get(f"{PREFIX}/sessions/session-1")
 
         _assert_generic_500(response, "LEAK_get")
 
@@ -150,9 +156,9 @@ class TestAssistantRoutes:
                 "delete_session",
                 new=AsyncMock(side_effect=RuntimeError("LEAK_delete")),
             ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.delete(f"{PREFIX}/sessions/session-1")
+            response = client.delete(f"{PREFIX}/sessions/session-1")
 
         _assert_generic_500(response, "LEAK_delete")
 
@@ -165,9 +171,9 @@ class TestAssistantRoutes:
                 "interrupt_session",
                 new=AsyncMock(side_effect=RuntimeError("LEAK_interrupt")),
             ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.post(f"{PREFIX}/sessions/session-1/interrupt")
+            response = client.post(f"{PREFIX}/sessions/session-1/interrupt")
 
         _assert_generic_500(response, "LEAK_interrupt")
 
@@ -180,23 +186,25 @@ class TestAssistantRoutes:
                 "answer_user_question",
                 new=AsyncMock(side_effect=RuntimeError("LEAK_answer")),
             ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.post(
-                    f"{PREFIX}/sessions/session-1/questions/q-1/answer",
-                    json={"answers": {"q-1": "yes"}},
-                )
+            response = client.post(
+                f"{PREFIX}/sessions/session-1/questions/q-1/answer",
+                json={"answers": {"q-1": "yes"}},
+            )
 
         _assert_generic_500(response, "LEAK_answer")
 
     def test_list_skills_unexpected_error_no_leak(self):
-        with patch.object(
-            assistant.assistant_service,
-            "list_available_skills",
-            side_effect=RuntimeError("LEAK_skills"),
+        with (
+            patch.object(
+                assistant.assistant_service,
+                "list_available_skills",
+                side_effect=RuntimeError("LEAK_skills"),
+            ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.get(f"{PREFIX}/skills")
+            response = client.get(f"{PREFIX}/skills")
 
         _assert_generic_500(response, "LEAK_skills")
 
@@ -214,16 +222,18 @@ class TestAssistantRoutes:
         )
         startup_err.__cause__ = NotImplementedError()
 
-        with patch.object(
-            assistant.assistant_service,
-            "send_or_create",
-            new=AsyncMock(side_effect=startup_err),
+        with (
+            patch.object(
+                assistant.assistant_service,
+                "send_or_create",
+                new=AsyncMock(side_effect=startup_err),
+            ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.post(
-                    f"{PREFIX}/sessions/send",
-                    json={"content": "hi"},
-                )
+            response = client.post(
+                f"{PREFIX}/sessions/send",
+                json={"content": "hi"},
+            )
 
         assert response.status_code == 502
         detail = response.json()["detail"]
@@ -262,13 +272,15 @@ class TestAssistantRoutes:
         )
         startup_err.__cause__ = original
 
-        with patch.object(
-            assistant.assistant_service,
-            "send_or_create",
-            new=AsyncMock(side_effect=startup_err),
+        with (
+            patch.object(
+                assistant.assistant_service,
+                "send_or_create",
+                new=AsyncMock(side_effect=startup_err),
+            ),
+            _build_client() as client,
         ):
-            with _build_client() as client:
-                response = client.post(f"{PREFIX}/sessions/send", json={"content": "hi"})
+            response = client.post(f"{PREFIX}/sessions/send", json={"content": "hi"})
 
         assert response.status_code == 502
         body = response.text

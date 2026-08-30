@@ -437,8 +437,9 @@ class TestNormalizeProviderStatus:
         assert normalize_provider_status(raw) is ProviderJobStatus.EXPIRED
 
     def test_terminal_set(self):
-        assert TERMINAL_PROVIDER_STATUSES == frozenset(
-            {ProviderJobStatus.SUCCEEDED, ProviderJobStatus.FAILED, ProviderJobStatus.EXPIRED}
+        assert (
+            frozenset({ProviderJobStatus.SUCCEEDED, ProviderJobStatus.FAILED, ProviderJobStatus.EXPIRED})
+            == TERMINAL_PROVIDER_STATUSES
         )
         assert ProviderJobStatus.RUNNING not in TERMINAL_PROVIDER_STATUSES
         assert ProviderJobStatus.QUEUED not in TERMINAL_PROVIDER_STATUSES
@@ -774,9 +775,9 @@ class TestPersistJobIdRetry:
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
             bounded_poll_clock(),
             caplog.at_level(logging.ERROR, logger="lib.video_backends.base"),
+            pytest.raises(OperationalError),
         ):
-            with pytest.raises(OperationalError):
-                await persist_provider_job_id("task-X", "job-X", provider="ark")
+            await persist_provider_job_id("task-X", "job-X", provider="ark")
 
         terminal = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert terminal, "expected logger.error call"
@@ -805,9 +806,9 @@ class TestPersistJobIdRetry:
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
             bounded_poll_clock(),
+            pytest.raises(ValueError, match="not retryable"),
         ):
-            with pytest.raises(ValueError, match="not retryable"):
-                await persist_provider_job_id("task-V", "job-V", provider="newapi")
+            await persist_provider_job_id("task-V", "job-V", provider="newapi")
 
         assert attempts == 1
 
@@ -836,9 +837,9 @@ class TestPersistJobIdRetry:
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
             bounded_poll_clock(),
+            pytest.raises(ValueError, match="timed out"),
         ):
-            with pytest.raises(ValueError, match="timed out"):
-                await persist_provider_job_id("task-T", "job-T", provider="gemini")
+            await persist_provider_job_id("task-T", "job-T", provider="gemini")
 
         assert attempts == 1, "expects no string-fallback retry for ValueError"
 
@@ -909,11 +910,13 @@ class TestProviderJobIdPersistenceMixin:
     async def test_persist_failure_propagates_fail_fast(self):
         """持久化失败抛出原异常，由 worker finally 兜底 mark_failed（fail-fast，不吞）。"""
         boom = _make_operational_error("database is locked")
-        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock(side_effect=boom)):
-            with pytest.raises(OperationalError):
-                await self._backend()._persist_provider_job_id(
-                    self._request(task_id="local-task-1"), "job-1", provider="gemini"
-                )
+        with (
+            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock(side_effect=boom)),
+            pytest.raises(OperationalError),
+        ):
+            await self._backend()._persist_provider_job_id(
+                self._request(task_id="local-task-1"), "job-1", provider="gemini"
+            )
 
 
 class TestPersistApiCallIdRetry:
@@ -967,9 +970,9 @@ class TestPersistApiCallIdRetry:
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
             bounded_poll_clock(),
             caplog.at_level(logging.ERROR, logger="lib.video_backends.base"),
+            pytest.raises(OperationalError),
         ):
-            with pytest.raises(OperationalError):
-                await persist_api_call_id("task-X", 99)
+            await persist_api_call_id("task-X", 99)
 
         terminal = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert terminal, "expected logger.error call"
@@ -995,9 +998,9 @@ class TestPersistApiCallIdRetry:
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
             bounded_poll_clock(),
+            pytest.raises(ValueError, match="not retryable"),
         ):
-            with pytest.raises(ValueError, match="not retryable"):
-                await persist_api_call_id("task-V", 7)
+            await persist_api_call_id("task-V", 7)
 
         assert attempts == 1
 

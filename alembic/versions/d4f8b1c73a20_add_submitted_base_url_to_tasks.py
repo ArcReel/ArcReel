@@ -28,6 +28,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    with preserve_sqlite_indexes("tasks"):
-        with op.batch_alter_table("tasks", schema=None) as batch_op:
-            batch_op.drop_column("submitted_base_url")
+    with preserve_sqlite_indexes("tasks"), op.batch_alter_table("tasks", schema=None) as batch_op:
+        batch_op.drop_column("submitted_base_url")

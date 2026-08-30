@@ -1,6 +1,7 @@
 """Unit tests for SessionManager user-input and user-echo behavior."""
 
 import asyncio
+import contextlib
 import logging
 from unittest.mock import AsyncMock
 
@@ -44,10 +45,8 @@ async def _seed(session_manager, meta_store, *, messages=None, status="idle", bl
     if actor._task is not None:
 
         def _done_cb(_t):
-            try:
+            with contextlib.suppress(Exception):
                 managed._inbox.put_nowait(None)
-            except Exception:
-                pass
 
         actor._task.add_done_callback(_done_cb)
     return meta, managed, client
@@ -72,19 +71,15 @@ def _on_actor_message_full(session_manager, managed, raw_msg):
 
 async def _finish(managed):
     """Graceful teardown."""
-    try:
+    with contextlib.suppress(Exception):
         await managed.send_disconnect()
-    except Exception:
-        pass
     if managed._process_task is not None and not managed._process_task.done():
         try:
             await asyncio.wait_for(managed._process_task, timeout=2.0)
         except (TimeoutError, BaseException):
             managed._process_task.cancel()
-            try:
+            with contextlib.suppress(BaseException):
                 await managed._process_task
-            except BaseException:
-                pass
 
 
 class TestSessionManagerUserInput:
@@ -260,9 +255,11 @@ class TestSessionManagerUserInput:
         monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
         monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
 
-        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
-            with pytest.raises(AgentStartupError, match="SDK 拒绝了这次投递"):
-                await session_manager.send_new_session("demo", "你好")
+        with (
+            caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"),
+            pytest.raises(AgentStartupError, match="SDK 拒绝了这次投递"),
+        ):
+            await session_manager.send_new_session("demo", "你好")
 
         assert "query" in seen_commands, "投递失败要发生在 query 命令上，而非更早的装配阶段"
         assert session_manager.unclaimed_user_echoes == 0
@@ -322,9 +319,11 @@ class TestSessionManagerUserInput:
         monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
         session_manager._session_actor_shutdown_timeout = 0.05
 
-        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
-            with pytest.raises(AgentStartupError, match="SDK 拒绝了这次投递"):
-                await asyncio.wait_for(session_manager.send_new_session("demo", "你好"), timeout=2.0)
+        with (
+            caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"),
+            pytest.raises(AgentStartupError, match="SDK 拒绝了这次投递"),
+        ):
+            await asyncio.wait_for(session_manager.send_new_session("demo", "你好"), timeout=2.0)
 
         assert "disconnect" in seen_commands
         assert any("超时" in r.getMessage() for r in caplog.records)
@@ -383,9 +382,11 @@ class TestSessionManagerUserInput:
         monkeypatch.setattr(type(session_manager), "_SDK_ID_TIMEOUT", 0.05)
         session_manager._session_actor_shutdown_timeout = 0.05
 
-        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
-            with pytest.raises(TimeoutError):
-                await asyncio.wait_for(session_manager.send_new_session("demo", "你好"), timeout=2.0)
+        with (
+            caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"),
+            pytest.raises(TimeoutError),
+        ):
+            await asyncio.wait_for(session_manager.send_new_session("demo", "你好"), timeout=2.0)
 
         # 启动失败不是中断：终态不写 interrupted，登记的回放标识直接清空不记账。
         assert captured_sessions[0].status == "error"

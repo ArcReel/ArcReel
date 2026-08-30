@@ -611,9 +611,9 @@ async def delete_credential(
     # 删除关联的凭证文件（如 vertex_keys/ 下的 JSON），放在 commit 之后确保数据一致性
     if cred_path:
         cred_file = Path(cred_path)
-        if cred_file.is_file():
+        if cred_file.is_file():  # noqa: ASYNC240 -- 凭证文件存在性检查，本地元数据
             try:
-                cred_file.unlink()
+                cred_file.unlink()  # noqa: ASYNC240 -- 删除单个凭证文件，本地元数据
                 logger.info("已删除凭证文件: %s", cred_file)
             except OSError:
                 logger.warning("删除凭证文件失败: %s", cred_file, exc_info=True)

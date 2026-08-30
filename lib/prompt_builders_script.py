@@ -29,7 +29,7 @@ def append_user_instructions(prompt: str, instructions: str | None) -> str:
 def _format_names(items: dict) -> str:
     if not items:
         return "（暂无）"
-    return "\n".join(f"- {name}" for name in items.keys())
+    return "\n".join(f"- {name}" for name in items)
 
 
 def _format_assets_with_desc(items: dict) -> str:

@@ -122,8 +122,7 @@ def downgrade() -> None:
         batch_op.drop_column("updated_at")
 
     op.drop_index(op.f("ix_tasks_user_id"), table_name="tasks")
-    with preserve_sqlite_indexes("tasks"):
-        with op.batch_alter_table("tasks", schema=None) as batch_op:
-            batch_op.drop_column("user_id")
+    with preserve_sqlite_indexes("tasks"), op.batch_alter_table("tasks", schema=None) as batch_op:
+        batch_op.drop_column("user_id")
 
     op.drop_table("users")

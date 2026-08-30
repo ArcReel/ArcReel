@@ -95,7 +95,7 @@ async def generate_one(
     tpl_id: str,
     out_path: Path,
 ) -> tuple[str, bool, str]:
-    out_path.unlink(missing_ok=True)
+    out_path.unlink(missing_ok=True)  # noqa: ASYNC240 -- 一次性脚本清理输出文件，本地元数据
     prompt = build_prompt(tpl_id)
     async with sem:
         try:

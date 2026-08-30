@@ -619,7 +619,7 @@ class TestMediaGenerator:
         assert version == 1
         history = gen.versions.get_versions("reference_videos", "E1U1")
         assert history["versions"][0]["execution_request_digest"] == "d" * 64
-        assert Path(gen.project_path / history["versions"][0]["file"]).read_bytes() == b"fake-video-data"
+        assert Path(gen.project_path / history["versions"][0]["file"]).read_bytes() == b"fake-video-data"  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
         assert events == ["prepared", "committed"]
 
     @pytest.mark.asyncio

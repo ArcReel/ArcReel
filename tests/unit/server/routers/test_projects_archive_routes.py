@@ -223,17 +223,16 @@ class TestProjectArchiveRoutes:
         _create_demo_project(pm)
         client = _client(monkeypatch, pm)
 
-        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
-            with client:
-                token_response = client.post(
-                    "/api/v1/projects/demo/export/token?scope=current",
-                    headers={"Authorization": f"Bearer {create_token('admin')}"},
-                )
-                assert token_response.status_code == 200
-                download_token = token_response.json()["download_token"]
-                response = client.get(
-                    f"/api/v1/projects/demo/export?download_token={download_token}&scope=current",
-                )
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}), client:
+            token_response = client.post(
+                "/api/v1/projects/demo/export/token?scope=current",
+                headers={"Authorization": f"Bearer {create_token('admin')}"},
+            )
+            assert token_response.status_code == 200
+            download_token = token_response.json()["download_token"]
+            response = client.get(
+                f"/api/v1/projects/demo/export?download_token={download_token}&scope=current",
+            )
 
         assert response.status_code == 200
 

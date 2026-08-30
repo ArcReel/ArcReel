@@ -350,10 +350,9 @@ async def _verify_api_key(token: str) -> dict | None:
     from lib.db import async_session_factory
     from lib.db.repositories.api_key_repository import ApiKeyRepository
 
-    async with async_session_factory() as session:
-        async with session.begin():
-            repo = ApiKeyRepository(session)
-            row = await repo.get_by_hash(key_hash)
+    async with async_session_factory() as session, session.begin():
+        repo = ApiKeyRepository(session)
+        row = await repo.get_by_hash(key_hash)
 
     if row is None:
         _set_api_key_cache(key_hash, None)
@@ -386,9 +385,8 @@ async def _verify_api_key(token: str) -> dict | None:
 
     async def _touch():
         try:
-            async with async_session_factory() as s:
-                async with s.begin():
-                    await ApiKeyRepository(s).touch_last_used(key_hash)
+            async with async_session_factory() as s, s.begin():
+                await ApiKeyRepository(s).touch_last_used(key_hash)
         except Exception:
             logger.exception("更新 API Key last_used_at 失败（非致命）")
 

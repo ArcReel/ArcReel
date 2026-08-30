@@ -78,9 +78,9 @@ class TestBackendBasics:
                 "lib.video_backends.vidu.poll_with_retry",
                 new=AsyncMock(side_effect=RuntimeError("poll failed")),
             ),
+            pytest.raises(RuntimeError, match="poll failed"),
         ):
-            with pytest.raises(RuntimeError, match="poll failed"):
-                await backend.generate(request)
+            await backend.generate(request)
 
         resubmit_unsafe.assert_called_once_with()
 
@@ -132,7 +132,7 @@ class TestEndpointModelMatrix:
         assert "vidu2.0" not in _ENDPOINT_MODELS["/text2video"]
 
     def test_aspect_ratio_only_text2video_and_reference2video(self):
-        assert _ENDPOINTS_WITH_ASPECT_RATIO == frozenset({"/text2video", "/reference2video"})
+        assert frozenset({"/text2video", "/reference2video"}) == _ENDPOINTS_WITH_ASPECT_RATIO
 
     def test_q3_models_set(self):
         assert "viduq3-turbo" in _Q3_MODELS

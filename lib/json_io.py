@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -65,10 +65,8 @@ def atomic_write_json(path: Path, data: Any) -> None:
         tmp_path = None
     finally:
         if tmp_path is not None:
-            try:
+            with suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass
 
 
 def atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -94,7 +92,5 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
         tmp_path = None
     finally:
         if tmp_path is not None:
-            try:
+            with suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass

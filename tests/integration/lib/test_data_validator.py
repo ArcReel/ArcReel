@@ -1531,10 +1531,7 @@ def _episode_for_kind(kind: str, items: object) -> tuple[dict, dict]:
         "shots": ("shots", "ad", None),
         "video_units": ("video_units", "narration", "reference_video"),
     }[kind]
-    if content_mode == "ad":
-        project = _ad_project_payload()
-    else:
-        project = _project_payload(content_mode)
+    project = _ad_project_payload() if content_mode == "ad" else _project_payload(content_mode)
     episode: dict = {"episode": 1, "title": "第一集", "content_mode": content_mode, array_key: items}
     if gen_mode:
         project["generation_mode"] = gen_mode

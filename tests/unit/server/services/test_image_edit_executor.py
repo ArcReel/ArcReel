@@ -65,7 +65,7 @@ class _FakeGenerator:
     async def generate_image_async(self, **kwargs):
         if self.fail:
             raise RuntimeError("backend boom")
-        self.reference_bytes = [Path(reference).read_bytes() for reference in kwargs["reference_images"]]
+        self.reference_bytes = [Path(reference).read_bytes() for reference in kwargs["reference_images"]]  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
         self.image_calls.append(kwargs)
         if self.project_path is not None:
             canonical = self.project_path / resource_relative_path(kwargs["resource_type"], kwargs["resource_id"])
@@ -538,7 +538,7 @@ class TestExecuteImageEditTask:
             is ArtifactStatus.STALE
         )
         assert current.read_bytes() == b"edited-image"
-        assert provider_reference is not None and not provider_reference.exists()
+        assert provider_reference is not None and not provider_reference.exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
 
         adapter.delete_entry(source_key)
         monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
@@ -777,7 +777,7 @@ class TestExecuteImageEditTask:
         assert len(call["reference_images"]) == 1
         assert Path(call["reference_images"][0]).name.endswith("Alice.png")
         assert fake_generator.reference_bytes == [b"png"]
-        assert not Path(call["reference_images"][0]).exists()
+        assert not Path(call["reference_images"][0]).exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
         assert call["prompt"] == "把头发改成红色"
         assert "原始角色 prompt" not in call["prompt"]
         # 新版本带编辑标记 metadata
@@ -811,7 +811,7 @@ class TestExecuteImageEditTask:
         assert len(call["reference_images"]) == 1
         assert Path(call["reference_images"][0]).name.endswith("scene_E1S01_first.png")
         assert fake_generator.reference_bytes == [b"png"]
-        assert not Path(call["reference_images"][0]).exists()
+        assert not Path(call["reference_images"][0]).exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
         assert call["resource_type"] == "storyboards"
         assert fake_pm.scene_asset_updates == [
             {

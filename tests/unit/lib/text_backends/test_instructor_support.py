@@ -625,12 +625,14 @@ class TestStructuredModeChainSync:
     def test_tools_validation_exhaustion_is_terminal(self):
         """TOOLS 档校验类耗尽不降档：上游确实回了 tool call，换更弱的档只会更差。"""
         exhausted = _retry_exhausted(_validation_error(), content='{"name": "Alice"}')
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[exhausted],
-        ) as mock_gen:
-            with pytest.raises(StructuredOutputExhaustedError) as exc_info:
-                self._call()
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[exhausted],
+            ) as mock_gen,
+            pytest.raises(StructuredOutputExhaustedError) as exc_info,
+        ):
+            self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
         assert exc_info.value.__cause__ is exhausted
@@ -638,34 +640,40 @@ class TestStructuredModeChainSync:
 
     def test_md_json_exhaustion_raises_structured_output_exhausted(self):
         """末档耗尽同样收敛为终局异常，不把 InstructorRetryException 原文透出去。"""
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[_tools_rejected_error(), _retry_exhausted(_validation_error())],
-        ) as mock_gen:
-            with pytest.raises(StructuredOutputExhaustedError, match="结构化输出能力不足"):
-                self._call()
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[_tools_rejected_error(), _retry_exhausted(_validation_error())],
+            ) as mock_gen,
+            pytest.raises(StructuredOutputExhaustedError, match="结构化输出能力不足"),
+        ):
+            self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
 
     def test_transient_error_propagates_unchanged(self):
         """瞬态错误既不降档也不收敛为终局异常，原样冒泡交调用方的重试装饰器判定。"""
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[instructor_api_call_exhausted(ConnectionError("503 service unavailable"))],
-        ) as mock_gen:
-            with pytest.raises(ConnectionError):
-                self._call()
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[instructor_api_call_exhausted(ConnectionError("503 service unavailable"))],
+            ) as mock_gen,
+            pytest.raises(ConnectionError),
+        ):
+            self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_truncation_does_not_fall_back(self):
         """截断是硬错误：重发同一份必然再截断的请求没有意义，不降档。"""
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[TextOutputTruncatedError(provider="test-provider", model="test-model")],
-        ) as mock_gen:
-            with pytest.raises(TextOutputTruncatedError):
-                self._call()
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[TextOutputTruncatedError(provider="test-provider", model="test-model")],
+            ) as mock_gen,
+            pytest.raises(TextOutputTruncatedError),
+        ):
+            self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
@@ -673,15 +681,17 @@ class TestStructuredModeChainSync:
         """降档触发点以 warning 记录截断后的模型原始输出。"""
         sample = SampleModel(name="Dave", age=33)
         raw = "抱歉，我无法按要求输出 JSON。"
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[
-                _retry_exhausted(_no_tool_call_error(), content=raw),
-                (sample.model_dump_json(), 10, 5),
-            ],
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[
+                    _retry_exhausted(_no_tool_call_error(), content=raw),
+                    (sample.model_dump_json(), 10, 5),
+                ],
+            ),
+            caplog.at_level("WARNING", logger="lib.text_backends.instructor_support"),
         ):
-            with caplog.at_level("WARNING", logger="lib.text_backends.instructor_support"):
-                self._call()
+            self._call()
 
         assert any(raw in record.getMessage() for record in caplog.records)
 
@@ -689,40 +699,46 @@ class TestStructuredModeChainSync:
         """瞬态错误剥掉 Instructor 包装后冒泡，保住类型供调用方的重试装饰器判定。"""
         from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry
 
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[instructor_api_call_exhausted(ConnectionError("connection reset by peer"))],
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[instructor_api_call_exhausted(ConnectionError("connection reset by peer"))],
+            ),
+            pytest.raises(ConnectionError) as exc_info,
         ):
-            with pytest.raises(ConnectionError) as exc_info:
-                self._call()
+            self._call()
 
         # 消息文本不含任何瞬态状态码模式，只有异常类型能证明它可重试。
         assert _should_retry(exc_info.value, BASE_RETRYABLE_ERRORS)
 
     def test_invalid_tool_call_arguments_are_terminal(self):
         """上游回了 tool call 但 arguments 不可用：属校验类，不降到约束更弱的 MD_JSON。"""
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[_retry_exhausted(_tool_call_args_invalid_error())],
-        ) as mock_gen:
-            with pytest.raises(StructuredOutputExhaustedError):
-                self._call()
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[_retry_exhausted(_tool_call_args_invalid_error())],
+            ) as mock_gen,
+            pytest.raises(StructuredOutputExhaustedError),
+        ):
+            self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_api_failure_after_earlier_parse_failure_propagates(self):
         """先解析失败一次、再撞上瞬态错误：终止原因是后者，原样冒泡而非当成模型输出不合规。"""
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[
-                _retry_exhausted(
-                    ConnectionError("connection reset by peer"),
-                    earlier_attempts=[_no_tool_call_error()],
-                )
-            ],
-        ) as mock_gen:
-            with pytest.raises(ConnectionError):
-                self._call()
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[
+                    _retry_exhausted(
+                        ConnectionError("connection reset by peer"),
+                        earlier_attempts=[_no_tool_call_error()],
+                    )
+                ],
+            ) as mock_gen,
+            pytest.raises(ConnectionError),
+        ):
+            self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
@@ -730,12 +746,14 @@ class TestStructuredModeChainSync:
         """与 tools 无关的 400（如上下文超限）原样冒泡：无 STRUCTURED_OUTPUT 能力位的模型
         不经原生档直接进本链，把这类 400 当 tools 不兼容会替换掉真实的失败原因。"""
         rejection = _bad_request("This model's maximum context length is 8192 tokens")
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[instructor_api_call_exhausted(rejection)],
-        ) as mock_gen:
-            with pytest.raises(BadRequestError):
-                self._call()
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[instructor_api_call_exhausted(rejection)],
+            ) as mock_gen,
+            pytest.raises(BadRequestError),
+        ):
+            self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
@@ -781,12 +799,14 @@ class TestStructuredModeChainSync:
 
     def test_last_mode_wire_rejection_is_terminal(self):
         """末档仍被上游拒收：无更弱的档可退，收敛为终局异常而非无限降档。"""
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[_tools_rejected_error(), _tools_rejected_error()],
-        ) as mock_gen:
-            with pytest.raises(StructuredOutputExhaustedError, match="被上游拒收"):
-                self._call()
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[_tools_rejected_error(), _tools_rejected_error()],
+            ) as mock_gen,
+            pytest.raises(StructuredOutputExhaustedError, match="被上游拒收"),
+        ):
+            self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
 
@@ -820,22 +840,26 @@ class TestStructuredModeChainAsync:
         assert result.text == sample.model_dump_json()
 
     async def test_validation_exhaustion_is_terminal(self):
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
-            side_effect=[_retry_exhausted(_validation_error())],
-        ) as mock_gen:
-            with pytest.raises(StructuredOutputExhaustedError):
-                await self._call()
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
+                side_effect=[_retry_exhausted(_validation_error())],
+            ) as mock_gen,
+            pytest.raises(StructuredOutputExhaustedError),
+        ):
+            await self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
     async def test_transient_error_propagates_unchanged(self):
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
-            side_effect=[instructor_api_call_exhausted(ConnectionError("503 service unavailable"))],
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
+                side_effect=[instructor_api_call_exhausted(ConnectionError("503 service unavailable"))],
+            ),
+            pytest.raises(ConnectionError),
         ):
-            with pytest.raises(ConnectionError):
-                await self._call()
+            await self._call()
 
     async def test_downgrade_carries_billed_tokens_of_failed_mode(self):
         sample = SampleModel(name="Judy", age=27)

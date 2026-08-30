@@ -546,11 +546,13 @@ def test_formal_script_plan_registration_failure_restores_the_previous_file(tmp_
 
     monkeypatch.setattr("lib.artifact_activation.register_current_artifact_if_provable", _fail)
 
-    with pytest.raises(RuntimeError, match="injected manifest failure"):
-        with ProjectManager(tmp_path).file_lock(formal_path):
-            from lib.script_review import write_script_plan_locked
+    with (
+        pytest.raises(RuntimeError, match="injected manifest failure"),
+        ProjectManager(tmp_path).file_lock(formal_path),
+    ):
+        from lib.script_review import write_script_plan_locked
 
-            write_script_plan_locked(project_dir, 1, {"units": [{"unit_id": "E1U1"}]})
+        write_script_plan_locked(project_dir, 1, {"units": [{"unit_id": "E1U1"}]})
 
     assert not formal_path.exists()
 
@@ -636,10 +638,12 @@ def test_formal_script_plan_transaction_holds_the_project_lock_through_the_write
 
     def _write() -> None:
         try:
-            with ProjectManager(tmp_path).file_lock(formal_path):
-                with formal_script_plan_write_transaction(project_dir, 1, formal_path):
-                    transaction_entered.set()
-                    assert release_transaction.wait(timeout=5)
+            with (
+                ProjectManager(tmp_path).file_lock(formal_path),
+                formal_script_plan_write_transaction(project_dir, 1, formal_path),
+            ):
+                transaction_entered.set()
+                assert release_transaction.wait(timeout=5)
         except Exception as exc:
             failures.append(exc)
 

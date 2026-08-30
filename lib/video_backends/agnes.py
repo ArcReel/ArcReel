@@ -233,10 +233,7 @@ def _failure_reason(state: dict) -> str | None:
     if state.get("status") not in _FAILED_STATUSES:
         return None
     err = state.get("error")
-    if isinstance(err, dict):
-        message = err.get("message") or err.get("code") or "unknown"
-    else:
-        message = err or "unknown"
+    message = (err.get("message") or err.get("code") or "unknown") if isinstance(err, dict) else (err or "unknown")
     return f"Agnes 视频生成失败: {message}"
 
 

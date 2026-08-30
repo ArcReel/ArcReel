@@ -83,10 +83,7 @@ def freeze_image_references(
 
 
 def _reference_path(reference: object) -> Path:
-    if isinstance(reference, Mapping):
-        raw_path = reference.get("image")
-    else:
-        raw_path = reference
+    raw_path = reference.get("image") if isinstance(reference, Mapping) else reference
     if not isinstance(raw_path, (str, Path)):
         raise TypeError("provider image reference must carry a filesystem path")
     return Path(raw_path)

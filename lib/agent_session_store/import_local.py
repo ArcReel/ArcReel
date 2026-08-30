@@ -48,8 +48,8 @@ async def migrate_local_transcripts_to_store(
 
     imported = skipped = failed = 0
 
-    if projects_root.exists():
-        for project_cwd in sorted(projects_root.iterdir()):
+    if projects_root.exists():  # noqa: ASYNC240 -- 启动期一次性存在性检查，本地元数据
+        for project_cwd in sorted(projects_root.iterdir()):  # noqa: ASYNC240 -- 启动期一次列举项目根目录，单次 readdir；真正的重活 list_sessions 已 to_thread 卸载
             # Skip dotfiles and underscore-prefixed dirs (e.g. _global_assets)
             # to match ProjectManager.list_projects semantics.
             if not project_cwd.is_dir() or project_cwd.name.startswith((".", "_")):

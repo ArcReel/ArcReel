@@ -814,10 +814,7 @@ def force_resync_profile(
     if not mapping:
         raise ProfileEmptyError(f"Profile dir empty, likely deploy misconfig: {profile_dir}")
 
-    if paths is not None:
-        target = {_normalize_profile_rel_path(rel) for rel in paths}
-    else:
-        target = set(mapping)
+    target = {_normalize_profile_rel_path(rel) for rel in paths} if paths is not None else set(mapping)
 
     project_dir.mkdir(parents=True, exist_ok=True)
 

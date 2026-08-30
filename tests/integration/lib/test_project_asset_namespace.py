@@ -109,9 +109,11 @@ def test_locked_episode_write_rejects_a_corrupt_v6_namespace_before_writing(demo
     before_project = project_file.read_bytes()
     before_script = script_file.read_bytes()
 
-    with pytest.raises(ProjectAssetNameConflictError):
-        with demo_pm.locked_episode_script("demo", lambda project: project["episodes"][0]["script_file"]):
-            pytest.fail("corrupt namespace must fail before yielding the script")
+    with (
+        pytest.raises(ProjectAssetNameConflictError),
+        demo_pm.locked_episode_script("demo", lambda project: project["episodes"][0]["script_file"]),
+    ):
+        pytest.fail("corrupt namespace must fail before yielding the script")
 
     assert project_file.read_bytes() == before_project
     assert script_file.read_bytes() == before_script

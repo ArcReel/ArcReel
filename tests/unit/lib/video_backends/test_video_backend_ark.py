@@ -289,9 +289,8 @@ class TestArkGenerate:
         assert call_kwargs.kwargs.get("service_tier") == "flex" or call_kwargs[1].get("service_tier") == "flex"
 
     def test_missing_api_key_raises(self):
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="Ark API Key"):
-                ArkVideoBackend(api_key=None)
+        with patch.dict(os.environ, {}, clear=True), pytest.raises(ValueError, match="Ark API Key"):
+            ArkVideoBackend(api_key=None)
 
 
 class TestArkRetryBehavior:
@@ -375,9 +374,8 @@ class TestArkRetryBehavior:
         ark_backend._client.content_generation.tasks.get = MagicMock(side_effect=ValueError("invalid response"))
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
-        with pytest.raises(ValueError, match="invalid response"):
-            with bounded_poll_clock():
-                await ark_backend.generate(request)
+        with pytest.raises(ValueError, match="invalid response"), bounded_poll_clock():
+            await ark_backend.generate(request)
 
         # 创建只调用一次，轮询只尝试一次就抛出
         assert ark_backend._client.content_generation.tasks.create.call_count == 1

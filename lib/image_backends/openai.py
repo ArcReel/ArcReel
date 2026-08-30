@@ -147,7 +147,7 @@ class OpenAIImageBackend:
                 for ref in refs:
                     ref_path = Path(ref.path)
                     try:
-                        files.append(stack.enter_context(open(ref_path, "rb")))
+                        files.append(stack.enter_context(open(ref_path, "rb")))  # noqa: SIM115 -- 句柄由 ExitStack 托管，再经 pop_all() 移交调用方
                     except FileNotFoundError:
                         logger.warning("参考图不存在，跳过: %s", ref_path)
                 # 把已打开的句柄所有权移交给调用者

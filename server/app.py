@@ -294,7 +294,7 @@ async def _migrate_source_encoding_on_startup(
     """对每个项目执行幂等编码迁移。失败被捕获并写日志，不阻塞启动。"""
     summary: dict[str, dict] = {}
     migrate = migrate_source_encoding or migrate_project_source_encoding
-    if not projects_root.exists():
+    if not projects_root.exists():  # noqa: ASYNC240 -- 启动期一次性存在性检查，本地元数据
         return summary
 
     def _run_one(project_dir: Path) -> dict:
@@ -330,7 +330,7 @@ async def _migrate_source_encoding_on_startup(
                 pass
             return {"error": str(exc)}
 
-    for project_dir in projects_root.iterdir():
+    for project_dir in projects_root.iterdir():  # noqa: ASYNC240 -- 启动期一次列举项目根目录，单次 readdir；每个项目的迁移已 to_thread 卸载
         if not project_dir.is_dir() or project_dir.name.startswith("."):
             continue
         summary[project_dir.name] = await asyncio.to_thread(_run_one, project_dir)

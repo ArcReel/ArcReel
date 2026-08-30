@@ -356,11 +356,11 @@ class TestCapabilityGating:
         # 文件存在但 read 时抛 OSError（权限/IO）→ 全部跳过后报准确码，不炸成 500
         ref = _make_ref(tmp_path, "ref.png")
         b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
-        with patch("lib.image_backends.dashscope.image_to_data_uri", side_effect=OSError("permission denied")):
-            with pytest.raises(ImageCapabilityError) as ei:
-                await b.generate(
-                    ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[ref])
-                )
+        with (
+            patch("lib.image_backends.dashscope.image_to_data_uri", side_effect=OSError("permission denied")),
+            pytest.raises(ImageCapabilityError) as ei,
+        ):
+            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[ref]))
         assert ei.value.code == "image_reference_images_unreadable"
 
     async def test_partial_unreadable_refs_fail_loud(self, tmp_path: Path):

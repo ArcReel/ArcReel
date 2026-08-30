@@ -520,9 +520,8 @@ class AliasIndex:
             last = mod.split(".")[-1]
             if not last:
                 continue
-            if stem == last or stem.startswith(last + "_") or last.startswith(stem):
-                if len(last) > best_len:
-                    best, best_len = mod, len(last)
+            if (stem == last or stem.startswith(last + "_") or last.startswith(stem)) and len(last) > best_len:
+                best, best_len = mod, len(last)
         if best:
             return best
         for module, _count in self.import_counter.most_common():
@@ -551,9 +550,8 @@ class TestFunctionAnalyzer:
     def _collect_doubles(self) -> None:
         injected = 0
         for dec in self.func.decorator_list:
-            if isinstance(dec, ast.Call) and is_patch_call(dec):
-                if not any(kw.arg == "new" for kw in dec.keywords):
-                    injected += 1
+            if isinstance(dec, ast.Call) and is_patch_call(dec) and not any(kw.arg == "new" for kw in dec.keywords):
+                injected += 1
         args = [a.arg for a in self.func.args.args if a.arg not in {"self", "cls"}]
         # patch 装饰器自下而上注入到 self 之后的位置参数
         self.doubles.update(args[:injected])

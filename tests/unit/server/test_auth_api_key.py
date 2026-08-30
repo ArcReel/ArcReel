@@ -111,9 +111,8 @@ class TestVerifyAndGetPayloadAsync:
     @pytest.mark.asyncio
     async def test_jwt_invalid_raises_401(self):
         """非 arc- 前缀但 JWT 验证失败，抛出 401。"""
-        with patch("server.auth.verify_token", return_value=None):
-            with pytest.raises(HTTPException) as exc_info:
-                await auth_module._verify_and_get_payload_async("invalid.jwt.token")
+        with patch("server.auth.verify_token", return_value=None), pytest.raises(HTTPException) as exc_info:
+            await auth_module._verify_and_get_payload_async("invalid.jwt.token")
         assert exc_info.value.status_code == 401
 
     async def test_api_key_path_success(self, api_key_db):

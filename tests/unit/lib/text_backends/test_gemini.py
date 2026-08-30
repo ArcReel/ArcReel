@@ -417,9 +417,8 @@ class TestStructuredFallback:
         gc = AsyncMock(side_effect=[_resp(_PROSE), transient, transient, transient])
         backend._test_client.aio.models.generate_content = gc
 
-        with bounded_poll_clock():
-            with pytest.raises(ConnectionError):
-                await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
+        with bounded_poll_clock(), pytest.raises(ConnectionError):
+            await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
 
         # 1 次原生成功 + 降级层自身 3 次重试穷尽；原生调用未被重放
         assert gc.call_count == 4

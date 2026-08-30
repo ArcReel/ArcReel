@@ -606,13 +606,13 @@ async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
     monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
 
-    before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
+    before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
     plan = await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
         "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
     )
 
     # 走提交侧那条缝要读 Manifest 与分镜图，读到的一切仍不得在项目目录留下痕迹。
-    assert sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*")) == before
+    assert sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*")) == before  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
 
     video = next(step for step in plan.steps if step.id == "video")
     assert video.admission is not None

@@ -324,7 +324,7 @@ class TestShotVideoUpload:
 
         async def _new_thumbnail(_video_path: Path, thumbnail_path: Path):
             thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
-            thumbnail_path.write_bytes(b"new-thumbnail")
+            thumbnail_path.write_bytes(b"new-thumbnail")  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
             return thumbnail_path
 
         monkeypatch.setattr(upload_finalize, "extract_video_thumbnail", _new_thumbnail)
@@ -351,7 +351,7 @@ class TestShotVideoUpload:
 
         async def _fake_thumbnail(video_path: Path, thumbnail_path: Path):
             thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
-            thumbnail_path.write_bytes(b"jpg")
+            thumbnail_path.write_bytes(b"jpg")  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
             return thumbnail_path
 
         monkeypatch.setattr(upload_finalize, "extract_video_thumbnail", _fake_thumbnail)
@@ -479,7 +479,7 @@ def _ref_client(monkeypatch, tmp_path):
 
     async def _fake_thumbnail(video_path: Path, thumbnail_path: Path):
         thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
-        thumbnail_path.write_bytes(b"jpg")
+        thumbnail_path.write_bytes(b"jpg")  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
         return thumbnail_path
 
     monkeypatch.setattr(upload_finalize, "extract_video_thumbnail", _fake_thumbnail)

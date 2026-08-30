@@ -101,9 +101,7 @@ def _safe_str(value: Any) -> str | None:
 def _is_blank(value: Any) -> bool:
     if value is None:
         return True
-    if isinstance(value, str) and not value.strip():
-        return True
-    return False
+    return isinstance(value, str) and not value.strip()
 
 
 def parse_bool_env(value: Any, default: bool) -> bool:

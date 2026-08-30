@@ -774,7 +774,7 @@ def _validation_location(message: ValidationMessage) -> ScriptBatchEditLocation:
         path = _parse_path(prefix)
         if isinstance(field, str):
             field_path = _parse_path(field)
-            if not field_path[: len(path)] == path:
+            if field_path[: len(path)] != path:
                 path += field_path
         return ScriptBatchEditLocation(path=path)
     if isinstance(field, str):

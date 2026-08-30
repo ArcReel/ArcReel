@@ -166,12 +166,11 @@ class TestLoginRouteKillSwitch:
         from server.app import app
 
         env = {"AUTH_ENABLED": "false"}
-        with patch.dict(os.environ, env):
-            with TestClient(app) as client:
-                response = client.post(
-                    "/api/v1/auth/token",
-                    data={"username": "anyone", "password": "wrong"},
-                )
+        with patch.dict(os.environ, env), TestClient(app) as client:
+            response = client.post(
+                "/api/v1/auth/token",
+                data={"username": "anyone", "password": "wrong"},
+            )
         assert response.status_code == 200
         body = response.json()
         assert body["token_type"] == "bearer"

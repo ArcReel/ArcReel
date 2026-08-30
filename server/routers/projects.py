@@ -1716,14 +1716,16 @@ async def generate_overview(name: str, _t: Translator):
         return BadRequestError("text_provider_not_configured")
 
     try:
-        with project_change_source("webui"):
-            # EmptySourceError / PydanticValidationError 都是 ValueError 子类，须放行给下方各自的
-            # 专属 except 分支，不能被这里的通用 ValueError 处理误判为「未配置供应商」
-            with domain_error_on_value_error(
+        # EmptySourceError / PydanticValidationError 都是 ValueError 子类，须放行给下方各自的
+        # 专属 except 分支，不能被 domain_error_on_value_error 的通用 ValueError 处理误判为「未配置供应商」
+        with (
+            project_change_source("webui"),
+            domain_error_on_value_error(
                 _provider_not_configured,
                 extra_passthrough=(EmptySourceError, PydanticValidationError),
-            ):
-                overview = await get_project_manager().generate_overview(name)
+            ),
+        ):
+            overview = await get_project_manager().generate_overview(name)
         return {"success": True, "overview": overview}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc

@@ -47,7 +47,7 @@ class TestTextTaskTiers:
         assert TEXT_TASK_TIERS[TextTaskType.STYLE_ANALYSIS] is TextTaskTier.SIMPLE
 
     def test_vision_required_tasks_are_valid_members(self):
-        assert VISION_REQUIRED_TASKS <= set(TextTaskType)
+        assert set(TextTaskType) >= VISION_REQUIRED_TASKS
         assert TextTaskType.STYLE_ANALYSIS in VISION_REQUIRED_TASKS
 
 
@@ -373,9 +373,11 @@ class TestCheckTruncation:
 
         from lib.text_backends.base import TextOutputTruncatedError, check_truncation
 
-        with caplog.at_level(logging.WARNING, logger="lib.text_backends.base"):
-            with pytest.raises(TextOutputTruncatedError) as exc_info:
-                check_truncation("length", provider="ark", model="doubao", output_tokens=8192, structured=True)
+        with (
+            caplog.at_level(logging.WARNING, logger="lib.text_backends.base"),
+            pytest.raises(TextOutputTruncatedError) as exc_info,
+        ):
+            check_truncation("length", provider="ark", model="doubao", output_tokens=8192, structured=True)
 
         exc = exc_info.value
         assert exc.provider == "ark"

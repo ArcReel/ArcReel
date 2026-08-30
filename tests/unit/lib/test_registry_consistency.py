@@ -13,4 +13,4 @@ from lib.version_manager import VersionManager
 
 def test_version_manager_derives_from_resource_paths() -> None:
     assert set(VersionManager.RESOURCE_TYPES) == set(RESOURCE_TYPES)
-    assert VersionManager.EXTENSIONS == {rt: resource_extension(rt) for rt in RESOURCE_TYPES}
+    assert {rt: resource_extension(rt) for rt in RESOURCE_TYPES} == VersionManager.EXTENSIONS

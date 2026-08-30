@@ -1227,11 +1227,11 @@ class TestScriptPlanWriteStore:
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
         stale = "0" * 64
 
-        with pytest.raises(script_review.ScriptPlanWriteConflict) as exc:
-            with script_review.script_plan_write_lock(project_path, 1):
-                script_review.write_script_plan_locked(
-                    project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=stale
-                )
+        with (
+            pytest.raises(script_review.ScriptPlanWriteConflict) as exc,
+            script_review.script_plan_write_lock(project_path, 1),
+        ):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=stale)
 
         assert exc.value.expected == stale
         assert exc.value.actual == script_review.content_fingerprint_of_data({"units": [{"v": 1}]})
@@ -1255,11 +1255,11 @@ class TestScriptPlanWriteStore:
         project_path = self._project_path(tmp_path)
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
-        with pytest.raises(script_review.ScriptPlanWriteConflict):
-            with script_review.script_plan_write_lock(project_path, 1):
-                script_review.write_script_plan_locked(
-                    project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=None
-                )
+        with (
+            pytest.raises(script_review.ScriptPlanWriteConflict),
+            script_review.script_plan_write_lock(project_path, 1),
+        ):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=None)
 
     def test_prompt_authoring_quarantine_cleared_only_on_change(self, tmp_path: Path):
         project_path = self._project_path(tmp_path)
