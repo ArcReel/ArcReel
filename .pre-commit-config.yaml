@@ -41,4 +41,4 @@ repos:
     rev: v1.29.0
     hooks:
       - id: zizmor
-        args: [--no-progress, --min-severity, medium]
+        args: [--no-progress, --offline, --min-severity, medium]

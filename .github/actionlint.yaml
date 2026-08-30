@@ -1,0 +1,8 @@
+# actionlint 的豁免配置。它没有行内注释语法，唯一的豁免形式是这里按文件列出错误消息正则，
+# 每条附理由。
+paths:
+  .github/workflows/docker-release.yml:
+    ignore:
+      # concurrency.queue 是 GitHub 正式支持的键（queue: single 为默认，queue: max 保留
+      # 至多 100 个 pending 运行），actionlint 1.7.12 的 syntax-check 尚未收录它。
+      - 'unexpected key "queue" for "concurrency" section'

@@ -46,8 +46,8 @@ jobs:
 
   workflow-static:
     # workflow 文件的语法与安全闸门。actionlint 走官方容器镜像（自带 shellcheck 与
-    # pyflakes，能检查 run: 脚本）；zizmor 用默认 persona，medium 及以上阻断，且不提供
-    # GH_TOKEN——保持 offline 模式，与 pre-commit 本地判定一致。
+    # pyflakes，能检查 run: 脚本）；zizmor 用默认 persona，medium 及以上阻断，--offline
+    # 使判定不受环境里是否存在 GitHub token 影响，与 pre-commit 本地一致。
     # 两个工具版本须与 .pre-commit-config.yaml 中对应 hook 的版本同步升级。
     needs: changes
     if: needs.changes.outputs.workflow == 'true'
@@ -59,14 +59,14 @@ jobs:
           persist-credentials: false
 
       - name: Workflow syntax & shell check (actionlint)
-        uses: docker://rhysd/actionlint:1.7.12
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # v1.7.12
 
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
       - name: Workflow security audit (zizmor)
-        run: uvx zizmor@1.29.0 --min-severity medium .
+        run: uvx zizmor@1.29.0 --offline --min-severity medium .
 
   backend-static:
     needs: changes

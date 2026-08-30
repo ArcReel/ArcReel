@@ -151,7 +151,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 ## 代码质量
 
-工具报出的问题一律改代码。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`，zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），deptry 见下方「依赖卫生」，knip 写导出上方的 `/** @public 理由 */`，ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
+工具报出的问题一律改代码，不加 baseline 或计数阈值。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`（典型场景是第三方 untyped 库），zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），actionlint 见下方「Workflow 语法与安全」，deptry 见下方「依赖卫生」，knip 写导出上方的 `/** @public 理由 */`，ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
 
 **Lint & Format（ruff）：**
 
@@ -171,7 +171,6 @@ uv run basedpyright
 
 - standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 执行全量扫描
 - tests/ 内 `reportOptional*` 和 `unknown*` 系列降级为 warning，避免大量使用 mock 的测试产生噪声
-- 抑制注释（`# noqa` / `# pyright: ignore[...]`）仅限工具误报（如第三方 untyped 库），行级、带理由；告警一律改代码，不加 baseline
 
 **Import 分层契约（import-linter）：**
 
@@ -190,7 +189,7 @@ uv run deptry lib server alembic scripts tests
 
 - 直接 import 的第三方包必须出现在 `pyproject.toml` 的依赖声明里（`DEP003`）；声明了却无 import 的包必须删除或登记为运行时插件（`DEP002`）
 - 只在 `fastapi` / `pydantic` 未 re-export 时才直接依赖底层包（`starlette` / `pydantic_core`），且该底层包须显式声明
-- deptry 没有行内豁免语法，唯一被允许的形式是 `[tool.deptry.per_rule_ignores]` 里按规则精确列出包名，每项一行注释说明理由；不用整条规则关闭的 `ignore`
+- 单点误报写行内 `# deptry: ignore[X]  # 理由`；`DEP002` 没有 import 行可标注、`DEP004` 的命中散布在数百处，这两类只能写 `[tool.deptry.per_rule_ignores]`，按规则精确列出包名并每项一行注释说明理由。任何情形都不用整条规则关闭的 `ignore`
 - 扫描范围含 `tests/` 与 `scripts/`，deptry 无法按目录区分 dev 与生产文件，因此测试框架包逐项进 `DEP004` 豁免，其余 dev 依赖仍被守护
 - CI 中是 `backend-static` job 的 `Dependency hygiene (deptry)` step
 
@@ -201,7 +200,8 @@ uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-file
 ```
 
 - actionlint 只扫 `.github/workflows/`，校验语法与 `run:` 脚本；本机有 shellcheck 时一并检查 shell，无则只做语法检查，CI 的官方容器镜像自带 shellcheck 与 pyflakes
-- zizmor 默认 persona，`--min-severity medium` 为阻断线，本地与 CI 同为 offline 模式（CI 不提供 `GH_TOKEN`）；除 workflow 外还覆盖 `.github/actions/*/action.yml` 与 `.github/dependabot.yml`，CI 的目录扫描另含 `.pre-commit-config.yaml`
+- zizmor 默认 persona，`--min-severity medium` 为阻断线，本地与 CI 都显式 `--offline`——它优先于环境里的 `GH_TOKEN` / `GITHUB_TOKEN`，两处因此判定一致，代价是 impostor-commit 等在线 audit 不生效；除 workflow 外还覆盖 `.github/actions/*/action.yml` 与 `.github/dependabot.yml`，CI 的目录扫描另含 `.pre-commit-config.yaml`
+- actionlint 没有行内豁免语法，唯一被允许的形式是 `.github/actionlint.yaml` 的 `paths.<文件>.ignore` 按错误消息正则精确列出，每条附一行注释说明理由
 - CI 中是 `workflow-static` job，只在 workflow 域变更时运行
 - 两个工具的版本写在 `.pre-commit-config.yaml` 与 `.github/workflows/test.yml` 两处，升级须同步
 
