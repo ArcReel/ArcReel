@@ -69,26 +69,22 @@ def _stub_sandbox_check(monkeypatch, request):
     monkeypatch.setattr("server.app.check_sandbox_available", lambda: True)
 
 
-@pytest.fixture(autouse=True)
-def _profile_env(monkeypatch, tmp_path):
-    """Pin ``agent_profile_dir()`` to a per-test ``tmp_path/agent_runtime_profile``
-    so tests that build a fake profile under tmp_path are exercised against the
-    env-driven contract instead of the repo-level default.
+@pytest.fixture(scope="session", autouse=True)
+def _profile_env(tmp_path_factory):
+    """Provide one minimal runtime profile per pytest worker.
 
-    Also seed the profile with a minimal ``.claude/`` + ``CLAUDE.md`` so unrelated
-    tests that go through ``ProjectManager.create_project`` (which triggers
-    profile sync) don't trip the ``ProfileMissingError`` / ``ProfileEmptyError``
-    入口防御 — those guards are deployment-correctness contracts, not test fixtures.
-    Tests that explicitly need profile-missing / empty scenarios still work because
-    they ``setenv`` to a different path under tmp_path.
+    Tests exercising another profile location set ``ARCREEL_PROFILE_DIR`` explicitly.
     """
-    profile_dir = tmp_path / "agent_runtime_profile"
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    # 仅 touch 顶层 CLAUDE.md（最少 1 个可物化文件以避开 ProfileEmptyError）。
-    # 不预创建 ``.claude/`` —— 让需要自己 mkdir(".claude", parents=True) 的下游测试
-    # 不撞 FileExistsError；那些测试自己会构造完整 profile 内容。
-    (profile_dir / "CLAUDE.md").write_text("")
-    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
+    profile_dir = tmp_path_factory.mktemp("agent-runtime-profile")
+    (profile_dir / "CLAUDE.md").write_text("", encoding="utf-8")
+
+    previous = os.environ.get("ARCREEL_PROFILE_DIR")
+    os.environ["ARCREEL_PROFILE_DIR"] = str(profile_dir)
+    yield
+    if previous is None:
+        os.environ.pop("ARCREEL_PROFILE_DIR", None)
+    else:
+        os.environ["ARCREEL_PROFILE_DIR"] = previous
 
 
 @pytest.fixture()

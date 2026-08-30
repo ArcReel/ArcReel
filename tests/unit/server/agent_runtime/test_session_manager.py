@@ -615,13 +615,12 @@ class TestSessionManager:
         assert result.get("continue_") is True
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_read_agent_profile(self, tmp_path, meta_store):
+    async def test_file_access_hook_allows_read_agent_profile(self, tmp_path, meta_store, monkeypatch):
         """Hook allows Read for agent_runtime_profile/ files."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
         profile_md = tmp_path / "agent_runtime_profile" / "CLAUDE.md"
-        # conftest 的 _profile_env autouse fixture 已预创建 profile dir，
-        # 这里用 exist_ok=True 容忍。CLAUDE.md 内容会被本测试覆写为有意义文本。
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_md.parent))
         profile_md.parent.mkdir(parents=True, exist_ok=True)
         profile_md.write_text("# Agent instructions")
 

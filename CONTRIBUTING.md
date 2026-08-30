@@ -59,14 +59,24 @@ pnpm check-consistency
 ## 测试
 
 ```bash
-# 后端测试；单文件：uv run python -m pytest path/to/test.py，-k 关键字筛选，-v 详细输出
-uv run python -m pytest
+# 后端完整测试；单文件可直接替换 tests/ 路径，-k 仅用于人工按名称筛选
+uv run python -m pytest -n 4 --dist loadfile
 
 # 前端 typecheck + lint + 测试
 cd frontend && pnpm check
 ```
 
 pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
+
+### 测试选择
+
+开发循环先跑与改动相关的最小测试集，任务完成和 push 前再跑受影响域的完整闸门。选择结果为 0 个测试时扩大到对应目录或完整测试集，不把 0 个测试视为验证通过。
+
+- 后端测试文件变更：直接运行这些文件；源码变更：优先运行 `tests/unit|integration/` 下镜像路径及已知消费方。路径能缩小收集范围，`unit` / `integration` / `uses_db` marker 只用于跨路径筛选，`-k` 只用于人工定位。
+- 后端完整测试：改动 `pyproject.toml`、`uv.lock`、根 `tests/conftest.py`、含行为的包初始化、测试选择规则，或涉及 Alembic、profile、DB、i18n、共享测试设施时执行。无法可靠判断影响范围时也执行完整测试。
+- 前端测试文件变更：直接传文件给 Vitest；普通源码变更：在 `frontend/` 运行 `pnpm exec vitest related --run <source files>`；分支级检查运行 `pnpm exec vitest run --changed <base>`。TypeScript 源码变更同时运行完整 typecheck。
+- 前端完整测试：改动 `package.json`、`pnpm-lock.yaml`、`vitest.config.*`、测试 setup、i18n 或 branding 时执行 `pnpm check`。相关测试选择为 0 时先扩大到所在功能目录，仍无法确定时执行 `pnpm check`。
+- 任一测试文件变更后运行 `uv run python scripts/audit_tests.py --check`。
 
 ### 分层与目录
 
@@ -180,7 +190,7 @@ cd frontend && pnpm lint:fix      # 自动修复可修复的问题
 - 配置：`frontend/eslint.config.js`（flat config）
 - 规则集：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - typed linting 启用 `projectService: true`，可检查 `no-floating-promises`、`no-misused-promises` 等 async 相关问题
-- CI 中强制检查：`frontend-tests` job 的 `Lint` step
+- CI 中强制检查：`frontend-static` job 的 `Lint` step
 
 **Lint & Format（文档站 ESLint + prettier）：**
 
