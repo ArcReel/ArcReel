@@ -30,9 +30,15 @@ repos:
         files: ^frontend/.*\.(ts|tsx|js|jsx)$
         pass_filenames: true
 
-      - id: no-pull-request-target
-        name: block pull_request_target in workflows
-        entry: bash -c 'files=$(grep -rlE "(^|[^a-zA-Z_])pull_request_target" .github/workflows/ 2>/dev/null || true); if [ -n "$files" ]; then echo "pull_request_target 被禁止（权限放大风险）:" >&2; echo "$files" >&2; exit 1; fi'
-        language: system
-        files: ^\.github/workflows/.*\.ya?ml$
-        pass_filenames: false
+  # workflow 闸门的本地对应物；两个 rev 须与 .github/workflows/test.yml 的
+  # workflow-static job 同步升级
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.29.0
+    hooks:
+      - id: zizmor
+        args: [--no-progress, --min-severity, medium]

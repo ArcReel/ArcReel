@@ -39,15 +39,22 @@ jobs:
           ref: ${{ fromJson(steps.release.outputs.pr).headBranchName }}
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
+          # 凭据不写进工作树的 .git/config；推送在下方单条命令里自带远程 URL
+          persist-credentials: false
 
       - name: Set up uv
         if: ${{ steps.release.outputs.pr }}
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          enable-cache: true
+          # 本 job 持有可写 token 并向 release PR 分支推送提交，恢复的缓存条目会带着
+          # 该写权限执行，故不启用缓存
+          enable-cache: false
 
       - name: Sync uv.lock
         if: ${{ steps.release.outputs.pr }}
+        env:
+          PUSH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_BRANCH: ${{ fromJson(steps.release.outputs.pr).headBranchName }}
         run: |
           uv lock
           if ! git diff --quiet uv.lock; then
@@ -55,5 +62,5 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add uv.lock
             git commit -m "chore: sync uv.lock with pyproject.toml version"
-            git push origin HEAD
+            git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${PR_BRANCH}"
           fi

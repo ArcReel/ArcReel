@@ -2,7 +2,7 @@ name: project-status-sync
 
 # 同步 org Project 看板的 Status 字段：由 triage 标签、assignee、关联 PR、开闭状态单向派生。
 # issue/PR 事件触发单 issue 同步，每日定时全量对账；规则实现在 scripts/project_status_sync.py。
-on:
+on: # zizmor: ignore[dangerous-triggers]  # 该规则只看触发器名；此处 checkout 固定默认分支、不执行 PR 分支代码、脚本只经 API 读元数据
   issues:
     types: [opened, reopened, closed, labeled, unlabeled, assigned, unassigned]
   # 用 pull_request_target 而非 pull_request：workflow 与脚本都取 base 分支版本执行，
@@ -18,6 +18,9 @@ concurrency:
   # 单实体运行按事件类型+编号分组，issue 与 PR 同号互不取消
   group: project-status-sync-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.action == 'edited') && 'all' || format('{0}-{1}', github.event_name, github.event.issue.number || github.event.pull_request.number) }}
   cancel-in-progress: true
+
+# 脚本走 PROJECT_STATUS_SYNC_TOKEN，不用 GITHUB_TOKEN
+permissions: {}
 
 jobs:
   sync:

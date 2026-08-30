@@ -10,6 +10,10 @@ on:
         description: 忽略路径裁剪，全量运行所有 job
         type: boolean
         default: false
+    secrets:
+      CODECOV_TOKEN:
+        description: Codecov 上传令牌；缺失时覆盖率上传步骤不阻断
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,6 +29,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      workflow: ${{ steps.domains.outputs.workflow }}
       backend: ${{ steps.domains.outputs.backend }}
       frontend: ${{ steps.domains.outputs.frontend }}
       docker: ${{ steps.domains.outputs.docker }}
@@ -38,6 +43,30 @@ jobs:
         with:
           # 发布 PR 变更的版本文件不覆盖 docker 域，须显式全量以兑现「发布 commit 跑全量 CI」
           full: ${{ inputs.full == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
+
+  workflow-static:
+    # workflow 文件的语法与安全闸门。actionlint 走官方容器镜像（自带 shellcheck 与
+    # pyflakes，能检查 run: 脚本）；zizmor 用默认 persona，medium 及以上阻断，且不提供
+    # GH_TOKEN——保持 offline 模式，与 pre-commit 本地判定一致。
+    # 两个工具版本须与 .pre-commit-config.yaml 中对应 hook 的版本同步升级。
+    needs: changes
+    if: needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Workflow syntax & shell check (actionlint)
+        uses: docker://rhysd/actionlint:1.7.12
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Workflow security audit (zizmor)
+        run: uvx zizmor@1.29.0 --min-severity medium .
 
   backend-static:
     needs: changes
@@ -483,6 +512,7 @@ jobs:
     needs:
       [
         changes,
+        workflow-static,
         backend-static,
         test-lint,
         backend-tests,
