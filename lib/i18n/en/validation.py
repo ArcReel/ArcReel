@@ -316,6 +316,10 @@ MESSAGES = {
     ),
     "val_ce_jsonpath_syntax": "Extraction path syntax error (at character {position}): {path_expression}",
     "val_ce_template_render_failed": "Could not render the request template: {detail}",
+    "val_ce_auth_literal_credential": (
+        "This value appears to contain an actual secret key: reference the credential with the api_key "
+        "placeholder instead, or the key will be exposed when the definition is exported or shared"
+    ),
     "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} uses a wildcard: an object wildcard takes the first member only, "

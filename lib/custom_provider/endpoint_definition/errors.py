@@ -91,6 +91,7 @@ class DefinitionErrorCode(StrEnum):
     # ---- warning ----
     POLL_WITHOUT_TASK_ID = "poll_without_task_id"
     JSONPATH_WILDCARD_ORDER = "jsonpath_wildcard_order"
+    AUTH_LITERAL_CREDENTIAL = "auth_literal_credential"
 
 
 def message_key(code: DefinitionErrorCode) -> str:

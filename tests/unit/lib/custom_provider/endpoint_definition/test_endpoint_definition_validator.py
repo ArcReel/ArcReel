@@ -563,6 +563,25 @@ class TestWarnings:
         assert diagnostics.valid
         assert [issue.code for issue in diagnostics.warnings] == [DefinitionErrorCode.POLL_WITHOUT_TASK_ID]
 
+    def test_a_literal_credential_beside_the_placeholder_is_only_a_warning(self):
+        definition = custom_endpoint_definition()
+        definition["auth"] = {
+            "headers": {
+                "Authorization": "Bearer {{ api_key }}",
+                "X-Backup-Key": "sk-live-9f8e7d6c5b4a39281706",
+            }
+        }
+        diagnostics = validate_definition(definition)
+        assert diagnostics.valid
+        assert [issue.code for issue in diagnostics.warnings] == [DefinitionErrorCode.AUTH_LITERAL_CREDENTIAL]
+        assert diagnostics.warnings[0].path == "auth.headers.X-Backup-Key"
+
+    def test_placeholder_and_short_static_auth_values_do_not_look_like_credentials(self):
+        definition = custom_endpoint_definition()
+        definition["auth"]["headers"]["X-Api-Version"] = "2024-06-01"
+        definition["auth"]["headers"]["X-Client"] = "arcreel-desktop-production-build"
+        assert not validate_definition(definition).warnings
+
     def test_wildcard_ordering_is_only_a_warning(self):
         definition = custom_endpoint_definition()
         definition["poll"]["extract"]["video_url"] = ["$.outputs[*].url"]
