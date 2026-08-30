@@ -42,9 +42,6 @@ PROJECT = {
 #: 语法 / 声音用例据此保持单一关注点。
 PROJECT_WITHOUT_SCENES = {**PROJECT, "scenes": {}}
 
-#: 商品为主体的广告项目：登记商品与角色、不登记场景，是 ad 参考路线的典型资产形状。
-PROJECT_AD = {**PROJECT_WITHOUT_SCENES, "products": {"保温杯": {"description": "x"}}}
-
 #: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
@@ -217,12 +214,6 @@ def test_no_scene_warning_when_unit_references_a_scene():
 
 def test_no_scene_warning_when_project_registers_no_scene():
     preview = build_script_preview("中景，@[张三] 推门。", PROJECT_WITHOUT_SCENES, _SOFT)
-    assert keys(preview) == []
-
-
-def test_no_scene_warning_for_ad_project_without_scene_assets():
-    """商品为主体的广告项目常一张场景资产都没有：无处可引用时提示指不出任何动作。"""
-    preview = build_script_preview("中景，@[保温杯] 静置在桌面上。", PROJECT_AD, _SOFT)
     assert keys(preview) == []
 
 

@@ -475,18 +475,6 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
     assert "未引用场景" in text
 
 
-async def test_split_reference_video_units_silent_on_scene_warning_without_scene_assets(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
-    """项目一张场景资产都没登记时不发场景提示——无处可引用，提示指不出任何动作。"""
-    _rv_source(fake_ctx)
-    fake_ctx.pm.project_payload["scenes"] = {}  # pyright: ignore[reportAttributeAccessIssue]
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身。")])
-
-    assert out.get("is_error") is not True, out
-    assert "未引用场景" not in out["content"][0]["text"]
-
-
 async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:

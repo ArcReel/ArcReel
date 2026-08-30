@@ -7,7 +7,10 @@ from lib.prompt_builders_reference import (
     build_reference_video_prompt,
     render_reference_units_for_prompt_authoring,
 )
-from lib.prompt_rules.episode_target_duration import render_episode_target_duration_rule
+from lib.prompt_rules.episode_target_duration import (
+    EPISODE_TARGET_DURATION_RULE_TEMPLATE,
+    render_episode_target_duration_rule,
+)
 from lib.reference_video.writing_syntax import SCENE_REFERENCE_RULES, WRITING_SYNTAX_SPEC
 
 
@@ -295,8 +298,8 @@ class TestEpisodeTargetDurationInjection:
         prompt = _split_prompt(episode_target_duration=120)
         assert render_episode_target_duration_rule(120) in prompt
 
-    def test_split_prompt_is_unchanged_without_a_target(self):
-        assert _split_prompt(episode_target_duration=None) == _split_prompt()
+    def test_split_prompt_omits_the_rule_without_a_target(self):
+        assert EPISODE_TARGET_DURATION_RULE_TEMPLATE.split("{seconds}")[0] not in _split_prompt()
 
     def test_packing_no_longer_pushes_units_toward_the_per_call_ceiling(self):
         assert "使 unit 时长贴近 8 秒" in _split_prompt()

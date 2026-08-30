@@ -696,3 +696,40 @@ def test_video_component_composition_names_absent_future_components() -> None:
 
     assert explicit_none.digest == visual_only.digest
     assert with_speech.digest != visual_only.digest
+
+
+class TestTextFormArtifactCurrency:
+    """文本形态提示词照常进产物依据（ADR 0062）：改动它即让对应产物判 stale。"""
+
+    def test_text_form_image_prompt_participates_in_basis(self):
+        def _digest(image_prompt: object) -> str:
+            return build_storyboard_image_visual_basis(
+                resource_id="E1S02",
+                image_prompt=image_prompt,
+                style="Anime",
+                style_description="cinematic",
+                aspect_ratio="9:16",
+                references=(),
+            ).digest
+
+        assert _digest("初版文本提示词") == _digest("初版文本提示词")
+        assert _digest("初版文本提示词") != _digest("改过的文本提示词")
+        assert _digest("初版文本提示词") != _digest(
+            {"scene": "在雨夜街道", "composition": {"shot_type": "Medium Shot"}}
+        )
+
+    def test_text_form_video_prompt_participates_in_basis(self, tmp_path):
+        storyboard = tmp_path / "scene.png"
+        storyboard.write_bytes(b"png")
+
+        def _digest(visual_prompt: object) -> str:
+            return build_storyboard_video_artifact_visual_basis(
+                resource_id="E1S02",
+                visual_prompt=visual_prompt,
+                storyboard_image=storyboard,
+                end_frame_image=None,
+                aspect_ratio="9:16",
+            ).digest
+
+        assert _digest("初版视频文本提示词") == _digest("初版视频文本提示词")
+        assert _digest("初版视频文本提示词") != _digest("改过的视频文本提示词")

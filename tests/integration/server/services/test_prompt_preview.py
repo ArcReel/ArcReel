@@ -276,45 +276,6 @@ class TestPreviewUnavailableSides:
             await prompt_preview.preview_item_prompts("demo", "episode_1.json", "E9S99")
 
 
-class TestTextFormArtifactCurrency:
-    """文本形态提示词照常进产物依据（ADR 0062）：改动它即让对应产物判 stale。"""
-
-    def test_text_form_image_prompt_participates_in_basis(self, tmp_path):
-        from lib.visual_artifact_provenance import build_storyboard_image_visual_basis
-
-        def _digest(image_prompt: object) -> str:
-            return build_storyboard_image_visual_basis(
-                resource_id=ITEM_ID,
-                image_prompt=image_prompt,
-                style="Anime",
-                style_description="cinematic",
-                aspect_ratio="9:16",
-                references=(),
-            ).digest
-
-        assert _digest("初版文本提示词") == _digest("初版文本提示词")
-        assert _digest("初版文本提示词") != _digest("改过的文本提示词")
-        assert _digest("初版文本提示词") != _digest(STRUCTURED_IMAGE_PROMPT)
-
-    def test_text_form_video_prompt_participates_in_basis(self, tmp_path):
-        from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
-
-        storyboard = tmp_path / "scene.png"
-        storyboard.write_bytes(b"png")
-
-        def _digest(visual_prompt: object) -> str:
-            return build_storyboard_video_artifact_visual_basis(
-                resource_id=ITEM_ID,
-                visual_prompt=visual_prompt,
-                storyboard_image=storyboard,
-                end_frame_image=None,
-                aspect_ratio="9:16",
-            ).digest
-
-        assert _digest("初版视频文本提示词") == _digest("初版视频文本提示词")
-        assert _digest("初版视频文本提示词") != _digest("改过的视频文本提示词")
-
-
 class TestPromptPreviewTool:
     """MCP 工具层是服务层的薄包装：同一份预览，两个 host 同一入口。"""
 

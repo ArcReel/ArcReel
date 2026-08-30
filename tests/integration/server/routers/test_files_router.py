@@ -208,7 +208,7 @@ class TestFilesRouter:
             assert get_draft.status_code == 200
             assert "draft content" in get_draft.text
 
-            bad_stage = client.get("/api/v1/projects/demo/drafts/1/unknown_stage")
+            bad_stage = client.get("/api/v1/projects/demo/drafts/1/prompt_authoring")
             assert bad_stage.status_code == 400
 
             delete_draft = client.delete("/api/v1/projects/demo/drafts/1/script_plan")

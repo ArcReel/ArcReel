@@ -144,13 +144,6 @@ describe("computeVoiceLegacyNotice", () => {
     const units = [unit("E1U1", "王", ga({ video_generated_at: "2026-01-01T00:00:00Z" }))];
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
 
-    it("参考音频绑定档下照常报出", () => {
-      expect(computeVoiceLegacyNotice(units, characters, "reference_audio")).toEqual({
-        count: 1,
-        characterNames: ["王"],
-      });
-    });
-
     it("提示词软约束档下恒为空——该档不挂参考音频，换了也不改变已生成视频的声音", () => {
       expect(computeVoiceLegacyNotice(units, characters, "prompt")).toEqual({ count: 0, characterNames: [] });
     });

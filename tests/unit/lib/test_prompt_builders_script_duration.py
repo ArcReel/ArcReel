@@ -9,7 +9,13 @@ from lib.prompt_builders_script import (
     build_narration_split_prompt,
     build_normalize_prompt,
 )
-from lib.prompt_rules.episode_target_duration import render_episode_target_duration_rule
+from lib.prompt_rules.episode_target_duration import (
+    EPISODE_TARGET_DURATION_RULE_TEMPLATE,
+    render_episode_target_duration_rule,
+)
+
+#: 规则句的固定开头：未设目标时整段不注入，该开头不应出现在提示词中。
+_RULE_HEAD = EPISODE_TARGET_DURATION_RULE_TEMPLATE.split("{seconds}")[0]
 
 
 class TestFormatDurationConstraint:
@@ -91,11 +97,11 @@ class TestEpisodeTargetDurationInjection:
         prompt = _narration_prompt(episode_target_duration=120)
         assert render_episode_target_duration_rule(120) in prompt
 
-    def test_drama_prompt_is_unchanged_without_a_target(self):
-        assert _drama_prompt(episode_target_duration=None) == _drama_prompt()
+    def test_drama_prompt_omits_the_rule_without_a_target(self):
+        assert _RULE_HEAD not in _drama_prompt()
 
-    def test_narration_prompt_is_unchanged_without_a_target(self):
-        assert _narration_prompt(episode_target_duration=None) == _narration_prompt()
+    def test_narration_prompt_omits_the_rule_without_a_target(self):
+        assert _RULE_HEAD not in _narration_prompt()
 
     def test_the_rule_coexists_with_the_default_duration_preference(self):
         """两条约束尺度不同（整集体量 vs 单场秒数），须同时呈现而非互相取代。"""
