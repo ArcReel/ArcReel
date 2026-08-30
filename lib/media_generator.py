@@ -1059,7 +1059,7 @@ class MediaGenerator:
                         project_name=self.project_name,
                         task_id=task_id,
                         on_provider_resubmit_unsafe=_mark_provider_resubmit_unsafe,
-                        on_provider_response=lambda body: self.ledger.record_provider_response(
+                        on_provider_response=lambda _stage, body: self.ledger.record_provider_response(
                             call_id=call.call_id, body=body
                         ),
                         service_tier=version_metadata.get("service_tier", "default"),
@@ -1190,7 +1190,7 @@ class MediaGenerator:
             project_name=self.project_name,
             task_id=task_id,
             on_provider_response=(
-                (lambda body: self.ledger.record_provider_response(call_id=api_call_id, body=body))
+                (lambda _stage, body: self.ledger.record_provider_response(call_id=api_call_id, body=body))
                 if api_call_id is not None
                 else None
             ),

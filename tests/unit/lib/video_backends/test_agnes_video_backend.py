@@ -18,6 +18,7 @@ from lib.video_backends.agnes import AgnesVideoBackend
 from lib.video_backends.base import (
     AmbiguousSubmitError,
     ArtifactDownloadError,
+    ProviderResponseStage,
     ResumeExpiredError,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -425,6 +426,11 @@ class TestFailureAndTimeout:
     async def test_completed_with_null_remixed_from_video_id_uses_video_id_query(self, tmp_path: Path):
         """普通图生/文生视频完成态 remixed_from_video_id 恒为 null，成片地址须按 video_id
         二次查询取得。"""
+        recorded: list[tuple[ProviderResponseStage, object]] = []
+
+        async def _record(stage: ProviderResponseStage, body: object) -> None:
+            recorded.append((stage, body))
+
         with _agnes_api(base_url=_GATEWAY_BASE_URL) as routes:
             routes.submit.mock(return_value=_queued("t-null-remix"))
             routes.poll.mock(
@@ -442,7 +448,7 @@ class TestFailureAndTimeout:
             routes.download.mock(return_value=httpx.Response(200, content=b"queried-bytes"))
 
             backend = AgnesVideoBackend(api_key="k", base_url=_GATEWAY_BASE_URL)
-            result = await backend.generate(_request(tmp_path))
+            result = await backend.generate(_request(tmp_path, on_provider_response=_record))
 
             # 二次查询打网关根下的 /agnesapi，按 video_id 传参（不带 /v1，也不用 task_id）
             assert str(only_request(routes.query).url) == "https://apihub.agnes-ai.com/agnesapi?video_id=vid-123"
@@ -450,6 +456,7 @@ class TestFailureAndTimeout:
         assert result.video_uri == "https://cdn.agnes/queried.mp4"
         assert result.duration_seconds == 8
         assert result.video_path.read_bytes() == b"queried-bytes"
+        assert [stage for stage, _body in recorded] == ["submit", "poll", "result"]
 
     async def test_completed_with_direct_url_field_skips_video_id_query(self, tmp_path: Path):
         """完成态直接带 url 字段时直接下载，不发起 video_id 二次查询。"""

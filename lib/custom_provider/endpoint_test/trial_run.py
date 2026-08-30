@@ -34,7 +34,7 @@ from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import bound_provider_response
 from lib.ledger import Ledger
-from lib.video_backends.base import VideoGenerationRequest
+from lib.video_backends.base import ProviderResponseStage, VideoGenerationRequest
 from lib.video_frame_slots import resolve_first_frame_aspect_ratio
 
 from .check import STAGES, check_response, stage_report_payload
@@ -168,24 +168,21 @@ class TrialRun:
 
 
 class _ResponseCapture:
-    """按运行时的固定次序收供应商响应：提交一次，其后是轮询与可选的二次取件。
-
-    每条按与账本诊断列同一个 64 KiB 上限收口。提交经重试才成功时，首条留痕是失败的那次尝试，
-    成功的那次会落进轮询序列——两者都是提交阶段的真实响应，不额外猜。
-    """
+    """按运行时标记的阶段收供应商响应，每条按账本诊断列的 64 KiB 上限收口。"""
 
     def __init__(self) -> None:
         self.submit: object | None = None
         self.polls: deque[object] = deque(maxlen=MAX_POLL_RESPONSES)
-        self._seen_submit = False
+        self.result: object | None = None
 
-    def add(self, body: object) -> None:
+    def add(self, stage: ProviderResponseStage, body: object) -> None:
         bounded = bound_provider_response(body)
-        if not self._seen_submit:
-            self._seen_submit = True
+        if stage == "submit":
             self.submit = bounded
-            return
-        self.polls.append(bounded)
+        elif stage == "poll":
+            self.polls.append(bounded)
+        else:
+            self.result = bounded
 
 
 class TrialRunManager:
@@ -416,8 +413,8 @@ class TrialRunManager:
         *,
         aspect_ratio: str,
     ) -> VideoGenerationRequest:
-        async def on_provider_response(body: object) -> None:
-            capture.add(body)
+        async def on_provider_response(stage: ProviderResponseStage, body: object) -> None:
+            capture.add(stage, body)
             # 用户随时可能取消，而取消可能正落在这次写入中间。诊断留痕的写入被拦腰截断会留下
             # 一个半开的事务，随后的失败结算就得在一条坏掉的连接上做——shield 让这次写入自己跑完，
             # 取消照常传给调用它的那一层。写入任务登记在 run 名下：shield 只保护协程不被取消，
@@ -463,7 +460,7 @@ class TrialRunManager:
         run.finished_at = time.time()
         run.submit_response = capture.submit
         run.poll_responses = list(capture.polls)
-        run.extractions = _stage_reports(target.definition, capture, succeeded=status is TrialRunStatus.SUCCEEDED)
+        run.extractions = _stage_reports(target.definition, capture)
         try:
             self._result_file(run.id).write_text(
                 json.dumps(run.to_payload(), ensure_ascii=False, default=str), encoding="utf-8"
@@ -604,26 +601,18 @@ def _single(value: Path | list[Path] | None) -> Path | None:
     return value if isinstance(value, Path) else None
 
 
-def _stage_reports(
-    definition: Mapping[str, Any] | None, capture: _ResponseCapture, *, succeeded: bool
-) -> dict[str, Any]:
-    """按运行时的固定次序把留痕对回三节。没有定义可读（Python 实现的端点）返回空。
-
-    只在能确定对应关系时才出报告：成功且定义声明了二次取件节时，最后一条留痕必然是取件响应，
-    其前一条是最后一次轮询；其余情形最后一条就是最后一次轮询。对不上就不报，不猜。
-    """
+def _stage_reports(definition: Mapping[str, Any] | None, capture: _ResponseCapture) -> dict[str, Any]:
+    """按运行时阶段生成逐节提取报告。没有定义可读（Python 实现的端点）返回空。"""
     if definition is None:
         return {}
-    has_result = "result" in definition
     polls = list(capture.polls)
     bodies: dict[str, object] = {}
     if capture.submit is not None:
         bodies["submit"] = capture.submit
-    if succeeded and has_result and len(polls) >= 2:
-        bodies["poll"] = polls[-2]
-        bodies["result"] = polls[-1]
-    elif polls:
+    if polls:
         bodies["poll"] = polls[-1]
+    if capture.result is not None:
+        bodies["result"] = capture.result
     reports: dict[str, Any] = {}
     for stage in STAGES:
         body = bodies.get(stage)

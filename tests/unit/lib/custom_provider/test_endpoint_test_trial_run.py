@@ -133,6 +133,67 @@ class TestTrialRun:
         assert run.extractions["submit"]["task_id"] == "job-42"
         assert run.extractions["poll"]["status"] == "succeeded"
 
+    async def test_submit_retry_keeps_the_successful_submit_response(self, trial_runs: TrialRunManager):
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                side_effect=[
+                    httpx.Response(429, json={"error": "busy"}),
+                    httpx.Response(200, json={"task_id": "job-42"}),
+                ]
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                side_effect=[
+                    httpx.Response(200, json={"status": "processing"}),
+                    httpx.Response(
+                        200,
+                        json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+                    ),
+                ]
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            started = await trial_runs.start(_target(), PARAMETERS)
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.SUCCEEDED, run.error
+        assert run.submit_response == {"task_id": "job-42"}
+        assert run.poll_responses == [
+            {"status": "processing"},
+            {"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"},
+        ]
+
+    async def test_result_response_is_not_counted_as_polling(self, trial_runs: TrialRunManager):
+        definition = custom_endpoint_definition()
+        definition["poll"]["extract"] = {"status": ["$.status"], "result_id": ["$.result_id"]}
+        definition["result"] = {
+            "method": "GET",
+            "url": "{{ base_url }}/v1/video/result/{{ result_id }}",
+            "extract": {"video_url": ["$.video_url"]},
+        }
+        poll_body = {"status": "completed", "result_id": "result-9"}
+        result_body = {"video_url": "https://relay.test/files/job-42.mp4"}
+
+        with capture_http() as router, bounded_poll_clock(step=1.0):
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(200, json=poll_body)
+            )
+            router.get("https://relay.test/v1/video/result/result-9").mock(
+                return_value=httpx.Response(200, json=result_body)
+            )
+            router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+            target = declarative_target(definition, CREDENTIALS, PARAMETERS)
+            started = await trial_runs.start(target, PARAMETERS)
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.SUCCEEDED, run.error
+        assert run.poll_responses == [poll_body]
+        assert run.extractions["poll"]["status"] == "succeeded"
+        assert run.extractions["result"]["video_url"] == result_body["video_url"]
+
     async def test_terminal_result_is_read_from_disk(self, trial_runs: TrialRunManager):
         with capture_http() as router, bounded_poll_clock():
             _mock_successful_run(router)

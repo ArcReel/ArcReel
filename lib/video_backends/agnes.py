@@ -463,7 +463,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             resp.raise_for_status()
             return resp.json()
 
-        return await recording_poll(fetch, request)()
+        return await recording_poll(fetch, request, stage="result")()
 
     async def _resolve_video_url(
         self, client: httpx.AsyncClient, final: dict, request: VideoGenerationRequest

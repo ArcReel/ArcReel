@@ -38,6 +38,7 @@ from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     ProviderJobIdPersistenceMixin,
     ProviderJobStatus,
+    ProviderResponseStage,
     ResumeExpiredError,
     VideoCapabilities,
     VideoGenerationRequest,
@@ -403,7 +404,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             async def post() -> httpx.Response:
                 response = await self._send_without_status(client, section, context)
                 if response.status_code >= 400:
-                    await self._record_response(response, request)
+                    await self._record_response(response, request, "submit")
                 return response
 
             return await submit_post(
@@ -412,7 +413,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             )
 
         response = await retry_async(operation, retry_if=should_retry_submit)
-        body = await self._response_body(response, request)
+        body = await self._response_body(response, request, "submit")
         try:
             job_id = extract_value(section["extract"]["task_id"], body)
             error = extract_text(section["extract"].get("error"), body)
@@ -479,6 +480,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             section: Mapping[str, Any],
             section_context: Mapping[str, object],
             *,
+            stage: ProviderResponseStage,
             expire_on_404: bool,
         ) -> object:
             """取件一次，失败响应一律留痕。
@@ -490,12 +492,12 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             try:
                 response = await self._send(client, section, section_context)
             except httpx.HTTPStatusError as exc:
-                await self._record_response(exc.response, request)
+                await self._record_response(exc.response, request, stage)
                 if expire_on_404 and is_resume and exc.response.status_code == 404:
                     raise ResumeExpiredError(job_id=job_id, provider=self._provider) from exc
                 raise
             trusted_origins.add(self._endpoint_origin(section, section_context))
-            return await self._response_body(response, request)
+            return await self._response_body(response, request, stage)
 
         async def poll_once() -> ProviderState:
             return self._extract_state(
@@ -504,6 +506,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 await fetch(
                     self._definition["poll"],
                     poll_context,
+                    stage="poll",
                     expire_on_404=bool(self._definition["poll"].get("expire_on_404", True)),
                 ),
                 self._definition["poll"]["extract"],
@@ -527,7 +530,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             result_context = {**poll_context, "result_id": final.result_id}
 
             async def fetch_result() -> object:
-                return await fetch(self._definition["result"], result_context, expire_on_404=False)
+                return await fetch(self._definition["result"], result_context, stage="result", expire_on_404=False)
 
             # 走到这里供应商任务已经成功、钱已经花了，二次取件与产物下载同属「任务已建成后的
             # 幂等取件」：共用同一份预算，别让一次 429 / 5xx / 尚未收敛的 404 直接废掉成片。
@@ -585,27 +588,31 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         return extract_provider_state(body, extract, status_map=self._definition.get("status_map"), status=status)
 
     @staticmethod
-    async def _response_body(response: httpx.Response, request: VideoGenerationRequest) -> object:
+    async def _response_body(
+        response: httpx.Response, request: VideoGenerationRequest, stage: ProviderResponseStage
+    ) -> object:
         try:
             body = response.json()
         except ValueError as exc:
             # 2xx 但不是 JSON（网关的 HTML 错误页、被截断的响应）：原文先留痕再抛。诊断字段
             # 若停在上一次轮询的响应上，正好在最需要看到这次响应的场合给出误导。
-            await notify_provider_response(request, response.text)
+            await notify_provider_response(request, stage, response.text)
             raise DeclarativeRuntimeError(
                 "declarative_response_extract_failed", detail="provider response was not valid JSON"
             ) from exc
-        await notify_provider_response(request, body)
+        await notify_provider_response(request, stage, body)
         return body
 
     @staticmethod
-    async def _record_response(response: httpx.Response, request: VideoGenerationRequest) -> None:
+    async def _record_response(
+        response: httpx.Response, request: VideoGenerationRequest, stage: ProviderResponseStage
+    ) -> None:
         """留痕失败响应；非 JSON 体存截断后的原文，不因此让任务多失败一种方式。"""
         try:
             body: object = response.json()
         except ValueError:
             body = response.text
-        await notify_provider_response(request, body)
+        await notify_provider_response(request, stage, body)
 
     async def _download(
         self,
