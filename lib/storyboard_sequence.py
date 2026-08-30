@@ -77,7 +77,8 @@ def find_storyboard_item(
     resource_id: str,
 ) -> tuple[Any, int] | None:
     for index, item in enumerate(items):
-        if str(item.get(id_field)) == str(resource_id):
+        # 条目来自磁盘剧本 JSON，只有外层 list 被校验过：非映射条目跳过而不是抛 AttributeError。
+        if isinstance(item, dict) and str(item.get(id_field)) == str(resource_id):
             return item, index
     return None
 
@@ -165,7 +166,7 @@ def resolve_storyboard_video_inputs(
 
 def resolve_previous_storyboard_path(
     project_path: Path,
-    items: Sequence[dict],
+    items: Sequence[Any],
     id_field: str,
     resource_id: str,
 ) -> Path | None:
@@ -178,6 +179,8 @@ def resolve_previous_storyboard_path(
         return None
 
     previous_item = items[index - 1]
+    if not isinstance(previous_item, dict):
+        return None
     previous_id = str(previous_item.get(id_field) or "").strip()
     if not previous_id:
         return None

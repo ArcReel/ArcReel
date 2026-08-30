@@ -928,7 +928,9 @@ async def get_source_text(
 ) -> ToolOutcome[SourceTextContent]:
     try:
         project_dir = services.projects.get_project_path(scope.project_name)
-        if not request.value.startswith("source/"):
+        # path 是模型给的原始 JSON 入参，运行期不受 @tool schema 约束；非 str 在 startswith 上会抛
+        # AttributeError，越过本函数的降级口径变成 internal_error，故先判形状。
+        if not is_str(request.value) or not request.value.startswith("source/"):
             raise ValueError("path 必须指向 source/ 下的文本文件")
         content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, request.value)
         if not isinstance(content, str):

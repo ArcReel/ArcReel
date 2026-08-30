@@ -180,3 +180,23 @@ class TestMismatchedScriptStaysEditable:
         assert kind == "video_units"
         assert id_field == "unit_id"
         assert [item["unit_id"] for item in items] == ["E1U01"]
+
+
+class TestCorruptScriptEntries:
+    """磁盘剧本 JSON 的条目数组只保证外层是 list，元素形状由访问处判定。"""
+
+    def test_find_storyboard_item_skips_non_mapping_entries(self):
+        from lib.storyboard_sequence import find_storyboard_item
+
+        items = ["E1S01", None, {"segment_id": "E1S02"}]
+
+        assert find_storyboard_item(items, "segment_id", "E1S02") == ({"segment_id": "E1S02"}, 2)
+        assert find_storyboard_item(items, "segment_id", "E1S01") is None
+
+    def test_resolve_previous_storyboard_path_skips_non_mapping_predecessor(self, tmp_path: Path):
+        project_path = tmp_path / "demo"
+        (project_path / "storyboards").mkdir(parents=True)
+
+        items = ["broken", {"segment_id": "E1S02", "segment_break": False}]
+
+        assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S02") is None

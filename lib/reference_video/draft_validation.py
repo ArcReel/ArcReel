@@ -269,7 +269,7 @@ def validate_dialogue_load(
     label: str,
     text: str,
     duration_seconds: int,
-    language: str | None,
+    language: object,
     speech_rate_override: float | None = None,
 ) -> None:
     """校验该 unit 的台词量念得完：口播估算超出 unit 时长（含宽容系数）即违约。
