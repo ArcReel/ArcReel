@@ -13,9 +13,9 @@ from lib.storyboard_sequence import (
 )
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
+    FakeGenerator,
     _async_return,
     _fake_resolve_ctx,
-    _FakeGenerator,
     _FakePM,
     _prepare_files,
     _register_asset_sheet_claims,
@@ -29,7 +29,7 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         _register_asset_sheet_claims(fake_pm)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator(project_path)
+        fake_generator = FakeGenerator(project_path)
         emitted_batches = []
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -239,7 +239,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(_FakeGenerator()))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(FakeGenerator()))
 
         with pytest.raises(ValueError, match=r"script_file is required for storyboard task"):
             await generation_tasks.execute_storyboard_task("demo", "E1S01", {"prompt": "x"})
@@ -268,7 +268,7 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         _register_asset_sheet_claims(fake_pm)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator(project_path)
+        fake_generator = FakeGenerator(project_path)
         seen: list[dict] = []
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)

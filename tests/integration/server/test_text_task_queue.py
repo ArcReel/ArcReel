@@ -126,7 +126,7 @@ async def test_all_text_long_calls_submit_single_member_batches(
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
     services = Services(
         projects=projects,
-        workflow_planner=object(),  # type: ignore[arg-type]
+        workflow_planner=object(),
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
@@ -160,7 +160,7 @@ async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state
     await queue.release_worker_lease(name="default", owner_id="lost-worker")
     services = Services(
         projects=projects,
-        workflow_planner=object(),  # type: ignore[arg-type]
+        workflow_planner=object(),
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
@@ -191,7 +191,7 @@ async def test_text_mcp_migration_rejection_cleans_only_the_fresh_batch(
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
     services = Services(
         projects=projects,
-        workflow_planner=object(),  # type: ignore[arg-type]
+        workflow_planner=object(),
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
@@ -270,7 +270,7 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
     )
     services = Services(
         projects=projects,
-        workflow_planner=object(),  # type: ignore[arg-type]
+        workflow_planner=object(),
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
@@ -342,7 +342,7 @@ async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(
                 cursor=None,
             )
 
-    result = await execute_queued_text_task(task, planner_cls=Planner)  # type: ignore[arg-type]
+    result = await execute_queued_text_task(task, planner_cls=Planner)
     assert result["episodes"][0]["title"] == "第一集"
 
     class FailingPlanner(Planner):
@@ -350,7 +350,7 @@ async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(
             raise EpisodePlanningError("invalid source window")
 
     with pytest.raises(RuntimeError) as raised:
-        await execute_queued_text_task(task, planner_cls=FailingPlanner)  # type: ignore[arg-type]
+        await execute_queued_text_task(task, planner_cls=FailingPlanner)
     problem = problem_from_task_failure(str(raised.value))
     assert problem.code == "episode_planning_failed"
     assert problem.action is GenerationAction.RETRY
@@ -438,7 +438,7 @@ async def test_episode_script_terminal_update_race_cancels_batch_and_compensates
     worker = await _start_text_worker(queue, execute)
     services = Services(
         projects=projects,
-        workflow_planner=object(),  # type: ignore[arg-type]
+        workflow_planner=object(),
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
@@ -523,7 +523,7 @@ async def test_cancel_during_started_episode_script_commit_restores_formal_state
     worker = await _start_text_worker(queue, execute, dispatch_cancellation=True)
     services = Services(
         projects=projects,
-        workflow_planner=object(),  # type: ignore[arg-type]
+        workflow_planner=object(),
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
@@ -597,7 +597,7 @@ async def test_episode_plan_terminal_update_race_cancels_batch_and_compensates_l
             )
 
     async def create_planner(_cls, path):
-        return EpisodePlanner(path, generator=Generator())  # type: ignore[arg-type]
+        return EpisodePlanner(path, generator=Generator())
 
     monkeypatch.setattr(EpisodePlanner, "create", classmethod(create_planner))
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
@@ -609,7 +609,7 @@ async def test_episode_plan_terminal_update_race_cancels_batch_and_compensates_l
     )
     services = Services(
         projects=projects,
-        workflow_planner=object(),  # type: ignore[arg-type]
+        workflow_planner=object(),
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
@@ -675,7 +675,7 @@ async def test_cancel_during_started_episode_plan_commit_restores_batch_and_ledg
             return result
 
     async def create_planner(_cls, path):
-        planner = EpisodePlanner(path, generator=Generator())  # type: ignore[arg-type]
+        planner = EpisodePlanner(path, generator=Generator())
         planner.pm = BlockingProjectManager(projects.projects_root)
         return planner
 
@@ -689,7 +689,7 @@ async def test_cancel_during_started_episode_plan_commit_restores_batch_and_ledg
     worker = await _start_text_worker(queue, execute, dispatch_cancellation=True)
     services = Services(
         projects=projects,
-        workflow_planner=object(),  # type: ignore[arg-type]
+        workflow_planner=object(),
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
@@ -786,7 +786,7 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_no_workflow_b
     worker = await _start_text_worker(queue, execute, dispatch_cancellation=True)
     services = Services(
         projects=projects,
-        workflow_planner=object(),  # type: ignore[arg-type]
+        workflow_planner=object(),
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )

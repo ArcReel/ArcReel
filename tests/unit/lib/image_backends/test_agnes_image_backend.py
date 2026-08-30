@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -40,7 +40,7 @@ def _make_ref(tmp_path: Path, name: str) -> ReferenceImage:
 
 
 @contextmanager
-def _generate_route(response: httpx.Response, download: AsyncMock | None = None) -> Iterator[respx.Route]:
+def _generate_route(response: httpx.Response, download: AsyncMock | None = None) -> Generator[respx.Route]:
     """拦截建图 POST 并（可选）挡住产物下载，产出该路由供断言真实请求。"""
     with capture_http() as router:
         route = router.post(_ENDPOINT).mock(return_value=response)

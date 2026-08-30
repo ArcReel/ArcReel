@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -44,7 +44,7 @@ class SelectEndFrameRequest(BaseModel):
 
 
 @contextmanager
-def _translated_errors(script_file: str, _t: Translator) -> Iterator[None]:
+def _translated_errors(script_file: str, _t: Translator) -> Generator[None]:
     """三个端点共用的领域错误 → HTTP 映射。"""
     try:
         yield

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
@@ -43,7 +43,7 @@ class _KlingRoutes(NamedTuple):
 
 
 @contextmanager
-def _kling_api() -> Iterator[_KlingRoutes]:
+def _kling_api() -> Generator[_KlingRoutes]:
     videos = re.escape(f"{_BASE_URL}/videos")
     with capture_http() as router:
         yield _KlingRoutes(
@@ -664,7 +664,7 @@ class TestResume:
 class TestAudioGatingResult:
     @staticmethod
     @contextmanager
-    def _succeeding(task_id: str) -> Iterator[_KlingRoutes]:
+    def _succeeding(task_id: str) -> Generator[_KlingRoutes]:
         """submit 成功 → 一次轮询直接终态 → 下载空片，只留有声决策作观察点。"""
         with _kling_api() as routes:
             routes.submit.mock(return_value=_resp(_submit(task_id)))

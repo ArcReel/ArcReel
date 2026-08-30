@@ -162,9 +162,7 @@ async def test_generate_videos_episode_scope_declares_the_missing_only_selection
     """整集生成从不强制重生：已有可用片段一律复用，所以选择模式如实报 missing-only。"""
     from server.media_tools import videos as mod
 
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {  # type: ignore[attr-defined]
-        "storyboard_image": "storyboards/scene_E1S01.png"
-    }
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
 
     out = await _call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
@@ -180,7 +178,7 @@ async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolCo
     from lib.artifact_manifest import ArtifactComparison
     from server.media_tools import videos as mod
 
-    project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
+    project = fake_ctx.pm.project_payload
     project.update(
         {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
@@ -188,8 +186,8 @@ async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolCo
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         }
     )
-    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["episode"] = 1
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {
         "storyboard_image": "storyboards/scene_E1S01.png",
         "video_clip": "videos/scene_E1S01.mp4",
     }
@@ -235,7 +233,7 @@ async def test_generate_videos_episode_scope_blocks_a_clip_whose_manifest_state_
     from lib.artifact_manifest import ArtifactComparison
     from server.media_tools import videos as mod
 
-    project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
+    project = fake_ctx.pm.project_payload
     project.update(
         {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
@@ -243,8 +241,8 @@ async def test_generate_videos_episode_scope_blocks_a_clip_whose_manifest_state_
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         }
     )
-    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
-    segments = fake_ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["episode"] = 1
+    segments = fake_ctx.pm.script_payload["segments"]
     segments[0]["generated_assets"] = {
         "storyboard_image": "storyboards/scene_E1S01.png",
         "video_clip": "videos/scene_E1S01.mp4",
@@ -327,8 +325,8 @@ async def test_generate_videos_episode_scope_resolves_episode_from_canonical_fil
     from server.media_tools import videos as mod
     from server.services import video_batch_admission as admission_mod
 
-    fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload.pop("episode")
+    fake_ctx.pm.project_payload.update(
         {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "content_mode": "narration",
@@ -378,7 +376,7 @@ async def test_generate_videos_episode_scope_non_dict_generated_assets_does_not_
 
     project_dir = fake_ctx.pm.get_project_path("demo")
     (project_dir / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [
         {
             "segment_id": "E1S01",
             "novel_text": "第一段旁白。",
@@ -413,7 +411,7 @@ async def test_generate_videos_episode_scope_non_dict_generated_assets_does_not_
 
 
 async def test_generate_videos_episode_scope_error(fake_ctx: ToolContext) -> None:
-    fake_ctx.pm.script_payload = {"content_mode": "narration", "segments": [], "episode": 1}  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {"content_mode": "narration", "segments": [], "episode": 1}
     tool_obj = _episode_scope(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
@@ -426,7 +424,7 @@ async def test_generate_reference_video_rejects_unbound_active_script_before_gen
     from server.media_tools import videos as mod
 
     _activate_unbound_project(fake_ctx, generation_mode="reference_video")
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
@@ -444,8 +442,8 @@ async def test_generate_reference_video_legacy_unresolvable_episode_fails_before
     from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
+    fake_ctx.pm.script_payload.pop("episode")
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
@@ -469,7 +467,7 @@ async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_co
     ):
         # 键在场即按类型判定，不看真值：``{}`` / ``""`` / ``False`` 同样是类型错误，
         # 报成「为空」会把成因埋掉。
-        fake_ctx.pm.script_payload = _reference_video_script(video_units=malformed)  # type: ignore[attr-defined]
+        fake_ctx.pm.script_payload = _reference_video_script(video_units=malformed)
         tool_obj = _episode_scope(fake_ctx)
         out = await _call(tool_obj, {"script": "episode_1.json"})
         assert out.get("is_error") is True
@@ -485,7 +483,7 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
     from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
@@ -576,7 +574,7 @@ async def test_generate_videos_episode_scope_reference_returns_structured_projec
     from lib.reference_video.request_projection import ProjectionProblem
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
 
     class _BlockedProjection:
         unit_id = "E1U1"
@@ -669,7 +667,7 @@ async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues
     from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
@@ -719,7 +717,7 @@ async def test_generate_videos_reference_force_false_reuses_existing_video(fake_
     )
     script = _reference_video_script()
     script["video_units"][0]["generated_assets"] = {"video_clip": video_path}
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
     fake_ctx.queue = GenerationQueue(session_factory=db_factory)
 
     out = await _call(
@@ -743,7 +741,7 @@ async def test_generate_videos_scene_force_false_reuses_existing_video(fake_ctx:
         resource_id="E1S01",
         content=b"existing-video",
     )
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"]["video_clip"] = video_path  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"]["video_clip"] = video_path
 
     out = await _call(
         generate_videos_tool(fake_ctx),
@@ -845,7 +843,7 @@ async def test_generate_videos_resubmits_only_remaining_ids_from_a_durable_batch
     from lib.db.base import DEFAULT_USER_ID
     from server.tool_runtime import CallerContext
 
-    segments = fake_ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+    segments = fake_ctx.pm.script_payload["segments"]
     segments.append(
         {
             **segments[0],
@@ -907,7 +905,7 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
     from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script(  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script(
         video_units=[
             {
                 "unit_id": "E1U1",
@@ -1080,7 +1078,7 @@ async def test_generate_videos_episode_scope_reference_honors_requested_narratio
     from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
 
     enqueued: list[Any] = []
 
@@ -1156,7 +1154,7 @@ async def test_generate_videos_episode_scope_reference_duration_repeat_without_c
     from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
@@ -1192,7 +1190,7 @@ async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_d
     from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=5, total_seconds=5, adjustment=EXACT)
@@ -1247,7 +1245,7 @@ async def test_generate_videos_episode_scope_reference_duration_skips_unit_witho
     script = _reference_video_script()
     script["video_units"].append({"unit_id": "E1U2", "duration_seconds": 5})
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
 
     precheck_calls: list[str] = []
 
@@ -1319,7 +1317,7 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
         }
     )
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
 
     context_calls: list[Any] = []
 
@@ -1358,7 +1356,7 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
     for unit in script["video_units"]:
         unit["text"] = ""
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
 
     projection_calls: list[str] = []
 
@@ -1388,7 +1386,7 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
     for unit in script["video_units"]:
         unit["text"] = "   "
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = script
 
     projection_calls: list[str] = []
 
@@ -1462,7 +1460,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
 
     def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
@@ -1525,7 +1523,7 @@ async def test_generate_videos_scene_scope_reference_use_tts_exposes_the_shared_
     from server.services.cost_estimation import VideoRequestQuote
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = _reference_video_script()
 
     def fake_precheck(_ctx, _unit):
         return DurationSlot(seconds=8, total_seconds=8, adjustment=EXACT)
@@ -1821,8 +1819,8 @@ async def test_generate_videos_scene_scope_use_tts_blocks_when_exact_cost_is_una
 async def test_generate_videos_scene_scope_accepts_legacy_drama_dialogue(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.media_tools import videos as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["content_mode"] = "drama"
+    fake_ctx.pm.script_payload = {
         "content_mode": "drama",
         "episode": 1,
         "scenes": [
@@ -1849,8 +1847,8 @@ async def test_generate_videos_scene_scope_accepts_legacy_drama_dialogue(fake_ct
 async def test_generate_videos_scene_scope_accepts_speech_free_legacy_drama(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.media_tools import videos as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["content_mode"] = "drama"
+    fake_ctx.pm.script_payload = {
         "content_mode": "drama",
         "episode": 1,
         "scenes": [
@@ -1877,8 +1875,8 @@ async def test_generate_videos_scene_scope_accepts_legacy_narration_string_promp
 ) -> None:
     from server.media_tools import videos as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["content_mode"] = "narration"
+    fake_ctx.pm.script_payload = {
         "content_mode": "narration",
         "episode": 1,
         "segments": [
@@ -1906,7 +1904,7 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_sp
     project_dir = fake_ctx.pm.get_project_path("demo")
     for segment_id in ("E1S01", "E1S02"):
         (project_dir / "storyboards" / f"scene_{segment_id}.png").write_bytes(b"png")
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [
         {
             "segment_id": "E1S01",
             "novel_text": "风吹过旷野。",
@@ -1951,10 +1949,8 @@ async def test_six_route_agent_single_video_generation_returns_structured_admiss
 ) -> None:
     from server.media_tools import videos as mod
 
-    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
-        {"content_mode": case.content_mode, "generation_mode": case.generation_mode}
-    )
-    fake_ctx.pm.script_payload = case.script()  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload.update({"content_mode": case.content_mode, "generation_mode": case.generation_mode})
+    fake_ctx.pm.script_payload = case.script()
     batch_enqueue = AsyncMock()
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", batch_enqueue)
     # reference_video 生成模式在准入失败前先探测在途任务（真实 DB 查询）；三个 storyboard
@@ -1992,7 +1988,7 @@ async def test_generate_videos_scene_scope_missing(fake_ctx: ToolContext) -> Non
 async def test_generate_videos_scene_scope_rejects_invalid_storyboard_image(
     fake_ctx: ToolContext, storyboard_value: object
 ) -> None:
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {"storyboard_image": storyboard_value}  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {"storyboard_image": storyboard_value}
     tool_obj = _scene_scope(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
     assert out.get("is_error") is True
@@ -2036,7 +2032,7 @@ async def test_generate_videos_all_scope_preserves_the_selected_manual_upload(
     fake_ctx.caller = CallerContext(user_id=DEFAULT_USER_ID, source=source)
 
     project_path = fake_ctx.project_path
-    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload.update(
         {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
@@ -2048,7 +2044,7 @@ async def test_generate_videos_all_scope_preserves_the_selected_manual_upload(
         resource_id="E1S01",
         content=b"manual-video",
     )
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"]["video_clip"] = artifact_path  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"]["video_clip"] = artifact_path
     enqueue = AsyncMock(return_value=([], []))
     spec = TaskSpec.from_request(
         task_type="video",
@@ -2081,7 +2077,7 @@ async def test_generate_videos_all_scope_error(fake_ctx: ToolContext) -> None:
     def boom(*a, **kw):
         raise RuntimeError("broken")
 
-    fake_ctx.pm.load_script = boom  # type: ignore[attr-defined]
+    fake_ctx.pm.load_script = boom
     tool_obj = _all_scope(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
@@ -2282,7 +2278,7 @@ def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batc
 async def test_generate_videos_scene_scope_generated_assets_non_dict_readable_rejection(fake_ctx: ToolContext) -> None:
     """generated_assets 容器本身非 dict 时须走「没有分镜图」的可读拒绝分支，
     不应在单条路径上抛未处理 AttributeError。"""
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = ["bad"]  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = ["bad"]
     tool_obj = _scene_scope(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
     assert out.get("is_error") is True
@@ -2407,7 +2403,7 @@ async def test_resolve_voice_context_drama_reads_project_characters_and_gate(
 
     monkeypatch.setattr(admission_mod, "resolve_project_is_silent", fake_not_silent)
     characters = await admission_mod.resolve_voice_context(fake_ctx.pm.project_payload, "drama")
-    assert characters == fake_ctx.pm.project_payload["characters"]  # type: ignore[attr-defined]
+    assert characters == fake_ctx.pm.project_payload["characters"]
 
     async def fake_silent(_project, _episode=None):
         return True
@@ -2524,7 +2520,7 @@ def ad_reference_ctx(fake_ctx: ToolContext) -> ToolContext:
     fake_ctx.config_resolver = _fake_caps_resolver(supported_durations=(5,), default_duration=5)
 
     pm = fake_ctx.pm
-    pm.project_payload.update(  # type: ignore[attr-defined]
+    pm.project_payload.update(
         {
             "content_mode": "ad",
             "generation_mode": "reference_video",
@@ -2533,7 +2529,7 @@ def ad_reference_ctx(fake_ctx: ToolContext) -> ToolContext:
             "episodes": [{"episode": 1, "title": "短片", "script_file": "scripts/episode_1.json"}],
         }
     )
-    pm.script_payload = {  # type: ignore[attr-defined]
+    pm.script_payload = {
         "content_mode": "ad",
         "episode": 1,
         "title": "短片",
@@ -2575,8 +2571,8 @@ async def test_generate_videos_episode_scope_reference_skips_malformed_unit_entr
     """脏 unit 元素交给逐条校验拒绝，不在完成扫描、音频闸门或时长预检抛未处理异常。"""
     from server.media_tools import videos as mod
 
-    valid = ad_reference_ctx.pm.script_payload["video_units"][0]  # type: ignore[attr-defined]
-    ad_reference_ctx.pm.script_payload["video_units"] = ["bad", {}, valid]  # type: ignore[attr-defined]
+    valid = ad_reference_ctx.pm.script_payload["video_units"][0]
+    ad_reference_ctx.pm.script_payload["video_units"] = ["bad", {}, valid]
     enqueued: list[Any] = []
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
 
@@ -2609,7 +2605,7 @@ async def test_generate_videos_episode_scope_ad_reference_enqueues_existing_vide
 
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in enqueued] == ["E1U1"]
-    script = ad_reference_ctx.pm.script_payload  # type: ignore[attr-defined]
+    script = ad_reference_ctx.pm.script_payload
     assert [unit["unit_id"] for unit in script["video_units"]] == ["E1U1"]
     assert "reference_units" not in script
 
@@ -2642,16 +2638,14 @@ async def test_generate_videos_episode_scope_ad_reference_preserves_the_selected
     from server.media_tools import videos as mod
 
     project_path = ad_reference_ctx.project_path
-    ad_reference_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
+    ad_reference_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
     artifact_path = _select_manual_video(
         project_path,
         resource_type="reference_videos",
         resource_id="E1U1",
         content=b"manual-reference-video",
     )
-    ad_reference_ctx.pm.script_payload["video_units"][0]["generated_assets"] = {  # type: ignore[attr-defined]
-        "video_clip": artifact_path
-    }
+    ad_reference_ctx.pm.script_payload["video_units"][0]["generated_assets"] = {"video_clip": artifact_path}
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _MissingEverythingResolver())
     monkeypatch.setattr(mod, "artifact_is_usable", lambda *_args: False)
@@ -2678,14 +2672,12 @@ async def test_generate_videos_episode_scope_reference_blocks_a_clip_whose_manif
     from server.media_tools import videos as mod
 
     project_path = ad_reference_ctx.project_path
-    ad_reference_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
+    ad_reference_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
     artifact_path = "reference_videos/E1U1.mp4"
     output = project_path / artifact_path
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(b"\x00")
-    ad_reference_ctx.pm.script_payload["video_units"][0]["generated_assets"] = {  # type: ignore[attr-defined]
-        "video_clip": artifact_path
-    }
+    ad_reference_ctx.pm.script_payload["video_units"][0]["generated_assets"] = {"video_clip": artifact_path}
 
     class _BlockedResolver:
         def compare(self, key, *, artifact_path):
@@ -2729,7 +2721,7 @@ async def test_generate_videos_episode_scope_ad_reference_replan_shell_cannot_en
     """迁移保留的 needs_replan 空壳可被读取，但不能提交生成任务。"""
     from server.media_tools import videos as mod
 
-    ad_reference_ctx.pm.script_payload["video_units"] = [  # type: ignore[attr-defined]
+    ad_reference_ctx.pm.script_payload["video_units"] = [
         _ad_reference_unit(
             shots=[],
             references=[],
@@ -2767,7 +2759,7 @@ async def test_generate_videos_episode_scope_ad_reference_replan_unit_cannot_reu
     """迁移保留的已归属视频不能绕过 needs_replan 生成闸门。"""
     from server.media_tools import videos as mod
 
-    ad_reference_ctx.pm.script_payload["video_units"] = [  # type: ignore[attr-defined]
+    ad_reference_ctx.pm.script_payload["video_units"] = [
         _ad_reference_unit(
             needs_replan=True,
             migration_requires_content_replan=True,
@@ -2877,8 +2869,8 @@ def test_video_generation_dispatches_by_generation_mode_for_every_content_mode(
     generation_mode: str,
 ) -> None:
     """六个组合各自派给正确的生成模式，且骨架闸门放行本组合应有的骨架。"""
-    fake_ctx.pm.project_payload["content_mode"] = content_mode  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["generation_mode"] = generation_mode  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["content_mode"] = content_mode
+    fake_ctx.pm.project_payload["generation_mode"] = generation_mode
     skeleton = _SKELETON_BY_MODE_PAIR[(content_mode, generation_mode)]
     script = {"content_mode": content_mode, "episode": 1, skeleton: []}
 
@@ -2895,8 +2887,8 @@ def test_video_generation_refuses_a_script_from_the_other_generation_mode(
 ) -> None:
     """骨架来自另一种生成模式时六个组合一律拒绝入队，不静默按剧本形态改派。"""
     other_mode = "storyboard" if generation_mode == "reference_video" else "reference_video"
-    fake_ctx.pm.project_payload["content_mode"] = content_mode  # type: ignore[attr-defined]
-    fake_ctx.pm.project_payload["generation_mode"] = generation_mode  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["content_mode"] = content_mode
+    fake_ctx.pm.project_payload["generation_mode"] = generation_mode
     mismatched = _SKELETON_BY_MODE_PAIR[(content_mode, other_mode)]
     script = {"content_mode": content_mode, "episode": 1, mismatched: []}
 
@@ -2908,10 +2900,8 @@ async def test_post_production_video_never_asks_for_the_missing_tts(fake_ctx: To
     """后期配音的视频请求既不自动补 TTS，也不把缺 TTS 报成一条待办。"""
     from server.media_tools import videos as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {  # type: ignore[attr-defined]
-        "storyboard_image": "storyboards/scene_E1S01.png"
-    }
+    fake_ctx.pm.project_payload["content_mode"] = "narration"
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
 
     out = await _call(
@@ -2941,7 +2931,7 @@ async def test_generate_videos_rejects_mismatched_unit_script_on_storyboard_rout
 
     静默降档与悄悄换路径都不可构造——存量混排集的唯一出路是重拆重生成。
     """
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {
         "content_mode": "narration",
         "episode": 1,
         "video_units": [{"unit_id": "E1U1", "text": "x", "duration_seconds": 5}],
@@ -2960,7 +2950,7 @@ async def test_generate_videos_episode_scope_rejects_mismatched_storyboard_scrip
 ) -> None:
     """反向：参考生视频项目下的分镜骨架剧本同样被拒，指引重跑 unit 拆分。"""
 
-    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
     tool_obj = _episode_scope(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
 

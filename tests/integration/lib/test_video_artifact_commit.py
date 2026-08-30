@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -73,7 +73,7 @@ def test_matching_typed_basis_selects_and_registers_inside_the_shared_guard(tmp_
     events: list[str] = []
 
     @contextmanager
-    def _guard() -> Iterator[object]:
+    def _guard() -> Generator[object]:
         events.append("guard-enter")
         yield object()
         events.append("guard-exit")
@@ -284,7 +284,7 @@ def test_selection_guard_failure_still_archives_the_paid_video(tmp_path: Path) -
     basis = currency.video_descriptor
 
     @contextmanager
-    def _failed_guard() -> Iterator[object]:
+    def _failed_guard() -> Generator[object]:
         raise OSError("project snapshot unavailable")
         yield object()
 

@@ -96,7 +96,7 @@ def _videos_tool_for_scope(ctx: ToolContext, scope: str):
 _CLAIMED_BASIS_DIGEST = "sha256-v1:" + "a" * 64
 
 
-class _FakePM:
+class FakePM:
     def __init__(self, project_name: str, project_dir: Path):
         self._project_name = project_name
         self._project_dir = project_dir
@@ -372,7 +372,7 @@ async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _activate_unbound_project(fake_ctx: ToolContext, *, generation_mode: str = "storyboard") -> None:
-    project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
+    project = fake_ctx.pm.project_payload
     project.update(
         {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
@@ -402,7 +402,7 @@ def _reference_video_script(**overrides: Any) -> dict[str, Any]:
 
 def _use_reference_route(fake_ctx: ToolContext) -> None:
     """把 fake 项目切到参考生视频——生成模式是项目级事实，剧本不携带戳。"""
-    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
 
 
 def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
@@ -435,10 +435,10 @@ def _rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video")
 
     盘上的 project.json 与 pm 的内存视图同步：生成入口从盘上读，晋升工具经 ``pm.load_project`` 读。
     """
-    fake_ctx.pm.project_payload["content_mode"] = "narration"  # pyright: ignore[reportAttributeAccessIssue]
-    fake_ctx.pm.project_payload["generation_mode"] = generation_mode  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["content_mode"] = "narration"
+    fake_ctx.pm.project_payload["generation_mode"] = generation_mode
     (fake_ctx.project_path / "project.json").write_text(
-        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),  # pyright: ignore[reportAttributeAccessIssue]
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -580,8 +580,8 @@ def _drama_project(fake_ctx: ToolContext) -> None:
         json.dumps({"content_mode": "drama", "generation_mode": "storyboard"}, ensure_ascii=False),
         encoding="utf-8",
     )
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # pyright: ignore[reportAttributeAccessIssue]
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["content_mode"] = "drama"
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True, exist_ok=True)
     (src / "episode_1.txt").write_text(_DRAMA_NOVEL, encoding="utf-8")

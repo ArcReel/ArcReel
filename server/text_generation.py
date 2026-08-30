@@ -74,6 +74,7 @@ from lib.reference_video.script_preview import (
 )
 from lib.reference_video.text_parser import extract_mentions
 from lib.reference_video.voice_settings import VoiceRenderSettings
+from lib.schema_guards import is_int, is_str
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
     NarrationScriptPlanDraft,
@@ -110,14 +111,14 @@ class TextGenerationRequest:
     entry_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if isinstance(self.episode, bool) or not isinstance(self.episode, int) or self.episode < 1:
+        if not is_int(self.episode, minimum=1):
             raise ValueError("episode must be a positive integer")
         if self.scope not in {SCOPE_ALL, SCOPE_STALE}:
             raise ValueError(f"scope must be {SCOPE_ALL!r} or {SCOPE_STALE!r}")
         # 队列 payload 经 JSON 往返后 entry_ids 是 list：在此归一为 tuple，让「从工具入口构造」
         # 与「从 payload 还原」两条路径得到同一个值，任务事实比对才不会因容器类型分叉。
         entry_ids = tuple(self.entry_ids)
-        if any(not isinstance(entry_id, str) or not entry_id for entry_id in entry_ids):
+        if any(not is_str(entry_id) or not entry_id for entry_id in entry_ids):
             raise ValueError("entry_ids must be non-empty strings")
         if entry_ids and self.scope == SCOPE_ALL:
             raise ValueError("entry_ids 与 scope='all' 互斥：要么整集重写，要么只重写指定条目")
@@ -504,7 +505,7 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
     的调用方一律只接 ValueError，放行 TypeError 会在内容确认的读时重算里变成未处理的
     500，而不是「无法重算」这个本该有的降级态。
     """
-    if source is not None and not isinstance(source, str):
+    if source is not None and not is_str(source):
         raise ValueError(f"meta.source 类型非法，须为字符串或 null：{source!r}")
     if source:
         try:

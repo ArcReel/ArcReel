@@ -7,7 +7,6 @@ own a second stale store beside :mod:`lib.artifact_manifest`.
 
 from __future__ import annotations
 
-import math
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -18,6 +17,7 @@ from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
 from lib.asset_types import asset_name_comparison_key, normalize_asset_bucket
 from lib.content_digest import PREFIXED_DIGEST_RE, prefixed_sha256_file
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS
+from lib.schema_guards import is_finite_number, is_str
 from lib.speech_composition import SpeechMode, SpeechOwner, SpeechPreparation
 
 RenditionVariant = Literal["post_production", "use_tts"]
@@ -42,12 +42,8 @@ class CharacterVoiceEvidence:
     reference_audio: Path | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.speaker, str) or not self.speaker.strip():
+        if not self.speaker.strip():
             raise ValueError("speaker must be a non-empty string")
-        if not isinstance(self.voice_style, str):
-            raise ValueError("voice_style must be a string")
-        if self.reference_audio is not None and not isinstance(self.reference_audio, Path):
-            raise TypeError("reference_audio must be a Path or null")
         object.__setattr__(self, "speaker", asset_name_comparison_key(self.speaker))
         object.__setattr__(self, "voice_style", _canonical_text(self.voice_style))
 
@@ -70,12 +66,10 @@ class SelectedMediaEvidence:
     actual_duration_seconds: float
 
     def __post_init__(self) -> None:
-        if not isinstance(self.basis, ArtifactBasisDescriptor):
-            raise TypeError("basis must be an ArtifactBasisDescriptor")
-        if not isinstance(self.content_digest, str) or PREFIXED_DIGEST_RE.fullmatch(self.content_digest) is None:
+        if not is_str(self.content_digest) or PREFIXED_DIGEST_RE.fullmatch(self.content_digest) is None:
             raise ValueError("content_digest must be a canonical sha256-v1 digest")
         duration = self.actual_duration_seconds
-        if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration):
+        if not is_finite_number(duration):
             raise ValueError("actual_duration_seconds must be positive and finite")
         if duration <= 0:
             raise ValueError("actual_duration_seconds must be positive and finite")
@@ -90,7 +84,7 @@ class SelectedMediaEvidence:
         actual_duration_seconds: float,
     ) -> SelectedMediaEvidence:
         return cls(
-            basis=_basis_descriptor("basis", basis),
+            basis=_basis_descriptor(basis),
             content_digest=media_content_digest(path),
             actual_duration_seconds=actual_duration_seconds,
         )
@@ -112,8 +106,6 @@ class SubtitleUtteranceEvidence:
     speaker: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.owner, SpeechOwner):
-            raise TypeError("owner must be a SpeechOwner")
         normalized_text = _canonical_text(self.text)
         if not normalized_text:
             raise ValueError("subtitle utterance text must be non-empty")
@@ -155,8 +147,6 @@ def project_character_voice_evidence(
         return ()
     style_names = {asset_name_comparison_key(name) for name in voice_style_speakers}
     audio_paths = {asset_name_comparison_key(name): path for name, path in (reference_audio_paths or {}).items()}
-    if any(not isinstance(path, Path) for path in audio_paths.values()):
-        raise TypeError("reference_audio_paths values must be Paths")
     character_bucket = normalize_asset_bucket(characters)
     ordered_speakers = list(
         dict.fromkeys(
@@ -197,8 +187,6 @@ def build_video_speech_basis(
     """
 
     mode = _require_prepared_speech(preparation)
-    if any(not isinstance(voice, CharacterVoiceEvidence) for voice in voices):
-        raise TypeError("voices must contain CharacterVoiceEvidence values")
     profiles: dict[str, CharacterVoiceEvidence] = {}
     for voice in voices:
         if voice.speaker in profiles:
@@ -269,12 +257,6 @@ def build_mechanical_subtitle_basis(
 
     mode = _require_prepared_speech(preparation)
     normalized_variant = _variant(variant)
-    if not isinstance(video, SelectedMediaEvidence):
-        raise TypeError("video must be SelectedMediaEvidence")
-    if narration_audio is not None and not isinstance(narration_audio, SelectedMediaEvidence):
-        raise TypeError("narration_audio must be SelectedMediaEvidence or null")
-    if not isinstance(timing_policy, Mapping):
-        raise TypeError("timing_policy must be a mapping")
 
     narrator_uses_tts = mode is SpeechMode.NARRATOR_VOICEOVER and normalized_variant == USE_TTS
     if narrator_uses_tts and narration_audio is None:
@@ -308,17 +290,7 @@ def build_presentation_basis(
     """Describe a final-presentation variant without performing media mixing."""
 
     normalized_variant = _variant(variant)
-    if not isinstance(video, SelectedMediaEvidence):
-        raise TypeError("video must be SelectedMediaEvidence")
-    subtitle_descriptor = _basis_descriptor("subtitle", subtitle)
-    if narration_audio is not None and not isinstance(narration_audio, SelectedMediaEvidence):
-        raise TypeError("narration_audio must be SelectedMediaEvidence or null")
-    if not isinstance(provider_audio_enabled, bool):
-        raise TypeError("provider_audio_enabled must be a boolean")
-    if not isinstance(transition_to_next, str):
-        raise TypeError("transition_to_next must be a string")
-    if not isinstance(mix_policy, Mapping):
-        raise TypeError("mix_policy must be a mapping")
+    subtitle_descriptor = _basis_descriptor(subtitle)
     if normalized_variant == USE_TTS and narration_audio is None:
         raise ValueError("use_tts presentation basis requires narration audio")
     if normalized_variant == POST_PRODUCTION and narration_audio is not None:
@@ -361,25 +333,21 @@ def project_subtitle_utterances(preparation: SpeechPreparation) -> tuple[Subtitl
 
 
 def _require_prepared_speech(preparation: SpeechPreparation) -> SpeechMode:
-    if not isinstance(preparation, SpeechPreparation):
-        raise TypeError("preparation must be a SpeechPreparation")
     if preparation.problems or preparation.mode is None:
         raise ValueError("cannot build artifact basis from blocked speech preparation")
     return preparation.mode
 
 
-def _basis_descriptor(field: str, value: ArtifactBasis | ArtifactBasisDescriptor) -> ArtifactBasisDescriptor:
+def _basis_descriptor(value: ArtifactBasis | ArtifactBasisDescriptor) -> ArtifactBasisDescriptor:
     if isinstance(value, ArtifactBasis):
         return ArtifactBasisDescriptor.from_basis(value)
-    if isinstance(value, ArtifactBasisDescriptor):
-        return value
-    raise TypeError(f"{field} must be an ArtifactBasis or ArtifactBasisDescriptor")
+    return value
 
 
 def _variant(value: object) -> RenditionVariant:
     if value not in (POST_PRODUCTION, USE_TTS):
         raise ValueError(f"unsupported rendition variant: {value!r}")
-    return value  # type: ignore[return-value]
+    return value
 
 
 def _canonical_text(value: object) -> str:

@@ -1311,7 +1311,7 @@ class TestGenerationWorker:
         """drain 端兜底 mark_cancelled 自身抛错时只 warning，不冒泡（不挂掉主循环）。"""
 
         class _RaisingQueue(_FakeQueue):
-            async def mark_task_cancelled(self, task_id, *, cancelled_by="user"):  # type: ignore[override]
+            async def mark_task_cancelled(self, task_id, *, cancelled_by="user"):
                 raise RuntimeError("db down")
 
         queue = _RaisingQueue()
@@ -2732,7 +2732,7 @@ class TestOrphanOnceAndLeaseFlap:
             scan_count.append(1)
 
         # 替换 _handle_orphan_tasks_on_start 为 spy，便于精确断言扫描次数
-        worker._handle_orphan_tasks_on_start = _spy_scan  # type: ignore[assignment]
+        worker._handle_orphan_tasks_on_start = _spy_scan
         return worker, queue, scan_count
 
     @pytest.mark.asyncio

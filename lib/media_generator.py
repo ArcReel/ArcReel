@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 def task_media_staging_path(output_path: Path, task_id: str) -> Path:
     """Return the bounded, deterministic formal-output path owned by one task."""
 
-    if not isinstance(task_id, str) or not task_id:
+    if not task_id:
         raise ValueError("formal media output requires a task_id")
     token = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
     return output_path.with_name(f".{token}.task-output{output_path.suffix}")
@@ -938,9 +938,7 @@ class MediaGenerator:
         # （如 wan2.7）不必为每个请求多付一轮 ffprobe 子进程开销。
         reference_audio_total_seconds = (
             await probe_reference_audio_total_seconds(reference_audio_files)
-            if reference_audio_files
-            and video_caps is not None
-            and video_caps.max_reference_audio_total_seconds is not None
+            if reference_audio_files and video_caps.max_reference_audio_total_seconds is not None
             else None
         )
         slot_plan = plan_frame_slots(

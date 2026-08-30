@@ -2,8 +2,8 @@
 
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
+    FakeGenerator,
     _fake_resolve_ctx,
-    _FakeGenerator,
     _FakePM,
     _prepare_files,
 )
@@ -15,7 +15,7 @@ class TestGenerationTasks:
         完成后回写 product_sheet。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator(project_path)
+        fake_generator = FakeGenerator(project_path)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -41,7 +41,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["products"]["保温杯"]["reference_images"] = []
-        fake_generator = _FakeGenerator(project_path)
+        fake_generator = FakeGenerator(project_path)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))

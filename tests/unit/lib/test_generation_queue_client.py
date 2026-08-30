@@ -715,7 +715,7 @@ class TestBatchEnqueueOnly:
                 blocked=[],
                 specs=[],
                 source="mcp",
-                queue=_Queue(),  # type: ignore[arg-type]
+                queue=_Queue(),
             )
 
         assert calls == ["migration"]

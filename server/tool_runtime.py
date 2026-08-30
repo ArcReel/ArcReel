@@ -103,6 +103,7 @@ from lib.project_migration_failure import (
 )
 from lib.project_migration_guard import project_migration_failure
 from lib.project_migrations import migrate_project_with_verdict
+from lib.schema_guards import is_int, is_str
 from lib.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditLocation,
@@ -685,7 +686,7 @@ _SCRIPT_PLAN_BUSINESS_FILENAMES = frozenset(
 
 
 def _business_path_parts(value: str) -> tuple[str, ...]:
-    if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
+    if not is_str(value) or not value or "\\" in value or "\x00" in value:
         raise ValueError("path 必须是项目内业务文件的 POSIX 相对路径")
     pure = PurePosixPath(value)
     parts = pure.parts
@@ -842,7 +843,7 @@ async def get_episode_script(
     services: Services,
 ) -> ToolOutcome[EpisodeScriptContent]:
     filename = request.value
-    if not isinstance(filename, str) or not filename or "/" in filename or "\\" in filename or filename in {".", ".."}:
+    if not is_str(filename) or not filename or "/" in filename or "\\" in filename or filename in {".", ".."}:
         return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
     try:
         failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
@@ -967,7 +968,7 @@ async def get_script_plan_content(
     services: Services,
 ) -> ToolOutcome[ScriptPlanContent]:
     episode = request.value
-    if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
+    if not is_int(episode, minimum=1):
         return ToolOutcome(problem=ToolProblem("invalid_request", "episode 必须是正整数"))
     try:
         result = await asyncio.to_thread(_get_script_plan_content_sync, scope.project_name, episode, services.projects)

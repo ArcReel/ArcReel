@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
@@ -22,7 +22,7 @@ def domain_error_on_value_error(
     factory: Callable[[ValueError], BaseException],
     *,
     extra_passthrough: tuple[type[BaseException], ...] = (),
-) -> Iterator[None]:
+) -> Generator[None]:
     """把业务解析调用抛出的 ``ValueError`` 转换为调用方指定的领域错误。
 
     ``json.JSONDecodeError`` 是 ``ValueError`` 子类，须先于通用 ``ValueError`` 分支放行——

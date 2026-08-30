@@ -253,7 +253,7 @@ async def test_retry_success_uses_caller_scoped_queue_and_capabilities(tmp_path:
     services = Services(
         projects=projects,
         workflow_planner=planner,
-        capabilities=capabilities,  # type: ignore[arg-type]
+        capabilities=capabilities,
         queue=queue,
     )
 
@@ -358,7 +358,7 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
         ran = True
         return {"content": []}
 
-    guarded = sdk_tools._refuse_while_migration_failed(_inner, ctx)  # pyright: ignore[reportPrivateUsage]
+    guarded = sdk_tools._refuse_while_migration_failed(_inner, ctx)
     blocked = await guarded.handler({"segment_ids": ["E1S01"]})
 
     assert ran is False
@@ -401,7 +401,7 @@ async def test_script_edit_mcp_tools_refuse_at_registration_on_a_migration_block
 
     sdk_tool = tool_factory(ctx)
     assert sdk_tool.name in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
-    guarded = sdk_tools._refuse_while_migration_failed(sdk_tool, ctx)  # pyright: ignore[reportPrivateUsage]
+    guarded = sdk_tools._refuse_while_migration_failed(sdk_tool, ctx)
     blocked = await guarded.handler({})
 
     assert blocked["is_error"] is True
@@ -438,7 +438,7 @@ async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_
         ran = True
         return {"content": []}
 
-    guarded = sdk_tools._refuse_while_migration_failed(_inner, ctx)  # pyright: ignore[reportPrivateUsage]
+    guarded = sdk_tools._refuse_while_migration_failed(_inner, ctx)
     result = await guarded.handler({})
 
     assert ran is True

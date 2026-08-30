@@ -11,7 +11,7 @@ def test_startup_observation_uses_standard_exception_chain_without_serializing_a
     try:
         raise RuntimeError("provider failed") from root
     except RuntimeError as exc:
-        exc.response = {"future_payload": object()}  # type: ignore[attr-defined]
+        exc.response = {"future_payload": object()}
         observation = build_startup_failure_observation(exc, project_name="demo", session_id=None, sdk_stderr="")
 
     raw_exception = observation["raw"]["exception"]

@@ -362,7 +362,7 @@ async def apply_grid_split(
                 for metadata in version_metadata_by_resource.values():
                     metadata.pop(IMAGE_ARTIFACT_BASIS_FIELD, None)
 
-                if source_status is ArtifactStatus.STALE and source_entry is not None:
+                if source_status is ArtifactStatus.STALE:
                     for cell_index, resource_id, cell_rel in cell_assignments:
                         try:
                             basis = build_stale_grid_member_storyboard_visual_basis(

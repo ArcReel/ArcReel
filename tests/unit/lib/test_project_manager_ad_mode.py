@@ -65,7 +65,7 @@ class TestCreateAdProjectMetadata:
         pm = _pm(tmp_path)
         pm.create_project("demo-ad", content_mode="ad")
         with pytest.raises(ValueError, match="brief"):
-            pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", brief=123)  # type: ignore[arg-type]
+            pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", brief=123)
 
     def test_extras_cannot_override_core_fields(self, tmp_path):
         pm = _pm(tmp_path)

@@ -538,7 +538,7 @@ class TestValueObjectAssembly:
             resolution=None,
         )
         with pytest.raises(AttributeError):
-            lane.resolution = "720p"  # type: ignore[misc]
+            lane.resolution = "720p"
 
     @pytest.mark.parametrize(
         ("voice_consistency", "requested_generate_audio", "expected"),

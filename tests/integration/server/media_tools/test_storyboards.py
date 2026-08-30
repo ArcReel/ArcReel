@@ -70,12 +70,12 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     # Strip storyboard_image to force selection
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}
     semantic_prompt = {
         "scene": "村口黄昏",
         "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
     }
-    fake_ctx.pm.script_payload["segments"][0]["image_prompt"] = semantic_prompt  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["image_prompt"] = semantic_prompt
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
@@ -90,7 +90,7 @@ async def test_generate_storyboards_legacy_project_reverifies_image_file_on_disk
     from server.media_tools import storyboards as mod
 
     # E1S01 的分镜图由 fixture 落在磁盘上；E1S02 只在剧本里登记路径，文件并不存在。
-    fake_ctx.pm.script_payload["segments"].append(  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"].append(
         {
             "segment_id": "E1S02",
             "image_prompt": "村口清晨",
@@ -134,7 +134,7 @@ async def test_generate_storyboards_rejects_unbound_active_script_before_enqueue
     from server.media_tools import storyboards as mod
 
     _activate_unbound_project(fake_ctx)
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}
     enqueued = False
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
@@ -175,7 +175,7 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
         return succ, []
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = "corrupt"  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = "corrupt"
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True, out
@@ -184,7 +184,7 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
 
 async def test_generate_storyboards_rejects_mismatched_unit_script(fake_ctx: ToolContext) -> None:
     """失配剧本不能落进"✨ 所有分镜的分镜图都已生成"的假成功——报结构错误并指引重拆。"""
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {
         "content_mode": "narration",
         "episode": 1,
         "video_units": [{"unit_id": "E1U1"}],
@@ -202,7 +202,7 @@ async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) ->
     def boom(*args, **kwargs):
         raise ValueError("bad script")
 
-    fake_ctx.pm.load_script = boom  # type: ignore[attr-defined]
+    fake_ctx.pm.load_script = boom
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
@@ -212,7 +212,7 @@ async def test_generate_storyboards_reports_a_partial_batch_per_id(fake_ctx: Too
     """一批里有成有败时逐 ID 分账，失败项带稳定 code，不需要读文本判断重试。"""
     from server.media_tools import storyboards as mod
 
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": "E1S01", "image_prompt": "村口黄昏", "generated_assets": {}},
         {"segment_id": "E1S02", "image_prompt": "山道清晨", "generated_assets": {}},
     ]

@@ -1008,7 +1008,7 @@ class TestGenerateRouter:
         def _raise_dirty(*args, **kwargs):
             raise ScriptEditError("segments 必须是列表，当前为 NoneType")
 
-        fake_pm.load_script = _raise_dirty  # type: ignore[method-assign]
+        fake_pm.load_script = _raise_dirty
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
@@ -1047,7 +1047,7 @@ class TestGenerateRouter:
         def _raise_missing(*args, **kwargs):
             raise FileNotFoundError(f"剧本文件不存在: {missing_script_path}")
 
-        fake_pm.load_script = _raise_missing  # type: ignore[method-assign]
+        fake_pm.load_script = _raise_missing
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
@@ -1547,7 +1547,7 @@ class TestNoServerPathLeak:
         def _raise(*args, **kwargs):
             raise FileNotFoundError(f"项目元数据文件不存在: {tmp_path / 'projects' / 'demo' / 'project.json'}")
 
-        fake_pm.load_project = _raise  # type: ignore[method-assign]
+        fake_pm.load_project = _raise
         return _client(monkeypatch, fake_pm, _FakeQueue())
 
     def test_file_not_found_404_hides_path_for_all_endpoints(self, tmp_path, monkeypatch):
@@ -1577,7 +1577,7 @@ class TestNoServerPathLeak:
         def _raise(*args, **kwargs):
             raise FileNotFoundError(f"剧本文件不存在: {project_path / 'scripts' / 'episode_1.json'}")
 
-        fake_pm.load_script = _raise  # type: ignore[method-assign]
+        fake_pm.load_script = _raise
         client = _client(monkeypatch, fake_pm, _FakeQueue())
 
         with client:
@@ -1608,7 +1608,7 @@ class TestNoServerPathLeak:
         def _raise(*args, **kwargs):
             raise RuntimeError(f"boom at {tmp_path / 'projects' / 'demo' / 'project.json'}")
 
-        fake_pm.load_project = _raise  # type: ignore[method-assign]
+        fake_pm.load_project = _raise
         client = _client(monkeypatch, fake_pm, _FakeQueue())
 
         with client:

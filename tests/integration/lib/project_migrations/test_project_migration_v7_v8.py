@@ -1020,7 +1020,7 @@ def test_script_save_rechecks_manifest_activation_inside_the_project_lock(
     def _commit_after_activation(*args: object, **kwargs: object) -> Path:
         commit_reached.set()
         release_save.wait()
-        return original_commit(*args, **kwargs)  # type: ignore[arg-type]
+        return original_commit(*args, **kwargs)
 
     def _save() -> None:
         try:

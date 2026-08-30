@@ -406,7 +406,7 @@ class TestWorkerAudioLane:
                 return None
 
         w = GenerationWorker(
-            queue=_Q(),  # type: ignore[arg-type]
+            queue=_Q(),
             capacity=CapacityTable(
                 _limits={"dashscope": {"image": 0, "video": 0, "audio": 1}},
                 _defaults={"image": 5, "video": 3, "audio": 10},
@@ -438,7 +438,7 @@ class TestWorkerAudioLane:
             return "dashscope"
 
         w = GenerationWorker(
-            queue=_Q(),  # type: ignore[arg-type]
+            queue=_Q(),
             capacity=CapacityTable(
                 _limits={"dashscope": {"image": 0, "video": 0, "audio": 2}},
                 _defaults={"image": 5, "video": 3, "audio": 10},
@@ -449,7 +449,7 @@ class TestWorkerAudioLane:
         async def _fake_process(task):
             await asyncio.sleep(0)
 
-        w._process_task = _fake_process  # type: ignore[method-assign]
+        w._process_task = _fake_process
 
         claimed = await w._claim_tasks()
         assert claimed is True
@@ -498,7 +498,7 @@ class TestOrphanAudioRestartLost:
 
         q = _Q()
         w = GenerationWorker(
-            queue=q,  # type: ignore[arg-type]
+            queue=q,
             capacity=CapacityTable(_limits={}, _defaults={"image": 5, "video": 3, "audio": 10}),
         )
         await w._handle_orphan_tasks_on_start()

@@ -545,7 +545,7 @@ def _make_mock_svc() -> ConfigService:
     svc = MagicMock(spec=ConfigService)
     svc.set_provider_config = AsyncMock()
     svc.delete_provider_config = AsyncMock()
-    return svc  # type: ignore[return-value]
+    return svc
 
 
 class TestPatchProviderConfig:

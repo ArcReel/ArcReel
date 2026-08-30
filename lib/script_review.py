@@ -24,7 +24,7 @@ import enum
 import hashlib
 import json
 import logging
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -278,7 +278,7 @@ def official_reference_script_plan_path(project_path: Path, episode: int) -> Pat
 
 
 @contextmanager
-def formal_script_plan_lock(project_path: Path, episode: int, path: Path) -> Iterator[Path]:
+def formal_script_plan_lock(project_path: Path, episode: int, path: Path) -> Generator[Path]:
     """任一变体正式 script_plan 的写临界区：建目录 + per-path 排他锁，yield 该正式文件路径。
 
     与迁移读改写、Web 端保存、重拆分 / 晋升共用同一把 ``ProjectManager.file_lock``（per-path，
@@ -295,7 +295,7 @@ def formal_script_plan_lock(project_path: Path, episode: int, path: Path) -> Ite
 
 
 @contextmanager
-def script_plan_write_lock(project_path: Path, episode: int) -> Iterator[Path]:
+def script_plan_write_lock(project_path: Path, episode: int) -> Generator[Path]:
     """参考生视频正式 script_plan 的写临界区（``formal_script_plan_lock`` 绑定该变体路径的具名入口）。"""
     with formal_script_plan_lock(
         project_path, episode, official_reference_script_plan_path(project_path, episode)
@@ -309,7 +309,7 @@ def formal_script_plan_write_transaction(
     episode: int,
     *paths: Path,
     basis: ArtifactBasis | None = None,
-) -> Iterator[None]:
+) -> Generator[None]:
     """Commit formal script_plan files and their active Manifest claim as one unit.
 
     Callers own the canonical per-path lock.  Every Python write path for a

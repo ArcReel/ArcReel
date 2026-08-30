@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -89,7 +89,7 @@ class TestSettlementDispatch:
 
     def test_unknown_channel_raises(self) -> None:
         with pytest.raises(ValueError, match="unknown ledger channel"):
-            _settlement_from_result("bogus", object())  # type: ignore[arg-type]
+            _settlement_from_result("bogus", object())
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ class TestRecordBracket:
         monkeypatch.setattr("lib.ledger.UsageRepository", _BoomOnFailRepo)
 
         @asynccontextmanager
-        async def _dummy_session() -> AsyncIterator[None]:
+        async def _dummy_session() -> AsyncGenerator[None]:
             yield None
 
         ledger = Ledger(session_factory=lambda: _dummy_session())
@@ -197,7 +197,7 @@ class TestRecordBracket:
         monkeypatch.setattr("lib.ledger.UsageRepository", _BoomOnSuccessRepo)
 
         @asynccontextmanager
-        async def _dummy_session() -> AsyncIterator[None]:
+        async def _dummy_session() -> AsyncGenerator[None]:
             yield None
 
         ledger = Ledger(session_factory=lambda: _dummy_session())

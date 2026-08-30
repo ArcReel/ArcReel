@@ -50,9 +50,11 @@ async def test_db_session_store_passes_sdk_conformance():
             engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         engines.append(engine)
         async with engine.begin() as conn:
-            # Import model modules to register tables on Base.metadata.
-            import lib.agent_session_store.models
-            import lib.db.models  # noqa: F401  (users / agent_sessions / config etc.)
+            from lib.agent_session_store.models import register_models as register_agent_session_models
+            from lib.db.models import register_models as register_db_models
+
+            register_agent_session_models()
+            register_db_models()
 
             await conn.run_sync(Base.metadata.create_all)
         # PG enforces FK constraints; seed the conformance user.

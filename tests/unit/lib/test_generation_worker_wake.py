@@ -45,7 +45,7 @@ async def test_wake_claims_task_without_waiting_for_poll_interval() -> None:
         return {"ok": True}
 
     worker = GenerationWorker(
-        queue=queue,  # type: ignore[arg-type]
+        queue=queue,
         capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
         provider_projection=text_provider,
         executor=execute,

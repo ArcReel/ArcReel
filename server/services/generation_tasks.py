@@ -104,6 +104,7 @@ from lib.reference_video.execution_checkpoint import (
     stage_provider_media_for_task,
 )
 from lib.resource_paths import resource_relative_path
+from lib.schema_guards import is_int
 from lib.script_editor import resolve_items
 from lib.script_models import resolve_content_mode
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_LABEL_KEYS, resolve_script_kind
@@ -641,7 +642,7 @@ def collect_shot_product_references(
 def collect_product_references_for_names(
     project: dict,
     project_path: Path,
-    names: Sequence[str],
+    names: Sequence[Any],
     *,
     currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
@@ -1737,7 +1738,7 @@ def _resolve_tts_task_items(
     script: dict[str, Any],
     *,
     reference_video_route: bool,
-) -> tuple[list[dict[str, Any]], str, str]:
+) -> tuple[list[Any], str, str]:
     """Resolve TTS units from the generation route fixed at task start."""
 
     if not reference_video_route:
@@ -2028,8 +2029,6 @@ async def execute_tts_task(
                     failure.add_note(f"paid TTS history archival also failed: {archive_failure}")
             raise
 
-        if committed_outcome is None:
-            raise RuntimeError("TTS commit completed without a version")
         selected_current = committed_outcome.selected
         return committed_outcome
 
@@ -2320,7 +2319,7 @@ async def execute_video_task(
             _script_input,
         )
 
-    project, project_path, item, content_mode, script_kind, script, script_input = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode, script_kind, _script, script_input = await asyncio.to_thread(_load)
     # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
     # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
@@ -2432,8 +2431,6 @@ async def execute_video_task(
     delivery_projection = None
     if delivery_options.narration_delivery == USE_TTS:
         episode = artifact_episode
-        if episode is None:
-            episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         current_planned_duration = item.get("duration_seconds") if isinstance(item, dict) else None
         if (
             not isinstance(current_planned_duration, int)
@@ -2512,7 +2509,7 @@ async def execute_video_task(
     duration_seconds = int(float(duration_seconds))
 
     if delivery_projection is not None:
-        if not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool):
+        if not is_int(duration_seconds):
             raise RuntimeError("allowed TTS video projection produced a non-integer request duration")
         narration_actual_duration = delivery_projection.narration.actual_duration_seconds
         if narration_actual_duration is None:
@@ -3245,7 +3242,7 @@ async def execute_grid_task(
         # d) Generate grid image
         _needs_i2i = bool(reference_images)
         items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
-        item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, Mapping)}
+        item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, dict)}
         if len(set(grid.scene_ids)) != len(grid.scene_ids):
             raise ValueError("grid scene identities must be unique")
         missing_members = [scene_id for scene_id in grid.scene_ids if scene_id not in item_by_id]

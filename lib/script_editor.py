@@ -39,7 +39,7 @@ class ScriptEditError(ValueError):
         self.params = params
 
 
-def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[list[dict[str, Any]], str, str]:
+def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[list[Any], str, str]:
     """按剧本骨架选出当前剧本的条目数组、其 id 字段名与种类。
 
     返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "shots", "video_units"}。
@@ -64,14 +64,14 @@ def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[l
     return raw_items, id_field, kind
 
 
-def _find_index(items: list[dict[str, Any]], id_field: str, item_id: str) -> int:
+def _find_index(items: list[Any], id_field: str, item_id: str) -> int:
     for idx, item in enumerate(items):
         if isinstance(item, dict) and str(item.get(id_field)) == str(item_id):
             return idx
     raise ScriptEditError(f"未找到 id={item_id!r} 的分镜（{id_field}）")
 
 
-def _existing_ids(items: list[dict[str, Any]], id_field: str) -> set[str]:
+def _existing_ids(items: list[Any], id_field: str) -> set[str]:
     return {str(item.get(id_field)) for item in items if isinstance(item, dict)}
 
 
@@ -154,8 +154,6 @@ def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, An
     新分镜的 id 字段被强制改写为 ``{after_id}_{k}``（唯一），``generated_assets`` 与
     ``end_frame_image`` 清空。其余字段由 Agent 提供，结构是否合法由写盘统一入口校验。
     """
-    if not isinstance(new_item, dict):
-        raise ScriptEditError("new_item 必须是对象")
     items, id_field, _ = resolve_items(script)
     idx = _find_index(items, id_field, after_id)
     item = deepcopy(new_item)
@@ -188,10 +186,8 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
     新 unit（各带自己的 ``shots``），不是把原 unit 内的 ``shots`` 拆细。``duration_seconds`` 是
     unit 独立字段、不由 ``shots`` 派生，故各新 part 须自行给出，本函数不代算。
     """
-    if not isinstance(parts, list) or len(parts) < 2:
+    if len(parts) < 2:
         raise ScriptEditError("split 至少需要 2 个部分")
-    if any(not isinstance(p, dict) for p in parts):
-        raise ScriptEditError("split 的每个部分必须是对象")
     items, id_field, _ = resolve_items(script)
     idx = _find_index(items, id_field, item_id)
     anchor_assets = items[idx].get("generated_assets")

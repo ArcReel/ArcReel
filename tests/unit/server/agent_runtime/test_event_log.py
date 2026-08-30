@@ -663,7 +663,7 @@ class TestEventLogStore:
         from sqlalchemy.exc import IntegrityError
 
         calls = {"n": 0}
-        original_append_once = log_store._append_once  # pyright: ignore[reportPrivateUsage]
+        original_append_once = log_store._append_once
 
         async def _flaky_append_once(session_id, entries, client_key):
             calls["n"] += 1
@@ -695,7 +695,7 @@ class TestEventLogStore:
             sqlstate="23505",
         )
         calls = {"n": 0}
-        original_append_once = log_store._append_once  # pyright: ignore[reportPrivateUsage]
+        original_append_once = log_store._append_once
 
         async def _flaky_append_once(session_id, entries, client_key):
             calls["n"] += 1
@@ -768,7 +768,7 @@ class TestEventLogStore:
         但不排除病态构造）时按 id() 去重仍能终止,不陷入死循环。"""
         from sqlalchemy.exc import IntegrityError
 
-        from server.agent_runtime.event_log import _first_driver_attr  # pyright: ignore[reportPrivateUsage]
+        from server.agent_runtime.event_log import _first_driver_attr
 
         err_a = _FakeDriverError("a")
         err_b = _FakeDriverError("b")
@@ -788,7 +788,7 @@ class TestEventLogStore:
         冲突；需先剥离 ``[SQL: ...]`` 之后的部分再匹配。"""
         from sqlalchemy.exc import IntegrityError
 
-        from server.agent_runtime.event_log import _is_client_key_violation  # pyright: ignore[reportPrivateUsage]
+        from server.agent_runtime.event_log import _is_client_key_violation
 
         exc = IntegrityError(
             "INSERT INTO agent_session_event_log (session_id, seq, client_key, payload) VALUES (?, ?, ?, ?)",
@@ -807,7 +807,7 @@ class TestEventLogStore:
         from sqlalchemy.exc import IntegrityError
 
         calls = {"n": 0}
-        original_append_once = log_store._append_once  # pyright: ignore[reportPrivateUsage]
+        original_append_once = log_store._append_once
         # 驱动只给出含 client_key 字样的文案：真实分类器据此判为 True，正是要被
         # 结构性排除的那种误判。
         misleading = _FakeDriverError(
@@ -856,7 +856,7 @@ class TestEventLogStore:
 
         driver_error = _FakeDriverError("constraint failed", sqlite_errorname="SQLITE_CONSTRAINT_PRIMARYKEY")
         calls = {"n": 0}
-        original_append_once = log_store._append_once  # pyright: ignore[reportPrivateUsage]
+        original_append_once = log_store._append_once
 
         async def _flaky_append_once(session_id, entries, client_key):
             calls["n"] += 1
@@ -1069,14 +1069,14 @@ class TestLazyBackfill:
 
         for i in range(50):
             await service.ensure_backfilled(f"empty-{i}", None)
-        assert len(service._backfill_locks) == 0  # pyright: ignore[reportPrivateUsage]
+        assert len(service._backfill_locks) == 0
 
         # transcript 补齐内容后，并发访问只灌入一次
-        adapter._messages = [{"type": "user", "content": "hi", "uuid": "u1"}]  # pyright: ignore[reportPrivateUsage]
+        adapter._messages = [{"type": "user", "content": "hi", "uuid": "u1"}]
         await asyncio.gather(*[service.ensure_backfilled("old", None) for _ in range(5)])
         assert len(await log_store.list_after("old")) == 1
         # 写入成功后锁引用被清理
-        assert "old" not in service._backfill_locks  # pyright: ignore[reportPrivateUsage]
+        assert "old" not in service._backfill_locks
 
     async def test_backfill_skips_message_that_fails_normalization(self, log_store: EventLogStore, monkeypatch):
         """历史消息规范化单条抛异常时容错跳过，不让整个懒生成因一条脏数据失败。"""

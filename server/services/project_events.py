@@ -10,7 +10,7 @@ import hashlib
 import logging
 import uuid
 from collections import Counter
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -228,7 +228,7 @@ class ProjectEventService:
     @contextlib.asynccontextmanager
     async def stream_events(
         self, project_name: str, *, idle_timeout: float = 1.0
-    ) -> AsyncIterator[AsyncIterator[tuple[str, Any] | dict[str, Any]]]:
+    ) -> AsyncGenerator[AsyncIterator[tuple[str, Any] | dict[str, Any]]]:
         """Subscribe to a project's events as a self-cleaning async iterator.
 
         Yields an async iterator producing, in order:

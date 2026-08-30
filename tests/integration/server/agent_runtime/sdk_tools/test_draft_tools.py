@@ -81,7 +81,7 @@ def test_draft_tools_share_strict_locator_schema(fake_ctx: ToolContext, factory)
 
 
 def _write_reference_prompt_authoring(fake_ctx: ToolContext, script: dict) -> None:
-    fake_ctx.pm.script_payload = script  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.script_payload = script
     scripts = fake_ctx.project_path / "scripts"
     scripts.mkdir(exist_ok=True)
     (scripts / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
@@ -382,8 +382,8 @@ async def test_open_draft_rejects_variant_without_draft_channel(fake_ctx: ToolCo
         json.dumps({"content_mode": "ad", "generation_mode": "storyboard"}, ensure_ascii=False),
         encoding="utf-8",
     )
-    fake_ctx.pm.project_payload["content_mode"] = "ad"  # pyright: ignore[reportAttributeAccessIssue]
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["content_mode"] = "ad"
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
 
     out = await _open_for_edit(fake_ctx)
 

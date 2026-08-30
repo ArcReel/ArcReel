@@ -353,12 +353,10 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             }
             mime_type = mime_types.get(suffix, mime_type_png)
             return self._types.Image(image_bytes=image_bytes, mime_type=mime_type)
-        if isinstance(image, Image.Image):
-            buffer = io.BytesIO()
-            image.save(buffer, format="PNG")
-            image_bytes = buffer.getvalue()
-            return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
-        return image
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        image_bytes = buffer.getvalue()
+        return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
 
     async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
         """下载视频，重试走共用的产物下载预算。
@@ -401,7 +399,7 @@ def _is_gemini_not_found(exc: BaseException) -> bool:
     与 NOT_FOUND（资源不存在）语义不同；归过期会把客户端 bug 当成幽灵任务静默吞掉。
     """
     try:
-        from google.genai import errors as _genai_errors  # pyright: ignore[reportMissingImports]
+        from google.genai import errors as _genai_errors
     except ImportError:
         _genai_errors = None
 

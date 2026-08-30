@@ -127,7 +127,7 @@ class GrokVideoBackend:
             generate_kwargs["image_url"] = await asyncio.to_thread(image_to_data_uri, image_path, IMAGE_MIME_TYPES)
 
         if request.reference_images:
-            ref_paths = [Path(p) if not isinstance(p, Path) else p for p in request.reference_images]
+            ref_paths = list(request.reference_images)
             existing_paths = [p for p in ref_paths if p.exists()]
             if existing_paths:
                 ref_urls = await asyncio.gather(

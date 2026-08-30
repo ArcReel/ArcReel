@@ -56,7 +56,7 @@ async def test_upload_source_closes_temporary_file_before_loading(tmp_path: Path
         return handle
 
     def checked_load(*args, **kwargs):
-        assert tracked["handle"].closed  # type: ignore[union-attr]
+        assert tracked["handle"].closed
         return original_load(*args, **kwargs)
 
     monkeypatch.setattr(tool_runtime.tempfile, "NamedTemporaryFile", tracked_temp)
@@ -65,7 +65,7 @@ async def test_upload_source_closes_temporary_file_before_loading(tmp_path: Path
     uploaded = await upload_source_tool(ctx).handler({"filename": "novel.txt", "content": "hello"})
 
     assert json.loads(uploaded["content"][0]["text"])["source"]["path"] == "source/novel.txt"
-    assert not tracked["path"].exists()  # type: ignore[union-attr]
+    assert not tracked["path"].exists()
 
 
 async def test_upload_source_cleans_temporary_file_when_write_fails(tmp_path: Path, monkeypatch) -> None:

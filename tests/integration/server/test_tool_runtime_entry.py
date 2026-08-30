@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -42,8 +42,8 @@ class _Unused:
 def _services(tmp_path: Path) -> Services:
     return Services(
         projects=ProjectManager(tmp_path / "projects"),
-        workflow_planner=_Unused(),  # type: ignore[arg-type]
-        capabilities=_Unused(),  # type: ignore[arg-type]
+        workflow_planner=_Unused(),
+        capabilities=_Unused(),
     )
 
 
@@ -108,8 +108,8 @@ async def test_create_project_rolls_back_when_metadata_initialization_fails(tmp_
     projects_root = tmp_path / "projects"
     services = Services(
         projects=FailingMetadataProjectManager(projects_root),
-        workflow_planner=_Unused(),  # type: ignore[arg-type]
-        capabilities=_Unused(),  # type: ignore[arg-type]
+        workflow_planner=_Unused(),
+        capabilities=_Unused(),
     )
     request = ToolRequest(
         CreateProjectToolRequest(
@@ -141,8 +141,8 @@ async def test_create_project_settles_publication_before_propagating_cancellatio
     projects = BlockingMetadataProjectManager(tmp_path / "projects")
     services = Services(
         projects=projects,
-        workflow_planner=_Unused(),  # type: ignore[arg-type]
-        capabilities=_Unused(),  # type: ignore[arg-type]
+        workflow_planner=_Unused(),
+        capabilities=_Unused(),
     )
     caller = CallerContext(user_id="test", source="mcp")
     creation = asyncio.create_task(
@@ -279,7 +279,7 @@ async def test_upload_source_settles_write_before_propagating_cancellation(tmp_p
 
     class BlockingSourceProjectManager(ProjectManager):
         @contextmanager
-        def locked_source_mutation(self, project_name: str) -> Iterator[Path]:
+        def locked_source_mutation(self, project_name: str) -> Generator[Path]:
             with super().locked_source_mutation(project_name) as source_dir:
                 started.set()
                 release.wait()
@@ -293,8 +293,8 @@ async def test_upload_source_settles_write_before_propagating_cancellation(tmp_p
     projects.create_project_metadata("demo", "Demo")
     services = Services(
         projects=projects,
-        workflow_planner=_Unused(),  # type: ignore[arg-type]
-        capabilities=_Unused(),  # type: ignore[arg-type]
+        workflow_planner=_Unused(),
+        capabilities=_Unused(),
     )
     task = asyncio.create_task(
         upload_source(

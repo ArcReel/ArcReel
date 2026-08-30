@@ -28,6 +28,7 @@ from lib.audio_utils import probe_existing_audio_duration_seconds
 from lib.path_safety import safe_join
 from lib.reference_video.duration_slots import Adjustment, resolve_duration_slot
 from lib.resource_paths import resource_relative_path
+from lib.schema_guards import is_int
 from lib.speech_composition import (
     SpeechFieldLocation,
     SpeechMode,
@@ -51,7 +52,7 @@ class NarrationDeliveryRequestOptions:
         if self.narration_delivery not in (POST_PRODUCTION, USE_TTS):
             raise ValueError(f"unsupported narration delivery: {self.narration_delivery!r}")
         confirmed = self.confirmed_request_duration_seconds
-        if confirmed is not None and (not isinstance(confirmed, int) or isinstance(confirmed, bool) or confirmed <= 0):
+        if confirmed is not None and not is_int(confirmed, minimum=1):
             raise ValueError("confirmed_request_duration_seconds must be a positive integer or null")
 
     def to_payload(self) -> dict[str, object]:

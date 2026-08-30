@@ -6,8 +6,9 @@ import pytest
 from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 
-import lib.db.models  # noqa: F401 — ensure all models registered
-from lib.db.models import CustomProvider, CustomProviderModel
+from lib.db.models import CustomProvider, CustomProviderModel, register_models
+
+register_models()
 
 
 class TestCustomProviderTable:

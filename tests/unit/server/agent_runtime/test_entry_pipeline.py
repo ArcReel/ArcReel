@@ -33,7 +33,7 @@ def _make_pipeline(session_id: str | None = "s1"):
     store = _RecordingStore()
     broadcasts: list[dict] = []
     pipeline = SessionEntryPipeline(
-        store,  # type: ignore[arg-type]
+        store,
         session_id_provider=lambda: session_id,
         broadcast=broadcasts.append,
     )
@@ -271,7 +271,7 @@ class TestSessionEntryPipeline:
 
         broadcasts: list[dict] = []
         pipeline = SessionEntryPipeline(
-            _BrokenStore(),  # type: ignore[arg-type]
+            _BrokenStore(),
             session_id_provider=lambda: "s1",
             broadcast=broadcasts.append,
         )
@@ -388,7 +388,7 @@ class TestSessionEntryPipeline:
         store = _FlakyStore()
         broadcasts: list[dict] = []
         pipeline = SessionEntryPipeline(
-            store,  # type: ignore[arg-type]
+            store,
             session_id_provider=lambda: "s1",
             broadcast=broadcasts.append,
         )
@@ -452,7 +452,7 @@ class TestReplayedUserEchoLink:
         store = _FailingStore()
         broadcasts: list[dict] = []
         pipeline = SessionEntryPipeline(
-            store,  # type: ignore[arg-type]
+            store,
             session_id_provider=lambda: "s1",
             broadcast=broadcasts.append,
         )

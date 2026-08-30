@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -54,7 +54,7 @@ class TestApiKeyResolution:
 
 
 @contextmanager
-def _recorded_ark_sdk() -> Iterator[list[dict[str, Any]]]:
+def _recorded_ark_sdk() -> Generator[list[dict[str, Any]]]:
     """Ark SDK 类构造的记录器：收下建客户端的参数，回一个空替身。"""
     created: list[dict[str, Any]] = []
 

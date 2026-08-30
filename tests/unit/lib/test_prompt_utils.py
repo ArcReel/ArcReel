@@ -172,7 +172,7 @@ class TestBuildDramaVideoPrompt:
             ([_utterance("王", "x")], {"王": "not-a-dict"}),
             ([_utterance("王", "x")], "not-a-dict"),
         ):
-            prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters=characters)  # type: ignore[arg-type]
+            prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters=characters)
             assert "voice_profiles" not in prompt
 
     def test_does_not_mutate_caller_prompt(self):

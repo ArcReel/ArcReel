@@ -54,9 +54,7 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext)
 
 async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext) -> None:
     """参考路径项目另返回两套逐 unit 生效档位，供手工改 script_plan 时与生成侧对同一份数字。"""
-    fake_ctx.pm.project_payload["model_settings"] = {  # type: ignore[attr-defined]
-        "gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}
-    }
+    fake_ctx.pm.project_payload["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}
     _use_fake_caps(
         fake_ctx,
         provider_id="gemini-aistudio",
@@ -103,7 +101,7 @@ async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: Too
     out = await _call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
     assert json.loads(out["content"][0]["text"])["video_capabilities"]["model"] == "kling-v3-omni"
-    assert resolver.project_payloads == [fake_ctx.pm.project_payload]  # type: ignore[attr-defined]
+    assert resolver.project_payloads == [fake_ctx.pm.project_payload]
 
 
 async def test_get_video_capabilities_error(fake_ctx: ToolContext) -> None:
@@ -126,8 +124,8 @@ async def test_generate_script_plan_rejects_inapplicable_content_modes(
     assert out.get("is_error") is True
     assert json.loads(out["content"][0]["text"])["problem"]["code"] == "generation_refused"
     assert resolver.capability_calls == []
-    assert fake_ctx.pm.readonly_load_threads  # type: ignore[attr-defined]
-    assert all(thread != caller_thread for thread in fake_ctx.pm.readonly_load_threads)  # type: ignore[attr-defined]
+    assert fake_ctx.pm.readonly_load_threads
+    assert all(thread != caller_thread for thread in fake_ctx.pm.readonly_load_threads)
 
 
 @pytest.mark.parametrize("factory", [generate_episode_script_tool, generate_script_plan_tool])
@@ -456,7 +454,7 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
     非中文项目的 script_plan 输出语言据此切换，而非恒退默认中文。"""
 
     # 工具经 ctx.pm.load_project 取项目；source_language 是输出语言的唯一真相源
-    fake_ctx.pm.project_payload["source_language"] = "English"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["source_language"] = "English"
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
@@ -523,7 +521,7 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
     src = project_path / "source"
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
-    fake_ctx.pm.project_payload["episodes"] = [  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["episodes"] = [
         {
             "episode": 1,
             "title": "初入江湖",
@@ -612,14 +610,14 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     from server import text_generation as mod
 
     project = {
-        **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
+        **fake_ctx.pm.project_payload,
         "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "content_mode": "drama",
         "generation_mode": "storyboard",
         "source_kind": "novel",
         "source_language": "中文",
     }
-    fake_ctx.pm.project_payload = project  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload = project
     project_file = fake_ctx.project_path / "project.json"
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     source_path = fake_ctx.project_path / "source" / "selected.txt"
@@ -632,7 +630,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
         async def generate(self, _request, project_name=None):
             source_path.write_text("等待供应商期间改过的原文", encoding="utf-8")
             latest = {**project, "source_language": "English"}
-            fake_ctx.pm.project_payload = latest  # type: ignore[attr-defined]
+            fake_ctx.pm.project_payload = latest
             project_file.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
             return type(
                 "_Result",
@@ -685,7 +683,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
     from server import text_generation as mod
 
     project = {
-        **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
+        **fake_ctx.pm.project_payload,
         "schema_version": 7,
         "title": "项目",
         "content_mode": "drama",
@@ -695,7 +693,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
         "overview": {},
         "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
     }
-    fake_ctx.pm.project_payload = project  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload = project
     project_file = fake_ctx.project_path / "project.json"
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     source_dir = fake_ctx.project_path / "source"
@@ -708,7 +706,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
     class _Generator:
         async def generate(self, _request, project_name=None):
             activated = {**project, "schema_version": 8}
-            fake_ctx.pm.project_payload = activated  # type: ignore[attr-defined]
+            fake_ctx.pm.project_payload = activated
             project_file.write_text(json.dumps(activated, ensure_ascii=False), encoding="utf-8")
             return type(
                 "_Result",

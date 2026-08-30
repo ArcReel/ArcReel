@@ -99,7 +99,7 @@ def _wire_context(
         supported_durations=supported_durations,
         max_duration=max_duration,
         max_reference_images=max_refs,
-        voice_consistency=voice_consistency,  # type: ignore[arg-type]
+        voice_consistency=voice_consistency,
         max_reference_audio_count=max_reference_audio_count,
         reference_audio_per_image=reference_audio_per_image,
         requested_generate_audio=requested_generate_audio,

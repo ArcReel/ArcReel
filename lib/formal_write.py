@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,7 +78,7 @@ def _restore_snapshots(snapshots: tuple[_FileSnapshot, ...]) -> None:
 
 
 @contextmanager
-def project_metadata_lock(project_dir: Path) -> Iterator[None]:
+def project_metadata_lock(project_dir: Path) -> Generator[None]:
     """Serialize project metadata and formal-artifact transactions across processes."""
 
     lock_path = Path(project_dir) / ".project.json.lock"
@@ -91,7 +91,7 @@ def project_metadata_lock(project_dir: Path) -> Iterator[None]:
 def formal_write_transaction(
     *paths: Path,
     cancellation_receipts: list[FormalWriteReceipt] | None = None,
-) -> Iterator[None]:
+) -> Generator[None]:
     """Restore exact pre-write bytes when a formal multi-file commit fails.
 
     Callers must hold the domain locks that serialize writes to ``paths`` for

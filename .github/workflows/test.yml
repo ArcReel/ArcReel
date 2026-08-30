@@ -101,7 +101,7 @@ jobs:
         run: uv run ruff check . && uv run ruff format --check .
 
       - name: Type check (basedpyright)
-        run: uv run basedpyright
+        run: uv run basedpyright --warnings
 
       - name: Import layering (import-linter)
         run: uv run lint-imports

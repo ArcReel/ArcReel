@@ -309,7 +309,7 @@ def _attach_voice_profiles(
     return prompt
 
 
-def _build_voice_profiles(dialogue: list[dict[str, str]], characters: dict[str, Any]) -> list[dict[str, str]]:
+def _build_voice_profiles(dialogue: list[Any], characters: dict[str, Any]) -> list[dict[str, str]]:
     """从 dialogue speakers 与角色资产派生 Voice_Profiles 声明段。
 
     仅收录角色资产存在且 ``voice_style`` 非空者，一个 speaker 一条（按 dialogue 中首次

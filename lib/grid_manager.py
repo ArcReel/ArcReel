@@ -35,7 +35,7 @@ class GridManager:
         位置，``grid_xxxxxxxxxxxx\\n`` 这类带尾随换行的输入能骗过 ``match()``，让换行符
         混入最终文件名。
         """
-        if not isinstance(grid_id, str) or _GRID_ID_RE.fullmatch(grid_id) is None:
+        if _GRID_ID_RE.fullmatch(grid_id) is None:
             raise ValueError(f"非法宫格 ID: {grid_id!r}")
         return safe_join(self._dir, f"{grid_id}{suffix}")
 

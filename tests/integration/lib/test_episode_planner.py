@@ -140,7 +140,7 @@ class TestParseDraft:
     def test_accepts_wrapped_episodes(self):
         raw = _plan_response([{"title": "山村少年", "hook": "h", "end_anchor": ANCHOR_EP1}])
         draft = EpisodePlanner._parse_draft(raw, NarrationPlanDraft)
-        assert [ep.end_anchor for ep in draft.episodes] == [ANCHOR_EP1]  # pyright: ignore[reportAttributeAccessIssue]
+        assert [ep.end_anchor for ep in draft.episodes] == [ANCHOR_EP1]
 
 
 class TestPlan:

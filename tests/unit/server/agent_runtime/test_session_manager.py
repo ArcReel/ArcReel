@@ -90,7 +90,6 @@ async def _cold_revival_clients(session_manager, monkeypatch):
         m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
         m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
         m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
-        m.setattr("server.agent_runtime.options_assembler.HookMatcher", None)
         yield created_clients
 
 
@@ -162,7 +161,6 @@ class TestSessionManager:
             m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
             m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
             m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
-            m.setattr("server.agent_runtime.options_assembler.HookMatcher", None)
             managed = await session_manager.get_or_connect(meta.id)
             # Let the actor enter the async-context (connect).
             await asyncio.sleep(0)
@@ -245,7 +243,7 @@ class TestSessionManager:
         async def _boom(prompt, session_id: str = "default"):
             raise RuntimeError("query failed")
 
-        client.query = _boom  # type: ignore[method-assign]
+        client.query = _boom
 
         @asynccontextmanager
         async def _boom_factory():

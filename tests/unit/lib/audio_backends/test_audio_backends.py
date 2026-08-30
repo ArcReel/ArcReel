@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import re
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -86,7 +86,7 @@ def _dashscope_audio_routes(
     download: httpx.Response | list[httpx.Response | Exception] | None = None,
     audio_url: str = _AUDIO_URL,
     synth_url: str = _SYNTH_URL,
-) -> Iterator[_DashScopeRoutes]:
+) -> Generator[_DashScopeRoutes]:
     """DashScope TTS 的两条出站流：合成 POST 与音频 GET。
 
     走 respx 在 transport 层拦截，断言对象是真实序列化后的请求（URL 拼接、鉴权头、body 编码

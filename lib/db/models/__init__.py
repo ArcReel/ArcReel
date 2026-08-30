@@ -33,4 +33,13 @@ __all__ = [
     "Task",
     "User",
     "WorkerLease",
+    "register_models",
 ]
+
+
+def register_models() -> None:
+    """把本包内全部 ORM 模型登记到 ``Base.metadata``。
+
+    登记发生在 import 本模块时（模型类定义即注册），本函数不做额外工作；
+    调用它是为了让「因副作用而 import」在调用点显式可见。
+    """

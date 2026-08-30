@@ -10,7 +10,7 @@ import asyncio
 import logging
 import threading
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -367,7 +367,7 @@ class GenerationQueue:
         await asyncio.to_thread(assert_project_migration_ok, project_name, self._project_manager)
 
     @asynccontextmanager
-    async def _task_repo(self) -> AsyncIterator[TaskRepository]:
+    async def _task_repo(self) -> AsyncGenerator[TaskRepository]:
         """打开一条 TaskRepository 会话，退出时把落地的任务终态发上项目事件总线。
 
         发布放在会话退出之后而非 repo 内部：repo 内直接发会让前端读到尚未提交的状态。

@@ -85,13 +85,13 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     app.include_router(router_mod.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="test", role="admin")
     client = TestClient(app)
-    client.fake_queue = fake_queue  # type: ignore[attr-defined]
-    client.project_dir = project_dir  # type: ignore[attr-defined]
+    client.fake_queue = fake_queue
+    client.project_dir = project_dir
     return client
 
 
 def _script(client: TestClient) -> dict:
-    path: Path = client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path: Path = client.project_dir / "scripts/episode_1.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -118,7 +118,7 @@ def test_ad_units_support_crud_and_product_mentions(ad_client: TestClient) -> No
         json={"prompt": "@[按摩仪] 正面朝向镜头"},
     )
     assert patched.status_code == 200, patched.text
-    project = ProjectManager(ad_client.project_dir.parent).load_project("ad-demo")  # type: ignore[attr-defined]
+    project = ProjectManager(ad_client.project_dir.parent).load_project("ad-demo")
     assert [(ref.type, ref.name) for ref in unit_reference_declarations(project, patched.json()["unit"])] == [
         ("product", "按摩仪")
     ]
@@ -140,7 +140,7 @@ def test_generate_enqueues_self_contained_unit(ad_client: TestClient) -> None:
         json={"confirmed_request_duration_seconds": 8},
     )
     assert response.status_code == 202, response.text
-    kwargs = ad_client.fake_queue.enqueue_task.call_args.kwargs  # type: ignore[attr-defined]
+    kwargs = ad_client.fake_queue.enqueue_task.call_args.kwargs
     assert kwargs["resource_id"] == "E1U1"
     assert kwargs["script_file"] == "scripts/episode_1.json"
     assert "prompt" not in kwargs["payload"]
@@ -153,7 +153,7 @@ def test_generate_enqueues_self_contained_unit(ad_client: TestClient) -> None:
 def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: TestClient) -> None:
     script = _script(ad_client)
     script["video_units"][0].update({"text": "", "duration_seconds": 0, "needs_replan": True})
-    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     response = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate")
@@ -163,13 +163,13 @@ def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: Tes
     assert detail["unit_id"] == "E1U1"
     assert detail["problems"][0]["code"] == "needs_replan"
     assert detail["problems"][0]["locations"] == [{"path": ["needs_replan"], "line": None}]
-    ad_client.fake_queue.enqueue_task.assert_not_awaited()  # type: ignore[attr-defined]
+    ad_client.fake_queue.enqueue_task.assert_not_awaited()
 
 
 def test_non_planning_patch_keeps_replan_marker_until_content_is_repaired(ad_client: TestClient) -> None:
     script = _script(ad_client)
     script["video_units"][0]["needs_replan"] = True
-    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     noted = ad_client.patch(
@@ -191,7 +191,7 @@ def test_duration_repair_clears_an_independent_migration_marker(ad_client: TestC
     script = _script(ad_client)
     # 旧聚合时长非法时迁移会夹到结构下限并标 replan，但不会留下内容归属 provenance。
     script["video_units"][0].update({"duration_seconds": 1, "needs_replan": True})
-    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     repaired = ad_client.patch(
@@ -206,7 +206,7 @@ def test_duration_repair_clears_an_independent_migration_marker(ad_client: TestC
 def test_empty_migration_shell_can_repair_body_and_duration_atomically(ad_client: TestClient) -> None:
     script = _script(ad_client)
     script["video_units"][0].update({"text": "", "duration_seconds": 0, "needs_replan": True})
-    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     repaired = ad_client.patch(

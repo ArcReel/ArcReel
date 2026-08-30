@@ -17,7 +17,7 @@ import secrets
 import shutil
 import time
 import unicodedata
-from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Generator, Mapping, Sequence
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -83,6 +83,7 @@ from lib.profile_manifest import (
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_schema import parse_project_schema_version
 from lib.reference_video.duration_migration import migrate_script_unit_durations
+from lib.schema_guards import is_int, is_shape, is_str
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets
 from lib.script_plan_entries import ScriptPlanKind, backfill_entry_revisions
@@ -204,7 +205,7 @@ def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
     return DEFAULT_SOURCE_KIND
 
 
-def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[dict]:
+def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[Any]:
     """读取路径的脏数据降级：基于 `resolve_items` 判别三种剧本结构，
     脏数据（键存在但值非 list）下 log warning + 返回 []。
 
@@ -1927,7 +1928,7 @@ class ProjectManager:
             yield
 
     @contextmanager
-    def locked_source_mutation(self, project_name: str) -> Iterator[Path]:
+    def locked_source_mutation(self, project_name: str) -> Generator[Path]:
         """Serialize source-file mutations with project transactions.
 
         Workflow facts such as asset-inventory completion compute source revisions while
@@ -1946,7 +1947,7 @@ class ProjectManager:
     async def async_file_lock(
         self,
         path: Path,
-    ) -> AsyncIterator[None]:
+    ) -> AsyncGenerator[None]:
         """Cancellation-safe async counterpart of :meth:`file_lock`."""
         path.parent.mkdir(parents=True, exist_ok=True)
         lock_path = path.parent / f".{path.name}.lock"
@@ -2409,11 +2410,9 @@ class ProjectManager:
                 raise ValueError("广告/短片项目不持有 default_duration（分镜时长按 target_duration 预算逐个分镜规划）")
             if episode_target_duration is not None:
                 raise ValueError("广告/短片项目不持有 episode_target_duration（整集体量按 target_duration 预算规划）")
-            if target_duration is not None and (
-                not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0
-            ):
+            if target_duration is not None and not is_int(target_duration, minimum=1):
                 raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
-            if brief is not None and not isinstance(brief, str):
+            if brief is not None and not is_str(brief):
                 raise ValueError(f"brief 必须是字符串，当前为 {brief!r}")
         else:
             if target_duration is not None:
@@ -2647,7 +2646,7 @@ class ProjectManager:
 
         asset_type = self._resolve_asset_type(table)
         # entries 类型错误与空对象需要不同提示，便于 Agent 精确修正输入。
-        if not isinstance(entries, dict):
+        if not is_shape(entries, dict):
             raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
         if not entries:
             raise ValueError("entries 不能为空（至少需要一个 name → attrs 条目）")
@@ -2663,7 +2662,7 @@ class ProjectManager:
                 name = validate_asset_name(raw_name)
             except ValueError as exc:
                 raise ValueError(f"{table}: {exc}") from None
-            if not isinstance(attrs, dict):
+            if not is_shape(attrs, dict):
                 raise ValueError(f"{table} '{name}' 的内容必须是对象")
             if name in normalized_entries:
                 raise ValueError(

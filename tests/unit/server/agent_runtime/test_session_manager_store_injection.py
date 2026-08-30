@@ -62,8 +62,8 @@ def test_store_uses_session_factory_seam(monkeypatch, tmp_path):
     sm = _build_sm(tmp_path)
 
     sentinel = object()
-    sm._session_factory = sentinel  # type: ignore[attr-defined]
-    sm._user_id = "test-user"  # type: ignore[attr-defined]
+    sm._session_factory = sentinel
+    sm._user_id = "test-user"
 
     store = sm._build_session_store()
     assert isinstance(store, DbSessionStore)

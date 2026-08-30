@@ -115,14 +115,14 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
     from server import text_generation as mod
 
     project = {
-        **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
+        **fake_ctx.pm.project_payload,
         "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "content_mode": "narration",
         "generation_mode": "storyboard",
         "source_kind": "novel",
         "source_language": "中文",
     }
-    fake_ctx.pm.project_payload = project  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload = project
     project_file = fake_ctx.project_path / "project.json"
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     source_dir = fake_ctx.project_path / "source"
@@ -138,7 +138,7 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
         async def generate(self, _request, project_name=None):
             second_source.write_text("等待供应商期间改过的第二段。", encoding="utf-8")
             latest = {**project, "source_language": "English"}
-            fake_ctx.pm.project_payload = latest  # type: ignore[attr-defined]
+            fake_ctx.pm.project_payload = latest
             project_file.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
             return type(
                 "_Result",
@@ -272,7 +272,7 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
 
     _nr_source(fake_ctx)
     nfc_name = unicodedata.normalize("NFC", "Hiếu")
-    fake_ctx.pm.project_payload["characters"][nfc_name] = {"description": "配角"}  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"][nfc_name] = {"description": "配角"}
     segments = [
         _nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=[unicodedata.normalize("NFD", nfc_name)])
     ]

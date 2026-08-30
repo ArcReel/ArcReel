@@ -195,7 +195,7 @@ def _fake_video_context(
     from server.services.generation_context import AudioLaneResult, GenerationContext, VideoLaneResult
 
     return GenerationContext(
-        generator=fake_generator,  # type: ignore[arg-type]
+        generator=fake_generator,
         video_lane=VideoLaneResult(
             provider_model=ProviderModel(provider_id, provider_model_id),
             backend_name="openai",

@@ -289,7 +289,7 @@ def normalize_asset_bucket(bucket: object) -> dict[str, Any]:
     """
     if not isinstance(bucket, dict):
         return {}
-    return {normalize_asset_name(str(name)): item for name, item in bucket.items()}  # pyright: ignore[reportUnknownVariableType]
+    return {normalize_asset_name(str(name)): item for name, item in bucket.items()}
 
 
 def resolve_asset_key(bucket: object, name: str) -> str | None:

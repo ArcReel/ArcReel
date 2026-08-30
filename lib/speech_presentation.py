@@ -40,7 +40,7 @@ def presentation_artifact_paths(episode: int, resource_id: str, variant: Renditi
 
     if type(episode) is not int or episode <= 0:
         raise ValueError("episode must be a positive integer")
-    if not isinstance(resource_id, str) or not resource_id:
+    if not resource_id:
         raise ValueError("resource_id must be a non-empty string")
     if variant not in {POST_PRODUCTION, USE_TTS}:
         raise ValueError(f"unsupported rendition variant: {variant!r}")
@@ -62,7 +62,7 @@ class PresentationMedia:
     evidence: SelectedMediaEvidence
 
     def __post_init__(self) -> None:
-        if not isinstance(self.artifact_path, str) or not self.artifact_path:
+        if not self.artifact_path:
             raise ValueError("artifact_path must be a non-empty string")
         if type(self.version) is not int or self.version <= 0:
             raise ValueError("version must be a positive integer")
@@ -70,8 +70,6 @@ class PresentationMedia:
             raise ValueError("selection must be current or history")
         if self.currency not in {"current", "stale"}:
             raise ValueError("currency must be current or stale")
-        if not isinstance(self.evidence, SelectedMediaEvidence):
-            raise TypeError("evidence must be SelectedMediaEvidence")
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,10 +81,6 @@ class SubtitleCue:
     text: str
     owner: SpeechOwner
     speaker: str | None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.owner, SpeechOwner):
-            raise TypeError("owner must be a SpeechOwner")
 
     @property
     def end_microseconds(self) -> int:
@@ -267,16 +261,16 @@ class RawPresentationMedia:
     actual_duration_seconds: float
 
     def __post_init__(self) -> None:
-        if not isinstance(self.artifact_path, str) or not self.artifact_path:
+        if not self.artifact_path:
             raise ValueError("artifact_path must be a non-empty string")
         if type(self.version) is not int or self.version <= 0:
             raise ValueError("version must be a positive integer")
         if self.selection not in {"current", "history"}:
             raise ValueError("selection must be current or history")
-        if not isinstance(self.content_digest, str) or PREFIXED_DIGEST_RE.fullmatch(self.content_digest) is None:
+        if PREFIXED_DIGEST_RE.fullmatch(self.content_digest) is None:
             raise ValueError("content_digest must be a canonical sha256-v1 digest")
         duration = self.actual_duration_seconds
-        if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration):
+        if not math.isfinite(duration):
             raise ValueError("actual_duration_seconds must be positive and finite")
         if duration <= 0:
             raise ValueError("actual_duration_seconds must be positive and finite")
@@ -366,10 +360,8 @@ def materialize_raw_video_presentation(
 ) -> RawVideoPresentation:
     """Represent an observed manual upload without inventing generation provenance."""
 
-    if not isinstance(unit_id, str) or not unit_id:
+    if not unit_id:
         raise ValueError("unit_id must be a non-empty string")
-    if not isinstance(video, RawPresentationMedia):
-        raise TypeError("video must be RawPresentationMedia")
     return RawVideoPresentation(
         unit_id=unit_id,
         selection=video.selection,
@@ -393,18 +385,10 @@ def materialize_speech_presentation(
 ) -> SpeechPresentation:
     """Materialize one validated presentation from selected real media."""
 
-    if not isinstance(preparation, SpeechPreparation) or preparation.problems or preparation.mode is None:
+    if preparation.problems or preparation.mode is None:
         raise ValueError("presentation requires an admitted speech preparation")
     if variant not in {POST_PRODUCTION, USE_TTS}:
         raise ValueError(f"unsupported rendition variant: {variant!r}")
-    if not isinstance(video, PresentationMedia):
-        raise TypeError("video must be PresentationMedia")
-    if not isinstance(provider_audio_enabled, bool):
-        raise TypeError("provider_audio_enabled must be a boolean")
-    if not isinstance(transition_to_next, str):
-        raise TypeError("transition_to_next must be a string")
-    if narration_audio is not None and not isinstance(narration_audio, PresentationMedia):
-        raise TypeError("narration_audio must be PresentationMedia or null")
     if variant == USE_TTS and preparation.mode is not SpeechMode.NARRATOR_VOICEOVER:
         raise ValueError("use_tts presentation requires narrator voiceover")
     if variant == USE_TTS and narration_audio is None:
@@ -474,7 +458,7 @@ def materialize_speech_presentation(
 
 
 def _duration_microseconds(seconds: float) -> int:
-    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds <= 0:
+    if not math.isfinite(seconds) or seconds <= 0:
         raise ValueError("media duration must be positive and finite")
     duration = round(float(seconds) * MICROSECONDS_PER_SECOND)
     if duration <= 0:

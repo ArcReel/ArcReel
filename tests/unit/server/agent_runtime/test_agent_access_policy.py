@@ -23,7 +23,7 @@ def _make_policy(tmp_path: Path, **overrides: object) -> AgentAccessPolicy:
         "log_dir": project_root / "logs",
     }
     kwargs.update(overrides)
-    return AgentAccessPolicy(**kwargs)  # type: ignore[arg-type]
+    return AgentAccessPolicy(**kwargs)
 
 
 @pytest.fixture
@@ -164,8 +164,8 @@ def test_protected_script_plan_filenames_match_shared_constant() -> None:
     from lib.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 
     assert (
-        frozenset(  # pyright: ignore[reportPrivateUsage]
-            AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))  # pyright: ignore[reportPrivateUsage]
+        frozenset(
+            AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
             for name in AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
         )
         == AgentAccessPolicy._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM

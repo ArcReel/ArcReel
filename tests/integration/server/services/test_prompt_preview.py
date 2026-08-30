@@ -6,10 +6,10 @@ import pytest
 
 from server.services import generation_tasks, prompt_preview
 from tests.integration.server.services.generation_tasks_support import (
+    FakeGenerator,
     _ad_pm,
     _async_return,
     _fake_resolve_ctx,
-    _FakeGenerator,
     _FakePM,
     _prepare_files,
     _register_asset_sheet_claims,
@@ -82,7 +82,7 @@ def _item_of(pm: _FakePM) -> dict:
     return next(item for item in items if str(item.get(id_field)) == ITEM_ID)
 
 
-def _patch_execution(monkeypatch, pm: _FakePM, generator: _FakeGenerator, *, register_artifacts: bool = False) -> None:
+def _patch_execution(monkeypatch, pm: _FakePM, generator: FakeGenerator, *, register_artifacts: bool = False) -> None:
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(generator))
     monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
@@ -102,7 +102,7 @@ class TestPreviewMatchesExecution:
     async def test_storyboard_image_prompt_is_verbatim(self, tmp_path, monkeypatch, content_mode):
         project_path = _prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
@@ -118,7 +118,7 @@ class TestPreviewMatchesExecution:
         pm = _pm_for(content_mode, project_path)
         (project_path / "storyboards" / f"scene_{ITEM_ID}.png").write_bytes(b"png")
         _seed_current_storyboard(pm, ITEM_ID)
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
@@ -133,7 +133,7 @@ class TestPreviewMatchesExecution:
         _item_of(pm)["video_prompt"] = "镜头缓缓推近，雨水顺着伞沿滑落"
         (project_path / "storyboards" / f"scene_{ITEM_ID}.png").write_bytes(b"png")
         _seed_current_storyboard(pm, ITEM_ID)
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
@@ -155,7 +155,7 @@ class TestPreviewMatchesExecution:
         project_path = _prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
         _item_of(pm)["image_prompt"] = body
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
@@ -178,7 +178,7 @@ class TestPreviewMatchesExecution:
         _item_of(pm)["video_prompt"] = body
         (project_path / "storyboards" / f"scene_{ITEM_ID}.png").write_bytes(b"png")
         _seed_current_storyboard(pm, ITEM_ID)
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
@@ -194,7 +194,7 @@ class TestPreviewMatchesExecution:
         """结构化 → 文本以当前渲染结果为初值：再渲染一次不叠出第二份风格与反向约束。"""
         project_path = _prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
 
         structured = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
@@ -212,7 +212,7 @@ class TestPreviewMatchesExecution:
         """视频侧同理：drama 的 Voice_Profiles / Dialogue 声明段已在正文里时不再追加第二份。"""
         project_path = _prepare_files(tmp_path)
         pm = _pm_for(content_mode, project_path)
-        _patch_execution(monkeypatch, pm, _FakeGenerator())
+        _patch_execution(monkeypatch, pm, FakeGenerator())
 
         structured = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
         seed = structured.video.text
@@ -229,7 +229,7 @@ class TestPreviewIsReadOnly:
         pm = _pm_for("ad", project_path)
         (project_path / "storyboards" / f"scene_{ITEM_ID}.png").write_bytes(b"png")
         _seed_current_storyboard(pm, ITEM_ID)
-        generator = _FakeGenerator()
+        generator = FakeGenerator()
         _patch_execution(monkeypatch, pm, generator)
         manifest = project_path / ".arcreel_artifacts.json"
         manifest_before = manifest.read_bytes()
@@ -248,7 +248,7 @@ class TestPreviewUnavailableSides:
         project_path = _prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         _item_of(pm).pop("video_prompt")
-        _patch_execution(monkeypatch, pm, _FakeGenerator())
+        _patch_execution(monkeypatch, pm, FakeGenerator())
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
@@ -260,7 +260,7 @@ class TestPreviewUnavailableSides:
         project_path = _prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
         _item_of(pm)["image_prompt"] = {"composition": {}}
-        _patch_execution(monkeypatch, pm, _FakeGenerator())
+        _patch_execution(monkeypatch, pm, FakeGenerator())
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
@@ -270,7 +270,7 @@ class TestPreviewUnavailableSides:
     async def test_unknown_item_id_is_reported(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
-        _patch_execution(monkeypatch, pm, _FakeGenerator())
+        _patch_execution(monkeypatch, pm, FakeGenerator())
 
         with pytest.raises(prompt_preview.ScriptItemNotFound):
             await prompt_preview.preview_item_prompts("demo", "episode_1.json", "E9S99")
@@ -305,7 +305,7 @@ class TestPromptPreviewTool:
     async def test_returns_the_same_preview_as_the_service(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         pm = _pm_for("drama", project_path)
-        _patch_execution(monkeypatch, pm, _FakeGenerator())
+        _patch_execution(monkeypatch, pm, FakeGenerator())
 
         outcome = await self._call(pm, project_path)
 
@@ -315,7 +315,7 @@ class TestPromptPreviewTool:
     async def test_unknown_item_is_a_typed_problem(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
-        _patch_execution(monkeypatch, pm, _FakeGenerator())
+        _patch_execution(monkeypatch, pm, FakeGenerator())
 
         outcome = await self._call(pm, project_path, item_id="E9S99")
 
@@ -326,7 +326,7 @@ class TestPromptPreviewTool:
     async def test_script_must_be_a_bare_filename(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
-        _patch_execution(monkeypatch, pm, _FakeGenerator())
+        _patch_execution(monkeypatch, pm, FakeGenerator())
 
         outcome = await self._call(pm, project_path, script="../other/episode_1.json")
 

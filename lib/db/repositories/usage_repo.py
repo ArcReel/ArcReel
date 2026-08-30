@@ -278,7 +278,7 @@ class UsageRepository(BaseRepository):
             )
 
             params = PricingParams(
-                call_type=row.call_type,  # pyright: ignore[reportArgumentType]
+                call_type=row.call_type,
                 model=row.model,
                 resolution=row.resolution,
                 aspect_ratio=row.aspect_ratio,

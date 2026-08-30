@@ -588,7 +588,7 @@ class TestAssistantService:
         )
         service._new_session_client_keys["ck-a"] = "sdk-deleted"
 
-        result = await service._find_accepted_new_session("ck-a", "demo")  # pyright: ignore[reportPrivateUsage]
+        result = await service._find_accepted_new_session("ck-a", "demo")
 
         assert result is None  # 本测试的兜底查询返回 None，不影响本次断言重点
         assert service._new_session_client_keys["ck-a"] == "sdk-fresh"  # 未被误删
@@ -617,7 +617,7 @@ class TestAssistantService:
             find_new_session_by_client_key=find_new_session_by_client_key,
         )
 
-        result = await service._find_accepted_new_session("ck-b", "demo")  # pyright: ignore[reportPrivateUsage]
+        result = await service._find_accepted_new_session("ck-b", "demo")
 
         assert result is not None
         assert result["session_id"] == "sdk-old"  # 本次调用仍返回自己查到的权威条目

@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -17,7 +17,7 @@ import respx
 
 
 @contextmanager
-def capture_http(*, assert_all_called: bool = False) -> Iterator[respx.MockRouter]:
+def capture_http(*, assert_all_called: bool = False) -> Generator[respx.MockRouter]:
     """拦截全部出站 httpx 流量；未声明路由的请求直接抛错，不会静默放行到真实网络。
 
     `assert_all_called` 缺省关闭：多数用例只关心其中一条路由是否收到预期请求，声明了

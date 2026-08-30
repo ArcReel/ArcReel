@@ -43,7 +43,7 @@ from lib.grid.layout import GridLayout, plan_grid_chunks, video_aspect_ratio_of
 from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
-from lib.project_manager import ProjectManager, grid_storyboard_enabled
+from lib.project_manager import grid_storyboard_enabled
 from lib.resource_paths import resource_relative_path
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
@@ -191,8 +191,6 @@ async def handle_generate_grid(
             script=script,
             script_filename=script_filename,
         )
-        if episode is None:
-            episode = ProjectManager.resolve_episode_from_script(script, script_filename)
         project_path = ctx.project_path
         items, id_field, _, _, _ = get_storyboard_items(script)
         aspect_ratio = video_aspect_ratio_of(project)

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
@@ -108,7 +108,7 @@ class Ledger:
         segment_id: str | None = None,
         service_tier: str = "default",
         output_path: str | None = None,
-    ) -> AsyncIterator[LedgerCall]:
+    ) -> AsyncGenerator[LedgerCall]:
         """记账括号：进入落 pending，块内 ``call.success(result)`` 声明成功。
 
         退出语义：``CancelledError`` 穿透留 pending；``Exception`` 翻 failed 后原样重抛；正常

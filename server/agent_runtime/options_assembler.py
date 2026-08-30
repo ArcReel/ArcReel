@@ -212,7 +212,7 @@ class OptionsAssembler:
         ``session_id`` 以预先指定的 id 开一个全新会话（无历史可 resume），
         与 ``resume_id`` 互斥——SDK 只在 ``fork_session`` 下才允许两者并存。
         """
-        if not SDK_AVAILABLE or ClaudeAgentOptions is None:
+        if not SDK_AVAILABLE:
             raise RuntimeError("claude_agent_sdk is not installed")
         if resume_id is not None and session_id is not None:
             raise ValueError("resume_id and session_id are mutually exclusive")
@@ -226,42 +226,41 @@ class OptionsAssembler:
         # permission chain) before reaching can_use_tool (step 5).  Hooks
         # (step 1) fire for ALL tool calls and can override allow rules.
         hooks = None
-        if HookMatcher is not None:
-            hook_callbacks: list[Any] = [
-                self._build_file_access_hook(project_cwd),
-            ]
-            if can_use_tool is not None:
-                # Official Python SDK guidance: keep stream open when using
-                # can_use_tool.
-                hook_callbacks.insert(0, self._keep_stream_open_hook)
+        hook_callbacks: list[Any] = [
+            self._build_file_access_hook(project_cwd),
+        ]
+        if can_use_tool is not None:
+            # Official Python SDK guidance: keep stream open when using
+            # can_use_tool.
+            hook_callbacks.insert(0, self._keep_stream_open_hook)
 
-            # Shared dict: PreToolUse saves file backup, PostToolUse restores
-            # on corruption.  Keyed by tool_use_id.
-            json_backups: dict[str, tuple[Path, str]] = {}
+        # Shared dict: PreToolUse saves file backup, PostToolUse restores
+        # on corruption.  Keyed by tool_use_id.
+        json_backups: dict[str, tuple[Path, str]] = {}
 
-            hooks = {
-                "PreToolUse": [
-                    HookMatcher(matcher=None, hooks=hook_callbacks),
-                    HookMatcher(
-                        matcher="Bash",
-                        hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]
-                    ),
-                    HookMatcher(
-                        matcher="Write|Edit",
-                        hooks=[
-                            self._build_json_validation_hook(project_cwd, json_backups),
-                        ],
-                    ),
-                ],
-                "PostToolUse": [
-                    HookMatcher(
-                        matcher="Write|Edit",
-                        hooks=[
-                            self._build_json_post_validation_hook(project_cwd, json_backups),
-                        ],
-                    ),
-                ],
-            }
+        hooks = {
+            "PreToolUse": [
+                HookMatcher(matcher=None, hooks=hook_callbacks),
+                HookMatcher(
+                    matcher="Bash",
+                    hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]
+                ),
+                HookMatcher(
+                    matcher="Write|Edit",
+                    hooks=[
+                        self._build_json_validation_hook(project_cwd, json_backups),
+                    ],
+                ),
+            ],
+            "PostToolUse": [
+                HookMatcher(
+                    matcher="Write|Edit",
+                    hooks=[
+                        self._build_json_post_validation_hook(project_cwd, json_backups),
+                    ],
+                ),
+            ],
+        }
 
         provider_env = await self.build_provider_env_overrides()
         provider_env.update(

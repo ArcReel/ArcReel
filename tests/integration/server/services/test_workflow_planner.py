@@ -259,8 +259,8 @@ async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singl
     monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
     request = WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    first = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", request)  # type: ignore[arg-type]
-    second = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", request)  # type: ignore[arg-type]
+    first = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", request)
+    second = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", request)
 
     assert first == second
     assert len(admission_calls) == 2
@@ -301,7 +301,7 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
     monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
         "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
     )
 
@@ -361,7 +361,7 @@ async def test_grid_storyboard_plan_waits_for_active_grid_task(tmp_path: Path, m
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())  # type: ignore[arg-type]
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     assert next(step for step in plan.steps if step.id == "storyboard").state is WorkflowStepState.ACTIVE
     assert plan.next_action.type == "wait_for_task"
@@ -402,7 +402,7 @@ async def test_asset_sheet_plan_waits_for_active_asset_task(tmp_path: Path, monk
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())  # type: ignore[arg-type]
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     step = next(item for item in plan.steps if item.id == "asset_sheets")
     assert step.state is WorkflowStepState.ACTIVE
@@ -473,7 +473,7 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
         provider_id="test-provider",
     )
 
-    planner = workflow_planner.WorkflowPlanner(planner_pm)  # type: ignore[arg-type]
+    planner = workflow_planner.WorkflowPlanner(planner_pm)
     plan = await planner.get_plan("demo", WorkflowPlanRequest(), user_id=caller, queue=queue)
     other_plan = await planner.get_plan("demo", WorkflowPlanRequest(), user_id="caller-b", queue=queue)
 
@@ -523,7 +523,7 @@ async def test_recovery_checkpoint_without_provider_job_remains_visible(
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
     monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
         "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
     )
 
@@ -549,7 +549,7 @@ async def test_mixed_speech_blocks_before_storyboard_and_uses_atomic_script_edit
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())  # type: ignore[arg-type]
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     structure = next(step for step in plan.steps if step.id == "script_structure")
     storyboard = next(step for step in plan.steps if step.id == "storyboard")
@@ -608,7 +608,7 @@ async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
     monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
 
     before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
         "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
     )
 
@@ -652,7 +652,7 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
     monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
     monkeypatch.setattr(video_batch_admission, "assert_audio_switch_supported", _reject)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
         "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
     )
 

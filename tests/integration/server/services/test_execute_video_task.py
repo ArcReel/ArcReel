@@ -27,10 +27,10 @@ from lib.video_frame_slots import gate_video_request
 from lib.video_visual_provenance import build_storyboard_video_visual_basis
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
+    FakeGenerator,
     _ad_pm,
     _async_return,
     _fake_resolve_ctx,
-    _FakeGenerator,
     _FakePM,
     _persist_active_fake_project,
     _prepare_files,
@@ -45,7 +45,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         thumbnail_path = project_path / "thumbnails" / "scene_E1S01.jpg"
 
@@ -90,7 +90,7 @@ class TestGenerationTasks:
         manifest_before = manifest.read_bytes()
         submitted: dict[str, Mapping[str, object]] = {}
 
-        class _CheckpointingGenerator(_FakeGenerator):
+        class _CheckpointingGenerator(FakeGenerator):
             async def generate_video_async(self, **kwargs):
                 self.video_calls.append(kwargs)
                 start_image = kwargs["start_image"]
@@ -154,7 +154,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         seen_lanes: list[dict] = []
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -182,7 +182,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -206,7 +206,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -234,7 +234,7 @@ class TestGenerationTasks:
             json.dumps(fake_pm.script, ensure_ascii=False),
             encoding="utf-8",
         )
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -258,7 +258,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         current_tts_duration = 6.2
         seen_lane_requests: list[dict] = []
 
@@ -345,7 +345,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_generator.versions = VersionManager(project_path)
         item = fake_pm.script["segments"][0]
         item["novel_text"] = "current narration"
@@ -492,7 +492,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         (project_path / "storyboards" / "scene_E1S01_first.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01_first.png"}
         _register_stale_visual_claim(
             project_path,
@@ -517,7 +517,7 @@ class TestGenerationTasks:
         """storyboard_image 字段指向的文件缺失时硬失败，不调用后端生成。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_missing.png"}
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -538,7 +538,7 @@ class TestGenerationTasks:
         """Schema 8 workers reject an existing storyboard whose Manifest claim is absent."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
         _persist_active_fake_project(fake_pm)
 
@@ -575,7 +575,7 @@ class TestGenerationTasks:
 
         provider_submissions: list[str] = []
 
-        class _SubmittingGenerator(_FakeGenerator):
+        class _SubmittingGenerator(FakeGenerator):
             async def generate_video_async(self, **kwargs):
                 await kwargs["before_submit"](72)
                 provider_submissions.append("submitted")
@@ -638,7 +638,7 @@ class TestGenerationTasks:
         assert activate_artifact_target_state(project_path, bump_schema=False) is True
         provider_submissions: list[str] = []
 
-        class _SubmittingGenerator(_FakeGenerator):
+        class _SubmittingGenerator(FakeGenerator):
             async def generate_video_async(self, **kwargs):
                 await kwargs["before_submit"](73)
                 provider_submissions.append("submitted")
@@ -688,7 +688,7 @@ class TestGenerationTasks:
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = ["bad"]
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -735,7 +735,7 @@ class TestGenerationTasks:
         end_frame_dir.mkdir(parents=True, exist_ok=True)
         (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": storyboard_value}
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -761,7 +761,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         absolute_value = str(project_path / "storyboards" / "scene_E1S01.png")
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": absolute_value}
 
@@ -786,7 +786,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "\\Users\\Alice\\scene.png"}
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -810,7 +810,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         (project_path / "storyboards" / "subdir").mkdir(parents=True)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/subdir"}
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -833,7 +833,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         end_frame_dir = project_path / "end_frames"
         end_frame_dir.mkdir(parents=True, exist_ok=True)
@@ -862,7 +862,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         end_frame_dir = project_path / "end_frames"
         end_frame_dir.mkdir(parents=True, exist_ok=True)
@@ -888,7 +888,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         if not missing:
             fake_pm.script["segments"][0]["end_frame_image"] = ""
 
@@ -910,7 +910,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -954,7 +954,7 @@ class TestGenerationTasks:
         (end_frame_dir / "scene_E1S02.png").write_bytes(b"png")  # 别的镜头的快照，供跨镜头误引用例检查
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = end_frame_value
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -982,7 +982,7 @@ class TestGenerationTasks:
         (end_frame_dir / "scene_E1S01.png").symlink_to(end_frame_dir / "scene_E1S02.png")
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -1010,7 +1010,7 @@ class TestGenerationTasks:
         (project_path / "end_frames").symlink_to(real_dir)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -1041,7 +1041,7 @@ class TestGenerationTasks:
         (end_frames_dir / "scene_E1S01.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -1068,7 +1068,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         end_frame_dir = project_path / "end_frames"
         end_frame_dir.mkdir(parents=True, exist_ok=True)
@@ -1106,7 +1106,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         end_frame_dir = project_path / "end_frames"
         end_frame_dir.mkdir(parents=True, exist_ok=True)
@@ -1137,7 +1137,7 @@ class TestGenerationTasks:
         video_prompt.dialogue）；voiceover-kind 不进视频 YAML。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         # 改用 drama 剧本：E1S01 携带有序 utterances（voiceover 在前、dialogue 在后）
         fake_pm.script = {
@@ -1217,7 +1217,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script = self._drama_script()
         _seed_current_storyboard(fake_pm)
 
@@ -1249,7 +1249,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script = self._drama_script()
         _seed_current_storyboard(fake_pm)
 
@@ -1282,7 +1282,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script = self._drama_script()
         _seed_current_storyboard(fake_pm)
 
@@ -1318,7 +1318,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -1350,7 +1350,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script = self._legacy_drama_script()
         _seed_current_storyboard(fake_pm)
 
@@ -1388,7 +1388,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script = self._legacy_drama_script()
         _seed_current_storyboard(fake_pm)
 
@@ -1431,7 +1431,7 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_pm.project["content_mode"] = "drama"
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
         fake_pm.script = {
             "episode": 1,
             # 顶层无 content_mode：存量 episode 省略该字段，真相源退到 project.json。
@@ -1480,7 +1480,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
@@ -1509,7 +1509,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
@@ -1539,7 +1539,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
@@ -1567,7 +1567,7 @@ class TestGenerationTasks:
         """视频解析失败即任务失败：异常原样上抛留痕，无硬编码 provider/model 兜底，后端不被调用。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = FakeGenerator()
 
         async def _boom(*args, **kwargs):
             raise RuntimeError("video provider unconfigured")
