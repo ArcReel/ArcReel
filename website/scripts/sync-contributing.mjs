@@ -20,6 +20,7 @@ const ANCHORS = new Map([
   ["## 本地开发环境", "local-development"],
   ["### 文档站", "docs-site"],
   ["## 测试", "testing"],
+  ["### 测试选择", "test-selection"],
   ["### 分层与目录", "test-tiers"],
   ["### 体量与命名", "test-file-size"],
   ["### 测试替身", "test-doubles"],
