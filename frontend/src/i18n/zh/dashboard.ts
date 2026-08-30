@@ -1805,7 +1805,7 @@ export default {
   'ce_reference_count': '{{n}} 个模型正在使用',
   'ce_manage_entry': '管理调用端点…',
   'ce_import': '导入',
-  'ce_import_hint': '导入定义文件（.json）',
+  'ce_import_hint': '导入定义 JSON 文件',
   'ce_import_title': '导入端点定义',
   'ce_import_read_failed': '该文件不是有效的定义，请选择从端点导出的定义 JSON 文件。',
   'ce_import_failed': '导入定义失败。',

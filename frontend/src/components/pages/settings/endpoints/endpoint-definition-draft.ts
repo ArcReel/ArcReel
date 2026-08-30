@@ -164,7 +164,7 @@ export function isRenderableDefinition(value: unknown): value is EndpointDefinit
   );
 }
 
-/** 导出为不含凭证的定义文件；文件名取 meta.name，落到 ASCII 安全的形态。 */
+/** 导出为不含凭证的定义 JSON；文件名取 meta.name，落到 ASCII 安全的形态。 */
 export function definitionFileName(definition: EndpointDefinition): string {
   const raw = definition.meta?.name?.trim() || "endpoint";
   const slug = raw.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
