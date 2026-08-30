@@ -1,5 +1,126 @@
 # Changelog
 
+## [0.28.0](https://github.com/ArcReel/ArcReel/compare/v0.27.0...v0.28.0) (2026-08-30)
+
+
+### ✨ 新功能
+
+* **agent:** Agent 辅助适配自定义调用端点 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([e7c3b27](https://github.com/ArcReel/ArcReel/commit/e7c3b278e20db5cd1e2174f3a2a4c9f180af3e25)), closes [#2162](https://github.com/ArcReel/ArcReel/issues/2162)
+* **agent:** publish external Agent installation guide ([465ecc0](https://github.com/ArcReel/ArcReel/commit/465ecc0c7bab51926ac84805b4f9f5a76698a76b)), closes [#2076](https://github.com/ArcReel/ArcReel/issues/2076)
+* **agent:** return complete workflow tool results ([165888e](https://github.com/ArcReel/ArcReel/commit/165888e048c7ef8fb171e5b27b7e64845aed4172)), closes [#2064](https://github.com/ArcReel/ArcReel/issues/2064)
+* **agent:** support revisioned draft workflows ([8869763](https://github.com/ArcReel/ArcReel/commit/8869763232bddf664c3bce30721067f236044deb)), closes [#2070](https://github.com/ArcReel/ArcReel/issues/2070)
+* **agent:** unify episode script edit operations ([62d4d29](https://github.com/ArcReel/ArcReel/commit/62d4d29e532a0a28b82788aa6de7cdda139474f2)), closes [#2069](https://github.com/ArcReel/ArcReel/issues/2069)
+* **agent:** unify step1 text generation across agent hosts ([e8f7e7b](https://github.com/ArcReel/ArcReel/commit/e8f7e7b777eb4280d757268877f2f5c1da665454)), closes [#2068](https://github.com/ArcReel/ArcReel/issues/2068)
+* **custom-endpoint:** 实现声明式视频运行时与下载续跑 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([3083ceb](https://github.com/ArcReel/ArcReel/commit/3083ceb791f4e2aaa78d3a3ee2e07c116fec10ee)), closes [#2156](https://github.com/ArcReel/ArcReel/issues/2156)
+* **custom-endpoint:** 端点测试三端点与连通性检查更名 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([1f2584d](https://github.com/ArcReel/ArcReel/commit/1f2584d5e16d23893c0414507dbc7ffa4b75e0b2)), closes [#2157](https://github.com/ArcReel/ArcReel/issues/2157)
+* **custom-endpoint:** 自定义调用端点实体存储与 CRUD/validate API ([45143e3](https://github.com/ArcReel/ArcReel/commit/45143e3d38a416dddd4ad970b79438c76723c480)), closes [#2154](https://github.com/ArcReel/ArcReel/issues/2154)
+* **custom-endpoint:** 补全测试连接素材与结果预览 ([527f09b](https://github.com/ArcReel/ArcReel/commit/527f09b30fa0f3820b313144ea757b3a4f515b13)), closes [#2224](https://github.com/ArcReel/ArcReel/issues/2224)
+* **custom-provider:** validate 对 auth 值中疑似字面凭证给出 warning [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([2aa254c](https://github.com/ArcReel/ArcReel/commit/2aa254cd03867667c91942e73fe68cd6f0f71033))
+* **custom-provider:** 内置调用端点支持随版声明式定义 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([44e30e3](https://github.com/ArcReel/ArcReel/commit/44e30e3c46078fe02fe171f6930ae863efb0743c)), closes [#2158](https://github.com/ArcReel/ArcReel/issues/2158)
+* **custom-provider:** 实现声明式模板渲染与响应提取 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([5a0d0ba](https://github.com/ArcReel/ArcReel/commit/5a0d0bae431303476c11b03938cf3bf82773d97b)), closes [#2153](https://github.com/ArcReel/ArcReel/issues/2153)
+* **custom-provider:** 收编 newapi / v2 / minimax 为随版声明式视频端点 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([7c61c07](https://github.com/ArcReel/ArcReel/commit/7c61c078812fd1206cd2a232d234d0ce098c1059)), closes [#2159](https://github.com/ArcReel/ArcReel/issues/2159)
+* **custom-provider:** 自定义调用端点定义格式 schema 与共享校验器 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([36cb7b4](https://github.com/ArcReel/ArcReel/commit/36cb7b4dce73324a1622552d59af634f374c5d83)), closes [#2152](https://github.com/ArcReel/ArcReel/issues/2152)
+* **frontend:** make embedded agent credentials optional ([75211c8](https://github.com/ArcReel/ArcReel/commit/75211c885e4f555615d26d774c76aac092a5dd2d)), closes [#2065](https://github.com/ArcReel/ArcReel/issues/2065)
+* **frontend:** 后台任务展示已运行/已等待时长与总耗时 ([9f9585f](https://github.com/ArcReel/ArcReel/commit/9f9585fca640e8d70161c0d1fb1f8475cb9630f9)), closes [#2014](https://github.com/ArcReel/ArcReel/issues/2014) [#2014](https://github.com/ArcReel/ArcReel/issues/2014)
+* **frontend:** 新增外部智能体接入引导 ([2f2e944](https://github.com/ArcReel/ArcReel/commit/2f2e944647f9699a99591bdb93593abac2587105)), closes [#2078](https://github.com/ArcReel/ArcReel/issues/2078)
+* **frontend:** 记住智能体栏开合偏好 ([a676edb](https://github.com/ArcReel/ArcReel/commit/a676edbdc31a59e85f8f3702a8f3007543ae96a3)), closes [#2066](https://github.com/ArcReel/ArcReel/issues/2066)
+* **i18n:** 模型目录与用量统计的名称跟随界面语言 ([eb952f9](https://github.com/ArcReel/ArcReel/commit/eb952f903ef39c9123034bab756a32f982f0e91f)), closes [#1761](https://github.com/ArcReel/ArcReel/issues/1761)
+* **i18n:** 模型选择器显示模型译名，系统配置的供应商名跟随语言 ([a911138](https://github.com/ArcReel/ArcReel/commit/a911138930313454d4935de2ad425f79e375a5fb)), closes [#2203](https://github.com/ArcReel/ArcReel/issues/2203)
+* **mcp:** add safe project entry tools ([52a781c](https://github.com/ArcReel/ArcReel/commit/52a781c72a403346b7543e3e7513aaa5118ebc7a)), closes [#2074](https://github.com/ArcReel/ArcReel/issues/2074)
+* **mcp:** expose authenticated remote endpoint ([5d2612f](https://github.com/ArcReel/ArcReel/commit/5d2612fe7219c7ab781fe7a0b195cc626798ab0c)), closes [#2067](https://github.com/ArcReel/ArcReel/issues/2067)
+* **mcp:** expose planning and maintenance tools ([8c1d523](https://github.com/ArcReel/ArcReel/commit/8c1d523d222dcc0c0c947de197f512b125c7fd78)), closes [#2072](https://github.com/ArcReel/ArcReel/issues/2072)
+* **mcp:** expose safe revisioned content readers ([609e33d](https://github.com/ArcReel/ArcReel/commit/609e33da7c7f97750c8d7252537afe7307396d35)), closes [#2073](https://github.com/ArcReel/ArcReel/issues/2073)
+* **media:** unify video generation targets ([b4724fe](https://github.com/ArcReel/ArcReel/commit/b4724fedf83d9c7bf3ca8cd0b8288768f1178556)), closes [#2079](https://github.com/ArcReel/ArcReel/issues/2079)
+* **media:** 统一宿主无关的持久媒体批次 ([96ae7fb](https://github.com/ArcReel/ArcReel/commit/96ae7fb11681f456c0eceea9cd10889cbffafeec)), closes [#2075](https://github.com/ArcReel/ArcReel/issues/2075)
+* **prompt:** 提示词最终文本预览与纯文本形态编写 ([30faa29](https://github.com/ArcReel/ArcReel/commit/30faa29f5beac7cf9c5452f9b6ffe531ceb28e2c)), closes [#2177](https://github.com/ArcReel/ArcReel/issues/2177)
+* **queue:** add durable generation batch controls ([d53e4a9](https://github.com/ArcReel/ArcReel/commit/d53e4a9f378f82b051f35ba4823192aa3a036960)), closes [#2071](https://github.com/ArcReel/ArcReel/issues/2071)
+* **queue:** enqueue long-running text generation ([b8302b6](https://github.com/ArcReel/ArcReel/commit/b8302b668b7fbf36aea761895c1ec95e283725c9)), closes [#2080](https://github.com/ArcReel/ArcReel/issues/2080)
+* **script:** 参考生视频加入场景引用规则与未引用场景的读时提示 ([112476b](https://github.com/ArcReel/ArcReel/commit/112476b96af16b5b846acdd61d433653c0d9b9c4)), closes [#2181](https://github.com/ArcReel/ArcReel/issues/2181)
+* **script:** 脚本规划指纹按条目比对，提示词编写增量合并保留未变条目 ([54d0b7e](https://github.com/ArcReel/ArcReel/commit/54d0b7efba1d8f6a71e91c62f18fcd999c9971ae)), closes [#2175](https://github.com/ArcReel/ArcReel/issues/2175)
+* **settings:** 自定义调用端点设置页 UI [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([17fc6fd](https://github.com/ArcReel/ArcReel/commit/17fc6fdd1b9460016206d287d9fd0d57dd19f0ec)), closes [#2161](https://github.com/ArcReel/ArcReel/issues/2161)
+* **skills:** add explicit ArcReel MCP setup skill ([9cde9be](https://github.com/ArcReel/ArcReel/commit/9cde9bea6a5bb19f74ce681eb928214793bff3f9)), closes [#2077](https://github.com/ArcReel/ArcReel/issues/2077)
+* **skills:** add portable ArcReel workflow skill ([94ef4e8](https://github.com/ArcReel/ArcReel/commit/94ef4e88fe3af473afda633b2ae9714c5d3de193)), closes [#2081](https://github.com/ArcReel/ArcReel/issues/2081)
+* **video:** 视频轮询统一失败预算与全局超时设置 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([7e91372](https://github.com/ArcReel/ArcReel/commit/7e91372ddde263548d6b147766c7839c2541e455)), closes [#2155](https://github.com/ArcReel/ArcReel/issues/2155)
+* **video:** 纯文生请求在不支持的模型上提交前被拦下 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([fa04928](https://github.com/ArcReel/ArcReel/commit/fa049282d6315f7c6ba08200d1a0b243bfd0dc3b)), closes [#2160](https://github.com/ArcReel/ArcReel/issues/2160)
+* **voice:** 角色声音绑定方式改为项目设置，默认按声音描述约束 ([d3cd1b6](https://github.com/ArcReel/ArcReel/commit/d3cd1b6f1029a355c66f6665df54d08b639f1d1e)), closes [#2180](https://github.com/ArcReel/ArcReel/issues/2180)
+* **项目设置:** 新增可选的单集目标时长，脚本规划按它把握整集体量 ([279ff5a](https://github.com/ArcReel/ArcReel/commit/279ff5a40f5f302d76b6c038ef4eeeef9a5ef646)), closes [#2178](https://github.com/ArcReel/ArcReel/issues/2178)
+
+
+### 🐛 Bug 修复
+
+* address stage integration review findings ([6cd3d44](https://github.com/ArcReel/ArcReel/commit/6cd3d44407b7e19210d5b7437c2e4efbab7ba39b))
+* **agent:** 优化外部 Agent 接入引导与 skills 分发 [Spec [#2062](https://github.com/ArcReel/ArcReel/issues/2062)] ([#2149](https://github.com/ArcReel/ArcReel/issues/2149)) ([c9a50fd](https://github.com/ArcReel/ArcReel/commit/c9a50fddf83f6109e96f2eea92759c63956d23dd))
+* **custom-endpoints:** 按阶段归档测试连接响应 ([5b152f6](https://github.com/ArcReel/ArcReel/commit/5b152f6933b3c0e285418a7993f110693428218b)), closes [#2186](https://github.com/ArcReel/ArcReel/issues/2186)
+* **custom-endpoints:** 收敛审查反馈 ([5df8174](https://github.com/ArcReel/ArcReel/commit/5df817459a5eca03e35e08ac77071ee8b8d3c9a4))
+* **custom-endpoints:** 本地化模板渲染诊断 ([81c8fbf](https://github.com/ArcReel/ArcReel/commit/81c8fbfa9d2622a76a9d88c4d8c59d05e66c8759)), closes [#2187](https://github.com/ArcReel/ArcReel/issues/2187)
+* **custom-endpoint:** text_to_video 由必需图输入单一推导，删掉重复的键前缀常量 ([6117f43](https://github.com/ArcReel/ArcReel/commit/6117f4372ce3dced272fc149e5d877356bde35d1)), closes [#2154](https://github.com/ArcReel/ArcReel/issues/2154) [#2158](https://github.com/ArcReel/ArcReel/issues/2158) [#2160](https://github.com/ArcReel/ArcReel/issues/2160)
+* **custom-provider:** 收敛 JSONPath 求值异常 ([6cb7e25](https://github.com/ArcReel/ArcReel/commit/6cb7e25cd895f7bfc3698c146ec21784ef80f550)), closes [#2188](https://github.com/ArcReel/ArcReel/issues/2188)
+* **frontend:** 列表分隔符随语言输出、轮询超时输入口径统一 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([641f638](https://github.com/ArcReel/ArcReel/commit/641f6382fab80648e73a1a602e73f3ab98b1e944))
+* **frontend:** 界面语言切换后重取模型目录 ([36fef00](https://github.com/ArcReel/ArcReel/commit/36fef009430ac0a999ae5eacb6816b685ac5d4af)), closes [#2194](https://github.com/ArcReel/ArcReel/issues/2194)
+* **frontend:** 设置页侧栏「调用端点」栏位移到 Agent 下方 ([0d72b5a](https://github.com/ArcReel/ArcReel/commit/0d72b5a98f81d2d34991eeaed7c3012c0d27990e))
+* **frontend:** 设置页模型桶与端点表单文案校对修订 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([de1192a](https://github.com/ArcReel/ArcReel/commit/de1192a7bd21ee75e983cc9c42e99e921f27ad5c))
+* **frontend:** 轮询超时输入保留字符串编辑态，失焦解析取整 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([1a30b3c](https://github.com/ArcReel/ArcReel/commit/1a30b3c2b819773bdde19820df938d0677af8fb9))
+* **i18n:** 导入提示按 Spec 命名改为「定义 JSON 文件」 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([#2190](https://github.com/ArcReel/ArcReel/issues/2190)) ([50aa713](https://github.com/ArcReel/ArcReel/commit/50aa7134899d60ca2ce91723098eec539ea795fe)), closes [#2161](https://github.com/ArcReel/ArcReel/issues/2161)
+* **i18n:** 收敛声音绑定方式与提示词预览的用户文案 ([#2201](https://github.com/ArcReel/ArcReel/issues/2201)) ([ad6ea24](https://github.com/ArcReel/ArcReel/commit/ad6ea2472a55509f58e0308d00748fe1f4e7fefd))
+* **integration:** consolidate stage 3 review findings ([9d74105](https://github.com/ArcReel/ArcReel/commit/9d741057fab537f21e4896a6b785e59a1314739e))
+* **mcp:** complete durable polling descriptions ([ef3d4e8](https://github.com/ArcReel/ArcReel/commit/ef3d4e800f1b0e13ffded1bd392d7b592e7ab47a)), closes [#2117](https://github.com/ArcReel/ArcReel/issues/2117)
+* **mcp:** defer upload cancellation until source settles ([5a5275e](https://github.com/ArcReel/ArcReel/commit/5a5275e0629d4d2c2275680dd67ac963669db775)), closes [#2087](https://github.com/ArcReel/ArcReel/issues/2087)
+* **mcp:** document remote media polling contract ([1ffdaed](https://github.com/ArcReel/ArcReel/commit/1ffdaed41e8a29d8c5c9c5c7e4f1e8d2e002c6c0)), closes [#2115](https://github.com/ArcReel/ArcReel/issues/2115)
+* **mcp:** integrate stage review findings ([1dc838d](https://github.com/ArcReel/ArcReel/commit/1dc838d46c2cbaa6be01408b1b12fea036dbf231))
+* **mcp:** 远程 MCP 外部接入零配置 [[#2221](https://github.com/ArcReel/ArcReel/issues/2221)] ([#2222](https://github.com/ArcReel/ArcReel/issues/2222)) ([82c99e2](https://github.com/ArcReel/ArcReel/commit/82c99e2dc1f2d9e1e0570f42fb128743048edb22))
+* **media:** align durable batch contracts ([6389b04](https://github.com/ArcReel/ArcReel/commit/6389b04e571e62756d89a4027b60e3d7b2702fd1)), closes [#2105](https://github.com/ArcReel/ArcReel/issues/2105)
+* **migrations:** v7→v8 草稿改名与激活预检合并为一个前置只读段 ([cefbbc7](https://github.com/ArcReel/ArcReel/commit/cefbbc7a06a5ba53cb3cdff60b721ba8c54149bb)), closes [#2197](https://github.com/ArcReel/ArcReel/issues/2197)
+* **project:** 修复脚本规划产物在项目升级后整份清单读不出来 ([5c6e9ad](https://github.com/ArcReel/ArcReel/commit/5c6e9ad940551bb44fac64713763aee34d8a2cd4)), closes [#2199](https://github.com/ArcReel/ArcReel/issues/2199)
+* **queue:** clean migration-rejected text batches ([7cd3f1f](https://github.com/ArcReel/ArcReel/commit/7cd3f1f54dd0ba121c2c9f630e76265b0c22ff8e)), closes [#2110](https://github.com/ArcReel/ArcReel/issues/2110)
+* **queue:** compensate cancelled episode commits ([78dd785](https://github.com/ArcReel/ArcReel/commit/78dd785b6615d15cf53ea56c767e9d18e5f9dbcb)), closes [#2113](https://github.com/ArcReel/ArcReel/issues/2113)
+* **queue:** conditionally clean fresh batches ([7225e7a](https://github.com/ArcReel/ArcReel/commit/7225e7a556a76d03932d4cbb40f0605db55ad75b)), closes [#2111](https://github.com/ArcReel/ArcReel/issues/2111)
+* **queue:** 分镜图入队即拒绝非文本 scene，与渲染判据同源 ([5a60552](https://github.com/ArcReel/ArcReel/commit/5a605526349fdd5687e1e0f1cf7720acc956b196)), closes [#2195](https://github.com/ArcReel/ArcReel/issues/2195)
+* **script:** 存量剧本条目指纹按整集指纹读时回填 ([4328b42](https://github.com/ArcReel/ArcReel/commit/4328b4284692ab95852383b527e0c222c6710fed)), closes [#2196](https://github.com/ArcReel/ArcReel/issues/2196)
+* **script:** 容忍类 warning 进入草稿违约报告与晋升回执 ([44bfec9](https://github.com/ArcReel/ArcReel/commit/44bfec94c660a14c638df07de6e670464c364e64)), closes [#2198](https://github.com/ArcReel/ArcReel/issues/2198)
+* **script:** 避免基线指纹阻塞事件循环 ([a3b8340](https://github.com/ArcReel/ArcReel/commit/a3b8340a3fb505bd5942accd111c14cf23c7fd3c)), closes [#2088](https://github.com/ArcReel/ArcReel/issues/2088)
+* **settings:** protect endpoint definitions and recovery links ([070c7cf](https://github.com/ArcReel/ArcReel/commit/070c7cf9d6b9a9ba4285e83a3e106c939703851a)), closes [#2225](https://github.com/ArcReel/ArcReel/issues/2225)
+* **skills:** complete two-skill onboarding ([fab0d6c](https://github.com/ArcReel/ArcReel/commit/fab0d6ce6963531df8392221dd1c141ca998ad04)), closes [#2106](https://github.com/ArcReel/ArcReel/issues/2106)
+* **stage-1:** 收敛审查循环的术语残留、错误文案与测试覆盖 ([b43a274](https://github.com/ArcReel/ArcReel/commit/b43a27450a8dba5047cbe6eeded7f75b3eeba8c2)), closes [#2173](https://github.com/ArcReel/ArcReel/issues/2173) [#2014](https://github.com/ArcReel/ArcReel/issues/2014)
+* **stage-1:** 收敛审查循环的目录译名重取、子智能体 references 引用与注释措辞 ([bd465fa](https://github.com/ArcReel/ArcReel/commit/bd465fa5083949cb095473db55ca2ea910214539))
+* **stage-2:** 提示词形态切换在渲染不出最终文本时不切换并就地报因 ([0d57b9b](https://github.com/ArcReel/ArcReel/commit/0d57b9b16604467512684ab2fe8a3c5d0e868401)), closes [#2177](https://github.com/ArcReel/ArcReel/issues/2177)
+* **stage-3:** 收编审查循环的规则口径、目录刷新与注释修正 ([dce1828](https://github.com/ArcReel/ArcReel/commit/dce18285f37b828e683ea49402678a5af0e1d018)), closes [#2181](https://github.com/ArcReel/ArcReel/issues/2181) [#2194](https://github.com/ArcReel/ArcReel/issues/2194) [#2197](https://github.com/ArcReel/ArcReel/issues/2197)
+* **stage:** apply AI review feedback ([eecf876](https://github.com/ArcReel/ArcReel/commit/eecf8769bed34e7c082380102cfed15c7b18a88e)), closes [#2137](https://github.com/ArcReel/ArcReel/issues/2137)
+* **stage:** 收敛 stage 1 审查反馈 ([82e2870](https://github.com/ArcReel/ArcReel/commit/82e2870838c571486696440317131d219702981c))
+* **stage:** 收敛 stage 1 的 AI 审查意见 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([44d22bf](https://github.com/ArcReel/ArcReel/commit/44d22bfaa5e270bb53df8becdfb3c441879d9312)), closes [#2152](https://github.com/ArcReel/ArcReel/issues/2152) [#2155](https://github.com/ArcReel/ArcReel/issues/2155)
+* **stage:** 收敛 stage-3 集成期 AI 审查修复 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([20d07be](https://github.com/ArcReel/ArcReel/commit/20d07be22168058be83ea9e00300e116635a51a1))
+* **stage:** 收敛 stage-4 AI 审查循环修复 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([606848c](https://github.com/ArcReel/ArcReel/commit/606848c69361abc68ec276a5eee663599ae992e5))
+* **stage:** 收敛 stage-5 AI 审查循环修复 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([d31d65d](https://github.com/ArcReel/ArcReel/commit/d31d65d4223982f33e22ae338cc04e2bf81e4492))
+* **test:** WorkflowPanel 防抖合并用例改用安全余量断言 ([86bf05a](https://github.com/ArcReel/ArcReel/commit/86bf05ae22110fcc2554980529af23d5227cb9cb)), closes [#2205](https://github.com/ArcReel/ArcReel/issues/2205)
+* **text-generation:** compensate cancelled invalid step1 drafts ([d139bff](https://github.com/ArcReel/ArcReel/commit/d139bff21fc5cb8277d81151e6a704bc9b64da50)), closes [#2118](https://github.com/ArcReel/ArcReel/issues/2118)
+* **video:** 三家通道下载失败可续跑取件 ([267214e](https://github.com/ArcReel/ArcReel/commit/267214e58a9f7d9210d41dc82a06969aa63b2a0b)), closes [#2217](https://github.com/ArcReel/ArcReel/issues/2217)
+* **workflow:** observe active product generation ([78a4953](https://github.com/ArcReel/ArcReel/commit/78a4953b050de68e2db71a22c4569fd4c89dae1c)), closes [#2114](https://github.com/ArcReel/ArcReel/issues/2114)
+* **workflow:** preserve caller facts after migration ([2a248dd](https://github.com/ArcReel/ArcReel/commit/2a248dd64ec23d7a3e5c7fed3a3fff93eaef98f1)), closes [#2107](https://github.com/ArcReel/ArcReel/issues/2107)
+* **workflow:** recover active text tasks ([7ac5d2a](https://github.com/ArcReel/ArcReel/commit/7ac5d2a353618384a4c01f71a9e2444e279b7f85)), closes [#2112](https://github.com/ArcReel/ArcReel/issues/2112)
+
+
+### ⚡ 性能优化
+
+* **tests:** 缩短本地与 CI 测试耗时 ([#2210](https://github.com/ArcReel/ArcReel/issues/2210)) ([e0badf9](https://github.com/ArcReel/ArcReel/commit/e0badf9bf381cd18bbc3294ed7fd8d3a0408c734))
+
+
+### ♻️ 重构
+
+* **prompt-rules:** 节奏与场景引用规则改为 agent profile references 单一来源 ([f7e305a](https://github.com/ArcReel/ArcReel/commit/f7e305af1dfb5dd9097ed805171cbfe389083e0c)), closes [#2208](https://github.com/ArcReel/ArcReel/issues/2208)
+* **script:** 剧本流水线两段改名为脚本规划 / 提示词编写 ([deed150](https://github.com/ArcReel/ArcReel/commit/deed1500ee9fc05fe05dc2fe3a04d0926dcb9469)), closes [#2173](https://github.com/ArcReel/ArcReel/issues/2173)
+* 脚本规划变体、供应商目录与晋升回执各收一处实现 ([8e2bd94](https://github.com/ArcReel/ArcReel/commit/8e2bd94d46088e1de556d15d0956edd263384c51)), closes [#2204](https://github.com/ArcReel/ArcReel/issues/2204)
+
+
+### 📚 文档
+
+* **adr:** 0001-0011/0039 正文全量对齐落地现状 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([0a9bd82](https://github.com/ArcReel/ArcReel/commit/0a9bd82888cf4c35fe5247c8fc1c0d1cdd8c8bd3))
+* **adr:** status 全量对齐落地现状并修订 0039 末条 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([5cc8132](https://github.com/ArcReel/ArcReel/commit/5cc8132621c372a1710973ad89014fa681fdc46a))
+* **adr:** 记录远程 MCP API Key 信任边界 ([3d471c2](https://github.com/ArcReel/ArcReel/commit/3d471c2e67eee35869498a9a7911058b43391e7f)), closes [#2067](https://github.com/ArcReel/ArcReel/issues/2067) [#2062](https://github.com/ArcReel/ArcReel/issues/2062)
+* **protocol:** 入库自定义调用端点 ADR 与术语文档 [Spec [#2150](https://github.com/ArcReel/ArcReel/issues/2150)] ([926ec43](https://github.com/ArcReel/ArcReel/commit/926ec437a53d3fd7d1b0d73037dc56439da96b21)), closes [#2151](https://github.com/ArcReel/ArcReel/issues/2151)
+* **readme:** add sponsor section ([#2103](https://github.com/ArcReel/ArcReel/issues/2103)) ([5b03ccc](https://github.com/ArcReel/ArcReel/commit/5b03ccc9c659ae21fe6214e14159a9999d713ba9))
+* simplify pull request template ([3a9680b](https://github.com/ArcReel/ArcReel/commit/3a9680b790963bf69a10b529ebe0c5e2fcf8a588))
+* **triage:** 记录镜头间首尾帧自动接龙与旁白走视频模型为 out-of-scope ([a5183fd](https://github.com/ArcReel/ArcReel/commit/a5183fd133a04f77d378a9ed3926cda46f8265f4))
+* 补记提示词形态与单一渲染出口的取舍 ([f75693f](https://github.com/ArcReel/ArcReel/commit/f75693fceeee41cdf3dd85f32e7ab9af4a0d152e)), closes [#2209](https://github.com/ArcReel/ArcReel/issues/2209)
+
 ## [0.27.0](https://github.com/ArcReel/ArcReel/compare/v0.26.0...v0.27.0) (2026-08-24)
 
 ### 🌟 Highlights
