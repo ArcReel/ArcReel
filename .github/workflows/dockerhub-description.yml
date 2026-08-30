@@ -5,8 +5,7 @@ name: Docker Hub Description
 # 还给发布多一个可能失败的点。
 #
 # 该 action 调用 Docker Hub 的仓库元数据接口，要求 PAT 具备 read/write/delete
-# 作用域，比发布用的 DOCKERHUB_TOKEN（read/write）更宽，故用独立 secret 承载：
-# 发布管线不持有 delete 权限。
+# 作用域；DOCKERHUB_TOKEN 按这里的要求取该作用域，发布流程共用同一份。
 
 on:
   push:
@@ -41,7 +40,7 @@ jobs:
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE_NAME_LC }}
           readme-filepath: ./docs/dockerhub-README.md
           short-description: "Open-source, self-hosted AI video production workspace — novels and scripts to editable videos"
