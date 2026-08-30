@@ -679,7 +679,9 @@ class TestAssistantService:
         service = AssistantService(project_root=tmp_path)
         service.pm = _FakePM(valid_project="demo")
 
-        agent_skill = tmp_path / "agent_runtime_profile" / ".claude" / "skills" / "s1"
+        profile_root = tmp_path / "agent_runtime_profile"
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
+        agent_skill = profile_root / ".claude" / "skills" / "s1"
         agent_skill.mkdir(parents=True)
         (agent_skill / "SKILL.md").write_text(
             "---\nname: project-skill\ndescription: from frontmatter\n---\n# body\n",
@@ -687,7 +689,7 @@ class TestAssistantService:
         )
 
         # Create a fallback skill for metadata parsing test
-        fallback_skill_dir = tmp_path / "agent_runtime_profile" / ".claude" / "skills" / "s2"
+        fallback_skill_dir = profile_root / ".claude" / "skills" / "s2"
         fallback_skill_dir.mkdir(parents=True)
         (fallback_skill_dir / "SKILL.md").write_text(
             "first non heading line\n# heading\n",
