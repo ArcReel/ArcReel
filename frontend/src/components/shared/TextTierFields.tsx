@@ -19,6 +19,8 @@ export interface TextTierFieldsProps {
   onChange: (next: TextTierValue) => void;
   options: string[];
   providerNames: Record<string, string>;
+  /** "provider/model" → 当前语言下的模型名，与 `providerNames` 同源；缺键退回 model id。 */
+  modelNames?: Record<string, string>;
   /** 默认档空选项的标签：全局设置为「自动选择」，项目/向导为「使用全局默认」。 */
   defaultLabel: string;
   /** 默认档空选项旁的次要提示（如全局设置的「自动」）。 */
@@ -42,6 +44,7 @@ export function TextTierFields({
   onChange,
   options,
   providerNames,
+  modelNames,
   defaultLabel,
   defaultHint,
   fallbacks,
@@ -69,6 +72,7 @@ export function TextTierFields({
       emptyHint={defaultHint}
       defaultEffective={fallbacks?.default || undefined}
       providerNames={providerNames}
+      modelNames={modelNames}
       subFields={showTiers ? subFields : undefined}
       footnote={
         <p className="border-t border-hairline-soft pt-3 text-[11px] leading-[1.5] text-text-4">

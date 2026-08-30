@@ -105,6 +105,8 @@ export interface LayeredModelFieldsProps {
   /** 默认层留空时的生效模型（项目层 = 全局默认层）；全局层是基准、不传。 */
   defaultEffective?: string;
   providerNames: Record<string, string>;
+  /** "provider/model" → 当前语言下的模型名，与 `providerNames` 同源；缺键退回 model id。 */
+  modelNames?: Record<string, string>;
   /**
    * 下拉选项行的补充信息。第二个参数是发起该下拉的细分项 `key`；默认层不传——它跨全部用途，
    * 没有单一生成路径。同屏的默认层与各细分项共用一个渲染器，路径相关的取值必须按此参数分流，
@@ -142,6 +144,7 @@ export function LayeredModelFields({
   emptyHint,
   defaultEffective,
   providerNames,
+  modelNames,
   renderOptionMeta,
   children,
   subFields,
@@ -171,6 +174,7 @@ export function LayeredModelFields({
         value={defaultValue}
         options={defaultOptions}
         providerNames={providerNames}
+        modelNames={modelNames}
         onChange={onDefaultChange}
         allowDefault
         defaultLabel={emptyLabel}
@@ -224,6 +228,7 @@ export function LayeredModelFields({
                   value={field.value}
                   options={field.options}
                   providerNames={providerNames}
+                  modelNames={modelNames}
                   onChange={field.onChange}
                   allowDefault
                   defaultLabel={t("follow_model_default")}

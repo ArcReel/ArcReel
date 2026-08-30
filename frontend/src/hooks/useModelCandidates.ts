@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import type { ModelCandidatesResponse } from "@/types/system";
 
@@ -23,8 +24,14 @@ export interface ModelCandidatesState {
 /**
  * 不在挂载时自动拉取：两处调用点的触发时机不同——项目设置只在挂载时取一次，全局设置把它
  * 并进保存后的整页重取里。由调用点决定何时 `reload()`，hook 只保证不会有过期响应回写。
+ *
+ * 候选响应带按 Accept-Language 成文的供应商名 / 模型名，故 `reload` 的标识随语言变化：
+ * 调用点惯常把它放进 effect 依赖，语言切换即自动重取，而无需连带重取表单本体（那会清空
+ * 未保存的编辑）。
  */
 export function useModelCandidates(): ModelCandidatesState {
+  const { i18n } = useTranslation();
+  const language = i18n.language;
   const [candidates, setCandidates] = useState<ModelCandidatesResponse | null>(null);
   const [error, setError] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -51,7 +58,8 @@ export function useModelCandidates(): ModelCandidatesState {
       // 被接管方让位：作废后不复位共享状态，否则会灭掉接管方刚点亮的在途标记。
       if (!controller.signal.aborted) setRetrying(false);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- language 不进函数体，只用来在语言切换时换掉 reload 的标识，驱动调用点的 effect 重取
+  }, [language]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 

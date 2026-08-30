@@ -17,7 +17,12 @@ import { UI_LAYERS } from "@/utils/ui-layers";
 interface ProviderModelSelectProps {
   value: string; // "gemini-aistudio/veo-3.1-generate-001"
   options: string[]; // ["gemini-aistudio/veo-3.1-generate-001", ...]
-  providerNames: Record<string, string>; // {"gemini-aistudio": "Gemini AI Studio", ...}
+  providerNames: Record<string, string>; // {"gemini-aistudio": "AI Studio", ...}
+  /**
+   * "provider/model" → 按当前语言成文的模型名，与 `providerNames` 同一次目录拉取。缺键的
+   * 条目（自定义供应商、后端未覆盖的组合）退回 model id，故本项可省略。
+   */
+  modelNames?: Record<string, string>; // {"gemini-aistudio/veo-3.1-generate-001": "Veo 3.1", ...}
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
@@ -69,6 +74,7 @@ export function ProviderModelSelect({
   value,
   options,
   providerNames,
+  modelNames,
   onChange,
   placeholder,
   className,
@@ -152,11 +158,17 @@ export function ProviderModelSelect({
         out[providerId] = models;
         continue;
       }
-      const matched = models.filter((m) => m.toLowerCase().includes(q));
+      // model id 与译名都参与匹配：译名生效后按 id 搜索仍要命中（id 是用户在文档 / 供应商
+      // 控制台里见到的那一串），反之按中文名搜也要能找到。
+      const matched = models.filter((m) => {
+        if (m.toLowerCase().includes(q)) return true;
+        const label = modelNames?.[`${providerId}/${m}`];
+        return !!label && label.toLowerCase().includes(q);
+      });
       if (matched.length > 0) out[providerId] = matched;
     }
     return out;
-  }, [grouped, query, providerNames, showSearch]);
+  }, [grouped, query, providerNames, modelNames, showSearch]);
 
   const hasQuery = showSearch && query.trim().length > 0;
   const showDefault = !!allowDefault && !hasQuery;
@@ -313,7 +325,7 @@ export function ProviderModelSelect({
     const idx = fullValue.indexOf("/");
     if (idx === -1) return providerNames[fullValue] || fullValue;
     const provider = fullValue.slice(0, idx);
-    return `${providerNames[provider] || provider} · ${fullValue.slice(idx + 1)}`;
+    return `${providerNames[provider] || provider} · ${modelNames?.[fullValue] || fullValue.slice(idx + 1)}`;
   };
 
   const showFallback = !value && !!fallbackValue;
@@ -439,6 +451,7 @@ export function ProviderModelSelect({
                   const fullValue = `${providerId}/${model}`;
                   const isSelected = fullValue === value;
                   const isActive = currentFlatIdx === activeIndex;
+                  const label = modelNames?.[fullValue] || model;
                   const meta = renderOptionMeta?.(fullValue);
                   return (
                     <button
@@ -465,7 +478,13 @@ export function ProviderModelSelect({
                         <span className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate">{model}</span>
+                        <span className="block truncate">{label}</span>
+                        {/* 译名与 id 不同才补 id 行：品牌名类模型（译名 = id）补一行等于重复。 */}
+                        {label !== model && (
+                          <span className="mt-0.5 block truncate font-mono text-[10px] text-text-4">
+                            {model}
+                          </span>
+                        )}
                         {meta && (
                           <span className="mt-0.5 block truncate font-mono text-[10px] tabular-nums text-text-4">
                             {meta}

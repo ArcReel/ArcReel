@@ -33,6 +33,28 @@ export async function getCustomProviderModels(): Promise<CustomProviderInfo[]> {
 // Lookup
 // ---------------------------------------------------------------------------
 
+/** 目录里的供应商名与模型名（"provider/model" 为键），均已按 Accept-Language 成文。 */
+export interface CatalogDisplayNames {
+  providerNames: Record<string, string>;
+  modelNames: Record<string, string>;
+}
+
+/**
+ * 从 `/providers` 目录抽出译名表，作为候选响应之外的兜底层：候选只列 ready 供应商，而配置
+ * 里的生效值可能指向一个已失去凭证的供应商——那时下拉触发按钮仍要显示名字而非裸 id。
+ */
+export function catalogDisplayNames(providers: ProviderInfo[]): CatalogDisplayNames {
+  const providerNames: Record<string, string> = {};
+  const modelNames: Record<string, string> = {};
+  for (const provider of providers) {
+    providerNames[provider.id] = provider.display_name;
+    for (const [modelId, model] of Object.entries(provider.models ?? {})) {
+      modelNames[`${provider.id}/${modelId}`] = model.display_name;
+    }
+  }
+  return { providerNames, modelNames };
+}
+
 /**
  * Given a video backend string like "gemini-aistudio/veo-3.1-generate-preview"
  * or "custom-3/my-model", look up supported_durations.

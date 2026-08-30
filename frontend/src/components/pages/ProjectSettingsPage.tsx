@@ -1,12 +1,11 @@
 import { useParams, useLocation } from "wouter";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { API, type AgentProfileStatus } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
-import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
@@ -15,6 +14,7 @@ import { StylePicker, type StylePickerValue } from "@/components/shared/StylePic
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CharacterVoiceBinding, CustomProviderInfo, ProviderInfo } from "@/types";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
+import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
@@ -112,6 +112,7 @@ export function ProjectSettingsPage() {
     text_backends: string[];
     audio_backends: string[];
     provider_names?: Record<string, string>;
+    model_names?: Record<string, string>;
   } | null>(null);
   const {
     candidates,
@@ -138,11 +139,6 @@ export function ProjectSettingsPage() {
   // 全局「生成有声视频」的生效值，供项目级「跟随全局」时判定与执行模型的矛盾。
   // 未保存过时取 true，镜像后端 _DEFAULT_VIDEO_GENERATE_AUDIO。
   const [globalGenerateAudio, setGlobalGenerateAudio] = useState(true);
-
-  const allProviderNames = useMemo(
-    () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
-    [options],
-  );
 
   // Project-level overrides (from project.json)
   // "" means "follow global default"
@@ -177,6 +173,13 @@ export function ProjectSettingsPage() {
   const [modelSettings, setModelSettings] = useState<Record<string, { resolution: string | null }>>({});
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
+
+  const { providerNames: allProviderNames, modelNames: allModelNames } = useDisplayNames(
+    providers,
+    options,
+    candidates,
+  );
+
   const [projectTitle, setProjectTitle] = useState<string>("");
   const [contentMode, setContentMode] = useState<string>("narration");
   const [saving, setSaving] = useState(false);
@@ -208,8 +211,8 @@ export function ProjectSettingsPage() {
   // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
   const initialStyleRef = useRef<StylePickerValue | null>(null);
 
-  // 候选是全局配置、与项目无关，故只在挂载时取一次，不跟随下面按 projectName 重取的效果；
-  // 拉取失败也只影响细分区，其余表单状态照常。
+  // 候选是全局配置、与项目无关，故不跟随下面按 projectName 重取的效果；reload 的标识随语言
+  // 变化，语言切换时只刷新候选与译名，不重取项目表单。拉取失败也只影响细分区。
   useEffect(() => {
     void reloadCandidates();
   }, [reloadCandidates]);
@@ -247,6 +250,7 @@ export function ProjectSettingsPage() {
         text_backends: configRes.options?.text_backends ?? [],
         audio_backends: configRes.options?.audio_backends ?? [],
         provider_names: configRes.options?.provider_names,
+        model_names: configRes.options?.model_names,
       });
       // 各层原样带入，不在此折叠回退——穿透演算由 ModelConfigSection 按解析链推导。
       const nextGlobals = {
@@ -782,6 +786,7 @@ export function ProjectSettingsPage() {
                     imageBackends: options.image_backends,
                     textBackends: options.text_backends,
                     providerNames: allProviderNames,
+                    modelNames: allModelNames,
                   }}
                   candidates={candidates}
                   candidatesError={
@@ -946,6 +951,7 @@ export function ProjectSettingsPage() {
                       value={audioBackend}
                       options={options.audio_backends}
                       providerNames={allProviderNames}
+                      modelNames={allModelNames}
                       onChange={setAudioBackend}
                       allowDefault
                       defaultLabel={t("follow_global_default")}
