@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 导入修复留在 archive，不走保存统一入口；泄漏的形状常量收敛到既有真相源
