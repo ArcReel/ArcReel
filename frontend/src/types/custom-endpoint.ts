@@ -254,6 +254,7 @@ export interface TrialRunInfo {
   request: PreviewedRequest | null;
   submit_response: unknown;
   poll_responses: unknown[];
+  result_response: unknown;
   extractions: Partial<Record<EndpointTestStage, EndpointStageReport>>;
   video_url: string | null;
   duration_seconds: number | null;

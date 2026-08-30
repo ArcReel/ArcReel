@@ -8,8 +8,10 @@ from typing import Any
 
 from jsonpath_rfc9535 import JSONPathError, find
 
+from lib.validation_messages import ValidationMessage
 from lib.video_backends.base import ProviderJobStatus, normalize_provider_status
 
+from .errors import DefinitionErrorCode, message_key
 from .jsonpath_subset import parse_json_path
 
 _DECLARATIVE_STATUSES = frozenset(
@@ -26,7 +28,9 @@ class JsonPathEvaluationError(ValueError):
     """运行时 JSONPath 实现无法对已通过子集闸门的路径求值。"""
 
     def __init__(self, path: str, cause: Exception) -> None:
-        super().__init__(f"JSONPath 求值失败：{path}: {cause}")
+        self.code = DefinitionErrorCode.JSONPATH_EVALUATION_FAILED
+        self.message = ValidationMessage(message_key(self.code), {"path_expression": path})
+        super().__init__(self.message.render())
 
 
 def extract_value(spec: object, response_body: object) -> object | None:

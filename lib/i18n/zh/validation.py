@@ -241,6 +241,7 @@ MESSAGES = {
     "val_ce_jsonpath_filter_non_singular": "过滤器内只允许单值查询（第 {position} 个字符）：{path_expression}",
     "val_ce_jsonpath_regex_operator": "取值路径禁用正则匹配运算符（第 {position} 个字符）：{path_expression}",
     "val_ce_jsonpath_syntax": "取值路径语法错误（第 {position} 个字符）：{path_expression}",
+    "val_ce_jsonpath_evaluation_failed": "取值路径求值失败：{path_expression}",
     "val_ce_template_render_failed": "请求模板渲染失败：{detail}",
     "val_ce_auth_literal_credential": "该值疑似直接填写了真实密钥：请改用 api_key 占位符引用凭证，否则导出或分享定义时会泄露该密钥",
     "val_ce_template_url_not_string": "URL 模板必须渲染为字符串",

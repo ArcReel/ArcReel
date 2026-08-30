@@ -11,6 +11,7 @@ from lib.custom_provider.endpoint_definition import (
     DefinitionDiagnostics,
     DefinitionErrorCode,
     DefinitionIssue,
+    JsonPathEvaluationError,
     TemplateRenderError,
 )
 
@@ -23,9 +24,11 @@ class EndpointTestDefinitionError(Exception):
         super().__init__("endpoint definition cannot be executed")
 
     @classmethod
-    def from_render_failure(cls, path: str, detail: str | TemplateRenderError) -> EndpointTestDefinitionError:
-        """把一次模板渲染失败（占位符缺值、混合文本遇 null、enum 缺项）包成单条诊断。"""
-        if isinstance(detail, TemplateRenderError):
+    def from_render_failure(
+        cls, path: str, detail: str | TemplateRenderError | JsonPathEvaluationError
+    ) -> EndpointTestDefinitionError:
+        """把模板渲染或 JSONPath 求值失败包成单条结构化诊断。"""
+        if isinstance(detail, TemplateRenderError | JsonPathEvaluationError):
             issue = DefinitionIssue(path=path, code=detail.code, params=detail.message.params)
         else:
             issue = DefinitionIssue(

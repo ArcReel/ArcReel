@@ -194,3 +194,16 @@ class TestCheckResponse:
         report = check_response(custom_endpoint_definition(), "poll", parse_response_body('{"status": "completed"}'))
 
         assert report.status == "succeeded"
+
+    def test_jsonpath_evaluation_failure_is_rendered_in_the_requested_locale(self):
+        definition = custom_endpoint_definition()
+        definition["poll"]["extract"]["status"] = ["$[?@.a == 1e400]"]
+
+        with pytest.raises(EndpointTestDefinitionError) as exc_info:
+            check_response(definition, "poll", {"a": 1})
+
+        issue = exc_info.value.diagnostics.errors[0]
+        assert issue.code.value == "jsonpath_evaluation_failed"
+        assert issue.to_payload(lambda key, **params: _(key, locale="en", **params))["message"] == (
+            "Could not evaluate extraction path: $[?@.a == 1e400]"
+        )

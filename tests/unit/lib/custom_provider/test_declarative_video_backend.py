@@ -10,11 +10,13 @@ from lib.custom_provider.declarative_backend import (
     DeclarativeRuntimeError,
     DeclarativeVideoBackend,
     extract_duration,
+    extract_provider_state,
 )
 from lib.custom_provider.endpoint_definition import validate_definition
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.video_backends.base import (
     VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
+    ProviderJobStatus,
     ProviderResponseStage,
     ResumeExpiredError,
     VideoGenerationRequest,
@@ -729,6 +731,7 @@ class TestDeclarativeVideoBackend:
             "key": "val_ce_enum_map_value_missing",
             "params": {"name": "duration", "value": "5"},
         }
+        assert str(caught.value) == "enum_maps.duration 缺少 '5' 的映射"
         assert submit.call_count == 0
 
     async def test_non_json_success_response_is_recorded(self, tmp_path: Path):
@@ -754,6 +757,28 @@ class TestDeclarativeVideoBackend:
 
         assert caught.value.code == "declarative_response_extract_failed"
         assert recorded[-1] == ("submit", "<html>gateway timeout</html>")
+
+    async def test_jsonpath_evaluation_failure_keeps_its_detail_locale_neutral(self, tmp_path: Path):
+        definition = _definition()
+        definition["submit"]["extract"]["task_id"] = ["$[?@.a == 1e400]"]
+
+        with capture_http() as router:
+            router.post("https://relay.test/v1/video/create").mock(return_value=httpx.Response(200, json={"a": 1}))
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=definition,
+                    provider="custom-1",
+                ).generate(_request(tmp_path))
+
+        assert caught.value.code == "declarative_response_extract_failed"
+        assert caught.value.params["detail"] == {
+            "key": "val_ce_jsonpath_evaluation_failed",
+            "params": {"path_expression": "$[?@.a == 1e400]"},
+        }
 
     async def test_missing_required_input_fails_before_submitting(self, tmp_path: Path):
         """声明为必需的素材缺席时不许发请求：模板会把该键整个删掉，供应商照样建任务照常计费。"""
@@ -1180,3 +1205,21 @@ class TestExtractDuration:
         assert extract_duration(self.SPEC, {"usage": {"duration": MAX_BILLED_DURATION_SECONDS}}) == (
             MAX_BILLED_DURATION_SECONDS
         )
+
+    def test_jsonpath_evaluation_failure_reaches_the_shared_runtime_diagnostic(self):
+        extract = {
+            "usage": {
+                "duration_seconds": {"paths": ["$[?@.a == 1e400]"], "accept": "scalar"},
+            }
+        }
+
+        with pytest.raises(DeclarativeRuntimeError) as caught:
+            extract_provider_state({"a": 1}, extract, status=ProviderJobStatus.SUCCEEDED)
+
+        assert caught.value.code == "declarative_response_extract_failed"
+        assert caught.value.params == {
+            "detail": {
+                "key": "val_ce_jsonpath_evaluation_failed",
+                "params": {"path_expression": "$[?@.a == 1e400]"},
+            }
+        }
