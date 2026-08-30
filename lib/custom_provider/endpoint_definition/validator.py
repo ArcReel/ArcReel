@@ -325,7 +325,10 @@ class _SemanticChecker:
         scope = _Scope(section="auth")
         for group, values in (("headers", headers), ("query", query)):
             for name, template in values.items():
-                self._scan_template(template, join_path(join_path("auth", group), name), scope)
+                path = join_path(join_path("auth", group), name)
+                self._scan_template(template, path, scope)
+                if _looks_like_literal_credential(str(template)):
+                    self._warn(path, DefinitionErrorCode.AUTH_LITERAL_CREDENTIAL)
         self._check_header_names(join_path("auth", "headers"), headers)
         if not headers and not query:
             return
@@ -620,6 +623,21 @@ def _capability_is_on(capability: str, value: object) -> bool:
 
 def _placeholder_names(text: str) -> list[str]:
     return _PLACEHOLDER.findall(text)
+
+
+#: 凭证长相：20+ 位含数字的 token 串（API key / JWT / base64 的公共形态）。版本号、固定
+#: 字段这类短静态值不命中；误报的代价只是一条不拦保存的 warning。
+_CREDENTIAL_TOKEN = re.compile(r"[A-Za-z0-9+/_=-]{20,}")
+
+
+def _looks_like_literal_credential(template: str) -> bool:
+    """auth 值剔除占位符后，剩余字面部分是否形似直接写入的凭证。
+
+    凭证以 api_key 占位符形态出现是导出剥凭证的前提；字面凭证会随导出与「复制为我的」
+    原样外流，只能靠形态识别提示。
+    """
+    literal = _PLACEHOLDER.sub(" ", template)
+    return any(any(ch.isdigit() for ch in token) for token in _CREDENTIAL_TOKEN.findall(literal))
 
 
 def _malformed_placeholders(text: str) -> list[str]:
