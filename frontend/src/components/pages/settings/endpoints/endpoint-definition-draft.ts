@@ -135,6 +135,7 @@ export function renameKey<T>(
   to: string,
   value: T,
 ): Record<string, T> {
+  if (from !== to && to in record) return record;
   const next: Record<string, T> = {};
   for (const [k, v] of Object.entries(record)) {
     if (k === from) next[to] = value;

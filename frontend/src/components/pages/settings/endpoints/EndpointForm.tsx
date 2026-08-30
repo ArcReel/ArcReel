@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { useAppStore } from "@/stores/app-store";
 import type {
   EndpointCapabilities,
   EndpointDefinition,
@@ -53,6 +54,7 @@ const GENERATION_VARIABLES = [
 
 export function EndpointForm({ definition, onChange, readOnly }: EndpointFormProps) {
   const { t } = useTranslation("dashboard");
+  const pushToast = useAppStore((s) => s.pushToast);
 
   const patch = (partial: Partial<EndpointDefinition>) => onChange({ ...definition, ...partial });
 
@@ -116,9 +118,20 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
     });
 
   const selectCls = `${INPUT_CLS} disabled:cursor-not-allowed`;
+  const rename = <T,>(record: Record<string, T>, from: string, to: string, value: T) => {
+    const renamed = renameKey(record, from, to, value);
+    if (renamed === record && from !== to) pushToast(t("ce_duplicate_key"), "error");
+    return renamed;
+  };
 
   return (
-    <div>
+    <div
+      className={
+        readOnly
+          ? "[&_input:read-only]:border-accent/25 [&_input:read-only]:bg-bg-grad-b/65 [&_input:read-only]:text-text-2 [&_select:disabled]:border-accent/20 [&_select:disabled]:bg-bg-grad-b/55 [&_select:disabled]:text-text-2 [&_textarea:read-only]:border-accent/25 [&_textarea:read-only]:bg-bg-grad-b/65 [&_textarea:read-only]:text-text-2"
+          : undefined
+      }
+    >
       {/* 1 基本信息 */}
       <FormSection id="meta" step={1} title={t("ce_section_meta")} desc={t("ce_section_meta_desc")}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -192,7 +205,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                       patch({
                         auth: {
                           ...definition.auth,
-                          headers: renameKey(authHeaders, name, e.target.value, value),
+                          headers: rename(authHeaders, name, e.target.value, value),
                         },
                       })
                     }
@@ -258,7 +271,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                 value={name}
                 readOnly={readOnly}
                 aria-label={t("ce_input_variable")}
-                onChange={(e) => patch({ inputs: renameKey(inputs, name, e.target.value, spec) })}
+                onChange={(e) => patch({ inputs: rename(inputs, name, e.target.value, spec) })}
                 className={`${INPUT_CLS} ${MONO_INPUT_CLS}`}
               />
               <select
@@ -516,7 +529,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                 value={from}
                 readOnly={readOnly}
                 aria-label={t("ce_status_provider_value")}
-                onChange={(e) => patch({ status_map: renameKey(statusMap, from, e.target.value, to) })}
+                onChange={(e) => patch({ status_map: rename(statusMap, from, e.target.value, to) })}
                 className={`${INPUT_CLS} ${MONO_INPUT_CLS}`}
               />
               <span aria-hidden className="text-center text-text-3">

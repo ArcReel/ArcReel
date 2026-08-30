@@ -1829,6 +1829,8 @@ export default {
   'ce_delete_blocked': 'Các mô hình đang dùng điểm gọi này. Hãy chuyển chúng sang điểm gọi khác trước.',
   'ce_deleted': 'Đã xóa điểm gọi.',
   'ce_delete_failed': 'Không xóa được điểm gọi.',
+  'ce_go_to_model': 'Đi đến dòng mô hình',
+  'ce_duplicate_key': 'Tên này đã được dùng. Hãy chọn tên khác.',
   'ce_copy_as_mine': 'Sao chép thành của tôi',
   'ce_copied': 'Đã tạo bản sao trong “Điểm gọi của tôi”.',
   'ce_copy_failed': 'Không tạo được bản sao.',

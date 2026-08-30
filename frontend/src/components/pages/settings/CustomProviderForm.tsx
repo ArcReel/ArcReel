@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search, Link2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -297,6 +297,7 @@ interface CustomProviderFormProps {
   initialBaseUrl?: string;
   /** 接线时预选的调用端点：新建表单据此起一行模型。 */
   initialEndpoint?: EndpointKey;
+  focusModelId?: string;
   onSaved: () => void;
   onCancel: () => void;
 }
@@ -305,6 +306,7 @@ export function CustomProviderForm({
   existing,
   initialBaseUrl,
   initialEndpoint,
+  focusModelId,
   onSaved,
   onCancel,
 }: CustomProviderFormProps) {
@@ -373,6 +375,11 @@ export function CustomProviderForm({
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const showError = useCallback((msg: string) => useAppStore.getState().pushToast(msg, "error"), []);
   const [modelFilter, setModelFilter] = useState("");
+  const focusedModelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    focusedModelRef.current?.scrollIntoView({ block: "center" });
+  }, [focusModelId]);
 
   const filteredModels = useMemo(() => {
     if (!modelFilter.trim()) return models;
@@ -792,6 +799,7 @@ export function CustomProviderForm({
                 return (
                   <div
                     key={m.key}
+                    ref={m.model_id === focusModelId ? focusedModelRef : undefined}
                     className="rounded-[10px] border border-hairline p-3"
                     style={CARD_STYLE}
                   >

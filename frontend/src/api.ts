@@ -154,8 +154,8 @@ export interface LoginResponse {
 
 /** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
-  /** 技术诊断信息（字段名、schema、异常原文）。仅在后端附加时出现，永不并进 detail 摘要。 */
-  diagnostic?: string;
+  /** 后端附加的诊断或修复信息；调用方可按请求语境解析，永不并进 detail 摘要。 */
+  diagnostic?: unknown;
   detail:
     | string
     | { msg?: string }[]
@@ -245,12 +245,12 @@ export class SpeechAdmissionError extends Error {
 /** Preserves reference request blockers so the UI can show a repair action. */
 /**
  * 请求失败的通用错误：`message` 是后端给出的产品语言摘要，可直接展示给使用者；
- * `diagnostic` 是可选的技术细节（字段名、schema、异常原文），只用于诊断展示，不拼进 `message`。
+ * `diagnostic` 是可选的诊断或修复信息，由调用方按请求语境解析，不拼进 `message`。
  */
 export class ApiRequestError extends Error {
   constructor(
     message: string,
-    public readonly diagnostic?: string,
+    public readonly diagnostic?: unknown,
     /** HTTP 状态码；调用方据此区分「资源已不存在」与瞬时网络/服务错误。 */
     public readonly status?: number,
   ) {

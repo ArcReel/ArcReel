@@ -1831,6 +1831,8 @@ export default {
   'ce_delete_blocked': 'Models are using this endpoint. Point them elsewhere first.',
   'ce_deleted': 'Endpoint deleted.',
   'ce_delete_failed': 'The endpoint could not be deleted.',
+  'ce_go_to_model': 'Go to model row',
+  'ce_duplicate_key': 'That name is already in use. Choose a different one.',
   'ce_copy_as_mine': 'Copy to my endpoints',
   'ce_copied': 'Copy created under my endpoints.',
   'ce_copy_failed': 'The copy could not be created.',

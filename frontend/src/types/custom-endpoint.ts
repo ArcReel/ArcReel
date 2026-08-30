@@ -137,6 +137,14 @@ export interface CustomEndpointInfo {
   updated_at: string | null;
 }
 
+/** 删除端点被拒时，服务端返回的实际引用模型行。 */
+export interface EndpointReference {
+  provider_id: number;
+  provider_display_name: string;
+  model_id: string;
+  model_display_name: string;
+}
+
 export interface EndpointDefinitionIssue {
   /** 定义 JSON 内的定位串，根为 `$`，如 `poll.extract.video_url[0]`。 */
   path: string;

@@ -74,12 +74,14 @@ export function ProviderSection() {
     if (preset) return { kind: "preset", id: preset };
     return null;
   }, [search]);
+  const modelId = new URLSearchParams(search).get("model") ?? undefined;
 
   const setSelection = useCallback(
     (sel: Selection) => {
       const p = new URLSearchParams(search);
       p.delete("provider");
       p.delete("custom");
+      p.delete("model");
       if (sel?.kind === "preset") p.set("provider", sel.id);
       else if (sel?.kind === "custom") p.set("custom", String(sel.id));
       else if (sel?.kind === "new-custom") p.set("custom", "new");
@@ -196,6 +198,7 @@ export function ProviderSection() {
         {selection?.kind === "custom" && (
           <CustomProviderDetail
             providerId={selection.id}
+            initialModelId={modelId}
             onDeleted={() => {
               void refresh();
               if (providers.length > 0) {

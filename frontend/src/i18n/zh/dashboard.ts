@@ -1830,6 +1830,8 @@ export default {
   'ce_delete_blocked': '该端点正被模型使用，请先改用其他端点。',
   'ce_deleted': '端点已删除。',
   'ce_delete_failed': '删除端点失败。',
+  'ce_go_to_model': '前往模型行',
+  'ce_duplicate_key': '该名称已被使用，请换一个名称。',
   'ce_copy_as_mine': '复制为我的',
   'ce_copied': '副本已创建在「我的端点」。',
   'ce_copy_failed': '创建副本失败。',
