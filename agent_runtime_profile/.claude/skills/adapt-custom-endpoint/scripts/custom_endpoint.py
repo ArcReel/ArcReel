@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import mimetypes
 import os
@@ -11,18 +12,35 @@ import secrets
 import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
+
+
+def _validated_url(value: str, source: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname
+    except ValueError as exc:
+        raise SystemExit(f"Invalid ArcReel URL in {source}: {exc}") from exc
+    if not host or parsed.scheme not in {"http", "https"}:
+        raise SystemExit(f"ArcReel URL in {source} must include an HTTP(S) scheme and host")
+    try:
+        loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host == "localhost"
+    if parsed.scheme != "https" and not loopback:
+        raise SystemExit(f"ArcReel URL in {source} must use HTTPS unless the host is loopback")
+    return value.rstrip("/")
 
 
 def _connection() -> tuple[str, str]:
     if base := os.environ.get("ARCREEL_API_BASE", "").strip():
-        return base.rstrip("/"), os.environ.get("ARCREEL_API_TOKEN", "").strip()
+        return _validated_url(base, "ARCREEL_API_BASE"), os.environ.get("ARCREEL_API_TOKEN", "").strip()
 
     settings_path = Path.cwd() / ".arcreel" / "settings.json"
     try:
         settings = _json_file(str(settings_path))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise SystemExit(f"Cannot read ArcReel settings {settings_path}: {exc}") from exc
     if not isinstance(settings, dict):
         raise SystemExit(f"ArcReel settings must be a JSON object: {settings_path}")
@@ -32,7 +50,8 @@ def _connection() -> tuple[str, str]:
         raise SystemExit(f"ArcReel settings mcp_url must end with /mcp: {settings_path}")
     if not isinstance(api_key, str) or not api_key.startswith("arc-"):
         raise SystemExit(f"ArcReel settings api_key must start with arc-: {settings_path}")
-    return f"{mcp_url.rstrip('/')[:-4]}/api/v1", api_key
+    mcp_url = _validated_url(mcp_url, str(settings_path))
+    return f"{mcp_url.removesuffix('/mcp')}/api/v1", api_key
 
 
 def _json_file(path: str) -> object:

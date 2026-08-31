@@ -160,6 +160,58 @@ def test_cli_requires_persistent_settings_outside_embedded_agent(tmp_path: Path)
     assert "Traceback" not in result.stderr
 
 
+def test_cli_reports_invalid_settings_encoding_without_traceback(tmp_path: Path) -> None:
+    definition = tmp_path / "definition.json"
+    definition.write_text("{}", encoding="utf-8")
+    settings_dir = tmp_path / ".arcreel"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_bytes(b"\xff")
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_API_")}
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", str(definition)],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "Cannot read ArcReel settings" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("source", ["environment", "settings"])
+def test_cli_rejects_remote_http_connection_before_request(tmp_path: Path, source: str) -> None:
+    definition = tmp_path / "definition.json"
+    definition.write_text("{}", encoding="utf-8")
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_API_")}
+    if source == "environment":
+        env["ARCREEL_API_BASE"] = "http://example.com/api/v1"
+        expected_source = "ARCREEL_API_BASE"
+    else:
+        settings_dir = tmp_path / ".arcreel"
+        settings_dir.mkdir()
+        (settings_dir / "settings.json").write_text(
+            json.dumps({"mcp_url": "http://example.com/mcp", "api_key": "arc-test"}),
+            encoding="utf-8",
+        )
+        expected_source = ".arcreel/settings.json"
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", str(definition)],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "must use HTTPS" in result.stderr
+    assert expected_source in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_cli_requires_explicit_confirmation_for_cost_and_overwrite(tmp_path: Path) -> None:
     definition = tmp_path / "definition.json"
     parameters = tmp_path / "parameters.json"
