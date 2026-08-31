@@ -310,3 +310,49 @@ reportCallIssue = "none"
 reportIndexIssue = "none"
 # 脚本用 sys.path 注入后再 import，静态不可解析，此域不做闸门
 reportMissingImports = "none"
+
+# 变异测试（mutmut 3.7.0）。不进 dev 依赖，按需 `uv run --with mutmut==3.7.0 mutmut run`。
+# 变异得分是信号不是闸门：不为杀死变异体补写测试，只用存活 mutant 筛选待审查的测试。
+[tool.mutmut]
+# 必须显式写：不写时 mutmut 只推断出 lib/，漏掉 server/
+source_paths = ["lib", "server"]
+# 按批次填写待变异模块；留空则变异 source_paths 全域（一轮数小时，不实用）
+# only_mutate = ["lib/speech_rate.py"]
+# 变异后的模块 import mutmut.__main__，而该 import 在模块级就按 CWD 解析 [tool.mutmut]；
+# tests/unit/test_skill_script_path_guards.py 的用例一律在项目外的 tmp 目录启子进程跑 skill 脚本，
+# 子进程 CWD 无 pyproject.toml 即崩在 _guess_source_paths()，故整体排除。
+# 这些子进程确实会 import lib.project_manager / lib.script_models，排除后由它们独家覆盖的
+# mutant 会掉进存活集合；但保留同样杀不死——子进程在断言前就崩在上面那个 import。
+# 排除只把这类 mutant 推向假存活（多复核一个），不会造成假杀死（把无效测试藏起来）。
+pytest_add_cli_args = ["--ignore=tests/unit/test_skill_script_path_guards.py"]
+# pytest_add_cli_args_test_selection 不设：走全量 testpaths。仅 tests/unit 快 5.5 倍，
+# 但候选集约 45% 是假存活，复核每个都要跑一次全量套件，总账反而更贵。
+# timeout_multiplier / timeout_constant 保持默认（15 / 1.0），不要调小。
+# mutmut 的 fork 模型与本仓库的多线程测试套件不相容，存活 mutant 必然耗满墙钟预算被记成 ⏰；
+# 调小预算并不能省时间，只会让已证实的真存活被记成 killed（假杀死），把无效测试藏起来。
+# ⏰ 一律不算 killed，须在新进程里复核（每个 3-11s）。三个前提缺一不可：
+#   1. mutmut 要能被 .venv 的解释器 import——变异后的模块顶部就 import 它的 trampoline：
+#        uv pip install --python .venv mutmut==3.7.0   # 不写进 pyproject，uv sync 会清掉
+#   2. tests-for-mutant 只在项目根可用，在 mutants/ 里跑报 Failed to load stats：
+#        .venv/bin/mutmut tests-for-mutant <名> > /tmp/nodeids.txt
+#   3. nodeid 列表按 NUL 分隔传，既不能用 $(...) 也不能用裸 xargs：
+#      $(...) 在 zsh 下不做词分割（bash 下做），整串成一个参数，pytest 静默报 no tests ran；
+#      裸 xargs 按空白切分并吞掉引号，而本套件有 180+ 个含空格或引号的参数化 nodeid，
+#      例如 test_static_code_enumeration_rejects_partially_dynamic_expressions["a" if cond else "b"-expected1]
+#      会被拆成 5 个参数且丢掉双引号。-0 两者都免疫：
+#        cd mutants && tr '\n' '\0' < /tmp/nodeids.txt \
+#          | xargs -0 env MUTANT_UNDER_TEST=<名> ../.venv/bin/python -m pytest -x -q
+# 复核用 .venv 的解释器而非 uv run。往 also_copy 补 README.md 只能修掉 mutants/ 里
+# uv run 栽在 hatchling 构建这一层：uv 会按那份 pyproject.toml 副本另建一个环境，而 mutmut
+# 按验收标准不在依赖里，变异模块顶部的 trampoline import 照样 ModuleNotFoundError。
+also_copy = [
+    "agent_runtime_profile",
+    "alembic",
+    "alembic.ini",
+    "scripts",
+    "skills",
+    "skills-lock.json",
+    "public",
+    ".github",
+    "frontend/src",
+]

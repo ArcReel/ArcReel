@@ -128,3 +128,6 @@ docs/verification-reports/
 .impeccable/live/deferred-svelte-component-accepts.json
 .impeccable/live/*.png
 # impeccable-ignore-end
+
+# mutmut 变异测试的工作副本（`mutmut run` 生成的整仓复制品）
+mutants/
