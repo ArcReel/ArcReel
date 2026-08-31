@@ -6,7 +6,7 @@
 
 迁移器是纯函数（就地改写传入的 dict、返回是否变更 + warning 列表），由加载侧在锁内做
 read-modify-write 回写——迁移一次落盘、谁先跑谁定终局，二次加载不再触发。正因如此，各入口的
-``supported_durations`` 必须同源：草稿的三个入口（step2 生成、web 内容确认、归档导入）都经
+``supported_durations`` 必须同源：草稿的三个入口（prompt_authoring 生成、web 内容确认、归档导入）都经
 ``resolve_raw_supported_durations`` 取同一份档位表，落盘秒数因而必是档位成员。
 
 ``supported_durations`` 为 None 的两种情形只做结构区间 clamp：项目尚未配置可解析的视频型号，

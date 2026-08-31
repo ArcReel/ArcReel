@@ -110,18 +110,18 @@ describe("EndFramePicker 项目内通道", () => {
     expect(getByText("本集分镜图")).toBeInTheDocument();
 
     // 无分镜图的分镜不出现
-    expect(queryByRole("button", { name: /分镜 E1S02/ })).toBeNull();
+    expect(queryByRole("button", { name: /分镜 E1S02/ })).not.toBeInTheDocument();
 
     // 角色/场景分组已移除：即使 currentProjectData 里有对应素材也不展示
-    expect(queryByText("角色")).toBeNull();
-    expect(queryByText("场景")).toBeNull();
+    expect(queryByText("角色")).not.toBeInTheDocument();
+    expect(queryByText("场景")).not.toBeInTheDocument();
   });
 
   it("宫格切图只取本集、且跳过未切出图的格子", async () => {
     const { findByRole, queryByRole } = renderPicker();
 
     expect(await findByRole("button", { name: /grid_4 第 1 格/ })).toBeInTheDocument();
-    expect(queryByRole("button", { name: /grid_4 第 2 格/ })).toBeNull();
+    expect(queryByRole("button", { name: /grid_4 第 2 格/ })).not.toBeInTheDocument();
   });
 
   it("选中后确认，把项目内相对路径交回父级", async () => {
@@ -183,7 +183,7 @@ describe("EndFramePicker 上传通道", () => {
 
     await findByText("本集分镜图");
     await waitFor(() => {
-      expect(queryByText("本集分镜切图")).toBeNull();
+      expect(queryByText("本集分镜切图")).not.toBeInTheDocument();
     });
   });
 });

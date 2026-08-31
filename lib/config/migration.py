@@ -62,7 +62,7 @@ _HANDLED_KEYS = {
 
 
 async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
-    if not json_path.exists():
+    if not json_path.exists():  # noqa: ASYNC240 -- 启动期迁移入口的一次性存在性检查，本地元数据
         return
 
     logger.info("Migrating %s to database...", json_path)
@@ -142,7 +142,7 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
 
     # 7. Rename to .bak
     bak_path = json_path.with_suffix(".json.bak")
-    json_path.rename(bak_path)
+    json_path.rename(bak_path)  # noqa: ASYNC240 -- 同目录 rename，纯元数据操作
     logger.info("Migration complete. Renamed to %s", bak_path)
 
 

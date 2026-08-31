@@ -11,12 +11,14 @@ from __future__ import annotations
 import logging
 import math
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
@@ -31,10 +33,10 @@ from lib.capability_buckets import (
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
-from lib.config.service import ConfigService
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
 from lib.db import get_async_session
 from lib.httpx_shared import get_http_client
-from lib.i18n import Translator
+from lib.i18n import DEFAULT_LOCALE, Locale, Translator, translate_or
 from server.dependencies import get_config_service
 from server.routers._validators import validate_backend_value
 
@@ -63,6 +65,7 @@ class _OptionsDict(TypedDict):
     text_backends: list[str]
     audio_backends: list[str]
     provider_names: dict[str, str]
+    model_names: dict[str, str]
 
 
 _MEDIA_TO_OPTION_LIST = {
@@ -73,15 +76,25 @@ _MEDIA_TO_OPTION_LIST = {
 }
 
 
-@lru_cache(maxsize=1)
-def _read_app_version() -> str:
-    with _PYPROJECT_PATH.open("rb") as f:
+def _load_app_version(pyproject_path: Path) -> str:
+    """从给定 pyproject 读版本号；不缓存，缓存由 :func:`_read_app_version` 负责。"""
+    with pyproject_path.open("rb") as f:
         data = tomllib.load(f)
 
     version = str(data["project"]["version"]).strip()
     if not version:
         raise RuntimeError("project.version is empty")
     return version
+
+
+@lru_cache(maxsize=1)
+def _read_app_version() -> str:
+    return _load_app_version(_PYPROJECT_PATH)
+
+
+def get_app_version_reader() -> Callable[[], str]:
+    """版本读取器的路由依赖；读失败的处置归路由，故注入可调用对象而非版本值。"""
+    return _read_app_version
 
 
 def _parse_version(raw: str) -> Version | None:
@@ -106,7 +119,11 @@ def _build_latest_release_payload(data: dict[str, Any]) -> dict[str, str]:
     }
 
 
-async def _get_latest_release() -> tuple[dict[str, str], datetime]:
+async def _get_latest_release(
+    *,
+    http_client: httpx.AsyncClient | None = None,
+    now: datetime | None = None,
+) -> tuple[dict[str, str], datetime]:
     """Fetch latest GitHub release with a 5-minute cache.
 
     Returns (payload, fetched_at) where fetched_at is the timestamp of the
@@ -114,7 +131,7 @@ async def _get_latest_release() -> tuple[dict[str, str], datetime]:
     the value safe to surface as `checked_at` to clients without misleading
     them about cache freshness.
     """
-    now = datetime.now(UTC)
+    now = now or datetime.now(UTC)
     expires_at = _latest_release_cache.get("expires_at")
     payload = _latest_release_cache.get("payload")
     fetched_at = _latest_release_cache.get("fetched_at")
@@ -126,7 +143,8 @@ async def _get_latest_release() -> tuple[dict[str, str], datetime]:
     ):
         return payload, fetched_at
 
-    response = await get_http_client().get(
+    client = http_client or get_http_client()
+    response = await client.get(
         _GITHUB_RELEASE_LATEST_URL,
         headers={"Accept": "application/vnd.github+json", "User-Agent": _GITHUB_USER_AGENT},
         timeout=5.0,
@@ -147,15 +165,19 @@ class _ModelCandidate:
     option: str  # "provider_id/model_id"
     media_type: str
     buckets: frozenset[CapabilityBucket]
+    display_name: str  # 按请求语言成文的模型名
 
 
 async def _enumerate_candidates(
-    svc: ConfigService, session: AsyncSession
+    svc: ConfigService, session: AsyncSession, locale: str = DEFAULT_LOCALE
 ) -> tuple[list[_ModelCandidate], dict[str, str]]:
     """列出所有可选模型（内置 ready 供应商 + 已启用的自定义模型），并附任务类型桶归属。
 
     hidden 模型在这里统一剔除：registry 声明 hidden 的语义就是「从 UI 下拉剔除、条目仍保留
     供算价」，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。
+
+    供应商名与模型名走 ``translate_or``，与 ``/providers`` 目录同一条路径：有译名表的按请求
+    语言成文，没有的（纯品牌名、自定义供应商用户自填的名字）原样返回 registry / DB 里的原名。
     """
     statuses = await svc.get_all_providers_status()
     ready_providers = {s.name for s in statuses if s.status == "ready"}
@@ -166,6 +188,7 @@ async def _enumerate_candidates(
     for provider_id, meta in PROVIDER_REGISTRY.items():
         if provider_id not in ready_providers:
             continue
+        provider_names[provider_id] = translate_or(f"provider_name_{provider_id}", meta.display_name, locale)
         for model_id, model_info in meta.models.items():
             if model_info.hidden:
                 continue
@@ -174,11 +197,13 @@ async def _enumerate_candidates(
                     option=f"{provider_id}/{model_id}",
                     media_type=model_info.media_type,
                     buckets=builtin_model_buckets(provider_id, model_id, model_info),
+                    display_name=translate_or(f"model_name_{provider_id}_{model_id}", model_info.display_name, locale),
                 )
             )
 
     from lib.custom_provider import make_provider_id
-    from lib.custom_provider.endpoints import endpoint_to_media_type
+    from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+    from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
     try:
@@ -186,17 +211,21 @@ async def _enumerate_candidates(
         providers = await repo.list_providers()
         provider_name_map = {p.id: p.display_name for p in providers}
         enabled_models = await repo.list_all_enabled_models()
+        endpoint_repo = CustomEndpointRepository(session)
         for model in enabled_models:
+            endpoint_spec = await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)
             pid = make_provider_id(model.provider_id)
             candidates.append(
                 _ModelCandidate(
                     option=f"{pid}/{model.model_id}",
-                    media_type=endpoint_to_media_type(model.endpoint),
+                    media_type=endpoint_spec.media_type,
                     buckets=custom_model_buckets(
                         endpoint=model.endpoint,
                         model_id=model.model_id,
                         capability_overrides=model.capability_overrides,
+                        endpoint_spec=endpoint_spec,
                     ),
+                    display_name=model.display_name,
                 )
             )
             if pid not in provider_names and model.provider_id in provider_name_map:
@@ -207,9 +236,18 @@ async def _enumerate_candidates(
     return candidates, provider_names
 
 
-async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsDict:
+def _model_names(candidates: list[_ModelCandidate]) -> dict[str, str]:
+    """``"provider_id/model_id"`` → 已成文的模型名，两个端点共用的那张表。
+
+    不按媒体类型收窄：同屏的文本档位与旁白配音下拉取自 ``/system/config`` 的候选，共用这一份
+    译名表，缺键会让它们退回 model id。
+    """
+    return {c.option: c.display_name for c in candidates}
+
+
+async def _build_options(svc: ConfigService, session: AsyncSession, locale: str = DEFAULT_LOCALE) -> _OptionsDict:
     """Compute available backends from ready providers."""
-    candidates, provider_names = await _enumerate_candidates(svc, session)
+    candidates, provider_names = await _enumerate_candidates(svc, session, locale)
 
     by_media: dict[str, list[str]] = {
         "video_backends": [],
@@ -222,7 +260,7 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
         if key:
             by_media[key].append(candidate.option)
 
-    return {**by_media, "provider_names": provider_names}  # type: ignore[return-value]
+    return {**by_media, "provider_names": provider_names, "model_names": _model_names(candidates)}  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -240,8 +278,11 @@ class MediaCandidates(BaseModel):
 class ModelCandidatesResponse(BaseModel):
     image: MediaCandidates
     video: MediaCandidates
-    # 仅含自定义供应商的显示名（内置供应商名由前端按 provider_id 本地化），与 options 同口径。
+    # 供应商 id → 按请求语言成文的名字；与 options 同口径（同一条 translate_or 路径）。
     provider_names: dict[str, str]
+    # "provider_id/model_id" → 按请求语言成文的模型名；键覆盖全部媒体类型的候选（含 options
+    # 才用到的 text / audio），前端下拉据此显示译名。
+    model_names: dict[str, str]
 
 
 class SystemConfigPatchRequest(BaseModel):
@@ -257,6 +298,7 @@ class SystemConfigPatchRequest(BaseModel):
     narration_voice: str | None = None
     narration_speed: float | None = None
     video_generate_audio: bool | None = None
+    video_poll_timeout_seconds: int | None = None
     anthropic_api_key: str | None = None
     anthropic_base_url: str | None = None
     anthropic_model: str | None = None
@@ -296,6 +338,7 @@ _STRING_SETTINGS = (
 @router.get("/system/config")
 async def get_system_config(
     svc: Annotated[ConfigService, Depends(get_config_service)],
+    locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     # Read all settings in a single query
@@ -331,6 +374,9 @@ async def get_system_config(
         "narration_voice": all_s.get("narration_voice", ""),
         "narration_speed": narration_speed,
         "video_generate_audio": video_generate_audio,
+        "video_poll_timeout_seconds": ConfigService.parse_video_poll_timeout_seconds(
+            all_s.get("video_poll_timeout_seconds") or str(DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS)
+        ),
         "anthropic_api_key": {
             "is_set": bool(anthropic_key),
             "masked": mask_secret(anthropic_key) if anthropic_key else None,
@@ -347,7 +393,7 @@ async def get_system_config(
         "text_backend_complex": all_s.get("text_backend_complex") or "",
     }
 
-    options = await _build_options(svc, session)
+    options = await _build_options(svc, session, locale)
 
     return {"settings": settings, "options": options}
 
@@ -355,6 +401,7 @@ async def get_system_config(
 @router.get("/system/config/model-candidates", response_model=ModelCandidatesResponse)
 async def get_model_candidates(
     svc: Annotated[ConfigService, Depends(get_config_service)],
+    locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> ModelCandidatesResponse:
     """任务类型桶下拉的候选数据源：默认层全量 + 每个任务类型桶按能力过滤后的模型列表。
@@ -362,7 +409,7 @@ async def get_model_candidates(
     默认层不过滤 —— 默认层不承诺能力，能力不满足由解析闸报错兜底；只有桶层承诺「配进去的
     组合执行得了」，故按桶过滤。
     """
-    candidates, provider_names = await _enumerate_candidates(svc, session)
+    candidates, provider_names = await _enumerate_candidates(svc, session, locale)
 
     media: dict[str, MediaCandidates] = {}
     for media_type, buckets in BUCKETS_BY_MEDIA_TYPE.items():
@@ -376,15 +423,17 @@ async def get_model_candidates(
         image=media["image"],
         video=media["video"],
         provider_names=provider_names,
+        model_names=_model_names(candidates),
     )
 
 
 @router.get("/system/version")
 async def get_system_version(
     _t: Translator,
+    read_app_version: Annotated[Callable[[], str], Depends(get_app_version_reader)],
 ) -> dict[str, Any]:
     try:
-        current_version = _read_app_version()
+        current_version = read_app_version()
     except Exception as exc:
         logger.exception("Failed to read app version")
         raise HTTPException(status_code=500, detail=_t("about_version_read_failed")) from exc
@@ -422,6 +471,7 @@ async def patch_system_config(
     req: SystemConfigPatchRequest,
     svc: Annotated[ConfigService, Depends(get_config_service)],
     _t: Translator,
+    locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     patch: dict[str, Any] = {}
@@ -466,6 +516,12 @@ async def patch_system_config(
     if "video_generate_audio" in patch and patch["video_generate_audio"] is not None:
         await svc.set_setting("video_generate_audio", "true" if patch["video_generate_audio"] else "false")
 
+    if "video_poll_timeout_seconds" in patch and patch["video_poll_timeout_seconds"] is not None:
+        try:
+            await svc.set_video_poll_timeout_seconds(patch["video_poll_timeout_seconds"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=_t("video_poll_timeout_minimum")) from exc
+
     # Anthropic API key (secret)
     if "anthropic_api_key" in patch:
         value = patch["anthropic_api_key"]
@@ -498,4 +554,4 @@ async def patch_system_config(
     await session.commit()
 
     # Return updated config
-    return await get_system_config(svc=svc, session=session)
+    return await get_system_config(svc=svc, locale=locale, session=session)

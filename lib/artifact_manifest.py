@@ -18,12 +18,12 @@ import tempfile
 import threading
 import time
 import unicodedata
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Protocol, Self, cast
+from typing import NamedTuple, Protocol, Self, cast
 
 import portalocker
 
@@ -36,6 +36,7 @@ from lib.content_digest import (
     digest_stream,
     prefixed,
 )
+from lib.schema_guards import is_str
 
 _KEY_PREFIX = "artifact-key-v1:"
 MANIFEST_FILENAME = ".arcreel_artifacts.json"
@@ -52,7 +53,7 @@ class ArtifactKind(StrEnum):
     """Kinds supported by the project artifact manifest schema."""
 
     ASSET_SHEET = "asset-sheet"
-    EPISODE_STEP1 = "episode-step1"
+    EPISODE_SCRIPT_PLAN = "episode-script-plan"
     EPISODE_SCRIPT = "episode-script"
     EPISODE_GRID = "episode-grid"
     EPISODE_STORYBOARD = "episode-storyboard"
@@ -178,6 +179,9 @@ class ArtifactEntryRekeyReceipt:
     after: Mapping[ArtifactKey, ArtifactManifestEntry | None]
     changed: bool
 
+    def matches_current(self) -> bool:
+        return _entries_match(self.adapter, self.after)
+
     def compensate(self) -> bool:
         if not self.changed:
             return False
@@ -238,8 +242,6 @@ class ArtifactManifest:
         self._adapter = adapter
 
     def register(self, key: ArtifactKey, *, artifact_path: str, basis: ArtifactBasis) -> bool:
-        if not isinstance(basis, ArtifactBasis):
-            raise TypeError("basis must be an ArtifactBasis")
         return self.register_descriptor(
             key,
             artifact_path=artifact_path,
@@ -260,8 +262,6 @@ class ArtifactManifest:
         guessing the original input payload during resume and restore.
         """
 
-        if not isinstance(basis, ArtifactBasisDescriptor):
-            raise TypeError("basis must be an ArtifactBasisDescriptor")
         observation = self._adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None:
             raise ArtifactRegistrationError(observation.blocker.detail)
@@ -284,8 +284,6 @@ class ArtifactManifest:
     ) -> bool:
         """Register a descriptor while restoring the exact prior entry on error."""
 
-        if not isinstance(basis, ArtifactBasisDescriptor):
-            raise TypeError("basis must be an ArtifactBasisDescriptor")
         previous = self._adapter.get_entry(key)
         expected = ArtifactManifestEntry(
             artifact_path=normalize_artifact_path(artifact_path),
@@ -372,7 +370,7 @@ class ArtifactManifest:
         receipt = ArtifactEntryRekeyPlan(
             adapter=self._adapter,
             before=before,
-            after={key: None for key in before},
+            after=dict.fromkeys(before),
             changed=True,
         ).commit()
         return receipt.changed
@@ -430,8 +428,6 @@ class ArtifactManifest:
         )
 
     def compare(self, key: ArtifactKey, *, artifact_path: str, basis: ArtifactBasis) -> ArtifactComparison:
-        if not isinstance(basis, ArtifactBasis):
-            raise TypeError("basis must be an ArtifactBasis")
         return self.compare_entry(
             key,
             artifact_path=artifact_path,
@@ -584,7 +580,8 @@ class InMemoryArtifactManifestAdapter:
 class ProjectArtifactManifestAdapter:
     """Safe project-directory adapter backed by a versioned JSON manifest."""
 
-    def __init__(self, project_dir: Path) -> None:
+    def __init__(self, project_dir: Path, *, nofollow_supported: bool = True) -> None:
+        self._nofollow_supported = nofollow_supported
         root_fd: int | None = None
         windows_handle: int | None = None
         try:
@@ -596,7 +593,7 @@ class ProjectArtifactManifestAdapter:
             initial_identity = (initial_stat.st_dev, initial_stat.st_ino)
             opened_identity: tuple[int, int] | None = None
             if os.name == "posix":
-                root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _O_NOFOLLOW
+                root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | self._nofollow_flag
                 root_fd = os.open(project_dir, root_flags)
                 opened_stat = os.fstat(root_fd)
                 opened_identity = (opened_stat.st_dev, opened_stat.st_ino)
@@ -625,6 +622,11 @@ class ProjectArtifactManifestAdapter:
             raise ArtifactManifestError(f"project directory changed during adapter initialization: {project_dir}")
         self._project_dir = resolved
         self._project_identity = initial_identity
+
+    @property
+    def _nofollow_flag(self) -> int:
+        """`O_NOFOLLOW` 的实际取值：不支持（平台缺失或注入声明不支持）时为 0，回退到身份校验路径。"""
+        return _O_NOFOLLOW if self._nofollow_supported else 0
 
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
         return self._inspect_artifact(artifact_path, include_content_digest=False)
@@ -707,10 +709,10 @@ class ProjectArtifactManifestAdapter:
         include_content_bytes: bool = False,
     ) -> ArtifactObservation:
         parts = PurePosixPath(normalized).parts
-        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _O_NOFOLLOW
-        file_flags = os.O_RDONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | self._nofollow_flag
+        file_flags = os.O_RDONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0)
         with contextlib.ExitStack() as stack:
-            if not _O_NOFOLLOW and _is_linkish(self._project_dir):
+            if not self._nofollow_flag and _is_linkish(self._project_dir):
                 return self._artifact_blocked(
                     normalized,
                     "artifact_symlink",
@@ -734,13 +736,13 @@ class ProjectArtifactManifestAdapter:
             for part in parts[:-1]:
                 cursor /= part
                 expected_parent_identity: tuple[int, int] | None = None
-                if not _O_NOFOLLOW and _is_linkish(cursor):
+                if not self._nofollow_flag and _is_linkish(cursor):
                     return self._artifact_blocked(
                         normalized,
                         "artifact_symlink",
                         f"artifact path contains a symlink or junction: {normalized}",
                     )
-                if not _O_NOFOLLOW:
+                if not self._nofollow_flag:
                     try:
                         parent_stat = cursor.stat(follow_symlinks=False)
                     except FileNotFoundError:
@@ -787,13 +789,13 @@ class ProjectArtifactManifestAdapter:
                 directory_fd = next_fd
             final_path = cursor / parts[-1]
             expected_file_identity: tuple[int, int] | None = None
-            if not _O_NOFOLLOW and _is_linkish(final_path):
+            if not self._nofollow_flag and _is_linkish(final_path):
                 return self._artifact_blocked(
                     normalized,
                     "artifact_symlink",
                     f"artifact path contains a symlink or junction: {normalized}",
                 )
-            if not _O_NOFOLLOW:
+            if not self._nofollow_flag:
                 try:
                     file_stat = final_path.stat(follow_symlinks=False)
                 except FileNotFoundError:
@@ -918,7 +920,7 @@ class ProjectArtifactManifestAdapter:
                 detail=f"artifact path is not a regular file: {normalized}",
             )
             return ArtifactObservation(artifact_path=normalized, present=False, blocker=blocker)
-        flags = os.O_RDONLY | _O_NOFOLLOW
+        flags = os.O_RDONLY | self._nofollow_flag
         try:
             fd = os.open(path, flags)
             try:
@@ -1228,15 +1230,15 @@ class ProjectArtifactManifestAdapter:
             return True
 
     @contextmanager
-    def _locked(self) -> Iterator[int | None]:
+    def _locked(self) -> Generator[int | None]:
         lock_path = self._project_dir / LOCK_FILENAME
         with contextlib.ExitStack() as root_stack:
             root_fd: int | None = None
             checked_lock_identity: tuple[int, int] | None = None
             try:
                 if os.name == "posix":
-                    root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _O_NOFOLLOW
-                    if not _O_NOFOLLOW and _is_linkish(self._project_dir):
+                    root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | self._nofollow_flag
+                    if not self._nofollow_flag and _is_linkish(self._project_dir):
                         raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
                     try:
                         root_fd = os.open(self._project_dir, root_flags)
@@ -1247,9 +1249,9 @@ class ProjectArtifactManifestAdapter:
                     self._assert_open_project_root_identity(root_fd)
                 else:
                     root_stack.enter_context(self._guard_portable_project_root())
-                if root_fd is None or not _O_NOFOLLOW:
+                if root_fd is None or not self._nofollow_flag:
                     checked_lock_identity = self._runtime_file_identity(lock_path, "manifest lock")
-                flags = os.O_WRONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+                flags = os.O_WRONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0)
                 try:
                     if root_fd is not None:
                         try:
@@ -1263,7 +1265,7 @@ class ProjectArtifactManifestAdapter:
                         raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
                     raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
                 try:
-                    if root_fd is None or not _O_NOFOLLOW:
+                    if root_fd is None or not self._nofollow_flag:
                         self._assert_open_runtime_file_identity(
                             lock_path,
                             fd,
@@ -1298,7 +1300,7 @@ class ProjectArtifactManifestAdapter:
                     os.close(root_fd)
 
     @contextmanager
-    def _guard_portable_project_root(self) -> Iterator[None]:
+    def _guard_portable_project_root(self) -> Generator[None]:
         windows_handle = _open_windows_directory_handle(self._project_dir) if os.name == "nt" else None
         try:
             self._assert_portable_project_root_identity()
@@ -1369,11 +1371,11 @@ class ProjectArtifactManifestAdapter:
     ) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
         path = self._project_dir / MANIFEST_FILENAME
         checked_manifest_identity: tuple[int, int] | None = None
-        if root_fd is None or not _O_NOFOLLOW:
+        if root_fd is None or not self._nofollow_flag:
             checked_manifest_identity = self._runtime_file_identity(path, "artifact manifest")
             if checked_manifest_identity is None:
                 return {}, None
-        flags = os.O_RDONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        flags = os.O_RDONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0)
         try:
             fd = os.open(MANIFEST_FILENAME, flags, dir_fd=root_fd) if root_fd is not None else os.open(path, flags)
         except FileNotFoundError:
@@ -1383,7 +1385,7 @@ class ProjectArtifactManifestAdapter:
                 raise ArtifactManifestError(f"artifact manifest is a symlink: {path}") from exc
             raise ArtifactManifestError(f"cannot open artifact manifest: {path}: {exc}") from exc
         try:
-            if root_fd is None or not _O_NOFOLLOW:
+            if root_fd is None or not self._nofollow_flag:
                 self._assert_open_runtime_file_identity(
                     path,
                     fd,
@@ -1412,7 +1414,7 @@ class ProjectArtifactManifestAdapter:
                 dir=self._project_dir,
             )
         else:
-            fd, tmp_name = _create_temporary_file(root_fd)
+            fd, tmp_name = _create_temporary_file(root_fd, nofollow_flag=self._nofollow_flag)
         try:
             handle = os.fdopen(fd, "wb")
         except BaseException:
@@ -1510,17 +1512,15 @@ class ArtifactBasisDescriptor:
     digest: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, str) or not self.kind:
+        if not is_str(self.kind) or not self.kind:
             raise ValueError("artifact basis descriptor kind must be a non-empty string")
         if type(self.kind_version) is not int or self.kind_version < 1:
             raise ValueError("artifact basis descriptor kind_version must be a positive integer")
-        if not isinstance(self.digest, str) or PREFIXED_DIGEST_RE.fullmatch(self.digest) is None:
+        if not is_str(self.digest) or PREFIXED_DIGEST_RE.fullmatch(self.digest) is None:
             raise ValueError("artifact basis descriptor digest must be a canonical sha256-v1 digest")
 
     @classmethod
     def from_basis(cls, basis: ArtifactBasis) -> Self:
-        if not isinstance(basis, ArtifactBasis):
-            raise TypeError("basis must be an ArtifactBasis")
         return cls(kind=basis.kind, kind_version=basis.kind_version, digest=basis.digest)
 
     @classmethod
@@ -1578,9 +1578,7 @@ def _coerce_artifact_basis_descriptor(
 ) -> ArtifactBasisDescriptor:
     if isinstance(value, ArtifactBasis):
         return ArtifactBasisDescriptor.from_basis(value)
-    if isinstance(value, ArtifactBasisDescriptor):
-        return value
-    raise TypeError(f"{field} must be an ArtifactBasis or ArtifactBasisDescriptor")
+    return value
 
 
 def _coerce_optional_artifact_basis_descriptor(
@@ -1590,6 +1588,47 @@ def _coerce_optional_artifact_basis_descriptor(
     if value is None:
         return None
     return _coerce_artifact_basis_descriptor(field, value)
+
+
+def encode_artifact_key_parts(kind: str, components: Sequence[object]) -> str:
+    """Encode raw key parts into the manifest key wire form.
+
+    Shared with :meth:`ArtifactKey.encode` so exactly one encoding exists, including
+    for producers that cannot go through :class:`ArtifactKey` — a migration rewriting
+    a key whose kind this build no longer defines has no typed key to encode.
+    """
+
+    payload = json.dumps([kind, *components], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    token = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    return _KEY_PREFIX + token
+
+
+class ArtifactKeyParts(NamedTuple):
+    """A manifest key's raw parts, before any :class:`ArtifactKind` is required to exist."""
+
+    kind: str
+    components: tuple[object, ...]
+
+
+def decode_artifact_key_parts(value: str) -> ArtifactKeyParts | None:
+    """Decode a manifest key back into its raw kind and components.
+
+    Returns ``None`` for anything that is not this encoding.  Unlike
+    :meth:`ArtifactKey.decode` the kind is not required to still be a supported
+    :class:`ArtifactKind`, which is what lets a migration rewrite a renamed kind.
+    """
+
+    if not value.startswith(_KEY_PREFIX):
+        return None
+    token = value.removeprefix(_KEY_PREFIX)
+    try:
+        raw = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
+        payload = json.loads(raw.decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, ValueError, RecursionError):
+        return None
+    if not isinstance(payload, list) or not payload or not isinstance(payload[0], str):
+        return None
+    return ArtifactKeyParts(payload[0], tuple(cast(list[object], payload)[1:]))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1608,7 +1647,7 @@ class ArtifactKey:
                 if canonical_asset_id:
                     object.__setattr__(self, "components", (asset_type, canonical_asset_id))
                     valid = True
-        elif self.kind in {ArtifactKind.EPISODE_STEP1, ArtifactKind.EPISODE_SCRIPT} and len(self.components) == 1:
+        elif self.kind in {ArtifactKind.EPISODE_SCRIPT_PLAN, ArtifactKind.EPISODE_SCRIPT} and len(self.components) == 1:
             episode = self.components[0]
             valid = type(episode) is int and episode > 0
         elif (
@@ -1645,8 +1684,8 @@ class ArtifactKey:
         return cls(ArtifactKind.ASSET_SHEET, (asset_type, _non_empty("asset_id", asset_id)))
 
     @classmethod
-    def episode_step1(cls, episode: int) -> Self:
-        return cls(ArtifactKind.EPISODE_STEP1, (_episode_number(episode),))
+    def episode_script_plan(cls, episode: int) -> Self:
+        return cls(ArtifactKind.EPISODE_SCRIPT_PLAN, (_episode_number(episode),))
 
     @classmethod
     def episode_script(cls, episode: int) -> Self:
@@ -1729,27 +1768,16 @@ class ArtifactKey:
         return episode if type(episode) is int else None
 
     def encode(self) -> str:
-        payload = json.dumps(
-            [self.kind.value, *self.components],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        token = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-        return _KEY_PREFIX + token
+        return encode_artifact_key_parts(self.kind.value, self.components)
 
     @classmethod
     def decode(cls, value: str) -> Self:
         if not value.startswith(_KEY_PREFIX):
             raise ValueError("artifact key has an unsupported encoding")
-        token = value.removeprefix(_KEY_PREFIX)
-        try:
-            raw = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
-            payload = json.loads(raw.decode("utf-8"))
-        except (binascii.Error, UnicodeDecodeError, ValueError, RecursionError) as exc:
-            raise ValueError("artifact key is malformed") from exc
-        if not isinstance(payload, list) or not payload or not isinstance(payload[0], str):
-            raise ValueError("artifact key payload is malformed")
-        key = cls._from_parts(payload[0], payload[1:])
+        parts = decode_artifact_key_parts(value)
+        if parts is None:
+            raise ValueError("artifact key is malformed")
+        key = cls._from_parts(parts.kind, list(parts.components))
         if key.encode() != value:
             raise ValueError("artifact key is not canonical")
         return key
@@ -1848,10 +1876,6 @@ def _encode_target_entries(
 ) -> dict[str, ArtifactManifestEntry]:
     encoded: dict[str, ArtifactManifestEntry] = {}
     for key, entry in entries.items():
-        if not isinstance(key, ArtifactKey):
-            raise TypeError("manifest target keys must be ArtifactKey values")
-        if not isinstance(entry, ArtifactManifestEntry):
-            raise TypeError("manifest target entries must be ArtifactManifestEntry values")
         normalized_path = normalize_artifact_path(entry.artifact_path)
         if normalized_path != entry.artifact_path:
             raise ValueError("manifest target artifact path must be canonical")
@@ -1867,15 +1891,12 @@ def _encode_target_entries(
 def _encode_optional_entries(
     entries: Mapping[ArtifactKey, ArtifactManifestEntry | None],
 ) -> dict[str, ArtifactManifestEntry | None]:
-    present: dict[ArtifactKey, ArtifactManifestEntry] = {}
-    for key, entry in entries.items():
-        if entry is not None:
-            present[key] = entry
+    present: dict[ArtifactKey, ArtifactManifestEntry] = {
+        key: entry for key, entry in entries.items() if entry is not None
+    }
     encoded_present = _encode_target_entries(present)
     encoded: dict[str, ArtifactManifestEntry | None] = {}
     for key, entry in entries.items():
-        if not isinstance(key, ArtifactKey):
-            raise TypeError("manifest compare-and-swap keys must be ArtifactKey values")
         encoded[key.encode()] = encoded_present.get(key.encode()) if entry is not None else None
     return encoded
 
@@ -1925,9 +1946,7 @@ def encode_artifact_manifest_payload(
     encoded = _encode_target_entries(snapshot.entries)
     content_digests: dict[str, str] = {}
     for key, digest in snapshot.content_digests.items():
-        if not isinstance(key, ArtifactKey):
-            raise TypeError("archive artifact content digest keys must be ArtifactKey values")
-        if not isinstance(digest, str) or CONTENT_DIGEST_RE.fullmatch(digest) is None:
+        if CONTENT_DIGEST_RE.fullmatch(digest) is None:
             raise ValueError("archive artifact content digest must be a lowercase SHA-256 digest")
         content_digests[key.encode()] = digest
     if set(content_digests) != set(encoded):
@@ -2071,7 +2090,7 @@ def _is_linkish(path: Path) -> bool:
 
 
 def _open_windows_directory_handle(path: Path) -> int:
-    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     create_file = kernel32.CreateFileW
     create_file.argtypes = [
         wintypes.LPCWSTR,
@@ -2099,15 +2118,15 @@ def _open_windows_directory_handle(path: Path) -> int:
 
 
 def _close_windows_handle(handle: int) -> None:
-    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     close_handle = kernel32.CloseHandle
     close_handle.argtypes = [wintypes.HANDLE]
     close_handle.restype = wintypes.BOOL
     close_handle(handle)
 
 
-def _create_temporary_file(root_fd: int) -> tuple[int, str]:
-    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | _O_NOFOLLOW
+def _create_temporary_file(root_fd: int, *, nofollow_flag: int) -> tuple[int, str]:
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | nofollow_flag
     for _ in range(100):
         tmp_name = f"{MANIFEST_FILENAME}.{secrets.token_hex(8)}.tmp"
         try:

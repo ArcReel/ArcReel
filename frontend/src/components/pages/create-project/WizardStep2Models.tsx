@@ -11,6 +11,7 @@ export interface WizardStep2Data {
     image: string[];
     text: string[];
     providerNames: Record<string, string>;
+    modelNames: Record<string, string>;
   };
   providers: ProviderInfo[];
   customProviders: CustomProviderInfo[];
@@ -85,6 +86,7 @@ export function WizardStep2Models({
             imageBackends: data.options.image,
             textBackends: data.options.text,
             providerNames: data.options.providerNames,
+            modelNames: data.options.modelNames,
           }}
           globalDefaults={data.globalDefaults}
           usesReferenceImages={usesReferenceImages}

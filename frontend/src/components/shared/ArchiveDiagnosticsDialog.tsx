@@ -9,8 +9,6 @@ import {
   type DiagnosticSeverity,
 } from "@/utils/severity-tone";
 
-export type { DiagnosticSeverity };
-
 interface DiagnosticsSection {
   key: string;
   title: string;

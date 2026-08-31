@@ -14,7 +14,7 @@ describe("AvatarStack (read-only)", () => {
     const { container } = render(
       <AvatarStack names={[]} characters={characters} projectName="demo" />,
     );
-    expect(container.firstChild).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("renders one chip per visible name", () => {
@@ -51,6 +51,6 @@ describe("AvatarStack (read-only)", () => {
       />,
     );
     // No buttons of any kind should be inside the stack
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

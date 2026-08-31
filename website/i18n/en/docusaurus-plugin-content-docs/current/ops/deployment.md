@@ -160,6 +160,8 @@ The default deployment examples currently include these core variables:
 | `TZ` | `Asia/Shanghai` | Can be overridden in the Compose environment |
 | `DATABASE_URL` | Default SQLite path | Production Compose sets the PostgreSQL URL automatically |
 | `ARCREEL_DATA_DIR` | `projects` | Use this to customize the application's root data directory |
+| `CORS_ORIGINS` | Wildcard | When narrowed to an allowlist, browser MCP client origins must be listed too |
+| `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | Optional; only OAuth discovery-based MCP clients need it |
 
 Notes:
 
@@ -167,6 +169,12 @@ Notes:
 - `.env` may contain secrets. Do not commit it to version control.
 - Vertex credential files should be readable only by the user who runs ArcReel.
 - Third-party model API keys are normally managed on the ArcReel Settings page. Do not include them in public documentation.
+
+The remote MCP endpoint is `/mcp` and always requires an API Key with an `arc-` prefix; it never permits anonymous access, even when `AUTH_ENABLED=false`. Remote access needs no extra `MCP_*` configuration: paste the endpoint URL and API Key shown in the Settings page's "External agent access" dialog into your client, and connect through an HTTPS reverse proxy, VPN, or secure tunnel that preserves long-lived SSE connections.
+
+The server does not validate the request `Host` header; the endpoint boundary rests on the API Key enforced on every request. Host ownership belongs to the deployment: restrict `server_name` (Nginx) or the equivalent rule on your reverse proxy so only requests for the expected domain reach ArcReel.
+
+Browser MCP clients need no configuration either while `CORS_ORIGINS` stays at its permissive default; once you narrow it to an allowlist, add the client Origin to it as well. That single allowlist governs both the application API and the MCP endpoint; there is no second MCP-specific list. `MCP_PUBLIC_URL` only fills the OAuth protected-resource metadata (RFC 9728) and the 401 challenge that discovery-based clients read; clients that connect with a Bearer token, such as Claude Code and codex, never use it and can leave it unset.
 
 ArcReel's sandbox requires provider secrets to be absent from the parent process environment. If any of the following credential environment variables has a non-empty value, the service refuses to start and prompts you to move the credential to the Web UI Settings page:
 
@@ -282,7 +290,7 @@ If a project migration fails, preserve the files and inspect the startup logs. D
 Change the image in Compose to:
 
 ```yaml
-image: ghcr.io/arcreel/arcreel:vX.Y.Z
+image: arcreel/arcreel:X.Y.Z
 ```
 
 Explicitly changing the version when upgrading reduces the risk of unintentionally pulling a new version.
@@ -534,7 +542,7 @@ If the container has just started, check whether database migrations are still r
 - Check the Base URL and model name;
 - Check the network and proxy;
 - Check whether the provider is rate-limiting requests;
-- Use a small amount of content for verification. Do not use a complete novel for a connection test.
+- Use a small amount of content for verification. Do not run a complete novel through the whole pipeline on the first attempt.
 
 ### Tasks Remain Queued {#tasks-stuck-in-queue}
 

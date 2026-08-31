@@ -34,7 +34,7 @@ def decode_txt(raw: bytes) -> tuple[str, str]:
 
     best = charset_normalizer.from_bytes(raw).best()
     detected_enc: str | None = None
-    if best is not None and best.chaos is not None and best.chaos < 0.5 and best.encoding:
+    if best is not None and best.chaos < 0.5 and best.encoding:
         detected_enc = best.encoding
         try:
             return raw.decode(best.encoding), best.encoding
@@ -42,10 +42,7 @@ def decode_txt(raw: bytes) -> tuple[str, str]:
             pass
 
     decoded = raw.decode("gb18030", errors="replace")
-    if decoded:
-        replace_ratio = decoded.count("\ufffd") / len(decoded)
-    else:
-        replace_ratio = 0.0
+    replace_ratio = decoded.count("\ufffd") / len(decoded) if decoded else 0.0
     if replace_ratio > _REPLACE_THRESHOLD:
         raise SourceDecodeError(
             filename="<bytes>",

@@ -13,6 +13,7 @@ function makeConfigResponse(overrides?: Partial<GetSystemConfigResponse["setting
       text_backend_simple: "",
       text_backend_complex: "",
       video_generate_audio: true,
+      video_poll_timeout_seconds: 3600,
       anthropic_api_key: { is_set: false, masked: null },
       anthropic_base_url: "",
       anthropic_model: "",
@@ -57,23 +58,23 @@ describe("config-status-store", () => {
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.restoreAllMocks();
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
   });
 
-  it("reports anthropic and provider issues when both unconfigured", async () => {
+  it("reports one issue per missing required media type", async () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
 
     await useConfigStatusStore.getState().fetch();
 
-    const { issues, initialized } = useConfigStatusStore.getState();
+    const { issues, initialized, isEmbeddedAgentConfigured } = useConfigStatusStore.getState();
     expect(initialized).toBe(true);
-    // anthropic issue + no ready provider for each media type
-    expect(issues.find((i) => i.key === "anthropic")).toBeTruthy();
+    expect(isEmbeddedAgentConfigured).toBe(false);
+    expect(issues.find((i) => i.key === "anthropic")).toBeUndefined();
     expect(issues.find((i) => i.key === "no-video-provider")).toBeTruthy();
     expect(issues.find((i) => i.key === "no-image-provider")).toBeTruthy();
     expect(issues.find((i) => i.key === "no-text-provider")).toBeTruthy();
-    expect(issues).toHaveLength(4);
+    expect(issues).toHaveLength(3);
   });
 
   it("reports no issues when all configured", async () => {
@@ -87,9 +88,10 @@ describe("config-status-store", () => {
 
     await useConfigStatusStore.getState().fetch();
 
-    const { issues, isComplete } = useConfigStatusStore.getState();
+    const { issues, isComplete, isEmbeddedAgentConfigured } = useConfigStatusStore.getState();
     expect(issues).toHaveLength(0);
     expect(isComplete).toBe(true);
+    expect(isEmbeddedAgentConfigured).toBe(true);
   });
 
   it("allows fetch to retry after a transient error", async () => {
@@ -97,7 +99,6 @@ describe("config-status-store", () => {
       .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValueOnce(makeProviders());
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
 
     await useConfigStatusStore.getState().fetch();
     expect(useConfigStatusStore.getState().initialized).toBe(false);
@@ -127,9 +128,6 @@ describe("config-status-store", () => {
       )
       .mockRejectedValueOnce(new Error("temporary failure"));
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
-      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
-    );
 
     await useConfigStatusStore.getState().fetch();
     expect(useConfigStatusStore.getState().initialized).toBe(true);
@@ -140,6 +138,7 @@ describe("config-status-store", () => {
     // 刷新失败后回到未初始化且清空能力集：任何消费方都不再读到过期数据
     expect(useConfigStatusStore.getState().initialized).toBe(false);
     expect(useConfigStatusStore.getState().availableMediaTypes).toEqual([]);
+    expect(useConfigStatusStore.getState().isEmbeddedAgentConfigured).toBe(false);
   });
 
   it("detects audio capability from an enabled custom provider model", async () => {
@@ -191,9 +190,6 @@ describe("config-status-store", () => {
         },
       ],
     });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
-      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
-    );
     // catalog 已初始化时 getConfigStatus 内的 fetch() 直接短路，endpoint→mediaType 映射取自 state
     useEndpointCatalogStore.setState({
       initialized: true,
@@ -223,9 +219,6 @@ describe("config-status-store", () => {
       ]),
     );
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
-      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
-    );
 
     await useConfigStatusStore.getState().fetch();
 
@@ -249,9 +242,6 @@ describe("config-status-store", () => {
       ]),
     );
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
-      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
-    );
 
     await useConfigStatusStore.getState().fetch();
 
@@ -286,9 +276,6 @@ describe("config-status-store", () => {
       ]); // 新数据:全就绪 → 无 issues
     });
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
-      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
-    );
 
     const store = useConfigStatusStore.getState();
     const first = store.refresh();

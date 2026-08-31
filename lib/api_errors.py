@@ -23,8 +23,9 @@ class ApiError(Exception):
     信息也占用同一关键字空间，任何名为 ``diagnostic`` 的渲染参数都会被静默吞掉。
     改用链式的 :meth:`with_diagnostic` 附加。
 
-    ``diagnostic`` 随响应体原样下发，因此只放请求侧可复述的信息（字段名、schema 期望、
-    客户端提交内容触发的异常原文）；服务端绝对路径、凭证与内部栈只进日志。
+    ``diagnostic`` 随响应体原样下发（可以是一段说明，也可以是结构化的诊断清单），因此只放
+    请求侧可复述的信息（字段名、schema 期望、客户端提交内容触发的异常原文）；服务端绝对路径、
+    凭证与内部栈只进日志。
     """
 
     def __init__(self, key: str, *, status_code: int, **params: object) -> None:
@@ -32,9 +33,9 @@ class ApiError(Exception):
         self.key = key
         self.status_code = status_code
         self.params = params
-        self.diagnostic: str | None = None
+        self.diagnostic: object | None = None
 
-    def with_diagnostic(self, diagnostic: str) -> Self:
+    def with_diagnostic(self, diagnostic: object) -> Self:
         """附加技术诊断信息并返回自身，便于 ``raise XxxError(key).with_diagnostic(...)``。"""
         self.diagnostic = diagnostic
         return self

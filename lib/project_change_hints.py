@@ -102,7 +102,7 @@ def emit_project_change_batch(
 ) -> None:
     """Notify listeners with a ready-to-broadcast project change batch."""
     resolved_source = source or get_project_change_source()
-    payload = tuple(dict(change) for change in changes if isinstance(change, dict))
+    payload = tuple(dict(change) for change in changes)
     if not payload:
         return
 

@@ -15,6 +15,7 @@ import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 
 import { TabSaveFooter } from "./TabSaveFooter";
+import { ExternalAgentModal } from "./ExternalAgentModal";
 
 interface AgentDraft {
   cleanupDelaySeconds: string;
@@ -63,6 +64,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showExternalGuide, setShowExternalGuide] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -164,7 +166,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   return (
     <div className={visible ? undefined : "hidden"}>
       <div className="space-y-7 pb-0 pt-1">
-        <AgentPageIntro />
+        <AgentPageIntro onOpenExternalGuide={() => setShowExternalGuide(true)} />
         <CredentialsSection />
         <SectionShell kicker="Runtime Tuning" title={t("advanced_settings")}>
           <div className="space-y-4">
@@ -216,6 +218,9 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         onSave={() => void handleSave()}
         onReset={handleReset}
       />
+      {showExternalGuide && (
+        <ExternalAgentModal onClose={() => setShowExternalGuide(false)} />
+      )}
     </div>
   );
 }

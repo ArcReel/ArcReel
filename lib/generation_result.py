@@ -121,6 +121,8 @@ class GenerationAction(StrEnum):
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
+    RETRY_ARTIFACT_DOWNLOAD = "retry_artifact_download"
+    """产物已在供应商侧生成、只是没取回来：接续原任务取件，不重新提交、不再计费。"""
     RETRY_PROJECT_MIGRATION = RETRY_MIGRATION_ACTION
     """Fix the reported inputs, then rerun the project's migration chain."""
     NONE = "none"
@@ -130,7 +132,7 @@ class GenerationAction(StrEnum):
 # ``lib.task_failure.FAILURE_CODE_KEYS`` must appear here — an unregistered code
 # would silently degrade to ``RETRY``, which for a rejected request means paying
 # again for the same rejection. The coverage test in
-# ``tests/test_generation_result.py`` is the drift guard.
+# ``tests/unit/lib/test_generation_result.py`` is the drift guard.
 _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "needs_replan": GenerationAction.REPLAN_UNIT,
     "tts_missing": GenerationAction.GENERATE_TTS,
@@ -158,6 +160,10 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "image_endpoint_mismatch_no_i2i": GenerationAction.CONFIGURE_PROVIDER,
     "image_endpoint_mismatch_no_t2i": GenerationAction.CONFIGURE_PROVIDER,
     "provider_unsupported_media": GenerationAction.CONFIGURE_PROVIDER,
+    "declarative_template_render_failed": GenerationAction.CONFIGURE_PROVIDER,
+    "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
+    # 供应商已出片、只是没取回来：重发同一请求会再建一个付费任务，正确的一步是接续取件。
+    "artifact_download_failed": GenerationAction.RETRY_ARTIFACT_DOWNLOAD,
     "execution_identity_unrecoverable": GenerationAction.RETRY,
     "video_shorter_than_tts": GenerationAction.RETRY,
     "script_edit_error": GenerationAction.FIX_INPUT,
@@ -198,6 +204,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "dispatch_provider_requeue_failed": GenerationAction.RETRY,
     "restart_lost_image": GenerationAction.RETRY,
     "restart_lost_audio": GenerationAction.RETRY,
+    "restart_lost_text": GenerationAction.RETRY,
     "restart_lost_no_job_id": GenerationAction.RETRY,
     "restart_lost_resume_no_job_id": GenerationAction.RETRY,
     "restart_lost_checkpoint_no_job_id": GenerationAction.RETRY,
@@ -218,6 +225,24 @@ class GenerationProblem(BaseModel):
     detail: str
     action: GenerationAction
     params: dict[str, Any] = Field(default_factory=dict)
+
+
+_PERSISTED_GENERATION_PROBLEM_PREFIX = "generation_problem:"
+
+
+def encode_generation_problem(problem: GenerationProblem) -> str:
+    """Persist a typed generation problem without losing its action or params."""
+
+    return _PERSISTED_GENERATION_PROBLEM_PREFIX + problem.model_dump_json()
+
+
+def _persisted_generation_problem(error_message: str | None) -> GenerationProblem | None:
+    if not error_message or not error_message.startswith(_PERSISTED_GENERATION_PROBLEM_PREFIX):
+        return None
+    try:
+        return GenerationProblem.model_validate_json(error_message.removeprefix(_PERSISTED_GENERATION_PROBLEM_PREFIX))
+    except ValueError:
+        return None
 
 
 def migration_problem(record: MigrationFailureRecord) -> GenerationProblem:
@@ -541,6 +566,8 @@ def problem_from_task_failure(
             detail=error_message or "wait for task was interrupted before it reached a terminal state",
             action=GenerationAction.WAIT_FOR_TASK,
         )
+    if persisted := _persisted_generation_problem(error_message):
+        return persisted
     parsed = parse_failure(error_message)
     if parsed is None:
         return GenerationProblem(
@@ -892,6 +919,7 @@ _ACTION_LABELS: dict[GenerationAction, str] = {
     GenerationAction.CONFIRM_REQUEST_DURATION: "需确认时长档位",
     GenerationAction.CONFIGURE_PROVIDER: "需配置供应商",
     GenerationAction.REPAIR_ARTIFACT_STATE: "需修复产物状态",
+    GenerationAction.RETRY_ARTIFACT_DOWNLOAD: "需重试下载，不必重新生成",
     GenerationAction.RETRY_PROJECT_MIGRATION: "需重试项目迁移",
     GenerationAction.NONE: "",
 }
@@ -912,10 +940,7 @@ _OPERATION_LABELS: dict[str, str] = {
     "generate_grid": "多宫格分镜生成",
     "generate_narration_audio": "旁白配音生成",
     "edit_images": "图片编辑",
-    "generate_video_episode": "整集视频生成",
-    "generate_video_scene": "单条视频生成",
-    "generate_video_all": "待生成视频批量生成",
-    "generate_video_selected": "点名视频生成",
+    "generate_videos": "视频生成",
 }
 _FALLBACK_OPERATION_LABEL = "生成"
 
@@ -979,6 +1004,7 @@ __all__ = [
     "ProviderCheckpoint",
     "artifact_is_reusable",
     "artifact_state_problem",
+    "encode_generation_problem",
     "enqueue_problem",
     "migration_problem",
     "normalize_requested_ids",

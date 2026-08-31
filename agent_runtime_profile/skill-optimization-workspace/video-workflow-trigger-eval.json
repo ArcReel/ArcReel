@@ -36,7 +36,7 @@
     "should_trigger": false
   },
   {
-    "query": "视频生成到一半中断了，帮我用 --resume 继续第2集",
+    "query": "视频生成到一半中断了，帮我继续第2集的剩余项",
     "should_trigger": false
   },
   {

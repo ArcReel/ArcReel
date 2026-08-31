@@ -44,7 +44,7 @@ class ModelInfo:
     # 此声明——它们的真相源是各 backend 的 VideoCapabilities 与请求期 gate，与请求构造同源，
     # 也只有那里表达得了「同一 model 内按执行子路径分叉」（可灵 v3-omni 走多图主体子路径时
     # 请求体没有音轨开关）。补一份视频能力位声明即引入第二份手写来源，由
-    # tests/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。
+    # tests/unit/lib/video_backends/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。
     capabilities: list[ModelCapability]
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)
@@ -124,11 +124,11 @@ class ProviderMeta:
 
     @property
     def media_types(self) -> list[str]:
-        return sorted(set(m.media_type for m in self.models.values()))
+        return sorted({m.media_type for m in self.models.values()})
 
     @property
     def capabilities(self) -> list[str]:
-        return sorted(set(c for m in self.models.values() for c in m.capabilities))
+        return sorted({c for m in self.models.values() for c in m.capabilities})
 
     def fully_covered_credential_groups(self, values: Mapping[str, str | None]) -> list[list[str]]:
         """返回被 ``values`` 完整覆盖的凭证组（组内所有 key 均非空）。
@@ -313,8 +313,9 @@ def _minimax_video_per_second_pricing(model_id: str, rates: dict[str, float]) ->
         default_model=model_id,
         dimensions="resolution_only",
         currency="CNY",
-        # H3 未显式指定分辨率（Auto）时，_build_v2_payload 实际下发 768P（无 720P 档位），
-        # 结算须跟随同一默认，否则回落 720P 会因该档不存在而落空至 0。
+        # H3 未显式指定分辨率（Auto）时实际下发 768P（无 720P 档位）——真相源是
+        # builtin_endpoints/minimax-h3.json 的 defaults.resolution。结算须跟随同一默认，
+        # 否则回落 720P 会因该档不存在而落空至 0。
         default_resolution="768p",
     )
 
@@ -1218,7 +1219,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["768p", "2k"],
                 pricing=_minimax_video_per_second_pricing("MiniMax-H3", {"768p": 0.50, "2k": 0.80}),
             ),
-            # 1080P 仅 6s（10s 仅 768P）；细粒度越界由 MiniMaxVideoBackend 抛 VideoCapabilityError，
+            # 1080P 仅 6s（10s 仅 768P）；细粒度越界由通用能力校验抛 VideoCapabilityError，
             # duration_resolution_constraints 同步给前端做下拉门控。
             "MiniMax-Hailuo-2.3": ModelInfo(
                 display_name="MiniMax Hailuo 2.3",
@@ -1245,7 +1246,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # S2V-01：单张人脸驱动整段视频角色一致性（subject_reference 单脸 R2V）。固定输出
-            # 720P/6s，请求不接受 resolution/duration（MiniMaxVideoBackend 走专门的 subject_reference
+            # 720P/6s，请求不接受 resolution/duration（声明式端点走专门的 subject_reference
             # 路径，忽略这两项）；supported_durations=[6] 仅供编排层时长守卫与档价口径。
             # 定价单档约 ¥3（资源包 1.5 积分近似，半核实）；键到 minimax 缺省档 768P/6s 求精确命中，
             # 任意分辨率漂移由 per_video_bucket 最近档回落到唯一档。

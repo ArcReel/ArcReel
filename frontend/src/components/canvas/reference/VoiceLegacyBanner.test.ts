@@ -31,17 +31,21 @@ function unit(id: string, characterName: string, generatedAssets: UnitGeneratedA
 
 const character = (overrides: Partial<Character>): Character => ({ description: "", ...overrides });
 
+// 横幅只在参考音频绑定档下出现；除专测门控的一组用例外，本文件一律按该档求值。
+const notice = (units: readonly ReferenceVideoUnit[], characters: Record<string, Character>) =>
+  computeVoiceLegacyNotice(units, characters, "reference_audio");
+
 describe("computeVoiceLegacyNotice", () => {
   it("returns zero when no character has voice_updated_at", () => {
     const units = [unit("E1U1", "王", ga({ video_generated_at: null }))];
-    const result = computeVoiceLegacyNotice(units, { 王: character({}) });
+    const result = notice(units, { 王: character({}) });
     expect(result).toEqual({ count: 0, characterNames: [] });
   });
 
   it("counts a completed unit with no video_generated_at as legacy (predates the field)", () => {
     const units = [unit("E1U1", "王", ga({ video_generated_at: null }))];
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
-    expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
+    expect(notice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
   });
 
   it("resolves a mention across NFC/NFD encoding mismatch and reports the registered key", () => {
@@ -50,25 +54,25 @@ describe("computeVoiceLegacyNotice", () => {
     expect(nameNfc).not.toBe(nameNfd);
     const units = [unit("E1U1", nameNfc, ga({ video_generated_at: null }))];
     const characters = { [nameNfd]: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
-    expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: [nameNfd] });
+    expect(notice(units, characters)).toEqual({ count: 1, characterNames: [nameNfd] });
   });
 
   it("counts a unit generated before voice_updated_at", () => {
     const units = [unit("E1U1", "王", ga({ video_generated_at: "2026-01-01T00:00:00Z" }))];
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
-    expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
+    expect(notice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
   });
 
   it("excludes a unit generated after voice_updated_at", () => {
     const units = [unit("E1U1", "王", ga({ video_generated_at: "2026-01-03T00:00:00Z" }))];
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
-    expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 0, characterNames: [] });
+    expect(notice(units, characters)).toEqual({ count: 0, characterNames: [] });
   });
 
   it("excludes units that are not completed", () => {
     const units = [unit("E1U1", "王", ga({ status: "pending", video_generated_at: null }))];
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
-    expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 0, characterNames: [] });
+    expect(notice(units, characters)).toEqual({ count: 0, characterNames: [] });
   });
 
   it("excludes units already covered by a later dismissal", () => {
@@ -76,7 +80,7 @@ describe("computeVoiceLegacyNotice", () => {
     const characters = {
       王: character({ voice_updated_at: "2026-01-02T00:00:00Z", voice_notice_dismissed_at: "2026-01-03T00:00:00Z" }),
     };
-    expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 0, characterNames: [] });
+    expect(notice(units, characters)).toEqual({ count: 0, characterNames: [] });
   });
 
   it("reappears once voice_updated_at moves past a stale dismissal", () => {
@@ -84,7 +88,7 @@ describe("computeVoiceLegacyNotice", () => {
     const characters = {
       王: character({ voice_updated_at: "2026-02-01T00:00:00Z", voice_notice_dismissed_at: "2026-01-03T00:00:00Z" }),
     };
-    expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
+    expect(notice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
   });
 
   it("dedupes unit count when multiple speaking characters are both stale", () => {
@@ -94,7 +98,7 @@ describe("computeVoiceLegacyNotice", () => {
       王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }),
       李: character({ voice_updated_at: "2026-01-02T00:00:00Z" }),
     };
-    const result = computeVoiceLegacyNotice([u], characters);
+    const result = notice([u], characters);
     expect(result.count).toBe(1);
     expect(result.characterNames.sort()).toEqual(["李", "王"]);
   });
@@ -102,7 +106,7 @@ describe("computeVoiceLegacyNotice", () => {
   it("ignores names that are not registered characters", () => {
     const u = unit("E1U1", "路人", ga({ video_generated_at: null }));
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
-    expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });
+    expect(notice([u], characters)).toEqual({ count: 0, characterNames: [] });
   });
 
   // 说话人位不进参考图，但它正是音色的作用点：只发声不出镜的角色换音色照样让视频过期。
@@ -110,22 +114,22 @@ describe("computeVoiceLegacyNotice", () => {
     const u = unit("E1U1", "王", ga({ video_generated_at: null }));
     u.text = "@[王]{我来了}";
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
-    expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 1, characterNames: ["王"] });
+    expect(notice([u], characters)).toEqual({ count: 1, characterNames: ["王"] });
   });
 
   it("ignores a character that is only referenced visually", () => {
     const u = unit("E1U1", "王", ga({ video_generated_at: null }));
     u.text = "@[王] 推门进屋";
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
-    expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });
+    expect(notice([u], characters)).toEqual({ count: 0, characterNames: [] });
   });
 
   it("does not throw when a unit body is empty (迁移问题壳的合法缺省状态)", () => {
     const u = unit("E1U1", "王", ga({ video_generated_at: null }));
     u.text = "";
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
-    expect(() => computeVoiceLegacyNotice([u], characters)).not.toThrow();
-    expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });
+    expect(() => notice([u], characters)).not.toThrow();
+    expect(notice([u], characters)).toEqual({ count: 0, characterNames: [] });
   });
 
   it("compares timestamps as parsed instants across differing ISO precision/format", () => {
@@ -133,6 +137,19 @@ describe("computeVoiceLegacyNotice", () => {
     // 同一秒内，字符串比较会把 "...10Z" 误判为晚于 "...10.500000+00:00"，导致漏判 stale。
     const units = [unit("E1U1", "王", ga({ video_generated_at: "2026-01-02T00:00:10Z" }))];
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:10.500000+00:00" }) };
-    expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
+    expect(notice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
+  });
+
+  describe("角色声音绑定方式门控", () => {
+    const units = [unit("E1U1", "王", ga({ video_generated_at: "2026-01-01T00:00:00Z" }))];
+    const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
+
+    it("提示词软约束档下恒为空——该档不挂参考音频，换了也不改变已生成视频的声音", () => {
+      expect(computeVoiceLegacyNotice(units, characters, "prompt")).toEqual({ count: 0, characterNames: [] });
+    });
+
+    it("绑定方式缺省时按默认档（提示词软约束）处理", () => {
+      expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 0, characterNames: [] });
+    });
   });
 });

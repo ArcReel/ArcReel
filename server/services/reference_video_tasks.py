@@ -20,6 +20,7 @@ from lib.config.resolver import (
     constrain_durations,
     get_provider_fallback,
 )
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import (
@@ -51,7 +52,6 @@ from lib.reference_video.request_projection import (
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
-    clamp_reference_assets,
     hydrate_reference_assets,
     reference_audio_model_facts,
     resolve_reference_assets,
@@ -138,25 +138,6 @@ def _reference_limit_warning(*, provider: str, model: str | None, count: int, ma
         "key": "ref_too_many_images",
         "params": {"count": count, "model": model or provider, "max_count": max_refs},
     }
-
-
-def _clamp_resolved_reference_images(
-    entries: list[ResolvedReferenceImage],
-    max_refs: int | None,
-    *,
-    provider: str,
-    model: str | None,
-) -> tuple[list[ResolvedReferenceImage], list[dict[str, Any]]]:
-    """按请求上限裁图片，并让所有商品资产图优先于商品原图及其它资产。
-
-    未超限时保留原始稳定顺序；只有必须裁剪时才重排，避免在容量足够时无谓改变同一商品
-    sheet 与原图的邻接顺序。``max_refs == 0`` 表示模型不支持参考图，返回空集。
-    """
-    clamped = list(clamp_reference_assets(entries, max_refs))
-    if len(clamped) == len(entries):
-        return clamped, []
-    assert max_refs is not None
-    return clamped, [_reference_limit_warning(provider=provider, model=model, count=len(entries), max_refs=max_refs)]
 
 
 #: unit 时长缺值时的兼容兜底秒数，也作为能力暂不可解析时的新建 unit 默认值。
@@ -313,6 +294,11 @@ async def execute_reference_video_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
     claimed_provider_id: str | None = None,
+    poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
+    stage_media_for_task: Callable[
+        [Path, str, tuple[ProviderMediaInput, ...]], Awaitable[tuple[StagedProviderMedia, ...]]
+    ]
+    | None = None,
 ) -> dict[str, Any]:
     """处理一个 reference_video unit 的生成。
 
@@ -422,6 +408,7 @@ async def execute_reference_video_task(
                 voice_consistency=video.voice_consistency,
                 max_reference_audio_count=video.max_reference_audio_count,
                 reference_audio_per_image=video.reference_audio_per_image,
+                text_to_video=video.text_to_video,
             )
 
     tts_in_progress = (
@@ -429,6 +416,7 @@ async def execute_reference_video_task(
             project_name=project_name,
             resource_id=resource_id,
             script_file=str(script_file),
+            user_id=user_id,
         )
         if request_options.narration_delivery == USE_TTS
         else False
@@ -611,7 +599,8 @@ async def execute_reference_video_task(
             ),
         )
         audio_targets_tuple = tuple(reference_audio_targets) if reference_audio_targets is not None else None
-        staged_media = await _stage_provider_media_for_task(project_path, task_id, image_inputs + audio_inputs)
+        stage = stage_media_for_task or _stage_provider_media_for_task
+        staged_media = await stage(project_path, task_id, image_inputs + audio_inputs)
         try:
             staged_reference_digests = {
                 media.source_locator: media.sha256 for media in staged_media if media.role == "reference_image"
@@ -768,10 +757,11 @@ async def execute_reference_video_task(
             commit_formal_output=artifact_committer,
             visual_basis_digest=visual_basis_digest,
             generate_audio=video.requested_generate_audio,
+            poll_timeout_seconds=poll_timeout_seconds,
         )
 
         async def _finalize() -> dict[str, Any]:
-            return await _finalize_reference_video_unit(
+            return await finalize_reference_video_unit(
                 project_name=project_name,
                 script_file=script_file,
                 project_path=project_path,
@@ -845,7 +835,7 @@ def apply_unit_video_assets(
     raise KeyError(resource_id)
 
 
-async def _finalize_reference_video_unit(
+async def finalize_reference_video_unit(
     *,
     project_name: str,
     script_file: str,

@@ -90,20 +90,10 @@ def _iso_now_millis() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
-def _safe_str(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    return str(value)
-
-
 def _is_blank(value: Any) -> bool:
     if value is None:
         return True
-    if isinstance(value, str) and not value.strip():
-        return True
-    return False
+    return isinstance(value, str) and not value.strip()
 
 
 def parse_bool_env(value: Any, default: bool) -> bool:
@@ -121,42 +111,6 @@ def parse_bool_env(value: Any, default: bool) -> bool:
         if normalized in {"0", "false", "f", "no", "n", "off"}:
             return False
     return default
-
-
-def _read_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        if not value.strip():
-            return None
-        try:
-            return int(value)
-        except ValueError:
-            return None
-    return None
-
-
-def _read_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return float(int(value))
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        if not value.strip():
-            return None
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
 
 
 @dataclass(frozen=True)
@@ -319,7 +273,7 @@ class SystemConfigManager:
     def update_overrides(self, patch: dict[str, Any]) -> dict[str, Any]:
         """Apply patch to overrides file. Returns updated overrides."""
         with self._lock:
-            data, migrated = self._load_file()
+            data, _migrated = self._load_file()
             overrides = data.get("overrides") or {}
             if not isinstance(overrides, dict):
                 overrides = {}

@@ -63,11 +63,10 @@ def complete_asset_inventory(
 
     prepared = _prepare_entries(entries)
 
-    result: AssetInventoryCompletion | None = None
+    completed: list[AssetInventoryCompletion] = []
     project_path = pm.get_project_path(project_name)
 
     def _mutate(project: dict[str, Any]) -> None:
-        nonlocal result
         revision = compute_source_revision(project_path, project, scope)
         if revision.blockers:
             raise AssetInventorySourceBlocked(revision.blockers)
@@ -109,20 +108,22 @@ def complete_asset_inventory(
             "source_revision": revision.revision,
             "completed_at": datetime.now(UTC).isoformat(),
         }
-        result = AssetInventoryCompletion(
-            scope=completed_scope,
-            source_revision=revision.revision,
-            counts={
-                "characters": _bucket_count(project.get("characters")),
-                "scenes": _bucket_count(project.get("scenes")),
-                "props": _bucket_count(project.get("props")),
-            },
+        completed.append(
+            AssetInventoryCompletion(
+                scope=completed_scope,
+                source_revision=revision.revision,
+                counts={
+                    "characters": _bucket_count(project.get("characters")),
+                    "scenes": _bucket_count(project.get("scenes")),
+                    "props": _bucket_count(project.get("props")),
+                },
+            )
         )
 
     pm.update_project(project_name, _mutate)
-    if result is None:  # pragma: no cover - update_project always invokes the callback or raises
+    if not completed:  # pragma: no cover - update_project always invokes the callback or raises
         raise RuntimeError("asset inventory completion did not run")
-    return result
+    return completed[0]
 
 
 def _prepare_entries(entries: object) -> dict[str, dict[str, dict[str, Any]]]:

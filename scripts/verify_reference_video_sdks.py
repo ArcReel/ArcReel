@@ -179,7 +179,7 @@ async def run_once(
             error=None,
             video_path=out_path,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return RunResult(
             **base,
             success=False,
@@ -248,7 +248,7 @@ async def run_with_backend(
         work_dir=work_dir,
         note=note,
     )
-    report_dir.mkdir(parents=True, exist_ok=True)
+    report_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240 -- 一次性脚本创建报告目录，本地元数据
     fname = report_dir / f"reference-video-sdks-{date.today():%Y-%m-%d}.md"
     # 多次运行追加模式：读原文件剥离 header、合并行
     existing_rows: list[str] = []

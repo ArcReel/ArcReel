@@ -10,8 +10,10 @@ policy，装配天职是开会话时现场读 DB / 扫盘则允许 I/O 归本类
 ``configure_sandbox_runtime`` 整体换新 policy 后对后续所有会话立即生效。
 """
 
+import asyncio
 import json
 import logging
+import os
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,7 @@ from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
+from server.auth import create_token, is_auth_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,7 @@ from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk.types import HookMatcher, SystemPromptPreset
 
 SDK_AVAILABLE = True
+_EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS = 15 * 60
 
 
 async def load_provider_env_overrides() -> dict[str, str]:
@@ -209,7 +213,7 @@ class OptionsAssembler:
         ``session_id`` 以预先指定的 id 开一个全新会话（无历史可 resume），
         与 ``resume_id`` 互斥——SDK 只在 ``fork_session`` 下才允许两者并存。
         """
-        if not SDK_AVAILABLE or ClaudeAgentOptions is None:
+        if not SDK_AVAILABLE:
             raise RuntimeError("claude_agent_sdk is not installed")
         if resume_id is not None and session_id is not None:
             raise ValueError("resume_id and session_id are mutually exclusive")
@@ -223,44 +227,53 @@ class OptionsAssembler:
         # permission chain) before reaching can_use_tool (step 5).  Hooks
         # (step 1) fire for ALL tool calls and can override allow rules.
         hooks = None
-        if HookMatcher is not None:
-            hook_callbacks: list[Any] = [
-                self._build_file_access_hook(project_cwd),
-            ]
-            if can_use_tool is not None:
-                # Official Python SDK guidance: keep stream open when using
-                # can_use_tool.
-                hook_callbacks.insert(0, self._keep_stream_open_hook)
+        hook_callbacks: list[Any] = [
+            self._build_file_access_hook(project_cwd),
+        ]
+        if can_use_tool is not None:
+            # Official Python SDK guidance: keep stream open when using
+            # can_use_tool.
+            hook_callbacks.insert(0, self._keep_stream_open_hook)
 
-            # Shared dict: PreToolUse saves file backup, PostToolUse restores
-            # on corruption.  Keyed by tool_use_id.
-            json_backups: dict[str, tuple[Path, str]] = {}
+        # Shared dict: PreToolUse saves file backup, PostToolUse restores
+        # on corruption.  Keyed by tool_use_id.
+        json_backups: dict[str, tuple[Path, str]] = {}
 
-            hooks = {
-                "PreToolUse": [
-                    HookMatcher(matcher=None, hooks=hook_callbacks),
-                    HookMatcher(
-                        matcher="Bash",
-                        hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]
-                    ),
-                    HookMatcher(
-                        matcher="Write|Edit",
-                        hooks=[
-                            self._build_json_validation_hook(project_cwd, json_backups),
-                        ],
-                    ),
-                ],
-                "PostToolUse": [
-                    HookMatcher(
-                        matcher="Write|Edit",
-                        hooks=[
-                            self._build_json_post_validation_hook(project_cwd, json_backups),
-                        ],
-                    ),
-                ],
-            }
+        hooks = {
+            "PreToolUse": [
+                HookMatcher(matcher=None, hooks=hook_callbacks),
+                HookMatcher(
+                    matcher="Bash",
+                    hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]
+                ),
+                HookMatcher(
+                    matcher="Write|Edit",
+                    hooks=[
+                        self._build_json_validation_hook(project_cwd, json_backups),
+                    ],
+                ),
+            ],
+            "PostToolUse": [
+                HookMatcher(
+                    matcher="Write|Edit",
+                    hooks=[
+                        self._build_json_post_validation_hook(project_cwd, json_backups),
+                    ],
+                ),
+            ],
+        }
 
         provider_env = await self.build_provider_env_overrides()
+        provider_env.update(
+            {
+                "ARCREEL_API_BASE": (os.environ.get("ARCREEL_API_BASE") or "http://127.0.0.1:1241/api/v1").rstrip("/"),
+                "ARCREEL_API_TOKEN": (
+                    create_token("embedded-agent", expiry_seconds=_EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS)
+                    if is_auth_enabled()
+                    else ""
+                ),
+            }
+        )
         sandbox_typed = policy.build_sandbox_settings(project_cwd)
 
         # Windows 回退：sandbox 关闭时 Bash 系列被剥离出 allowed_tools，
@@ -273,6 +286,7 @@ class OptionsAssembler:
         arcreel_server = build_arcreel_mcp_server(
             project_name=project_name,
             projects_root=self.projects_root,
+            user_id=self._user_id_provider(),
         )
 
         return ClaudeAgentOptions(
@@ -466,9 +480,9 @@ class OptionsAssembler:
                     }
 
                 p = Path(file_path)
-                resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
+                resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()  # noqa: ASYNC240 -- 仅路径解析（resolve），不读文件内容
                 try:
-                    current = resolved.read_text(encoding="utf-8")
+                    current = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
                 except OSError as read_err:
                     logger.info(
                         "JSON 校验 hook: tool=Edit file=%s skip=读取失败 error=%s",
@@ -588,10 +602,10 @@ class OptionsAssembler:
             backup = json_backups.pop(tool_use_id, None) if tool_use_id else None
 
             p = Path(file_path)
-            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
+            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()  # noqa: ASYNC240 -- 仅路径解析（resolve），不读文件内容
 
             try:
-                actual = resolved.read_text(encoding="utf-8")
+                actual = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
             except OSError:
                 return {}
 

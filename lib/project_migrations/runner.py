@@ -14,7 +14,7 @@ from pathlib import Path
 
 from lib.artifact_activation import ARTIFACT_MANIFEST_SCHEMA_VERSION
 from lib.episode_ledger import parse_positive_episode_num
-from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME, episode_drafts_dir
+from lib.episode_paths import episode_drafts_dir
 from lib.path_safety import try_safe_join
 from lib.project_migration_failure import (
     MigrationFailureRecord,
@@ -36,6 +36,8 @@ from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 from lib.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
+from lib.project_migrations.v9_to_v10_script_plan_naming import DRAFT_FILE_RENAMES, migrate_v9_to_v10
+from lib.project_migrations.v10_to_v11_character_voice_binding import migrate_v10_to_v11
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -45,8 +47,12 @@ CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 #: 清单激活的输入备份命名所用的版本号（``*.bak.v7-*``）：它是那一步的**起点**版本。
 _ACTIVATION_BACKUP_VERSION = ARTIFACT_MANIFEST_SCHEMA_VERSION - 1
 
+#: 迁移可能在草稿目录里落备份的全部文件名。备份按落盘那一刻的文件名生成，而这些草稿在
+#: v9→v10 改过名，改名前后两侧都可能留着待回收的备份，故回收侧两侧一起枚举。
+_DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES.values())
+
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
-_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8})
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9})
 
 # 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
@@ -63,16 +69,16 @@ def _numeric_backup_candidates(source: Path, versions: tuple[int, ...]) -> list[
     candidates: list[Path] = []
     for version in versions:
         prefix = f"{source.name}.bak.v{version}-"
-        for candidate in source.parent.glob(f"{prefix}*"):
-            if candidate.name.removeprefix(prefix).isdigit():
-                candidates.append(candidate)
+        candidates.extend(
+            candidate for candidate in source.parent.glob(f"{prefix}*") if candidate.name.removeprefix(prefix).isdigit()
+        )
     return candidates
 
 
 def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
     """Resolve every script-shaped source a migration was allowed to back up.
 
-    账本里绑定的剧集脚本，加上同集的 step1 草稿——草稿是同一份正文的上一形态，改写脚本的
+    账本里绑定的剧集脚本，加上同集的 script_plan 草稿——草稿是同一份正文的上一形态，改写脚本的
     迁移同批改写它，备份因此成对出现，回收也必须成对，否则草稿备份没有任何清理路径。
     """
 
@@ -94,7 +100,8 @@ def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
                 sources.append(source)
         episode_num = parse_positive_episode_num(episode.get("episode"))
         if episode_num is not None:
-            sources.append(episode_drafts_dir(project_dir, episode_num) / REFERENCE_VIDEO_STEP1_FILENAME)
+            drafts_dir = episode_drafts_dir(project_dir, episode_num)
+            sources.extend(drafts_dir / name for name in _DRAFT_BACKUP_NAMES)
     return tuple(sources)
 
 
@@ -205,7 +212,7 @@ def migrate_project_with_verdict(project_dir: Path) -> MigrationFailureRecord | 
 
     try:
         migrate_project_dir(project_dir)
-    except Exception as exc:  # noqa: BLE001 - one project's failure is isolated, not fatal
+    except Exception as exc:  # 单个项目失败被隔离，不中断整体迁移
         logger.error("迁移失败 %s: %s", project_dir.name, exc)
         # The persisted verdict is what the production status, the production plan
         # and every generation entry read to refuse work on this project.
@@ -289,12 +296,16 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
             if not (retain_activation_recovery and version == _ACTIVATION_BACKUP_VERSION)
         )
         activation_backup_versions = () if retain_activation_recovery else (_ACTIVATION_BACKUP_VERSION,)
+        manifest_rewrite_versions = tuple(
+            version for version in project_backup_versions if version != _ACTIVATION_BACKUP_VERSION
+        )
         # 脚本类源文与 project.json 用同一份版本集合：备份名按来源文件枚举，列进从未产生过
         # 备份的版本没有代价，而写死一张「哪几版改过脚本」的清单会在下一次迁移时漏掉新版本。
         script_backup_versions = project_backup_versions
         sources = (
             (project_dir / "project.json", project_backup_versions),
-            (project_dir / ".arcreel_artifacts.json", activation_backup_versions),
+            # 清单不只在激活那一步被改写：v9→v10 也改它的 key 与草稿路径，两版备份都要回收。
+            (project_dir / ".arcreel_artifacts.json", activation_backup_versions + manifest_rewrite_versions),
             *((source, script_backup_versions) for source in _bound_script_sources(project_dir)),
         )
         for source, versions in sources:
@@ -326,3 +337,5 @@ MIGRATORS[5] = migrate_v5_to_v6
 MIGRATORS[6] = migrate_v6_to_v7
 MIGRATORS[7] = migrate_v7_to_v8
 MIGRATORS[8] = migrate_v8_to_v9
+MIGRATORS[9] = migrate_v9_to_v10
+MIGRATORS[10] = migrate_v10_to_v11

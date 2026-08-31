@@ -14,7 +14,7 @@ import re
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import ValidationError
 
@@ -30,6 +30,12 @@ from lib.episode_ledger import (
     PlanningCursor,
     SourceRange,
     parse_positive_episode_num,
+)
+from lib.episode_target_duration import (
+    EPISODE_TARGET_DURATION_FIELD,
+    MAX_EPISODE_TARGET_DURATION,
+    MIN_EPISODE_TARGET_DURATION,
+    is_valid_episode_target_duration,
 )
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
@@ -134,19 +140,19 @@ class DataValidator:
 
     # content_mode 严格只表达"内容类型"；"视频来源"维度由项目级 generation_mode 字段表达。
     # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
-    VALID_CONTENT_MODES = set(_VALID_CONTENT_MODES)
+    VALID_CONTENT_MODES: ClassVar[set[str]] = set(_VALID_CONTENT_MODES)
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
-    VALID_SOURCE_KINDS = set(_VALID_SOURCE_KINDS)
+    VALID_SOURCE_KINDS: ClassVar[set[str]] = set(_VALID_SOURCE_KINDS)
     # 生成模式合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
-    VALID_GENERATION_MODES = set(_VALID_GENERATION_MODES)
+    VALID_GENERATION_MODES: ClassVar[set[str]] = set(_VALID_GENERATION_MODES)
     # 参考生视频 unit 时长的结构合理性区间，真相源同上（档位成员校验依赖运行时模型能力，
     # 不在归档层做）。
     VALID_UNIT_DURATION_RANGE = REFERENCE_UNIT_DURATION_RANGE
     ID_PATTERN = STORYBOARD_ITEM_ID_PATTERN
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
-    ALLOWED_ROOT_ENTRIES = {
+    ALLOWED_ROOT_ENTRIES: ClassVar[set[str]] = {
         "project.json",
         "style_reference.png",
         "style_reference.jpg",
@@ -326,7 +332,9 @@ class DataValidator:
         """广告/短片项目的专属字段与恒单集约束。
 
         target_duration / brief 仅 ad 项目持有；ad 项目不持有 default_duration
-        （分镜按目标总时长预算逐个规划，单个分镜偏好无意义），episodes 恒为第 1 集单条。
+        （分镜按目标总时长预算逐个规划，单个分镜偏好无意义）与 episode_target_duration
+        （整集体量已由 target_duration 预算表达，两套总量口径并存会互相竞争），
+        episodes 恒为第 1 集单条。
         """
         if content_mode != "ad":
             if project.get("target_duration") is not None:
@@ -347,6 +355,9 @@ class DataValidator:
 
         if project.get("default_duration") is not None:
             errors.append(_m("val_ad_no_default_duration"))
+
+        if project.get(EPISODE_TARGET_DURATION_FIELD) is not None:
+            errors.append(_m("val_ad_no_episode_target_duration"))
 
         if project.get("grid_storyboard") is True:
             errors.append(_m("val_ad_no_grid_storyboard"))
@@ -402,11 +413,28 @@ class DataValidator:
             elif not is_valid_speech_rate(speech_rate):
                 errors.append(
                     _m(
-                        "val_speech_rate_out_of_range",
+                        "val_field_out_of_range",
                         field=SPEECH_RATE_FIELD,
                         value=speech_rate,
                         min=MIN_SPEECH_RATE_UPS,
                         max=MAX_SPEECH_RATE_UPS,
+                    )
+                )
+
+        # 单集目标时长（秒）：可选字段，缺省即未设目标；出现即须是落在硬区间内的整数秒。
+        # 与 SPEECH_RATE_FIELD 同形，只是量纲为整数——浮点秒数按类型错报，不静默取整。
+        episode_target_duration = project.get(EPISODE_TARGET_DURATION_FIELD)
+        if episode_target_duration is not None:
+            if isinstance(episode_target_duration, bool) or not isinstance(episode_target_duration, int):
+                errors.append(_m("val_field_type_integer", field=EPISODE_TARGET_DURATION_FIELD))
+            elif not is_valid_episode_target_duration(episode_target_duration):
+                errors.append(
+                    _m(
+                        "val_field_out_of_range",
+                        field=EPISODE_TARGET_DURATION_FIELD,
+                        value=episode_target_duration,
+                        min=MIN_EPISODE_TARGET_DURATION,
+                        max=MAX_EPISODE_TARGET_DURATION,
                     )
                 )
 
@@ -760,7 +788,7 @@ class DataValidator:
 
     def _validate_segments(
         self,
-        segments: list[dict[str, Any]] | Any,
+        segments: Any,
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
@@ -851,7 +879,7 @@ class DataValidator:
 
     def _validate_scenes(
         self,
-        scenes: list[dict[str, Any]] | Any,
+        scenes: Any,
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
@@ -937,7 +965,7 @@ class DataValidator:
             # 时仅提示「说不完」，不阻塞、不改写 duration（duration 由画面驱动）。
             self._warn_scene_speech_overflow(scene, prefix, language, speech_rate_override, warnings)
 
-            # source_text：逐字原文锚（best-effort，由 step1 内容整理填入、step2 透传）。镜像共享模型
+            # source_text：逐字原文锚（best-effort，由 script_plan 脚本规划填入、prompt_authoring 透传）。镜像共享模型
             # 的 source_text: str（extra=forbid 下显式 null 同样被拒）——键存在则须为字符串，显式 null
             # 一并拒绝；键缺失放行（默认空串，存量数据无此字段）。用 in 判定以区分缺失与显式 null。
             if "source_text" in scene and not isinstance(scene["source_text"], str):
@@ -1039,7 +1067,7 @@ class DataValidator:
 
     def _validate_shots(
         self,
-        shots: list[dict[str, Any]] | Any,
+        shots: Any,
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
@@ -1186,7 +1214,7 @@ class DataValidator:
 
     def _validate_reference_video_script(
         self,
-        video_units: list[dict[str, Any]] | Any,
+        video_units: Any,
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
         *,
@@ -1265,9 +1293,11 @@ class DataValidator:
 
         content_mode = resolve_content_mode(episode, project)
 
-        for deprecated_field in ("characters_in_episode", "scenes_in_episode", "props_in_episode"):
-            if episode.get(deprecated_field) is not None:
-                warnings.append(_m("val_deprecated_field_removable", field=deprecated_field))
+        warnings.extend(
+            _m("val_deprecated_field_removable", field=deprecated_field)
+            for deprecated_field in ("characters_in_episode", "scenes_in_episode", "props_in_episode")
+            if episode.get(deprecated_field) is not None
+        )
 
         novel = episode.get("novel")
         if novel is not None and not isinstance(novel, dict):

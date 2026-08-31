@@ -14,15 +14,19 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, get_args
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from lib.db.models.custom_provider import CustomProviderModel
 
+from collections.abc import AsyncGenerator
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.backend_assembly.specs import get_provider_spec
+from lib.backend_assembly.specs import (
+    builtin_effective_generate_audio_for_model,
+    builtin_video_capabilities_for_model,
+)
+from lib.character_voice import CharacterVoiceBinding, character_voice_binding
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     default_model_for_provider,
@@ -40,12 +44,9 @@ from lib.config.service import (
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.episode_target_duration import project_episode_target_duration
 from lib.project_manager import get_project_manager
 from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
-from lib.video_backends.registry import (
-    effective_generate_audio_for_model as builtin_effective_generate_audio_for_model,
-)
-from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -321,15 +322,25 @@ def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
     return None
 
 
-def video_capability_satisfied(*, capability: VideoCapability, first_frame: bool, max_reference_images: int) -> bool:
+def video_capability_satisfied(
+    *,
+    capability: VideoCapability,
+    first_frame: bool,
+    max_reference_images: int,
+    text_to_video: bool = True,
+    has_image: bool = True,
+) -> bool:
     """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
 
     解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.capability_buckets``）共用本
-    函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。取标量参数而非
+    函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。``has_image`` 区分
+    i2v 桶内的纯文生与带首帧请求。取标量参数而非
     ``VideoCapabilities``，一是不在 lib.config 层导入 lib.video_backends.base（分层契约），二是让
     内置（backend 声明）与自定义供应商（endpoint ⊕ 模型级覆盖的合成）两条来源都能直接喂进来。
     """
-    return first_frame if capability == "i2v" else max_reference_images > 0
+    if capability == "i2v":
+        return first_frame if has_image else text_to_video
+    return max_reference_images > 0
 
 
 def builtin_video_audio_track(provider_id: str, model_id: str, *, capability: VideoCapability) -> str | None:
@@ -352,8 +363,7 @@ def builtin_video_audio_track(provider_id: str, model_id: str, *, capability: Vi
     if model_info is None or model_info.media_type != "video":
         return None
     try:
-        spec = get_provider_spec(provider_id, "video")
-        caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+        caps = builtin_video_capabilities_for_model(provider_id, model_id)
     except ValueError:
         return None
     return caps.audio_track_for_route(capability).value
@@ -427,21 +437,29 @@ def derive_voice_consistency(
     reference_audio_mode: str,
     generation_mode: str | None,
     has_audio: bool,
+    character_voice_binding: CharacterVoiceBinding | None,
 ) -> VoiceConsistency:
-    """三级声音一致性标识派生（native / soft / none），模型能力 × 生效 generation_mode 二维。
+    """三级声音一致性标识派生（native / soft / none）：模型能力 × 生效 generation_mode × 绑定方式。
 
     全仓库唯一派生点：项目内场景经 `_resolve_video_caps_for_model` 走这里，无项目上下文的
-    目录场景由 `server/routers/providers.py` 以 ``generation_mode=None`` 调同一函数，前端不
-    复制第二份公式。
+    目录场景由 `server/routers/providers.py` 以 ``generation_mode=None`` /
+    ``character_voice_binding=None`` 调同一函数，前端不复制第二份公式。
 
     ``reference_audio_mode`` 按字面量比较（``ReferenceAudioMode`` 是 ``StrEnum``，两者可
     直接 ``==``），不在 lib.config 层导入 lib.video_backends（分层契约，config 是最底层）。
 
-    native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none。``has_audio``
-    问的是「成片有没有音轨」而非「开关可不可控」，故恒有声（开关不可控）的型号同样算有音轨；
-    调用方由 :func:`builtin_video_audio_track` 得出该位，不各自解读一份声明。
+    native 蕴含有音轨：generation_mode 非参考生视频、或项目选的是提示词软约束
+    （``character_voice_binding == "prompt"``，默认档）时一律降格 soft，不降到 none。降格是全链路
+    的总闸：脚本预览的参考音频类 warning、提示词里的 ``@音频N`` 编号与执行期的参考音频挂线都只认
+    ``native``，因此绑定方式不必再沿渲染链逐层传递。``has_audio`` 问的是「成片有没有音轨」而非
+    「开关可不可控」，故恒有声（开关不可控）的型号同样算有音轨；调用方由
+    :func:`builtin_video_audio_track` 得出该位，不各自解读一份声明。
     """
-    if reference_audio_mode == "direct" and generation_mode == "reference_video":
+    if (
+        reference_audio_mode == "direct"
+        and generation_mode == "reference_video"
+        and character_voice_binding == "reference_audio"
+    ):
         return "native"
     return "soft" if has_audio else "none"
 
@@ -711,7 +729,7 @@ class ConfigResolver:
     # ── Session 管理 ──
 
     @asynccontextmanager
-    async def session(self) -> AsyncIterator[ConfigResolver]:
+    async def session(self) -> AsyncGenerator[ConfigResolver]:
         """打开共享 session，返回绑定到该 session 的 ConfigResolver。"""
         if self._bound_session is not None:
             yield self
@@ -720,7 +738,7 @@ class ConfigResolver:
                 yield ConfigResolver(self._session_factory, _bound_session=sess)
 
     @asynccontextmanager
-    async def _open_session(self) -> AsyncIterator[tuple[AsyncSession, ConfigService]]:
+    async def _open_session(self) -> AsyncGenerator[tuple[AsyncSession, ConfigService]]:
         """获取 (session, ConfigService)，优先复用 bound session。"""
         if self._bound_session is not None:
             yield self._bound_session, ConfigService(self._bound_session)
@@ -735,7 +753,7 @@ class ConfigResolver:
 
         优先级：项目级覆盖 > 全局配置 > 默认值(True)。
         """
-        async with self._open_session() as (session, svc):
+        async with self._open_session() as (_session, svc):
             return await self._resolve_video_generate_audio(svc, project_name)
 
     async def video_generate_audio_for_project(self, project: dict | None) -> bool:
@@ -864,7 +882,7 @@ class ConfigResolver:
 
     async def resolve_narration_voice(self, project: dict | None) -> str:
         """解析旁白音色：project.json 顶层 ``narration_voice`` > 全局 setting > 服务默认。"""
-        async with self._open_session() as (session, svc):
+        async with self._open_session() as (_session, svc):
             if project is not None:
                 override = project.get("narration_voice")
                 if isinstance(override, str) and override.strip():
@@ -877,7 +895,7 @@ class ConfigResolver:
         覆盖值宽容解析：数字与数字字符串均接受（口径与 ``default_duration`` 一致）；
         损坏的覆盖值（非数值/非正/非有限）按未设置处理，回退下一级。
         """
-        async with self._open_session() as (session, svc):
+        async with self._open_session() as (_session, svc):
             if project is not None:
                 override = project.get("narration_speed")
                 if isinstance(override, (int, float)) and not isinstance(override, bool):
@@ -916,9 +934,10 @@ class ConfigResolver:
               "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
+              "episode_target_duration": int | None,  # 用户设置的单集目标时长（秒）软偏好，非模型能力
               "content_mode": str | None,
               "generation_mode": str | None,       # 项目生成模式（无项目上下文时 None）
-              "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode 二维派生
+              "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode × 绑定方式
             }
 
         Raises:
@@ -1060,10 +1079,7 @@ class ConfigResolver:
         if project is not None:
             override = project.get("video_generate_audio")
             if override is not None:
-                if isinstance(override, str):
-                    value = _parse_bool(override)
-                else:
-                    value = bool(override)
+                value = _parse_bool(override) if isinstance(override, str) else bool(override)
 
         return value
 
@@ -1206,7 +1222,8 @@ class ConfigResolver:
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
-        from lib.custom_provider.endpoints import endpoint_to_media_type
+        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 
         try:
             db_pid = parse_provider_id(provider_id)
@@ -1216,10 +1233,10 @@ class ConfigResolver:
         if model is None or not model.is_enabled:
             raise _video_bucket_reference_unavailable(capability, provider_id, model_id)
         try:
-            media_type = endpoint_to_media_type(model.endpoint)
+            endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
         except ValueError as exc:
             raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
-        if media_type != "video":
+        if endpoint_spec.media_type != "video":
             raise _video_bucket_reference_unavailable(capability, provider_id, model_id)
         return model
 
@@ -1246,23 +1263,28 @@ class ConfigResolver:
             from lib.custom_provider.capabilities import synthesize_video_capabilities
 
             try:
+                from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+                from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+
+                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
                 caps = synthesize_video_capabilities(
                     endpoint=model.endpoint,
                     model_id=model_id,
                     overrides=model.capability_overrides,
+                    endpoint_spec=endpoint_spec,
                 )
             except ValueError as exc:
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
         else:
             try:
-                spec = get_provider_spec(provider_id, "video")
-                caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+                caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
         satisfied = video_capability_satisfied(
             capability=capability,
             first_frame=caps.first_frame,
             max_reference_images=caps.max_reference_images,
+            text_to_video=caps.text_to_video,
         )
         if not satisfied:
             raise _video_bucket_capability_missing(capability, provider_id, model_id)
@@ -1286,7 +1308,8 @@ class ConfigResolver:
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；内置分支不用它，
         # 也就不必为此拉起整个装配层。
-        from lib.custom_provider.endpoints import endpoint_to_media_type
+        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 
         try:
             db_pid = parse_provider_id(selected.provider_id)
@@ -1294,8 +1317,13 @@ class ConfigResolver:
             raise ValueError(f"invalid custom provider_id: {selected.provider_id}") from exc
         repo = CustomProviderRepository(session)
         model = await repo.get_model_by_ids(db_pid, selected.model_id)
-        if model is not None and model.is_enabled and endpoint_to_media_type(model.endpoint) == "video":
-            return selected
+        if model is not None and model.is_enabled:
+            try:
+                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
+            except ValueError:
+                endpoint_spec = None
+            if endpoint_spec is not None and endpoint_spec.media_type == "video":
+                return selected
 
         logger.warning(
             "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 video），身份解析回退到默认模型",
@@ -1407,14 +1435,20 @@ class ConfigResolver:
             # provider 行、不构造 SDK client，故逐视频单元解析无 DB/网络/client 构造副作用
             # （也不因 api_key 缺失而抛）。
             try:
+                from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+                from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+
+                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
                 caps = synthesize_video_capabilities(
                     endpoint=model.endpoint,
                     model_id=model_id,
                     overrides=model.capability_overrides,
+                    endpoint_spec=endpoint_spec,
                 )
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             max_reference_images = caps.max_reference_images
+            text_to_video = caps.text_to_video
             first_frame = caps.first_frame
             last_frame = caps.last_frame
             reference_audio_mode = caps.reference_audio_mode
@@ -1453,11 +1487,11 @@ class ConfigResolver:
             # 也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
             # （`lib.capability_buckets`）的口径，展示层与执行层因此严格同源。
             try:
-                spec = get_provider_spec(provider_id, "video")
-                builtin_caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             max_reference_images = builtin_caps.max_reference_images
+            text_to_video = builtin_caps.text_to_video
             first_frame = builtin_caps.first_frame
             last_frame = builtin_caps.last_frame
             reference_audio_mode = builtin_caps.reference_audio_mode
@@ -1467,9 +1501,7 @@ class ConfigResolver:
             # 路线无音轨的子路径（可灵 v3-omni 多图主体）据此如实派生出 voice_consistency=none。
             has_audio = builtin_caps.audio_track_for_route(capability) != "always_off"
             try:
-                default_tier_generates_audio = builtin_effective_generate_audio_for_model(
-                    spec.registry_backend, model_id
-                )
+                default_tier_generates_audio = builtin_effective_generate_audio_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise ValueError(
                     f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"
@@ -1495,6 +1527,10 @@ class ConfigResolver:
 
         default_duration: int | None = None
         content_mode: str | None = None
+        # 单集目标时长不是模型能力，随能力查询一起回传只因它与 default_duration 同为「决定时长时
+        # 要看的项目偏好」：脚本规划子智能体一次 get_video_capabilities 就能拿齐决策所需的全部输入，
+        # 不必为一个偏好字段另开一个工具往返。解析走 lib.episode_target_duration 的读时守卫。
+        episode_target_duration = project_episode_target_duration(project)
         if project is not None:
             raw_default = project.get("default_duration")
             if isinstance(raw_default, int):
@@ -1510,6 +1546,7 @@ class ConfigResolver:
             reference_audio_mode=reference_audio_mode,
             generation_mode=generation_mode,
             has_audio=has_audio,
+            character_voice_binding=character_voice_binding(project),
         )
 
         return {
@@ -1518,6 +1555,7 @@ class ConfigResolver:
             "supported_durations": supported_durations,
             "max_duration": max_duration,
             "max_reference_images": max_reference_images,
+            "text_to_video": text_to_video,
             "first_frame": first_frame,
             "last_frame": last_frame,
             "generate_audio": generate_audio,
@@ -1526,6 +1564,7 @@ class ConfigResolver:
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,
             "default_duration": default_duration,
+            "episode_target_duration": episode_target_duration,
             "content_mode": content_mode,
             "generation_mode": generation_mode,
             "voice_consistency": voice_consistency,
@@ -1583,7 +1622,7 @@ class ConfigResolver:
 
     async def default_text_backend(self) -> tuple[str, str]:
         """返回 (provider_id, model_id)。"""
-        async with self._open_session() as (session, svc):
+        async with self._open_session() as (_session, svc):
             return await svc.get_default_text_backend()
 
     async def text_backend_for_task(

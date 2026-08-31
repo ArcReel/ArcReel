@@ -80,8 +80,8 @@ async def upload_shot_media(
             # 路径遍历防护：shot_id 拼出的绝对路径不得逃出项目目录（与 versions.py 对齐）
             try:
                 safe_join(project_path, relative_path)
-            except PathTraversalError:
-                raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=shot_id))
+            except PathTraversalError as exc:
+                raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=shot_id)) from exc
             return project_path, VersionManager(project_path)
 
         project_path, versions = await asyncio.to_thread(_validate_shot)
@@ -95,8 +95,8 @@ async def upload_shot_media(
                     raise UploadTooLargeError(max_bytes)
                 try:
                     png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content)
-                except ValueError:
-                    raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
                 staged_image = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
                 version = await commit_manual_storyboard_upload(
                     project_name=project_name,
@@ -139,14 +139,14 @@ async def upload_shot_media(
         }
 
     except UploadValidationError as e:
-        raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params))
+        raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params)) from e
     except FileNotFoundError as exc:
         # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
         raise NotFoundError("script_not_found", name=script_file) from exc
-    except KeyError:
-        raise HTTPException(status_code=404, detail=_t("segment_not_found", id=shot_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=_t("segment_not_found", id=shot_id)) from exc
     except ScriptEditError as e:
-        raise HTTPException(status_code=400, detail=script_edit_detail(e, _t))
+        raise HTTPException(status_code=400, detail=script_edit_detail(e, _t)) from e
     except (HTTPException, ApiError):
         raise
     except Exception as e:

@@ -52,3 +52,11 @@ class AgentSessionSummary(TimestampMixin, UserOwnedMixin, Base):
     session_id: Mapped[str] = mapped_column(String, primary_key=True)
     mtime_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
     data: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+
+def register_models() -> None:
+    """把 agent_session 相关 ORM 模型登记到 ``Base.metadata``。
+
+    登记发生在 import 本模块时（模型类定义即注册），本函数不做额外工作；
+    调用它是为了让「因副作用而 import」在调用点显式可见。
+    """

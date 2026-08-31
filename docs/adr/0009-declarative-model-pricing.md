@@ -1,10 +1,10 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 计费定价改为代码级声明式：定价并进 `ModelInfo`、按 `kind` 派发，不引入运行时 DB+UI 改价
 
-ArcReel 的 `CostCalculator`（`lib/cost_calculator.py`）当前把每个供应商各模态的费率写成**散落的类属性 dict**（`IMAGE_COST` / `VIDEO_COST` / `ARK_VIDEO_COST` / `GROK_TEXT_COST` / `OPENAI_IMAGE_TOKEN_COST` 等十余张），`calculate_cost` 用一长串 `if provider == X` 手工路由到对应的 per-shape 计算函数，币种 USD/CNY 混在各函数里。新增一个内置供应商时，若不为它加显式分支，视频会**静默回落到 Veo 费率表**按错误单价计费。供应商价格随促销波动，费率字段应可配置，不硬编码。
+ArcReel 的 `CostCalculator`（`lib/cost_calculator.py`）在本决策前把每个供应商各模态的费率写成**散落的类属性 dict**（`IMAGE_COST` / `VIDEO_COST` / `ARK_VIDEO_COST` / `GROK_TEXT_COST` / `OPENAI_IMAGE_TOKEN_COST` 等十余张），`calculate_cost` 用一长串 `if provider == X` 手工路由到对应的 per-shape 计算函数，币种 USD/CNY 混在各函数里。新增一个内置供应商时，若不为它加显式分支，视频会**静默回落到 Veo 费率表**按错误单价计费。供应商价格随促销波动，费率字段应可配置，不硬编码。
 
 评估时确认了一个关键事实：**ArcReel 的生成费用是快照的**。`finish_call` 仅在调用完成那一刻调一次 `calculate_cost`，把结果冻结进 `ApiCall.cost_amount`；所有用量/费用聚合读冻结值，不重算。因此"为历史计费保留下线模型费率"这一诉求并不成立——过往记录不依赖费率表。我们也对照了 LiteLLM 的做法：它用单一数据表按 model 名建索引，每个 model 条目内同时承载元数据、上下文窗口与定价（`input_cost_per_token` / 每图 / 每秒等），按 `mode` 派发计算，定价与模型元数据**不分家**。
 
@@ -13,6 +13,7 @@ ArcReel 的 `CostCalculator`（`lib/cost_calculator.py`）当前把每个供应�
 ## Consequences
 
 - **`calculate_cost` 变薄、可扩展**：`if provider == X` 路由链被 `kind` 派发取代。新增内置模型 = 在其 `ModelInfo.pricing` 写一条声明 + 复用已有 `kind` 策略，**不再动 `calculate_cost` 逻辑、不再加 provider 分支**，从根上消除"新供应商视频被静默按 Veo 费率算"的回归类型。
+- **`pricing=None` 是显式声明的例外，不属被消除的静默回落**：Agent Plan 类套餐（`ark-agent-plan`）未公布单次费率，registry 条目刻意不声明 `pricing`；`lookup_pricing` 对「已知 model 但定价为 None」按 Gemini 通用默认费率计价并打 debug 日志（`lib/pricing/lookup.py`）。它与本 ADR 消除的回归类型（遗漏 provider 分支导致未知模型被静默按 Veo 费率计价）的区别在于：前者登记在册、日志可见，后者是意外路由。
 - **改促销价 = 改声明 + 重部署**：这是 conscious trade-off。代价是不支持非技术人员在运行时改价；收益是无需 DB schema/迁移/仓库/设置页 UI/三语 i18n/校验这一整套 surface。ArcReel 自托管、重部署是常态，且成本仅用于费用预估与内部记账（非对外计费），精度诉求是"不离谱"而非"实时可调"。
 - **历史费率无需入库**：因成本快照，过往 `cost_amount` 已冻结，定价数据只需覆盖**当前可选**模型。下线模型不进入定价数据；`ModelInfo.hidden` 兜住"入队后被下线、finish 时仍需算价"的罕见边角，无须维护历史费率 graveyard。
 - **自定义 provider 价格不并入 `ModelInfo`**：自定义供应商的单价是用户在 DB（`CustomProviderModel.price_input/output/currency`）填的、非静态，`calculate_cost` 保留 `is_custom_provider` 早分支走参数化路径（调用方预查 DB 传入）。这与 [ADR 0008] 的"自定义 provider 凭证/配置由 DB 承载、不进静态 registry"一脉相承。

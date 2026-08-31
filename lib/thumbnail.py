@@ -21,7 +21,7 @@ def _ffprobe_available() -> bool:
     return shutil.which("ffprobe") is not None
 
 
-def _reset_for_tests() -> None:
+def reset_for_tests() -> None:
     """test helper — 清缓存让 monkeypatch shutil.which 立刻生效。"""
     _ffmpeg_available.cache_clear()
     _ffprobe_available.cache_clear()
@@ -46,7 +46,7 @@ async def extract_video_thumbnail(
         字段」的现有分支；前端 ``<video poster>`` 在 poster 为空时浏览器会
         原生从视频流取首帧渲染，无需 server-side placeholder。
     """
-    if not video_path.exists():
+    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 create_subprocess_exec
         return None
 
     if not _ffmpeg_available():
@@ -71,7 +71,7 @@ async def extract_video_thumbnail(
         )
         await proc.wait()
 
-        if proc.returncode != 0 or not thumbnail_path.exists():
+        if proc.returncode != 0 or not thumbnail_path.exists():  # noqa: ASYNC240 -- 抽帧产物存在性检查，本地元数据
             return None
 
         return thumbnail_path
@@ -175,7 +175,7 @@ async def extract_video_last_frame(
     Returns:
         输出路径（成功）或 None（失败 / ffmpeg 或 ffprobe 不可用）
     """
-    if not video_path.exists():
+    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 create_subprocess_exec
         return None
 
     if not _ffmpeg_available() or not _ffprobe_available():
@@ -187,9 +187,12 @@ async def extract_video_last_frame(
     # 1. 先走快路径（容器元数据），失败再回退到全量解码
     total_frames = await _probe_frame_count(video_path, count_frames=False)
     try:
-        if total_frames is not None and total_frames > 0:
-            if await _extract_frame_at_index(video_path, output_path, total_frames - 1):
-                return output_path
+        if (
+            total_frames is not None
+            and total_frames > 0
+            and await _extract_frame_at_index(video_path, output_path, total_frames - 1)
+        ):
+            return output_path
 
         total_frames = await _probe_frame_count(video_path, count_frames=True)
         if total_frames is None or total_frames < 1:

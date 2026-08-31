@@ -31,15 +31,15 @@ skills:
 - characters、scenes、props 已有数据
 
 使用 Glob 工具确认中间文件存在，按项目 `generation_mode` × `content_mode` 检查：
-- generation_mode == reference_video（任一 content_mode）：`drafts/episode_{N}/step1_reference_units.json`（缺失时需先运行 `split-reference-video-units`）
-- generation_mode == storyboard 且 content_mode == narration：`drafts/episode_{N}/step1_segments.json`（缺失时需先运行 `split-narration-segments`）
-- generation_mode == storyboard 且 content_mode == drama：`drafts/episode_{N}/step1_normalized_script.json`（结构化内容；缺失时需先运行 `normalize-drama-script`。旧项目残留的 `step1_normalized_script.md` 是结构化前的自由文本稿，不算有效 step1，须重跑 normalize 产出 `.json`）
+- generation_mode == reference_video（任一 content_mode）：`drafts/episode_{N}/script_plan_reference_units.json`（缺失时需先运行 `split-reference-video-units`）
+- generation_mode == storyboard 且 content_mode == narration：`drafts/episode_{N}/script_plan_segments.json`（缺失时需先运行 `split-narration-segments`）
+- generation_mode == storyboard 且 content_mode == drama：`drafts/episode_{N}/script_plan_normalized_script.json`（结构化内容；缺失时需先运行 `normalize-drama-script`。旧项目残留的 `script_plan_normalized_script.md` 是结构化前的自由文本稿，不算有效 script_plan，须重跑 normalize 产出 `.json`）
 
-只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的内容整理子智能体。
+只认当前组合对应的那一个文件；目录中其他模式的 `script_plan_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的脚本规划子智能体。
 
-> 参考生视频同样走两段式：step1 已定稿的是内容契约（视频单元边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做视觉展开——视频单元数、视频单元时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
+> 参考生视频同样走两段式：script_plan 已定稿的是内容契约（视频单元边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做提示词编写——视频单元数、视频单元时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
 >
-> drama 走两段式（见 ADR 0041）：step1 已定稿内容（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt）并按 scene_id 透传 step1 内容、不重新识别口播。
+> drama 走两段式（见 ADR 0041）：script_plan 已定稿内容（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt）并按 scene_id 透传 script_plan 内容、不重新识别口播。
 
 ### Step 2: 调用工具生成 JSON 剧本
 
@@ -49,9 +49,9 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 等待返回。返回 `is_error: true` 时查看错误信息并尝试修复或报告问题。
 
-若错误为 **草稿待处置**（错误文本指向 `drafts/episode_{N}/` 下的 `*.invalid.json`），先 Read 草稿并检查 `violations[]`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告中的字段路径与违约类用 Edit 修复 `content`——参考生视频的 `content` 损坏或 `content.units` 不是数组时修复整个 `content`，视频单元级违约才改 `content.units[i]`；drama 的分镜级违约改 `content.scenes[i]`；narration 的分镜级违约改 `content.segments[i]`。空数组表示它只是经 `open_step1_for_edit` 取回的可编辑草稿，无需凭空修正违约。两种情况都调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 晋升；返回违约报告则按报告继续改再晋升，无轮次上限。不要重跑生成工具重抽。
+若错误为 **草稿待处置**，按错误报告的 `doc_type` 调 `open_draft`，取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告修复。修复后以同一 `episode` / `doc_type`，并将 `open_draft` 返回的 `revision` 作为 `base_revision` 调 `patch_draft`，再把 `patch_draft` 返回的新 `revision` 作为 `base_revision` 调用 `promote_draft`。返回违约报告则继续 open → patch → promote，无轮次上限。不要用 Read/Edit 直接操作草稿文件，也不要重跑生成工具重抽。
 
-若错误为 **内容确认阻塞**（drama / narration / reference_video 的 step1 结构化中间态尚未经显式确认，或确认后内容又被改；ad 无 step1，不会遇到本错误），这不是数据错误：不要反复重试、不要改写中间文件。确认须由用户驱动——回报主 Agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
+若错误为 **内容确认阻塞**（drama / narration / reference_video 的 script_plan 结构化中间态尚未经显式确认，或确认后内容又被改；ad 无 script_plan，不会遇到本错误），这不是数据错误：不要反复重试、不要改写中间文件。确认须由用户驱动——回报主 Agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
 
 ### Step 3: 验证生成结果
 

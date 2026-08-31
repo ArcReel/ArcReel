@@ -50,4 +50,10 @@ export default {
   'not_found_title': '页面未找到',
   'not_found_back': '返回首页',
   'recommended': '推荐',
+  'elapsed_seconds': '{{seconds}}秒',
+  'elapsed_minutes': '{{minutes}}分{{seconds}}秒',
+  'elapsed_hours': '{{hours}}时{{minutes}}分',
+  'elapsed_running': '已运行 {{duration}}',
+  'elapsed_queued': '已等待 {{duration}}',
+  'elapsed_total': '耗时 {{duration}}',
 } satisfies Record<keyof typeof enCommon, string>;

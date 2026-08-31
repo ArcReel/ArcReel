@@ -1,6 +1,5 @@
-import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { FieldLabel } from "@/components/ui/FieldLabel";
+import { OptionalNumberField } from "@/components/ui/OptionalNumberField";
 
 /**
  * 口播语速估算（阅读单位 / 秒）的项目级可选输入。
@@ -50,52 +49,22 @@ export interface SpeechRateFieldProps {
 
 export function SpeechRateField({ value, onChange, sourceLanguage }: SpeechRateFieldProps) {
   const { t } = useTranslation("dashboard");
-  const id = `${useId()}-speech-rate`;
-  const errorId = `${id}-error`;
-  const unit = t(`${readingUnitKey(sourceLanguage)}_per_second`);
-  const invalid = !isValidSpeechRate(value);
 
   return (
-    <div>
-      <FieldLabel htmlFor={id}>{t("speech_rate_label")}</FieldLabel>
-      <div className="flex items-center gap-2">
-        <input
-          id={id}
-          type="number"
-          inputMode="decimal"
-          // 原生约束不比 isValidSpeechRate 更严，否则同一个值会同时呈现自定义有效与浏览器无效
-          // 两种状态：min 取 0（真实下界由 isValidSpeechRate 判），step 放开步长限制。
-          min={0}
-          max={SPEECH_RATE_MAX}
-          step="any"
-          value={value ?? ""}
-          aria-invalid={invalid || undefined}
-          aria-describedby={invalid ? errorId : undefined}
-          onChange={(e) => {
-            const raw = e.target.value;
-            if (raw === "") {
-              onChange(null);
-              return;
-            }
-            const next = Number(raw);
-            // 只挡非有限数（NaN / Infinity 会被序列化成 null，误触「清除」语义）；
-            // 区间校验交给下面的行内提示与后端，输入过程中不吞用户的按键
-            if (Number.isFinite(next)) onChange(next);
-          }}
-          className="w-28 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        />
-        <span className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-text-3">{unit}</span>
-      </div>
-      {invalid ? (
-        <p id={errorId} role="alert" className="mt-1 text-[11px] text-warm-bright">
-          {t("speech_rate_out_of_range", { min: SPEECH_RATE_MIN, max: SPEECH_RATE_MAX })}
-        </p>
-      ) : (
-        <p className="mt-1 text-[11px] text-text-4">
-          {t("speech_rate_hint")}
-          {isLanguagePending(sourceLanguage) ? ` ${t("speech_rate_hint_language_pending")}` : ""}
-        </p>
-      )}
-    </div>
+    <OptionalNumberField
+      label={t("speech_rate_label")}
+      value={value}
+      onChange={onChange}
+      unit={t(`${readingUnitKey(sourceLanguage)}_per_second`)}
+      hint={`${t("speech_rate_hint")}${
+        isLanguagePending(sourceLanguage) ? ` ${t("speech_rate_hint_language_pending")}` : ""
+      }`}
+      errorMessage={t("speech_rate_out_of_range", { min: SPEECH_RATE_MIN, max: SPEECH_RATE_MAX })}
+      invalid={!isValidSpeechRate(value)}
+      idSuffix="speech-rate"
+      inputMode="decimal"
+      max={SPEECH_RATE_MAX}
+      step="any"
+    />
   );
 }

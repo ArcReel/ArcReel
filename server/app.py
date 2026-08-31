@@ -16,15 +16,15 @@ import platform
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.datastructures import MutableHeaders
-from starlette.requests import Request
-from starlette.responses import Response
 from starlette.types import Message, Receive, Scope, Send
 
 from lib import PROJECT_ROOT
@@ -41,16 +41,18 @@ from lib.path_safety import try_safe_join
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password, get_current_user
+from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
+from server.remote_mcp import remote_mcp_host
 from server.routers import (
-    agent_chat,
     agent_config,
     api_keys,
     assets,
     assistant,
     characters,
     cost_estimation,
+    custom_endpoints,
     custom_providers,
     end_frames,
     files,
@@ -155,7 +157,12 @@ def _diagnose_bwrap_failure() -> str:
     return "\n".join(parts)
 
 
-def check_sandbox_available() -> bool:
+def check_sandbox_available(
+    *,
+    platform_system: Callable[[], str] | None = None,
+    executable_which: Callable[[str], str | None] | None = None,
+    subprocess_run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
+) -> bool:
     """启动期检测 sandbox 工具可用性。
 
     返回 ``True`` 表示沙箱可用且必须启用；返回 ``False`` 表示 SDK 不支持
@@ -165,9 +172,11 @@ def check_sandbox_available() -> bool:
     ``AgentAccessPolicy.WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
     macOS / Linux 工具缺失仍硬失败（受支持平台禁止降级）。
     """
-    system = platform.system()
+    system = (platform_system or platform.system)()
+    which = executable_which or shutil.which
+    run = subprocess_run or subprocess.run
     if system == "Darwin":
-        if shutil.which("sandbox-exec") is None:
+        if which("sandbox-exec") is None:
             raise RuntimeError(
                 "SANDBOX_UNAVAILABLE on macOS\n"
                 "  sandbox-exec: not found in PATH (should be system-installed)\n"
@@ -177,7 +186,7 @@ def check_sandbox_available() -> bool:
     if system == "Linux":
         # Linux 依赖见 https://code.claude.com/docs/en/sandboxing#set-up-linux-and-wsl2：需同时安装
         # （bwrap 做进程/文件隔离，socat 做网络代理转发）。
-        missing = [name for name in ("bwrap", "socat") if shutil.which(name) is None]
+        missing = [name for name in ("bwrap", "socat") if which(name) is None]
         if missing:
             raise RuntimeError(
                 "SANDBOX_UNAVAILABLE on linux\n"
@@ -205,7 +214,7 @@ def check_sandbox_available() -> bool:
             "/bin/true",
         ]
         try:
-            probe = subprocess.run(probe_cmd, capture_output=True, timeout=5, check=False)
+            probe = run(probe_cmd, capture_output=True, timeout=5, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise RuntimeError(
                 "SANDBOX_BWRAP_BROKEN on Linux\n"
@@ -233,15 +242,21 @@ _DOCKERENV_PATH = Path("/.dockerenv")
 _CGROUP_PATH = Path("/proc/1/cgroup")
 
 
-def detect_docker_environment() -> bool:
+def detect_docker_environment(
+    *,
+    dockerenv_path: Path | None = None,
+    cgroup_path: Path | None = None,
+) -> bool:
     """启动期一次性检测当前是否在 Docker / Podman 容器内。
 
     用于决定是否启用 ``SandboxSettings.enableWeakerNestedSandbox``。
     """
-    if _DOCKERENV_PATH.exists():
+    docker_marker = dockerenv_path or _DOCKERENV_PATH
+    cgroup = cgroup_path or _CGROUP_PATH
+    if docker_marker.exists():
         return True
     try:
-        content = _CGROUP_PATH.read_text(encoding="utf-8", errors="ignore")
+        content = cgroup.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return False
     return "docker" in content or "podman" in content
@@ -271,10 +286,15 @@ def _log_profile_sync_outcome(stats: dict, *, log: logging.Logger = logger) -> N
         log.info("agent_runtime profile 物化完成: %s", stats)
 
 
-async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, dict]:
+async def _migrate_source_encoding_on_startup(
+    projects_root: Path,
+    *,
+    migrate_source_encoding: Callable[[Path], Any] | None = None,
+) -> dict[str, dict]:
     """对每个项目执行幂等编码迁移。失败被捕获并写日志，不阻塞启动。"""
     summary: dict[str, dict] = {}
-    if not projects_root.exists():
+    migrate = migrate_source_encoding or migrate_project_source_encoding
+    if not projects_root.exists():  # noqa: ASYNC240 -- 启动期一次性存在性检查，本地元数据
         return summary
 
     def _run_one(project_dir: Path) -> dict:
@@ -283,7 +303,7 @@ async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, 
         if marker.exists():
             return {"skipped": True}
         try:
-            result = migrate_project_source_encoding(project_dir)
+            result = migrate(project_dir)
             marker_dir.mkdir(exist_ok=True)
             marker.touch()
             if result.failed:
@@ -297,7 +317,7 @@ async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, 
                 "skipped": result.skipped,
                 "failed": result.failed,
             }
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception(
                 "源文件编码迁移失败 project=%s，已跳过，server 继续启动",
                 project_dir.name,
@@ -306,11 +326,11 @@ async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, 
                 marker_dir.mkdir(exist_ok=True)
                 (marker_dir / "migration_errors.log").write_text(f"FATAL: {exc}\n", encoding="utf-8")
                 marker.touch()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             return {"error": str(exc)}
 
-    for project_dir in projects_root.iterdir():
+    for project_dir in projects_root.iterdir():  # noqa: ASYNC240 -- 启动期一次列举项目根目录，单次 readdir；每个项目的迁移已 to_thread 卸载
         if not project_dir.is_dir() or project_dir.name.startswith("."):
             continue
         summary[project_dir.name] = await asyncio.to_thread(_run_one, project_dir)
@@ -435,7 +455,8 @@ async def lifespan(app: FastAPI):
     await project_event_service.start()
     logger.info("ProjectEventService 已启动")
 
-    yield
+    async with remote_mcp_host.run():
+        yield
 
     # Shutdown
     project_event_service = getattr(app.state, "project_event_service", None)
@@ -459,6 +480,10 @@ async def lifespan(app: FastAPI):
         finally:
             get_generation_queue().set_worker_cancel_callback(None)
         logger.info("GenerationWorker 已停止")
+    # 测试连接的 run 不可续跑：随事件循环消亡会把账本 pending 行永远留下，关停前按取消路径结算。
+    from lib.custom_provider.endpoint_test import shutdown_trial_runs
+
+    await shutdown_trial_runs()
     await shutdown_http_client()
     await close_db()
 
@@ -471,21 +496,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置（env 驱动）：
-#   - CORS_ORIGINS 未设置 / 空 / 包含 "*" → 通配 origins，credentials 强制关闭
-#     （CORS spec 不允许通配 + credentials 组合；Starlette 在初始化时会 RuntimeError）
-#   - 否则按逗号分隔解析为白名单，credentials 打开供前端附带 cookie / Authorization 跨域
-#
+# CORS 配置（env 驱动，解析见 server/cors_config.py；远程 MCP 挂载共用同一份白名单）。
 # 须在 register_error_handlers(app) 之前算出：未预期异常的 500 由
 # ServerErrorMiddleware 兜底发送，绕过 CORSMiddleware（见
 # server/error_handlers.py::_cors_headers_for），handler 需要这份配置手工补 CORS 头。
-_cors_raw = os.environ.get("CORS_ORIGINS", "*").strip()
-_allow_origins: list[str] = [o.strip() for o in _cors_raw.split(",") if o.strip()]
-if not _allow_origins or "*" in _allow_origins:
-    _allow_origins = ["*"]
-    _allow_credentials = False
-else:
-    _allow_credentials = True
+_allow_origins, _allow_credentials = resolve_cors_policy()
 
 # app 级异常处理器：异常→状态码→detail 映射的单点（见 server/error_handlers.py）
 register_error_handlers(app, cors_allow_origins=_allow_origins, cors_allow_credentials=_allow_credentials)
@@ -611,10 +626,12 @@ app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
 app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
 app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])
-app.include_router(agent_chat.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 对话"])
 app.include_router(agent_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 配置"])
 app.include_router(
     custom_providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义供应商"]
+)
+app.include_router(
+    custom_endpoints.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义调用端点"]
 )
 app.include_router(
     cost_estimation.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用估算"]
@@ -647,6 +664,7 @@ app.include_router(
 )
 app.include_router(project_events.self_auth_router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
+app.mount("/mcp", remote_mcp_host)
 
 
 def create_generation_worker() -> GenerationWorker:
@@ -659,12 +677,12 @@ async def health_check():
     return {"status": "ok", "message": "视频项目管理 WebUI 运行正常"}
 
 
-@app.get("/skill.md", include_in_schema=False)
-async def serve_skill_md(request: Request) -> Response:
-    """动态渲染 skill.md 模板，将 {{BASE_URL}} 替换为实际服务地址（无需认证）。"""
-    from starlette.responses import PlainTextResponse
+@app.get("/agent-installation-guide.md", include_in_schema=False)
+async def serve_agent_installation_guide(request: Request) -> Response:
+    """动态渲染 Agent 安装指引，将 {{BASE_URL}} 替换为实际服务地址（无需认证）。"""
+    from fastapi.responses import PlainTextResponse
 
-    template_path = PROJECT_ROOT / "public" / "skill.md.template"
+    template_path = PROJECT_ROOT / "public" / "agent-installation-guide.md"
 
     def _read() -> tuple[bool, str]:
         if not template_path.exists():
@@ -673,7 +691,7 @@ async def serve_skill_md(request: Request) -> Response:
 
     exists, template = await asyncio.to_thread(_read)
     if not exists:
-        return PlainTextResponse("skill.md 模板不存在", status_code=404)
+        return PlainTextResponse("Agent 安装指引不存在", status_code=404)
 
     # 从请求推断 base URL；仅信任 x-forwarded-proto（反向代理标准头），
     # host 使用连接实际目标地址，不接受可被用户伪造的 x-forwarded-host。

@@ -17,31 +17,25 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from lib.prompt_utils import image_prompt_to_yaml, project_storyboard_image_prompt
+from lib.schema_guards import is_str
 
 # ---------------------------------------------------------------------------
 # 内部常量：防崩 / 反向 / 布局 / 风格前缀
 # ---------------------------------------------------------------------------
 
-# 角色图采用四视图 16:9 布局。
-_CHARACTER_LAYOUT = (
-    "横版 16:9 四格布局，纯白 (#FFFFFF) 背景：左侧约 40% 宽为胸像特写（清晰展示面部、发型、配饰、上装），"
-    "右侧三个等宽面板分别为正面 / 四分之三侧面 / 背面的 A-Pose 全身视图。"
-)
-_SCENE_LAYOUT = "主画面占四分之三区域展示环境整体外观与氛围，右下角嵌入关键细节小图。"
-_PROP_LAYOUT = "三视图水平排列于纯净浅灰背景：左侧正面全视图、中间 45° 侧视图体现立体感、右侧关键细节特写。"
-_PRODUCT_LAYOUT = (
-    "标准多角度商品参考图，纯净浅灰背景、均匀棚拍布光：正面、45° 侧面、背面三视图水平排列，"
-    "下方一排关键细节特写（logo、文字、材质、接缝）。"
-)
+_CHARACTER_LAYOUT = "横版 16:9 三视图，纯白背景：正面 / 正侧（90° 侧视图）/ 背面水平排列。"
+_SCENE_LAYOUT = "单张环境全景建立镜头。"
+_PROP_LAYOUT = "单张道具资产图，纯净浅灰背景。"
+_PRODUCT_LAYOUT = "单张商品资产图，纯净浅灰背景、均匀棚拍布光。"
 
 # 正向防崩（按资产类型差异化）。
-_CHARACTER_GUARD = "四个面板中角色面部、发型、服装、配饰完全一致；五官对称、手指完整为五指、肢体比例协调。"
+_CHARACTER_GUARD = "三个面板中角色面部、发型、服装、配饰完全一致。"
 # 场景 description 由剧本提取，常包含人物动作与剧情事件，仅靠末尾的反向提示词不足以抵消
 # 描述中的正向叙述，因此在正向语句中再声明一次无人。道具是纯文生图、description 描述的是
-# 物件本身，layout 也已限定纯净背景多视图，不存在同类冲突，只需反向提示词；商品另有实拍
+# 物件本身，layout 也已限定纯净背景，不存在同类冲突，只需反向提示词；商品另有实拍
 # 参考图这条通道，其正向声明见 _PRODUCT_GUARD。
-_SCENE_GUARD = "画面中没有人物出镜，空间透视正常，陈设固定，光影统一。"
-_PROP_GUARD = "外观结构完整，焦点清晰。"
+_SCENE_GUARD = "画面中没有人物出镜。"
+_PROP_GUARD = ""
 # 商品保真核心句：sheet 生成守卫与分镜注入指令共用，调优措辞只改这一处。
 _PRODUCT_FIDELITY_CORE = "logo、文字、配色、材质、比例与结构不得改变或臆造"
 # product sheet 由实拍原图整理而来，原图全量作为 i2i 参考注入（generation_tasks.py 的
@@ -49,7 +43,7 @@ _PRODUCT_FIDELITY_CORE = "logo、文字、配色、材质、比例与结构不�
 # 正向视觉条件，末尾的反向提示词压不住，因此在守卫句中正面声明只呈现商品本体。这句只作用于
 # sheet 生成；商品出现在分镜里时本就可以被人拿着，不能走 _PRODUCT_FIDELITY_CORE 共用。
 _PRODUCT_GUARD = (
-    f"商品外观必须忠实于参考图中的真实商品：{_PRODUCT_FIDELITY_CORE}；各视图为同一件商品。"
+    f"商品外观必须忠实于参考图中的真实商品：{_PRODUCT_FIDELITY_CORE}。"
     "参考图中的手部、模特及其他出镜人物一律不保留，画面只呈现商品本体；"
     "包装上印刷的人像图案属于商品外观，须原样保留。"
 )
@@ -85,11 +79,11 @@ def _style_prefix(style: str = "", style_description: str = "") -> str:
 
 
 def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """角色资产图 prompt（四视图 16:9）。"""
+    """角色资产图 prompt（三视图 16:9）。"""
     style_block = _style_prefix(style, style_description)
     return (
         f"{style_block}"
-        f"角色「{name}」的设计参考图。\n\n"
+        f"角色「{name}」的资产图。\n\n"
         f"{description}\n\n"
         f"{_CHARACTER_LAYOUT}\n\n"
         f"{_CHARACTER_GUARD}\n\n"
@@ -98,11 +92,11 @@ def build_character_prompt(name: str, description: str, style: str = "", style_d
 
 
 def build_scene_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """场景资产图 prompt（主+细节）。"""
+    """场景资产图 prompt（单图）。"""
     style_block = _style_prefix(style, style_description)
     return (
         f"{style_block}"
-        f"标志性场景「{name}」的视觉参考。\n\n"
+        f"场景「{name}」的资产图。\n\n"
         f"{description}\n\n"
         f"{_SCENE_LAYOUT}\n\n"
         f"{_SCENE_GUARD}\n\n"
@@ -111,28 +105,29 @@ def build_scene_prompt(name: str, description: str, style: str = "", style_descr
 
 
 def build_prop_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """道具资产图 prompt（三视图）。"""
+    """道具资产图 prompt（单图）。"""
     style_block = _style_prefix(style, style_description)
+    guard_block = f"{_PROP_GUARD}\n\n" if _PROP_GUARD else ""
     return (
         f"{style_block}"
-        f"道具「{name}」的多视角展示。\n\n"
+        f"道具「{name}」的资产图。\n\n"
         f"{description}\n\n"
         f"{_PROP_LAYOUT}\n\n"
-        f"{_PROP_GUARD}\n\n"
+        f"{guard_block}"
         f"{_NEGATIVE_TAIL_PROP}"
     )
 
 
 def build_product_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """商品标准参考图（product sheet）prompt（多角度 + 保真守卫）。
+    """商品资产图（product sheet）prompt（单图 + 保真守卫）。
 
-    商品资产图的使命是把用户随手拍的原图整理成标准多角度资产图，商品形象必须
+    商品资产图的使命是把用户随手拍的原图整理成标准资产图，商品形象必须
     忠实于真品（原图作为参考注入），不沿用项目画风前缀——画风统一由项目级 style
-    机制在分镜阶段承载，商品参考图保持写实中性。
+    机制在分镜阶段承载，商品资产图保持写实中性。
     """
     del style, style_description  # 与其它 design prompt builder 签名对齐；商品 sheet 不注入画风
     return (
-        f"商品「{name}」的标准参考图。\n\n"
+        f"商品「{name}」的标准资产图。\n\n"
         f"{description}\n\n"
         f"{_PRODUCT_LAYOUT}\n\n"
         f"{_PRODUCT_GUARD}\n\n"
@@ -152,21 +147,41 @@ def build_storyboard_prompt(
 ) -> str:
     """Render canonical storyboard semantics into the exact provider prompt."""
 
-    if not isinstance(style_description, str):
+    if not is_str(style_description):
         raise TypeError("style_description must be a string")
     projected, normalized_style = project_storyboard_image_prompt(image_prompt, style)
 
+    rendered = image_prompt_to_yaml(projected, normalized_style) if isinstance(projected, dict) else projected
     style_parts: list[str] = []
     if normalized_style and isinstance(projected, str):
         style_parts.append(f"Style: {normalized_style}")
     normalized_description = style_description.strip()
     if normalized_description:
         style_parts.append(f"Visual style: {normalized_description}")
-    style_prefix = "\n".join(style_parts) + "\n\n" if style_parts else ""
-    rendered = image_prompt_to_yaml(projected, normalized_style) if isinstance(projected, dict) else projected
-    if style_prefix and not rendered.startswith(style_prefix):
-        rendered = f"{style_prefix}{rendered}"
+    # 文本形态才按内容判重：它以「当前渲染结果」为初值，正文本身就带着这些声明，按前缀相等
+    # 判定会漏判而叠出第二份。结构形态的正文是本函数刚渲染出的 YAML，一律注入。
+    if isinstance(projected, str):
+        style_parts = [part for part in style_parts if part not in rendered]
+    if style_parts:
+        rendered = "\n".join(style_parts) + "\n\n" + rendered
     return append_image_negative_tail(rendered)
+
+
+def render_storyboard_image_prompt(
+    image_prompt: object,
+    *,
+    style: str = "",
+    style_description: str = "",
+    product_names: Sequence[str] | None = None,
+) -> str:
+    """分镜图最终提示词文本的唯一出口。
+
+    执行路径与预览接口共用本函数：结构形态经项目风格投影为 YAML、文本形态原样作提示词主体，
+    两者同样注入项目风格与反向约束，商品分镜再追加高保真还原指令（``product_names`` 取实际
+    注入了参考图的商品，与执行期同口径）。
+    """
+
+    return append_product_fidelity_tail(build_storyboard_prompt(image_prompt, style, style_description), product_names)
 
 
 def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | None) -> str:

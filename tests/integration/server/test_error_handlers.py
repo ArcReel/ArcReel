@@ -1,0 +1,238 @@
+"""app 级异常处理器测试：状态码映射、Accept-Language 翻译、脱敏。"""
+
+import tempfile
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
+from lib.generation_queue import ActiveTaskRequestConflict
+from lib.generation_queue_client import TaskSpecValidationError
+from lib.script_editor import ScriptEditError
+from server.error_handlers import register_error_handlers
+
+# 运行时基于系统 tmp 目录构造，不提交机器特定的绝对路径。
+_SERVER_PATH = str(Path(tempfile.gettempdir()) / "projects" / "demo" / "episode_1.json")
+
+
+def _make_client() -> TestClient:
+    app = FastAPI()
+    register_error_handlers(app)
+
+    # 以下路由桩由 @app.get 就地注册，函数体内无其它引用；basedpyright 把函数作用域内的符号
+    # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
+    @app.get("/api-error-404")
+    async def _api_error_404():  # pyright: ignore[reportUnusedFunction]
+        raise NotFoundError("segment_not_found", id="E1S01")
+
+    @app.get("/api-error-400")
+    async def _api_error_400():  # pyright: ignore[reportUnusedFunction]
+        raise BadRequestError("audio_provider_not_configured")
+
+    @app.get("/api-error-422-with-diagnostic")
+    async def _api_error_422_with_diagnostic():  # pyright: ignore[reportUnusedFunction]
+        raise UnprocessableError("script_validation_failed").with_diagnostic("scenes[0].shots must be a list")
+
+    @app.get("/api-error-custom-status")
+    async def _api_error_custom():  # pyright: ignore[reportUnusedFunction]
+        raise ApiError("internal_server_error", status_code=503)
+
+    @app.get("/task-spec-error")
+    async def _task_spec_error():  # pyright: ignore[reportUnusedFunction]
+        raise TaskSpecValidationError("prompt_text_empty")
+
+    @app.get("/active-video-request-conflict")
+    async def _active_video_request_conflict():  # pyright: ignore[reportUnusedFunction]
+        raise ActiveTaskRequestConflict(resource_id="E1S01", existing_task_id="task-existing")
+
+    @app.get("/script-edit-error")
+    async def _script_edit_error():  # pyright: ignore[reportUnusedFunction]
+        raise ScriptEditError("segments 必须是列表，当前为 NoneType")
+
+    @app.get("/script-edit-error-keyed")
+    async def _script_edit_error_keyed():  # pyright: ignore[reportUnusedFunction]
+        raise ScriptEditError(
+            "segments 必须是列表，当前为 NoneType",
+            key="script_edit_items_not_list",
+            kind="segments",
+            type_name="NoneType",
+        )
+
+    @app.get("/file-not-found")
+    async def _file_not_found():  # pyright: ignore[reportUnusedFunction]
+        raise FileNotFoundError(f"剧本文件不存在: {_SERVER_PATH}")
+
+    @app.get("/unexpected")
+    async def _unexpected():  # pyright: ignore[reportUnusedFunction]
+        raise RuntimeError(f"boom at {_SERVER_PATH}")
+
+    return TestClient(app, raise_server_exceptions=False)
+
+
+class TestApiErrorHandler:
+    def test_not_found_translated_zh_default(self):
+        client = _make_client()
+        resp = client.get("/api-error-404")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "分镜 'E1S01' 不存在"
+
+    def test_bad_request_400(self):
+        client = _make_client()
+        resp = client.get("/api-error-400")
+        assert resp.status_code == 400
+        assert "音频" in resp.json()["detail"]
+
+    def test_accept_language_en(self):
+        client = _make_client()
+        resp = client.get("/api-error-404", headers={"Accept-Language": "en-US,en;q=0.9"})
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Segment 'E1S01' does not exist"
+
+    def test_accept_language_vi(self):
+        client = _make_client()
+        resp = client.get("/api-error-404", headers={"Accept-Language": "vi"})
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Đoạn 'E1S01' không tồn tại"
+
+    def test_diagnostic_absent_when_not_supplied(self):
+        """未带诊断信息时响应体只有摘要，既有消费方读到的形状不变。"""
+        client = _make_client()
+        resp = client.get("/api-error-404")
+        assert "diagnostic" not in resp.json()
+
+    def test_diagnostic_carries_technical_detail_beside_summary(self):
+        """字段名 / schema 这类技术信息只进 diagnostic，detail 保持产品语言摘要。"""
+        client = _make_client()
+        resp = client.get("/api-error-422-with-diagnostic")
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["detail"] == "脚本结构校验失败，请检查后重试"
+        assert body["diagnostic"] == "scenes[0].shots must be a list"
+
+    def test_custom_status_code(self):
+        client = _make_client()
+        resp = client.get("/api-error-custom-status")
+        assert resp.status_code == 503
+
+
+class TestLibExceptionHandlers:
+    def test_active_video_request_conflict_409(self):
+        client = _make_client()
+        resp = client.get("/active-video-request-conflict", headers={"Accept-Language": "en"})
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == (
+            "Unit 'E1S01' already has a video task using different narration delivery options; "
+            "wait for it to finish or cancel it before retrying."
+        )
+
+    def test_task_spec_validation_error_400(self):
+        client = _make_client()
+        resp = client.get("/task-spec-error")
+        assert resp.status_code == 400
+        # detail 是翻译后的成品文案，不是裸 code
+        assert resp.json()["detail"] != "prompt_text_empty"
+
+    def test_script_edit_error_400(self):
+        client = _make_client()
+        resp = client.get("/script-edit-error")
+        assert resp.status_code == 400
+        assert "损坏" in resp.json()["detail"]
+
+    def test_script_edit_error_keyed_reason_translated_en(self):
+        """带 key/params 的 ScriptEditError（如 resolve_items 抛出的那种）en 请求下，
+        reason 须按英文翻译，不得混入中文原文。"""
+        client = _make_client()
+        resp = client.get("/script-edit-error-keyed", headers={"Accept-Language": "en"})
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert detail == "Script data is corrupted: segments must be a list, but got NoneType"
+        assert not any("一" <= ch <= "鿿" for ch in detail)
+
+    def test_script_edit_error_keyed_reason_translated_vi(self):
+        client = _make_client()
+        resp = client.get("/script-edit-error-keyed", headers={"Accept-Language": "vi"})
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert detail == "Dữ liệu kịch bản bị hỏng: segments phải là một danh sách, nhưng nhận được NoneType"
+        assert not any("一" <= ch <= "鿿" for ch in detail)
+
+    def test_file_not_found_404_hides_server_path(self):
+        client = _make_client()
+        resp = client.get("/file-not-found")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "请求的资源不存在"
+        assert _SERVER_PATH not in resp.text
+
+    def test_unexpected_exception_500_hides_details(self):
+        client = _make_client()
+        resp = client.get("/unexpected")
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "服务器内部错误，请稍后重试"
+        assert "boom" not in resp.text
+        assert _SERVER_PATH not in resp.text
+
+
+class TestRealAppRegistration:
+    def test_server_app_registers_all_handlers(self):
+        from server.app import app as real_app
+
+        for exc_type in (ApiError, TaskSpecValidationError, ScriptEditError, FileNotFoundError, Exception):
+            assert exc_type in real_app.exception_handlers, f"{exc_type} 未注册 app 级 handler"
+
+
+def _make_cors_client(allow_origins, allow_credentials) -> TestClient:
+    app = FastAPI()
+    register_error_handlers(app, cors_allow_origins=allow_origins, cors_allow_credentials=allow_credentials)
+
+    @app.get("/unexpected")
+    async def _unexpected():  # pyright: ignore[reportUnusedFunction]
+        raise RuntimeError("boom")
+
+    return TestClient(app, raise_server_exceptions=False)
+
+
+class TestUnexpectedErrorCorsHeaders:
+    """ServerErrorMiddleware 兜底发 500 时绕过 CORSMiddleware（走最外层原始 send），
+    handler 需手工补齐 CORS 头，否则跨域前端把 500 当成 network error。"""
+
+    def test_wildcard_origin_gets_wildcard_header(self):
+        client = _make_cors_client(["*"], False)
+        resp = client.get("/unexpected", headers={"Origin": "https://example.com"})
+        assert resp.status_code == 500
+        assert resp.headers.get("access-control-allow-origin") == "*"
+        assert "access-control-allow-credentials" not in resp.headers
+
+    def test_allowlisted_origin_with_credentials_gets_explicit_origin(self):
+        client = _make_cors_client(["https://example.com"], True)
+        resp = client.get("/unexpected", headers={"Origin": "https://example.com"})
+        assert resp.status_code == 500
+        assert resp.headers.get("access-control-allow-origin") == "https://example.com"
+        assert resp.headers.get("access-control-allow-credentials") == "true"
+        assert resp.headers.get("vary") == "Origin"
+
+    def test_disallowed_origin_gets_no_allow_origin_header(self):
+        client = _make_cors_client(["https://allowed.example.com"], True)
+        resp = client.get("/unexpected", headers={"Origin": "https://evil.example.com"})
+        assert resp.status_code == 500
+        assert "access-control-allow-origin" not in resp.headers
+
+    def test_no_origin_header_means_no_cors_headers(self):
+        client = _make_cors_client(["*"], False)
+        resp = client.get("/unexpected")
+        assert resp.status_code == 500
+        assert "access-control-allow-origin" not in resp.headers
+
+    def test_default_kwargs_fall_back_to_wildcard(self):
+        # register_error_handlers 不传 cors 参数时的保守默认值：通配 origins，不开 credentials。
+        app = FastAPI()
+        register_error_handlers(app)
+
+        @app.get("/unexpected")
+        async def _unexpected():  # pyright: ignore[reportUnusedFunction]
+            raise RuntimeError("boom")
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/unexpected", headers={"Origin": "https://example.com"})
+        assert resp.status_code == 500
+        assert resp.headers.get("access-control-allow-origin") == "*"

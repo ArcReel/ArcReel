@@ -186,7 +186,7 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    expect(container.firstChild).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("closes on outside pointerdown", () => {
@@ -258,18 +258,18 @@ describe("MentionPicker", () => {
 
     // First establish a baseline pointer coordinate via real movement on alice.
     fireEvent.mouseMove(alice, { clientX: 10, clientY: 10 });
-    expect(alice.getAttribute("aria-selected")).toBe("true");
+    expect(alice).toHaveAttribute("aria-selected", "true");
 
     // Simulate "list scrolls under stationary cursor → bob enters cursor at the
     // same (10, 10) coords". mouseenter must NOT steal the keyboard selection.
     fireEvent.mouseEnter(bob, { clientX: 10, clientY: 10 });
-    expect(alice.getAttribute("aria-selected")).toBe("true");
-    expect(bob.getAttribute("aria-selected")).toBe("false");
+    expect(alice).toHaveAttribute("aria-selected", "true");
+    expect(bob).toHaveAttribute("aria-selected", "false");
 
     // Real pointer movement to bob → active moves.
     fireEvent.mouseMove(bob, { clientX: 20, clientY: 20 });
-    expect(bob.getAttribute("aria-selected")).toBe("true");
-    expect(alice.getAttribute("aria-selected")).toBe("false");
+    expect(bob).toHaveAttribute("aria-selected", "true");
+    expect(alice).toHaveAttribute("aria-selected", "false");
   });
 
   it("mouseenter at different coords after movement still honors real user movement", () => {
@@ -296,7 +296,7 @@ describe("MentionPicker", () => {
     // User moves cursor into bob; browser fires mouseenter with new coords before
     // subsequent mousemove. Coord diff vs last ⇒ honor the move.
     fireEvent.mouseEnter(bob, { clientX: 30, clientY: 10 });
-    expect(bob.getAttribute("aria-selected")).toBe("true");
+    expect(bob).toHaveAttribute("aria-selected", "true");
   });
 
   it("renders five tabs (all/product/character/scene/prop) with counts", () => {
@@ -314,7 +314,7 @@ describe("MentionPicker", () => {
     // 第一个 tab 是 "全部/All"，默认选中
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     // 全部 count = 2 (chars) + 1 (scene) + 1 (prop) = 4
-    expect(tabs[0].textContent).toMatch(/4/);
+    expect(tabs[0]).toHaveTextContent(/4/);
   });
 
   it("activating the scene tab restricts visible options to that kind", async () => {
@@ -368,7 +368,7 @@ describe("MentionPicker", () => {
     // 张三 的 imagePath 在 fixture 里是 "/files/characters/zs.png"
     const img = screen.getByRole("option", { name: /张三/ }).querySelector("img");
     expect(img).not.toBeNull();
-    expect(img!.getAttribute("src")).toMatch(/zs\.png/);
+    expect(img!).toHaveAttribute("src", expect.stringMatching(/zs\.png/));
   });
 
   it("Shift+Tab does not trigger selection nor preventDefault (keeps a11y focus reversal)", () => {

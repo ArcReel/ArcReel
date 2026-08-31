@@ -164,7 +164,7 @@ describe("ReferenceVideoCanvas", () => {
     await screen.findByRole("combobox");
     fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
 
-    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     await waitFor(() => expect(previewSpy).toHaveBeenCalledWith("proj", 1, "中景。", expect.anything()));
     expect(await screen.findByText("@[王五] 未在角色/场景/道具中登记")).toBeInTheDocument();
 
@@ -193,12 +193,12 @@ describe("ReferenceVideoCanvas", () => {
     // 每个 tab 指向的面板，其 aria-labelledby 必须指回该 tab 自身
     const scriptPanel = screen.getByRole("tabpanel");
     expect(scriptPanel.id).toBe(scriptControls);
-    expect(scriptPanel.getAttribute("aria-labelledby")).toBe(scriptTab.id);
+    expect(scriptPanel).toHaveAttribute("aria-labelledby", scriptTab.id);
 
     fireEvent.click(parseTab);
     const parsePanel = await screen.findByRole("tabpanel");
     expect(parsePanel.id).toBe(parseControls);
-    expect(parsePanel.getAttribute("aria-labelledby")).toBe(parseTab.id);
+    expect(parsePanel).toHaveAttribute("aria-labelledby", parseTab.id);
     // 解析预览只读、无可聚焦后代：面板自身须能接焦点，否则键盘用户翻不到折线以下的内容
     expect(parsePanel).toHaveAttribute("tabindex", "0");
   });
@@ -300,9 +300,9 @@ describe("ReferenceVideoCanvas", () => {
     const ta = await screen.findByRole("combobox");
     fireEvent.change(ta, { target: { value: "@[查无此人] 推门而入。" } });
 
-    expect(await screen.findByRole("button", { name: /^(Save|保存)$/ })).not.toBeDisabled();
+    expect(await screen.findByRole("button", { name: /^(Save|保存)$/ })).toBeEnabled();
     for (const btn of screen.getAllByRole("button", { name: /Generate video|生成视频/ })) {
-      expect(btn).not.toBeDisabled();
+      expect(btn).toBeEnabled();
     }
   });
 
@@ -476,7 +476,7 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(addSpy).toHaveBeenCalled());
   });
 
-  // 主 tab：视频单元 / 内容整理。默认 "视频单元"，即 UnitList 区域可见。
+  // 主 tab：视频单元 / 脚本规划。默认 "视频单元"，即 UnitList 区域可见。
   it("renders the main tab bar with 'units' selected by default", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
@@ -488,16 +488,16 @@ describe("ReferenceVideoCanvas", () => {
     expect(unitsTab).toHaveAttribute("aria-selected", "true");
   });
 
-  it("switches main tab between units and content organization", async () => {
+  it("switches main tab between units and script plan", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     const unitsTab = screen.getByRole("tab", { name: /Video units|视频单元/ });
-    const preprocTab = screen.getByRole("tab", { name: /Content Organization|内容整理/ });
+    const preprocTab = screen.getByRole("tab", { name: /Script Plan|脚本规划/ });
     fireEvent.click(preprocTab);
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     expect(unitsTab).toHaveAttribute("aria-selected", "false");
-    // 内容整理 tab 下 UnitList 不渲染
+    // 脚本规划 tab 下 UnitList 不渲染
     expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
     fireEvent.click(unitsTab);
     expect(unitsTab).toHaveAttribute("aria-selected", "true");
@@ -519,8 +519,8 @@ describe("ReferenceVideoCanvas", () => {
     expect(ta.value).toContain("first");
   });
 
-  // 内容整理入口使用主 tab；切换后隐藏 UnitList，并 inline 渲染按集 step1 预览面板。
-  it("inline-renders the step1 preview panel via the main tab", async () => {
+  // 脚本规划入口使用主 tab；切换后隐藏 UnitList，并 inline 渲染按集 script_plan 预览面板。
+  it("inline-renders the script_plan preview panel via the main tab", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1"), mkUnit("E1U2")],
     });
@@ -533,19 +533,20 @@ describe("ReferenceVideoCanvas", () => {
       quarantine: null,
       supported_durations: null,
       duration_tiers: null,
+      episode_target_duration: null,
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    const preprocTab = screen.getByRole("tab", { name: /Content Organization|内容整理/ });
+    const preprocTab = screen.getByRole("tab", { name: /Script Plan|脚本规划/ });
     fireEvent.click(preprocTab);
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
-    // UnitList 被隐藏，改由预览面板渲染 step1 结构化中间态（只读高亮文稿）
+    // UnitList 被隐藏，改由预览面板渲染 script_plan 结构化中间态（只读高亮文稿）
     expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("shot text")).toBeInTheDocument());
   });
 
-  // step2 剧本未生成时（仅 segmented）units 端点无脚本可拆、会 404：默认落 preproc tab
+  // prompt_authoring 剧本未生成时（仅 segmented）units 端点无脚本可拆、会 404：默认落 preproc tab
   // 且不发起 units 请求，避免用户先看到一个报错的 Unit 面板。
   it("defaults to preproc tab and skips loadUnits when hasScript is false", async () => {
     const listSpy = vi.spyOn(API, "listReferenceVideoUnits");
@@ -558,10 +559,11 @@ describe("ReferenceVideoCanvas", () => {
       quarantine: null,
       supported_durations: null,
       duration_tiers: null,
+      episode_target_duration: null,
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
-    const preprocTab = await screen.findByRole("tab", { name: /Content Organization|内容整理/ });
+    const preprocTab = await screen.findByRole("tab", { name: /Script Plan|脚本规划/ });
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     await waitFor(() => expect(screen.getByText("shot text")).toBeInTheDocument());
     expect(listSpy).not.toHaveBeenCalled();
@@ -578,10 +580,11 @@ describe("ReferenceVideoCanvas", () => {
       quarantine: null,
       supported_durations: null,
       duration_tiers: null,
+      episode_target_duration: null,
       content: { units: [] },
     });
     const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
-    const preprocTab = await screen.findByRole("tab", { name: /Content Organization|内容整理/ });
+    const preprocTab = await screen.findByRole("tab", { name: /Script Plan|脚本规划/ });
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     rerender(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={true} />);
     await waitFor(() =>
@@ -604,7 +607,7 @@ describe("ReferenceVideoCanvas", () => {
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const btn = await screen.findByRole("button", { name: UNIT_GENERATE_CTA });
     // 点击前 tasks store 为空，按钮启用
-    expect(btn).not.toBeDisabled();
+    expect(btn).toBeEnabled();
     fireEvent.click(btn);
     await waitFor(() => expect(genSpy).toHaveBeenCalled());
     // 入队成功（202 返回）后、任务轮询写回前：动作层打乐观标记，按钮立即
@@ -718,7 +721,7 @@ describe("ReferenceVideoCanvas", () => {
 
     // 锚定行首，避免匹配到批量入口「批量生成视频」——它是另一条提交路径（见下一个用例）
     const generate = await screen.findByRole("button", { name: UNIT_GENERATE_CTA });
-    expect(generate).not.toBeDisabled();
+    expect(generate).toBeEnabled();
 
     // 渲染之后、点击之前，另一入口（Agent 入队 / SSE 落库）已占用同一 unit
     act(() => {
@@ -744,7 +747,7 @@ describe("ReferenceVideoCanvas", () => {
 
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-    await waitFor(() => expect(batch).not.toBeDisabled());
+    await waitFor(() => expect(batch).toBeEnabled());
 
     // 渲染之后、点击之前，E1U1 已被别的入口占用
     act(() => {
@@ -773,7 +776,7 @@ describe("ReferenceVideoCanvas", () => {
 
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-    await waitFor(() => expect(batch).not.toBeDisabled());
+    await waitFor(() => expect(batch).toBeEnabled());
     fireEvent.click(batch);
 
     await waitFor(() =>
@@ -868,7 +871,7 @@ describe("ReferenceVideoCanvas", () => {
 
     const { container } = render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-    await waitFor(() => expect(batch).not.toBeDisabled());
+    await waitFor(() => expect(batch).toBeEnabled());
 
     // 选中项默认是 E1U1，其预览面板的上传入口即针对该 unit
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
@@ -894,7 +897,7 @@ describe("ReferenceVideoCanvas", () => {
 
     const { container } = render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-    await waitFor(() => expect(batch).not.toBeDisabled());
+    await waitFor(() => expect(batch).toBeEnabled());
 
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     fireEvent.change(input!, { target: { files: [new File(["x"], "clip.mp4", { type: "video/mp4" })] } });
@@ -1105,7 +1108,7 @@ describe("ReferenceVideoCanvas", () => {
 
     async function clickBatch() {
       const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-      await waitFor(() => expect(batch).not.toBeDisabled());
+      await waitFor(() => expect(batch).toBeEnabled());
       fireEvent.click(batch);
       return batch;
     }
@@ -1533,6 +1536,8 @@ describe("ReferenceVideoCanvas", () => {
         currentProjectName: "proj",
         currentProjectData: {
           ...STUB_PROJECT,
+          // 横幅只在参考音频绑定档下出现：提示词软约束档不挂参考音频，换了也不改变已生成视频的声音
+          character_voice_binding: "reference_audio",
           characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
         },
         refreshProject: vi.fn().mockResolvedValue({ status: "ok" }),
@@ -1578,6 +1583,7 @@ describe("ReferenceVideoCanvas", () => {
         currentProjectName: "proj",
         currentProjectData: {
           ...STUB_PROJECT,
+          character_voice_binding: "reference_audio",
           characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
         },
         refreshProject,
@@ -1589,6 +1595,23 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(dismiss);
 
       await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
+    });
+
+    it("提示词软约束档下不出现——该档不挂参考音频，横幅会指向一个当前不生效的设置", async () => {
+      useProjectsStore.setState({
+        currentProjectName: "proj",
+        currentProjectData: {
+          ...STUB_PROJECT,
+          character_voice_binding: "prompt",
+          characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
+        },
+        refreshProject: vi.fn().mockResolvedValue({ status: "ok" }),
+      } as never);
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()] });
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+      await screen.findAllByText("E1U1");
+      expect(screen.queryByRole("button", { name: /Got it|知道了/ })).not.toBeInTheDocument();
     });
   });
 });

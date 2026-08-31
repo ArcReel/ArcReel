@@ -10,6 +10,10 @@ on:
         description: 忽略路径裁剪，全量运行所有 job
         type: boolean
         default: false
+    secrets:
+      CODECOV_TOKEN:
+        description: Codecov 上传令牌；缺失时覆盖率上传步骤不阻断
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,6 +29,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      workflow: ${{ steps.domains.outputs.workflow }}
       backend: ${{ steps.domains.outputs.backend }}
       frontend: ${{ steps.domains.outputs.frontend }}
       docker: ${{ steps.domains.outputs.docker }}
@@ -39,6 +44,30 @@ jobs:
           # 发布 PR 变更的版本文件不覆盖 docker 域，须显式全量以兑现「发布 commit 跑全量 CI」
           full: ${{ inputs.full == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
 
+  workflow-static:
+    # workflow 文件的语法与安全闸门。actionlint 走官方容器镜像（自带 shellcheck 与
+    # pyflakes，能检查 run: 脚本）；zizmor 用默认 persona，medium 及以上阻断，--offline
+    # 使判定不受环境里是否存在 GitHub token 影响，与 pre-commit 本地一致。
+    # 两个工具版本须与 .pre-commit-config.yaml 中对应 hook 的版本同步升级。
+    needs: changes
+    if: needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Workflow syntax & shell check (actionlint)
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # v1.7.12
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Workflow security audit (zizmor)
+        run: uvx zizmor@1.29.0 --offline --min-severity medium .
+
   backend-static:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
@@ -49,7 +78,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
@@ -63,29 +92,66 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Classification marker gate (collect-only)
+        # 必须不带 -n：xdist 的收集发生在各 worker 内，conftest 的 UsageError 会撞上
+        # dsession 断言并丢失违规清单。-qq 保留收集错误且避免输出上万条 nodeid。
+        run: uv run python -m pytest --collect-only -qq
+
       - name: Lint & format check
         run: uv run ruff check . && uv run ruff format --check .
 
       - name: Type check (basedpyright)
-        run: uv run basedpyright
+        run: uv run basedpyright --warnings
 
       - name: Import layering (import-linter)
         run: uv run lint-imports
 
+      - name: Dependency hygiene (deptry)
+        run: uv run deptry lib server alembic scripts tests
+
       - name: Agent Runtime Profile integrity
         run: uv run python scripts/lint_agent_runtime_profile.py
 
-  backend-tests:
+  test-lint:
+    # 测试卫生闸门：scripts/audit_tests.py --check（零第三方依赖，纯 stdlib ast）。
+    # 独立于 backend-static：脚本同时扫后端 tests/ 与 frontend/src/**/*.test.*，
+    # 只挂 backend 域会让 frontend-only PR 绕过前端段。
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Test hygiene gate (audit_tests --check)
+        run: python scripts/audit_tests.py --check
+
+  backend-tests:
+    name: Backend tests (${{ matrix.suite }})
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: unit
+            path: tests/unit
+          - suite: integration
+            path: tests/integration
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
@@ -94,19 +160,28 @@ jobs:
           python-version: "3.12"
 
       - name: Install system dependencies
+        if: matrix.suite == 'integration'
         run: sudo apt-get update && sudo apt-get install -y ffmpeg mediainfo bubblewrap socat
 
       - name: Install dependencies
         run: uv sync
 
       - name: Run tests with coverage
-        run: uv run python -m pytest -m "not e2e" --cov=lib --cov=server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+        # -n 固定 4 而非 auto：-n auto 优先取 psutil 的物理核数，一旦某传递依赖带进
+        # psutil，CI worker 数会静默减半。loadfile 而非默认 load：仓库根共享路径
+        # （PROJECT_ROOT 下 mkdir/rmdir、module 级 autouse fixture）要求同文件用例
+        # 留在同一 worker。
+        run: >-
+          uv run python -m pytest ${{ matrix.path }} -n 4 --dist loadfile
+          --cov=lib --cov=server --cov-report=term-missing
+          --cov-report=xml:coverage-${{ matrix.suite }}.xml
 
       - name: Upload backend coverage
+        # unit/integration 使用同一 flag；Codecov 按 commit 合并，无需本地聚合作业。
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.xml
+          files: coverage-${{ matrix.suite }}.xml
           flags: backend
           fail_ci_if_error: false
 
@@ -140,7 +215,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
@@ -160,9 +235,12 @@ jobs:
           uv run alembic upgrade head           # 4. 再次正向，验证 downgrade 真清掉了
 
       - name: Run dialect-sensitive tests against Postgres
+        # 4 worker + loadfile：独立 schema 用例可并行，共用 public schema 的 async_session
+        # 用例留在同一文件/worker，避免主键与锁冲突。
         run: |
           uv run python -m pytest -v \
             -m "uses_db and not sqlite_only" \
+            -n 4 --dist loadfile \
             --cov=lib --cov=server --cov-report=xml:coverage-pg.xml
 
       - name: Upload PG coverage
@@ -173,7 +251,7 @@ jobs:
           flags: postgres
           fail_ci_if_error: false
 
-  frontend-tests:
+  frontend-static:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
@@ -201,9 +279,37 @@ jobs:
         working-directory: frontend
         run: pnpm lint
 
+      - name: Knip
+        working-directory: frontend
+        run: pnpm knip
+
       - name: Build
         working-directory: frontend
         run: pnpm build
+
+  frontend-tests:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
 
       - name: Run tests with coverage
         working-directory: frontend
@@ -306,7 +412,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Build amd64 image (no push)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -369,7 +475,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
@@ -413,9 +519,12 @@ jobs:
     needs:
       [
         changes,
+        workflow-static,
         backend-static,
+        test-lint,
         backend-tests,
         postgres-compat,
+        frontend-static,
         frontend-tests,
         docker-verify,
         website-checks,

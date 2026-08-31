@@ -2,10 +2,12 @@
 import { useState, useEffect, useMemo, useCallback, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
+import { useSearch } from "wouter";
 import { API } from "@/api";
 import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
-import { formatCostOrZero } from "@/utils/cost-format";
+import { formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
 import type { UsageStat } from "@/types";
+import type { UsageCall } from "@/stores/usage-store";
 
 const EDITORIAL_KPI_STYLE: CSSProperties = {
   fontSize: 22,
@@ -34,12 +36,45 @@ const ACTIVE_RANGE_BTN_STYLE: CSSProperties = {
   boxShadow: "0 0 18px -8px var(--color-accent-glow)",
 };
 
+const USAGE_STATUS_KEYS = {
+  pending: "usage_call_status_pending",
+  success: "usage_call_status_success",
+  failed: "usage_call_status_failed",
+} as const;
+
 export function UsageStatsSection() {
   const { t, i18n } = useTranslation("dashboard");
+  const search = useSearch();
   const [stats, setStats] = useState<UsageStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState(7);
   const [providerFilter, setProviderFilter] = useState<string>("");
+  const [selectedCallResult, setSelectedCallResult] = useState<{
+    callId: number;
+    call: UsageCall | null;
+  } | null>(null);
+  const callId = useMemo(() => {
+    const parsed = Number(new URLSearchParams(search).get("call_id"));
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }, [search]);
+
+  useEffect(() => {
+    if (callId === null) return;
+    const controller = new AbortController();
+    void API.getUsageCalls({ callId, pageSize: 1 }, { signal: controller.signal })
+      .then((response) => {
+        if (!controller.signal.aborted) {
+          setSelectedCallResult({
+            callId,
+            call: (response as { items?: UsageCall[] }).items?.[0] ?? null,
+          });
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setSelectedCallResult({ callId, call: null });
+      });
+    return () => controller.abort();
+  }, [callId]);
 
   const percentFmt = useMemo(() => {
     const lang = i18n.language.split("-")[0];
@@ -79,7 +114,8 @@ export function UsageStatsSection() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 依赖变化时重新获取统计数据，fetchStats 内部有 setState
     void fetchStats();
-  }, [fetchStats]);
+    // 供应商名由后端按 Accept-Language 成文，语言切换后须重取，否则列表停留在切换前的语言。
+  }, [fetchStats, i18n.language]);
 
   const providers = useMemo(() => {
     const locale = i18n.language;
@@ -112,6 +148,10 @@ export function UsageStatsSection() {
     }
     return { costByCurrency, calls, success };
   }, [stats]);
+  const selectedCallStatus = selectedCallResult?.call?.status;
+  const selectedCallStatusKey = selectedCallStatus
+    ? USAGE_STATUS_KEYS[selectedCallStatus as keyof typeof USAGE_STATUS_KEYS]
+    : undefined;
 
   return (
     <div className="space-y-7">
@@ -127,6 +167,33 @@ export function UsageStatsSection() {
           {t("usage_stats_by_provider")}
         </p>
       </div>
+
+      {callId !== null && (
+        <div
+          id={`usage-call-${callId}`}
+          className="rounded-[10px] border border-accent/45 bg-accent-dim px-5 py-4"
+        >
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+            {t("ce_trial_ledger", { id: callId })}
+          </div>
+          {selectedCallResult?.callId !== callId ? (
+            <Loader2 className="mt-2 h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-label={t("common:loading")} />
+          ) : selectedCallResult.call ? (
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-text-2">
+              <span>{selectedCallResult.call.provider}</span>
+              <span>{selectedCallResult.call.model}</span>
+              <span>{selectedCallStatusKey ? t(selectedCallStatusKey) : selectedCallResult.call.status}</span>
+              <span>
+                {formatCurrencyAmount(selectedCallResult.call.currency, selectedCallResult.call.cost_amount, {
+                  maximumFractionDigits: 6,
+                })}
+              </span>
+            </div>
+          ) : (
+            <div className="mt-2 text-[12px] text-text-3">{t("no_call_records")}</div>
+          )}
+        </div>
+      )}
 
       {/* Totals strip */}
       <div

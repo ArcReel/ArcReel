@@ -34,11 +34,12 @@ const UNCONFIGURED_BADGE_STYLE: CSSProperties = {
 
 interface CustomProviderDetailProps {
   providerId: number;
+  initialModelId?: string;
   onDeleted: () => void;
   onSaved: () => void;
 }
 
-export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomProviderDetailProps) {
+export function CustomProviderDetail({ providerId, initialModelId, onDeleted, onSaved }: CustomProviderDetailProps) {
   const { t, i18n } = useTranslation("dashboard");
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
@@ -67,11 +68,11 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
   useEffect(() => {
     // providerId 切换时重置编辑/删除/测试态并重新拉取（动作驱动重置）
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setEditing(false);
+    setEditing(Boolean(initialModelId));
     setConfirmDelete(false);
     setTestResult(null);
     void fetchProvider();
-  }, [fetchProvider]);
+  }, [fetchProvider, initialModelId]);
 
   const handleDelete = useCallback(async () => {
     setDeleting(true);
@@ -93,10 +94,10 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await API.testCustomConnectionById(provider.id);
+      const res = await API.checkCustomConnectivityById(provider.id);
       setTestResult(res);
     } catch (e) {
-      setTestResult({ success: false, message: errMsg(e, t("connection_test_failed")) });
+      setTestResult({ success: false, message: errMsg(e, t("connectivity_check_failed")) });
     } finally {
       setTesting(false);
     }
@@ -123,6 +124,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
     return (
       <CustomProviderForm
         existing={provider}
+        focusModelId={initialModelId}
         onSaved={handleFormSaved}
         onCancel={() => setEditing(false)}
       />
@@ -318,10 +320,10 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
             {testing ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
-                {t("testing_connection")}
+                {t("connectivity_checking")}
               </>
             ) : (
-              t("test_connection")
+              t("connectivity_check")
             )}
           </button>
 

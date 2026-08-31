@@ -15,7 +15,7 @@ from lib.config.url_utils import normalize_base_url
 from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GEMINI
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.retry import with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
@@ -26,6 +26,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     poll_with_retry,
+    with_artifact_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ _DURATION_CONSTRAINED_RESOLUTIONS = frozenset({"1080p", "4k"})
 
 # 请求里带得动音轨开关的 Veo 型号（即 Vertex 目录）：`_create_task` 只在 backend_type == "vertex"
 # 时下发 generate_audio，AI Studio 的请求没有这个字段。两家目录的 model 命名不重叠，一致性由
-# tests/test_video_backend_capabilities.py 的音轨立场守卫锁定（新增型号漏登记会在那里暴露）。
+# tests/unit/lib/video_backends/test_video_backend_capabilities.py 的音轨立场守卫锁定（新增型号漏登记会在那里暴露）。
 _AUDIO_SWITCH_MODELS: frozenset[str] = frozenset(
     {
         "veo-3.1-generate-001",
@@ -288,8 +289,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
                 poll_fn=lambda: self._client.aio.operations.get(operation),
                 is_done=lambda op: op.done,
                 is_failed=lambda op: None,  # Gemini 在轮询完成后检查失败
-                poll_interval=20,  # 与 Google 官方推荐一致
-                max_wait=600,
+                max_wait=request.poll_timeout_seconds,
                 label="Gemini",
                 on_progress=lambda op, elapsed: logger.info(
                     "视频生成中... 已等待 %.0f 秒 (operation=%s)", elapsed, op_name
@@ -353,18 +353,21 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             }
             mime_type = mime_types.get(suffix, mime_type_png)
             return self._types.Image(image_bytes=image_bytes, mime_type=mime_type)
-        elif isinstance(image, Image.Image):
-            buffer = io.BytesIO()
-            image.save(buffer, format="PNG")
-            image_bytes = buffer.getvalue()
-            return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
-        else:
-            return image
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        image_bytes = buffer.getvalue()
+        return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
 
-    @with_retry_async(max_attempts=DOWNLOAD_MAX_ATTEMPTS, backoff_seconds=DOWNLOAD_BACKOFF_SECONDS)
     async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
-        """下载视频（含瞬态错误重试）。"""
-        await asyncio.to_thread(self._download_video, video_ref, output_path)
+        """下载视频，重试走共用的产物下载预算。
+
+        SDK 取件抛的不是 ``HTTPStatusError``，故退到按 ``retryable_errors`` 判定。
+        """
+        await with_artifact_retry(
+            lambda: asyncio.to_thread(self._download_video, video_ref, output_path),
+            label="Gemini",
+            retry_if=None,
+        )
 
     def _download_video(self, video_ref, output_path: Path) -> None:
         """下载视频到本地文件 — 提取自 GeminiClient。"""
@@ -396,7 +399,7 @@ def _is_gemini_not_found(exc: BaseException) -> bool:
     与 NOT_FOUND（资源不存在）语义不同；归过期会把客户端 bug 当成幽灵任务静默吞掉。
     """
     try:
-        from google.genai import errors as _genai_errors  # pyright: ignore[reportMissingImports]
+        from google.genai import errors as _genai_errors
     except ImportError:
         _genai_errors = None
 

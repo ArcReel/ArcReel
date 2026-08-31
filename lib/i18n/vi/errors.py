@@ -17,6 +17,9 @@ MESSAGES = {
     "title_required": "Tên dự án không được để trống",
     "project_exists": "Dự án '{name}' đã tồn tại",
     "script_not_found": "Kịch bản '{name}' không tồn tại",
+    "script_item_not_found": "Không có phân cảnh '{id}' trong kịch bản này",
+    "prompt_preview_missing": "Phân cảnh này chưa có lời nhắc",
+    "prompt_preview_invalid": "Không thể kết xuất lời nhắc, hãy kiểm tra định dạng",
     "scene_not_found": "Cảnh '{id}' không tồn tại",
     "segment_not_found": "Đoạn '{id}' không tồn tại",
     "script_missing": "Kịch bản không tồn tại",
@@ -39,11 +42,13 @@ MESSAGES = {
     "invalid_encoding": "Lỗi mã hóa tệp, vui lòng dùng tệp văn bản mã hóa UTF-8",
     "unauthorized": "Tên đăng nhập hoặc mật khẩu không đúng",
     "task_not_found": "Tác vụ '{id}' không tồn tại",
+    "task_retry_download_unavailable": "Tác vụ '{id}' hiện không thể thử tải lại",
     # Lý do tác vụ thất bại (GenerationWorker lưu mã lỗi + tham số; tasks API kết xuất theo ngôn ngữ khi đọc)
     "task_fail_provider_unsupported_media": "Nhà cung cấp {provider_id} không hỗ trợ tạo {media_type}",
     "task_fail_dispatch_provider_requeue_failed": "Nhà cung cấp tác vụ đã đổi từ {claimed_provider_id} sang {actual_provider_id}, nhưng không thể đưa tác vụ trở lại hàng đợi để nhận khe mới; vui lòng thử lại",
     "task_fail_restart_lost_image": "Tác vụ ảnh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
     "task_fail_restart_lost_audio": "Tác vụ âm thanh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
+    "task_fail_restart_lost_text": "Tác vụ văn bản bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
     "task_fail_restart_lost_no_job_id": "Tác vụ video không lưu thông tin tiếp tục trước khi dịch vụ khởi động lại và không thể tự khôi phục; vui lòng thử lại thủ công",
     "task_fail_restart_lost_resume_no_job_id": "Tác vụ thiếu thông tin tiếp tục và không thể khôi phục; vui lòng thử lại thủ công",
     "task_fail_restart_lost_checkpoint_no_job_id": "Tác vụ đã vượt qua ranh giới gửi nhưng chưa lưu mã tác vụ của nhà cung cấp và không thể tự động thử lại vì có nguy cơ tính phí trùng",
@@ -55,9 +60,12 @@ MESSAGES = {
     "task_fail_resume_endpoint_changed_detail": (
         "Endpoint của mô hình này đã thay đổi nên không thể tiếp tục tác vụ đã gửi trước đó: {detail}"
     ),
+    "task_fail_declarative_template_render_failed": "Không thể kết xuất yêu cầu endpoint: {detail}",
+    "task_fail_declarative_response_extract_failed": "Không thể trích xuất phản hồi endpoint: {detail}",
+    "task_fail_artifact_download_failed": "Đã tạo video nhưng tải tệp xuống thất bại; hãy thử tải lại: {detail}",
     "task_fail_cascade_blocked_dependency": "Bị chặn do tác vụ phụ thuộc {dependency_task_id} thất bại: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt phải là chuỗi hoặc đối tượng chứa scene/composition",
-    "prompt_scene_empty": "prompt.scene không được để trống",
+    "prompt_scene_empty": "prompt.scene phải là văn bản không rỗng",
     "prompt_must_be_string_or_object": "prompt phải là chuỗi hoặc đối tượng",
     "prompt_text_empty": "prompt không được để trống",
     "storyboard_task_submitted": "Đã gửi tác vụ tạo phân cảnh cho '{segment_id}'",
@@ -114,7 +122,10 @@ MESSAGES = {
     "video_shorter_than_tts": "Video đã tạo dài {video_duration:.1f}s, ngắn hơn âm thanh thuyết minh {tts_duration:.1f}s; hãy tạo lại mà không cắt hoặc tăng tốc lời nói",
     "audio_provider_not_configured": "Vui lòng cấu hình nhà cung cấp âm thanh trước: thêm nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói trong Cài đặt → Nhà cung cấp",
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
+    "character_voice_binding_invalid": "Cách ràng buộc giọng nhân vật chỉ có thể là theo mô tả hoặc âm thanh tham chiếu",
+    "video_poll_timeout_minimum": "Thời gian chờ thăm dò video phải ít nhất 60 giây",
     "speech_rate_out_of_range": "Nhịp đọc phải nằm trong khoảng {min} đến {max} (ký tự hoặc từ mỗi giây)",
+    "episode_target_duration_out_of_range": "Thời lượng mục tiêu mỗi tập phải nằm trong khoảng {min} đến {max} giây",
     "character_not_found": "Nhân vật '{name}' không tồn tại",
     "character_task_submitted": "Đã gửi tác vụ tạo hình tài sản nhân vật cho '{name}'",
     "voice_sample_voice_required": "Vui lòng chọn giọng đọc trước",
@@ -145,14 +156,14 @@ MESSAGES = {
     "asset_field_invalid_value": "giá trị trường này không hợp lệ",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
-    "invalid_step_num": "Số bước không hợp lệ: {step_num}",
+    "invalid_draft_stage": "Giai đoạn bản nháp không hợp lệ: {stage}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
-    "draft_invalid_json": "Bản nháp tổ chức nội dung có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
-    "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả tổ chức nội dung để xác nhận)",
-    "script_review_no_step1": "Chưa có kết quả tổ chức nội dung để xác nhận; vui lòng hoàn tất tổ chức nội dung trước",
+    "draft_invalid_json": "Bản nháp kế hoạch kịch bản có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
+    "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả kế hoạch kịch bản để xác nhận)",
+    "script_review_no_script_plan": "Chưa có kết quả kế hoạch kịch bản để xác nhận; vui lòng hoàn tất kế hoạch kịch bản trước",
     "script_review_quarantined": ("Tập này có bản nháp cần sửa; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"),
     "script_review_conflict": (
-        "Bản nháp tổ chức nội dung đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
+        "Bản nháp kế hoạch kịch bản đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
         "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
     ),
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp xác nhận nội dung thất bại; vui lòng kiểm tra và thử lại",
@@ -173,10 +184,10 @@ MESSAGES = {
     "vertex_json_too_large": "Tệp thông tin xác thực quá lớn",
     "vertex_json_invalid": "Tệp thông tin xác thực JSON không hợp lệ",
     "vertex_json_missing_project_id": "Tệp thông tin xác thực thiếu project_id",
-    "connection_success": "Kết nối thành công",
-    "connection_timeout": "Kết nối hết thời gian, vui lòng kiểm tra mạng hoặc cấu hình API",
-    "connection_failed": "Kết nối thất bại: {err_msg}",
-    "unsupported_test": "Nhà cung cấp {provider_id} hiện chưa hỗ trợ kiểm tra kết nối",
+    "connectivity_check_ok": "Kết nối được",
+    "connectivity_check_timeout": "Kiểm tra kết nối quá hạn, vui lòng kiểm tra mạng hoặc cấu hình API",
+    "connectivity_check_failed": "Kiểm tra kết nối thất bại: {err_msg}",
+    "connectivity_check_unsupported": "Nhà cung cấp {provider_id} hiện chưa hỗ trợ kiểm tra kết nối",
     "missing_credentials": "Thiếu cấu hình thông tin xác thực, vui lòng thêm khóa trước",
     "credential_group_ambiguous": (
         "Lần gửi này chứa các trường thuộc nhiều nhóm thông tin xác thực loại trừ lẫn nhau, không "
@@ -198,15 +209,35 @@ MESSAGES = {
     "duplicate_model_id": "model_id trùng lặp: {model_id}",
     "default_model_conflict": "Mỗi media_type chỉ có tối đa một mô hình mặc định. Xung đột: {conflict}",
     "provider_not_found": "Nhà cung cấp không tồn tại",
+    "custom_endpoint_not_found": "Endpoint không tồn tại",
+    "custom_endpoint_definition_invalid": "Định nghĩa endpoint không qua được kiểm tra, hãy sửa các lỗi được báo rồi thử lại",
+    "custom_endpoint_referenced_by_models": "Endpoint này đang được {count} mô hình sử dụng, hãy gỡ các tham chiếu đó trước khi xóa",
+    # ---- Kiểm thử endpoint ----
+    "endpoint_test_payload_required": "Thiếu trường payload: khi tải tệp lên, hãy đặt JSON của yêu cầu vào trường biểu mẫu payload",
+    "endpoint_test_payload_invalid": "Không phân tích được nội dung yêu cầu, hãy kiểm tra định dạng JSON và kiểu dữ liệu",
+    "endpoint_test_asset_too_large": "Tệp {name} vượt quá giới hạn {limit_mb} MB",
+    "endpoint_test_credentials_required": "Chạy thử cần thông tin xác thực: hãy chọn một nhà cung cấp, hoặc nhập địa chỉ API và API Key",
+    "endpoint_test_provider_not_custom": "{provider_id} không phải nhà cung cấp tùy chỉnh nên không đọc được thông tin xác thực",
+    "endpoint_test_definition_or_model_ref_required": "Hãy cung cấp một định nghĩa endpoint, hoặc chỉ định mô hình cần chạy thử",
+    "endpoint_test_definition_and_model_ref_exclusive": "Chỉ được cung cấp một trong hai: định nghĩa endpoint hoặc mô hình cần chạy thử",
+    "endpoint_test_too_many_assets": "Số lượng tệp tài nguyên vượt quá giới hạn {limit}",
+    "endpoint_test_credentials_ambiguous": "Chỉ được cung cấp một nguồn thông tin xác thực: chọn nhà cung cấp, hoặc điền trực tiếp địa chỉ API và API Key",
+    "endpoint_test_model_unavailable": "Mô hình này đã bị tắt hoặc không phải mô hình video, không thể chạy kiểm tra kết nối",
+    "endpoint_test_provider_base_url_required": "Điểm cuối của mô hình này cần địa chỉ API; hãy điền base_url cho nhà cung cấp trước",
+    "model_not_found": "Không tìm thấy mô hình",
+    "trial_run_already_running": "Đã có một lần chạy thử đang diễn ra, hãy đợi nó kết thúc hoặc hủy trước",
+    "trial_run_not_found": "Không tìm thấy bản ghi chạy thử hoặc bản ghi đã hết hạn",
+    "trial_run_artifact_not_found": "Lần chạy thử này không có sản phẩm để phát",
     "at_least_one_field_required": "Phải cung cấp ít nhất một trường để cập nhật",
     "discovery_failed": "Phát hiện mô hình thất bại: {err_msg}",
     "anthropic_discovery_no_key": "API Key chưa được cấu hình, không thể phát hiện mô hình",
     "unknown_endpoint": "Endpoint không xác định: {endpoint}",
+    "endpoint_definition_not_found": "Endpoint {endpoint} không có định nghĩa khai báo",
     "unknown_discovery_format": "discovery_format không hỗ trợ: {discovery_format}",
     "endpoint_required": "Mô hình đã bật phải chỉ định endpoint",
     "endpoint_media_type_mismatch": "media_type của endpoint không khớp: {detail}",
     "backend_creation_failed": "Tạo backend thất bại: {err_msg}",
-    "unsupported_discovery_format": "Kiểm tra kết nối không hỗ trợ với {discovery_format}",
+    "connectivity_check_unsupported_format": "Không hỗ trợ kiểm tra kết nối với {discovery_format}",
     "capability_overrides_video_only": (
         "Endpoint {endpoint} của mô hình {model_id} không phải loại video; không hỗ trợ ghi đè năng lực"
     ),
@@ -229,6 +260,7 @@ MESSAGES = {
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",
     "ad_no_default_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mặc định; thời lượng cảnh quay được lên kế hoạch theo tổng thời lượng mục tiêu",
+    "ad_no_episode_target_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mục tiêu mỗi tập; tổng thời lượng được lên kế hoạch theo tổng thời lượng mục tiêu",
     "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ phân cảnh đa lưới",
     "grid_storyboard_not_enabled": "Dự án chưa bật phân cảnh đa lưới",
     "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
@@ -319,6 +351,9 @@ MESSAGES = {
         "Nhân vật '{name}' không có ảnh tham chiếu (chỉ xuất hiện ngoài hình): mô hình video hiện tại yêu cầu "
         "âm thanh tham chiếu phải gắn theo từng ảnh tham chiếu, giọng lời thoại của nhân vật này sẽ do mô hình "
         "tự quyết định"
+    ),
+    "ref_warn_unit_without_scene": (
+        "Đơn vị này không tham chiếu bối cảnh nào; địa điểm của khung hình sẽ do mô hình tự quyết định"
     ),
     "ref_warn_silent_model": (
         "Mô hình video hiện tại '{model}' không tạo âm thanh, lời thoại chỉ dùng làm gợi ý cho prompt"

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import httpx
 
+from lib.async_thread import run_sync_transaction
 from lib.audio_backends.base import (
     AudioCapability,
     AudioSynthesisRequest,
@@ -29,8 +30,13 @@ from lib.dashscope_shared import (
 )
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_DASHSCOPE
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
-from lib.video_backends.base import should_retry_download, should_retry_submit, submit_post
+from lib.retry import with_retry_async
+from lib.video_backends.base import (
+    should_retry_signed_download,
+    should_retry_submit,
+    submit_post,
+    with_artifact_retry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,16 +168,20 @@ class DashScopeAudioBackend:
             )
             return extract_audio_url(resp.json())
 
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        # 下载是幂等 GET：HTTPStatusError 按 status_code 闸门（should_retry_download，4xx 含 404 一律
-        # fail-fast——预签发 URL 的 4xx 是确定性错误），5xx/传输/网络错误重试，业务错误 fail-fast；
-        # 200-空体（_EmptyDownloadError）属瞬态另行重试。
-        retry_if=lambda e: isinstance(e, _EmptyDownloadError) or should_retry_download(e),
-    )
     async def _download_audio(self, url: str, output_path: Path) -> None:
-        """下载合成音频（非计费段，可独立多次重试）。"""
+        """下载合成音频（非计费段），走共用的产物下载预算。
+
+        下载是幂等 GET：HTTPStatusError 按 status_code 闸门（``should_retry_signed_download``，
+        预签发 URL 的 4xx 是确定性错误一律 fail-fast），5xx/传输/网络错误重试，业务错误
+        fail-fast；200-空体（``_EmptyDownloadError``）属瞬态另行重试。
+        """
+        await with_artifact_retry(
+            lambda: self._fetch_audio(url, output_path),
+            label="DashScope 音频",
+            retry_if=lambda e: isinstance(e, _EmptyDownloadError) or should_retry_signed_download(e),
+        )
+
+    async def _fetch_audio(self, url: str, output_path: Path) -> None:
         # 日志与异常只带去掉 query 的 URL：预签名参数在有效期内等同下载凭证
         safe_url = url.split("?", 1)[0]
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
@@ -188,4 +198,8 @@ class DashScopeAudioBackend:
             if not resp.content:
                 # 200 但空体：不写 0 字节 wav
                 raise _EmptyDownloadError(f"DashScope 音频下载返回空内容: {safe_url}")
-            output_path.write_bytes(resp.content)
+            # 走 run_sync_transaction 而非裸 to_thread：调用方 MediaGenerator.generate_audio_async
+            # 的 finally 会 unlink staging 路径，取消时线程若仍在写就会与该清理交错
+            # （POSIX 下写出孤儿文件，Windows 下 unlink 报 PermissionError）。写入先结算、
+            # 再放取消传出去。
+            await run_sync_transaction(output_path.write_bytes, resp.content)

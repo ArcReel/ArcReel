@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Generator
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,7 @@ def domain_error_on_value_error(
     factory: Callable[[ValueError], BaseException],
     *,
     extra_passthrough: tuple[type[BaseException], ...] = (),
-) -> Iterator[None]:
+) -> Generator[None]:
     """把业务解析调用抛出的 ``ValueError`` 转换为调用方指定的领域错误。
 
     ``json.JSONDecodeError`` 是 ``ValueError`` 子类，须先于通用 ``ValueError`` 分支放行——
@@ -65,10 +65,8 @@ def atomic_write_json(path: Path, data: Any) -> None:
         tmp_path = None
     finally:
         if tmp_path is not None:
-            try:
+            with suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass
 
 
 def atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -94,7 +92,5 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
         tmp_path = None
     finally:
         if tmp_path is not None:
-            try:
+            with suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass

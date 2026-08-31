@@ -8,10 +8,10 @@ from .project_manager import ProjectManager
 from .validation_messages import ValidationResult
 
 __all__ = [
-    "ProjectManager",
     "PROJECT_ROOT",
     "DataValidator",
-    "validate_project",
-    "validate_episode",
+    "ProjectManager",
     "ValidationResult",
+    "validate_episode",
+    "validate_project",
 ]

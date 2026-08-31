@@ -27,7 +27,7 @@ async def download_logs(_t: Translator) -> StreamingResponse:
     log_dir = resolve_log_dir()
     diagnostics_lines: list[str] = []
 
-    spooled = tempfile.SpooledTemporaryFile(max_size=_SPOOL_MAX)
+    spooled = tempfile.SpooledTemporaryFile(max_size=_SPOOL_MAX)  # noqa: SIM115 -- 句柄要活过本函数、随 StreamingResponse 流式读完才关，不能收进 with
     try:
         with zipfile.ZipFile(spooled, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             if log_dir.exists():

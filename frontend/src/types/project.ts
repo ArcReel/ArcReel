@@ -43,7 +43,7 @@ export interface Prop {
 
 export interface Product {
   description: string;
-  /** 标准多角度商品资产图（可选，生成/上传后回写）。 */
+  /** 标准商品资产图（可选，生成/上传后回写）。 */
   product_sheet?: string;
   /** 品牌要素自由文本。 */
   brand?: string;
@@ -117,13 +117,19 @@ export interface EpisodeMeta {
    * 计数口径由项目的 generation_mode 决定，三种创作类型一致。
    */
   item_count?: number;
-  /** Script progress derived from the step1 and final-script artifact states */
+  /** Script progress derived from the script_plan and final-script artifact states */
   script_status?: "none" | "segmented" | "generated";
   status?: "draft" | "scripted" | "in_production" | "completed" | "missing";
   duration_seconds?: number;
   storyboards?: ArtifactCount;
   videos?: ArtifactCount;
 }
+
+/** 角色声音绑定方式；与后端 `lib.character_voice.CharacterVoiceBinding` 一一对应，取值增减须两侧同步。 */
+export type CharacterVoiceBinding = "prompt" | "reference_audio";
+
+/** 未声明时的取值：提示词软约束。参考音频是可选增强，须由用户显式选择才生效。 */
+export const DEFAULT_CHARACTER_VOICE_BINDING: CharacterVoiceBinding = "prompt";
 
 export interface ModelSettingEntry {
   resolution?: string | null;
@@ -141,6 +147,7 @@ export interface ProjectData {
   overview?: ProjectOverview;
   aspect_ratio?: string | AspectRatio;  // 新项目为 string，旧项目可能为 dict
   default_duration?: number | null;     // 新分镜的默认视频时长（秒），空值即由 AI 按内容决定；ad 项目不持有
+  episode_target_duration?: number | null;  // 单集成片目标时长（秒）软偏好，空值即未设目标；ad 项目不持有
   /** 仅 ad：目标总时长（秒）。 */
   target_duration?: number;
   /** 仅 ad：创作诉求短文本（可空）。 */
@@ -168,6 +175,8 @@ export interface ProjectData {
   /** 多宫格分镜装配开关；仅分镜图生视频有意义，随时可切。 */
   grid_storyboard?: boolean;
   video_generate_audio?: boolean | null;
+  /** 角色声音绑定方式：prompt（默认，按 voice_style 提示词软约束）/ reference_audio（挂角色参考音频）。 */
+  character_voice_binding?: CharacterVoiceBinding;
   /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */
   audio_backend?: string | null;
   narration_voice?: string | null;

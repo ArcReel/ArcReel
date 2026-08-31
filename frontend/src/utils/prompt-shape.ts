@@ -43,3 +43,17 @@ export function isStructuredVideoPrompt(value: unknown): value is VideoPrompt {
       typeof item.line === "string",
   );
 }
+
+/** 文本形态切回结构化时的空结构：不解析原文本，字段留空由创作者重填。 */
+export function emptyImagePrompt(): ImagePrompt {
+  return { scene: "", composition: { shot_type: "Medium Shot", lighting: "", ambiance: "" } };
+}
+
+/**
+ * 同上；drama 的口播由分镜级 utterances 承载，其 video_prompt 不带 dialogue（后端
+ * DramaVideoPrompt 在 extra="forbid" 下读时剥离该键），故 drama 分支断言到同一类型。
+ */
+export function emptyVideoPrompt(isDrama: boolean): VideoPrompt {
+  const base = { action: "", camera_motion: "Static" as const, ambiance_audio: "" };
+  return isDrama ? (base as VideoPrompt) : { ...base, dialogue: [] };
+}

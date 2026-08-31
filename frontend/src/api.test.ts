@@ -8,6 +8,7 @@ import {
   ScriptEditCommandError,
   SpeechAdmissionError,
 } from "@/api";
+import { clearToken, setToken } from "@/utils/auth";
 
 type JsonResponseOptions = {
   ok?: boolean;
@@ -184,15 +185,12 @@ describe("API", () => {
         }),
       ));
 
-      try {
-        await API.sendAssistantMessage("demo", "hello");
-        expect.fail("request should fail");
-      } catch (error) {
-        expect(error).toBeInstanceOf(AgentFailureError);
-        expect((error as AgentFailureError).message).toBe("Agent 启动失败");
-        expect((error as AgentFailureError).code).toBe("agent_startup_failed");
-        expect((error as AgentFailureError).failure).toEqual(failure);
-      }
+      const error: AgentFailureError = await API.sendAssistantMessage("demo", "hello").catch((e) => e);
+
+      expect(error).toBeInstanceOf(AgentFailureError);
+      expect(error.message).toBe("Agent 启动失败");
+      expect(error.code).toBe("agent_startup_failed");
+      expect(error.failure).toEqual(failure);
     });
 
     it("preserves and presents a structured speech admission blocker", async () => {
@@ -221,15 +219,17 @@ describe("API", () => {
         mockResponse({ ok: false, status: 409, jsonData: { detail: admission } }),
       ));
 
-      try {
-        await API.generateVideo("demo", "E1S01", "vid", "episode_1.json");
-        expect.fail("request should fail");
-      } catch (error) {
-        expect(error).toBeInstanceOf(SpeechAdmissionError);
-        expect((error as SpeechAdmissionError).admission).toEqual(admission);
-        expect((error as Error).message).toContain("E1S01");
-        expect((error as Error).message).toContain("utterances.0.text");
-      }
+      const error: SpeechAdmissionError = await API.generateVideo(
+        "demo",
+        "E1S01",
+        "vid",
+        "episode_1.json",
+      ).catch((e) => e);
+
+      expect(error).toBeInstanceOf(SpeechAdmissionError);
+      expect(error.admission).toEqual(admission);
+      expect(error.message).toContain("E1S01");
+      expect(error.message).toContain("utterances.0.text");
     });
 
     it("preserves a narrated-video duration blocker for an exact-tier retry", async () => {
@@ -289,13 +289,12 @@ describe("API", () => {
         mockResponse({ ok: false, status: 409, jsonData: { detail: result } }),
       ));
 
-      try {
-        await API.updateScene("demo", "E1S01", "episode_1.json", { note: "keep" });
-        expect.fail("request should fail");
-      } catch (error) {
-        expect(error).toBeInstanceOf(ScriptEditCommandError);
-        expect((error as ScriptEditCommandError).result).toEqual(result);
-      }
+      const error: ScriptEditCommandError = await API.updateScene("demo", "E1S01", "episode_1.json", {
+        note: "keep",
+      }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ScriptEditCommandError);
+      expect(error.result).toEqual(result);
     });
 
     it("preserves a structured reference request projection blocker", async () => {
@@ -328,13 +327,9 @@ describe("API", () => {
         mockResponse({ ok: false, status: 400, jsonData: { detail: projection } }),
       ));
 
-      try {
-        await API.precheckReferenceVideoDuration("demo", 1, "E1U1");
-        expect.fail("request should fail");
-      } catch (error) {
-        expect(error).toBeInstanceOf(ReferenceProjectionError);
-        expect(error).toMatchObject({ message: "参考图缺失", projection });
-      }
+      const call = API.precheckReferenceVideoDuration("demo", 1, "E1U1");
+      await expect(call).rejects.toBeInstanceOf(ReferenceProjectionError);
+      await expect(call).rejects.toMatchObject({ message: "参考图缺失", projection });
     });
 
     it("clears auth and redirects on unauthorized responses", async () => {
@@ -417,7 +412,7 @@ describe("API", () => {
       await API.getSystemVersion();
       await API.updateSystemConfig({ default_image_backend: "vertex" });
       await API.listFiles("demo");
-      await API.deleteDraft("demo", 1, 2);
+      await API.deleteDraft("demo", 1, "script_plan");
       await API.generateOverview("demo");
       await API.updateOverview("demo", { synopsis: "new" });
 
@@ -669,6 +664,7 @@ describe("API", () => {
         endDate: "2026-02-01",
       });
       await API.getUsageCalls({
+        callId: 42,
         projectName: "demo",
         callType: "image",
         status: "succeeded",
@@ -701,7 +697,7 @@ describe("API", () => {
         { signal: undefined },
       );
       expect(requestSpy).toHaveBeenCalledWith(
-        "/usage/calls?project_name=demo&call_type=image&status=succeeded&start_date=2026-01-01&end_date=2026-02-01&page=1&page_size=50",
+        "/usage/calls?call_id=42&project_name=demo&call_type=image&status=succeeded&start_date=2026-01-01&end_date=2026-02-01&page=1&page_size=50",
         { signal: undefined },
       );
       expect(requestSpy).toHaveBeenCalledWith("/usage/projects");
@@ -747,7 +743,7 @@ describe("API", () => {
       });
     });
 
-    it("covers step1→step2 script-review gate endpoints", async () => {
+    it("covers script_plan→prompt_authoring script-review gate endpoints", async () => {
       const requestSpy = vi.spyOn(API, "request").mockResolvedValue({ status: "pending_review" } as never);
 
       const content = {
@@ -914,8 +910,8 @@ describe("API", () => {
       await expect(API.deleteSourceFile("demo", "source.txt")).resolves.toEqual({
         success: true,
       });
-      await expect(API.getDraftContent("demo", 1, 2)).resolves.toBe("draft content");
-      await expect(API.saveDraft("demo", 1, 2, "draft")).resolves.toEqual({
+      await expect(API.getDraftContent("demo", 1, "script_plan")).resolves.toBe("draft content");
+      await expect(API.saveDraft("demo", 1, "script_plan", "draft")).resolves.toEqual({
         success: true,
       });
 
@@ -1437,27 +1433,67 @@ describe("uploadFile (source) onConflict", () => {
         { status: 409 }
       )
     );
-    try {
-      await API.uploadFile("p", "source", new File(["x"], "a.txt"));
-      expect.unreachable();
-    } catch (err) {
-      expect(err).toBeInstanceOf(ConflictError);
-      expect((err as ConflictError).existing).toBe("a.txt");
-      expect((err as ConflictError).suggestedName).toBe("a_1");
-    }
+    const call = API.uploadFile("p", "source", new File(["x"], "a.txt"));
+    await expect(call).rejects.toBeInstanceOf(ConflictError);
+    await expect(call).rejects.toMatchObject({ existing: "a.txt", suggestedName: "a_1" });
   });
 
   it("throws generic Error (not ConflictError) on 409 with malformed detail", async () => {
     (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Response(JSON.stringify({ detail: {} }), { status: 409 }),
     );
+    // 避免前端手搓 suggested_name 冒充后端语义：detail 不完整时应直接报协议异常
+    const call = API.uploadFile("p", "source", new File(["x"], "a.txt"));
+    await expect(call).rejects.not.toBeInstanceOf(ConflictError);
+    await expect(call).rejects.toThrow("a.txt");
+  });
+});
+
+describe("custom endpoint test multipart", () => {
+  it("fetches the artifact with the current auth header", async () => {
+    const blob = new Blob(["video"], { type: "video/mp4" });
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse({ blobData: blob }));
+    vi.stubGlobal("fetch", fetchMock);
+    setToken("session token");
     try {
-      await API.uploadFile("p", "source", new File(["x"], "a.txt"));
-      expect.unreachable();
-    } catch (err) {
-      // 避免前端手搓 suggested_name 冒充后端语义：detail 不完整时应直接报协议异常
-      expect(err).not.toBeInstanceOf(ConflictError);
-      expect((err as Error).message).toContain("a.txt");
+      await expect(API.getTrialRunArtifact("run/1")).resolves.toBe(blob);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/custom-endpoints/trial-runs/run%2F1/artifact",
+        expect.objectContaining({ headers: expect.any(Headers) }),
+      );
+      const headers = fetchMock.mock.calls[0][1].headers as Headers;
+      expect(headers.get("Authorization")).toBe("Bearer session token");
+    } finally {
+      clearToken();
     }
+  });
+
+  it("uses the server asset field names and leaves the multipart boundary to the browser", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockResponse({ jsonData: { id: "run-1", status: "running" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const start = new File(["start"], "start.png", { type: "image/png" });
+    const end = new File(["end"], "end.png", { type: "image/png" });
+    const ref1 = new File(["ref1"], "ref1.png", { type: "image/png" });
+    const ref2 = new File(["ref2"], "ref2.png", { type: "image/png" });
+    const audio = new File(["audio"], "voice.wav", { type: "audio/wav" });
+    const payload = { definition: {}, parameters: { model: "demo" } };
+
+    await API.createTrialRun(payload, {
+      start_image: [start],
+      end_image: [end],
+      reference_images: [ref1, ref2],
+      reference_audio_files: [audio],
+    });
+
+    const options = fetchMock.mock.calls[0][1] as RequestInit;
+    const form = options.body as FormData;
+    expect(JSON.parse(String(form.get("payload")))).toEqual(payload);
+    expect(form.getAll("start_image")).toEqual([start]);
+    expect(form.getAll("end_image")).toEqual([end]);
+    expect(form.getAll("reference_images")).toEqual([ref1, ref2]);
+    expect(form.getAll("reference_audio_files")).toEqual([audio]);
+    expect((options.headers as Headers).has("Content-Type")).toBe(false);
   });
 });

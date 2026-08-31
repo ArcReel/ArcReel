@@ -24,44 +24,17 @@ vi.mock("./WorkspaceNotificationsDrawer", () => ({
     open ? <div data-testid="notifications-drawer" /> : null,
 }));
 
-vi.mock("./ExportScopeDialog", () => ({
-  ExportScopeDialog: ({
-    open,
-    onSelect,
-    onJianyingExport,
-  }: {
-    open: boolean;
-    onClose: () => void;
-    onSelect: (scope: "current" | "full") => void;
-    anchorRef: React.RefObject<HTMLElement | null>;
-    episodes?: unknown[];
-    onJianyingExport?: (
-      episode: number,
-      draftPath: string,
-      jianyingVersion: string,
-      narrationDelivery: "post_production" | "use_tts",
-    ) => void;
-    jianyingExporting?: boolean;
-  }) =>
-    open ? (
-      <div data-testid="export-scope-dialog">
-        <button data-testid="scope-current" onClick={() => onSelect("current")}>
-          仅当前版本
-        </button>
-        <button data-testid="scope-full" onClick={() => onSelect("full")}>
-          全部数据
-        </button>
-        {onJianyingExport && (
-          <button
-            data-testid="scope-jianying"
-            onClick={() => onJianyingExport(1, "/drafts", "6", "post_production")}
-          >
-            剪映草稿
-          </button>
-        )}
-      </div>
-    ) : null,
-}));
+/** 打开导出弹窗，并在剪映分支上走完「选剪映草稿 → 提交表单」两步。 */
+async function openExportScope(option: "current" | "full" | "jianying") {
+  screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+  if (option === "jianying") {
+    (await screen.findByRole("button", { name: /导出为剪映草稿/ })).click();
+    (await screen.findByRole("button", { name: "导出草稿" })).click();
+    return;
+  }
+  const name = option === "current" ? /仅当前版本/ : /全部数据/;
+  (await screen.findByRole("button", { name })).click();
+}
 
 function renderHeader() {
   const { hook } = memoryLocation({ path: "/characters" });
@@ -175,12 +148,7 @@ describe("GlobalHeader", () => {
     });
 
     renderHeader();
-    // Click export button to open dialog
-    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
-
-    // Wait for dialog to appear then click "仅当前版本"
-    const scopeBtn = await screen.findByTestId("scope-current");
-    scopeBtn.click();
+    await openExportScope("current");
 
     await waitFor(() => {
       expect(API.requestExportToken).toHaveBeenCalledWith("demo", "current");
@@ -236,8 +204,7 @@ describe("GlobalHeader", () => {
     });
 
     renderHeader();
-    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
-    (await screen.findByTestId("scope-jianying")).click();
+    await openExportScope("jianying");
 
     await waitFor(() => {
       expect(anchorClick).toHaveBeenCalled();
@@ -276,8 +243,7 @@ describe("GlobalHeader", () => {
     });
 
     renderHeader();
-    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
-    (await screen.findByTestId("scope-jianying")).click();
+    await openExportScope("jianying");
 
     await waitFor(() => {
       expect(API.requestExportToken).toHaveBeenCalledWith("ad-demo", "current");
@@ -316,8 +282,7 @@ describe("GlobalHeader", () => {
     });
 
     renderHeader();
-    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
-    (await screen.findByTestId("scope-jianying")).click();
+    await openExportScope("jianying");
 
     await waitFor(() => {
       expect(anchorClick).toHaveBeenCalled();
@@ -355,8 +320,7 @@ describe("GlobalHeader", () => {
     });
 
     renderHeader();
-    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
-    (await screen.findByTestId("scope-jianying")).click();
+    await openExportScope("jianying");
 
     await waitFor(() => {
       expect(anchorClick).toHaveBeenCalled();
@@ -388,14 +352,14 @@ describe("GlobalHeader", () => {
 
     renderHeader();
     screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
-    expect(await screen.findByTestId("export-scope-dialog")).toBeInTheDocument();
+    expect(await screen.findByText("选择导出范围")).toBeInTheDocument();
 
     // 浏览器前进/后退等场景会复用同一个 GlobalHeader 实例切到演示项目——已打开的
     // 导出弹窗须随之关闭，不能继续展示可点击的导出/剪映草稿操作
     useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
 
     await waitFor(() => {
-      expect(screen.queryByTestId("export-scope-dialog")).not.toBeInTheDocument();
+      expect(screen.queryByText("选择导出范围")).not.toBeInTheDocument();
     });
   });
 
@@ -480,10 +444,7 @@ describe("GlobalHeader", () => {
     });
 
     renderHeader();
-    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
-
-    const scopeBtn = await screen.findByTestId("scope-full");
-    scopeBtn.click();
+    await openExportScope("full");
 
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toContain("导出失败");

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 媒体尺寸：比例由 aspect_ratio 唯一决定、永远优先；分辨率仅决定清晰度
@@ -28,7 +28,7 @@ status: proposed
   - DashScope wan/qwen 2K：9:16 从 `1536×2688`（4:7 偏差）→ `1440×2560`（精确、略缩）；
   - DashScope wan 1K：9:16 从 `768×1344` → `1008×1792`（增大）。
 - **⑤ 个别后端有不可消除的固有约束，作正当例外**：
-  - **sora-2 视频**：size 是固定 4 档枚举（`720x1280`/`1280x720`/`1024x1792`/`1792x1024`，openai SDK `VideoSize` Literal 确权），**不接受任意 WxH**。故视频不走 `aspect_size`，改为**吸附比例最接近的合法档**。精确 9:16/16:9 只有 720 档、无更高精确档，因此 sora-2 在精确比例下清晰度封顶 720 级（清晰度让位比例，符合原则）。NewAPI 视频是通用 width/height 聚合端口，走 `aspect_size`（对齐 8 的倍数，得 `1920×1080` 等标准尺寸）。
+  - **sora 视频**：size 是固定档枚举，**不接受任意 WxH**。故视频不走 `aspect_size`，改为**吸附比例最接近的合法档**。合法档按 model 分级（官方模型页确权，openai SDK `VideoSize` Literal 滞后）：sora-2（base）仅 720p 精确档（`720x1280`/`1280x720`），清晰度封顶 720 级（清晰度让位比例，符合原则）；sora-2-pro 另有 1080p 精确档（`1080x1920`/`1920x1080`）。dall-e 风格的 4:7 档（`1024x1792`/`1792x1024`）违背比例优先，已移除（`lib/video_backends/openai.py`）。NewAPI 视频是通用 width/height 聚合端口，走 `aspect_size`（对齐 8 的倍数，得 `1920×1080` 等标准尺寸）。
   - **ark Seedream 2K**：因总像素下限（≥3.68M）保留约 0.1% 比例偏移，保留现有精确表（迁移会回退精度）。
   - **DashScope qwen 经典系列**（`qwen-image`/`-plus`/`-max`）仅 5 固定档、不接受任意像素：未注册预设、官方不推荐，不在本机制覆盖内。
 - **比例独立的字符串后端无需改尺寸逻辑**：Gemini/Grok/Vidu/ark/DashScope 视频把 `aspect_ratio`/`ratio` 作为独立 SDK 字段下传，与 `resolution` 正交（context7 核实 Veo 的 `aspect_ratio` 与 `resolution` 为各自独立字段；Grok 同形），不把比例压进像素 size，本就无尺寸 bug；仅补比例独立性守护测试与注释。

@@ -90,9 +90,9 @@ describe("MediaCard in the demo workbench", () => {
     const { container, queryByRole } = renderCardWithAllEntries();
 
     expect(container.querySelector('input[type="file"]')).toBeNull();
-    expect(queryByRole("button", { name: /版本/ })).toBeNull();
-    expect(queryByRole("button", { name: /编辑/ })).toBeNull();
-    expect(queryByRole("button", { name: /重新生成分镜/ })).toBeNull();
+    expect(queryByRole("button", { name: /版本/ })).not.toBeInTheDocument();
+    expect(queryByRole("button", { name: /编辑/ })).not.toBeInTheDocument();
+    expect(queryByRole("button", { name: /重新生成分镜/ })).not.toBeInTheDocument();
   });
 
   it("keeps all four entries outside the demo workbench", () => {

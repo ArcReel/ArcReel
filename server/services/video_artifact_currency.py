@@ -585,8 +585,8 @@ async def complete_video_artifact_commit(
 
 
 __all__ = [
-    "VideoArtifactCommitter",
     "FrozenVideoSpeechFacts",
+    "VideoArtifactCommitter",
     "build_current_video_artifact_basis",
     "complete_video_artifact_commit",
     "finalize_selected_video_result",

@@ -18,10 +18,11 @@ from lib.prompt_builders_script import (
     _LIGHTING_WRITING_GUIDE,
     _SCENE_WRITING_GUIDE,
     _format_aspect_ratio_desc,
-    _format_duration_constraint,
     _format_names,
+    format_duration_constraint,
 )
-from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
+from lib.reference_video.writing_syntax import writing_syntax_spec
+from lib.schema_guards import is_int
 from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
@@ -162,7 +163,7 @@ def _shot_duration_constraint(generation_mode: str | None, supported_durations: 
         raise ValueError("reference_video 路径须使用 build_ad_reference_prompt")
     if not supported_durations:
         raise ValueError("storyboard 路径必须提供 supported_durations（视频模型的合法时长集合）")
-    return _format_duration_constraint(supported_durations, None)
+    return format_duration_constraint(supported_durations, None)
 
 
 # ---------------------------------------------------------------------------
@@ -193,11 +194,11 @@ def build_ad_prompt(
     （无带货框架，不设显式子模式开关）。``speech_rate_override`` 是项目级语速覆盖
     （由调用方经 ``project_speech_rate_override`` 解析），None 即回退语言默认。
     """
-    if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
+    if not is_int(target_duration, minimum=1):
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
 
     duration_constraint = _shot_duration_constraint(generation_mode, supported_durations)
-    # 口播字数→时长折算从 lib.speech_rate 单一真相源取（与 drama step1 下界、字幕派生同口径）：
+    # 口播字数→时长折算从 lib.speech_rate 单一真相源取（与 drama script_plan 下界、字幕派生同口径）：
     # 项目级覆盖优先，否则按语言默认。语速表按语言代码（zh / en / vi）登记；target_language 是
     # 自由文本（默认「中文」），未登记值回退默认语速（zh 口径），量词（字 / 词）由
     # reading_unit_noun 同源派生。
@@ -359,7 +360,7 @@ def build_ad_reference_prompt(
     target_language: str = "中文",
 ) -> str:
     """广告/短片的参考生视频单阶段生成 prompt；直接输出含引用语法正文的扁平 unit。"""
-    if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
+    if not is_int(target_duration, minimum=1):
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
     min_unit_duration, max_unit_duration = REFERENCE_UNIT_DURATION_RANGE
     product_context = _format_products(products) if products else "（无商品，按通用短片创作）"
@@ -409,7 +410,7 @@ unit_id、references、generated_assets、needs_replan 均由系统派生，不�
 
 # 统一引用语法
 
-{WRITING_SYNTAX_SPEC}
+{writing_syntax_spec()}
 
 商品、角色、场景、道具都使用同一个 `@[名称]` 语法。名称只可逐字取自候选表，不要发明资产。
 """

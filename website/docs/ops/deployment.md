@@ -161,6 +161,8 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 | `TZ` | `Asia/Shanghai` | 可在 Compose 环境中覆盖 |
 | `DATABASE_URL` | SQLite 默认路径 | 生产 Compose 自动设置 PostgreSQL URL |
 | `ARCREEL_DATA_DIR` | `projects` | 需要自定义应用数据根目录时使用 |
+| `CORS_ORIGINS` | 通配 | 设为白名单时，浏览器型 MCP 客户端的 Origin 也须列入 |
+| `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | 可选；仅 OAuth 发现型 MCP 客户端需要 |
 
 注意：
 
@@ -168,6 +170,12 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 - `.env` 中可能包含密钥，不要提交到版本库。
 - Vertex 凭据文件应只授予运行 ArcReel 的用户读取权限。
 - 第三方模型 API Key 通常在 ArcReel 设置页中管理，不要写入公开文档。
+
+远程 MCP 端点为 `/mcp`，始终要求 `arc-` 前缀 API Key；即使 `AUTH_ENABLED=false` 也不会匿名放行。外部接入不需要额外的 `MCP_*` 配置：把设置页「外部智能体接入」弹窗给出的端点地址与 API Key 填进客户端即可，通过保留 SSE 长连接的 HTTPS 反向代理、VPN 或安全隧道访问。
+
+服务端不校验请求的 `Host` 头，端点边界由每请求强制的 API Key 承担；域名归属交给部署形态，请在反向代理上限定 `server_name`（Nginx）或等价规则，只把预期域名的请求转发给 ArcReel。
+
+`CORS_ORIGINS` 保持默认通配时，浏览器型 MCP 客户端同样无需配置；一旦收紧为白名单，就要把该客户端的 Origin 也列进去——这一个白名单同时约束应用 API 与 MCP 端点，不存在第二份 MCP 专用清单。`MCP_PUBLIC_URL` 只用于填写 OAuth 受保护资源元数据（RFC 9728）与 401 challenge，供做发现流程的客户端读取；以 Bearer 直连的 Claude Code、codex 等客户端不会用到，可以不设。
 
 ArcReel 的沙箱要求父进程环境中不保留供应商密钥。以下凭据环境变量存在非空值时，服务会拒绝启动并提示迁移到 WebUI 设置页：
 
@@ -283,7 +291,7 @@ curl -f http://localhost:1241/health
 将 Compose 中的镜像改为：
 
 ```yaml
-image: ghcr.io/arcreel/arcreel:vX.Y.Z
+image: arcreel/arcreel:X.Y.Z
 ```
 
 升级时显式修改版本，可以降低无意中拉取新版本的风险。
@@ -535,7 +543,7 @@ docker compose logs --tail=300 arcreel
 - 检查 Base URL 和模型名称；
 - 检查网络和代理；
 - 查看供应商是否限流；
-- 使用少量内容验证，不要用完整小说做连接测试。
+- 使用少量内容验证，不要一上来就用完整小说跑通全流程。
 
 ### 任务一直排队 {#tasks-stuck-in-queue}
 

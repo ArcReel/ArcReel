@@ -1,7 +1,7 @@
 """
 供应商配置管理 API。
 
-提供供应商列表查询、单个供应商配置读写和连接测试端点。
+提供供应商列表查询、单个供应商配置读写和连通性检查端点。
 """
 
 from __future__ import annotations
@@ -14,13 +14,12 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import AfterValidator, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.responses import Response
 
 from lib.app_data_dir import app_data_dir
-from lib.backend_assembly.specs import get_provider_spec
+from lib.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import VoiceConsistency, builtin_video_audio_track, derive_voice_consistency
@@ -30,9 +29,8 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
-from lib.i18n import Translator
+from lib.i18n import Locale, Translator, translate_or
 from lib.video_backends.base import VideoAudioMode
-from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 from server.dependencies import get_config_service
 
 if TYPE_CHECKING:
@@ -153,7 +151,7 @@ class ProviderConfigResponse(BaseModel):
     secret_field_groups: list[list[str]]
 
 
-class ConnectionTestResponse(BaseModel):
+class ConnectivityCheckResponse(BaseModel):
     success: bool
     available_models: list[str]
     message: str
@@ -357,8 +355,7 @@ def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
     lib 包）不受 lib.config 分层契约约束，可直接读 backend 声明。
     """
     try:
-        spec = get_provider_spec(provider_id, "video")
-        caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+        caps = builtin_video_capabilities_for_model(provider_id, model_id)
     except ValueError:
         return "none"
     return caps.reference_audio_mode.value
@@ -367,6 +364,7 @@ def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
 @router.get("", response_model=ProvidersListResponse)
 async def list_providers(
     _t: Translator,
+    locale: Locale,
     svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> ProvidersListResponse:
     """返回所有供应商及其状态。"""
@@ -382,15 +380,22 @@ async def list_providers(
                 _video_reference_audio_mode(s.name, mid) if minfo.get("media_type") == "video" else "none"
             )
             models[mid] = ModelInfoResponse(
-                **minfo,
+                **{
+                    **minfo,
+                    # registry 的 display_name 是默认语言下的名字；有译名表的条目按请求语言成文，
+                    # 没有的（纯品牌名）原样返回。
+                    "display_name": translate_or(f"model_name_{s.name}_{mid}", minfo["display_name"], locale),
+                },
                 audio_track=audio_track,
                 reference_route_audio_track=reference_route_audio_track,
-                # generation_mode=None：目录端点无项目上下文，按非参考生视频路径派生，音轨位
-                # 同样取 i2v 路径——有项目上下文时改用 /projects/{name}/video-capabilities。
+                # generation_mode / character_voice_binding 均为 None：目录端点无项目上下文，按非
+                # 参考生视频路径派生，音轨位同样取 i2v 路径——有项目上下文时改用
+                # /projects/{name}/video-capabilities。
                 voice_consistency=derive_voice_consistency(
                     reference_audio_mode=reference_audio_mode,
                     generation_mode=None,
                     has_audio=audio_track != silent,
+                    character_voice_binding=None,
                 ),
             )
         providers.append(
@@ -429,12 +434,16 @@ async def get_provider_config(
 
     # 构建字段列表：先必填，再可选，跳过凭证字段
     fields: list[FieldInfo] = []
-    for key in meta.required_keys:
-        if key not in _CREDENTIAL_KEYS:
-            fields.append(_build_field(key, required=True, db_entry=db_values.get(key)))
-    for key in meta.optional_keys:
-        if key not in _CREDENTIAL_KEYS:
-            fields.append(_build_field(key, required=False, db_entry=db_values.get(key)))
+    fields.extend(
+        _build_field(key, required=True, db_entry=db_values.get(key))
+        for key in meta.required_keys
+        if key not in _CREDENTIAL_KEYS
+    )
+    fields.extend(
+        _build_field(key, required=False, db_entry=db_values.get(key))
+        for key in meta.optional_keys
+        if key not in _CREDENTIAL_KEYS
+    )
 
     # 凭证表单的 secret 输入字段：required ∩ secret ∩ 凭证键，保留 required_keys 顺序。
     # 单 secret provider → [api_key]（见 ADR 0037）；可灵 → [api_key, access_key, secret_key]，
@@ -602,9 +611,9 @@ async def delete_credential(
     # 删除关联的凭证文件（如 vertex_keys/ 下的 JSON），放在 commit 之后确保数据一致性
     if cred_path:
         cred_file = Path(cred_path)
-        if cred_file.is_file():
+        if cred_file.is_file():  # noqa: ASYNC240 -- 凭证文件存在性检查，本地元数据
             try:
-                cred_file.unlink()
+                cred_file.unlink()  # noqa: ASYNC240 -- 删除单个凭证文件，本地元数据
                 logger.info("已删除凭证文件: %s", cred_file)
             except OSError:
                 logger.warning("删除凭证文件失败: %s", cred_file, exc_info=True)
@@ -639,16 +648,16 @@ async def upload_vertex_credential(
     """上传 Vertex AI 服务账号 JSON 凭证文件，同时创建凭证记录。"""
     try:
         contents = await file.read(MAX_VERTEX_CREDENTIALS_BYTES + 1)
-    except Exception:
-        raise HTTPException(status_code=400, detail=_t("vertex_json_read_failed"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=_t("vertex_json_read_failed")) from exc
 
     if len(contents) > MAX_VERTEX_CREDENTIALS_BYTES:
         raise HTTPException(status_code=413, detail=_t("vertex_json_too_large"))
 
     try:
         payload = json.loads(contents.decode("utf-8"))
-    except Exception:
-        raise HTTPException(status_code=400, detail=_t("vertex_json_invalid"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=_t("vertex_json_invalid")) from exc
 
     if not isinstance(payload, dict) or not payload.get("project_id"):
         raise HTTPException(status_code=400, detail=_t("vertex_json_missing_project_id"))
@@ -683,13 +692,13 @@ async def upload_vertex_credential(
 
 
 # ---------------------------------------------------------------------------
-# 连接测试：各供应商实现
+# 连通性检查：各供应商实现
 # ---------------------------------------------------------------------------
 
-_CONNECTION_TEST_TIMEOUT = 15  # 秒
+_CONNECTIVITY_CHECK_TIMEOUT = 15  # 秒
 
 
-def _test_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过 models.list() 验证 Gemini AI Studio API Key。"""
     from google import genai
 
@@ -700,21 +709,21 @@ def _test_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> Con
 
     pager = client.models.list()
     available = _extract_gemini_models(pager)
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
         available_models=available,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
     )
 
 
-def _test_gemini_vertex(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_gemini_vertex(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过 Vertex AI 凭证验证连通性。"""
     from google import genai
     from google.oauth2 import service_account
 
     credentials_path = config.get("credentials_path", "")
     if not credentials_path or not Path(credentials_path).is_file():
-        return ConnectionTestResponse(
+        return ConnectivityCheckResponse(
             success=False,
             available_models=[],
             message=_t("file_not_found", path=credentials_path),
@@ -725,7 +734,7 @@ def _test_gemini_vertex(config: dict[str, str], _t: Callable[..., str]) -> Conne
 
     project_id = creds_data.get("project_id")
     if not project_id:
-        return ConnectionTestResponse(
+        return ConnectivityCheckResponse(
             success=False,
             available_models=[],
             message=_t("vertex_json_missing_project_id"),
@@ -744,10 +753,10 @@ def _test_gemini_vertex(config: dict[str, str], _t: Callable[..., str]) -> Conne
 
     pager = client.models.list()
     available = _extract_gemini_models(pager)
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
         available_models=available,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
     )
 
 
@@ -765,38 +774,38 @@ def _extract_gemini_models(pager) -> list[str]:
     return sorted(models)
 
 
-def _test_ark(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_ark(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过 tasks.list 验证 Ark API Key。"""
     from lib.ark_shared import create_ark_client
 
     client = create_ark_client(api_key=config["api_key"], base_url=config.get("base_url"))
     # 轻量级调用验证连通性，不创建任何资源
     client.content_generation.tasks.list(page_size=1)
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
         available_models=[],
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
     )
 
 
-def _test_grok(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_grok(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过 models.list_language_models() 验证 xAI API Key。"""
     import xai_sdk
 
     client = xai_sdk.Client(api_key=config["api_key"])
     models = client.models.list_language_models()
     available = sorted(m.name for m in models if m.name)
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
         available_models=available,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
     )
 
 
 _OPENAI_MODEL_KEYWORDS = ("gpt", "sora", "dall", "o1", "o3", "o4")
 
 
-def _test_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过 models.list() 验证 OpenAI API Key。"""
     from openai import OpenAI
 
@@ -807,26 +816,26 @@ def _test_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTe
     client = OpenAI(**kwargs)
     models = client.models.list()
     available = sorted(m.id for m in models.data if any(k in m.id.lower() for k in _OPENAI_MODEL_KEYWORDS))
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
         available_models=available,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
     )
 
 
-def _test_vidu(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
-    """Vidu 连接测试 — HTTP 细节封装在 lib.vidu_shared.test_vidu_connection（fork-only）。"""
+def _check_vidu(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
+    """Vidu 连通性检查 — HTTP 细节封装在 lib.vidu_shared.test_vidu_connection（fork-only）。"""
     from lib.vidu_shared import test_vidu_connection
 
     test_vidu_connection(config)
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
         available_models=[],
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
     )
 
 
-def _test_dashscope(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_dashscope(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过 models.list() 验证 DashScope API Key（compatible-mode，OpenAI 协议）。
 
     与 custom_provider 模型发现走同一 OpenAI 兼容机制；base_url 经 dashscope_text_base_url
@@ -842,14 +851,14 @@ def _test_dashscope(config: dict[str, str], _t: Callable[..., str]) -> Connectio
     )
     models = client.models.list()
     available = sorted(m.id for m in models.data if "qwen" in m.id.lower() or "wan" in m.id.lower())
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
         available_models=available,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
     )
 
 
-def _test_minimax(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_minimax(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过 models.list() 验证 MiniMax API Key（OpenAI 兼容协议）。
 
     与 DashScope 同构：复用 OpenAI 客户端打 models.list()；base_url 经 minimax_text_base_url
@@ -865,19 +874,19 @@ def _test_minimax(config: dict[str, str], _t: Callable[..., str]) -> ConnectionT
     )
     models = client.models.list()
     available = sorted(m.id for m in models.data if "minimax" in m.id.lower() or "abab" in m.id.lower())
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
         available_models=available,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
     )
 
 
-def _test_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过查询账户资源包余量验证可灵凭证（``GET /account/costs``，官方标注 free-to-call、无副作用）。
 
     双模式鉴权二选一，判定收口于 kling_auth_mode（与 backend_assembly._build_kling 共用，保证
-    实际生成任务与连接测试的分派顺序恒一致）；缺失时 resolve_kling_api_key /
-    resolve_kling_jwt_credentials 抛出的 ValueError 经上层 except 转成明确的 connection_failed
+    实际生成任务与连通性检查的分派顺序恒一致）；缺失时 resolve_kling_api_key /
+    resolve_kling_jwt_credentials 抛出的 ValueError 经上层 except 转成明确的 connectivity_check_failed
     文案。account/costs 挂在域名根路径（不带 /v1 版本前缀），需从 base_url 剥离该后缀。
     """
     import time
@@ -908,7 +917,7 @@ def _test_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTes
         f"{root}/account/costs",
         params={"start_time": now_ms - one_day_ms, "end_time": now_ms},
         headers=headers,
-        timeout=_CONNECTION_TEST_TIMEOUT,
+        timeout=_CONNECTIVITY_CHECK_TIMEOUT,
     )
     # JSON 错误体先于 raise_for_status 解析：鉴权失败等场景可灵仍带 JSON 错误体（业务 code +
     # message，如"access key 不存在"），先于 raise_for_status 提取能保留这份具体原因；否则
@@ -926,34 +935,34 @@ def _test_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTes
             if err is not None:
                 raise RuntimeError(err)
     resp.raise_for_status()
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
         available_models=[],
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
     )
 
 
-_TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse]] = {
-    "gemini-aistudio": _test_gemini_aistudio,
-    "gemini-vertex": _test_gemini_vertex,
-    "ark": _test_ark,
-    "ark-agent-plan": _test_ark,
-    "grok": _test_grok,
-    "openai": _test_openai,
-    "vidu": _test_vidu,
-    "dashscope": _test_dashscope,
-    "minimax": _test_minimax,
-    "kling": _test_kling,
+_CONNECTIVITY_CHECK_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectivityCheckResponse]] = {
+    "gemini-aistudio": _check_gemini_aistudio,
+    "gemini-vertex": _check_gemini_vertex,
+    "ark": _check_ark,
+    "ark-agent-plan": _check_ark,
+    "grok": _check_grok,
+    "openai": _check_openai,
+    "vidu": _check_vidu,
+    "dashscope": _check_dashscope,
+    "minimax": _check_minimax,
+    "kling": _check_kling,
 }
 
 
-@router.post("/{provider_id}/test", response_model=ConnectionTestResponse)
-async def test_provider_connection(
+@router.post("/{provider_id}/test", response_model=ConnectivityCheckResponse)
+async def check_provider_connectivity(
     provider_id: str,
     _t: Translator,
     credential_id: int | None = None,
     session: AsyncSession = Depends(get_async_session),
-) -> ConnectionTestResponse:
+) -> ConnectivityCheckResponse:
     """调用供应商 API 验证连通性。可指定 credential_id 测试特定凭证。"""
     _validate_provider(provider_id, _t)
 
@@ -964,7 +973,7 @@ async def test_provider_connection(
         cred = await repo.get_active(provider_id)
 
     if cred is None:
-        return ConnectionTestResponse(
+        return ConnectivityCheckResponse(
             success=False,
             available_models=[],
             message=_t("missing_credentials"),
@@ -975,39 +984,39 @@ async def test_provider_connection(
     cred.overlay_config(config)
 
     # 与简单族 backend 构造的 base_url 优先级对称：用户未显式配 base_url
-    # 时，注入 ProviderMeta.default_base_url，使连接测试命中正确 endpoint。
+    # 时，注入 ProviderMeta.default_base_url，使连通性检查命中正确 endpoint。
     if not config.get("base_url"):
         meta = PROVIDER_REGISTRY.get(provider_id)
         if meta and meta.default_base_url:
             config["base_url"] = meta.default_base_url
 
-    test_fn = _TEST_DISPATCH.get(provider_id)
-    if test_fn is None:
-        return ConnectionTestResponse(
+    check_fn = _CONNECTIVITY_CHECK_DISPATCH.get(provider_id)
+    if check_fn is None:
+        return ConnectivityCheckResponse(
             success=False,
             available_models=[],
-            message=_t("unsupported_test", provider_id=provider_id),
+            message=_t("connectivity_check_unsupported", provider_id=provider_id),
         )
 
     try:
         result = await asyncio.wait_for(
-            asyncio.to_thread(test_fn, config, _t),
-            timeout=_CONNECTION_TEST_TIMEOUT,
+            asyncio.to_thread(check_fn, config, _t),
+            timeout=_CONNECTIVITY_CHECK_TIMEOUT,
         )
     except TimeoutError:
-        return ConnectionTestResponse(
+        return ConnectivityCheckResponse(
             success=False,
             available_models=[],
-            message=_t("connection_timeout"),
+            message=_t("connectivity_check_timeout"),
         )
     except Exception as exc:
         err_msg = str(exc)
         if len(err_msg) > 200:
             err_msg = err_msg[:200] + "..."
-        logger.warning("连接测试失败 [%s]: %s", provider_id, err_msg)
-        return ConnectionTestResponse(
+        logger.warning("连通性检查失败 [%s]: %s", provider_id, err_msg)
+        return ConnectivityCheckResponse(
             success=False,
             available_models=[],
-            message=_t("connection_failed", err_msg=err_msg),
+            message=_t("connectivity_check_failed", err_msg=err_msg),
         )
     return result

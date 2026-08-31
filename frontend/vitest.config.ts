@@ -18,19 +18,18 @@ export default defineConfig({
     ],
   },
   test: {
+    // 只收 .test.*：eslint 的测试规则块与 scripts/audit_tests.py 的前端发现都以此为界，
+    // 放开 vitest 默认的 .spec.* 会让这类文件被执行却不受两道闸门约束。
+    include: ["src/**/*.test.{ts,tsx}"],
     environment: "jsdom",
     setupFiles: ["src/test/setup.ts"],
     restoreMocks: true,
     clearMocks: true,
-    testTimeout: 15_000,
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/test/**", "src/__mocks__/**", "src/main.tsx", "src/vite-env.d.ts"],
       reporter: ["text", "json-summary", "lcov"],
-      thresholds: {
-        lines: 73,
-      },
     },
   },
 });

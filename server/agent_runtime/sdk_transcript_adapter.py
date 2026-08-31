@@ -277,10 +277,7 @@ class SdkTranscriptAdapter:
     ) -> dict[str, Any]:
         """Convert SDK SessionMessage to internal dict format."""
         message_data = getattr(msg, "message", {}) or {}
-        if isinstance(message_data, dict):
-            content = message_data.get("content", "")
-        else:
-            content = ""
+        content = message_data.get("content", "") if isinstance(message_data, dict) else ""
 
         uuid = getattr(msg, "uuid", None)
         payload = payload_by_uuid.get(uuid) if payload_by_uuid and isinstance(uuid, str) else None

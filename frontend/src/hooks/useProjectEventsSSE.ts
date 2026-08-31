@@ -17,7 +17,6 @@ import {
   COMPLETION_ACTIONS,
   formatGroupedDeferredText,
   formatGroupedNotificationText,
-  GENERATION_ACTIONS,
   groupChangesByType,
   type GroupedProjectChange,
 } from "@/utils/project-changes";
@@ -295,7 +294,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           }
 
           if (entityChanges.length > 0 && payload.source !== "webui") {
-            // Draft 事件 — 自动导航到剧集内容整理 Tab
+            // Draft 事件 — 自动导航到剧集脚本规划 Tab
             let draftHandled = false;
             for (const change of entityChanges) {
               if (
@@ -354,8 +353,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           void refreshProject();
 
           // Refresh cost data when generation completes
-          const hasGenerationEvent = entityChanges.some((c) =>
-            GENERATION_ACTIONS.has(c.action),
+          const hasCompletionEvent = entityChanges.some((c) =>
+            COMPLETION_ACTIONS.has(c.action),
           );
           // voice_sample 的计费发生在合成成功之后、时长/大小校验（或用户取消）之前：
           // 校验不通过落 failed、执行期间被取消落 cancelled，两种情形都不会触发上面的
@@ -369,10 +368,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           );
           // 切分本身不计费，但它把各分镜的 generated_assets.grid_id 写回，宫格已发生的
           // 成本随之从「未归属」桶转入本集均摊（ADR 0053）。归属变了就要重拉，否则成本面板
-          // 一直显示切分前的分配；grid_split_done 不进 GENERATION_ACTIONS（那是完成通知
+          // 一直显示切分前的分配；grid_split_done 不进 COMPLETION_ACTIONS（那是完成通知
           // 类别，切分不是一次生成），故在这里单列。
           const hasGridSplit = entityChanges.some((c) => c.action === "grid_split_done");
-          if ((hasGenerationEvent || hasBilledVoiceSampleTerminal || hasGridSplit) && projectName) {
+          if ((hasCompletionEvent || hasBilledVoiceSampleTerminal || hasGridSplit) && projectName) {
             useCostStore.getState().debouncedFetch(projectName);
           }
 

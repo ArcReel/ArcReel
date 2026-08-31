@@ -29,7 +29,7 @@ function assistantTurn(...content: ContentBlock[]): Turn {
 }
 
 const SCRIPT_TOOL = "mcp__arcreel__generate_episode_script";
-const NORMALIZE_TOOL = "mcp__arcreel__normalize_drama_script";
+const SCRIPT_PLAN_TOOL = "mcp__arcreel__generate_script_plan";
 
 describe("useScriptGenerationNotice", () => {
   beforeEach(() => {
@@ -52,14 +52,14 @@ describe("useScriptGenerationNotice", () => {
     expect(spy.mock.calls[0][1]).toBe("info");
   });
 
-  it("also fires for the drama-script normalization tool", () => {
+  it("also fires for the script_plan content generation tool", () => {
     useAssistantStore.setState({ sessionStatus: "running" });
     const spy = vi.spyOn(useAppStore.getState(), "pushToast");
     render(<Harness />);
 
     act(() => {
       useAssistantStore.setState({
-        draftTurn: assistantTurn(toolUse(NORMALIZE_TOOL, "tu-n")),
+        draftTurn: assistantTurn(toolUse(SCRIPT_PLAN_TOOL, "tu-n")),
       });
     });
 

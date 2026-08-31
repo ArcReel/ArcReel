@@ -118,7 +118,7 @@ These messages mean that the Agent process did not start normally or could not i
 3. Confirm that the Agent sandbox passes its startup checks in Docker, WSL, or the local environment.
 4. Download diagnostic logs from the About section of Settings and inspect the specific upstream status code near the time of the error.
 
-A successful connection test proves only that a minimal request succeeded. Long sessions may still be affected by quotas, context limits, rate limits, or proxy timeouts.
+A successful connectivity check proves only that a minimal request succeeded. Long sessions may still be affected by quotas, context limits, rate limits, or proxy timeouts.
 
 ## Providers, models, and APIs {#providers-models-api}
 
@@ -142,7 +142,7 @@ If the response is `404 page not found`, usually you should verify:
 
 Add a custom provider in Settings, enter its Base URL, API Key, and model-discovery protocol, then fetch the model list. If discovery fails, you can add models manually, but you must still verify each model's media type and call endpoint before enabling it and selecting it as a global or project model.
 
-The model-discovery protocol is used only to list models and perform basic connection tests. Actual runtime calls use the call endpoint configured for each model. A third-party service that can return a model list does not necessarily implement the complete protocol for images, videos, reference images, asynchronous polling, or structured output. ArcReel does not guarantee that every service claiming compatibility with a protocol will work.
+The model-discovery protocol is used only to list models and perform basic connectivity checks. Actual runtime calls use the call endpoint configured for each model. A third-party service that can return a model list does not necessarily implement the complete protocol for images, videos, reference images, asynchronous polling, or structured output. ArcReel does not guarantee that every service claiming compatibility with a protocol will work.
 
 ### What should I do if model discovery fails or I see `model_not_found`? {#model-list-failure}
 
@@ -156,9 +156,9 @@ Check the following in order:
 
 Some compatible services do not implement a model-list endpoint. In that case, you can register the model manually. If the actual call still returns 404, ask the service provider to verify routing and permissions.
 
-### Why can generation fail even when the connection test succeeds? {#connection-ok-generation-fails}
+### Why can generation fail even when the connectivity check succeeds? {#connection-ok-generation-fails}
 
-The connection test mainly verifies credentials, networking, and model discovery. It does not complete an actual paid image or video generation, so it cannot cover:
+The connectivity check mainly verifies credentials, networking, and model discovery. It does not complete an actual paid image or video generation, so it cannot cover:
 
 - Model generation permissions, balance, and concurrency quotas
 - Reference-image, end-frame, resolution, aspect-ratio, and duration limits
@@ -210,7 +210,7 @@ A scanned PDF with no extractable text cannot be used directly and must go throu
 
 Usually a prerequisite review or asset is incomplete:
 
-1. For Narration/Commentary and Drama projects, confirm that the screenplay preprocessing result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
+1. For Narration/Commentary and Drama projects, confirm that the script plan result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
 2. Check whether characters, scenes, and props have definitions but no generated design images.
 3. In Storyboard mode, check whether the target shot has a storyboard image.
 4. In Reference-to-video mode, verify that referenced assets in Narration/Commentary and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.
@@ -261,7 +261,7 @@ A scene design is different from a story-specific storyboard image: the scene de
 
 The Web UI currently offers standalone voice-over TTS only for Narration/Commentary. You can preview or generate voice-over segment by segment or for a full episode, then include it in a Jianying draft export. Configure the speech provider, voice, and speed globally or per project; some models do not support speed control.
 
-Built-in speech from a video model, character reference audio, and standalone voice-over TTS are separate capabilities. Character reference audio is currently used in Reference-to-video mode, and the selected video model must explicitly support reference audio. In Storyboard mode, or when only a voice description is available, voice is a soft constraint and cannot guarantee identical timbre across segments.
+Built-in speech from the video model, character reference audio, and voice-over TTS are three separate capabilities. By default, character voices are bound by prompt constraint: each character's voice description is written into the prompt and the video model voices it accordingly, so the voice may vary slightly between clips. To have the video model reuse a character's actual voice, set "Character voice binding" to "Reference audio" in project settings and make sure the project uses Reference-to-video mode, the selected video model supports reference audio, and every speaking character has reference audio configured. Storyboard (image-to-video) mode does not support reference audio.
 
 ## Costs, data, and export {#cost-data-export}
 

@@ -1,32 +1,34 @@
-# 交接文件（handoff）
+# Handoff
 
-每个 issue 一份：`.afk/<batch-id>/handoff-<N>.md`（主仓库下，路径由委派 prompt 给出）。三阶段严格串行，各自在交付前把本阶段的段**追加**到文件末尾，不改动前面阶段的段；文件不存在时由第一个写入者创建。账本仍只由 team-lead 写入，本文件是各阶段执行者唯一的留痕处。
+每个 issue 一份 `.afk/<batch-id>/handoff-<N>.md`；stage review loop 使用 `.afk/<batch-id>/handoff-stage-<K>.md`。各角色只追加自己的段，只写 diff、issue、PR 无法重推的判断；handoff 是交接便签，不是工作日志。
 
-收录判据只有一条：**只写 diff / issue / PR 推不出的信息**（含跳过理由、驳回依据、过程总结这类判断）——能从远端或代码重推的一律不写。空项写「无」，多数干净交付的段只有几行；它是交接便签，不是工作日记。
+follow-up 只记候选，立 issue 归 team-lead 并受用户授权约束。
 
-follow-up 候选只记不立项：`gh issue create` 的立项权在 team-lead（凭用户授权）。
+## Issue handoff
 
-读者：后续阶段开局读取；替补接管与崩溃恢复以它核查前任现场；team-lead 收尾以它做清尾分拣。
+### 实现
 
-## 段结构
+- 关键取舍与理由
+- 特殊运行环境
+- 已知薄弱点
+- follow-up 候选
 
-每段以三级标题命名（`### 实现` / `### 本地审查` / `### 审查循环`），内容如下。
+### 本地审查
 
-### 实现（implementer 追加）
+- 已修复 findings
+- 跳过项与理由
+- rebase / 冲突处置
+- follow-up 候选
 
-- 关键取舍与理由（含放弃的替代方案）
-- 环境备案：端口 / 数据目录 / 特殊运行方式
-- 已知薄弱点与未覆盖场景
-- follow-up 候选：超范围的缺陷或改进
+## Stage handoff
 
-### 本地审查（local-reviewer 追加）
+### Base sync
 
-- 审查发现清单：已修复项各一句话；跳过项须附理由
-- follow-up 候选（同上）
-- rebase 处置（如发生）
+- 触发原因与冲突处置
+- rebase 前后的远程 HEAD
 
-### 审查循环（review-looper 追加）
+### 审查循环
 
-- pushback 在案清单（驳回内容与依据）；防御性意见的依据写成可达性说明：这条防御要防的是哪条路径、什么输入会触发它，实施与驳回都要记
-- 复盘候选全文：过程总结 + 按 `/pr-ai-review-loop` 的 retrospective.md 四类（ADR / CONTEXT.md / agent instructions / follow-up）
-- 故障记录（如有）
+- pushback 与依据
+- reviewer 故障
+- retrospective 候选：ADR / CONTEXT / agent instructions / follow-up

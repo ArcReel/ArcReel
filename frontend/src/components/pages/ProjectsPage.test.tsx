@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import type { Phase } from "@/types";
@@ -28,6 +30,7 @@ describe("ProjectsPage", () => {
   beforeEach(() => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useAppStore.setState(useAppStore.getInitialState(), true);
+    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
@@ -47,6 +50,45 @@ describe("ProjectsPage", () => {
 
     // 0 项目时仅渲染 NewProjectTile 占位卡（lobby_new_project_title）
     expect(await screen.findByText("新建项目")).toBeInTheDocument();
+  });
+
+  it("opens external agent access from the lobby top bar", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+    renderPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "外部智能体接入" }));
+
+    expect(screen.getByRole("dialog", { name: "外部智能体接入" })).toBeInTheDocument();
+  });
+
+  it("does not mark settings incomplete when only the embedded-agent credential is missing", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+    vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [{
+        id: "gemini",
+        display_name: "Google Gemini",
+        description: "Google Gemini API",
+        status: "ready",
+        media_types: ["image", "video", "text"],
+        capabilities: [],
+        configured_keys: ["api_key"],
+        missing_keys: [],
+        models: {},
+      }],
+    });
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      settings: { anthropic_api_key: { is_set: false, masked: null } },
+    } as never);
+
+    await useConfigStatusStore.getState().fetch();
+    expect(useConfigStatusStore.getState().isComplete).toBe(true);
+
+    renderPage();
+
+    await screen.findByText("新建项目");
+    expect(screen.queryByLabelText("配置未完成")).not.toBeInTheDocument();
   });
 
   it("renders project cards when data exists", async () => {

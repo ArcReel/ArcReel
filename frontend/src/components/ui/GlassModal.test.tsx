@@ -9,7 +9,7 @@ describe("GlassModal", () => {
         <p data-testid="body">x</p>
       </GlassModal>,
     );
-    expect(screen.queryByTestId("body")).toBeNull();
+    expect(screen.queryByTestId("body")).not.toBeInTheDocument();
   });
 
   it("renders glass panel chrome class on the dialog wrapper", () => {
@@ -19,8 +19,8 @@ describe("GlassModal", () => {
       </GlassModal>,
     );
     const dialog = screen.getByRole("dialog");
-    expect(dialog.className).toContain("arc-glass-panel");
-    expect(dialog.className).toContain("rounded-2xl");
+    expect(dialog).toHaveClass("arc-glass-panel");
+    expect(dialog).toHaveClass("rounded-2xl");
   });
 
   it("defaults hairline tone to accent", () => {
@@ -92,7 +92,7 @@ describe("GlassModal", () => {
       </GlassModal>,
     );
     const dialog = screen.getByRole("dialog");
-    expect(dialog.className).toContain("w-[680px]");
-    expect(dialog.className).toContain("max-h-[80vh]");
+    expect(dialog).toHaveClass("w-[680px]");
+    expect(dialog).toHaveClass("max-h-[80vh]");
   });
 });

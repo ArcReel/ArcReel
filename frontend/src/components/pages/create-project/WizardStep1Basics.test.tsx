@@ -12,6 +12,7 @@ const baseValue = {
   gridStoryboard: false,
   targetDuration: 60,
   speechRate: null,
+  episodeTargetDuration: null,
 };
 
 const GRID_BAR_NAME = "多宫格分镜";
@@ -27,6 +28,42 @@ describe("WizardStep1Basics", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
+  });
+
+  it("hides the episode target duration for ad projects", () => {
+    const { rerender } = render(
+      <WizardStep1Basics
+        value={{ ...baseValue, title: "demo" }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByLabelText(/单集目标时长/)).toBeInTheDocument();
+
+    rerender(
+      <WizardStep1Basics
+        value={{ ...baseValue, title: "demo", contentMode: "ad" }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.queryByLabelText(/单集目标时长/)).not.toBeInTheDocument();
+  });
+
+  it("blocks Next while the episode target duration is out of range", () => {
+    const onNext = vi.fn();
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, title: "demo", episodeTargetDuration: 5 }}
+        onChange={() => {}}
+        onNext={onNext}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    expect(onNext).not.toHaveBeenCalled();
   });
 
   it("blocks Next while the speech rate is out of range", () => {
@@ -94,7 +131,7 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    expect(screen.queryByRole("radiogroup", { name: /源文件性质|Source type|Loại tệp nguồn/ })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: /源文件性质|Source type|Loại tệp nguồn/ })).not.toBeInTheDocument();
   });
 
   it("emits onChange with screenplay when source kind selected in drama mode", () => {
@@ -214,7 +251,7 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    expect(screen.getByRole("textbox")).toHaveAttribute("aria-required", "true");
+    expect(screen.getByRole("textbox")).toBeRequired();
   });
 
   it("renders project_id_auto_gen_hint below the title input", () => {

@@ -11,6 +11,7 @@ from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.schema_guards import is_int
 
 _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
@@ -19,6 +20,8 @@ _DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
 # 旁白默认音色（DashScope 预设）；可被 project.json 顶层 narration_voice 或全局 setting 覆盖
 # （与 video_backend 等同走顶层 key，非 settings 子字典）。
 _DEFAULT_NARRATION_VOICE = "Cherry"
+DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS = 3600
+MIN_VIDEO_POLL_TIMEOUT_SECONDS = 60
 
 # 参考上传副本的保守通用请求体上限（ArcReel 侧安全策略常量，非任一供应商的真实字节限；
 # 被动 413 兜底负责自我纠正）。可经 per-provider 配置 key 覆盖。
@@ -203,6 +206,28 @@ class ConfigService:
     async def set_setting(self, key: str, value: str) -> None:
         await self._setting_repo.set(key, value)
 
+    async def get_video_poll_timeout_seconds(self) -> int:
+        raw = await self._setting_repo.get(
+            "video_poll_timeout_seconds",
+            str(DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS),
+        )
+        return self.parse_video_poll_timeout_seconds(raw)
+
+    @staticmethod
+    def parse_video_poll_timeout_seconds(raw: str) -> int:
+        try:
+            value = int(raw)
+        except ValueError:
+            return DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
+        return value if value >= MIN_VIDEO_POLL_TIMEOUT_SECONDS else DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
+
+    async def set_video_poll_timeout_seconds(self, value: int) -> None:
+        if not is_int(value, minimum=MIN_VIDEO_POLL_TIMEOUT_SECONDS):
+            raise ValueError(
+                f"video poll timeout must be an integer of at least {MIN_VIDEO_POLL_TIMEOUT_SECONDS} seconds"
+            )
+        await self._setting_repo.set("video_poll_timeout_seconds", str(value))
+
     async def get_default_video_backend(self) -> tuple[str, str]:
         raw = await self._setting_repo.get("default_video_backend", _DEFAULT_VIDEO_BACKEND)
         return self._parse_backend(raw, _DEFAULT_VIDEO_BACKEND)
@@ -269,3 +294,15 @@ class ConfigService:
             return provider_id, model_id
         parts = fallback.split("/", 1)
         return parts[0], parts[1]
+
+
+async def read_video_poll_timeout_seconds() -> int:
+    """自开一个 session 读一次全局视频轮询超时。
+
+    worker 派发与端点测试连接共用这一份：两条路径都在「即将进入一次真实生成」的时点读一次，
+    各自另写一遍就会在超时含义上分叉。口径是「派发时读一次」，不是每次轮询各读各的。
+    """
+    from lib.db import safe_session_factory
+
+    async with safe_session_factory() as session:
+        return await ConfigService(session).get_video_poll_timeout_seconds()

@@ -71,7 +71,7 @@ cd frontend && pnpm check
 
 pytest runs with `asyncio_mode = "auto"`; async tests need no manual marking.
 
-> **Transition note**: this chapter describes the target state after remediation; the existing suite and the related engineering configuration are being aligned with it in batches under a remediation spec. Where a rule does not match the current tree (existing test directories and tiers, frontend calls that bypass the `API` class with direct `fetch`/`EventSource`, the current CI/lint configuration for coverage and the eslint-enforced rules, vitest settings such as `testTimeout`, the not-yet-created `src/test/` shared infrastructure), the chapter is the direction of travel. `scripts/audit_tests.py` and the CI `test-lint` step do not exist yet; they land with the first gate, and each gate ships in the same PR that clears its remaining violations. Until the directory migration and automatic marker injection land, classification markers are still written by hand (collection enforces exactly one; semantics per the table below). Delete this note once remediation completes.
+> **Transition note**: this chapter describes the target state after remediation; the existing suite and the related engineering configuration are being aligned with it in batches under a remediation spec. Where a rule does not match the current tree (frontend calls that bypass the `API` class with direct `fetch`/`EventSource`, the current CI/lint configuration for coverage and the eslint-enforced rules, vitest settings such as `testTimeout`, the not-yet-created `src/test/` shared infrastructure), the chapter is the direction of travel. `scripts/audit_tests.py` and the CI `test-lint` step do not exist yet; they land with the first gate, and each gate ships in the same PR that clears its remaining violations. Delete this note once remediation completes.
 
 ### Tiers and layout {#test-tiers}
 
@@ -122,7 +122,7 @@ Four audit criteria rely on review and dedicated audits, not gates: weakened dup
 
 - Waiting, retry, and timeout logic is always driven through a clock seam or event handshake—no real `time.sleep` wall-clock waits.
 - Flaky failures are ordinary defects: fix them in place (clock seam / event handshake), or delete them under the meaningless-test criteria if a fix is impractical or not worthwhile. No automatic retries (pytest-rerunfailures, CI job-level retry)—automatic retry hides failures that should stay visible.
-- Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/test_project_manager_concurrent_save.py` (`integration` tier).
+- Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/integration/lib/test_project_manager_concurrent_save.py`.
 
 ### Coverage {#coverage}
 
@@ -238,6 +238,8 @@ Published pages also declare their documentation-refresh coverage tier via the `
 
 Use `<type>/<slug>`, where `type` is one of the conventional commit types:
 
+Short-lived AFK workflow branches are the exception: use `afk/<batch-id>/stage-<K>` and `issue/<N>`.
+
 - `feat/` — New feature (for example, `feat/reference-video-backend`)
 - `fix/` — Bug fix (for example, `fix/queue-lease-timeout`)
 - `refactor/` — Refactoring (for example, `refactor/session-actor`)
@@ -255,6 +257,8 @@ The time from creation to merge must be ≤3 days. If it runs longer, split it o
 ### Squash merge {#squash-merge}
 
 Squash each PR into one commit when merging into `main`, with a conventional commit message (see the next section). Choose "Squash and merge" from the GitHub merge button.
+
+Stage PRs created by `afk-team-workflow` are the exception: rebase-merge them to preserve each issue's conventional commit; squash non-issue cleanup and review-loop commits into one conventional integration-fix commit before merging.
 
 ## Commit Conventions {#commit-convention}
 
@@ -274,7 +278,7 @@ Version numbers and the changelog are maintained automatically by [release-pleas
 
 ### Workflow {#release-workflow}
 
-1. Squash-merge the PR into `main` according to the conventional commits specification
+1. Squash-merge ordinary PRs into `main` according to the conventional commits specification; rebase-merge `afk-team-workflow` stage PRs as described above
 2. release-please scans commits since the previous release and automatically opens or updates a Release PR titled like `chore(main): release X.Y.Z`, containing the next version bump and an updated `CHANGELOG.md`
 3. Merging that Release PR automatically creates a `vX.Y.Z` tag and publishes a GitHub Release
 
@@ -307,7 +311,7 @@ feat(grid): 支持 grid_12 布局
 将多宫格分镜系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**This repository does not use breaking-change markers.** The frontend and backend are released together, and the backend API does not make versioned compatibility guarantees—the bundled frontend evolves with each version, while external integrations (OpenClaw and others) fetch the latest contract at runtime through `/skill.md` rather than depending on a version number. When deleting or changing endpoints referenced by `public/skill.md.template`, update that template at the same time. Classify API changes normally as `fix`/`refactor`; do not add a `!` suffix or a `BREAKING CHANGE:` footer. To correct an incorrectly marked commit after it has been merged, edit that PR's description and append a `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` block. release-please then recalculates the changelog and version number according to the override (this requires squash merging, which this repository uses). The workflow runs only on pushes to main; after editing, wait for the next push to main or rerun the release-please workflow manually. During the 0.x stage, `bump-minor-pre-major` limits the version jump caused by an incorrect marker to minor, but does not correct the changelog.
+**This repository does not use breaking-change markers.** The frontend and backend are released together, and the backend API does not make versioned compatibility guarantees—the bundled frontend evolves with each version, while external integrations use `/agent-installation-guide.md` to find the current installation entry point rather than depending on a version number. When the external Agent installation flow changes, update `public/agent-installation-guide.md` at the same time. Classify API changes normally as `fix`/`refactor`; do not add a `!` suffix or a `BREAKING CHANGE:` footer. Correct an incorrectly marked merge according to its merge method: for an ordinary squash PR, append a `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` block to the PR description and wait for the next main push or rerun the workflow; for an AFK rebase stage, wait for the final main push to update the Release PR, correct its generated version and changelog artifacts, pass its integrity checks, and then merge it. During the 0.x stage, `bump-minor-pre-major` limits the version jump caused by an incorrect marker to minor, but does not correct the changelog.
 
 The following syntax is documented only to help identify incorrect markers. There are two equivalent ways to mark a **breaking change**:
 

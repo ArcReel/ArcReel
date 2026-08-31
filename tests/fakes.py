@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
-from collections.abc import Callable, Mapping
+import threading
+from collections.abc import AsyncIterator, Callable, Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -19,8 +20,20 @@ from instructor.core import InstructorRetryException
 
 if TYPE_CHECKING:
     from lib.media_generator import MediaGenerator
-    from lib.reference_video.voice_settings import VoiceRenderSettings
     from lib.version_manager import PaidVersionCommit
+
+
+_NO_SDK_MESSAGES: tuple[dict[str, Any], ...] = ()
+
+
+async def empty_sdk_response_stream() -> AsyncIterator[dict[str, Any]]:
+    """不产出任何消息即结束的 SDK 响应流。
+
+    fake client 需要「空响应流」时返回本函数的结果；直接写 ``if False: yield`` 会留下
+    静态不可达的分支。
+    """
+    for message in _NO_SDK_MESSAGES:
+        yield message
 
 
 class FakeProjectAssetMutationMixin:
@@ -235,7 +248,7 @@ async def build_managed_with_actor(
     managed = ManagedSession(
         session_id=session_id,
         actor=actor,
-        status=status,  # type: ignore[arg-type]
+        status=status,
         project_name=project_name,
     )
     managed_ref[0] = managed
@@ -291,11 +304,13 @@ class FakeReferenceCapabilityProjection:
         provider_id: str = "fake",
         model_id: str = "fake-model",
         max_reference_images: int | None = 9,
+        text_to_video: bool = True,
     ) -> None:
         self.durations = durations
         self.provider_id = provider_id
         self.model_id = model_id
         self.max_reference_images = max_reference_images
+        self.text_to_video = text_to_video
 
     async def resolve_candidate(self, project: dict, capability):
         from lib.reference_video.request_projection import ProviderProjectionCandidate
@@ -312,6 +327,7 @@ class FakeReferenceCapabilityProjection:
             requested_generate_audio=True,
             has_audio_track=True,
             audio_switch_controllable=True,
+            text_to_video=self.text_to_video,
         )
 
 
@@ -321,6 +337,7 @@ def fake_reference_request_projector(
     provider_id: str = "fake",
     model_id: str = "fake-model",
     max_reference_images: int | None = 9,
+    text_to_video: bool = True,
     capabilities: FakeReferenceCapabilityProjection | None = None,
 ):
     """构造使用真实资产水合与投影规则、仅替换 provider 能力查询的 async 测试入口。"""
@@ -334,7 +351,13 @@ def fake_reference_request_projector(
     )
 
     if capabilities is not None:
-        if durations is not None or provider_id != "fake" or model_id != "fake-model" or max_reference_images != 9:
+        if (
+            durations is not None
+            or provider_id != "fake"
+            or model_id != "fake-model"
+            or max_reference_images != 9
+            or text_to_video is not True
+        ):
             raise ValueError("capabilities cannot be combined with candidate construction fields")
         projection_capabilities = capabilities
     else:
@@ -345,6 +368,7 @@ def fake_reference_request_projector(
             provider_id=provider_id,
             model_id=model_id,
             max_reference_images=max_reference_images,
+            text_to_video=text_to_video,
         )
 
     async def _project(
@@ -370,42 +394,149 @@ def fake_reference_request_projector(
     return _project
 
 
-def fake_reference_caps_fetcher(
-    *,
-    default_duration: int | None = 4,
-    durations: tuple[int, ...] = (4, 6, 8),
-    reference_durations: tuple[int, ...] | None = None,
-    text_durations: tuple[int, ...] | None = None,
-    max_duration: int = 12,
-    max_refs: int | None = 3,
-    voice: VoiceRenderSettings | None = None,
-):
-    """假 ``_fetch_reference_caps_with_fallback``：返回一份 ``ReferenceSplitCaps`` 的 async 取值器。
+class FakeConfigResolver:
+    """能力解析器 seam 的手写替身：按桶回答视频能力，不触碰配置库。
 
-    ``reference_durations`` / ``text_durations`` 留 None 即与 ``durations`` 同集（该型号未声明
-    生效的「参考图↔时长」联动约束）；``voice`` 留 None 取 ``VoiceRenderSettings`` 的字段默认
-    （``soft`` 有声、无参考音频）。
+    生产侧凡接 ``config_resolver`` 关键字的入口（``ToolContext``、``MediaGenerator``、
+    ``resolve_video_caps`` / ``fetch_video_caps`` 及 ``text_generation`` 的几个取值器）都可注入本类，替代对这些取值器
+    本身的整体替换——被替换掉的取值器里有软回退、联动约束收窄与声音档派生，那些才是用例要
+    保护的行为。
 
-    被 monkeypatch 的目标签名带 episode 位，故取值器收两参——多数用例只关心返回值。
-    运行期用到的两个类型在函数体内导入：它们出自 lib / server 侧的业务模块，本模块的其余替身不
-    依赖这两个包，不为一个替身把依赖提到导入期（签名上的标注由 ``from __future__`` 延迟求值，
-    经 ``TYPE_CHECKING`` 供类型检查器读取）。
+    ``by_capability`` 给按桶分叉的路径用（参考生视频的无引用 unit 走 i2v 桶）：键是
+    ``VideoCapability`` 字面量，值是覆盖在基础能力上的字段。``error`` / ``generate_audio_error``
+    让软回退分支不必再 patch 就能触发。
     """
-    from lib.reference_video.voice_settings import VoiceRenderSettings
-    from server.agent_runtime.sdk_tools.text_generation import ReferenceSplitCaps
 
-    async def _fetch(_project, _episode=None) -> ReferenceSplitCaps:
-        return ReferenceSplitCaps(
-            default_duration=default_duration,
-            durations=list(durations),
-            reference_durations=list(durations if reference_durations is None else reference_durations),
-            text_durations=list(durations if text_durations is None else text_durations),
-            max_duration=max_duration,
-            max_refs=max_refs,
-            voice=VoiceRenderSettings() if voice is None else voice,
+    def __init__(
+        self,
+        *,
+        supported_durations: tuple[int, ...] | list[int] = (4, 6, 8),
+        default_duration: int | None = 4,
+        provider_id: str = "fake",
+        model: str = "fake-video",
+        max_reference_images: int | None = 3,
+        max_reference_audio_count: int = 0,
+        reference_audio_per_image: bool = False,
+        generate_audio: bool = True,
+        requested_generate_audio: bool = True,
+        voice_consistency: str = "soft",
+        by_capability: Mapping[str, Mapping[str, Any]] | None = None,
+        capability_errors: Mapping[str, BaseException] | None = None,
+        error: BaseException | None = None,
+        generate_audio_error: BaseException | None = None,
+        image_backend: tuple[str, str] = ("fake", "fake-image"),
+        image_backend_error: BaseException | None = None,
+        reference_payload_limits: tuple[int, int] | None = None,
+        **extra: Any,
+    ) -> None:
+        self._base: dict[str, Any] = {
+            "provider_id": provider_id,
+            "model": model,
+            "supported_durations": list(supported_durations),
+            "max_duration": max(supported_durations) if supported_durations else 0,
+            "max_reference_images": max_reference_images,
+            "max_reference_audio_count": max_reference_audio_count,
+            "reference_audio_per_image": reference_audio_per_image,
+            "generate_audio": generate_audio,
+            "requested_generate_audio": requested_generate_audio,
+            "voice_consistency": voice_consistency,
+            "source": "registry",
+            "default_duration": default_duration,
+            **extra,
+        }
+        self._by_capability = {key: dict(value) for key, value in (by_capability or {}).items()}
+        self._capability_errors = dict(capability_errors or {})
+        self._error = error
+        self._generate_audio_error = generate_audio_error
+        self._image_backend = image_backend
+        self._image_backend_error = image_backend_error
+        self._reference_payload_limits = reference_payload_limits
+        self.capability_calls: list[str | None] = []
+        self.project_names: list[str | None] = []
+        self.project_payloads: list[dict[str, Any]] = []
+        self.image_capability_calls: list[str | None] = []
+        self.generate_audio_calls: list[dict[str, Any] | None] = []
+        self.generate_audio_project_names: list[str | None] = []
+        self.reference_limits_calls: list[str | None] = []
+
+    def caps_for(self, capability: str | None = None) -> dict[str, Any]:
+        """该桶的能力 dict（与生产返回同形），供用例直接对照期望。"""
+        caps = dict(self._base)
+        caps.update(self._by_capability.get(capability or "", {}))
+        durations = caps.get("supported_durations") or []
+        caps["max_duration"] = max(durations) if durations else 0
+        return caps
+
+    async def video_capabilities(self, project_name: str | None = None) -> dict[str, Any]:
+        self.project_names.append(project_name)
+        return self._resolve(None)
+
+    async def video_capabilities_for_project(
+        self,
+        project: dict[str, Any],
+        *,
+        capability: str | None = None,
+    ) -> dict[str, Any]:
+        self.project_payloads.append(project)
+        return self._resolve(capability)
+
+    async def resolve_resolution(self, project: dict[str, Any], provider_id: str, model_id: str) -> str:
+        del project, provider_id, model_id
+        return "1080p"
+
+    async def resolve_image_backend(
+        self,
+        project: dict[str, Any] | None,
+        payload: dict[str, Any] | None = None,
+        *,
+        capability: str | None = None,
+    ) -> Any:
+        """解析图像供应商；``image_backend_error`` 给「项目槽位解析不出可用供应商」那条路径。"""
+        from lib.config.resolver import ProviderModel
+
+        del project, payload
+        self.image_capability_calls.append(capability)
+        if self._image_backend_error is not None:
+            raise self._image_backend_error
+        return ProviderModel(*self._image_backend)
+
+    async def video_generate_audio_for_project(self, project: dict[str, Any] | None) -> bool:
+        self.generate_audio_calls.append(project)
+        if self._generate_audio_error is not None:
+            raise self._generate_audio_error
+        return bool(self._base["requested_generate_audio"])
+
+    async def video_generate_audio(self, project_name: str | None = None) -> bool:
+        """生产同名读点（按项目名）：与 ``video_generate_audio_for_project`` 共享同一份配置值。
+
+        两个读点各记各的入参（本读点收项目名、按 project 的那个收 project dict），
+        record 列表不合并，免得用例的等值断言被另一条路径的调用串味。
+        """
+        self.generate_audio_project_names.append(project_name)
+        if self._generate_audio_error is not None:
+            raise self._generate_audio_error
+        return bool(self._base["requested_generate_audio"])
+
+    async def reference_payload_limits(self, provider_id: str | None = None) -> tuple[int, int]:
+        """参考图载荷限额（总量, 单张）；未显式配置时与生产同取 service 层保守默认。"""
+        self.reference_limits_calls.append(provider_id)
+        if self._reference_payload_limits is not None:
+            return self._reference_payload_limits
+        from lib.config.service import (
+            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
         )
 
-    return _fetch
+        return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+
+    def _resolve(self, capability: str | None) -> dict[str, Any]:
+        self.capability_calls.append(capability)
+        if self._error is not None:
+            raise self._error
+        bucket_error = self._capability_errors.get(capability or "")
+        if bucket_error is not None:
+            raise bucket_error
+        return self.caps_for(capability)
 
 
 def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:
@@ -430,15 +561,196 @@ def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:
 
 @contextmanager
 def bounded_poll_clock(step: float = 30.0):
-    """把 ``poll_with_retry`` 的时钟换成假表：sleep 不真等，每读一次表推进 step 秒。
+    """轮询与重试等待的唯一替身入口：sleep 不真等，每读一次表推进 step 秒。
+
+    ``retry_async`` 的退避与 ``poll_with_retry`` 的轮询间隔都经 ``lib.retry`` 的
+    ``SystemClock`` 落到这两个符号上，压缩等待无需触碰 ``_compute_wait`` 等私有符号。
 
     终态判定失灵时（把已就绪的任务当成"仍在跑"），真实时钟下 sleep 被 mock 掉的轮询会以近乎
-    为零的真实耗时空转到天荒地老——测试表现为挂起而不是失败。假表让这类回归在几十次轮询内
+    为零的真实耗时空转到天荒地老——测试表现为挂起而不是失败。假表让这类缺陷在几十次轮询内
     撞上 ``max_wait`` 抛 ``TimeoutError``，红得快且可读。
     """
     clock = itertools.count(0.0, step)
     with (
-        patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
-        patch("lib.video_backends.base.time.monotonic", side_effect=lambda: next(clock)),
+        patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+        patch("lib.retry.time.monotonic", side_effect=lambda: next(clock)),
     ):
         yield
+
+
+@contextmanager
+def captured_provider_job_ids() -> Generator[list[dict[str, Any]]]:
+    """provider_job_id 写回的手写替身：收下写回参数，不落 DB。
+
+    ``persist_provider_job_id`` 是 backend 的 DB 边界，各提交-轮询型 backend 的测试只关心
+    「写回了什么」。产出按参数名归档的记录列表，断言落在记录内容上而不是替身的调用对象上；
+    非 worker 路径（``task_id=None``）跳过写回时列表保持为空。
+    """
+    records: list[dict[str, Any]] = []
+
+    async def _record(
+        task_id: str,
+        job_id: str,
+        *,
+        provider: str,
+        endpoint: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
+        records.append(
+            {
+                "task_id": task_id,
+                "job_id": job_id,
+                "provider": provider,
+                "endpoint": endpoint,
+                "base_url": base_url,
+            }
+        )
+
+    with patch("lib.video_backends.base.persist_provider_job_id", _record):
+        yield records
+
+
+@contextmanager
+def captured_ark_clients(module: str, client: Any = None) -> Generator[list[dict[str, Any]]]:
+    """create_ark_client 的记录器：收下建客户端的参数，回给定（或空）客户端替身。
+
+    Ark 系三个后端（文本 / 图像 / 视频）各自从自己的模块引用这个工厂，模块路径由调用方给出。
+    base_url 归一化、鉴权透传的断言落在记录的构造参数上，而不是替身的调用对象。
+    """
+    from unittest.mock import MagicMock
+
+    created: list[dict[str, Any]] = []
+    instance = MagicMock() if client is None else client
+
+    def _create(**kwargs: Any) -> Any:
+        created.append(kwargs)
+        return instance
+
+    with patch(f"{module}.create_ark_client", _create):
+        yield created
+
+
+@contextmanager
+def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]]]:
+    """AsyncOpenAI 构造的记录器：收下建客户端的参数，回给定（或空）客户端替身。
+
+    OpenAI 兼容族（openai / agnes 文本、openai 图像与视频、openai TTS、dashscope 与 minimax
+    视频）都经 ``lib.openai_shared`` 取这个 SDK 入口，构造参数就是该边界上的契约：鉴权、
+    base_url 归一化、超时。断言落在记录的构造参数上，而不是替身的调用对象。
+    """
+    from unittest.mock import AsyncMock
+
+    created: list[dict[str, Any]] = []
+    instance = AsyncMock() if client is None else client
+
+    def _create(**kwargs: Any) -> Any:
+        created.append(kwargs)
+        return instance
+
+    with patch("lib.openai_shared.AsyncOpenAI", _create):
+        yield created
+
+
+@contextmanager
+def captured_backend_construction() -> Generator[list[dict[str, Any]]]:
+    """四个后端 registry 的构造记录器：工厂换成只记参数的哑后端，不建 SDK 客户端。
+
+    装配层（``ProviderSpec.build_backend``、``lib.text_backends.factory``）的产出就是
+    「往哪个 media registry、用什么后端名、什么构造参数建后端」，真实后端要凭证要网络。
+    按名逐个换工厂（保留键集合，``get_registered_backends`` 的读者不受影响），记录列表让
+    断言落在构造参数本身；未注册名照旧由 ``create_backend`` fail-loud。
+    """
+    from lib.audio_backends import registry as audio_registry
+    from lib.image_backends import registry as image_registry
+    from lib.text_backends import registry as text_registry
+    from lib.video_backends import registry as video_registry
+
+    records: list[dict[str, Any]] = []
+    factories: dict[str, dict[str, Any]] = {
+        "text": text_registry._BACKEND_FACTORIES,
+        "image": image_registry._BACKEND_FACTORIES,
+        "video": video_registry._BACKEND_FACTORIES,
+        "audio": audio_registry._BACKEND_FACTORIES,
+    }
+
+    def _recorder(media: str, name: str) -> Callable[..., Any]:
+        def _build(**kwargs: Any) -> Any:
+            records.append({"media": media, "backend": name, "kwargs": kwargs})
+            return object()
+
+        return _build
+
+    saved = {media: dict(table) for media, table in factories.items()}
+    for media, table in factories.items():
+        for name in list(table):
+            table[name] = _recorder(media, name)
+    try:
+        yield records
+    finally:
+        for media, table in factories.items():
+            table.clear()
+            table.update(saved[media])
+
+
+class BlockingFileReadGate:
+    """把某个路径的同步读挡在闸门后，观测 async 生产路径是否把该读卸载到线程。
+
+    读若仍在事件循环线程上跑，循环就停在闸门里，测试协程推进不到 ``release()``，闸门
+    等放行超时后记下 ``event_loop_blocked`` 并照常读完（不抛异常，理由见 ``enter_read``）；
+    读卸载到线程后循环照常推进，放行即读完。裁决由 ``assert_read_was_offloaded()`` 给出，
+    断言的是循环的可推进性，不看调用记录。
+    """
+
+    TIMEOUT_SECONDS = 5.0
+
+    def __init__(self, path: Path, method: str) -> None:
+        self.path = path
+        self.method = method
+        self.event_loop_blocked = False
+        self._started = threading.Event()
+        self._release = threading.Event()
+
+    def enter_read(self) -> None:
+        """在闸门内被调用：登记读已开始，等待测试放行。
+
+        放行等不到只记 ``event_loop_blocked`` 后照常读完，不抛异常——被测路径多带重试
+        装饰器，抛出来会被重试吞掉、第二次穿过已放行的闸门，把红测变绿。
+        """
+        self._started.set()
+        if not self._release.wait(self.TIMEOUT_SECONDS):
+            self.event_loop_blocked = True
+
+    async def wait_until_read_started(self) -> None:
+        """等到闸门内的读开始。读没卸载时事件循环被堵住，本 await 无法返回。"""
+        started = await asyncio.to_thread(self._started.wait, self.TIMEOUT_SECONDS)
+        assert started, f"{self.path.name} 的 {self.method} 未在 {self.TIMEOUT_SECONDS} 秒内开始"
+
+    def release(self) -> None:
+        self._release.set()
+
+    def assert_read_was_offloaded(self) -> None:
+        assert not self.event_loop_blocked, f"{self.path.name} 的 {self.method} 卡在事件循环线程上：该读未卸载到线程"
+
+
+@contextmanager
+def blocking_file_read_gate(
+    monkeypatch: Any,
+    path: Path,
+    *,
+    method: str = "read_bytes",
+) -> Generator[BlockingFileReadGate]:
+    """在文件系统边界上给 *path* 的 ``Path.<method>`` 读装一道闸门。"""
+    gate = BlockingFileReadGate(path, method)
+    original = getattr(Path, method)
+    target = path.resolve()
+
+    def gated(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self.resolve() == target:
+            gate.enter_read()
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, method, gated)
+    try:
+        yield gate
+    finally:
+        gate.release()

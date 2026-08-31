@@ -5,6 +5,7 @@ import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -43,6 +44,7 @@ function renderAt(path: string) {
 }
 
 function resetStores(): void {
+  useAppStore.setState(useAppStore.getInitialState(), true);
   useProjectsStore.setState(useProjectsStore.getInitialState(), true);
   useAssistantStore.setState(useAssistantStore.getInitialState(), true);
 }
@@ -323,4 +325,24 @@ describe("AppRoutes", () => {
     await vi.advanceTimersByTimeAsync(1600);
     expect(API.getProviders).toHaveBeenCalledTimes(3);
   });
+
+  it.each([
+    [false, false],
+    [true, true],
+  ])(
+    "无开合记忆时按内嵌智能体凭证状态初始化面板: configured=%s",
+    async (isEmbeddedAgentConfigured, expectedOpen) => {
+      useAppStore.setState({
+        assistantPanelOpen: !expectedOpen,
+        assistantPanelInitialized: false,
+      });
+      useConfigStatusStore.setState({ initialized: true, isEmbeddedAgentConfigured });
+
+      renderAt("/app/projects");
+
+      await waitFor(() => {
+        expect(useAppStore.getState().assistantPanelOpen).toBe(expectedOpen);
+      });
+    },
+  );
 });

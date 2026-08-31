@@ -5,13 +5,28 @@ from __future__ import annotations
 import logging
 from typing import NamedTuple
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
-from lib.custom_provider import is_custom_provider, parse_provider_id
+from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX, is_custom_provider, parse_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
+
+
+def _media_type_endpoint_filter(media_type: str):
+    """按媒体类型筛 endpoint：内置键查表得到，视频另放行全部声明式端点。
+
+    声明式端点的键系统分配、不在内置注册表里，媒体类型恒为 video（见
+    ``lib.custom_provider.builtin_definitions.DECLARATIVE_MEDIA_TYPE``；分层契约不允许本层
+    引用该模块，故此处按字面量比较），因此按键前缀直接入选，不必为每一行回表读定义。
+    """
+    from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
+
+    builtin = CustomProviderModel.endpoint.in_(ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ()))
+    if media_type != "video":
+        return builtin
+    return or_(builtin, CustomProviderModel.endpoint.startswith(CUSTOM_ENDPOINT_KEY_PREFIX))
 
 
 class CustomProviderPrice(NamedTuple):
@@ -89,7 +104,8 @@ class CustomProviderRepository(BaseRepository):
     async def delete_provider(self, provider_id: int) -> None:
         """删除供应商及其所有模型。
 
-        显式删除模型而非依赖 FK CASCADE，因为 SQLite 默认不启用 foreign_keys pragma。
+        显式删除模型而非依赖 FK CASCADE：级联只在开启 foreign_keys pragma 的连接上生效，
+        应用引擎虽统一开启（engine.py），脚本或外部工具直连时不保证；显式删除不依赖连接配置。
         """
         await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id))
         await self.session.execute(delete(CustomProvider).where(CustomProvider.id == provider_id))
@@ -156,15 +172,10 @@ class CustomProviderRepository(BaseRepository):
 
         通过 ENDPOINT_KEYS_BY_MEDIA_TYPE 查表得到对应的 endpoint 集合，再按 endpoint 过滤。
         """
-        from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
-
-        matching_endpoints = ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ())
-        if not matching_endpoints:
-            return []
         stmt = (
             select(CustomProviderModel)
             .where(
-                CustomProviderModel.endpoint.in_(matching_endpoints),
+                _media_type_endpoint_filter(media_type),
                 CustomProviderModel.is_enabled == True,  # noqa: E712
             )
             .order_by(CustomProviderModel.id)
@@ -212,14 +223,9 @@ class CustomProviderRepository(BaseRepository):
 
         通过 ENDPOINT_KEYS_BY_MEDIA_TYPE 查表得到对应的 endpoint 集合，再按 endpoint 过滤。
         """
-        from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
-
-        matching_endpoints = ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ())
-        if not matching_endpoints:
-            return None
         stmt = select(CustomProviderModel).where(
             CustomProviderModel.provider_id == provider_id,
-            CustomProviderModel.endpoint.in_(matching_endpoints),
+            _media_type_endpoint_filter(media_type),
             CustomProviderModel.is_default == True,  # noqa: E712
             CustomProviderModel.is_enabled == True,  # noqa: E712
         )

@@ -207,7 +207,7 @@ class CustomVideoBackend:
         return base
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 注入本次执行的 endpoint，让下游协议 backend 在 submit 后与 job_id 一并持久化——
+        # 注入实际执行的 endpoint，让下游协议 backend 在 submit 后与 job_id 一并持久化——
         # 续跑据此判定协议是否已被换掉。replace 而非就地改写：request 由调用方持有，
         # 包装层不该留下副作用。
         if self._endpoint is not None:

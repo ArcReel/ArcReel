@@ -1,6 +1,6 @@
 ---
 name: generate-video
-description: 为分镜或自包含视频单元生成视频。当用户要求生成、重做或续传视频时使用；支持整集、单项与批量自选。
+description: 为分镜或自包含视频单元生成视频。当用户要求生成或重做视频时使用；支持整集、单项与批量自选。
 ---
 
 # 生成视频
@@ -36,17 +36,15 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 | 操作 | 工具 |
 |------|------|
-| 整集生成（默认操作） | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery})` |
-| 断点续传 | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery, "resume": true})` |
-| 单分镜 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": chosen_narration_delivery})` |
-| 批量自选 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S05", "E1S10"], "narration_delivery": chosen_narration_delivery})` |
-| 自选 + 续传 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": [...], "narration_delivery": chosen_narration_delivery, "resume": true})` |
-| 全部待处理（独立模式） | `mcp__arcreel__generate_video_all({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery})` |
+| 整集生成（默认操作） | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode": 1}, "narration_delivery": chosen_narration_delivery})` |
+| 单分镜 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1S01"]}, "narration_delivery": chosen_narration_delivery})` |
+| 批量自选 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1S01", "E1S05", "E1S10"]}, "narration_delivery": chosen_narration_delivery})` |
+| 全部待处理 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "all"}, "narration_delivery": chosen_narration_delivery})` |
 
 每次调用都必须带 `narration_delivery`（见「旁白交付」）：省略或写错值一律返回工具错误、不入队任何任务。
 上表的 `chosen_narration_delivery` 是占位符，调用前换成本次已向用户确认的那个值，不要照抄一个具体值。
 
-把 `scene_id` / `scene_ids` 在分镜图生视频解释为分镜 ID，在参考生视频解释为 `unit_id`。集号由剧本元数据或文件名解析。
+把 `target.ids` 在分镜图生视频解释为分镜 ID，在参考生视频解释为 `unit_id`。集号由剧本元数据或文件名解析。
 
 ### 点名重新生成视频单元
 
@@ -54,21 +52,21 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 | 操作 | 工具 |
 |------|------|
-| 重新生成单个视频单元 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1U2", "narration_delivery": chosen_narration_delivery})` |
-| 重新生成多个视频单元 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1U2", "E1U3"], "narration_delivery": chosen_narration_delivery})` |
+| 重新生成单个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1U2"]}, "force": true, "narration_delivery": chosen_narration_delivery})` |
+| 重新生成多个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1U2", "E1U3"]}, "force": true, "narration_delivery": chosen_narration_delivery})` |
 
-一次调用完成入队、等待与结果回报：
+一次调用完成入队并返回 durable batch；按返回的 `poll_after_seconds` 调用 `get_generation_batch`，直到 `done: true` 后再处理结果：
 
 - 把点名视为强制重做，覆盖已有成片。
-- 任一目标已有在途任务时等待其完成，再重做整批目标。
+- 已有在途任务时不自动 force 重做；等待并读取其 batch 结果，避免对刚完成的目标再次付费提交。
 - 只生成剧本中点名的自包含视频单元；未命中的 ID 记为 `blocked`，带 `generation_unit_not_found`。
-- 点名重做不落 checkpoint，忽略 `resume`。
+- 调用中断后查询 durable batch；只把未成功的 ID 用 `selected`、`force: false` 重发，已完成项归 `skipped`。
 - 结果按 `requested / succeeded / failed / blocked` 逐 ID 返回，
   结构与问题码见 `.claude/references/generation-results.md`。
 
 ### 旁白交付
 
-叙述旁白有两种交付方式，**每次请求逐次选择、从不持久化**，经 `narration_delivery` 传入，该参数在四个视频工具上均为必填：
+叙述旁白有两种交付方式，**每次请求逐次选择、从不持久化**，经 `narration_delivery` 传入，该参数在 `generate_videos` 上必填：
 
 | 取值 | 含义 |
 |---|---|
@@ -97,8 +95,8 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 不会退回后期配音把用户选的「使用当前 TTS」悄悄换掉：
 
 ```text
-mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": "use_tts",
-                                      "confirmed_request_durations": {"E1U1": 8}})
+mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode": 1},
+                               "narration_delivery": "use_tts", "confirmed_request_durations": {"E1U1": 8}})
 ```
 
 被拒时逐视频单元报告 `unit_id`、`problem.code`、原因与 `problem.action`；通过的视频单元带

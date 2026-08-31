@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, useCallback } from "react";
-import { ChevronDown, Type, Image as ImageIcon, Film, AudioLines } from "lucide-react";
+import { ChevronDown, Type, Image as ImageIcon, Film, AudioLines, Settings2 } from "lucide-react";
+import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Popover } from "@/components/ui/Popover";
 import type { EndpointKey, ImageCap, MediaType } from "@/types";
@@ -16,6 +17,8 @@ import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 interface EndpointOption {
   value: EndpointKey;
   labelKey: string;
+  /** 声明式端点自带的显示名，优先于 labelKey 的 i18n 文案；Python 内置为 null。 */
+  displayName: string | null;
   mediaType: MediaType;
   method: string;
   path: string;
@@ -39,10 +42,16 @@ interface EndpointSelectProps {
   ariaLabel?: string;
   /** Disable interaction */
   disabled?: boolean;
+  /**
+   * 拦截「管理端点」跳转：宿主表单据此在有未保存改动时先行确认，确认后调用 proceed
+   * 执行跳转。缺省直接跳转。
+   */
+  onManageNavigate?: (proceed: () => void) => void;
 }
 
-export function EndpointSelect({ value, onChange, ariaLabel, disabled }: EndpointSelectProps) {
+export function EndpointSelect({ value, onChange, ariaLabel, disabled, onManageNavigate }: EndpointSelectProps) {
   const { t } = useTranslation("dashboard");
+  const [, navigate] = useLocation();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
@@ -68,6 +77,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
           ordered.push({
             value: e.key,
             labelKey: e.display_name_key,
+            displayName: e.display_name,
             mediaType: e.media_type,
             method: e.request_method,
             path: e.request_path_template,
@@ -113,7 +123,9 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
     ? selected.path.replace(/^\/v1beta\/models\//, "/").replace(/^\/v1/, "")
     : "";
   // 已选 endpoint 不在当前 catalog（数据漂移或后端临时移除）：用原始 key 兜底显示。
-  const triggerLabel = selected ? t(selected.labelKey) : value || t("endpoint_catalog_loading");
+  const triggerLabel = selected
+    ? (selected.displayName ?? t(selected.labelKey))
+    : value || t("endpoint_catalog_loading");
 
   const handleSelect = useCallback(
     (next: EndpointKey) => {
@@ -277,7 +289,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
                           <div
                             className={`truncate text-sm ${isSelected ? "text-text" : "text-text-2"}`}
                           >
-                            {t(opt.labelKey)}
+                            {opt.displayName ?? t(opt.labelKey)}
                           </div>
                           <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-[11px] leading-none">
                             <span className="text-text-4">{opt.method}</span>
@@ -301,6 +313,22 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
             );
           })}
         </div>
+        {/* 变体 C 入口：行内不展开编辑，跳到设置页「调用端点」小节管理定义。 */}
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            const params = new URLSearchParams({ section: "endpoints" });
+            if (value) params.set("endpoint", value);
+            const proceed = () => navigate(`/app/settings?${params.toString()}`);
+            if (onManageNavigate) onManageNavigate(proceed);
+            else proceed();
+          }}
+          className="flex shrink-0 items-center gap-1.5 border-t border-hairline-soft px-3.5 py-2 text-left text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a/50 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Settings2 aria-hidden="true" className="h-3 w-3" />
+          {t("ce_manage_entry")}
+        </button>
       </Popover>
     </>
   );

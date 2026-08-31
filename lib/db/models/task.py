@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Index, Integer, String, Text, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, UserOwnedMixin
@@ -14,6 +14,7 @@ class Task(UserOwnedMixin, Base):
     __tablename__ = "tasks"
 
     task_id: Mapped[str] = mapped_column(String, primary_key=True)
+    batch_id: Mapped[str | None] = mapped_column(ForeignKey("batches.batch_id"), index=True)
     project_name: Mapped[str] = mapped_column(String, nullable=False)
     task_type: Mapped[str] = mapped_column(String, nullable=False)
     media_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -56,6 +57,7 @@ class Task(UserOwnedMixin, Base):
         Index(
             "idx_tasks_dedupe_active",
             "project_name",
+            "user_id",
             "task_type",
             "resource_id",
             text("COALESCE(script_file, '')"),
@@ -65,6 +67,29 @@ class Task(UserOwnedMixin, Base):
             postgresql_where=text("status IN ('queued', 'running', 'cancelling')"),
         ),
     )
+
+
+class GenerationBatch(UserOwnedMixin, Base):
+    __tablename__ = "batches"
+
+    batch_id: Mapped[str] = mapped_column(String, primary_key=True)
+    project_name: Mapped[str] = mapped_column(String, nullable=False)
+    operation: Mapped[str] = mapped_column(String, nullable=False)
+    requested_json: Mapped[str] = mapped_column(Text, nullable=False)
+    blocked_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BatchTask(Base):
+    __tablename__ = "batch_tasks"
+
+    batch_id: Mapped[str] = mapped_column(ForeignKey("batches.batch_id", ondelete="CASCADE"), primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.task_id"), primary_key=True)
+    unit_id: Mapped[str] = mapped_column(String, primary_key=True)
+    deduped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    __table_args__ = (UniqueConstraint("batch_id", "unit_id", name="uq_batch_tasks_batch_unit"),)
 
 
 class WorkerLease(Base):

@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.asset_types import ASSET_SPECS
+from lib.config.resolver import ConfigResolver
+from lib.db.base import DEFAULT_USER_ID
+from lib.generation_queue import GenerationQueue, get_generation_queue
 from lib.generation_queue_client import get_active_tasks_for_resources
 from lib.generation_result import (
     GenerationProblem,
@@ -14,6 +18,7 @@ from lib.generation_result import (
     migration_problem,
     provider_checkpoint_from_task,
 )
+from lib.grid_manager import GridManager
 from lib.narration_delivery import USE_TTS
 from lib.project_manager import ProjectManager, get_project_manager
 from lib.project_migration_failure import (
@@ -68,7 +73,12 @@ class WorkflowPlanner:
         self,
         project_name: str,
         request: WorkflowPlanRequest,
+        *,
+        user_id: str = DEFAULT_USER_ID,
+        queue: GenerationQueue | None = None,
+        config_resolver: ConfigResolver | None = None,
     ) -> WorkflowPlan:
+        queue = queue or get_generation_queue()
         status = await asyncio.to_thread(
             WorkflowStateService(self._pm).get_status,
             project_name,
@@ -88,7 +98,7 @@ class WorkflowPlanner:
             )
         facts = await self._script_facts(project_name, status)
         structure_problems = self._structure_problems(facts)
-        tasks = await self._active_tasks(project_name, status, facts, request)
+        tasks = await self._active_tasks(project_name, status, facts, request, user_id=user_id, queue=queue)
         admission = None
         if (
             facts is not None
@@ -97,7 +107,15 @@ class WorkflowPlanner:
             and status.state == "VIDEO"
             and status.next_action.type == "generate_videos"
         ):
-            admission = await self._video_admission(project_name, status, facts, request)
+            admission = await self._video_admission(
+                project_name,
+                status,
+                facts,
+                request,
+                user_id=user_id,
+                queue=queue,
+                config_resolver=config_resolver,
+            )
         return build_workflow_plan(
             status,
             narration_delivery=request.narration_delivery,
@@ -168,31 +186,94 @@ class WorkflowPlanner:
         status: WorkflowStatus,
         facts: _ScriptFacts | None,
         request: WorkflowPlanRequest,
+        *,
+        user_id: str,
+        queue: GenerationQueue,
     ) -> list[WorkflowTaskObservation]:
-        if facts is None:
-            return []
-        id_field = facts.id_field
-        unit_ids = [
-            str(item[id_field]) for item in facts.items if isinstance(item.get(id_field), str) and str(item[id_field])
-        ]
-        if not unit_ids:
-            return []
-        task_types = ["reference_video" if status.project.generation_mode == "reference_video" else "video"]
-        if status.project.generation_mode == "storyboard" and not status.project.grid_storyboard:
-            task_types.append("storyboard")
-        if request.narration_delivery == USE_TTS:
-            task_types.append("tts")
-
         rows: list[dict[str, Any]] = []
-        for task_type in task_types:
+        text_queries = [("text_episode_plan", ["episode-planning"])] if status.project.content_mode != "ad" else []
+        if status.target is not None:
+            episode_ids = [f"episode-{status.target.episode}"]
+            text_queries.append(("text_episode_script", episode_ids))
+            if status.project.content_mode != "ad":
+                script_plan_type = (
+                    "text_reference_script_plan"
+                    if status.project.generation_mode == "reference_video"
+                    else f"text_{status.project.content_mode}_script_plan"
+                )
+                text_queries.append((script_plan_type, episode_ids))
+        for task_type, resource_ids in text_queries:
             rows.extend(
                 await get_active_tasks_for_resources(
                     project_name=project_name,
                     task_type=task_type,
-                    resource_ids=unit_ids,
-                    script_file=facts.script_file,
+                    resource_ids=resource_ids,
+                    user_id=user_id,
+                    queue=queue,
                 )
             )
+
+        if facts is not None:
+            for asset_type in ASSET_SPECS:
+                bucket = facts.project.get(ASSET_SPECS[asset_type].bucket_key)
+                resource_ids = list(bucket) if isinstance(bucket, dict) else []
+                if resource_ids:
+                    rows.extend(
+                        await get_active_tasks_for_resources(
+                            project_name=project_name,
+                            task_type=asset_type,
+                            resource_ids=resource_ids,
+                            user_id=user_id,
+                            queue=queue,
+                        )
+                    )
+            id_field = facts.id_field
+            unit_ids = [
+                str(item[id_field])
+                for item in facts.items
+                if isinstance(item.get(id_field), str) and str(item[id_field])
+            ]
+            task_types = ["reference_video" if status.project.generation_mode == "reference_video" else "video"]
+            if status.project.generation_mode == "storyboard":
+                if status.project.grid_storyboard:
+                    grids_dir = facts.project_path / "grids"
+                    grids = (
+                        await asyncio.to_thread(GridManager(facts.project_path).list_all)
+                        if await asyncio.to_thread(grids_dir.is_dir)
+                        else []
+                    )
+                    unit_id_set = set(unit_ids)
+                    grid_ids = [
+                        grid.id
+                        for grid in grids
+                        if grid.script_file == facts.script_file and set(grid.scene_ids) & unit_id_set
+                    ]
+                    if grid_ids:
+                        rows.extend(
+                            await get_active_tasks_for_resources(
+                                project_name=project_name,
+                                task_type="grid",
+                                resource_ids=grid_ids,
+                                script_file=facts.script_file,
+                                user_id=user_id,
+                                queue=queue,
+                            )
+                        )
+                else:
+                    task_types.append("storyboard")
+            if request.narration_delivery == USE_TTS:
+                task_types.append("tts")
+            for task_type in task_types:
+                rows.extend(
+                    await get_active_tasks_for_resources(
+                        project_name=project_name,
+                        task_type=task_type,
+                        resource_ids=unit_ids,
+                        script_file=facts.script_file,
+                        user_id=user_id,
+                        queue=queue,
+                    )
+                )
         seen: set[str] = set()
         observations: list[WorkflowTaskObservation] = []
         for task in rows:
@@ -204,6 +285,7 @@ class WorkflowPlanner:
                 WorkflowTaskObservation(
                     unit_id=str(task.get("resource_id") or ""),
                     task_id=task_id,
+                    batch_id=str(task["batch_id"]) if task.get("batch_id") is not None else None,
                     task_type=str(task.get("task_type") or ""),
                     status=str(task.get("status") or ""),
                     provider_checkpoint=provider_checkpoint_from_task(task),
@@ -218,6 +300,10 @@ class WorkflowPlanner:
         status: WorkflowStatus,
         facts: _ScriptFacts,
         request: WorkflowPlanRequest,
+        *,
+        user_id: str,
+        queue: GenerationQueue,
+        config_resolver: ConfigResolver | None,
     ) -> dict[str, Any]:
         options = ReferenceRequestOptions(narration_delivery=request.narration_delivery or "post_production")
         if status.project.generation_mode == "reference_video":
@@ -243,6 +329,9 @@ class WorkflowPlanner:
                 confirmed_request_durations=request.confirmed_request_durations,
                 spec_check=lambda unit: reference_unit_task_spec(unit, facts.script_file),
                 extra_tickets=extra,
+                user_id=user_id,
+                queue=queue,
+                config_resolver=config_resolver,
             )
             return admission.to_payload()
 
@@ -257,7 +346,7 @@ class WorkflowPlanner:
             item for item in facts.items if isinstance(item.get(id_field), str) and str(item[id_field]) in requested
         ]
         voice_characters = await resolve_voice_context(facts.project, status.project.content_mode)
-        specs, _order_map, refused = await asyncio.to_thread(
+        specs, refused = await asyncio.to_thread(
             build_storyboard_video_specs,
             items=items,
             id_field=id_field,
@@ -284,6 +373,9 @@ class WorkflowPlanner:
             selection=GenerationSelectionMode.MISSING_ONLY,
             confirmed_request_durations=request.confirmed_request_durations,
             extra_tickets=refused,
+            user_id=user_id,
+            queue=queue,
+            config_resolver=config_resolver,
         )
         return admission.to_payload()
 

@@ -16,6 +16,7 @@ plan() 从 planning_cursor 起取一个源文窗口，由文本模型一次规�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import statistics
@@ -27,6 +28,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lib import script_review
+from lib.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -41,6 +43,7 @@ from lib.episode_ledger import (
     register_orphan_episode_entries,
 )
 from lib.episode_paths import episode_script_relpath
+from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, resolve_source_kind
 from lib.prompt_builders_script import USER_INSTRUCTIONS_HEADER
@@ -411,7 +414,12 @@ class EpisodePlanner:
 
     # ---------------------------------------------------------------- plan
 
-    async def plan(self, instructions: str | None = None) -> PlanResult:
+    async def plan(
+        self,
+        instructions: str | None = None,
+        *,
+        cancellation_receipts: list[FormalWriteReceipt] | None = None,
+    ) -> PlanResult:
         """规划下一批集：从 planning_cursor 起的窗口产出剧情弧完整的集并提交账本。
 
         当前源文件已无剩余有效内容时按文件名序自动推进到下一个源文件；
@@ -421,7 +429,7 @@ class EpisodePlanner:
         非空则原样注入规划 prompt 的中性「用户意见」分节，遵循强度由意见正文自行表达。规划按窗口
         分多批、意见不持久化，调用方须在每批 plan 调用都重复带上。
 
-        新提交的集号若在磁盘上已有下游产物（剧本/step1/媒体，见
+        新提交的集号若在磁盘上已有下游产物（剧本/script_plan/媒体，见
         :func:`lib.episode_ledger.has_downstream_products`），说明该集实际已被消费过
         （典型场景：先 ``reset_episode_planning`` 部分重置到更早集号、再带新 ``instructions``
         重新规划，新布局与原消费范围重叠）；这类集提交时直接标 ``stale``（产物不删除），
@@ -457,7 +465,11 @@ class EpisodePlanner:
         while not text[start:].strip():
             next_rel = self._next_source_rel(source_rel)
             if next_rel is None:
-                project = self._backfill_source_fingerprints_if_missing(project, used_fingerprints=used_fingerprints)
+                project = await self._backfill_source_fingerprints_if_missing(
+                    project,
+                    used_fingerprints=used_fingerprints,
+                    cancellation_receipts=cancellation_receipts,
+                )
                 return PlanResult(
                     episodes=[],
                     cursor=project.get("planning_cursor"),
@@ -484,7 +496,9 @@ class EpisodePlanner:
         window = text[start:window_end]
         window_is_final = window_end >= len(text)
         content_mode = str(project.get("content_mode") or "narration")
-        draft_model: type[BaseModel] = DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
+        draft_model: type[NarrationPlanDraft | DramaPlanDraft] = (
+            DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
+        )
         language = _language_of(project)
         # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
         # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无意见路径行为可复现，
@@ -555,14 +569,14 @@ class EpisodePlanner:
                 entry = _ledger_entry_from_draft(
                     draft_ep, num=num, source_rel=source_rel, start=prev, end=abs_end, status="planned"
                 )
-                # 新集号若在磁盘上已有剧本/step1/媒体产物（如重置到更早集号后重新规划、
+                # 新集号若在磁盘上已有剧本/script_plan/媒体产物（如重置到更早集号后重新规划、
                 # 新布局与原消费范围重叠），说明该集实际已被消费过；标 stale 提示主 Agent
                 # 需重做下游产物，产物本身不删除
                 if has_downstream_products(self.project_path, num, entry):
                     entry["ledger_status"] = "stale"
-                    step1_path = script_review.step1_path(self.project_path, p, num)
-                    entry[script_review.STALE_STEP1_REVISION_FIELD] = (
-                        script_review.content_fingerprint(step1_path) if step1_path is not None else None
+                    script_plan_path = script_review.script_plan_path(self.project_path, p, num)
+                    entry[script_review.STALE_SCRIPT_PLAN_REVISION_FIELD] = (
+                        script_review.content_fingerprint(script_plan_path) if script_plan_path is not None else None
                     )
                     committed["stale"].append(num)
                 episodes_list.append(entry)
@@ -586,7 +600,24 @@ class EpisodePlanner:
                 window_is_final and not text[start + ends[-1] :].strip() and self._next_source_rel(source_rel) is None
             )
 
-        final_project = self.pm.update_project(self.project_name, _commit)
+        existing_derived = set(discover_episode_files(self.project_path).values())
+        ledger_nums = {
+            parse_episode_num(entry.get("episode"))
+            for entry in project.get("episodes") or []
+            if isinstance(entry, Mapping)
+        }
+        ledger_nums = {num for num in ledger_nums if num is not None and num > 0}
+        next_num = max(ledger_nums, default=0) + 1
+        formal_paths = existing_derived | {
+            self.project_path / "source" / f"episode_{num}.txt"
+            for num in (*sorted(ledger_nums), *range(next_num, next_num + len(drafts)))
+        }
+        formal_paths.add(self.project_path / "source" / "_remaining.txt")
+        final_project = await self._update_project_compensably(
+            _commit,
+            formal_paths=tuple(sorted(formal_paths)),
+            cancellation_receipts=cancellation_receipts,
+        )
         exhausted = bool(committed["exhausted"])
         return PlanResult(
             episodes=summaries,
@@ -603,7 +634,7 @@ class EpisodePlanner:
 
     async def _request_validated_drafts(
         self,
-        draft_model: type[BaseModel],
+        draft_model: type[NarrationPlanDraft | DramaPlanDraft],
         prompt_builder: Callable[[list[str] | None], str],
         window: str,
         *,
@@ -643,7 +674,7 @@ class EpisodePlanner:
                 raise EpisodePlanningError(str(exc)) from exc
             try:
                 draft = self._parse_draft(result.text, draft_model)
-                drafts = list(getattr(draft, "episodes"))
+                drafts: list[NarrationEpisodeDraft] = list(draft.episodes)
                 if max_episodes is not None and len(drafts) > max_episodes:
                     logger.warning(
                         "规划输出 %d 集超过每批上限 %d，截断保留前 %d 集（其余留给下一批）",
@@ -662,7 +693,9 @@ class EpisodePlanner:
         )
 
     @staticmethod
-    def _parse_draft(response_text: str, draft_model: type[BaseModel]) -> BaseModel:
+    def _parse_draft(
+        response_text: str, draft_model: type[NarrationPlanDraft | DramaPlanDraft]
+    ) -> NarrationPlanDraft | DramaPlanDraft:
         text = strip_json_code_fences(response_text)
         try:
             data = json.loads(text)
@@ -689,10 +722,14 @@ class EpisodePlanner:
                 continue
             rel = source_range.get("source_file")
             end = source_range.get("end")
-            if isinstance(rel, str) and isinstance(end, int) and not isinstance(end, bool):
-                if best_num is None or num > best_num:
-                    best_num = num
-                    last = (rel, end)
+            if (
+                isinstance(rel, str)
+                and isinstance(end, int)
+                and not isinstance(end, bool)
+                and (best_num is None or num > best_num)
+            ):
+                best_num = num
+                last = (rel, end)
         cursor = project.get("planning_cursor")
         cur: tuple[str, int] | None = None
         if isinstance(cursor, Mapping):
@@ -784,8 +821,12 @@ class EpisodePlanner:
         if missing:
             raise _missing_source_range_error(missing)
 
-    def _backfill_source_fingerprints_if_missing(
-        self, project: Mapping[str, Any], *, used_fingerprints: dict[str, str]
+    async def _backfill_source_fingerprints_if_missing(
+        self,
+        project: Mapping[str, Any],
+        *,
+        used_fingerprints: dict[str, str],
+        cancellation_receipts: list[FormalWriteReceipt] | None = None,
     ) -> dict:
         """存量项目在 ``source_exhausted`` 早退路径上补记指纹：该路径不经过 ``plan()`` 的
         提交闭包，若跳过会让「首次 plan 补记指纹」对已耗尽游标的存量项目失效——后续等长
@@ -808,7 +849,37 @@ class EpisodePlanner:
                 raise _source_changed_error(changed)
             p[SOURCE_FINGERPRINTS_KEY] = current_fingerprints
 
-        return self.pm.update_project(self.project_name, _commit)
+        return await self._update_project_compensably(
+            _commit,
+            cancellation_receipts=cancellation_receipts,
+        )
+
+    async def _update_project_compensably(
+        self,
+        mutate: Callable[[dict], None],
+        *,
+        formal_paths: tuple[Path, ...] = (),
+        cancellation_receipts: list[FormalWriteReceipt] | None = None,
+    ) -> dict:
+        receipts = cancellation_receipts if cancellation_receipts is not None else []
+        try:
+            return await run_sync_transaction(
+                self.pm.update_project,
+                self.project_name,
+                mutate,
+                formal_paths=formal_paths,
+                cancellation_receipts=receipts,
+            )
+        except asyncio.CancelledError:
+            if receipts:
+                receipt = receipts[0]
+
+                def _compensate_cancelled() -> None:
+                    with project_metadata_lock(self.project_path):
+                        receipt.compensate_cancelled()
+
+                await run_noninterruptible_sync(_compensate_cancelled)
+            raise
 
     @staticmethod
     def _setting_int(project: Mapping[str, Any], key: str, default: int) -> int:
@@ -940,7 +1011,7 @@ class EpisodePlanner:
         return LedgerStats(
             total_episodes=_count_planned_episodes(project),
             smallest=ordered[:5],
-            median_units=int(round(statistics.median(values))) if values else None,
+            median_units=round(statistics.median(values)) if values else None,
             target_units=target if isinstance(target, int) and not isinstance(target, bool) and target >= 1 else None,
         )
 

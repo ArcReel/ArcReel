@@ -1,16 +1,16 @@
 name: Docker Release
 
 # v* tag 触发的正式发布：双架构漏洞闸门 → 多架构构建 → semver + latest 标签，
-# 附带 SBOM 与 provenance attestation。GitHub Release 由 release-please 创建，
-# 此处不再重复生成。
+# 同一次构建推送 ghcr 与 Docker Hub，附带 SBOM 与 provenance attestation。
+# GitHub Release 由 release-please 创建，此处不再重复生成。
 
 on:
   push:
     tags: ["v*"]
 
-# 不同 v* tag 并发运行时，后完成的旧版本会覆盖 latest/{{major}} 等可变标签，
-# 串行执行；queue: max 保留全部排队 tag（默认每组只留一个 pending，
-# 连续多个 tag 会丢中间版本的发布）
+# 不同 v* tag 并发运行时，后完成的旧版本会覆盖 latest/{{major}} 等可变标签，故串行执行。
+# queue: max 保留全部排队 tag：默认的 queue: single 每组只留一个 pending 运行，连续推多个
+# tag 会丢掉中间版本的发布。
 concurrency:
   group: docker-release
   cancel-in-progress: false
@@ -31,6 +31,8 @@ jobs:
         with:
           persist-credentials: false
 
+      # Docker Hub 命名空间与 GitHub 组织同名，两个 registry 共用这一份小写仓库名；
+      # fork 因此自动指向自己的命名空间，不会继承上游的推送目标
       - name: Compute lowercase image name
         run: echo "IMAGE_NAME_LC=${REPO,,}" >> "$GITHUB_ENV"
         env:
@@ -38,13 +40,20 @@ jobs:
 
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # 闸门逐架构构建并扫描：架构间基础镜像层与二进制包可能不同，
       # 只扫 amd64 会放过仅存在于 arm64 变体的可修复漏洞。构建层进
@@ -119,7 +128,9 @@ jobs:
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
+            docker.io/${{ env.IMAGE_NAME_LC }}
           # latest 交由 metadata-action 默认 flavor（latest=auto）：仅稳定
           # semver tag 生成，预发布 tag（如 v1.2.3-rc.1）只推版本标签
           tags: |
@@ -128,6 +139,7 @@ jobs:
             type=semver,pattern={{major}}
 
       - name: Build & push multi-arch image with SBOM and provenance
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -140,3 +152,29 @@ jobs:
           cache-from: |
             type=gha,scope=release-amd64
             type=gha,scope=release-arm64
+
+      # 双推是同一次构建的产物，digest 理论上必然相同；这一步是「同步确实发生了」
+      # 的唯一凭证，逐一核对 metadata-action 产出的每个标签——只验版本标签会放过
+      # latest / {{major}} 在某个 registry 未落地的情况，而 latest 正是默认拉取入口
+      - name: Assert every pushed tag resolves to the build digest
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          echo "build digest: ${BUILD_DIGEST}"
+          failed=0
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            digest=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')
+            if [ "$digest" = "$BUILD_DIGEST" ]; then
+              printf '  ok   %s\n' "$tag"
+            else
+              printf '  FAIL %s -> %s\n' "$tag" "$digest"
+              failed=1
+            fi
+          done <<< "$TAGS"
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::pushed tags diverge from the build digest"
+            exit 1
+          fi

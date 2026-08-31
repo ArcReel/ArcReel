@@ -9,15 +9,19 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import fields, replace
 from enum import Enum
 from types import UnionType
-from typing import get_args, get_type_hints
+from typing import TYPE_CHECKING, get_args, get_type_hints
 
-from lib.custom_provider.endpoints import get_endpoint_spec
-from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+from lib.custom_provider.endpoint_definition import requires_image_input
+from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, audio_capability_pair_is_coherent
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from lib.custom_provider.endpoints import EndpointSpec
 
 
 # 覆盖键 → 值类型，直接从 VideoCapabilities dataclass 派生：新增能力维度自动进入覆盖
@@ -56,7 +60,9 @@ def capability_type_name(expected: object) -> str:
     return f"{name} | None" if optional else name
 
 
-def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilities:
+def system_video_capabilities(
+    *, endpoint: str, model_id: str, endpoint_spec: EndpointSpec | None = None
+) -> VideoCapabilities:
     """读 endpoint spec 得出系统对该模型视频能力的判定。
 
     两条声明形式（注册表不变式保证恰填其一）：
@@ -69,7 +75,11 @@ def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilit
     Raises:
         ValueError: endpoint 不存在、非 video 类、或两种声明都缺失 / 上限为负。
     """
-    spec = get_endpoint_spec(endpoint)
+    if endpoint_spec is None:
+        from lib.custom_provider.endpoints import get_endpoint_spec
+
+        endpoint_spec = get_endpoint_spec(endpoint)
+    spec = endpoint_spec
     if spec.media_type != "video":
         raise ValueError(f"endpoint {endpoint!r} is {spec.media_type}, not video")
 
@@ -93,7 +103,26 @@ def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilit
     return VideoCapabilities(max_reference_images=endpoint_cap)
 
 
-def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | None) -> dict[str, object]:
+def video_capabilities_from_definition(definition: Mapping[str, object]) -> VideoCapabilities:
+    """从声明式定义机械合成协议能力；必需图输入决定是否支持纯文生请求。"""
+    raw_capabilities = definition.get("capabilities")
+    capabilities = raw_capabilities if isinstance(raw_capabilities, Mapping) else {}
+    applied: dict[str, object] = {}
+    for key, value in capabilities.items():
+        expected = CAPABILITY_OVERRIDE_FIELDS.get(key)
+        if expected is None or not capability_value_matches(value, expected):
+            raise ValueError(f"invalid capability in endpoint definition: {key}={value!r}")
+        applied[key] = value
+
+    raw_inputs = definition.get("inputs")
+    inputs = raw_inputs if isinstance(raw_inputs, Mapping) else None
+    caps = merge_overrides(VideoCapabilities(first_frame=False), applied)
+    return replace(caps, text_to_video=not requires_image_input(inputs))
+
+
+def filter_valid_overrides(
+    *, endpoint: str, model_id: str, overrides: object | None, endpoint_spec: EndpointSpec | None = None
+) -> dict[str, object]:
     """按写入侧同一判定过滤 overrides，丢弃执行层不会采用的键值，返回真正生效的子集。
 
     ``overrides`` 为 ``CustomProviderModel.capability_overrides`` 的原始值（DB 里可能是任何
@@ -107,6 +136,8 @@ def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | 
     无入口删除，回显隐去它以保证 GET 与写入落库的键集合一致。不校验 endpoint / media_type
     合法性，调用方已各自处理（见 :func:`system_video_capabilities` 与 ``_system_capabilities_for``）。
     """
+    from lib.custom_provider.endpoints import get_endpoint_spec
+
     if overrides is None:
         return {}
     if not isinstance(overrides, dict):
@@ -141,7 +172,7 @@ def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | 
         # 视同不支持尾帧处理——存量脏配置不该让响应过滤这道最后防线也跟着炸。
         if key == "last_frame" and value is True:
             try:
-                end_image_capable = get_endpoint_spec(endpoint).end_image_capable
+                end_image_capable = (endpoint_spec or get_endpoint_spec(endpoint)).end_image_capable
             except ValueError:
                 end_image_capable = False
             if not end_image_capable:
@@ -155,7 +186,7 @@ def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | 
         # 覆盖成 direct 只会让合成层宣称支持音色输入，执行层照样生成随机音色的视频。
         if key == "reference_audio_mode" and value == ReferenceAudioMode.DIRECT.value:
             try:
-                audio_capable = get_endpoint_spec(endpoint).reference_audio_capable
+                audio_capable = (endpoint_spec or get_endpoint_spec(endpoint)).reference_audio_capable
             except ValueError:
                 audio_capable = False
             if not audio_capable:
@@ -175,6 +206,7 @@ def synthesize_video_capabilities(
     endpoint: str,
     model_id: str,
     overrides: object | None,
+    endpoint_spec: EndpointSpec | None = None,
 ) -> VideoCapabilities:
     """系统判定 ⊕ 用户覆盖 → 生效能力。
 
@@ -182,7 +214,10 @@ def synthesize_video_capabilities(
         ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
     """
     caps, _applied = synthesize_video_capabilities_with_overrides(
-        endpoint=endpoint, model_id=model_id, overrides=overrides
+        endpoint=endpoint,
+        model_id=model_id,
+        overrides=overrides,
+        endpoint_spec=endpoint_spec,
     )
     return caps
 
@@ -192,6 +227,7 @@ def synthesize_video_capabilities_with_overrides(
     endpoint: str,
     model_id: str,
     overrides: object | None,
+    endpoint_spec: EndpointSpec | None = None,
 ) -> tuple[VideoCapabilities, dict[str, object]]:
     """同 :func:`synthesize_video_capabilities`，额外返回过滤后的稀疏覆盖字典。
 
@@ -204,8 +240,10 @@ def synthesize_video_capabilities_with_overrides(
     Raises:
         ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
     """
-    caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
-    applied = filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides)
+    caps = system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec)
+    applied = filter_valid_overrides(
+        endpoint=endpoint, model_id=model_id, overrides=overrides, endpoint_spec=endpoint_spec
+    )
     merged = merge_overrides(caps, applied)
     return enforce_audio_capability_invariant(merged, endpoint=endpoint, model_id=model_id), applied
 
@@ -236,7 +274,13 @@ def merge_overrides(caps: VideoCapabilities, applied: dict[str, object]) -> Vide
 AUDIO_OVERRIDE_KEYS = ("reference_audio_mode", "max_reference_audio_count")
 
 
-def resolve_audio_pair(overrides: dict[str, object], *, endpoint: str, model_id: str) -> tuple[object, int]:
+def resolve_audio_pair(
+    overrides: dict[str, object],
+    *,
+    endpoint: str,
+    model_id: str,
+    endpoint_spec: EndpointSpec | None = None,
+) -> tuple[object, int]:
     """把稀疏的音频覆盖补齐成完整的（模式, 段数上限）二元组，未覆盖的维度取系统判定。
 
     不变式判定要的是合并后的两维，而覆盖字典只带用户显式改过的那些键；写入侧与回显侧都需要
@@ -244,7 +288,7 @@ def resolve_audio_pair(overrides: dict[str, object], *, endpoint: str, model_id:
     endpoint / model_id 不可解析时按最保守的"不支持音色输入"补齐。
     """
     try:
-        system_caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
+        system_caps = system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec)
     except ValueError:
         system_caps = None
     mode = overrides.get(
@@ -259,7 +303,11 @@ def resolve_audio_pair(overrides: dict[str, object], *, endpoint: str, model_id:
 
 
 def strip_incoherent_audio_overrides(
-    overrides: dict[str, object], *, endpoint: str, model_id: str
+    overrides: dict[str, object],
+    *,
+    endpoint: str,
+    model_id: str,
+    endpoint_spec: EndpointSpec | None = None,
 ) -> dict[str, object]:
     """剔除合并后违反音频两维不变式的覆盖键。
 
@@ -270,27 +318,10 @@ def strip_incoherent_audio_overrides(
     """
     if not any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
         return overrides
-    mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id)
+    mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec)
     if audio_capability_pair_is_coherent(mode=mode, count=count):
         return overrides
     return {key: value for key, value in overrides.items() if key not in AUDIO_OVERRIDE_KEYS}
-
-
-def audio_capability_pair_is_coherent(*, mode: object, count: int) -> bool:
-    """音频两维的合并后不变式：声明支持音色输入就必须给出正的段数上限。
-
-    两维各自合法、合起来无意义的组合只有这一种（``direct`` ⊕ 上限 0）：稀疏覆盖只写其中
-    一维就能凑出——覆盖 ``reference_audio_mode=direct`` 而不动系统判定的 0，或反过来把
-    ``max_reference_audio_count`` 压成 0 而模式仍是系统判定的 ``direct``。反向组合
-    （``none`` ⊕ 正上限）不算违约：模式为 ``none`` 时上限本就不参与判定，且"关掉音色输入"
-    是正当意图，判违约反会把用户明确关掉的能力顶回开启。
-
-    不修正这组的后果是 ``gate_video_request`` 先过模式判定、再撞上限 0，把"该模型不支持
-    参考音频"报成"最多支持 0 段参考音频"——用户按提示去减角色数量，减到零段也过不了。
-
-    写入侧（``server/routers/custom_providers.py``）与合成侧共用此判定，两边不得各写一份。
-    """
-    return mode == ReferenceAudioMode.NONE.value or mode == ReferenceAudioMode.NONE or count > 0
 
 
 def enforce_audio_capability_invariant(caps: VideoCapabilities, *, endpoint: str, model_id: str) -> VideoCapabilities:

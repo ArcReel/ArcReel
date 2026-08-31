@@ -44,6 +44,7 @@ from lib.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasis,
     ArtifactBasisDescriptor,
+    ArtifactEntryRekeyReceipt,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifestAdapter,
@@ -90,10 +91,23 @@ _EPISODE_RESOURCE_KINDS = frozenset(
 )
 
 
-def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> bool:
-    """Commit one complete target state, optionally advancing schema last."""
+def activate_artifact_target_state(
+    project_dir: Path,
+    *,
+    bump_schema: bool,
+    backup_file: Callable[[Path, int], None] | None = None,
+    commit_schema: Callable[[Path, Mapping[str, Any]], None] | None = None,
+    plan: ArtifactTargetStatePlan | None = None,
+) -> bool:
+    """Commit one complete target state, optionally advancing schema last.
 
-    plan = plan_artifact_target_state(project_dir)
+    ``backup_file`` 与 ``commit_schema`` 是临界区内两个落盘步骤的注入点，缺省即生产实现。
+    ``plan`` 供调用方把只读预检提到自身写盘段之前完成；缺省即在此就地预检。传入的计划仍要
+    过 ``_assert_preflight_unchanged``，它对着盘上事实自证，晚于预检的改动一律拒绝。
+    """
+
+    if plan is None:
+        plan = plan_artifact_target_state(project_dir)
     current_schema = plan.project.get("schema_version")
     if bump_schema and current_schema != ARTIFACT_MANIFEST_SCHEMA_VERSION - 1:
         raise ValueError(f"schema bump requires a v{ARTIFACT_MANIFEST_SCHEMA_VERSION - 1} project")
@@ -105,7 +119,7 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
     if bump_schema:
         with project_metadata_lock(project_dir):
             _assert_preflight_unchanged(project_dir, plan)
-            _backup_activation_inputs(project_dir, plan)
+            _backup_activation_inputs(project_dir, plan, backup_file=backup_file)
             previous_entries = adapter.snapshot_entries()
             changed = adapter.replace_entries_atomically(plan.entries)
             try:
@@ -127,10 +141,9 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
                             "artifact activation dependency drifted and Manifest rollback was incomplete"
                         ) from rollback_error
                 raise
-            _commit_schema_version(project_dir, plan.project)
+            (commit_schema or _commit_schema_version)(project_dir, plan.project)
             return True
-    changed = adapter.replace_entries_atomically(plan.entries)
-    return changed
+    return adapter.replace_entries_atomically(plan.entries)
 
 
 def ensure_imported_artifact_target_state(
@@ -319,21 +332,24 @@ def prepare_episode_script_manifest_commit(
     artifact_path: str,
     resource_ids: Sequence[str],
     removed_resource_ids: Sequence[str] = (),
+    replaced_resource_ids: Sequence[str] = (),
     basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
     adapter: ArtifactManifestAdapter | None = None,
+    cancellation_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
 ) -> Callable[[], None] | None:
     """Preflight one script replacement and return its atomic claim commit.
 
-    The script claim and every claim orphaned by removal of a script item share
-    one Manifest compare-and-swap.  Callers invoke the returned closure inside
-    the same formal-write transaction that selects the script bytes.
+    The script claim and every claim orphaned by removal or identity replacement
+    share one Manifest compare-and-swap. Callers invoke the returned closure
+    inside the same formal-write transaction that selects the script bytes.
     """
 
     if type(episode) is not int or episode < 1:
         raise ValueError("episode must be a positive integer")
     remaining_ids = frozenset(resource_ids)
     removed_ids = frozenset(removed_resource_ids)
-    if any(not isinstance(resource_id, str) or not resource_id for resource_id in (*remaining_ids, *removed_ids)):
+    replaced_ids = frozenset(replaced_resource_ids)
+    if any(not resource_id for resource_id in (*remaining_ids, *removed_ids, *replaced_ids)):
         raise ValueError("script resource identities must be non-empty strings")
 
     storage = adapter or ProjectArtifactManifestAdapter(project_dir)
@@ -354,6 +370,11 @@ def prepare_episode_script_manifest_commit(
         for resource_id in sorted(removed_ids - remaining_ids)
         for key in ArtifactKey.episode_resource_artifacts(episode, resource_id)
     )
+    orphaned_keys.extend(
+        key
+        for resource_id in sorted(replaced_ids)
+        for key in ArtifactKey.episode_resource_artifacts(episode, resource_id)
+    )
     orphaned_keys = list(dict.fromkeys(orphaned_keys))
     grid_claims = {
         key: entry
@@ -368,7 +389,7 @@ def prepare_episode_script_manifest_commit(
         frozen_entry = ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=descriptor.digest)
 
     def commit() -> None:
-        replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {key: None for key in orphaned_keys}
+        replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = dict.fromkeys(orphaned_keys)
         if grid_claims:
             grid_replacements, grid_plan = _plan_artifact_claim_reconciliation(project_dir, grid_claims)
             _assert_preflight_unchanged(project_dir, grid_plan)
@@ -379,6 +400,7 @@ def prepare_episode_script_manifest_commit(
             replacements,
             expected_entries=expected,
             adapter=storage,
+            cancellation_receipts=cancellation_receipts,
         )
 
     return commit
@@ -411,14 +433,22 @@ def _assert_project_unchanged(project_dir: Path, expected: bytes) -> None:
         raise RuntimeError("project.json changed after artifact activation preflight")
 
 
-def _backup_activation_inputs(project_dir: Path, plan: ArtifactTargetStatePlan) -> None:
+def _backup_activation_inputs(
+    project_dir: Path,
+    plan: ArtifactTargetStatePlan,
+    *,
+    backup_file: Callable[[Path, int], None] | None = None,
+) -> None:
     candidates = [project_dir / "project.json", *plan.script_paths]
     manifest = project_dir / MANIFEST_FILENAME
     if manifest.exists():
         candidates.append(manifest)
     stamp = time.time_ns()
     for source in candidates:
-        _ensure_activation_backup(source, stamp=stamp)
+        if backup_file is None:
+            _ensure_activation_backup(source, stamp=stamp)
+        else:
+            backup_file(source, stamp)
 
 
 def _ensure_activation_backup(source: Path, *, stamp: int) -> None:
@@ -447,39 +477,39 @@ def _commit_schema_version(project_dir: Path, project: Mapping[str, Any]) -> Non
 
 
 __all__ = [
+    "ARTIFACT_MANIFEST_SCHEMA_VERSION",
     "ArtifactCurrencyResolver",
     "ArtifactInputClaim",
     "ArtifactRegistrationReceipt",
     "ArtifactTargetStatePlan",
     "EpisodeScriptInput",
-    "ARTIFACT_MANIFEST_SCHEMA_VERSION",
     "activate_artifact_target_state",
     "active_artifact_currency_resolver",
     "artifact_input_is_usable",
     "artifact_is_usable",
-    "bind_artifact_input_claims_to_content_digests",
-    "bind_artifact_input_claims_to_frozen_visuals",
+    "artifact_key_for_resource",
     "assert_artifact_input_claims_usable",
     "assert_current_artifact_input_claims_usable",
-    "artifact_key_for_resource",
+    "bind_artifact_input_claims_to_content_digests",
+    "bind_artifact_input_claims_to_frozen_visuals",
     "ensure_imported_artifact_target_state",
     "forget_current_resource_artifact",
     "forget_unbound_grid_artifacts",
     "forget_unbound_storyboard_artifacts",
     "plan_artifact_target_state",
     "prepare_episode_script_manifest_commit",
-    "register_current_artifact",
+    "reconcile_artifact_target_claims",
     "register_artifact_entries_atomically",
+    "register_current_artifact",
     "register_current_artifact_if_provable",
     "register_current_resource_artifact",
     "register_task_current_resource_artifact",
-    "reconcile_artifact_target_claims",
     "resolve_artifact_episode",
     "resolve_current_artifact_basis",
     "resolve_current_artifact_target",
     "resolve_current_resource_artifact_basis",
-    "resolve_usable_episode_script_input",
     "resolve_usable_artifact_input_claim",
+    "resolve_usable_episode_script_input",
     "resolve_usable_storyboard_video_inputs",
     "snapshot_preserved_artifact_manifest",
     "snapshot_usable_artifact_input_claim",

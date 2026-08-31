@@ -55,8 +55,7 @@ mcp__arcreel__get_workflow_plan({
 
 1. 把 `details[]` 逐条讲给用户：哪一集的哪个文件、违了什么约，不要压成一句「升级失败」。
 2. 阻断期仍可用的写入工具只有 `mcp__arcreel__patch_project`、`mcp__arcreel__patch_episode_meta`、
-   `mcp__arcreel__rename_asset`；`mcp__arcreel__patch_episode_script`、`mcp__arcreel__insert_segment`、
-   `mcp__arcreel__remove_segment`、`mcp__arcreel__split_segment` 与所有生成工具一律被拒。按明细用
+   `mcp__arcreel__rename_asset`；`mcp__arcreel__patch_episode_script` 与所有生成工具一律被拒。按明细用
    前三个能修的先修，够不着的（如剧本正文类违约）按第 4 步如实告知用户。
    **没有裸文件写入这条路**，也不要用 `Edit` 直接改正式脚本。
 3. 调用 `mcp__arcreel__retry_project_migration` 重跑升级链。它幂等，重复调用不会造成损失。
@@ -82,14 +81,14 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `analyze_assets` | dispatch `analyze-assets` 子智能体 |
 | `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`，按 `next_action.args` 传参 |
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
-| `prepare_step1` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
-| `confirm_step1` | `mcp__arcreel__confirm_script_review` |
+| `prepare_script_plan` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
+| `confirm_script_plan` | `mcp__arcreel__confirm_script_review` |
 | `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
 | `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
 | `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
 | `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |
-| `repair_video_units` | `mcp__arcreel__get_episode_script_revision` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
-| `patch_episode_script` | 计划注入：`next_action.args` 已给 `expected_revision` 与逐条 `problems`，一次批量改完 |
+| `repair_video_units` | `mcp__arcreel__get_episode_script` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
+| `patch_episode_script` | 计划注入：`next_action.args` 已给 `base_revision` 与逐条 `problems`，一次批量改完 |
 | `choose_narration_delivery` | 计划注入：见「旁白交付」 |
 | `confirm_request_duration` | 计划注入：见「整批准入判定」 |
 | `generate_videos` | 视频生成工具（见 `generate-video` skill） |
@@ -98,7 +97,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
 | `none` | 展示 `blockers` 并停止变更 |
 
-`next_action.args.preprocessor` 是权威的内容整理子智能体名，**不要自己按创作类型×
+`next_action.args.preprocessor` 是权威的脚本规划子智能体名，**不要自己按创作类型×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
 
 ### 整批被拒时交回的逐问题动作
@@ -117,6 +116,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |
 | `repair_artifact_state` | 产物状态读不出来：报为独立缺口，绝不当作缺失去重生 |
 | `retry` | 可安全重发同一请求 |
+| `retry_artifact_download` | 产物已在供应商侧生成、只是没取回来：调 `POST /tasks/{id}/retry-download` 接续取件，**不要重发生成请求**——那会再建一个付费任务 |
 
 `retry` 与 `configure_provider` 在不入队新批次之前，先把动作原因说给用户；
 凡是会产生新费用的动作，取得用户明确同意再执行。
@@ -140,7 +140,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 3. 用户选 `use_tts` → 先**显式生成并让用户试听**旁白音频（`generate-narration-audio` skill），
    再带 `narration_delivery: "use_tts"` 重查计划，按返回的问题码处理：
 
-本字段在计划查询上可选，在 `generate_video_*` 四个工具上**必填**：省略或写错值一律返回工具错误、
+本字段在计划查询上可选，在 `generate_videos` 上**必填**：省略或写错值一律返回工具错误、
 不入队任何任务，也不退回后期配音。凑够必填项不等于做过选择——没问过用户就不要自己填一个值。
 
 每条问题的 `action` 是权威处理方式，下表只是常见码的说明；**照 `problems[].action` 执行，
@@ -165,7 +165,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 
 视频整批请求是**全有或全无**：`steps[].admission.decision` 为 `admitted` 时整批入队；为
 `blocked` 或 `confirmation_required` 时**一个任务都不入队**。Web 与 Agent 走同一套准入和同一套
-请求选择语义（点名即强制重做 / 不传即只补缺 / 空数组非法），不存在 Agent 专属的宽松通道。
+请求选择语义（视频点名须另传 `force: true` 才强制重做 / 不传即只补缺 / 空数组非法），不存在 Agent 专属的宽松通道。
 
 `decision != "admitted"` 时：
 
@@ -174,7 +174,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
   其 `blocked_unit_ids` 指出是被谁挡住的——把这层因果如实说给用户，不要报成它们自己有问题。
 - `decision == "confirmation_required"` 时 `admission.confirmation.tiers[]` 给出按申请档位分组的
   视频单元与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations`、连同仍成立的
-  `narration_delivery` 一起重查计划；同一对参数在 `generate_video_*` 重发时同样要带全，
+  `narration_delivery` 一起重查计划；同一对参数在 `generate_videos` 重发时同样要带全，
   后者漏带 `narration_delivery` 会直接失败。
 - **不要把整批拆成小批去「先跑通过的那半批」。** 那既绕开了全有或全无，也会在补齐后重复提交
   已经付过费的视频单元。修掉被拒的视频单元，整批重来。
@@ -191,7 +191,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 
 - **stale 产物照常可预览、可导出、可参与成片**，服务端会复用它，不会自动重生。
 - 是否重做由**用户明确决定**。Agent 不得自动删除、覆盖或重生任何已付费产物，也不得因为
-  「看起来旧」就点名重做——点名即强制重做且必然产生费用。
+  「看起来旧」就点名重做——视频必须同时点名并传 `force: true` 才强制重做且必然产生费用。
 - 产物状态读不出来（`blocked`）的单元报为独立缺口，绝不当作缺失去重新生成：那会把一次损坏
   变成一次重复计费。
 - 恢复中断的任务由服务端接回原请求，不重新提交已在供应商侧落定的请求。

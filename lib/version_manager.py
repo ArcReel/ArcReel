@@ -12,18 +12,20 @@ import shutil
 import sys
 import tempfile
 import threading
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, ClassVar, assert_never
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.artifact_manifest import ArtifactManifestError, ProjectArtifactManifestAdapter
+from lib.formal_write import formal_write_transaction
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
 from lib.resource_paths import resource_extension, resource_relative_path
+from lib.schema_guards import is_bool
 
 _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
@@ -112,7 +114,7 @@ class VersionManager:
 
     # 支持的资源类型与扩展名均派生自单一真相源 lib.resource_paths，避免副本漂移。
     RESOURCE_TYPES = _RESOURCE_TYPES
-    EXTENSIONS = {rt: resource_extension(rt) for rt in _RESOURCE_TYPES}
+    EXTENSIONS: ClassVar[dict[str, str]] = {rt: resource_extension(rt) for rt in _RESOURCE_TYPES}
 
     def __init__(self, project_path: Path):
         """
@@ -219,7 +221,7 @@ class VersionManager:
         return info["current_version"]
 
     @contextmanager
-    def locked_version_snapshot(self, resource_type: str, resource_id: str) -> Iterator[dict[str, Any]]:
+    def locked_version_snapshot(self, resource_type: str, resource_id: str) -> Generator[dict[str, Any]]:
         """Keep one resource selection stable while a dependent read-model commit runs."""
 
         with self._lock:
@@ -643,7 +645,7 @@ class VersionManager:
         if resource_type not in self.RESOURCE_TYPES:
             raise ValueError(f"不支持的资源类型: {resource_type}")
         if not isinstance(select_current, bool) and not callable(select_current):
-            raise TypeError("select_current must be a boolean or a callable returning one")
+            assert_never(select_current)
         if expected_current_version is not None and (
             type(expected_current_version) is not int or expected_current_version < 0
         ):
@@ -731,7 +733,7 @@ class VersionManager:
                     if callable(select_current)
                     else select_current
                 )
-                if not isinstance(should_select, bool):
+                if not is_bool(should_select):
                     raise TypeError("select_current callback must return a boolean")
             except BaseException as failure:
                 _report_cleanup_failures(_unlink_paths(staged_file), active_failure=failure)
@@ -912,6 +914,41 @@ class VersionManager:
                     current_backup if rejection_succeeded else None,
                 )
                 _report_cleanup_failures(cleanup_failures, active_failure=sys.exception())
+
+    def reject_current_versions(
+        self,
+        rejections: Mapping[tuple[str, str], tuple[int, Path]],
+        *,
+        on_reject: Callable[[frozenset[tuple[str, str]]], None] | None = None,
+    ) -> frozenset[tuple[str, str]]:
+        """Atomically reject the requested selections that are still current."""
+
+        with self._lock:
+            data = self._load_versions()
+            current = frozenset(
+                identity
+                for identity, (version, _path) in rejections.items()
+                if isinstance(data.get(identity[0], {}).get(identity[1]), dict)
+                and data[identity[0]][identity[1]].get("current_version") == version
+            )
+            if not current:
+                return current
+            with formal_write_transaction(
+                self.versions_file,
+                *(Path(rejections[identity][1]) for identity in current),
+            ):
+                for resource_type, resource_id in sorted(current):
+                    version, current_file = rejections[(resource_type, resource_id)]
+                    if not self.reject_current_version(
+                        resource_type,
+                        resource_id,
+                        rejected_version=version,
+                        current_file=current_file,
+                    ):
+                        raise RuntimeError("version selection changed during batch rejection")
+                if on_reject is not None:
+                    on_reject(current)
+            return current
 
     def rename_resource(self, resource_type: str, old_id: str, new_id: str, *, dry_run: bool = False) -> int:
         """把资源的版本历史整体迁移到新 id：re-key 元数据、重命名快照文件、改写记录内路径。

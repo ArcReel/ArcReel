@@ -15,6 +15,7 @@ from lib.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactEntryRekeyPlan,
+    ArtifactEntryRekeyReceipt,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifest,
@@ -236,6 +237,7 @@ def register_artifact_entries_atomically(
     *,
     expected_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
     adapter: ArtifactManifestAdapter | None = None,
+    cancellation_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
 ) -> bool:
     """Replace a frozen batch of formal claims in one guarded Manifest commit.
 
@@ -264,6 +266,15 @@ def register_artifact_entries_atomically(
     if any(observed[key] != value for key, value in expected.items()):
         raise ArtifactManifestError("artifact manifest changed during batch registration")
     if all(observed[key] == value for key, value in replacements.items()):
+        if cancellation_receipts is not None:
+            cancellation_receipts.append(
+                ArtifactEntryRekeyReceipt(
+                    adapter=storage,
+                    before=observed,
+                    after=observed,
+                    changed=False,
+                )
+            )
         return False
     after = dict(observed)
     after.update(replacements)
@@ -278,6 +289,8 @@ def register_artifact_entries_atomically(
         if str(exc) == "artifact claims changed after the rekey preflight":
             raise ArtifactManifestError("artifact manifest changed during batch registration") from exc
         raise
+    if cancellation_receipts is not None:
+        cancellation_receipts.append(receipt)
     return receipt.changed
 
 

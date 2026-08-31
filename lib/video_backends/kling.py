@@ -32,11 +32,6 @@ from lib.kling_shared import (
     image_to_base64,
 )
 from lib.providers import PROVIDER_KLING
-from lib.retry import (
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
-    with_retry_async,
-)
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     VideoAudioMode,
@@ -45,8 +40,8 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     VideoRoute,
-    download_video,
-    should_retry_download,
+    download_resumable_video,
+    recording_poll,
 )
 
 logger = logging.getLogger(__name__)
@@ -165,11 +160,6 @@ def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
     return _KLING_VIDEO_CAPS.get(key, _DEFAULT_VIDEO_CAPS)
 
 
-_MIN_POLL_TIMEOUT_SECONDS = 900.0
-_POLL_TIMEOUT_PER_SECOND = 60.0
-_KLING_VIDEO_POLL_INTERVAL_SECONDS = 10.0
-
-
 def _encode_job_id(subpath: str, task_id: str, *, generate_audio: bool) -> str:
     """把生成类型子路径 + 有声标志编进持久化 job_id（``subpath:task_id:audio``）。
 
@@ -248,6 +238,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # 真实执行结果，与未登记 model 回落保守默认同一原则。
         caps = _lookup_video_caps(model)
         return VideoCapabilities(
+            text_to_video=caps.text_to_video,
             first_frame=True,
             last_frame=caps.last_frame and not caps.last_frame_requires_pro,
             max_reference_images=caps.max_reference_images,
@@ -287,6 +278,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         mode = self._resolve_mode_from(resolution, service_tier)
         last_frame = caps.last_frame and (not caps.last_frame_requires_pro or mode == "pro")
         return VideoCapabilities(
+            text_to_video=caps.text_to_video,
             first_frame=True,
             last_frame=last_frame,
             max_reference_images=caps.max_reference_images,
@@ -440,7 +432,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         generate_audio = self._effective_audio(request, subpath=subpath)
         logger.info("调用 Kling 视频 API payload=%s", self._safe_log_view(subpath, payload))
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            task_id = await self._submit_task(client, f"videos/{subpath}", payload)
+            task_id = await self._submit_task(client, f"videos/{subpath}", payload, request)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
             # 与 submit 时的有声决策（见 _encode_job_id）。
@@ -478,9 +470,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         generate_audio: bool,
     ) -> VideoGenerationResult:
         final = await self._poll_until_terminal(
-            lambda: self._poll_query(client, f"videos/{subpath}/{task_id}"),
-            poll_interval=_KLING_VIDEO_POLL_INTERVAL_SECONDS,
-            max_wait=self._max_wait(request.duration_seconds),
+            recording_poll(lambda: self._poll_query(client, f"videos/{subpath}/{task_id}"), request),
+            max_wait=request.poll_timeout_seconds,
         )
 
         download_url = extract_kling_video_url(final)
@@ -499,14 +490,5 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         )
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_download,
-    )
     async def _download_with_retry(download_url: str, output_path: Path) -> None:
-        await download_video(download_url, output_path)
-
-    @staticmethod
-    def _max_wait(duration_seconds: int) -> float:
-        return max(_MIN_POLL_TIMEOUT_SECONDS, duration_seconds * _POLL_TIMEOUT_PER_SECOND)
+        await download_resumable_video(download_url, output_path, label="Kling")

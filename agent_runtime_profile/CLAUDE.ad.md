@@ -9,7 +9,7 @@
 
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定（广告/短片默认 9:16 竖屏），无需在 prompt 中指定
-- **时长规划**：广告/短片项目**没有** `default_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
+- **时长规划**：广告/短片项目**没有** `default_duration` 与 `episode_target_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
   - 分镜图生视频：单分镜时长必须取所选视频模型 `supported_durations` 中的值；子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
   - 参考生视频：每个视频单元持有符合剧本模型结构约束的正整数编排时长，视频单元内不单列分镜时长；生成预检会把编排时长投影到供应商申请档位
 - **图片分辨率**：1K
@@ -29,7 +29,7 @@
 ### 工具调用
 
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，Agent 直接以 tool 形式调用。
-- **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script_revision`，再把其 revision 原样作为 `patch_episode_script` 的 `expected_revision`，并传有序 `operations[]`（`update` / `insert_after` / `move_after` / `remove`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，增/删/拆分镜的便捷工具也委托同一事务编辑器；角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
+- **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script` 读取正文与 revision，再把其 revision 原样作为 `patch_episode_script` 的 `base_revision`，并传有序 `operations[]`（`update` / `insert` / `remove` / `split`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `manage-project` / `compose-video` 这两个 skill 内还保留的 Python 脚本。
 - **敏感文件保护**：`.env` / `vertex_keys/` / `.system_config.json*` / `.arcreel.db*` / `.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
@@ -57,7 +57,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 创作输入为 `project.json` 顶层的 `brief`（创作诉求短文本）与 `target_duration`（目标总时长，秒）；不走小说源文件导入流程
 - 剧本总时长应贴近 `target_duration`，偏差过大时提醒用户而非拒绝保存
 
-> 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与创作类型独立。ad 的数据结构与阶段分支以本文为准——`.claude/references/generation-modes.md` 只覆盖 narration / drama 的内容整理与 schema 路径，不适用于 ad。
+> 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与创作类型独立。ad 的数据结构与阶段分支以本文为准——`.claude/references/generation-modes.md` 只覆盖 narration / drama 的脚本规划与 schema 路径，不适用于 ad。
 
 ---
 
@@ -74,7 +74,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ### 参考生视频（reference_video）的自包含单元
 
-- 剧本生成会单阶段直接产出 `video_units[]`，不创建需要内容确认的 step1 中间态；每个视频单元对应一次生成调用与 `reference_videos/{unit_id}.mp4`
+- 剧本生成会单阶段直接产出 `video_units[]`，不创建需要内容确认的 script_plan 中间态；每个视频单元对应一次生成调用与 `reference_videos/{unit_id}.mp4`
 - 视频单元正文是一段自由文本，使用统一引用语法：`@[角色]{台词}` 表达角色发声，`{台词}` 表达无归属旁白，两者可写在行内任意位置；商品、角色、场景、道具均用 `@[名称]` 提及。参考图由系统在执行期按首次提及顺序从正文解析，同名按 product → character → scene → prop 归属
 - 一个视频单元只能承载角色发声、无归属旁白或无人声中的一种；需要切换发声归属时在规划阶段拆成相邻视频单元。标记 `needs_replan` 的存量问题单元须先重新规划，生成入口会拒绝入队
 - 参考集按正文首次 mention 顺序排列，商品与角色/场景/道具同规则：每件资产有 sheet 用 sheet，没有才退到它的全部原图；不按类型排序，也不在有 sheet 时额外注入原图

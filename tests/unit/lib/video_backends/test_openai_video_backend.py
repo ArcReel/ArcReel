@@ -1,0 +1,740 @@
+"""OpenAIVideoBackend 单元测试。"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from openai import InternalServerError
+from openai.types.video_create_error import VideoCreateError
+
+from lib.providers import PROVIDER_OPENAI
+from lib.video_backends.base import VideoGenerationRequest
+from tests.fakes import blocking_file_read_gate, bounded_poll_clock, captured_openai_clients
+
+
+def _make_mock_video(status="completed", seconds="8", video_id="vid_123"):
+    """构造 mock Video 响应。"""
+    video = MagicMock()
+    video.id = video_id
+    video.status = status
+    video.seconds = seconds
+    video.error = None
+    return video
+
+
+def _make_mock_content(data: bytes = b"fake-video-data"):
+    """构造 mock download_content 响应。"""
+    content = MagicMock()
+    content.content = data
+    return content
+
+
+def _stub_client_completed(client: AsyncMock, *, seconds="8", video_id="vid_123", data=b"fake-video-data"):
+    """常用 stub：create→queued、retrieve→completed、download_content→data。"""
+    client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued", seconds=seconds, video_id=video_id))
+    client.videos.retrieve = AsyncMock(
+        return_value=_make_mock_video(status="completed", seconds=seconds, video_id=video_id)
+    )
+    client.videos.download_content = AsyncMock(return_value=_make_mock_content(data))
+
+
+class TestOpenAIVideoBackend:
+    def test_name_and_model(self):
+        with captured_openai_clients():
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            assert backend.name == PROVIDER_OPENAI
+            assert backend.model == "sora-2"
+
+    def test_custom_model(self):
+        with captured_openai_clients():
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key", model="sora-2-pro")
+            assert backend.model == "sora-2-pro"
+
+    def test_capabilities(self):
+        with captured_openai_clients():
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            assert backend.video_capabilities.max_reference_images == 1
+
+    async def test_text_to_video(self, tmp_path: Path):
+        video_data = b"mp4-video-content"
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client, seconds="8", data=video_data)
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="A cat walking in the park",
+                output_path=output_path,
+                aspect_ratio="9:16",
+                resolution="720p",
+                duration_seconds=8,
+            )
+            result = await backend.generate(request)
+
+        assert result.provider == PROVIDER_OPENAI
+        assert result.model == "sora-2"
+        assert result.duration_seconds == 8
+        assert result.video_path == output_path
+        assert result.task_id == "vid_123"
+        assert output_path.read_bytes() == video_data
+
+        call_kwargs = mock_client.videos.create.call_args[1]
+        assert call_kwargs["prompt"] == "A cat walking in the park"
+        assert call_kwargs["model"] == "sora-2"
+        assert call_kwargs["seconds"] == "8"
+        assert call_kwargs["size"] == "720x1280"  # 720p 9:16
+        assert "input_reference" not in call_kwargs
+
+    async def test_image_to_video(self, tmp_path: Path):
+        start_image = tmp_path / "start.png"
+        start_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client, seconds="4")
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="Animate this",
+                output_path=output_path,
+                start_image=start_image,
+                duration_seconds=4,
+            )
+            result = await backend.generate(request)
+
+        assert result.duration_seconds == 4
+        call_kwargs = mock_client.videos.create.call_args[1]
+        ref = call_kwargs["input_reference"]
+        assert isinstance(ref, tuple)
+        assert ref[0] == "start.png"
+        assert isinstance(ref[1], bytes)
+        assert ref[2] == "image/png"
+
+    async def test_start_image_encoding_keeps_event_loop_running(self, tmp_path: Path, monkeypatch):
+        """首帧读字节做 multipart 上传体，必须卸载到线程，否则事件循环被读堵住。"""
+        start_image = tmp_path / "start.png"
+        start_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client, seconds="4")
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            request = VideoGenerationRequest(
+                prompt="Animate this",
+                output_path=tmp_path / "output.mp4",
+                start_image=start_image,
+                duration_seconds=4,
+            )
+            with blocking_file_read_gate(monkeypatch, start_image) as gate:
+                task = asyncio.create_task(backend.generate(request))
+                await gate.wait_until_read_started()
+                gate.release()
+                await task
+                gate.assert_read_was_offloaded()
+
+        ref = mock_client.videos.create.call_args[1]["input_reference"]
+        assert ref[0] == "start.png"
+        assert ref[2] == "image/png"
+
+    async def test_failed_video_raises(self, tmp_path: Path):
+        error = MagicMock()
+        error.message = "Content policy violation"
+        failed_video = _make_mock_video(status="failed")
+        failed_video.error = error
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=failed_video)
+        mock_client.videos.download_content = AsyncMock()
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="Bad content",
+                output_path=output_path,
+            )
+            with pytest.raises(RuntimeError, match="Sora 视频生成失败"):
+                await backend.generate(request)
+
+        # 失败应该在轮询阶段抛出，不会进入下载
+        mock_client.videos.download_content.assert_not_called()
+
+    async def test_duration_passthrough(self, tmp_path: Path):
+        """所有 duration 值应原值透传到 SDK，不被 _map_duration 改写。"""
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client, seconds="6")
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+
+            for seconds in [3, 4, 5, 6, 7, 8, 10, 12, 15, 20]:
+                output_path = tmp_path / f"output_{seconds}.mp4"
+                request = VideoGenerationRequest(
+                    prompt="test",
+                    output_path=output_path,
+                    duration_seconds=seconds,
+                )
+                await backend.generate(request)
+                call_kwargs = mock_client.videos.create.call_args[1]
+                assert call_kwargs["seconds"] == str(seconds), f"duration={seconds}"
+
+    async def test_video_seconds_none_fallback(self, tmp_path: Path):
+        """当 API 返回 video.seconds=None 时，应回退到请求的 duration。"""
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client, seconds=None)
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="test",
+                output_path=output_path,
+                duration_seconds=6,
+            )
+            result = await backend.generate(request)
+
+        # 请求 6 秒 → 透传 → 回退应保留请求值 6
+        assert result.duration_seconds == 6
+
+    async def test_size_mapping(self, tmp_path: Path):
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client, seconds="4")
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+
+            for aspect, expected_size in [("9:16", "720x1280"), ("16:9", "1280x720")]:
+                output_path = tmp_path / f"output_{aspect.replace(':', '_')}.mp4"
+                request = VideoGenerationRequest(
+                    prompt="test",
+                    output_path=output_path,
+                    aspect_ratio=aspect,
+                    resolution="720p",
+                )
+                await backend.generate(request)
+                call_kwargs = mock_client.videos.create.call_args[1]
+                assert call_kwargs["size"] == expected_size, f"aspect={aspect}"
+
+    async def test_content_download_retry_does_not_regenerate(self, tmp_path: Path):
+        """内容下载 502 失败后应单独重试下载，而非重新创建任务。"""
+        error = InternalServerError(
+            message="Failed to resolve Vertex video URL",
+            response=MagicMock(status_code=502, headers={}),
+            body=None,
+        )
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
+        mock_client.videos.download_content = AsyncMock(side_effect=[error, error, _make_mock_content(b"video-data")])
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="test",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            result = await backend.generate(request)
+
+        assert result.video_path == output_path
+        assert output_path.read_bytes() == b"video-data"
+        # create 只调用 1 次，不因下载失败重新创建任务
+        assert mock_client.videos.create.call_count == 1
+        # download_content 调用 3 次（2 次失败 + 1 次成功）
+        assert mock_client.videos.download_content.call_count == 3
+
+    async def test_content_download_all_retries_exhausted(self, tmp_path: Path):
+        """内容下载全部重试耗尽后应抛出异常，且不重新生成视频。"""
+        error = InternalServerError(
+            message="Failed to resolve Vertex video URL",
+            response=MagicMock(status_code=502, headers={}),
+            body=None,
+        )
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
+        mock_client.videos.download_content = AsyncMock(side_effect=error)
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="test",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            # 共用的产物下载预算耗尽后抛的是带最后一次原错误的 RuntimeError。
+            with pytest.raises(RuntimeError, match="Failed to resolve Vertex video URL"):
+                await backend.generate(request)
+
+        # 即使下载重试耗尽，也只创建 1 次任务
+        assert mock_client.videos.create.call_count == 1
+
+    async def test_content_download_non_retryable_error_fails_immediately(self, tmp_path: Path):
+        """不可重试的下载错误（如 4xx）应立即失败，不浪费退避时间。"""
+        from openai import AuthenticationError
+
+        error = AuthenticationError(
+            message="Invalid API key",
+            response=MagicMock(status_code=401, headers={}),
+            body=None,
+        )
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
+        mock_client.videos.download_content = AsyncMock(side_effect=error)
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="test",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            with pytest.raises(AuthenticationError):
+                await backend.generate(request)
+
+        # 不可重试错误：只调用 1 次下载就抛出，不进入退避重试
+        assert mock_client.videos.download_content.call_count == 1
+        assert not output_path.exists()
+
+    async def test_polls_until_completed_for_nonstandard_status(self, tmp_path: Path):
+        """OpenAI 兼容网关返回非标 status（如 NOT_START / running）时，必须继续轮询直到 completed。
+
+        SDK 内置 poll 只识别 4 种标准状态，遇到非标状态会提前退出并下载未就绪任务
+        （400 Task is not completed yet），因此后端不得依赖它。
+        """
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        # 模拟非标状态序列：NOT_START → running → in_progress → completed
+        mock_client.videos.retrieve = AsyncMock(
+            side_effect=[
+                _make_mock_video(status="NOT_START"),
+                _make_mock_video(status="running"),
+                _make_mock_video(status="in_progress"),
+                _make_mock_video(status="completed", seconds="8"),
+            ]
+        )
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="test",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            result = await backend.generate(request)
+
+        # 必须轮询 4 次（3 次非完成 + 1 次完成）才得到结果
+        assert mock_client.videos.retrieve.call_count == 4
+        # 下载只在完成后调用一次
+        assert mock_client.videos.download_content.call_count == 1
+        assert result.video_path == output_path
+
+    async def test_first_retrieve_completed_skips_polling_sleep(self, tmp_path: Path):
+        """首次 retrieve 即返回 completed 时只查一次、不等 poll_interval 就下载。
+
+        _poll_until_complete 无条件走 poll_with_retry；其循环「先查再等」，首查即终态
+        时直接返回、不落入 sleep。记录的查询次数足以判定该次序成立。
+        """
+        retrieved: list[str] = []
+
+        async def _retrieve(video_id: str):
+            retrieved.append(video_id)
+            return _make_mock_video(status="completed", seconds="8")
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = _retrieve
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="test",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            await backend.generate(request)
+
+        # 首查即 completed：poll_with_retry 一次 retrieve 即返回，不多查
+        assert retrieved == ["vid_123"]
+        assert output_path.read_bytes() == b"v"
+
+    async def test_first_retrieve_failed_raises_before_sleep(self, tmp_path: Path):
+        """首次 retrieve 即返回 failed 时直接抛错：poll_with_retry 首查经 is_failed 判定即抛，不落入 sleep。"""
+        err = MagicMock()
+        err.message = "moderation rejected"
+        failed = _make_mock_video(status="failed")
+        failed.error = err
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=failed)
+        mock_client.videos.download_content = AsyncMock()
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="bad",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            with pytest.raises(RuntimeError, match="Sora 视频生成失败"):
+                await backend.generate(request)
+
+        assert mock_client.videos.retrieve.call_count == 1
+        mock_client.videos.download_content.assert_not_called()
+        assert not output_path.exists()
+
+    async def test_polls_failed_status_raises_without_download(self, tmp_path: Path):
+        """轮询期间出现 status='failed' 应直接抛错，不进入下载。"""
+        err = MagicMock()
+        err.message = "moderation rejected"
+        failed = _make_mock_video(status="failed")
+        failed.error = err
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(
+            side_effect=[
+                _make_mock_video(status="in_progress"),
+                failed,
+            ]
+        )
+        mock_client.videos.download_content = AsyncMock()
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="bad",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            with pytest.raises(RuntimeError, match="Sora 视频生成失败"):
+                await backend.generate(request)
+
+        mock_client.videos.download_content.assert_not_called()
+
+    async def test_resume_video_polls_existing_job(self, tmp_path: Path):
+        """resume_video 仅 poll + 下载,不调 videos.create (ADR 0007)。"""
+        video_data = b"resumed-content"
+        mock_client = AsyncMock()
+        # 不 stub create —— 调到就 fail
+        mock_client.videos.create = AsyncMock(side_effect=AssertionError("resume 不应调 create"))
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(video_data))
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "out.mp4"
+            request = VideoGenerationRequest(
+                prompt="resumed", output_path=output_path, aspect_ratio="9:16", duration_seconds=8
+            )
+            result = await backend.resume_video("vid_existing", request)
+
+        mock_client.videos.create.assert_not_called()
+        mock_client.videos.retrieve.assert_called_with("vid_existing")
+        assert result.video_path == output_path
+        assert output_path.read_bytes() == video_data
+
+    async def test_poll_recognizes_expired_status(self, tmp_path: Path):
+        """retrieve 返回 status='expired' → 抛 ResumeExpiredError，而不是白等 max_wait。"""
+        from lib.video_backends.base import ResumeExpiredError
+
+        mock_client = AsyncMock()
+        expired_video = _make_mock_video(status="expired", video_id="vid_exp")
+        mock_client.videos.retrieve = AsyncMock(return_value=expired_video)
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            request = VideoGenerationRequest(
+                prompt="x", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=8
+            )
+            with pytest.raises(ResumeExpiredError) as ei:
+                await backend.resume_video("vid_exp", request)
+            assert ei.value.job_id == "vid_exp"
+            assert ei.value.provider == PROVIDER_OPENAI
+
+    async def test_is_openai_not_found_no_loose_string_match(self):
+        """不做 "not found" / "expired" 子串兜底，避免业务字符串误判；只认结构化 404。"""
+        from lib.video_backends.openai import _is_openai_not_found
+
+        assert _is_openai_not_found(RuntimeError("file not found in storage")) is False
+        assert _is_openai_not_found(RuntimeError("session expired but task is fine")) is False
+        # 仍能识别 status_code=404
+        exc = RuntimeError("any")
+        exc.status_code = 404
+        assert _is_openai_not_found(exc) is True
+
+    async def test_resume_video_not_found_raises_resume_expired(self, tmp_path: Path):
+        """job 不存在/已过期 → ResumeExpiredError(走 [resume_expired] 路径)。"""
+        from openai import NotFoundError
+
+        from lib.video_backends.base import ResumeExpiredError
+
+        mock_client = AsyncMock()
+        not_found = NotFoundError(
+            message="video not found", response=MagicMock(status_code=404), body={"error": "not_found"}
+        )
+        mock_client.videos.retrieve = AsyncMock(side_effect=not_found)
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            request = VideoGenerationRequest(
+                prompt="x", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=8
+            )
+            with pytest.raises(ResumeExpiredError) as ei:
+                await backend.resume_video("vid_expired", request)
+            assert ei.value.job_id == "vid_expired"
+            assert ei.value.provider == PROVIDER_OPENAI
+
+    async def test_generate_expired_status_raises_runtime_error_not_resume_expired(self, tmp_path: Path):
+        """generate 路径下 status='expired' 抛 RuntimeError 而不是 ResumeExpiredError。
+
+        fresh submit 路径不该带 [resume_expired] 语义——后者只有 worker 重启接续场景才用。
+        """
+        from lib.video_backends.base import ResumeExpiredError
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued", video_id="vid_new"))
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="expired", video_id="vid_new"))
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            request = VideoGenerationRequest(
+                prompt="x", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=8
+            )
+            with pytest.raises(RuntimeError) as ei:
+                await backend.generate(request)
+            assert "expired" in str(ei.value).lower()
+            assert not isinstance(ei.value, ResumeExpiredError), "generate 路径不应抛 ResumeExpiredError"
+
+
+class TestProxyStatusSynonyms:
+    """OpenAI 兼容代理网关（NewAPI 系）转发非 Sora 型号时会透传底层厂商状态串。
+
+    终态判定若只认 Sora 文档里的字面量，已就绪的任务会一直轮询到 max_wait 超时——
+    用户侧看到失败，供应商侧有成品且已计费。
+    """
+
+    @pytest.mark.parametrize("proxy_status", ["succeeded", "success", "SUCCEEDED", "  succeeded  "])
+    async def test_success_synonyms_finish_polling_and_download(self, tmp_path: Path, proxy_status: str):
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status=proxy_status))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
+
+        with bounded_poll_clock(), captured_openai_clients(mock_client):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "out.mp4"
+            result = await backend.generate(
+                VideoGenerationRequest(prompt="p", output_path=output_path, duration_seconds=8)
+            )
+
+        assert mock_client.videos.retrieve.call_count == 1
+        mock_client.videos.download_content.assert_awaited_once()
+        assert result.video_path == output_path
+        assert output_path.read_bytes() == b"v"
+
+    @pytest.mark.parametrize("proxy_status", ["error", "fail", "FAILED", "canceled"])
+    async def test_failure_synonyms_raise_immediately(self, tmp_path: Path, proxy_status: str):
+        err = MagicMock()
+        err.message = "upstream rejected"
+        failed = _make_mock_video(status=proxy_status)
+        failed.error = err
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=failed)
+        mock_client.videos.download_content = AsyncMock()
+
+        with bounded_poll_clock(), captured_openai_clients(mock_client):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            with pytest.raises(RuntimeError, match="Sora 视频生成失败"):
+                await backend.generate(
+                    VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=8)
+                )
+
+        assert mock_client.videos.retrieve.call_count == 1
+        mock_client.videos.download_content.assert_not_awaited()
+
+    async def test_uppercase_expired_still_splits_generate_and_resume(self, tmp_path: Path):
+        """大写 EXPIRED 同样命中过期档：generate 抛 RuntimeError、resume 抛 ResumeExpiredError。"""
+        from lib.video_backends.base import ResumeExpiredError
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued", video_id="vid_new"))
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="EXPIRED", video_id="vid_new"))
+
+        with bounded_poll_clock(), captured_openai_clients(mock_client):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            request = VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=8)
+
+            with pytest.raises(RuntimeError) as ei:
+                await backend.generate(request)
+            assert not isinstance(ei.value, ResumeExpiredError)
+
+            with pytest.raises(ResumeExpiredError) as resume_ei:
+                await backend.resume_video("vid_new", request)
+            assert resume_ei.value.job_id == "vid_new"
+
+
+class TestFailureMessage:
+    """失败原因要以可读文本落进 task.error_message —— 用户在任务面板读的就是这一句。"""
+
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            # SDK 原生形态：带 code / message 的模型，只取 message
+            (VideoCreateError(code="moderation_blocked", message="content policy"), "content policy"),
+            # 代理网关透传的裸 dict / 裸字符串
+            ({"code": 500, "message": "upstream down"}, "upstream down"),
+            ({"code": "billing_hard_limit_reached"}, "billing_hard_limit_reached"),
+            # 数字错误码同样是原因，别因为不是字符串就丢掉
+            ({"code": 500}, "500"),
+            ("boom", "boom"),
+            # 只给 status 不给 error 的网关：说不出原因，也不能写出一句 "None"
+            (None, "unknown"),
+            # 认不出的形态：宁可说不知道，也不把对象自身的 repr 写给用户
+            ({"detail": "internal"}, "unknown"),
+            (SimpleNamespace(), "unknown"),
+        ],
+    )
+    async def test_provider_reason_reaches_error_message(self, tmp_path: Path, error, expected: str):
+        failed = _make_mock_video(status="failed")
+        failed.error = error
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=failed)
+        mock_client.videos.download_content = AsyncMock()
+
+        with bounded_poll_clock(), captured_openai_clients(mock_client):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            with pytest.raises(RuntimeError) as ei:
+                await backend.generate(
+                    VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=8)
+                )
+
+        # 逐字断言：错误文本原样落 task.error_message，内部类型的 repr 不该出现在里面
+        assert str(ei.value) == f"Sora 视频生成失败: {expected}"

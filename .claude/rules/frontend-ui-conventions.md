@@ -12,3 +12,7 @@ paths:
 ## 入队经动作层
 
 生成类入队操作一律经 `frontend/src/actions/` 的动作函数（内部统一封装 API 调用、乐观占用打标与去重提示），组件不得直接调用入队类 API 方法；新增入队类 API 方法时同步登记 `frontend/eslint.config.js` 中 no-restricted-syntax 的方法名清单。
+
+## 用户可见文案
+
+按常规 SaaS 产品说明文风；中文文案经用户校对后再翻译到其他语言。

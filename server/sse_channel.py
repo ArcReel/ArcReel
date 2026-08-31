@@ -16,6 +16,7 @@ SSE fanout，两处的语义差异全部经参数表达：
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -74,10 +75,9 @@ class EvictNonCriticalAndSignal:
                 queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-        try:
+        # 清空后不应再满
+        with contextlib.suppress(asyncio.QueueFull):
             queue.put_nowait(_END_OF_STREAM)
-        except asyncio.QueueFull:
-            pass  # 清空后不应再满
 
     def on_removed(self, count: int) -> None:
         pass
@@ -199,10 +199,7 @@ class SseChannel:
 
     def broadcast(self, item: Any) -> None:
         """把 *item* 投递给全部订阅队列；投递失败的订阅者按溢出策略移除。"""
-        stale: list[asyncio.Queue] = []
-        for queue in self._subscribers:
-            if not self._overflow.deliver(queue, item):
-                stale.append(queue)
+        stale: list[asyncio.Queue] = [queue for queue in self._subscribers if not self._overflow.deliver(queue, item)]
         for queue in stale:
             self._overflow.finalize_removal(queue)
             self._subscribers.discard(queue)

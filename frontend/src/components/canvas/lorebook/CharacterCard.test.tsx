@@ -6,9 +6,10 @@ import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 
-vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
-  VersionTimeMachine: () => <div data-testid="version-time-machine">versions</div>,
-}));
+vi.mock("@/components/canvas/timeline/VersionTimeMachine", async () => {
+  const { versionTimeMachineMock } = await import("@/__mocks__/VersionTimeMachine");
+  return versionTimeMachineMock();
+});
 
 
 describe("CharacterCard", () => {
@@ -77,7 +78,7 @@ describe("CharacterCard", () => {
     );
 
     const fileInput = screen.getByLabelText("上传角色参考图");
-    expect(fileInput).not.toBeNull();
+    expect(fileInput).toBeInTheDocument();
 
     const file = new File(["ref"], "hero.png", { type: "image/png" });
     fireEvent.change(fileInput as HTMLInputElement, { target: { files: [file] } });
@@ -325,10 +326,47 @@ describe("CharacterCard", () => {
     // 内容照旧展示，只是每一个写入口都不在了
     expect(screen.getByText("Hero")).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/角色描述/)).toHaveAttribute("readonly");
-    expect(screen.queryByTestId("version-time-machine")).toBeNull();
-    expect(screen.queryByRole("button", { name: /生成|上传|入库|保存/ })).toBeNull();
+    expect(screen.queryByTestId("version-time-machine")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /生成|上传|入库|保存/ })).not.toBeInTheDocument();
     for (const field of screen.getAllByRole("textbox")) {
       expect(field).toHaveAttribute("readonly");
     }
+  });
+
+  describe("角色声音绑定方式", () => {
+    const character = { description: "hero desc", voice_style: "warm" };
+
+    it("默认档（提示词软约束）把参考音频区折叠为可选，并说明怎样才生效", () => {
+      render(
+        <CharacterCard
+          name="Hero"
+          character={character}
+          projectName="demo"
+          onSave={vi.fn()}
+          onGenerate={vi.fn()}
+        />,
+      );
+
+      // 声音描述仍是主输入；参考音频区退到折叠壳内
+      expect(screen.getByLabelText("声音风格")).toHaveValue("warm");
+      expect(screen.getByText(/可选：参考音频/)).toBeInTheDocument();
+      expect(screen.getByText(/使用提示词约束角色声音，参考音频不会生效/)).toBeInTheDocument();
+    });
+
+    it("参考音频档下参考音频区照常直接展示", () => {
+      render(
+        <CharacterCard
+          name="Hero"
+          character={character}
+          projectName="demo"
+          voiceBinding="reference_audio"
+          onSave={vi.fn()}
+          onGenerate={vi.fn()}
+        />,
+      );
+
+      expect(screen.queryByText(/可选：参考音频/)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /上传参考音频/ })).toBeInTheDocument();
+    });
   });
 });

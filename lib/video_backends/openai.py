@@ -10,7 +10,7 @@ from lib.aspect_size import VIDEO_TIER_SHORT_EDGE, parse_aspect_ratio, resolutio
 from lib.logging_utils import format_kwargs_for_log
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     TERMINAL_PROVIDER_STATUSES,
@@ -23,11 +23,8 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     normalize_provider_status,
     poll_with_retry,
+    with_artifact_retry,
 )
-
-_POLL_INTERVAL_SECONDS = 5.0
-_MIN_POLL_TIMEOUT_SECONDS = 600.0
-_POLL_TIMEOUT_PER_SECOND = 30.0
 
 logger = logging.getLogger(__name__)
 
@@ -170,14 +167,13 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         kwargs["size"] = _resolve_size(self._model, request.resolution, request.aspect_ratio)
 
         # 收集所有参考图：start_image + reference_images
-        refs = []
-        if request.start_image and Path(request.start_image).exists():
-            refs.append(_encode_start_image(Path(request.start_image)))
+        ref_paths: list[Path] = []
+        if request.start_image and Path(request.start_image).exists():  # noqa: ASYNC240 -- 首帧存在性检查，本地元数据
+            ref_paths.append(Path(request.start_image))
         if request.reference_images:
-            for ref_path in request.reference_images:
-                p = Path(ref_path) if not isinstance(ref_path, Path) else ref_path
-                if p.exists():
-                    refs.append(_encode_start_image(p))
+            ref_paths.extend(p for p in request.reference_images if p.exists())
+        # 读整张图取上传字节是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
+        refs = list(await asyncio.gather(*[asyncio.to_thread(_encode_start_image, p) for p in ref_paths]))
         if refs:
             # 单张图时保持 tuple 格式（API 兼容），多张时用 list
             kwargs["input_reference"] = refs[0] if len(refs) == 1 else refs
@@ -189,7 +185,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         # submit 成功立即持久化 job_id；持久化失败抛 → finally mark_failed。
         # 非 worker 路径（grid / 直生 / 测试）request.task_id 为 None，统一点内跳过持久化。
         await self._persist_provider_job_id(request, video.id, provider=PROVIDER_OPENAI)
-        final = await self._poll_until_complete(video.id, request.duration_seconds)
+        final = await self._poll_until_complete(video.id, request.poll_timeout_seconds)
 
         # generate 路径下 expired 是「provider 异常 / 输入参数过期」类失败，
         # 抛 RuntimeError 让 worker mark_failed（不带 [resume_expired] 前缀）。
@@ -201,7 +197,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 OpenAI job：仅 poll + 下载，不调 videos.create。"""
         try:
-            final = await self._poll_until_complete(job_id, request.duration_seconds)
+            final = await self._poll_until_complete(job_id, request.poll_timeout_seconds)
         except Exception as exc:
             if _is_openai_not_found(exc):
                 raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_OPENAI) from exc
@@ -246,14 +242,12 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         """仅创建视频任务（带重试）；轮询交由 _poll_until_complete 自管。"""
         return await self._client.videos.create(**kwargs)
 
-    async def _poll_until_complete(self, video_id: str, duration_seconds: int):
+    async def _poll_until_complete(self, video_id: str, poll_timeout_seconds: int):
         """轮询任务直到状态归一到终态。
 
         不复用 SDK 的 client.videos.poll：它仅识别 in_progress/queued/completed/failed，
         对接返回非标状态（如 NOT_START）的 OpenAI 兼容网关时会提前退出，导致下载未就绪任务。
         """
-        max_wait = max(_MIN_POLL_TIMEOUT_SECONDS, float(duration_seconds) * _POLL_TIMEOUT_PER_SECOND)
-
         # is_done 是纯谓词：成功 / 失败 / 过期三档都视为「已终态」让 poll 返回。
         # caller (generate / resume_video) 拿到 result 后再分流：
         #   - succeeded → 下载
@@ -268,8 +262,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
                 if _video_status(v) is ProviderJobStatus.FAILED
                 else None
             ),
-            poll_interval=_POLL_INTERVAL_SECONDS,
-            max_wait=max_wait,
+            max_wait=poll_timeout_seconds,
             retryable_errors=OPENAI_RETRYABLE_ERRORS,
             label="OpenAI",
             on_progress=lambda v, elapsed: logger.info(
@@ -277,14 +270,18 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
             ),
         )
 
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=OPENAI_RETRYABLE_ERRORS,
-    )
     async def _download_content_with_retry(self, video_id: str):
-        """单独重试内容下载，避免因下载失败重新触发视频生成。"""
-        return await self._client.videos.download_content(video_id)
+        """单独重试内容下载，避免因下载失败重新触发视频生成。
+
+        SDK 取件抛的不是 ``HTTPStatusError``，故退到按 ``OPENAI_RETRYABLE_ERRORS`` 判定，
+        终止条件仍是共用的产物下载预算。
+        """
+        return await with_artifact_retry(
+            lambda: self._client.videos.download_content(video_id),
+            label="OpenAI",
+            retry_if=None,
+            retryable_errors=OPENAI_RETRYABLE_ERRORS,
+        )
 
 
 def _encode_start_image(image_path: Path) -> tuple[str, bytes, str]:
@@ -300,9 +297,9 @@ def _is_openai_not_found(exc: BaseException) -> bool:
     宽泛字串会把诸如 ``"file not found in storage"`` 等业务错误误判为幽灵任务。
     """
     try:
-        from openai import NotFoundError  # pyright: ignore[reportMissingImports]
+        from openai import NotFoundError
     except ImportError:
-        NotFoundError = None  # noqa: N806
+        NotFoundError = None
 
     if NotFoundError is not None and isinstance(exc, NotFoundError):
         return True

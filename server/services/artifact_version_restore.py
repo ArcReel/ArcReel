@@ -94,7 +94,7 @@ def restore_typed_media_version(
         resource_id=resource_id,
         version=version,
     )
-    restored: dict[str, Any] | None = None
+    restored: list[dict[str, Any]] = []
 
     def _same_script(project: dict[str, Any]) -> str:
         current_binding = resolve_episode_script_binding(project, target.episode, target.script_file)
@@ -103,8 +103,6 @@ def restore_typed_media_version(
         return current_binding
 
     def _restore_and_register(_script_path: Path) -> None:
-        nonlocal restored
-
         def _register(record: dict[str, Any]) -> None:
             committed_target = parse_typed_media_version_record(resource_type, record)
             if committed_target != target:
@@ -116,12 +114,14 @@ def restore_typed_media_version(
                 basis=target.basis,
             )
 
-        restored = versions.restore_version(
-            resource_type,
-            resource_id,
-            version,
-            current_file,
-            on_restore=_register,
+        restored.append(
+            versions.restore_version(
+                resource_type,
+                resource_id,
+                version,
+                current_file,
+                on_restore=_register,
+            )
         )
 
     with project_manager.locked_episode_script(
@@ -139,9 +139,9 @@ def restore_typed_media_version(
             created_at=target.created_at,
         )
 
-    if restored is None:
+    if not restored:
         raise RuntimeError("typed artifact restore completed without selecting a version")
-    return restored
+    return restored[0]
 
 
 def parse_typed_media_version_record(

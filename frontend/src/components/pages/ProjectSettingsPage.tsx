@@ -1,22 +1,27 @@
 import { useParams, useLocation } from "wouter";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { API, type AgentProfileStatus } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
-import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
-import type { CustomProviderInfo, ProviderInfo } from "@/types";
+import type { CharacterVoiceBinding, CustomProviderInfo, ProviderInfo } from "@/types";
+import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
+import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
+import {
+  EpisodeTargetDurationField,
+  isValidEpisodeTargetDuration,
+} from "@/components/shared/EpisodeTargetDurationField";
 import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -107,6 +112,7 @@ export function ProjectSettingsPage() {
     text_backends: string[];
     audio_backends: string[];
     provider_names?: Record<string, string>;
+    model_names?: Record<string, string>;
   } | null>(null);
   const {
     candidates,
@@ -134,11 +140,6 @@ export function ProjectSettingsPage() {
   // 未保存过时取 true，镜像后端 _DEFAULT_VIDEO_GENERATE_AUDIO。
   const [globalGenerateAudio, setGlobalGenerateAudio] = useState(true);
 
-  const allProviderNames = useMemo(
-    () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
-    [options],
-  );
-
   // Project-level overrides (from project.json)
   // "" means "follow global default"
   const [videoBackend, setVideoBackend] = useState<string>("");
@@ -152,6 +153,8 @@ export function ProjectSettingsPage() {
   const [audioBackend, setAudioBackend] = useState<string>("");
   const [narrationVoice, setNarrationVoice] = useState<string>("");
   const [narrationSpeed, setNarrationSpeed] = useState<number | null>(null);
+  // 角色声音绑定方式：参考生视频路线专有；缺省即默认档（提示词软约束）
+  const [voiceBinding, setVoiceBinding] = useState<CharacterVoiceBinding>(DEFAULT_CHARACTER_VOICE_BINDING);
   const [textDefault, setTextDefault] = useState<string>("");
   const [textSimple, setTextSimple] = useState<string>("");
   const [textComplex, setTextComplex] = useState<string>("");
@@ -162,6 +165,7 @@ export function ProjectSettingsPage() {
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
   // 口播语速估算（阅读单位 / 秒）：null = 未填，按项目语言的默认速度估算
   const [speechRate, setSpeechRate] = useState<number | null>(null);
+  const [episodeTargetDuration, setEpisodeTargetDuration] = useState<number | null>(null);
   // 源文语言由内容分析写入，此页只读——只用来决定语速的单位名词（字 / 词）
   const [sourceLanguage, setSourceLanguage] = useState<string | null>(null);
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
@@ -169,6 +173,14 @@ export function ProjectSettingsPage() {
   const [modelSettings, setModelSettings] = useState<Record<string, { resolution: string | null }>>({});
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
+
+  const { providerNames: allProviderNames, modelNames: allModelNames } = useDisplayNames(
+    providers,
+    customProviders,
+    options,
+    candidates,
+  );
+
   const [projectTitle, setProjectTitle] = useState<string>("");
   const [contentMode, setContentMode] = useState<string>("narration");
   const [saving, setSaving] = useState(false);
@@ -188,18 +200,20 @@ export function ProjectSettingsPage() {
     imageBackendDefault: "", imageBackendT2I: "", imageBackendI2I: "",
     audioOverride: null as boolean | null,
     audioBackend: "", narrationVoice: "", narrationSpeed: null as number | null,
+    voiceBinding: DEFAULT_CHARACTER_VOICE_BINDING,
     textDefault: "", textSimple: "", textComplex: "",
     aspectRatio: "", gridStoryboard: false,
     defaultDuration: null as number | null,
     speechRate: null as number | null,
+    episodeTargetDuration: null as number | null,
     videoResolution: null as string | null,
     imageResolution: null as string | null,
   });
   // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
   const initialStyleRef = useRef<StylePickerValue | null>(null);
 
-  // 候选是全局配置、与项目无关，故只在挂载时取一次，不跟随下面按 projectName 重取的效果；
-  // 拉取失败也只影响细分区，其余表单状态照常。
+  // 候选是全局配置、与项目无关，故不跟随下面按 projectName 重取的效果；reload 的标识随语言
+  // 变化，语言切换时只刷新候选与译名，不重取项目表单。拉取失败也只影响细分区。
   useEffect(() => {
     void reloadCandidates();
   }, [reloadCandidates]);
@@ -237,6 +251,7 @@ export function ProjectSettingsPage() {
         text_backends: configRes.options?.text_backends ?? [],
         audio_backends: configRes.options?.audio_backends ?? [],
         provider_names: configRes.options?.provider_names,
+        model_names: configRes.options?.model_names,
       });
       // 各层原样带入，不在此折叠回退——穿透演算由 ModelConfigSection 按解析链推导。
       const nextGlobals = {
@@ -280,9 +295,13 @@ export function ProjectSettingsPage() {
       const route = normalizeRoute(project.generation_mode);
       const grid = project.grid_storyboard === true;
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
+      const rawEtd = project.episode_target_duration;
+      const etd = typeof rawEtd === "number" && Number.isFinite(rawEtd) ? rawEtd : null;
       const rawRate = project.speech_rate_units_per_second;
       const sr = typeof rawRate === "number" && Number.isFinite(rawRate) ? rawRate : null;
       const sl = typeof project.source_language === "string" ? project.source_language : null;
+      const vbind: CharacterVoiceBinding =
+        project.character_voice_binding === "reference_audio" ? "reference_audio" : DEFAULT_CHARACTER_VOICE_BINDING;
 
       setVideoBackend(vb);
       setVideoProviderI2V(vpi2v);
@@ -302,7 +321,9 @@ export function ProjectSettingsPage() {
       setGridStoryboard(grid);
       setDefaultDuration(dd);
       setSpeechRate(sr);
+      setEpisodeTargetDuration(etd);
       setSourceLanguage(sl);
+      setVoiceBinding(vbind);
       setProjectTitle(typeof project.title === "string" ? project.title : "");
       setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
 
@@ -335,8 +356,10 @@ export function ProjectSettingsPage() {
         imageBackendDefault: ibDefault, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i,
         audioOverride: ao,
         audioBackend: ab, narrationVoice: nv, narrationSpeed: ns,
+        voiceBinding: vbind,
         textDefault: td, textSimple: tsi, textComplex: tcx,
         aspectRatio: ar, gridStoryboard: grid, defaultDuration: dd, speechRate: sr,
+        episodeTargetDuration: etd,
         videoResolution: vRes, imageResolution: iRes,
       };
     }));
@@ -386,6 +409,7 @@ export function ProjectSettingsPage() {
     audioBackend !== initialRef.current.audioBackend ||
     narrationVoice !== initialRef.current.narrationVoice ||
     narrationSpeed !== initialRef.current.narrationSpeed ||
+    voiceBinding !== initialRef.current.voiceBinding ||
     textDefault !== initialRef.current.textDefault ||
     textSimple !== initialRef.current.textSimple ||
     textComplex !== initialRef.current.textComplex ||
@@ -393,6 +417,7 @@ export function ProjectSettingsPage() {
     gridStoryboard !== initialRef.current.gridStoryboard ||
     defaultDuration !== initialRef.current.defaultDuration ||
     speechRate !== initialRef.current.speechRate ||
+    episodeTargetDuration !== initialRef.current.episodeTargetDuration ||
     videoResolution !== initialRef.current.videoResolution ||
     imageResolution !== initialRef.current.imageResolution ||
     styleIsDirty;
@@ -501,6 +526,8 @@ export function ProjectSettingsPage() {
         audio_backend: audioBackend || null,
         narration_voice: trimmedVoice || null,
         narration_speed: narrationSpeed,
+        // 绑定方式只在参考生视频路线上有效，其余路线该键与项目无关，不写
+        ...(generationRoute === "reference_video" ? { character_voice_binding: voiceBinding } : {}),
         // null 即清除项目级覆盖、回退语言默认
         speech_rate_units_per_second: speechRate,
         default_text_backend: textDefault || null,
@@ -511,7 +538,11 @@ export function ProjectSettingsPage() {
         // 但只在开关可见时写——参考生视频与 ad 项目下该键与项目无关，ad 更会对 true 返回 400
         ...(gridToggleVisible ? { grid_storyboard: gridStoryboard } : {}),
         // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键
-        ...(contentMode === "ad" ? {} : { default_duration: defaultDuration }),
+        // ad 项目禁写 episode_target_duration（同 default_duration，字段出现即 400），省略该键；
+        // 非 ad 恒写：null 即清除该偏好
+        ...(contentMode === "ad"
+          ? {}
+          : { default_duration: defaultDuration, episode_target_duration: episodeTargetDuration }),
         model_settings: newModelSettings,
       });
       setModelSettings(newModelSettings);
@@ -520,8 +551,10 @@ export function ProjectSettingsPage() {
         videoBackend, videoProviderI2V, videoProviderR2V,
         imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride,
         audioBackend, narrationVoice: trimmedVoice, narrationSpeed,
+        voiceBinding,
         textDefault, textSimple, textComplex,
         aspectRatio, gridStoryboard, defaultDuration, speechRate,
+        episodeTargetDuration,
         videoResolution, imageResolution,
       };
       // grid_storyboard / video_backend 落盘后，/video-capabilities 按已存值解析——查询 key 未变
@@ -533,7 +566,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
 
   const handleResetAgentProfile = useCallback(async () => {
     if (profileResetProject !== projectName) {
@@ -754,6 +787,7 @@ export function ProjectSettingsPage() {
                     imageBackends: options.image_backends,
                     textBackends: options.text_backends,
                     providerNames: allProviderNames,
+                    modelNames: allModelNames,
                   }}
                   candidates={candidates}
                   candidatesError={
@@ -860,7 +894,50 @@ export function ProjectSettingsPage() {
                   onChange={setSpeechRate}
                   sourceLanguage={sourceLanguage}
                 />
+                {/* ad 项目的整集体量由目标总时长表达，不呈现该输入（服务端亦拒写） */}
+                {contentMode !== "ad" && (
+                  <div className="mt-4">
+                    <EpisodeTargetDurationField
+                      value={episodeTargetDuration}
+                      onChange={setEpisodeTargetDuration}
+                    />
+                  </div>
+                )}
               </SectionCard>
+
+              {/* 角色声音绑定方式：只在参考生视频路线有效——参考音频通道属于该路线，
+                  分镜图生视频路线上此设置不改变任何交付内容，故不展示也不写入 */}
+              {generationRoute === "reference_video" && (
+              <SectionCard kicker="Character Voice" title={t("character_voice_binding_title")}>
+                <fieldset>
+                  <legend className="sr-only">{t("character_voice_binding_title")}</legend>
+                  <div className="flex gap-2.5">
+                    {(["prompt", "reference_audio"] as const).map((mode) => (
+                      <label key={mode} className={radioCardClass(voiceBinding === mode)}>
+                        <input
+                          type="radio"
+                          name="characterVoiceBinding"
+                          value={mode}
+                          checked={voiceBinding === mode}
+                          onChange={() => setVoiceBinding(mode)}
+                          className="sr-only"
+                        />
+                        <span>
+                          {mode === "prompt"
+                            ? t("character_voice_binding_prompt_label")
+                            : t("character_voice_binding_reference_audio_label")}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-text-4">
+                    {voiceBinding === "prompt"
+                      ? t("character_voice_binding_prompt_desc")
+                      : t("character_voice_binding_reference_audio_desc")}
+                  </p>
+                </fieldset>
+              </SectionCard>
+              )}
 
               {/* 旁白配音（TTS）：仅 旁白/解说消费——TTS 绑定 segment.novel_text，drama/ad 无该字段，
                   故与两个画布的批量旁白按钮（contentMode === "narration"）同口径门控，避免对无效模式展示配音卡 */}
@@ -875,6 +952,7 @@ export function ProjectSettingsPage() {
                       value={audioBackend}
                       options={options.audio_backends}
                       providerNames={allProviderNames}
+                      modelNames={allModelNames}
                       onChange={setAudioBackend}
                       allowDefault
                       defaultLabel={t("follow_global_default")}
@@ -983,7 +1061,11 @@ export function ProjectSettingsPage() {
               // eslint-disable-next-line react-hooks/refs
               onClick={voidPromise(handleSave)}
               // 口播语速越界时不放行保存（区间与后端同一把尺），行内提示已说明原因
-              disabled={saving || !isValidSpeechRate(speechRate)}
+              disabled={
+                saving ||
+                !isValidSpeechRate(speechRate) ||
+                !isValidEpisodeTargetDuration(episodeTargetDuration)
+              }
               className={`${ACCENT_BTN_CLS} px-5`}
               style={ACCENT_BUTTON_STYLE}
             >

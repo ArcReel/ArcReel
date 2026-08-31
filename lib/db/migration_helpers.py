@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 import sqlalchemy as sa
@@ -30,7 +30,7 @@ def _index_ddl(bind: Connection, table_name: str) -> dict[str, str]:
 
 
 @contextmanager
-def preserve_sqlite_indexes(table_name: str) -> Iterator[None]:
+def preserve_sqlite_indexes(table_name: str) -> Generator[None]:
     """在 SQLite 重建表期间保住反射不出的索引。
 
     SQLite 上 ``batch_alter_table`` 的增删列走重建表路径，而 SQLAlchemy 反射不出表达式型索引

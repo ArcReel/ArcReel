@@ -1,0 +1,66 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "Generic Submit + Poll",
+    "author": "ArcReel",
+    "version": "1.0.0",
+    "description": "JSON in/out 的提交+轮询协议骨架：提交拿 task_id，按 task_id 轮询状态，成功后取产物地址。字段名与取值路径按供应商文档逐条替换。"
+  },
+  "auth": {
+    "headers": {
+      "Authorization": "Bearer {{ api_key }}"
+    }
+  },
+  "inputs": {
+    "start_image": {
+      "source": "start_image",
+      "encoding": "data_uri"
+    }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/v1/video/generations",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "duration": "{{ duration }}",
+      "aspect_ratio": "{{ aspect_ratio }}",
+      "image": "{{ inputs.start_image }}"
+    },
+    "extract": {
+      "task_id": ["$.id", "$.task_id", "$.data.task_id"],
+      "error": ["$.error.message", "$.message"]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/v1/video/generations/{{ task_id }}",
+    "extract": {
+      "status": ["$.status", "$.data.status"],
+      "video_url": ["$.video_url", "$.data.video_url", "$.data.videos[0].url"],
+      "error": ["$.error.message", "$.data.fail_reason"],
+      "usage": {
+        "duration_seconds": ["$.data.duration"]
+      }
+    }
+  },
+  "status_map": {
+    "pending": "queued",
+    "queued": "queued",
+    "submitted": "queued",
+    "processing": "running",
+    "running": "running",
+    "in_progress": "running",
+    "succeeded": "succeeded",
+    "success": "succeeded",
+    "completed": "succeeded",
+    "failed": "failed",
+    "failure": "failed",
+    "error": "failed",
+    "cancelled": "failed"
+  },
+  "capabilities": {
+    "first_frame": true
+  }
+}

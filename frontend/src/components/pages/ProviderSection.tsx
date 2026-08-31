@@ -1,12 +1,9 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { errMsg, voidCall } from "@/utils/async";
+import { useEffect, useMemo, useCallback } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { API } from "@/api";
-import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useProviderCatalog } from "@/hooks/useProviderCatalog";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
-import type { ProviderInfo, CustomProviderInfo } from "@/types";
 import { ProviderDetail } from "./ProviderDetail";
 import { CustomProviderSection } from "./settings/CustomProviderSection";
 import { CustomProviderDetail } from "./settings/CustomProviderDetail";
@@ -60,12 +57,8 @@ type Selection =
   | null;
 
 export function ProviderSection() {
-  const { t } = useTranslation(["dashboard", "common"]);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
+  const { providers, customProviders, loading, error: loadError, reload, refresh } = useProviderCatalog(i18n.language);
   const [location, navigate] = useLocation();
   const search = useSearch();
 
@@ -81,12 +74,14 @@ export function ProviderSection() {
     if (preset) return { kind: "preset", id: preset };
     return null;
   }, [search]);
+  const modelId = new URLSearchParams(search).get("model") ?? undefined;
 
   const setSelection = useCallback(
     (sel: Selection) => {
       const p = new URLSearchParams(search);
       p.delete("provider");
       p.delete("custom");
+      p.delete("model");
       if (sel?.kind === "preset") p.set("provider", sel.id);
       else if (sel?.kind === "custom") p.set("custom", String(sel.id));
       else if (sel?.kind === "new-custom") p.set("custom", "new");
@@ -95,53 +90,20 @@ export function ProviderSection() {
     [search, location, navigate],
   );
 
-  const refreshPreset = useCallback(async () => {
-    const res = await API.getProviders();
-    setProviders(res.providers);
-    void useConfigStatusStore.getState().refresh();
-  }, []);
-
-  const refreshCustom = useCallback(async () => {
-    const res = await API.listCustomProviders();
-    setCustomProviders(res.providers);
-    void useConfigStatusStore.getState().refresh();
-  }, []);
-
-  useEffect(() => {
-    let disposed = false;
-    // mount 时重置 loading/error 后并行拉取 preset+custom 列表
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true);
-    setLoadError(null);
-    voidCall(
-      (async () => {
-        try {
-          const [presetRes, customRes] = await Promise.all([
-            API.getProviders(),
-            API.listCustomProviders(),
-          ]);
-          if (disposed) return;
-          setProviders(presetRes.providers);
-          setCustomProviders(customRes.providers);
-          const params = new URLSearchParams(search);
-          if (
-            !params.get("provider") &&
-            !params.get("custom") &&
-            presetRes.providers.length > 0
-          ) {
-            setSelection({ kind: "preset", id: presetRes.providers[0].id });
-          }
-        } catch (err) {
-          if (!disposed) setLoadError(errMsg(err));
-        } finally {
-          if (!disposed) setLoading(false);
-        }
-      })(),
-    );
-    return () => {
-      disposed = true;
+  // 从「调用端点」小节的「新建供应商并使用此端点」接线过来的预填。
+  const prefill = useMemo(() => {
+    const params = new URLSearchParams(search);
+    return {
+      baseUrl: params.get("base_url") ?? undefined,
+      endpoint: params.get("endpoint") ?? undefined,
     };
-  }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search]);
+
+  // 首个 preset 兜底选中：拉取完成后 URL 仍未指定选中项时补一次。
+  useEffect(() => {
+    if (loading || selection || providers.length === 0) return;
+    setSelection({ kind: "preset", id: providers[0].id });
+  }, [loading, selection, providers, setSelection]);
 
   if (loadError) {
     return (
@@ -152,7 +114,7 @@ export function ProviderSection() {
         <p className="text-[12.5px] text-text-2">{loadError}</p>
         <button
           type="button"
-          onClick={() => setReloadKey((k) => k + 1)}
+          onClick={reload}
           className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {t("common:retry")}
@@ -230,36 +192,34 @@ export function ProviderSection() {
       <div className="min-w-0 flex-1">
         {selection?.kind === "preset" && (
           <div className="p-6">
-            <ProviderDetail providerId={selection.id} onSaved={() => void refreshPreset()} />
+            <ProviderDetail providerId={selection.id} onSaved={() => void refresh()} />
           </div>
         )}
         {selection?.kind === "custom" && (
           <CustomProviderDetail
             providerId={selection.id}
+            initialModelId={modelId}
             onDeleted={() => {
-              void refreshCustom();
+              void refresh();
               if (providers.length > 0) {
                 setSelection({ kind: "preset", id: providers[0].id });
               } else {
                 setSelection(null);
               }
             }}
-            onSaved={() => void refreshCustom()}
+            onSaved={() => void refresh()}
           />
         )}
         {selection?.kind === "new-custom" && (
           <CustomProviderForm
+            initialBaseUrl={prefill.baseUrl}
+            initialEndpoint={prefill.endpoint}
             onSaved={() => {
-              void API.listCustomProviders()
-                .then((res) => {
-                  setCustomProviders(res.providers);
-                  void useConfigStatusStore.getState().refresh();
-                  if (res.providers.length > 0) {
-                    const newest = res.providers[res.providers.length - 1];
-                    setSelection({ kind: "custom", id: newest.id });
-                  }
-                })
-                .catch(() => void refreshCustom());
+              void refresh().then((list) => {
+                if (list.length > 0) {
+                  setSelection({ kind: "custom", id: list[list.length - 1].id });
+                }
+              });
             }}
             onCancel={() => {
               if (providers.length > 0) {

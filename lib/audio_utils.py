@@ -10,6 +10,7 @@ import math
 import os
 import shutil
 import tempfile
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import cast
 
@@ -93,7 +94,7 @@ def _ffprobe_available() -> bool:
     return shutil.which("ffprobe") is not None
 
 
-def _reset_for_tests() -> None:
+def reset_for_tests() -> None:
     """test helper —— 清缓存让 monkeypatch shutil.which 立刻生效。"""
     _ffprobe_available.cache_clear()
 
@@ -133,7 +134,13 @@ async def _run_ffprobe(extra_args: list[str]) -> bytes:
     return stdout
 
 
-async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | None:
+async def probe_audio_duration_seconds(
+    content: bytes,
+    suffix: str,
+    *,
+    ffprobe_available: Callable[[], bool] | None = None,
+    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
+) -> float | None:
     """探测音频字节的时长（秒），并确认其中确有可解码的音频流。
 
     ffprobe 不可用时返回 None（调用方按仓库惯例降级：跳过时长校验，不阻断上传），
@@ -144,7 +151,9 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
             （如把视频文件改名为 .wav/.mp3 上传），或探测出的容器格式与
             扩展名不符（如把 m4a/aac 改名为 .wav 上传）。
     """
-    if not _ffprobe_available():
+    available = ffprobe_available or _ffprobe_available
+    probe = run_ffprobe or _run_ffprobe
+    if not available():
         logger.info("ffprobe 不可用，跳过音频时长探测")
         return None
 
@@ -159,7 +168,7 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
         raise
 
     try:
-        stream_types = await _run_ffprobe(
+        stream_types = await probe(
             ["-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(tmp_path)]
         )
         if b"audio" not in stream_types:
@@ -167,14 +176,12 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
 
         expected_tokens = _CONTAINER_FORMAT_TOKENS.get(suffix.lower())
         if expected_tokens is not None:
-            format_name_out = await _run_ffprobe(
-                ["-show_entries", "format=format_name", "-of", "csv=p=0", str(tmp_path)]
-            )
+            format_name_out = await probe(["-show_entries", "format=format_name", "-of", "csv=p=0", str(tmp_path)])
             detected_tokens = {token.strip() for token in format_name_out.decode().strip().split(",")}
             if not detected_tokens & expected_tokens:
                 raise ValueError("音频文件无法解析")
 
-        duration_out = await _run_ffprobe([*_DURATION_PROBE_ARGS, str(tmp_path)])
+        duration_out = await probe([*_DURATION_PROBE_ARGS, str(tmp_path)])
     except (FileNotFoundError, OSError):
         logger.info("ffprobe 调用失败，跳过音频时长探测")
         return None
@@ -187,7 +194,12 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
         raise ValueError("音频文件无法解析") from None
 
 
-async def probe_existing_media_duration_seconds(path: Path) -> float | None:
+async def probe_existing_media_duration_seconds(
+    path: Path,
+    *,
+    ffprobe_available: Callable[[], bool] | None = None,
+    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
+) -> float | None:
     """探测磁盘上已落盘媒体文件的容器时长（秒）。
 
     与 :func:`probe_audio_duration_seconds` 的字节输入版本不同：本函数直接对已存在文件探测，
@@ -195,10 +207,12 @@ async def probe_existing_media_duration_seconds(path: Path) -> float | None:
     应使用 :func:`probe_existing_video_duration_seconds`。
     ffprobe 不可用或探测失败时返回 None，由调用方按业务严格度决定放行或阻断。
     """
-    if not _ffprobe_available():
+    available = ffprobe_available or _ffprobe_available
+    probe = run_ffprobe or _run_ffprobe
+    if not available():
         return None
     try:
-        duration_out = await _run_ffprobe([*_DURATION_PROBE_ARGS, str(path)])
+        duration_out = await probe([*_DURATION_PROBE_ARGS, str(path)])
     except (FileNotFoundError, OSError, ValueError):
         return None
     try:
@@ -217,7 +231,12 @@ def _positive_duration(value: object) -> float | None:
     return duration if math.isfinite(duration) and duration > 0 else None
 
 
-async def probe_existing_video_duration_seconds(path: Path) -> float | None:
+async def probe_existing_video_duration_seconds(
+    path: Path,
+    *,
+    ffprobe_available: Callable[[], bool] | None = None,
+    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
+) -> float | None:
     """探测视频轨的可播放边界，缺少流级时长时回退到容器时长。
 
     容器可能因音轨尾部较长而比视频轨更长；视频编辑器按视频轨时长约束 source range，
@@ -225,10 +244,12 @@ async def probe_existing_video_duration_seconds(path: Path) -> float | None:
     与常见媒体解析器的通用轨 fallback 保持一致。
     """
 
-    if not _ffprobe_available():
+    available = ffprobe_available or _ffprobe_available
+    probe = run_ffprobe or _run_ffprobe
+    if not available():
         return None
     try:
-        output = await _run_ffprobe(
+        output = await probe(
             [
                 "-select_streams",
                 "v:0",
@@ -257,13 +278,27 @@ async def probe_existing_video_duration_seconds(path: Path) -> float | None:
     return None
 
 
-async def probe_existing_audio_duration_seconds(path: Path) -> float | None:
+async def probe_existing_audio_duration_seconds(
+    path: Path,
+    *,
+    ffprobe_available: Callable[[], bool] | None = None,
+    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
+) -> float | None:
     """探测正式音频时长；保留音频调用方的语义化入口。"""
 
-    return await probe_existing_media_duration_seconds(path)
+    return await probe_existing_media_duration_seconds(
+        path,
+        ffprobe_available=ffprobe_available,
+        run_ffprobe=run_ffprobe,
+    )
 
 
-async def probe_reference_audio_total_seconds(paths: list[Path]) -> float | None:
+async def probe_reference_audio_total_seconds(
+    paths: list[Path],
+    *,
+    ffprobe_available: Callable[[], bool] | None = None,
+    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
+) -> float | None:
     """探测多段参考音频文件的总时长（秒），供请求期总时长能力校验使用。
 
     任一文件时长探测失败（ffprobe 不可用、文件损坏）都返回 None 而非部分求和：半截总时长会
@@ -271,7 +306,11 @@ async def probe_reference_audio_total_seconds(paths: list[Path]) -> float | None
     """
     total = 0.0
     for path in paths:
-        duration = await probe_existing_audio_duration_seconds(path)
+        duration = await probe_existing_audio_duration_seconds(
+            path,
+            ffprobe_available=ffprobe_available,
+            run_ffprobe=run_ffprobe,
+        )
         if duration is None:
             return None
         total += duration

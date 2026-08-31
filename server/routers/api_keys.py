@@ -88,17 +88,16 @@ async def create_api_key(
         expires_at = _default_expires_at()
 
     try:
-        async with async_session_factory() as session:
-            async with session.begin():
-                repo = ApiKeyRepository(session)
-                row = await repo.create(
-                    name=body.name,
-                    key_hash=key_hash,
-                    key_prefix=key_prefix,
-                    expires_at=expires_at,
-                )
-    except IntegrityError:
-        raise HTTPException(status_code=409, detail=_t("api_key_name_exists", name=body.name))
+        async with async_session_factory() as session, session.begin():
+            repo = ApiKeyRepository(session)
+            row = await repo.create(
+                name=body.name,
+                key_hash=key_hash,
+                key_prefix=key_prefix,
+                expires_at=expires_at,
+            )
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=_t("api_key_name_exists", name=body.name)) from exc
 
     return CreateApiKeyResponse(
         id=row["id"],
@@ -117,10 +116,9 @@ async def list_api_keys(
 ) -> list[ApiKeyInfo]:
     """查询所有 API Key 的元数据（不含完整 key）。"""
     _require_jwt_auth(user, _t)
-    async with async_session_factory() as session:
-        async with session.begin():
-            repo = ApiKeyRepository(session)
-            rows = await repo.list_all()
+    async with async_session_factory() as session, session.begin():
+        repo = ApiKeyRepository(session)
+        rows = await repo.list_all()
 
     return [ApiKeyInfo(**row) for row in rows]
 
@@ -133,17 +131,16 @@ async def delete_api_key(
 ) -> None:
     """删除（吊销）指定 API Key，并立即清除内存缓存。"""
     _require_jwt_auth(user, _t)
-    async with async_session_factory() as session:
-        async with session.begin():
-            repo = ApiKeyRepository(session)
-            row = await repo.get_by_id(key_id)
-            if row is None:
-                raise HTTPException(status_code=404, detail=_t("api_key_not_found", key_id=key_id))
-            key_hash = row["key_hash"]
-            # 先失效缓存再删库：即使事务提交后崩溃，缓存也已清除，
-            # 不会出现 DB 已删但缓存仍有效的宽限窗口。
-            invalidate_api_key_cache(key_hash)
-            deleted = await repo.delete(key_id)
+    async with async_session_factory() as session, session.begin():
+        repo = ApiKeyRepository(session)
+        row = await repo.get_by_id(key_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=_t("api_key_not_found", key_id=key_id))
+        key_hash = row["key_hash"]
+        # 先失效缓存再删库：即使事务提交后崩溃，缓存也已清除，
+        # 不会出现 DB 已删但缓存仍有效的宽限窗口。
+        invalidate_api_key_cache(key_hash)
+        deleted = await repo.delete(key_id)
 
     if not deleted:
         raise HTTPException(status_code=404, detail=_t("api_key_not_found", key_id=key_id))

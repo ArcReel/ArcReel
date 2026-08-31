@@ -8,10 +8,10 @@ import json
 import logging
 import os
 import time
-from collections.abc import AsyncIterable, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 from uuid import uuid4
 
 from lib.db.base import DEFAULT_USER_ID
@@ -102,13 +102,9 @@ class _StartupStderrCollector:
 class SessionCapacityError(Exception):
     """所有并发槽位已被 running 会话占满，无法创建新连接。"""
 
-    pass
-
 
 class SessionBusyError(Exception):
     """目标会话正处于 running 状态，暂不接受新消息（与内容校验错误区分，各自映射不同状态码）。"""
-
-    pass
 
 
 class AgentStartupError(RuntimeError):
@@ -189,7 +185,7 @@ class _ActorExitNotice:
 def _make_session_channel() -> SseChannel:
     """会话订阅广播通道：溢出策略为「逐出非关键消息 + 溢出信号」。
 
-    关键消息（result/runtime_status/user/assistant）不得静默丢弃；订阅者
+    关键消息（result/runtime_status/log_entry/log_turn_complete）不得静默丢弃；订阅者
     队列彻底跟不上时其流被结束，流结束即重连信号（见 docs/adr/0046）。
     """
     return SseChannel(
@@ -232,8 +228,7 @@ class ManagedSession:
     _interrupting: bool = False  # send_interrupt re-entry guard (distinct from interrupt_requested)
 
     # Message types that must never be silently dropped from subscriber queues.
-    # 原始 assistant/result 仍是关键类型：同步 agent 对话端点直接消费它们收集回复。
-    _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "assistant", "log_entry", "log_turn_complete"}
+    _CRITICAL_MESSAGE_TYPES: ClassVar[set[str]] = {"result", "runtime_status", "log_entry", "log_turn_complete"}
 
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
@@ -320,7 +315,7 @@ class ManagedSession:
 class SessionManager:
     """Manages all active ClaudeSDKClient instances."""
 
-    DEFAULT_ALLOWED_TOOLS = [
+    DEFAULT_ALLOWED_TOOLS: ClassVar[list[str]] = [
         "Skill",
         "Task",
         # —— Bash 系列（sandbox 启用 + autoAllowBashIfSandboxed=True 协同放行）——
@@ -333,9 +328,10 @@ class SessionManager:
         "Edit",
         "Grep",
         "Glob",
+        "WebFetch",
         "AskUserQuestion",
     ]
-    DEFAULT_SETTING_SOURCES = ["project"]
+    DEFAULT_SETTING_SOURCES: ClassVar[list[str]] = ["project"]
     _SDK_ID_TIMEOUT = 60.0
 
     def __init__(
@@ -513,8 +509,6 @@ class SessionManager:
             if managed is None:
                 return
             msg_dict = message_to_dict(raw_msg)
-            if not isinstance(msg_dict, dict):
-                return
             echo = match_user_echo(managed.pending_user_echoes, msg_dict)
             if echo is not None:
                 # SDK 回放的用户消息副本：POST 受理时已写日志分配身份，
@@ -577,7 +571,7 @@ class SessionManager:
         sdk_session_id 就绪后由 inbox 任务先写日志（seq 0）再放行等待，权威
         条目落在 ``managed.initial_user_log_entry`` 供受理响应回传。
         """
-        if not SDK_AVAILABLE or ClaudeSDKClient is None:
+        if not SDK_AVAILABLE:
             exc = RuntimeError("claude_agent_sdk is not installed")
             raise _make_agent_startup_error(exc, project_name=project_name, session_id=None) from exc
 
@@ -669,8 +663,7 @@ class SessionManager:
                     "send_disconnect on error path 超时，走 cancel 兜底 session_id=%s",
                     temp_id,
                 )
-                if managed.actor is not None:
-                    await managed.actor.cancel_and_wait()
+                await managed.actor.cancel_and_wait()
             except Exception:
                 logger.exception(
                     "send_disconnect on error path failed session_id=%s",
@@ -912,7 +905,7 @@ class SessionManager:
                 if meta is None:
                     raise FileNotFoundError(f"session not found: {session_id}")
 
-            if not SDK_AVAILABLE or ClaudeSDKClient is None:
+            if not SDK_AVAILABLE:
                 exc = RuntimeError("claude_agent_sdk is not installed")
                 raise _make_agent_startup_error(exc, project_name=meta.project_name, session_id=session_id) from exc
 
@@ -1298,18 +1291,15 @@ class SessionManager:
                     "actor disconnect 超时，走 cancel 兜底 session_id=%s",
                     session_id,
                 )
-                if managed.actor is not None:
-                    await managed.actor.cancel_and_wait()
+                await managed.actor.cancel_and_wait()
                 managed.status = "interrupted"
             except Exception:
                 logger.exception("actor 关停异常 session_id=%s", session_id)
                 managed.status = "error"
 
             # Drain the inbox processor
-            try:
+            with contextlib.suppress(Exception):
                 managed._inbox.put_nowait(None)
-            except Exception:
-                pass
             if managed._process_task is not None and not managed._process_task.done():
                 try:
                     await asyncio.wait_for(managed._process_task, timeout=5.0)
@@ -1367,7 +1357,7 @@ class SessionManager:
     async def _ensure_capacity(self) -> None:
         """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
         max_concurrent = await self._get_max_concurrent()
-        active = [s for s in self.sessions.values() if s.actor is not None and s.session_id not in self._disconnecting]
+        active = [s for s in self.sessions.values() if s.session_id not in self._disconnecting]
 
         if len(active) < max_concurrent:
             return
@@ -1468,12 +1458,10 @@ class SessionManager:
         try:
             answers = await pending.answer_future
         except Exception as exc:
-            if PermissionResultDeny is not None:
-                return PermissionResultDeny(
-                    message=str(exc) or "session interrupted by user",
-                    interrupt=True,
-                )
-            raise
+            return PermissionResultDeny(
+                message=str(exc) or "session interrupted by user",
+                interrupt=True,
+            )
         merged_input = dict(input_data or {})
         merged_input["answers"] = answers
         return PermissionResultAllow(updated_input=merged_input)
@@ -1509,9 +1497,6 @@ class SessionManager:
             input_data: dict[str, Any],
             _context: Any,
         ) -> Any:
-            if PermissionResultAllow is None:
-                raise RuntimeError("claude_agent_sdk is not installed")
-
             normalized_tool = str(tool_name or "").strip().lower()
 
             if normalized_tool == "askuserquestion":
@@ -1528,28 +1513,25 @@ class SessionManager:
                 cmd = str((input_data or {}).get("command") or "").strip()
                 if self.access_policy.is_bash_command_whitelisted(cmd):
                     return PermissionResultAllow(updated_input=input_data)
-                if PermissionResultDeny is not None:
-                    return PermissionResultDeny(
-                        message=self.access_policy.format_bash_whitelist_deny_message(cmd),
-                    )
+                return PermissionResultDeny(
+                    message=self.access_policy.format_bash_whitelist_deny_message(cmd),
+                )
             # BashOutput / KillBash 是 Bash 管理类工具，回退模式直接放行。
             if not self.access_policy.sandbox_enabled and tool_name in ("BashOutput", "KillBash"):
                 return PermissionResultAllow(updated_input=input_data)
 
             # Whitelist fallback: deny any tool that was not pre-approved
             # by allowed_tools or settings.json allow rules.
-            if PermissionResultDeny is not None:
-                reason = getattr(_context, "decision_reason", None)  # SDK 0.1.74+
-                reason_line = f"上游决策原因: {reason}\n" if reason else ""
-                hint = (
-                    f"未授权的工具调用: {tool_name}"
-                    f"({json.dumps(input_data, ensure_ascii=False)[:200]})\n"
-                    f"{reason_line}"
-                    "请检查工具名是否正确，以及 file_path / 命令是否触发了 "
-                    "settings.json 的 deny 规则或 PreToolUse hook（跨项目/cwd 外写/代码扩展名）。"
-                )
-                return PermissionResultDeny(message=hint)
-            return PermissionResultAllow(updated_input=input_data)
+            reason = getattr(_context, "decision_reason", None)  # SDK 0.1.74+
+            reason_line = f"上游决策原因: {reason}\n" if reason else ""
+            hint = (
+                f"未授权的工具调用: {tool_name}"
+                f"({json.dumps(input_data, ensure_ascii=False)[:200]})\n"
+                f"{reason_line}"
+                "请检查工具名是否正确，以及 file_path / 命令是否触发了 "
+                "settings.json 的 deny 规则或 PreToolUse hook（跨项目/cwd 外写/代码扩展名）。"
+            )
+            return PermissionResultDeny(message=hint)
 
         return _can_use_tool
 
@@ -1619,9 +1601,7 @@ class SessionManager:
     @staticmethod
     def _extract_sdk_session_id(message: Any, msg_dict: dict[str, Any]) -> str | None:
         """Extract SDK session id from either serialized payload or raw object."""
-        sdk_id = None
-        if isinstance(msg_dict, dict):
-            sdk_id = msg_dict.get("session_id") or msg_dict.get("sessionId")
+        sdk_id = msg_dict.get("session_id") or msg_dict.get("sessionId")
         if sdk_id:
             return str(sdk_id)
         raw_sdk_id = getattr(message, "session_id", None) or getattr(message, "sessionId", None)
@@ -1685,7 +1665,7 @@ class SessionManager:
     @contextlib.asynccontextmanager
     async def stream_messages(
         self, session_id: str, *, idle_timeout: float = 20.0, locale: str = DEFAULT_LOCALE
-    ) -> AsyncIterator[AsyncIterator[SessionStreamEvent]]:
+    ) -> AsyncGenerator[AsyncIterator[SessionStreamEvent]]:
         """Subscribe to a session's messages as a self-cleaning async iterator.
 
         Yields an async iterator producing semantic events, in order:
@@ -1731,7 +1711,7 @@ class SessionManager:
         meta = await self.meta_store.get(session_id)
         return meta.status if meta else None
 
-    async def shutdown_gracefully(self, timeout: float = 30.0) -> None:
+    async def shutdown_gracefully(self) -> None:
         """Gracefully shutdown all sessions using the actor teardown path."""
         patrol = getattr(self, "_patrol_task", None)
         if patrol is not None and not patrol.done():

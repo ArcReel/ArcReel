@@ -10,7 +10,7 @@ describe("InlineWarning", () => {
 
   it("不给 action 时不渲染任何按钮", () => {
     const { getByRole } = render(<InlineWarning message="仅提示" />);
-    expect(within(getByRole("alert")).queryByRole("button")).toBeNull();
+    expect(within(getByRole("alert")).queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("action 以可访问名暴露并可点击", () => {

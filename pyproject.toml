@@ -1,17 +1,20 @@
 [project]
 name = "arcreel"
 # managed by release-please — do not bump manually
-version = "0.26.0"
+version = "0.28.0"
 description = "AI video generation workspace"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk>=0.1.76",
-    "ffmpeg-python>=0.2.0",
     "fastapi>=0.138.2",
+    # fastapi 未 re-export 的 ASGI 类型与 MutableHeaders / FormData / UploadFile 直接取自 starlette。
+    "starlette>=1.6.0",
     "google-genai>=1.65.0",
     "Pillow>=12.1.1",
     "pydantic>=2.12.5",
+    # pydantic 未 re-export 的 ErrorDetails / PydanticCustomError 直接取自 pydantic-core。
+    "pydantic-core>=2.46.4",
     "PyYAML>=6.0.3",
     "python-dotenv>=1.2.1",
     "python-multipart>=0.0.22",
@@ -37,6 +40,12 @@ dependencies = [
     "portalocker>=2.10.1",
     "pdf-oxide>=0.3.46",
     "socksio>=1.0.0",
+    "mcp>=1.29.0,<2",
+    "jsonschema>=4.26.0",
+    "jsonpath-rfc9535>=1.0.0",
+    "httpx>=0.28.1",
+    "grpcio>=1.83.0",
+    "numpy>=2.5.2",
 ]
 
 [dependency-groups]
@@ -49,6 +58,10 @@ dev = [
     "python-docx>=1.2.0",
     "basedpyright>=1.39.4",
     "import-linter>=2.13",
+    "pytest-xdist>=3.8.0",
+    "pytest-timeout>=2.4.0",
+    "respx>=0.22.0",
+    "deptry>=0.24.0",
 ]
 
 [build-system]
@@ -60,8 +73,16 @@ packages = ["lib", "server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers"
+addopts = "--strict-markers --durations=25"
 asyncio_mode = "auto"
+# 卡死保护，不是耗时预算：当前最慢用例 30s，留 4 倍余量。个别用例需要更大预算时用
+# `@pytest.mark.timeout(N)` 单独放宽，不抬全局值。
+timeout = 120
+# signal 法对 async 与 sync 用例均生效，超时表现为普通 failure（会话继续、teardown
+# 正常、可归因）；thread 法以 os._exit 硬杀进程，xdist 下等价于 worker crash。
+timeout_method = "signal"
+# 并行不写进 addopts，只在 CI 命令里显式开（-n 4 --dist loadfile）：小选集并行更慢，
+# 每 worker 重新 import server.app 的固定开销吃掉全部收益，而本地调试几乎都是小选集。
 markers = [
     "unit: 快速、隔离、不触达真实 I/O 或外部服务的测试",
     "integration: 跨模块真实协作测试；禁止 mock 被测 module 的公共入口（否则是在测 mock 本身）",
@@ -104,15 +125,20 @@ ignore_imports = [
     # lib.config.resolver 直接向上引用自定义供应商装配层（函数体内延迟导入，静态分析仍计入）
     "lib.config.resolver -> lib.custom_provider",
     "lib.config.resolver -> lib.custom_provider.capabilities",
-    "lib.config.resolver -> lib.custom_provider.endpoints",
+    "lib.config.resolver -> lib.custom_provider.endpoint_resolution",
     # lib.config.resolver 直接向上引用 backend 层
     "lib.config.resolver -> lib.text_backends.base",
-    "lib.config.resolver -> lib.video_backends.registry",
     # 中间模块把 backend 层拉回 config 之下的可达范围
     "lib.backend_assembly.specs -> lib.audio_backends.registry",
     "lib.backend_assembly.specs -> lib.image_backends.registry",
     "lib.backend_assembly.specs -> lib.video_backends.registry",
+    "lib.backend_assembly.specs -> lib.video_backends.base",
     "lib.backend_assembly.specs -> lib.text_backends.registry",
+    # 声明式内置端点的装配接缝（ADR 0039）：spec 行按 registry_backend="declarative" 从
+    # 随版定义读能力与构造 backend，spec 表因此同时够到 backend 层与 custom_provider 层。
+    "lib.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
+    "lib.backend_assembly.specs -> lib.custom_provider.declarative_backend",
+    "lib.backend_assembly.specs -> lib.custom_provider.endpoints",
     "lib.project_manager -> lib.text_backends.base",
     "lib.text_generator -> lib.text_backends.base",
     "lib.text_generator -> lib.text_backends.factory",
@@ -127,7 +153,7 @@ ignore_imports = [
 ]
 
 # 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
-# （draft_quarantine）、正式 step1 的路径与写禁表（episode_paths）对 drama / narration /
+# （draft_quarantine）、正式 script_plan 的路径与写禁表（episode_paths）对 drama / narration /
 # reference_video 一视同仁，任一处 import lib.reference_video 都是把三条路线共用的机制绑在
 # 其中一条上。
 # lib.script_review 不在列：它另有一条 lib.reference_video.duration_migration 的依赖（参考
@@ -142,13 +168,52 @@ source_modules = [
 ]
 forbidden_modules = ["lib.reference_video"]
 
+[tool.deptry]
+# 扫描范围与 basedpyright 的 include 对齐：核心库、服务端、迁移基础设施、脚本与测试。
+# exclude 是 deptry 默认值去掉 tests（测试的 import 也要参与依赖卫生判定）再补上 worktree 目录。
+exclude = ["venv", "\\.venv", "\\.direnv", "\\.git", "setup\\.py", "\\.worktrees", "\\.claude/worktrees"]
+known_first_party = ["lib", "server", "alembic", "scripts", "tests"]
+
+[tool.deptry.per_rule_ignores]
+# DEP002（声明了但无 import）——全部是靠 entry point / 后端注册被运行时加载的插件，
+# 源码里不会出现 import。
+DEP002 = [
+    "aiosqlite",        # SQLAlchemy 的 sqlite+aiosqlite 异步驱动
+    "asyncpg",          # SQLAlchemy 的 postgresql+asyncpg 异步驱动
+    "python-multipart", # Starlette 解析 multipart/form-data 的后端
+    "socksio",          # httpx 的 SOCKS 代理传输后端
+    "lxml",             # BeautifulSoup 的 lxml / lxml-xml 解析器后端
+]
+# DEP004（import 了 dev 依赖）——tests/ 与 scripts/ 在扫描范围内，deptry 无法按目录区分
+# dev 与生产文件，故逐项列出它们正当 import 的测试框架包；其余 dev 依赖仍受本规则守护。
+DEP004 = [
+    "pytest",         # 测试框架
+    "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）
+    "respx",          # httpx 的测试替身
+]
+
 [tool.ruff]
 line-length = 120
 exclude = [".worktrees", ".claude/worktrees"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = ["E402", "E501"]
+select = ["E", "F", "I", "UP", "B", "C4", "PIE", "PT", "RET", "PERF", "RUF", "SIM", "ASYNC"]
+# RUF001-003：中文注释与文案里的全角标点被判为「易混淆 unicode」，对中文仓库是纯噪音。
+ignore = ["E402", "E501", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 依赖注入以「参数默认值处调用」为惯用法，B008 对其属误报；登记后无需逐处 noqa。
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+    "fastapi.Security",
+]
 
 [tool.basedpyright]
 include = ["lib", "server", "alembic", "tests", "scripts"]
@@ -183,6 +248,12 @@ reportImportCycles = false
 reportUnnecessaryIsInstance = "warning"
 reportUnnecessaryComparison = "warning"
 reportUnnecessaryTypeIgnoreComment = "warning"
+reportUnusedImport = "warning"
+reportUnusedVariable = "warning"
+reportUnusedClass = "warning"
+reportUnusedFunction = "warning"
+reportUnreachable = "warning"
+reportDeprecated = "warning"
 
 reportGeneralTypeIssues = "error"
 reportOptionalSubscript = "error"
@@ -203,18 +274,21 @@ reportPrivateUsage = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
 reportUnknownVariableType = "none"
-reportArgumentType = "warning"
-reportAttributeAccessIssue = "warning"
-# 测试里 repo/manager 调用通常断言式访问，narrow 噪声大；mock 返回也常被 subscript
-reportOptionalSubscript = "warning"
-reportOptionalMemberAccess = "warning"
-reportOptionalIterable = "warning"
-reportOperatorIssue = "warning"
-reportOptionalCall = "warning"
+# 以下规则在测试域不做闸门：测试里 repo/manager 调用通常断言式访问，narrow 噪声大；
+# mock 返回也常被 subscript。闸门跑 `basedpyright --warnings` 后 warning 即阻断，
+# 故这批降级写成 none 才是「测试域不做闸门」这一既有决策的诚实表达。
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportOptionalSubscript = "none"
+reportOptionalMemberAccess = "none"
+reportOptionalIterable = "none"
+reportOperatorIssue = "none"
+reportOptionalCall = "none"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "alembic"
-reportMissingImports = "warning"
+# alembic 模板里的 `from alembic import context` 等运行期注入符号静态不可解析，此域不做闸门
+reportMissingImports = "none"
 
 # scripts/ 是一次性辅助脚本（迁移、生成 fixture、烟雾测试），
 # 不值得花大力气做类型，但 tests/scripts/ 会 import 它们，所以必须可解析
@@ -234,4 +308,5 @@ reportPossiblyUnboundVariable = "none"
 reportGeneralTypeIssues = "none"
 reportCallIssue = "none"
 reportIndexIssue = "none"
-reportMissingImports = "warning"
+# 脚本用 sys.path 注入后再 import，静态不可解析，此域不做闸门
+reportMissingImports = "none"

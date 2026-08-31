@@ -1,7 +1,7 @@
 """
 自定义供应商管理 API。
 
-提供自定义供应商 CRUD、模型管理、模型发现和连接测试端点。
+提供自定义供应商 CRUD、模型管理、模型发现和连通性检查端点。
 """
 
 from __future__ import annotations
@@ -9,9 +9,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, field_validator
@@ -19,11 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.api_errors import BadRequestError
 from lib.config.repository import mask_secret
-from lib.custom_provider import make_provider_id
+from lib.custom_provider import is_custom_endpoint, make_provider_id
+from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
-    audio_capability_pair_is_coherent,
     capability_type_name,
     capability_value_matches,
     filter_valid_overrides,
@@ -31,24 +31,27 @@ from lib.custom_provider.capabilities import (
     strip_incoherent_audio_overrides,
     system_video_capabilities,
 )
+from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
+    EndpointSpec,
     endpoint_spec_to_dict,
     endpoint_to_image_capabilities,
-    endpoint_to_media_type,
     get_endpoint_spec,
+    static_media_type,
 )
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
+from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
-from lib.video_backends.base import ReferenceAudioMode
+from lib.video_backends.base import ReferenceAudioMode, audio_capability_pair_is_coherent
 
 
 def _validate_endpoint(value: str) -> str:
-    """Endpoint 校验：值必须存在于 ENDPOINT_REGISTRY，避免硬编码 Literal 漂移。"""
-    if value not in ENDPOINT_REGISTRY:
+    """Pydantic 层校验内置键或合法的自定义端点键形状；存在性由写入事务异步确认。"""
+    if value not in ENDPOINT_REGISTRY and not is_custom_endpoint(value):
         raise ValueError(f"unknown endpoint: {value!r}")
     return value
 
@@ -93,7 +96,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/custom-providers", tags=["Custom Providers"])
 
-_CONNECTION_TEST_TIMEOUT = 15  # 秒
+_CONNECTIVITY_CHECK_TIMEOUT = 15  # 秒
 
 # 全局 DB settings 中可能引用自定义供应商的键（删除 provider / 删除 model 时清理悬空引用）
 _BACKEND_SETTING_KEYS = (
@@ -179,11 +182,10 @@ class ModelInput(BaseModel):
         非视频类 endpoint 保持 None。
         """
         from lib.custom_provider.duration_presets import infer_supported_durations
-        from lib.custom_provider.endpoints import endpoint_to_media_type
 
         d = self.model_dump()
         durations = self.supported_durations
-        is_video = endpoint_to_media_type(self.endpoint) == "video"
+        is_video = static_media_type(self.endpoint) == DECLARATIVE_MEDIA_TYPE
         # video endpoint：把 [] 当作缺省（下游/前端都不接受空列表），交给 preset 兜底
         if is_video and durations is not None and len(durations) == 0:
             durations = None
@@ -224,8 +226,8 @@ class FullUpdateProviderRequest(BaseModel):
     audio_max_workers: MaxWorkers
 
 
-class ProviderConnectionRequest(BaseModel):
-    # 连接测试故意接受任意字符串，由 _run_connection_test 软失败返回 200 + success=False。
+class ConnectivityCheckRequest(BaseModel):
+    # 连通性检查故意接受任意字符串，由 _run_connectivity_check 软失败返回 200 + success=False。
     discovery_format: str
     base_url: str
     api_key: str
@@ -270,7 +272,7 @@ class ProviderResponse(BaseModel):
     audio_max_workers: int | None = None
 
 
-class ConnectionTestResponse(BaseModel):
+class ConnectivityCheckResponse(BaseModel):
     success: bool
     message: str
     model_count: int = 0
@@ -296,7 +298,16 @@ class EndpointDescriptor(BaseModel):
     key: str
     media_type: str
     family: str
+    # 实现形态："python"（backend 代码）| "declarative"（声明式定义）。前端据此决定
+    # 「复制为我的 / 查看定义」是否可见——这两项只对声明式端点成立。
+    kind: str
+    # 端点来源：内置（随版发布，不可编辑删除）或用户自定义（落 custom_endpoint 表）。
+    # 前端据此分组，并只对 custom 开放编辑与删除。
+    source: Literal["builtin", "custom"] = "builtin"
     display_name_key: str
+    # 声明式端点的显示名（定义里的 meta.name，专有名词不翻译）；Python 内置为 None，
+    # 由前端按 display_name_key 取 i18n 文案。两者恰有其一，前端取名时先看本字段。
+    display_name: str | None = None
     request_method: str
     request_path_template: str
     image_capabilities: list[str] | None = None  # image 类填能力字符串列表，其他为 None
@@ -314,7 +325,9 @@ class EndpointCatalogResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] | None:
+def _system_capabilities_for(
+    endpoint: str, model_id: str, endpoint_spec: EndpointSpec | None = None
+) -> dict[str, object] | None:
     """读该 model 的系统判定能力；非 video endpoint 返回 None。
 
     判定失败（endpoint 已下线、注册表声明异常）时降级为 None 而非 500：列表端点要能把
@@ -325,9 +338,10 @@ def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] 
     以为它对自定义模型生效——那正是本口径要避免的分裂。
     """
     try:
-        if endpoint_to_media_type(endpoint) != "video":
+        media_type = endpoint_spec.media_type if endpoint_spec is not None else static_media_type(endpoint)
+        if media_type != "video":
             return None
-        caps = asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id))
+        caps = asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec))
         return {k: v for k, v in caps.items() if k not in _AUDIO_TRACK_FIELDS}
     except ValueError:
         logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
@@ -335,7 +349,10 @@ def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] 
 
 
 def _effective_overrides_for_response(
-    endpoint: str, model_id: str, overrides: object | None
+    endpoint: str,
+    model_id: str,
+    overrides: object | None,
+    endpoint_spec: EndpointSpec | None = None,
 ) -> dict[str, object] | None:
     """回显前按写入侧同一判定过滤，剔除执行层不会采用的键值，并收窄至开放白名单。
 
@@ -351,8 +368,20 @@ def _effective_overrides_for_response(
     （direct ⊕ 上限 0）过得了 :func:`filter_valid_overrides`，执行层却会把它降到 ``none``，
     回显原值同样落进本函数要消灭的"界面显示已生效、执行其实忽略"。
     """
-    filtered = _narrow_to_allowlist(filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides))
-    filtered = strip_incoherent_audio_overrides(filtered, endpoint=endpoint, model_id=model_id)
+    filtered = _narrow_to_allowlist(
+        filter_valid_overrides(
+            endpoint=endpoint,
+            model_id=model_id,
+            overrides=overrides,
+            endpoint_spec=endpoint_spec,
+        )
+    )
+    filtered = strip_incoherent_audio_overrides(
+        filtered,
+        endpoint=endpoint,
+        model_id=model_id,
+        endpoint_spec=endpoint_spec,
+    )
     return filtered or None
 
 
@@ -374,11 +403,40 @@ async def _global_bucket_refs_for_provider(session: AsyncSession, provider_id: i
     return _extract_global_bucket_refs(all_settings, provider_id)
 
 
-def _model_to_response(m, global_bucket_refs: list[str] | None = None) -> ModelResponse:
+async def _read_endpoint_specs(
+    session: AsyncSession,
+    models,
+    *,
+    on_unknown: Callable[[str], None] | None = None,
+) -> dict[str, EndpointSpec]:
+    """逐个不同的 endpoint 解析一次 spec，供整批模型共用。
+
+    ``on_unknown`` 决定解析不出来时的去向：回显侧只记日志、把该行按存量脏配置降级渲染；
+    写入侧传入抛 422 的回调，不让一行引用不存在的端点入库。
+    """
+    repo = CustomEndpointRepository(session)
+    specs: dict[str, EndpointSpec] = {}
+    for endpoint in {model.endpoint for model in models}:
+        try:
+            specs[endpoint] = await resolve_endpoint_spec(endpoint, repo.get)
+        except ValueError:
+            if on_unknown is not None:
+                on_unknown(endpoint)
+            logger.warning("无法解析模型 endpoint，按存量脏配置回显: endpoint=%r", endpoint)
+    return specs
+
+
+def _model_to_response(
+    m,
+    global_bucket_refs: list[str] | None = None,
+    endpoint_spec: EndpointSpec | None = None,
+) -> ModelResponse:
     durations = json.loads(m.supported_durations) if m.supported_durations else None
     return ModelResponse(
-        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id),
-        capability_overrides=_effective_overrides_for_response(m.endpoint, m.model_id, m.capability_overrides),
+        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id, endpoint_spec),
+        capability_overrides=_effective_overrides_for_response(
+            m.endpoint, m.model_id, m.capability_overrides, endpoint_spec
+        ),
         id=m.id,
         model_id=m.model_id,
         display_name=m.display_name,
@@ -395,7 +453,12 @@ def _model_to_response(m, global_bucket_refs: list[str] | None = None) -> ModelR
     )
 
 
-def _provider_to_response(provider, models, global_bucket_refs: dict[str, list[str]] | None = None) -> ProviderResponse:
+def _provider_to_response(
+    provider,
+    models,
+    global_bucket_refs: dict[str, list[str]] | None = None,
+    endpoint_specs: Mapping[str, EndpointSpec] | None = None,
+) -> ProviderResponse:
     refs = global_bucket_refs or {}
     return ProviderResponse(
         id=provider.id,
@@ -403,7 +466,14 @@ def _provider_to_response(provider, models, global_bucket_refs: dict[str, list[s
         discovery_format=provider.discovery_format,
         base_url=provider.base_url,
         api_key_masked=mask_secret(provider.api_key),
-        models=[_model_to_response(m, refs.get(m.model_id)) for m in models],
+        models=[
+            _model_to_response(
+                m,
+                refs.get(m.model_id),
+                None if endpoint_specs is None else endpoint_specs.get(m.endpoint),
+            )
+            for m in models
+        ],
         created_at=dt_to_iso(provider.created_at),
         image_max_workers=provider.image_max_workers,
         video_max_workers=provider.video_max_workers,
@@ -451,6 +521,7 @@ def _check_capability_overrides(
     endpoint: str,
     model_id: str,
     _t: Callable[..., str],
+    spec: EndpointSpec | None = None,
 ) -> None:
     """写入侧校验：合成函数对脏值只降级不抛，合法性把关全在这里。
 
@@ -459,7 +530,8 @@ def _check_capability_overrides(
     """
     if not overrides:
         return
-    if endpoint_to_media_type(endpoint) != "video":
+    resolved_spec = spec or get_endpoint_spec(endpoint)
+    if resolved_spec.media_type != "video":
         raise HTTPException(
             status_code=422,
             detail=_t("capability_overrides_video_only", model_id=model_id, endpoint=endpoint),
@@ -480,7 +552,7 @@ def _check_capability_overrides(
             )
         # last_frame 覆盖为 True 时，endpoint 的 delegate.generate() 必须真的会读取
         # end_image 下传尾帧约束——否则覆盖只是让合成层宣称支持，执行层仍静默生成无约束视频。
-        if key == "last_frame" and value is True and not get_endpoint_spec(endpoint).end_image_capable:
+        if key == "last_frame" and value is True and not resolved_spec.end_image_capable:
             raise HTTPException(
                 status_code=422,
                 detail=_t(
@@ -493,7 +565,7 @@ def _check_capability_overrides(
         if (
             key == "reference_audio_mode"
             and value == ReferenceAudioMode.DIRECT.value
-            and not get_endpoint_spec(endpoint).reference_audio_capable
+            and not resolved_spec.reference_audio_capable
         ):
             raise HTTPException(
                 status_code=422,
@@ -508,7 +580,7 @@ def _check_capability_overrides(
     # 而不是留给执行期静默降级——降级后用户会拿到「最多支持 0 段」这种无从遵循的提示。
     # 稀疏覆盖只写其中一维也能凑出该组合，故按系统判定补齐未覆盖的那一维再判。
     if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
-        mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id)
+        mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id, endpoint_spec=resolved_spec)
         if not audio_capability_pair_is_coherent(mode=mode, count=count):
             raise HTTPException(
                 status_code=422,
@@ -516,7 +588,11 @@ def _check_capability_overrides(
             )
 
 
-def _check_model_capability_overrides(models: list[ModelInput], _t: Callable[..., str]) -> None:
+def _check_model_capability_overrides(
+    models: list[ModelInput],
+    _t: Callable[..., str],
+    specs: Mapping[str, EndpointSpec] | None = None,
+) -> None:
     """对整批模型逐个跑覆盖校验（保存模型列表的写入路径，设置页表单的覆盖编辑也走这里）。
 
     每行都按提交上来的 ``(endpoint, 覆盖值)`` 校验：覆盖是否合法随 endpoint 变化
@@ -525,7 +601,26 @@ def _check_model_capability_overrides(models: list[ModelInput], _t: Callable[...
     键不会走到这里——``ModelInput`` 已在解析期把它们剔除。
     """
     for m in models:
-        _check_capability_overrides(m.capability_overrides, m.endpoint, m.model_id, _t)
+        _check_capability_overrides(
+            m.capability_overrides,
+            m.endpoint,
+            m.model_id,
+            _t,
+            None if specs is None else specs[m.endpoint],
+        )
+
+
+async def _resolve_model_endpoint_specs(
+    session: AsyncSession,
+    models: list[ModelInput],
+    _t: Callable[..., str],
+) -> dict[str, EndpointSpec]:
+    """写入侧解析：任一模型行引用的端点不存在即 422，不落库。"""
+
+    def reject(endpoint: str) -> None:
+        raise HTTPException(status_code=422, detail=_t("unknown_endpoint", endpoint=endpoint))
+
+    return await _read_endpoint_specs(session, models, on_unknown=reject)
 
 
 def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> None:
@@ -540,7 +635,7 @@ def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> 
         if not m.is_default:
             continue
         try:
-            mt = endpoint_to_media_type(m.endpoint)
+            mt = static_media_type(m.endpoint)
         except ValueError:
             continue  # endpoint 已在 ModelInput validator 校验，此处跳过未知值
         if mt != "image":
@@ -552,10 +647,7 @@ def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> 
             continue
         image_defaults.append((m.model_id, caps))
 
-    duplicates: dict[str, list[str]] = {}
-    for mt, ids in text_video_defaults.items():
-        if len(ids) > 1:
-            duplicates[mt] = ids
+    duplicates: dict[str, list[str]] = {mt: ids for mt, ids in text_video_defaults.items() if len(ids) > 1}
 
     # image：按 capability 反向索引，任一槽位有 >1 个默认即视为冲突（O(n) 替代 O(n²) 两两 caps 求交）
     cap_to_ids: dict[ImageCapability, list[str]] = {}
@@ -599,20 +691,53 @@ async def list_providers(
     from lib.config.service import ConfigService
 
     all_settings = await ConfigService(session).get_all_settings()
+    endpoint_specs = await _read_endpoint_specs(session, [model for _, models in pairs for model in models])
     return {
         "providers": [
-            _provider_to_response(p, models, _extract_global_bucket_refs(all_settings, p.id)) for p, models in pairs
+            _provider_to_response(
+                p,
+                models,
+                _extract_global_bucket_refs(all_settings, p.id),
+                endpoint_specs,
+            )
+            for p, models in pairs
         ]
     }
 
 
 # /endpoints 必须先于 /{provider_id} 注册，否则 FastAPI 会把字符串 "endpoints" 当作 provider_id。
 @router.get("/endpoints", response_model=EndpointCatalogResponse)
-async def list_endpoint_catalog() -> EndpointCatalogResponse:
-    """暴露 ENDPOINT_REGISTRY 作为前端单一真相源：渲染下拉、显示路径与分组都派生自此返回值。"""
+async def list_endpoint_catalog(
+    session: AsyncSession = Depends(get_async_session),
+) -> EndpointCatalogResponse:
+    """暴露两个命名空间的 endpoint 作为前端单一真相源：渲染下拉、显示路径与分组都派生自此返回值。
+
+    内置取自 ENDPOINT_REGISTRY，自定义由 custom_endpoint 表的定义现构造——不做启动时全量装载，
+    定义原地改完、目录下次拉取即是新的。单行定义构造不出 spec（只可能来自手工改库）时跳过并
+    告警，而不是让整份目录失败：一条坏定义不该把端点下拉整个打空。
+    """
+    specs = list(ENDPOINT_REGISTRY.values())
+    for row in await CustomEndpointRepository(session).list_all():
+        try:
+            specs.append(endpoint_spec_from_row(row))
+        except (KeyError, TypeError, ValueError):
+            logger.warning("自定义调用端点定义无法构造 spec，已跳过: id=%s", row.id, exc_info=True)
     return EndpointCatalogResponse(
-        endpoints=[EndpointDescriptor(**endpoint_spec_to_dict(spec)) for spec in ENDPOINT_REGISTRY.values()],
+        endpoints=[EndpointDescriptor(**endpoint_spec_to_dict(spec)) for spec in specs],
     )
+
+
+@router.get("/endpoints/{endpoint_key}/definition")
+async def get_endpoint_definition(endpoint_key: str, _t: Translator) -> dict[str, Any]:
+    """取内置声明式端点的定义 JSON，供「复制为我的」原样 POST 成 ce-<id> 副本。
+
+    Python 实现的内置端点没有定义可取，与未知键一并回 404。返回体是定义原样（零封套），
+    与导入导出的文件格式同一份东西。
+    """
+    spec = ENDPOINT_REGISTRY.get(endpoint_key)
+    if spec is None or spec.definition is None:
+        raise HTTPException(status_code=404, detail=_t("endpoint_definition_not_found", endpoint=endpoint_key))
+    return dict(spec.definition)
 
 
 @router.post("", status_code=201)
@@ -626,7 +751,8 @@ async def create_provider(
     if body.models:
         _check_duplicate_model_ids(body.models, _t)
         _check_unique_defaults(body.models, _t)
-        _check_model_capability_overrides(body.models, _t)
+        specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+        _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     model_dicts = [m.to_db_dict() for m in body.models] if body.models else None
     provider = await repo.create_provider(
@@ -643,7 +769,12 @@ async def create_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider.id)
-    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider.id))
+    return _provider_to_response(
+        provider,
+        models,
+        await _global_bucket_refs_for_provider(session, provider.id),
+        await _read_endpoint_specs(session, models),
+    )
 
 
 @router.get("/{provider_id}")
@@ -658,7 +789,12 @@ async def get_provider(
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
+    return _provider_to_response(
+        provider,
+        models,
+        await _global_bucket_refs_for_provider(session, provider_id),
+        await _read_endpoint_specs(session, models),
+    )
 
 
 @router.get("/{provider_id}/credentials", response_model=CredentialsResponse)
@@ -711,7 +847,12 @@ async def update_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
+    return _provider_to_response(
+        provider,
+        models,
+        await _global_bucket_refs_for_provider(session, provider_id),
+        await _read_endpoint_specs(session, models),
+    )
 
 
 @router.put("/{provider_id}")
@@ -725,7 +866,8 @@ async def full_update_provider(
     """原子更新供应商元数据 + 模型列表（单一事务）。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
-    _check_model_capability_overrides(body.models, _t)
+    specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+    _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     kwargs: dict = {
         "display_name": body.display_name,
@@ -746,7 +888,12 @@ async def full_update_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
+    return _provider_to_response(
+        provider,
+        models,
+        await _global_bucket_refs_for_provider(session, provider_id),
+        await _read_endpoint_specs(session, models),
+    )
 
 
 @router.delete("/{provider_id}", status_code=204)
@@ -793,7 +940,8 @@ async def replace_models(
     """替换供应商的整个模型列表。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
-    _check_model_capability_overrides(body.models, _t)
+    specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+    _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
@@ -822,7 +970,8 @@ async def replace_models(
     await session.commit()
     await _invalidate_caches(request)
     refs = await _global_bucket_refs_for_provider(session, provider_id)
-    return [_model_to_response(m, refs.get(m.model_id)) for m in new_models]
+    endpoint_specs = await _read_endpoint_specs(session, new_models)
+    return [_model_to_response(m, refs.get(m.model_id), endpoint_specs.get(m.endpoint)) for m in new_models]
 
 
 # ---------------------------------------------------------------------------
@@ -832,7 +981,7 @@ async def replace_models(
 
 @router.post("/discover")
 async def discover_models_endpoint(
-    body: ProviderConnectionRequest,
+    body: ConnectivityCheckRequest,
     _t: Translator,
 ):
     """模型发现：根据 discovery_format + base_url + api_key 查询可用模型。"""
@@ -883,32 +1032,40 @@ async def discover_models_by_id(
 
 
 @router.post("/test")
-async def test_connection(
-    body: ProviderConnectionRequest,
+async def check_connectivity(
+    body: ConnectivityCheckRequest,
     _t: Translator,
 ):
-    """连接测试：验证 discovery_format + base_url + api_key 的连通性。"""
-    return await _run_connection_test(body.discovery_format, body.base_url, body.api_key, _t)
+    """连通性检查：验证 discovery_format + base_url + api_key 是否可达。免费探针，不证明任何模型可生成。"""
+    return await _run_connectivity_check(body.discovery_format, body.base_url, body.api_key, _t)
 
 
 @router.post("/{provider_id}/test")
-async def test_connection_by_id(provider_id: int, _t: Translator, session: AsyncSession = Depends(get_async_session)):
-    """使用已存储凭证测试指定供应商的连通性。"""
+async def check_connectivity_by_id(
+    provider_id: int, _t: Translator, session: AsyncSession = Depends(get_async_session)
+):
+    """用已存储凭证对指定供应商做连通性检查。"""
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    return await _run_connection_test(provider.discovery_format, provider.base_url, provider.api_key, _t)
+    return await _run_connectivity_check(provider.discovery_format, provider.base_url, provider.api_key, _t)
 
 
 async def _run_discover(
-    discovery_format: str, base_url: str | None, api_key: str, _t: Callable[..., str]
+    discovery_format: str,
+    base_url: str | None,
+    api_key: str,
+    _t: Callable[..., str],
+    *,
+    discover_models_fn: Callable[..., Awaitable[list[dict]]] | None = None,
 ) -> DiscoverResponse:
     """共用的模型发现逻辑（明文凭证 / 已存储凭证两条入口共用）。"""
     from lib.custom_provider.discovery import UnsupportedDiscoveryFormatError, discover_models
 
     try:
-        models = await discover_models(
+        discover = discover_models_fn or discover_models
+        models = await discover(
             discovery_format=discovery_format,
             base_url=base_url or None,
             api_key=api_key,
@@ -921,63 +1078,81 @@ async def _run_discover(
         if len(err_msg) > 200:
             err_msg = err_msg[:200] + "..."
         logger.warning("模型发现失败: %s", err_msg)
-        raise HTTPException(status_code=502, detail=_t("discovery_failed", err_msg=err_msg))
+        raise HTTPException(status_code=502, detail=_t("discovery_failed", err_msg=err_msg)) from exc
 
 
-async def _run_connection_test(
-    discovery_format: str, base_url: str, api_key: str, _t: Callable[..., str]
-) -> ConnectionTestResponse:
-    """共用的连接测试逻辑。"""
+async def _run_connectivity_check(
+    discovery_format: str,
+    base_url: str,
+    api_key: str,
+    _t: Callable[..., str],
+    *,
+    openai_probe: Callable[[str, str, Callable[..., str]], ConnectivityCheckResponse] | None = None,
+    google_probe: Callable[[str, str, Callable[..., str]], ConnectivityCheckResponse] | None = None,
+) -> ConnectivityCheckResponse:
+    """共用的连通性检查逻辑：明文凭证与已存储凭证两条入口共用。"""
     try:
         if discovery_format == "openai":
             result = await asyncio.wait_for(
-                asyncio.to_thread(_test_openai, base_url, api_key, _t),
-                timeout=_CONNECTION_TEST_TIMEOUT,
+                asyncio.to_thread(openai_probe or _check_openai, base_url, api_key, _t),
+                timeout=_CONNECTIVITY_CHECK_TIMEOUT,
             )
         elif discovery_format == "google":
             result = await asyncio.wait_for(
-                asyncio.to_thread(_test_google, base_url, api_key, _t),
-                timeout=_CONNECTION_TEST_TIMEOUT,
+                asyncio.to_thread(google_probe or _check_google, base_url, api_key, _t),
+                timeout=_CONNECTIVITY_CHECK_TIMEOUT,
             )
         else:
-            return ConnectionTestResponse(
+            return ConnectivityCheckResponse(
                 success=False,
-                message=_t("unsupported_discovery_format", discovery_format=discovery_format),
+                message=_t("connectivity_check_unsupported_format", discovery_format=discovery_format),
             )
         return result
     except TimeoutError:
-        return ConnectionTestResponse(
+        return ConnectivityCheckResponse(
             success=False,
-            message=_t("connection_timeout"),
+            message=_t("connectivity_check_timeout"),
         )
     except Exception as exc:
         err_msg = str(exc)
         if len(err_msg) > 200:
             err_msg = err_msg[:200] + "..."
-        logger.warning("连接测试失败 [%s]: %s", discovery_format, err_msg)
-        return ConnectionTestResponse(
+        logger.warning("连通性检查失败 [%s]: %s", discovery_format, err_msg)
+        return ConnectivityCheckResponse(
             success=False,
-            message=_t("connection_failed", err_msg=err_msg),
+            message=_t("connectivity_check_failed", err_msg=err_msg),
         )
 
 
-def _test_openai(base_url: str, api_key: str, _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_openai(
+    base_url: str,
+    api_key: str,
+    _t: Callable[..., str],
+    *,
+    client_factory: Callable[..., Any] | None = None,
+) -> ConnectivityCheckResponse:
     """通过 models.list() 验证 OpenAI 兼容 API。"""
     from openai import OpenAI
 
     from lib.config.url_utils import ensure_openai_base_url
 
-    client = OpenAI(api_key=api_key, base_url=ensure_openai_base_url(base_url))
+    client = (client_factory or OpenAI)(api_key=api_key, base_url=ensure_openai_base_url(base_url))
     models = client.models.list()
     count = sum(1 for _ in models)
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
         model_count=count,
     )
 
 
-def _test_google(base_url: str, api_key: str, _t: Callable[..., str]) -> ConnectionTestResponse:
+def _check_google(
+    base_url: str,
+    api_key: str,
+    _t: Callable[..., str],
+    *,
+    client_factory: Callable[..., Any] | None = None,
+) -> ConnectivityCheckResponse:
     """通过 models.list() 验证 Google genai API。"""
     from google import genai
 
@@ -985,11 +1160,11 @@ def _test_google(base_url: str, api_key: str, _t: Callable[..., str]) -> Connect
 
     effective_url = ensure_google_base_url(base_url)
     http_options = {"base_url": effective_url} if effective_url else None
-    client = genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
+    client = (client_factory or genai.Client)(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
     pager = client.models.list()
     count = sum(1 for _ in pager)
-    return ConnectionTestResponse(
+    return ConnectivityCheckResponse(
         success=True,
-        message=_t("connection_success"),
+        message=_t("connectivity_check_ok"),
         model_count=count,
     )

@@ -47,8 +47,8 @@ def _validate_asset_name(name: str, _t: Translator) -> str:
     """HTTP 边界包装：路径不安全的名字（分隔符 / 空字节 / ..）返回 400。"""
     try:
         return validate_asset_name(name)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name)) from exc
 
 
 def _serialize(asset) -> dict:
@@ -148,12 +148,12 @@ async def create_asset(
                 )
                 await s.commit()
                 await s.refresh(a)
-            except IntegrityError:
+            except IntegrityError as exc:
                 await s.rollback()
                 if image_path:
                     _delete_global_asset_file(image_path)
                     image_path = None
-                raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=name))
+                raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=name)) from exc
     except HTTPException:
         raise
     except Exception:
@@ -185,16 +185,15 @@ async def update_asset(
         a = await repo.get_by_id(asset_id)
         if not a:
             raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
-        if "name" in patch and patch["name"] != a.name:
-            if await repo.exists(a.type, patch["name"]):
-                raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=patch["name"]))
+        if "name" in patch and patch["name"] != a.name and await repo.exists(a.type, patch["name"]):
+            raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=patch["name"]))
         try:
             a = await repo.update(asset_id, **patch)
             await s.commit()
             await s.refresh(a)
-        except IntegrityError:
+        except IntegrityError as exc:
             await s.rollback()
-            raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=patch.get("name", "")))
+            raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=patch.get("name", ""))) from exc
     return {"asset": _serialize(a)}
 
 
@@ -210,7 +209,7 @@ async def delete_asset(asset_id: str, _t: Translator):
                 _delete_global_asset_file(a.audio_path)
             await repo.delete(asset_id)
             await s.commit()
-    return None
+    return
 
 
 @router.post("/{asset_id}/image")
@@ -271,9 +270,9 @@ async def from_project(
         project = get_project_manager().load_project(req.project_name)
     except FileNotFoundError as exc:
         raise NotFoundError("asset_target_project_not_found", project=req.project_name) from exc
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to load project '%s' for from-project", req.project_name)
-        raise HTTPException(status_code=500, detail=_t("asset_load_project_failed"))
+        raise HTTPException(status_code=500, detail=_t("asset_load_project_failed")) from exc
 
     # 3) 从对应 bucket 中读取资源
     bucket_key = BUCKET_KEY[req.resource_type]
@@ -326,7 +325,7 @@ async def from_project(
             if (
                 candidate.exists()
                 and candidate.is_file()
-                and os.path.realpath(candidate.parent) == os.path.realpath(audio_refs_dir)
+                and os.path.realpath(candidate.parent) == os.path.realpath(audio_refs_dir)  # noqa: ASYNC240 -- 仅路径解析（realpath）做越界校验，不读文件内容
             ):
                 source_audio_path = candidate
         except (ValueError, FileNotFoundError):
@@ -350,6 +349,8 @@ async def from_project(
     # 两次拷贝共用一个失败边界：任一失败都清理已落盘的另一个文件，不留孤儿。
     new_image_path: str | None = None
     new_audio_path: str | None = None
+    # 已落盘的拷贝按发生顺序登记，失败路径统一按这张清单回删，不重复逐个变量判空。
+    copied_paths: list[str] = []
     try:
         if source_sheet_path is not None:
             ext = source_sheet_path.suffix.lower() or ".png"
@@ -358,6 +359,7 @@ async def from_project(
             target = root / f"{uid}{ext}"
             await asyncio.to_thread(shutil.copyfile, source_sheet_path, target)
             new_image_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+            copied_paths.append(new_image_path)
 
         if source_audio_path is not None:
             ext = source_audio_path.suffix.lower() or ".wav"
@@ -366,11 +368,10 @@ async def from_project(
             target = root / f"{uid}{ext}"
             await asyncio.to_thread(shutil.copyfile, source_audio_path, target)
             new_audio_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+            copied_paths.append(new_audio_path)
     except Exception:
-        if new_image_path:
-            _delete_global_asset_file(new_image_path)
-        if new_audio_path:
-            _delete_global_asset_file(new_audio_path)
+        for copied in copied_paths:
+            _delete_global_asset_file(copied)
         raise
 
     # 6) 写 DB：失败路径清理拷贝文件
@@ -412,23 +413,19 @@ async def from_project(
                     )
                     await s.commit()
                     await s.refresh(a)
-                except IntegrityError:
+                except IntegrityError as exc:
                     await s.rollback()
-                    if new_image_path:
-                        _delete_global_asset_file(new_image_path)
-                    if new_audio_path:
-                        _delete_global_asset_file(new_audio_path)
+                    for copied in copied_paths:
+                        _delete_global_asset_file(copied)
                     raise HTTPException(
                         status_code=409,
                         detail=_t("asset_already_exists", name=asset_name),
-                    )
+                    ) from exc
     except HTTPException:
         raise
     except Exception:
-        if new_image_path:
-            _delete_global_asset_file(new_image_path)
-        if new_audio_path:
-            _delete_global_asset_file(new_audio_path)
+        for copied in copied_paths:
+            _delete_global_asset_file(copied)
         raise
 
     return {"asset": _serialize(a)}
@@ -467,9 +464,7 @@ async def apply_to_project(
     async with async_session_factory() as s:
         assets = await AssetRepository(s).get_by_ids(asset_ids)
     assets_by_id = {a.id: a for a in assets}
-    for asset_id in asset_ids:
-        if asset_id not in assets_by_id:
-            failed.append({"id": asset_id, "reason": "not_found"})
+    failed.extend({"id": asset_id, "reason": "not_found"} for asset_id in asset_ids if asset_id not in assets_by_id)
 
     # 4) 先在内存里算好每条 asset 的目标名 + 是否需要拷贝文件，
     #    再一次性执行文件拷贝和 project.json 写回
@@ -667,7 +662,6 @@ async def apply_to_project(
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
 
-    for plan in plans:
-        succeeded.append({"id": plan["asset"].id, "name": plan["desired_name"]})
+    succeeded.extend({"id": plan["asset"].id, "name": plan["desired_name"]} for plan in plans)
 
     return {"succeeded": succeeded, "skipped": skipped, "failed": failed}

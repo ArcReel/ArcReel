@@ -18,8 +18,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from lib.draft_quarantine import PROMOTE_TOOL_NAME, STEP1_EDIT_TOOL_NAME
-from lib.episode_paths import AGENT_PROTECTED_STEP1_FILENAMES
+from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
+from lib.episode_paths import (
+    AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES,
+    DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +44,7 @@ class ProtectedWriteRule:
     见 ``_build_protected_write_abs_paths``）都从这张表投影，新增一类受保护路径只需加一行，
     两层同步生效——分散声明时漏掉任一处都会留出单层旁路（ADR 0026 的双层前提被破坏）。
 
-    两层的覆盖面允许刻意不对称（如 hook 只拒 ``drafts/`` 下的正式 step1、sandbox 整目录拒），
+    两层的覆盖面允许刻意不对称（如 hook 只拒 ``drafts/`` 下的正式 script_plan、sandbox 整目录拒），
     故谓词与投影是两列独立声明，不从彼此推导。
     """
 
@@ -94,26 +100,6 @@ class AgentAccessPolicy:
     # 协同放行）；sandbox 关闭（Windows 回退）时剥离，命令落到 can_use_tool
     # 走前缀白名单（见 ``filter_allowed_tools`` / ``is_bash_command_whitelisted``）。
     BASH_TOOLS: ClassVar[tuple[str, ...]] = ("Bash", "BashOutput", "KillBash")
-
-    # 沙箱网络默认允许的域名。所有供应商 HTTP 调用均由 in-process MCP tool
-    # （server/agent_runtime/sdk_tools/，主进程不经 sandbox）执行；sandbox 内
-    # 只保留 Anthropic SDK 自身与通用 dev 域名（docs / 包仓库等），自定义供应商
-    # 无需手动加入 ALLOWED_DOMAINS。
-    _DEFAULT_SANDBOX_ALLOWED_DOMAINS: ClassVar[tuple[str, ...]] = (
-        # Anthropic
-        "anthropic.com",
-        "*.anthropic.com",
-        # dev: docs / 包仓库 / acceptance 用例
-        "code.claude.com",
-        "github.com",
-        "*.github.com",
-        "*.githubusercontent.com",
-        "pypi.org",
-        "*.pypi.org",
-        "*.npmjs.org",
-        "registry.yarnpkg.com",
-        "example.com",
-    )
 
     # python skills 入口前缀。约定形态 ``python .claude/skills/<skill>/scripts/
     # <script>.py <args>``：脚本路径须落在某 skill 的 scripts/ 下（_SKILL_SCRIPT_RE
@@ -294,6 +280,11 @@ class AgentAccessPolicy:
           split 写 ``source/``，均不碰），故不误伤。
         - ``allowUnsandboxedCommands=False``：禁止 Agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
+        - ``network``：``allowedDomains`` 是「预放行清单」而非「限制清单」——不写该键等于零
+          预放行，无人值守会话里新域名的放行请求被直接拒，出站全断。``allowLocalBinding``
+          单独控制 loopback：``allowedDomains`` 无论写 ``*`` 还是写 ``127.0.0.1`` 都放不通
+          loopback。当前取值为全域放行加 loopback 放通（ADR 0069），整台宿主的 loopback
+          服务对 sandbox 内 Bash 可达。
         """
         if not self.sandbox_enabled:
             return {"enabled": False}
@@ -301,7 +292,7 @@ class AgentAccessPolicy:
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
             "allowUnsandboxedCommands": False,
-            "network": {"allowedDomains": list(self._DEFAULT_SANDBOX_ALLOWED_DOMAINS)},
+            "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
             "enableWeakerNestedSandbox": bool(self.in_docker),
             "filesystem": {
                 "denyRead": self._build_sensitive_abs_paths(),
@@ -566,7 +557,7 @@ class AgentAccessPolicy:
 
     def _check_write_access(self, resolved: Path, project_cwd: Path, *, logical_norm: Path) -> tuple[bool, str | None]:
         """Write/Edit 的写入约束：cwd 外一律拒，cwd 内先过 ``PROTECTED_WRITE_RULES`` 规则表
-        （``scripts/*.json`` / ``project.json`` / 正式 step1——只能走收归后的 MCP
+        （``scripts/*.json`` / ``project.json`` / 正式 script_plan——只能走收归后的 MCP
         工具），再拒代码扩展名（Agent 不写代码）。
 
         所有 cwd-relative 判定（cwd 内外、protected 区命中）都按 **base 同时枚举 raw + resolved**
@@ -677,26 +668,27 @@ class AgentAccessPolicy:
                 return True
         return False
 
-    #: 写禁 step1 文件名的归一化形态（与路径比对同一把尺）。类体内不能调 classmethod，
+    #: 写禁 script_plan 文件名的归一化形态（与路径比对同一把尺）。类体内不能调 classmethod，
     #: 故占位声明在此、实际值在 ``PROTECTED_WRITE_RULES`` 之后一并赋。
-    _PROTECTED_STEP1_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
+    _PROTECTED_SCRIPT_PLAN_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
+    _PROTECTED_QUARANTINE_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
 
     @classmethod
-    def _is_protected_formal_step1(cls, target: Path, bases: list[Path]) -> bool:
-        """命中受写禁的正式 step1（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_STEP1_FILENAMES``）。
+    def _is_protected_formal_script_plan(cls, target: Path, bases: list[Path]) -> bool:
+        """命中受写禁的正式 script_plan（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES``）。
 
         与 ``scripts/*.json`` / ``project.json`` 同一条理由收进写禁：这些文件各有多条写入路径
         （迁移读改写、Web 端保存、重生成 / 晋升写盘、Agent 修改），除 Agent 外都持
         ``ProjectManager.file_lock`` 的同一把 per-path 锁；Agent 的 Write/Edit 跑在沙箱里、
         取不到这把锁，直改与并发的 Web 端保存之间就是一个丢失更新窗口。改走
-        ``open_step1_for_edit`` → 改草稿 → 晋升，写盘只发生在持锁的晋升侧。
+        ``open_draft`` → ``patch_draft`` → 晋升，写盘只发生在持锁的晋升侧。
 
         按文件名匹配、不按项目变体解析：写禁在会话装配前就要成立，而项目的 content_mode /
-        generation_mode 运行时可变。多认一两个本项目用不到的 step1 文件名无害——那些文件在
+        generation_mode 运行时可变。多认一两个本项目用不到的 script_plan 文件名无害——那些文件在
         该项目里本就没有合法写入者。
 
-        只拦正式文件，不拦同目录的 ``.invalid.json`` 草稿：草稿本就是给 Agent 用文件工具
-        改的编辑工位，且没有第二条写入路径（Web 端草稿保存只写正式文件名），无并发可言。
+        正式文件与 ``.invalid.json`` 草稿均拦截：草稿修改必须走 revisioned MCP 工具，才能与
+        Web/remote patch、promotion 和 generation 共用 per-path 锁与 OCC，避免直写绕过并发控制。
 
         ``bases`` 与 target 的 raw/resolved 双形式口径同 ``_is_protected_project_json``。
         集号不枚举、按 ``episode_*`` 目录名匹配：同上，集是运行时增删的。
@@ -707,7 +699,11 @@ class AgentAccessPolicy:
             if not target_s.startswith(drafts_dir + os.sep):
                 continue
             parts = target_s[len(drafts_dir) + 1 :].split(os.sep)
-            if len(parts) == 2 and parts[0].startswith("episode_") and parts[1] in cls._PROTECTED_STEP1_FILENAMES_NORM:
+            if (
+                len(parts) == 2
+                and parts[0].startswith("episode_")
+                and parts[1] in cls._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM | cls._PROTECTED_QUARANTINE_FILENAMES_NORM
+            ):
                 return True
         return False
 
@@ -718,40 +714,49 @@ class AgentAccessPolicy:
 #:
 #: - ``project_json``：「写入口收归」——``scripts/*.json`` 与 ``project.json`` 只能走 MCP
 #:   工具；两层投影同覆盖面（``scripts/`` 整子树 + ``project.json``）。
-#: - ``formal_step1``：「写入口持锁」——正式 step1 另有多条持同一把 per-path 锁的写入
+#: - ``formal_script_plan``：「写入口持锁」——正式 script_plan 另有多条持同一把 per-path 锁的写入
 #:   路径，Write/Edit 取不到锁，直改即丢失更新窗口。两层刻意不对称：sandbox 按 ``drafts/``
 #:   整目录 deny（清单在会话装配期一次性构造，集是运行时增删的，逐文件枚举必然落空；Bash
-#:   本就没有合法写入者），hook 只拒正式 step1——同目录的 ``.invalid.json`` 草稿正是
-#:   留给内置 Edit 的编辑工位，不能拒。
+#:   本就没有合法写入者），hook 拒正式 script_plan 与四类 revisioned quarantine 草稿。
 AgentAccessPolicy.PROTECTED_WRITE_RULES = (
     ProtectedWriteRule(
         name="project_json",
         matches=AgentAccessPolicy._is_protected_project_json,
         deny_message=(
             "访问被拒绝：scripts/*.json 与 project.json 不可用 Write/Edit 直改，"
-            "请改用 MCP 工具——剧本编辑走 mcp__arcreel__patch_episode_script / "
-            "mcp__arcreel__insert_segment / mcp__arcreel__remove_segment / mcp__arcreel__split_segment，"
+            "请改用 MCP 工具——剧本编辑走 mcp__arcreel__patch_episode_script，"
             "角色/场景/道具走 mcp__arcreel__patch_project，资产改名走 mcp__arcreel__rename_asset。"
         ),
         sandbox_subpaths=("scripts", "project.json"),
     ),
     ProtectedWriteRule(
-        name="formal_step1",
-        matches=AgentAccessPolicy._is_protected_formal_step1,
+        name="formal_script_plan",
+        matches=AgentAccessPolicy._is_protected_formal_script_plan,
         deny_message=(
-            "访问被拒绝：正式 step1（"
-            + " / ".join(sorted(AGENT_PROTECTED_STEP1_FILENAMES))
+            "访问被拒绝：正式 script_plan 与待修复草稿（"
+            + " / ".join(sorted(AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES))
             + "）不可用 Write/Edit 直改。"
             "这些文件与 Web 端保存、迁移读改写、重生成共享一把文件锁，而 Write/Edit 取不到这把锁，"
             "直改会与并发的保存互相丢失更新。"
-            f'请改用 MCP 工具——mcp__arcreel__{STEP1_EDIT_TOOL_NAME}({{"episode": N}}) 取回可编辑草稿，'
-            f"改草稿的 content，再用 mcp__arcreel__{PROMOTE_TOOL_NAME} 校验并晋升回正式文件。"
+            f'请改用 MCP 工具——mcp__arcreel__{OPEN_DRAFT_TOOL_NAME}({{"episode": N, "doc_type": "..."}}) '
+            "读取可编辑草稿，用 mcp__arcreel__patch_draft 提交修改，再用 "
+            f"mcp__arcreel__{PROMOTE_TOOL_NAME} 校验并晋升回正式文件。"
         ),
         sandbox_subpaths=("drafts",),
     ),
 )
 
 #: 写禁文件名的归一化形态（与路径比对同一把尺）。类体内不能引用 classmethod，故在表之后赋值。
-AgentAccessPolicy._PROTECTED_STEP1_FILENAMES_NORM = frozenset(
-    AgentAccessPolicy._normalize_path_for_protected_compare(Path(name)) for name in AGENT_PROTECTED_STEP1_FILENAMES
+AgentAccessPolicy._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM = frozenset(
+    AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
+    for name in AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
+)
+AgentAccessPolicy._PROTECTED_QUARANTINE_FILENAMES_NORM = frozenset(
+    AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
+    for name in (
+        DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
+        NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
+    )
 )

@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from typing import Any, Literal, assert_never
 
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -70,7 +70,7 @@ def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: s
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
         )
-    raise ValueError(f"unknown ledger channel: {call_type!r}")
+    assert_never(call_type)
 
 
 class LedgerCall:
@@ -108,7 +108,7 @@ class Ledger:
         segment_id: str | None = None,
         service_tier: str = "default",
         output_path: str | None = None,
-    ) -> AsyncIterator[LedgerCall]:
+    ) -> AsyncGenerator[LedgerCall]:
         """记账括号：进入落 pending，块内 ``call.success(result)`` 声明成功。
 
         退出语义：``CancelledError`` 穿透留 pending；``Exception`` 翻 failed 后原样重抛；正常
@@ -160,6 +160,11 @@ class Ledger:
     async def resume_failed(self, *, call_id: int) -> int:
         """resume 过期/失败补账：翻 pending → failed，零费用不重扣（幂等 0/1）。"""
         return await self._finalize(call_id=call_id, status="failed", settlement=SettlementInput(cost_amount=0.0))
+
+    async def record_provider_response(self, *, call_id: int, body: object) -> None:
+        """覆盖保存该供应商调用最后一次收到的响应体。"""
+        async with self._session_factory() as session:
+            await UsageRepository(session).update_last_provider_response(call_id, body)
 
     async def backfill(
         self,

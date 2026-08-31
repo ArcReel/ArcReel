@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import "@/i18n";
+import i18n from "@/i18n";
 import { API } from "@/api";
 import * as providerModels from "@/utils/provider-models";
 import { useAppStore } from "@/stores/app-store";
@@ -23,6 +23,7 @@ const CONFIG = {
     text_backend_simple: "",
     text_backend_complex: "",
     video_generate_audio: false,
+    video_poll_timeout_seconds: 3600,
   },
 };
 
@@ -67,7 +68,54 @@ describe("MediaModelSection", () => {
     expect(sections).toHaveLength(3);
     expect(sections.every((d) => !d.open)).toBe(true);
     // 界面文案不出现内部术语
-    expect(container.textContent).not.toMatch(/能力桶|任务类型桶|capability bucket/i);
+    expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
+  });
+
+  it("saves the global video polling timeout", async () => {
+    const user = userEvent.setup();
+    const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(CONFIG as never);
+    render(<MediaModelSection />);
+
+    const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
+    await user.clear(timeout);
+    await user.type(timeout, "7200");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_poll_timeout_seconds: 7200 }));
+  });
+
+  it("rounds a fractional polling timeout to an integer on blur before saving", async () => {
+    const user = userEvent.setup();
+    const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(CONFIG as never);
+    render(<MediaModelSection />);
+
+    const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
+    await user.clear(timeout);
+    await user.type(timeout, "60.5");
+    // 编辑期间保留原始字符串，小数点等中间态不被吞掉
+    expect(timeout).toHaveValue("60.5");
+    await user.tab();
+    expect(timeout).toHaveValue("61");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_poll_timeout_seconds: 61 }));
+  });
+
+  it("discards the polling timeout edit, including typed intermediates, when the field is left empty", async () => {
+    const user = userEvent.setup();
+    render(<MediaModelSection />);
+
+    const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
+    // 先键入有效值（键入过程会把中间值写进草稿），再清空离开
+    await user.clear(timeout);
+    await user.type(timeout, "7200");
+    await user.clear(timeout);
+    expect(timeout).toHaveValue("");
+    await user.tab();
+
+    // 空输入撤销该字段的未保存编辑：回显已保存值，键入过的 7200 不残留在草稿里
+    expect(timeout).toHaveValue("3600");
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
   });
 
   it("keeps configured global sub-fields visible when the candidate fetch fails", async () => {
@@ -346,5 +394,55 @@ describe("MediaModelSection", () => {
     const imageSection = container.querySelectorAll("details")[1];
     expect(imageSection.open).toBe(true);
     expect(screen.getByText("已指定 1 项")).toBeInTheDocument();
+  });
+});
+
+describe("MediaModelSection – 语言切换", () => {
+  // 译名由后端按 Accept-Language 成文，替身按当前语言返回对应译名。
+  function candidatesFor(language: string) {
+    const en = language.startsWith("en");
+    return {
+      ...CANDIDATES,
+      provider_names: { gemini: en ? "Gemini" : "谷歌" },
+      model_names: { "gemini/veo-3": en ? "Veo 3" : "维奥 3" },
+    } as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>;
+  }
+
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.restoreAllMocks();
+    mockConfig();
+    vi.spyOn(API, "getModelCandidates").mockImplementation(async () => candidatesFor(i18n.language));
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
+    vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+  });
+
+  afterEach(async () => {
+    await act(async () => {
+      await i18n.changeLanguage("zh");
+    });
+  });
+
+  it("换语言后下拉改用新语言的译名，未保存的编辑仍在", async () => {
+    const user = userEvent.setup();
+    render(<MediaModelSection />);
+    const trigger = await screen.findByRole("combobox", { name: "默认视频模型" });
+    await waitFor(() => expect(trigger).toHaveTextContent("谷歌 · 维奥 3"));
+
+    const timeout = screen.getByRole("textbox", { name: "视频轮询超时（秒）" });
+    await user.clear(timeout);
+    await user.type(timeout, "7200");
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    await waitFor(() => expect(trigger).toHaveTextContent("Gemini · Veo 3"));
+    // 语言切换只重取候选，不重取整页配置——后者会 setDraft({}) 丢掉这里未保存的输入
+    expect(timeout).toHaveValue("7200");
+
+    await user.click(trigger);
+    // 选项行主行为译名，model id 仍在行内可辨识
+    expect(screen.getByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
   });
 });

@@ -31,8 +31,10 @@ from lib.batch_admission import (
     UnitAdmissionTicket,
     refused_ticket,
 )
-from lib.config.resolver import video_bucket_for_generation_mode
+from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.db import async_session_factory
+from lib.db.base import DEFAULT_USER_ID
+from lib.generation_queue import GenerationQueue
 from lib.generation_queue_client import TaskSpec, get_active_tasks_for_resources
 from lib.generation_result import (
     GenerationAction,
@@ -50,17 +52,15 @@ from lib.narration_delivery import (
     USE_TTS,
     NarratedVideoDurationPreparation,
     NarrationDeliveryProblem,
+    TtsSettingsResolver,
     VideoRequestCostFacts,
     video_request_cost_unavailable_problem,
     video_request_requires_exact_quote,
     video_request_reuses_current_visual,
 )
 from lib.prompt_utils import (
-    build_drama_video_prompt,
-    build_drama_video_prompt_from_legacy_dialogue,
     is_structured_video_prompt,
-    strip_voice_profiles,
-    video_prompt_to_yaml,
+    render_storyboard_video_prompt,
 )
 from lib.reference_video.request_projection import (
     ProjectionProblem,
@@ -408,6 +408,8 @@ async def _active_conflicts(
     task_type: str,
     script_file: str | None,
     unit_ids: Sequence[str],
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Map unit id → the active task that already occupies it, if any."""
 
@@ -418,6 +420,8 @@ async def _active_conflicts(
         task_type=task_type,
         resource_ids=list(unit_ids),
         script_file=script_file,
+        user_id=user_id,
+        queue=queue,
     )
     return {str(task["resource_id"]): task for task in active if task.get("resource_id")}
 
@@ -453,6 +457,10 @@ async def admit_reference_video_batch(
     confirmed_request_durations: Mapping[str, int] | None = None,
     spec_check: Callable[[dict[str, Any]], object] | None = None,
     extra_tickets: Sequence[UnitAdmissionTicket] = (),
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
+    config_resolver: object | None = None,
+    tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Evaluate every reference unit of one request against the current state.
 
@@ -472,12 +480,16 @@ async def admit_reference_video_batch(
         task_type="reference_video",
         script_file=script_file,
         unit_ids=unit_ids,
+        user_id=user_id,
+        queue=queue,
     )
     active_tts = (
         await active_tts_resource_ids(
             project_name=project_name,
             resource_ids=unit_ids,
             script_file=script_file,
+            user_id=user_id,
+            queue=queue,
         )
         if request_options.narration_delivery == USE_TTS
         else frozenset()
@@ -541,6 +553,8 @@ async def admit_reference_video_batch(
                 project_path=project_path,
                 options=unit_options,
                 project_name=project_name,
+                user_id=user_id,
+                tts_settings_resolver=tts_settings_resolver,
                 tts_in_progress=unit_id in active_tts,
             )
             projection = await project_reference_unit_request(
@@ -551,6 +565,7 @@ async def admit_reference_video_batch(
                 options=current_options,
                 tts_in_progress=unit_id in active_tts,
                 current_options_materialized=True,
+                resolver=config_resolver,
             )
         except ValueError as exc:
             # 投影读的是剧本上的值（如 duration_seconds）：脏值在这里抛出去会让整个请求塌成
@@ -643,6 +658,10 @@ async def admit_storyboard_video_batch(
     selection: GenerationSelectionMode,
     confirmed_request_durations: Mapping[str, int] | None = None,
     extra_tickets: Sequence[UnitAdmissionTicket] = (),
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
+    config_resolver: ConfigResolver | None = None,
+    tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Evaluate every storyboard unit of one request against the current state.
 
@@ -661,12 +680,16 @@ async def admit_storyboard_video_batch(
         task_type="video",
         script_file=script_file,
         unit_ids=resource_ids,
+        user_id=user_id,
+        queue=queue,
     )
     active_tts = (
         await active_tts_resource_ids(
             project_name=project_name,
             resource_ids=resource_ids,
             script_file=script_file,
+            user_id=user_id,
+            queue=queue,
         )
         if request_options.narration_delivery == USE_TTS
         else frozenset()
@@ -700,6 +723,10 @@ async def admit_storyboard_video_batch(
             ),
             confirmed_request_duration_seconds=unit_options.confirmed_request_duration_seconds,
             tts_in_progress=resource_id in active_tts,
+            user_id=user_id,
+            queue=queue,
+            config_resolver=config_resolver,
+            tts_settings_resolver=tts_settings_resolver,
         )
         tickets.append(await _storyboard_ticket(resource_id=resource_id, preparation=preparation))
 
@@ -775,28 +802,15 @@ def storyboard_video_prompt(
     if not prompt:
         item_id = item.get("segment_id") or item.get("scene_id")
         raise ValueError(f"分镜缺少 video_prompt 字段: {item_id}")
-    if is_structured_video_prompt(prompt):
-        # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 系的机械派生：剧本 JSON
-        # 里残留的 voice_profiles 一律先剥离，不因门控不触发（narration/ad、或 drama 无
-        # utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
-        prompt = strip_voice_profiles(prompt)
-        if content_mode == "drama":
-            # drama 口型台词单一真相源在分镜级有序 utterances：取 dialogue-kind 注入 video YAML 的
-            # dialogue 出口（drama video_prompt 已不带 dialogue）。utterances 迁移前的存量剧本
-            # （load_script 按原始 JSON 读盘不过 pydantic，不会被 DramaScene._migrate_legacy
-            # 自动补齐）台词仍留在 video_prompt.dialogue，改走 legacy 出口。
-            if "utterances" in item:
-                prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
-            else:
-                prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
-        return video_prompt_to_yaml(prompt)
-    if isinstance(prompt, dict):
+    if isinstance(prompt, dict) and not is_structured_video_prompt(prompt):
         item_id = item.get("segment_id") or item.get("scene_id")
         raise ValueError(f"分镜 video_prompt 为对象但格式不符合结构化规范: {item_id}")
-    if not isinstance(prompt, str):
+    if not isinstance(prompt, (dict, str)):
         item_id = item.get("segment_id") or item.get("scene_id")
         raise TypeError(f"分镜 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
-    return prompt
+    # 与执行路径共用 render_storyboard_video_prompt：入队快照与实发文本同构，反向约束尾词
+    # 由该出口统一追加（执行期对已带尾词的字符串幂等）。
+    return render_storyboard_video_prompt(prompt, item, content_mode=content_mode, voice_characters=voice_characters)
 
 
 async def resolve_voice_context(project: dict[str, Any], content_mode: str) -> dict[str, Any] | None:
@@ -845,7 +859,7 @@ def build_storyboard_video_specs(
     episode: int = 1,
     resolver: ArtifactCurrencyResolver | None = None,
     voice_characters: dict[str, Any] | None = None,
-) -> tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]:
+) -> tuple[list[TaskSpec], list[UnitAdmissionTicket]]:
     """Build the Storyboard-mode specs, refusing each unit that cannot be requested.
 
     A unit whose speech, inputs or prompt are unusable is refused with its own code
@@ -866,12 +880,11 @@ def build_storyboard_video_specs(
     skip_set = set(skip_ids or [])
 
     specs: list[TaskSpec] = []
-    order_map: dict[str, int] = {}
     refused: list[UnitAdmissionTicket] = []
     project = project or {}
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_dir, project)
-    for idx, item in enumerate(items):
+    for item in items:
         item_id = str(storyboard_item_id(item, id_field))
         if item_id in skip_set:
             continue
@@ -908,7 +921,7 @@ def build_storyboard_video_specs(
 
         try:
             prompt = storyboard_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             refused.append(
                 refused_ticket(
                     str(item_id),
@@ -950,8 +963,7 @@ def build_storyboard_video_specs(
             )
             continue
         specs.append(spec)
-        order_map[item_id] = idx
-    return specs, order_map, refused
+    return specs, refused
 
 
 async def admit_storyboard_video_request(
@@ -969,6 +981,10 @@ async def admit_storyboard_video_request(
     operation: str,
     selection: GenerationSelectionMode,
     extra_tickets: Sequence[UnitAdmissionTicket],
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
+    config_resolver: ConfigResolver | None = None,
+    tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Admit one Storyboard-mode request from the specs it would actually enqueue.
 
@@ -1001,6 +1017,10 @@ async def admit_storyboard_video_request(
         operation=operation,
         selection=selection,
         extra_tickets=extra_tickets,
+        user_id=user_id,
+        queue=queue,
+        config_resolver=config_resolver,
+        tts_settings_resolver=tts_settings_resolver,
     )
     if conflict_detail is None:
         return admission
@@ -1024,18 +1044,18 @@ async def admit_storyboard_video_request(
 
 __all__ = [
     "active_task_problem",
-    "admit_storyboard_video_request",
-    "audio_switch_conflict",
-    "build_storyboard_video_specs",
-    "resolve_voice_context",
-    "speech_admission_ticket",
-    "storyboard_video_prompt",
     "admit_reference_video_batch",
     "admit_storyboard_video_batch",
-    "reference_unit_task_spec",
+    "admit_storyboard_video_request",
     "artifact_state_tickets",
+    "audio_switch_conflict",
+    "build_storyboard_video_specs",
+    "reference_unit_task_spec",
     "request_options_for_unit",
     "resolve_reference_batch_targets",
+    "resolve_voice_context",
     "speech_admission_problems",
+    "speech_admission_ticket",
+    "storyboard_video_prompt",
     "video_target_states",
 ]

@@ -58,6 +58,8 @@ export interface ModelConfigSectionProps {
     imageBackends: string[];
     textBackends: string[];
     providerNames: Record<string, string>;
+    /** "provider/model" → 当前语言下的模型名，与 `providerNames` 同源；缺键退回 model id。 */
+    modelNames?: Record<string, string>;
   };
   /**
    * 是否呈现「按用途指定模型」这一层（媒体细分下拉与文本档位）。false 即只留默认层，
@@ -381,6 +383,7 @@ export function ModelConfigSection({
             }
             defaultEffective={globalDefaults.video || undefined}
             providerNames={options.providerNames}
+            modelNames={options.modelNames}
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
             subFieldsError={mediaCandidatesError}
@@ -497,6 +500,7 @@ export function ModelConfigSection({
             }
             defaultEffective={globalDefaults.image || undefined}
             providerNames={options.providerNames}
+            modelNames={options.modelNames}
             subFields={imageSubFields}
             subFieldsError={mediaCandidatesError}
           >
@@ -525,6 +529,7 @@ export function ModelConfigSection({
             }
             options={options.textBackends}
             providerNames={options.providerNames}
+            modelNames={options.modelNames}
             defaultLabel={t("use_global_default")}
             fallbacks={{
               // 项目优先解析链（docs/adr/0051）：档位留空时的实际生效值。

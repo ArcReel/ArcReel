@@ -4,8 +4,8 @@ import { AlertTriangle, CheckCircle2, Clock, Lock, RotateCcw, Save, Wrench } fro
 import type {
   DramaNormalizedScript,
   DramaSceneContent,
-  NarrationStep1Draft,
-  NarrationStep1Segment,
+  NarrationScriptPlanDraft,
+  NarrationScriptPlanSegment,
   ScriptReviewQuarantine,
   ScriptReviewState,
   Utterance,
@@ -14,6 +14,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
+import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import {
   ACCENT_BUTTON_STYLE,
@@ -22,6 +23,7 @@ import {
   GHOST_BTN_CLS,
   GHOST_BTN_LG_CLS,
 } from "@/components/ui/darkroom-tokens";
+import { sumItemDuration } from "@/utils/script-shape";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 
 interface ScriptReviewGateProps {
@@ -36,15 +38,15 @@ const SECTION_LABEL_STYLE: React.CSSProperties = {
   fontFamily: "var(--font-mono)",
 };
 
-/** 两条 step1 变体（drama / narration）的可编辑草稿联合。 */
-type ReviewDraft = DramaNormalizedScript | NarrationStep1Draft;
+/** 两条 script_plan 变体（drama / narration）的可编辑草稿联合。 */
+type ReviewDraft = DramaNormalizedScript | NarrationScriptPlanDraft;
 
 /** 本面板承接 drama / narration 两个变体的内容，reference_video 变体不会路由到这里。 */
 function selectReviewContent(state: ScriptReviewState): ReviewDraft | null {
   return (state.content ?? null) as ReviewDraft | null;
 }
 
-/** Read-only 资产引用 pills（出场角色 / 场景 / 道具），由 step1 登记、gate 不改。 */
+/** Read-only 资产引用 pills（出场角色 / 场景 / 道具），由 script_plan 登记、gate 不改。 */
 function MetaChips({ items }: { items: string[] }) {
   if (!items.length) return null;
   return (
@@ -130,9 +132,9 @@ function NarrationSegmentCard({
   disabled,
   onChange,
 }: {
-  segment: NarrationStep1Segment;
+  segment: NarrationScriptPlanSegment;
   disabled: boolean;
-  onChange: (patch: Partial<NarrationStep1Segment>) => void;
+  onChange: (patch: Partial<NarrationScriptPlanSegment>) => void;
 }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -217,9 +219,9 @@ function QuarantinePanel(props: { quarantine: ScriptReviewQuarantine; onRequestF
 }
 
 /**
- * step1→step2 web 内容确认面板：把 step1 结构化中间态在网页结构化呈现、可手动 / Agent 编辑，
- * 用户显式确认后才放行 step2 视觉生成。drama（utterances + source_text）与 narration
- * （novel_text）共用本面板；reference_video 变体的专属面板见 `ReferenceStep1PreviewPanel`。
+ * script_plan→prompt_authoring web 内容确认面板：把 script_plan 结构化中间态在网页结构化呈现、可手动 / Agent 编辑，
+ * 用户显式确认后才放行 prompt_authoring 视觉生成。drama（utterances + source_text）与 narration
+ * （novel_text）共用本面板；reference_video 变体的专属面板见 `ReferenceScriptPlanPreviewPanel`。
  *
  * 待修复草稿在场时整面板转只读（见 `QuarantinePanel`）：正式内容此刻仍是上一版，编辑与确认
  * 都无意义——确认端点本就按同一判据拒绝。
@@ -259,7 +261,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     });
   };
 
-  const updateNarrationSegment = (index: number, patch: Partial<NarrationStep1Segment>) => {
+  const updateNarrationSegment = (index: number, patch: Partial<NarrationScriptPlanSegment>) => {
     setDraft((prev) => {
       if (!prev || !("segments" in prev)) return prev;
       return { ...prev, segments: prev.segments.map((s, i) => (i === index ? { ...s, ...patch } : s)) };
@@ -270,24 +272,25 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   // 把逐条违约预填进对话输入框，用户一句话就能把上下文完整交给它，不必自己转述。
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
+    const docType = contentMode === "drama" ? "drama_script_plan" : "narration_script_plan";
     // 重算已无违约、但待修复草稿仍在场（Agent 已改对内容、尚未调晋升工具）：不能报「0 处违约
     // 待修复」再让用户去改一份已经没问题的东西，正确的下一步是请 Agent 直接晋升。
     const report =
       violations.length === 0
-        ? t("dashboard:review_fix_request_promote_prefill", { episode })
+        ? t("dashboard:review_fix_request_promote_prefill", { episode, docType })
         : [
-            t("dashboard:review_fix_request_prefill_header", { episode, count: violations.length }),
+            t("dashboard:review_fix_request_prefill_header", { episode, count: violations.length, docType }),
             ...violations.map((v, i) => String(i + 1) + ". " + v.message),
           ].join("\n");
     useAssistantStore.getState().setInput(report);
     useAppStore.getState().setAssistantPanelOpen(true);
-  }, [state, episode, t]);
+  }, [state, episode, contentMode, t]);
 
   if (loading) {
-    return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_preprocessing")}</div>;
+    return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_script_plan")}</div>;
   }
 
-  // 加载错误态：区别于「无 step1 产物」空态，展示错误信息 + 重试入口。
+  // 加载错误态：区别于「无 script_plan 产物」空态，展示错误信息 + 重试入口。
   if (loadError) {
     return (
       <div role="alert" className="flex h-64 flex-col items-center justify-center gap-3 text-center">
@@ -306,11 +309,11 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     );
   }
 
-  const status = state?.status ?? "no_step1";
+  const status = state?.status ?? "no_script_plan";
   const quarantine = state?.quarantine ?? null;
-  if (status === "no_step1" || (draft == null && quarantine == null)) {
+  if (status === "no_script_plan" || (draft == null && quarantine == null)) {
     return (
-      <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_preprocessing_content")}</div>
+      <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_script_plan_content")}</div>
     );
   }
 
@@ -376,6 +379,16 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           </button>
         </div>
       </header>
+
+      {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
+      {!quarantined && (
+        <EpisodeDurationSummary
+          totalSeconds={sumItemDuration(
+            draft == null ? [] : "scenes" in draft ? draft.scenes : draft.segments,
+          )}
+          targetSeconds={state?.episode_target_duration ?? null}
+        />
+      )}
 
       {/* 结构化中间态卡片；待修复草稿在场时改为只读的违约面板 */}
       {quarantined ? (

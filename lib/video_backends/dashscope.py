@@ -25,7 +25,6 @@ from typing import Literal
 import httpx
 
 from lib.dashscope_shared import (
-    DASHSCOPE_POLL_INTERVAL_SECONDS,
     dashscope_failure_reason,
     dashscope_headers,
     dashscope_native_base_url,
@@ -44,8 +43,6 @@ from lib.providers import PROVIDER_DASHSCOPE
 from lib.retry import (
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
     with_retry_async,
 )
 from lib.video_backends.base import (
@@ -57,9 +54,9 @@ from lib.video_backends.base import (
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
-    download_video,
+    download_resumable_video,
     poll_with_retry,
-    should_retry_download,
+    recording_poll,
     should_retry_poll,
     should_retry_submit,
     submit_post,
@@ -100,8 +97,6 @@ DEFAULT_MODEL = "happyhorse-1.1-i2v"
 
 _VIDEO_ENDPOINT = "/services/aigc/video-generation/video-synthesis"
 
-_MIN_POLL_TIMEOUT_SECONDS = 900.0
-_POLL_TIMEOUT_PER_SECOND = 60.0
 
 # wan2.7-r2v 的 reference_voice 逐段挂在参考素材项上，故音频段数上限等同参考素材总数上限
 # （官方：参考图像 + 参考视频 ≤ 5）。
@@ -498,7 +493,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            task_id = await self._create_task(client, payload)
+            task_id = await self._create_task(client, payload, request)
             logger.info("DashScope 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 一并写回实际提交域名（wan3.0 走独立 maas 域名，且两者都随用户配置可变）：
             # 续跑据此回放原域名，不然改配置后轮询会打到查不到该任务的主机。
@@ -711,7 +706,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
         retry_if=should_retry_submit,
     )
-    async def _create_task(self, client: httpx.AsyncClient, payload: dict) -> str:
+    async def _create_task(
+        self, client: httpx.AsyncClient, payload: dict, request: VideoGenerationRequest | None = None
+    ) -> str:
         # 创建任务是非幂等的「建任务 + 计费」POST：submit_post 把歧义传输错误（请求可能已送达
         # 服务端但响应在途丢失）转 AmbiguousSubmitError 终态失败，避免自动重试重复建任务 + 重复计费；
         # >=400 由其落 body 日志 + raise_for_status 抛 HTTPStatusError（保留 status_code 供咽喉层识别
@@ -723,6 +720,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 headers=dashscope_headers(self._api_key, async_mode=True),
             ),
             provider=PROVIDER_DASHSCOPE,
+            request=request,
         )
         return extract_task_id(resp.json())
 
@@ -746,12 +744,15 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         # 后按当下配置解析出的新域名去轮旧任务会 404，被下方的 404 分支误判成过期。
         base_url = request.submitted_base_url or self._request_base_url
 
+        # 留痕包在闸门里侧：闸门把 404 换成 ResumeExpiredError，包在外侧就再也看不到那个响应。
+        recorded_poll = recording_poll(lambda: self._poll_once(client, task_id, base_url), request)
+
         # resume 路径下 GET 返回 404（task 完全不存在）直接转 ResumeExpiredError，
         # 不走 poll_with_retry 重试。task_id 24h 过期表现为 200 + task_status=UNKNOWN，
         # 由下方 is_dashscope_expired 兜底（终态返回后判定）。
         async def _gated_poll() -> dict:
             try:
-                return await self._poll_once(client, task_id, base_url)
+                return await recorded_poll()
             except httpx.HTTPStatusError as exc:
                 if is_resume and exc.response.status_code == 404:
                     raise ResumeExpiredError(job_id=task_id, provider=PROVIDER_DASHSCOPE) from exc
@@ -761,8 +762,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             poll_fn=_gated_poll,
             is_done=is_dashscope_terminal,
             is_failed=dashscope_failure_reason,
-            poll_interval=DASHSCOPE_POLL_INTERVAL_SECONDS,
-            max_wait=self._max_wait(request.duration_seconds),
+            max_wait=request.poll_timeout_seconds,
             retry_if=should_retry_poll,
             label="DashScope",
             on_progress=lambda v, elapsed: logger.info(
@@ -771,7 +771,6 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 int(elapsed),
             ),
         )
-
         if is_dashscope_expired(final):
             if is_resume:
                 raise ResumeExpiredError(
@@ -798,14 +797,5 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         )
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_download,
-    )
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
-        await download_video(video_url, output_path)
-
-    @staticmethod
-    def _max_wait(duration_seconds: int) -> float:
-        return max(_MIN_POLL_TIMEOUT_SECONDS, duration_seconds * _POLL_TIMEOUT_PER_SECOND)
+        await download_resumable_video(video_url, output_path, label="DashScope")

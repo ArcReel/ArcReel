@@ -286,37 +286,6 @@ vi.mock("./lorebook/ProductsPage", () => ({
   ),
 }));
 
-vi.mock("./lorebook/AddCharacterForm", () => ({
-  AddCharacterForm: ({
-    onSubmit,
-    onCancel,
-  }: {
-    onSubmit: (
-      name: string,
-      description: string,
-      voice: string,
-      referenceFile?: File | null,
-    ) => Promise<void>;
-    onCancel: () => void;
-  }) => (
-    <div data-testid="add-character-form">
-      <button
-        onClick={() =>
-          void onSubmit(
-            "NewHero",
-            "desc",
-            "voice",
-            new File(["ref"], "new-hero.png", { type: "image/png" }),
-          )
-        }
-      >
-        submit-add-character
-      </button>
-      <button onClick={onCancel}>cancel-add-character</button>
-    </div>
-  ),
-}));
-
 function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
   return {
     title: "Demo",
@@ -675,7 +644,9 @@ describe("StudioCanvasRouter", () => {
     renderAtProjectRoute("real-project", "/episodes/1");
     await waitFor(() => {
       // 精确比对而非包含：全集 "4,6,8" 也含子串 "8"
-      expect(screen.getByTestId("timeline-duration-options").textContent).toBe(expected);
+      expect(screen.getByTestId("timeline-duration-options")).toHaveTextContent(
+        new RegExp(`^${expected}$`),
+      );
     });
   });
 
@@ -749,9 +720,9 @@ describe("StudioCanvasRouter", () => {
     expect(capabilitiesSpy).not.toHaveBeenCalledWith(DEMO_PROJECT_NAME);
   });
 
-  // script_status 的三个取值来自项目摘要（由 step1 与正式脚本的产物态派生），
+  // script_status 的三个取值来自项目摘要（由 script_plan 与正式脚本的产物态派生），
   // 路由据此决定该集去源文审阅页还是画布——三种情况各钉一条。
-  it("sends an episode with no step1 and no script to the source review", () => {
+  it("sends an episode with no script_plan and no script to the source review", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
@@ -816,7 +787,6 @@ describe("StudioCanvasRouter", () => {
     vi.spyOn(API, "updateCharacter").mockResolvedValue({ success: true });
     vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true, path: "x", url: "y" });
     vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "t-1", deduped: false, message: "已提交" });
-    vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
 
     renderAt("/characters");
 
@@ -850,10 +820,6 @@ describe("StudioCanvasRouter", () => {
       const { tasks, optimisticActive } = useTasksStore.getState();
       expect(selectActiveResourceIds(tasks, "character", "demo", optimisticActive).has("Hero")).toBe(true);
     });
-
-    // Test add character flow: click "add" button is not directly accessible in CharacterCard mock;
-    // instead, we test the AddCharacterForm path by navigating with the form already showing.
-    // The add-character button is on CharactersPage which is not directly exposed; we test the form submit instead.
   });
 
   it("refreshes the project even when the audio upload step fails partway through save", async () => {

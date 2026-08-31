@@ -5,7 +5,8 @@
 同时支持 API Key 认证（`arc-` 前缀的 Bearer token）。
 
 浏览器发起请求的认证模式：
-- SSE 端点同时接受 Authorization header 和 ``?token=`` query param，两处凭证范围一致：JWT 或 ``arc-`` 前缀 API Key
+- SSE 与需鉴权的原生媒体端点同时接受 Authorization header 和 ``?token=`` query param，
+  两处凭证范围一致：JWT 或 ``arc-`` 前缀 API Key
 - 导出端点使用短时效下载 token（``purpose=download``）作为 query param 唯一认证方式
 - 静态媒体文件不要求认证
 新端点须按用途选用对应模式。
@@ -106,11 +107,12 @@ def get_token_secret() -> str:
     return _cached_token_secret
 
 
-def create_token(username: str) -> str:
+def create_token(username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS) -> str:
     """创建 JWT token
 
     Args:
         username: 用户名
+        expiry_seconds: token 有效秒数；网页登录沿用 7 天，内嵌 Agent 使用短时效。
 
     Returns:
         JWT token 字符串
@@ -119,7 +121,7 @@ def create_token(username: str) -> str:
     payload = {
         "sub": username,
         "iat": now,
-        "exp": now + TOKEN_EXPIRY_SECONDS,
+        "exp": now + expiry_seconds,
     }
     return jwt.encode(payload, get_token_secret(), algorithm="HS256")
 
@@ -134,8 +136,7 @@ def verify_token(token: str) -> dict | None:
         成功返回 payload dict，失败返回 None
     """
     try:
-        payload = jwt.decode(token, get_token_secret(), algorithms=["HS256"])
-        return payload
+        return jwt.decode(token, get_token_secret(), algorithms=["HS256"])
     except (jwt.InvalidTokenError, jwt.ExpiredSignatureError):
         return None
 
@@ -349,10 +350,9 @@ async def _verify_api_key(token: str) -> dict | None:
     from lib.db import async_session_factory
     from lib.db.repositories.api_key_repository import ApiKeyRepository
 
-    async with async_session_factory() as session:
-        async with session.begin():
-            repo = ApiKeyRepository(session)
-            row = await repo.get_by_hash(key_hash)
+    async with async_session_factory() as session, session.begin():
+        repo = ApiKeyRepository(session)
+        row = await repo.get_by_hash(key_hash)
 
     if row is None:
         _set_api_key_cache(key_hash, None)
@@ -385,9 +385,8 @@ async def _verify_api_key(token: str) -> dict | None:
 
     async def _touch():
         try:
-            async with async_session_factory() as s:
-                async with s.begin():
-                    await ApiKeyRepository(s).touch_last_used(key_hash)
+            async with async_session_factory() as s, s.begin():
+                await ApiKeyRepository(s).touch_last_used(key_hash)
         except Exception:
             logger.exception("更新 API Key last_used_at 失败（非致命）")
 
@@ -456,7 +455,7 @@ async def get_current_user_flexible(
     token: Annotated[str | None, Depends(oauth2_scheme_optional)] = None,
     query_token: str | None = Query(None, alias="token"),
 ) -> CurrentUserInfo:
-    """SSE 认证依赖 — 同时支持 Authorization header 和 ?token= query param。
+    """浏览器原生请求认证依赖 — 同时支持 Authorization header 和 ?token= query param。
 
     ``AUTH_ENABLED=false`` 时无视 token，直接返回匿名 admin。
     """

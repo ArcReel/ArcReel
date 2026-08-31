@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -21,6 +23,37 @@ from lib.providers import PROVIDER_GEMINI, CallType
 # 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
 # 解析侧（grok / dashscope extractor）的 clamp 引用同一常量，保持口径一致。
 MAX_BILLED_DURATION_SECONDS = 86400
+MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024
+
+
+def _persisted_size(value: object) -> int:
+    """该值落进 JSON 列时占的字节数。
+
+    量的必须是 SQLAlchemy 真正写出去的那份文本，因此这里逐项对齐它的缺省：引擎没有配
+    ``json_serializer``，用的就是裸 ``json.dumps``——``ensure_ascii=True`` 把非 ASCII escape 成
+    ``\\uXXXX``，分隔符带空白。任一项按更紧凑的口径去量，上限都会被真实写入体量突破。
+    """
+    try:
+        return len(json.dumps(value, default=str).encode("utf-8"))
+    except (TypeError, ValueError, RecursionError):
+        return len(str(value).encode("utf-8"))
+
+
+def bound_provider_response(body: object) -> object:
+    """把最后一次供应商响应限制在 64 KiB；超限保留可诊断前缀与截断标记。"""
+    if _persisted_size(body) <= MAX_PROVIDER_RESPONSE_BYTES:
+        return body
+    try:
+        text = json.dumps(body, ensure_ascii=False, separators=(",", ":"), default=str)
+    except (TypeError, ValueError, RecursionError):
+        text = str(body)
+    # 逐次减半到包装后的写出体量真正落进上限内：escape 的膨胀率随内容而变（CJK 2 倍、
+    # 表情符号 3 倍），按固定比例预留兜不住最坏情形。
+    prefix = text[: MAX_PROVIDER_RESPONSE_BYTES // 2]
+    while prefix and _persisted_size({"truncated": True, "body": prefix}) > MAX_PROVIDER_RESPONSE_BYTES:
+        prefix = prefix[: len(prefix) // 2]
+    return {"truncated": True, "body": prefix}
+
 
 # segment_id 为 NULL（资产图、文本调用等非分镜维度）的记账在按 segment 汇总时归入的哨兵键。
 # 消费方按此键把项目级支出与分镜级支出分开，故键名在生产/消费两侧共用同一常量。前导 NUL 保证
@@ -119,11 +152,18 @@ def _row_to_dict(row: ApiCall) -> dict[str, Any]:
         "image_output_tokens": row.image_output_tokens,
         "text_input_tokens": row.text_input_tokens,
         "text_output_tokens": row.text_output_tokens,
+        "last_provider_response": row.last_provider_response,
         "created_at": dt_to_iso(row.created_at),
     }
 
 
 class UsageRepository(BaseRepository):
+    async def update_last_provider_response(self, call_id: int, body: object) -> None:
+        await self.session.execute(
+            update(ApiCall).where(ApiCall.id == call_id).values(last_provider_response=bound_provider_response(body))
+        )
+        await self.session.commit()
+
     async def start_call(
         self,
         *,
@@ -238,7 +278,7 @@ class UsageRepository(BaseRepository):
             )
 
             params = PricingParams(
-                call_type=row.call_type,  # pyright: ignore[reportArgumentType]
+                call_type=row.call_type,
                 model=row.model,
                 resolution=row.resolution,
                 aspect_ratio=row.aspect_ratio,
@@ -377,6 +417,7 @@ class UsageRepository(BaseRepository):
     @staticmethod
     def _build_filters(
         *,
+        call_id: int | None = None,
         project_name: str | None = None,
         provider: str | None = None,
         call_type: CallType | None = None,
@@ -385,6 +426,8 @@ class UsageRepository(BaseRepository):
         end_date: datetime | None = None,
     ) -> list:
         filters: list = []
+        if call_id is not None:
+            filters.append(ApiCall.id == call_id)
         if project_name:
             filters.append(ApiCall.project_name == project_name)
         if provider:
@@ -415,7 +458,6 @@ class UsageRepository(BaseRepository):
             start_date=start_date,
             end_date=end_date,
         )
-
         # Main aggregation query
         main_stmt = (
             select(
@@ -561,10 +603,9 @@ class UsageRepository(BaseRepository):
         for stat in stats:
             p = stat["provider"]
             if p and is_custom_provider(p):
-                try:
+                # 防御畸形 provider 字符串（如 "custom-abc"）
+                with contextlib.suppress(ValueError):
                     custom_ids.add(parse_provider_id(p))
-                except ValueError:
-                    pass  # 防御畸形 provider 字符串（如 "custom-abc"）
 
         custom_names: dict[int, str] = {}
         if custom_ids:
@@ -602,6 +643,7 @@ class UsageRepository(BaseRepository):
     async def get_calls(
         self,
         *,
+        call_id: int | None = None,
         project_name: str | None = None,
         call_type: CallType | None = None,
         status: str | None = None,
@@ -611,6 +653,7 @@ class UsageRepository(BaseRepository):
         page_size: int = 20,
     ) -> dict[str, Any]:
         filters = self._build_filters(
+            call_id=call_id,
             project_name=project_name,
             call_type=call_type,
             status=status,

@@ -48,7 +48,8 @@ RETRYABLE_ERRORS: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS
 try:
     from google.api_core import exceptions as google_exceptions  # pyright: ignore[reportMissingImports]
 
-    RETRYABLE_ERRORS = RETRYABLE_ERRORS + (
+    RETRYABLE_ERRORS = (
+        *RETRYABLE_ERRORS,
         google_exceptions.ResourceExhausted,  # 429 Too Many Requests
         google_exceptions.ServiceUnavailable,  # 503
         google_exceptions.DeadlineExceeded,  # 超时
@@ -60,9 +61,10 @@ except ImportError:
 try:
     from google import genai
 
-    RETRYABLE_ERRORS = RETRYABLE_ERRORS + (
-        genai.errors.ClientError,  # pyright: ignore[reportAttributeAccessIssue]
-        genai.errors.ServerError,  # pyright: ignore[reportAttributeAccessIssue]
+    RETRYABLE_ERRORS = (
+        *RETRYABLE_ERRORS,
+        genai.errors.ClientError,
+        genai.errors.ServerError,
     )
 except ImportError:
     logger.debug("google.genai 未安装，跳过对应可重试错误，沿用基础集合")
@@ -236,9 +238,6 @@ def get_shared_rate_limiter(
     - request_gap：最小请求间隔（None 时从环境变量 GEMINI_REQUEST_GAP 读取，默认 3.1）
     """
     global _shared_rate_limiter
-    if _shared_rate_limiter is not None:
-        return _shared_rate_limiter
-
     with _shared_rate_limiter_lock:
         if _shared_rate_limiter is not None:
             return _shared_rate_limiter

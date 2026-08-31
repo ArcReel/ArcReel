@@ -221,39 +221,6 @@ def _split_cost_across(cost: CostBreakdown, parts: int) -> list[CostBreakdown]:
     return split
 
 
-def _estimate_unit_video_cost(
-    *,
-    unit_id: str,
-    duration_seconds: int,
-    video: _VideoPricing,
-) -> CostBreakdown:
-    """一个视频单元取档后秒数的视频估值。计价失败返回空 breakdown（该 unit 不计费）。
-
-    两条参考生视频估算路径（ad 按分镜摊回、narration/drama 按视频单元展示）的展示颗粒度不同，
-    但「按取档后秒数向 provider 询价」这一步与颗粒度无关，共用同一实现避免两处漂移。
-    """
-    est_video: CostBreakdown = {}
-    try:
-        amount, currency = cost_calculator.calculate_cost(
-            video.provider,
-            PricingParams(
-                call_type="video",
-                model=video.model,
-                resolution=video.resolution,
-                duration_seconds=duration_seconds,
-                generate_audio=video.generate_audio,
-            ),
-            custom_price_input=video.price.price_input,
-            custom_price_output=video.price.price_output,
-            custom_currency=video.price.currency,
-            estimate_only=True,
-        )
-        _add_cost(est_video, amount, currency)
-    except Exception:
-        logger.debug("无法计算 video 预估 for %s", unit_id, exc_info=True)
-    return est_video
-
-
 class _AssumeResolvedAssetsAvailable:
     def is_available(self, asset: ResolvedReferenceAsset) -> bool:
         del asset
@@ -576,8 +543,7 @@ class CostEstimationService:
             for gid, indices in grid_to_indices.items():
                 grid_cost = _claim_actual(actual_by_segment, claimed_actual, gid, ("image",)).get("image", {})
                 if grid_cost:
-                    for idx, share in zip(indices, _split_cost_across(grid_cost, len(indices)), strict=True):
-                        grid_actual_per_index[idx] = share
+                    grid_actual_per_index.update(zip(indices, _split_cost_across(grid_cost, len(indices)), strict=True))
 
             segments_result = []
             ep_est: dict[str, CostBreakdown] = {}

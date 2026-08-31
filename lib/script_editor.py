@@ -18,6 +18,7 @@ import logging
 from copy import deepcopy
 from typing import Any
 
+from lib.script_plan_entries import SCRIPT_PLAN_ENTRY_REVISION_FIELD
 from lib.script_skeleton import resolve_kind_items
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class ScriptEditError(ValueError):
         self.params = params
 
 
-def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[list[dict[str, Any]], str, str]:
+def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[list[Any], str, str]:
     """按剧本骨架选出当前剧本的条目数组、其 id 字段名与种类。
 
     返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "shots", "video_units"}。
@@ -63,14 +64,14 @@ def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[l
     return raw_items, id_field, kind
 
 
-def _find_index(items: list[dict[str, Any]], id_field: str, item_id: str) -> int:
+def _find_index(items: list[Any], id_field: str, item_id: str) -> int:
     for idx, item in enumerate(items):
         if isinstance(item, dict) and str(item.get(id_field)) == str(item_id):
             return idx
     raise ScriptEditError(f"未找到 id={item_id!r} 的分镜（{id_field}）")
 
 
-def _existing_ids(items: list[dict[str, Any]], id_field: str) -> set[str]:
+def _existing_ids(items: list[Any], id_field: str) -> set[str]:
     return {str(item.get(id_field)) for item in items if isinstance(item, dict)}
 
 
@@ -101,6 +102,13 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
     if parts[0] == "needs_replan":
         raise ScriptEditError("patch_episode_script 不可直接改重规划标记；修改 unit 规划内容后由系统重算")
+    if parts[0] == SCRIPT_PLAN_ENTRY_REVISION_FIELD:
+        # 条目内容指纹陈述「这一条的视觉层是照着哪份脚本规划内容写的」，由提示词编写落盘时写入。
+        # 放行 patch 等于让 Agent 手改这条陈述，失效条目便能被伪装成未变、逃过重写。
+        raise ScriptEditError(
+            f"patch_episode_script 不可改 {SCRIPT_PLAN_ENTRY_REVISION_FIELD}；"
+            "它由提示词编写落盘时写入，陈述该条目消费的脚本规划内容"
+        )
     if parts[0] == "end_frame_image":
         # 尾帧字段的值是本服务写出的快照相对路径，只由尾帧设置/清除端点写入。放行 patch
         # 会让原样写入的任意字符串绕过快照复制，重新引入悬空引用与越界路径。
@@ -108,7 +116,7 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
     if parts[0] in {"segment_id", "scene_id", "unit_id", "shot_id"}:
         # patch 不可改分镜 id：id 由 insert/split 从锚点派生，结构校验不查 id 唯一性，
         # Agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
-        # 或产生重复 id 歧义。增减分镜走 insert_segment / split_segment / remove_segment 工具。
+        # 或产生重复 id 歧义。增减分镜走 patch_episode_script 的 insert / split / remove operation。
         raise ScriptEditError(
             f"patch_episode_script 不可改分镜 id 字段 ({parts[0]})；id 由 insert/split 派生，不允许直接修改"
         )
@@ -146,8 +154,6 @@ def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, An
     新分镜的 id 字段被强制改写为 ``{after_id}_{k}``（唯一），``generated_assets`` 与
     ``end_frame_image`` 清空。其余字段由 Agent 提供，结构是否合法由写盘统一入口校验。
     """
-    if not isinstance(new_item, dict):
-        raise ScriptEditError("new_item 必须是对象")
     items, id_field, _ = resolve_items(script)
     idx = _find_index(items, id_field, after_id)
     item = deepcopy(new_item)
@@ -180,10 +186,8 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
     新 unit（各带自己的 ``shots``），不是把原 unit 内的 ``shots`` 拆细。``duration_seconds`` 是
     unit 独立字段、不由 ``shots`` 派生，故各新 part 须自行给出，本函数不代算。
     """
-    if not isinstance(parts, list) or len(parts) < 2:
+    if len(parts) < 2:
         raise ScriptEditError("split 至少需要 2 个部分")
-    if any(not isinstance(p, dict) for p in parts):
-        raise ScriptEditError("split 的每个部分必须是对象")
     items, id_field, _ = resolve_items(script)
     idx = _find_index(items, id_field, item_id)
     anchor_assets = items[idx].get("generated_assets")

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +24,7 @@ from lib.artifact_manifest import (
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_step1_basis
+from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_script_plan_basis
 from lib.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
 from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
 from lib.grid.layout import grid_aspect_ratio_for
@@ -116,7 +116,7 @@ class _EpisodeState:
 
 
 @dataclass(frozen=True, slots=True)
-class _FormalStep1State:
+class _FormalScriptPlanState:
     artifact_path: str
     content: object
 
@@ -137,10 +137,12 @@ class TargetStatePlanner:
         episode_scope: int | None = None,
         project_bytes: bytes | None = None,
         allow_stale_formal_targets: bool = False,
+        pending_renames: Mapping[str, str] | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
         self.project_path = self.project_dir / "project.json"
+        self.pending_renames = dict(pending_renames or {})
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
         self.episode_scope = episode_scope
@@ -227,12 +229,12 @@ class TargetStatePlanner:
         kind = key.kind.value
         if kind == "asset-sheet":
             self._plan_assets()
-        elif kind == "episode-step1":
+        elif kind == "episode-script-plan":
             self.load_episode_bindings()
             episode_number = cast(int, key.components[0])
             binding = next((candidate for candidate in self.bindings if candidate.episode == episode_number), None)
             if binding is not None:
-                self._plan_one_step1(binding)
+                self._plan_one_script_plan(binding)
         elif kind == "episode-script":
             self.load_episodes()
             self._plan_structured_content()
@@ -287,7 +289,7 @@ class TargetStatePlanner:
         self._episodes_loaded = True
 
     @contextmanager
-    def _episode_context(self, binding: _EpisodeBinding) -> Iterator[None]:
+    def _episode_context(self, binding: _EpisodeBinding) -> Generator[None]:
         """Name the episode and script a preflight rejection came from.
 
         Only active while planning a target state: the runtime resolve paths
@@ -446,18 +448,18 @@ class TargetStatePlanner:
         if self.project.get("content_mode") not in {"narration", "drama"}:
             self._planned.add("structured-content")
             return
-        step1_by_episode = {
-            binding.episode: step1
+        script_plan_by_episode = {
+            binding.episode: script_plan
             for binding in self.bindings
             if (self.episode_scope is None or binding.episode == self.episode_scope)
-            and (step1 := self._plan_one_step1(binding)) is not None
+            and (script_plan := self._plan_one_script_plan(binding)) is not None
         }
         for episode in self.episodes:
-            step1 = step1_by_episode.get(episode.episode)
-            if step1 is None:
+            script_plan = script_plan_by_episode.get(episode.episode)
+            if script_plan is None:
                 continue
             try:
-                script_basis = build_episode_script_basis(step1.content, project=self.project)
+                script_basis = build_episode_script_basis(script_plan.content, project=self.project)
             except (TypeError, ValueError):
                 continue
             self._add_if_present(
@@ -467,19 +469,19 @@ class TargetStatePlanner:
             )
         self._planned.add("structured-content")
 
-    def _plan_one_step1(self, binding: _EpisodeBinding) -> _FormalStep1State | None:
+    def _plan_one_script_plan(self, binding: _EpisodeBinding) -> _FormalScriptPlanState | None:
         if self.project.get("content_mode") not in {"narration", "drama"}:
             return None
-        step1_path = script_review.step1_path(self.project_dir, self.project, binding.episode)
-        if step1_path is None:
+        script_plan_path = script_review.script_plan_path(self.project_dir, self.project, binding.episode)
+        if script_plan_path is None:
             return None
-        step1_rel = step1_path.relative_to(self.project_dir).as_posix()
-        observation = self.adapter.inspect_artifact(step1_rel)
+        script_plan_rel = script_plan_path.relative_to(self.project_dir).as_posix()
+        observation = self.adapter.inspect_artifact(self._pending_source(script_plan_rel))
         if observation.blocker is not None or not observation.present:
             return None
-        step1_raw = self._read_dependency(step1_rel, "formal step1")
-        step1_content = self._parse_json(step1_raw, f"formal step1 {step1_rel}")
-        step1_key = ArtifactKey.episode_step1(binding.episode)
+        script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
+        script_plan_content = self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
+        script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
         source_rel = f"source/episode_{binding.episode}.txt"
         source_observation = self.adapter.inspect_artifact(source_rel)
         if source_observation.blocker is None and source_observation.present:
@@ -489,7 +491,7 @@ class TargetStatePlanner:
             except UnicodeDecodeError as exc:
                 raise ValueError(f"episode source {source_rel} is not UTF-8") from exc
             try:
-                step1_basis = build_step1_basis(
+                script_plan_basis = build_script_plan_basis(
                     source_content,
                     episode=binding.episode,
                     project=self.project,
@@ -497,10 +499,10 @@ class TargetStatePlanner:
             except (TypeError, ValueError):
                 pass
             else:
-                self._add_if_present(step1_key, step1_rel, step1_basis)
-        if step1_key not in self.entries:
+                self._add_if_present(script_plan_key, script_plan_rel, script_plan_basis)
+        if script_plan_key not in self.entries:
             return None
-        return _FormalStep1State(artifact_path=step1_rel, content=step1_content)
+        return _FormalScriptPlanState(artifact_path=script_plan_rel, content=script_plan_content)
 
     def _plan_storyboards(self) -> None:
         if "storyboards" in self._planned:
@@ -1308,16 +1310,17 @@ class TargetStatePlanner:
         if existing_basis is not None and existing_basis != basis:
             raise ValueError(f"multiple canonical bases claim artifact key {key.encode()}")
         self.bases[key] = basis
-        observation = self.adapter.inspect_artifact(artifact_path)
+        observation = self.adapter.inspect_artifact(self._pending_source(artifact_path))
         if observation.blocker is not None or not observation.present:
             return
-        self._record_formal_path(key, observation.artifact_path)
+        canonical = self._canonical_target(artifact_path, observation.artifact_path)
+        self._record_formal_path(key, canonical)
         if key.kind in _FORMAL_IMAGE_KINDS:
             self._track_dependency_digest(
-                self.project_dir.joinpath(*Path(observation.artifact_path).parts),
+                self.project_dir.joinpath(*Path(canonical).parts),
             )
         entry = ArtifactManifestEntry(
-            artifact_path=observation.artifact_path,
+            artifact_path=canonical,
             basis_digest=basis.digest,
         )
         existing = self.entries.get(key)
@@ -1392,8 +1395,24 @@ class TargetStatePlanner:
         except OSError as exc:
             raise ValueError(f"cannot read {label}") from exc
 
+    def _pending_source(self, relative_path: str) -> str:
+        """该规范路径当前的落盘位置：待改名输入仍在旧名下，其余原样返回。"""
+
+        return self.pending_renames.get(relative_path, relative_path)
+
+    def _canonical_target(self, relative_path: str, observed: str) -> str:
+        """规划记下的落点：待改名输入按提交后的规范路径记，其余按实际观察到的路径记。"""
+
+        return relative_path if relative_path in self.pending_renames else observed
+
+    def _canonical_path(self, relative_path: str, observed: str) -> Path:
+        """:meth:`_canonical_target` 的绝对路径形态。"""
+
+        return self.project_dir.joinpath(*Path(self._canonical_target(relative_path, observed)).parts)
+
     def _read_dependency(self, relative_path: str, label: str) -> bytes:
-        observation = self.adapter.inspect_artifact(relative_path)
+        source = self._pending_source(relative_path)
+        observation = self.adapter.inspect_artifact(source)
         if observation.blocker is not None:
             raise ArtifactManifestError(observation.blocker.detail)
         if not observation.present:
@@ -1403,7 +1422,7 @@ class TargetStatePlanner:
             raw = path.read_bytes()
         except OSError as exc:
             raise ValueError(f"cannot read {label}: {relative_path}") from exc
-        self.dependencies[path] = raw
+        self.dependencies[self._canonical_path(relative_path, observation.artifact_path)] = raw
         return raw
 
     @staticmethod
@@ -1414,10 +1433,19 @@ class TargetStatePlanner:
             raise ValueError(f"{label} is not valid UTF-8 JSON") from exc
 
 
-def plan_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:
-    """Perform the complete read-only activation preflight."""
+def plan_artifact_target_state(
+    project_dir: Path,
+    *,
+    pending_renames: Mapping[str, str] | None = None,
+) -> ArtifactTargetStatePlan:
+    """Perform the complete read-only activation preflight.
 
-    return TargetStatePlanner(project_dir).plan()
+    ``pending_renames``（规范相对路径 → 当前落盘相对路径）供 schema 迁移使用：迁移在同一步里
+    把输入改名到规范路径，预检必须在改名落盘之前完成，因而按旧名读取、按规范路径记录。计划
+    里的依赖路径与产物路径因此都是提交时刻的事实，激活的稳定性闸门可直接复用。
+    """
+
+    return TargetStatePlanner(project_dir, pending_renames=pending_renames).plan()
 
 
 def episode_scope_for_key(key: ArtifactKey) -> int | None:

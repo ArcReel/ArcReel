@@ -46,8 +46,8 @@ describe("ScriptPreviewPanel", () => {
     await vi.advanceTimersByTimeAsync(500);
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText("1 句台词 · 1 段画外音")).toBeTruthy();
-    expect(screen.getByText("角色「张三」未设置参考音频")).toBeTruthy();
+    expect(await screen.findByText("1 句台词 · 1 段画外音")).toBeInTheDocument();
+    expect(screen.getByText("角色「张三」未设置参考音频")).toBeInTheDocument();
   });
 
   // 未登记的 `@[名称]` 只是提示：正文照旧可保存、可生成，面板不给任何阻断信号。
@@ -61,14 +61,14 @@ describe("ScriptPreviewPanel", () => {
     renderPanel("@路人 走过。");
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(await screen.findByText("「路人」未登记，不会成为参考图")).toBeTruthy();
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(await screen.findByText("「路人」未登记，不会成为参考图")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("renders the highlighted body without waiting for the request", () => {
     vi.spyOn(API, "previewReferenceScript").mockImplementation(() => new Promise(() => {}));
     renderPanel("中景。\n@[张三]：{我来了}");
-    expect(screen.getByText("我来了")).toBeTruthy();
+    expect(screen.getByText("我来了")).toBeInTheDocument();
   });
 
   it("debounces edits into a single request", async () => {
@@ -96,8 +96,8 @@ describe("ScriptPreviewPanel", () => {
     await vi.advanceTimersByTimeAsync(500);
 
     // 每条 utterance 一行：序号 + 说话人（画外音无名） + 正文
-    expect(await screen.findByText("第 1 句")).toBeTruthy();
-    expect(screen.getByText("第 2 句")).toBeTruthy();
+    expect(await screen.findByText("第 1 句")).toBeInTheDocument();
+    expect(screen.getByText("第 2 句")).toBeInTheDocument();
     expect(screen.getAllByText("我来了")).toHaveLength(2); // 本地高亮 + 服务端派生行
     expect(screen.getAllByText("那年冬天格外冷")).toHaveLength(2);
   });
@@ -126,15 +126,15 @@ describe("ScriptPreviewPanel", () => {
     const { rerender } = renderPanel("中景。");
     await vi.advanceTimersByTimeAsync(500);
     const warnList = await screen.findByRole("list", { name: /解析提示|Parse notices/ });
-    expect(warnList.getAttribute("aria-busy")).toBeNull();
+    expect(warnList).not.toHaveAttribute("aria-busy");
 
     // 编辑后旧派生还在屏上，但必须标成过期——否则会被当成当前正文的解析结果
     rerender(<ScriptPreviewPanel projectName="demo" episode={1} text="中景，改了" lookup={LOOKUP} />);
-    expect(warnList.getAttribute("aria-busy")).toBe("true");
-    expect(screen.getByText("当前模型不发声")).toBeTruthy();
+    expect(warnList).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("当前模型不发声")).toBeInTheDocument();
 
     await vi.advanceTimersByTimeAsync(500);
-    await waitFor(() => expect(warnList.getAttribute("aria-busy")).toBeNull());
+    await waitFor(() => expect(warnList).not.toHaveAttribute("aria-busy"));
   });
 
   it("refetches when the project assets behind the warnings change", async () => {
@@ -171,8 +171,8 @@ describe("ScriptPreviewPanel", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("boom");
+    expect(alert).toHaveTextContent(/boom/);
     // 旧派生随之清空，报错横幅下不再留着对不上正文的台词
-    await waitFor(() => expect(screen.queryByText("第 1 句")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("第 1 句")).not.toBeInTheDocument());
   });
 });

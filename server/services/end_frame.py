@@ -206,17 +206,16 @@ def _write_snapshot_and_field(
     old_bytes: bytes | None = None
     entered = False
     try:
-        with project_change_source("webui"):
-            with manager.locked_script(project_name, script_file) as script:
-                old_bytes = target.read_bytes() if target.exists() else None
-                items, id_field, _, _, _ = get_storyboard_items(script)
-                matched = find_storyboard_item(items, id_field, shot_id)
-                if matched is None:
-                    raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
-                generation = _advance_shot_generation(key)
-                entered = True
-                write_bytes_atomic(png_bytes, target)
-                matched[0]["end_frame_image"] = relative
+        with project_change_source("webui"), manager.locked_script(project_name, script_file) as script:
+            old_bytes = target.read_bytes() if target.exists() else None
+            items, id_field, _, _, _ = get_storyboard_items(script)
+            matched = find_storyboard_item(items, id_field, shot_id)
+            if matched is None:
+                raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
+            generation = _advance_shot_generation(key)
+            entered = True
+            write_bytes_atomic(png_bytes, target)
+            matched[0]["end_frame_image"] = relative
     except EndFrameError:
         raise
     except BaseException:
@@ -238,17 +237,16 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     old_bytes: bytes | None = None
     entered = False
     try:
-        with project_change_source("webui"):
-            with manager.locked_script(project_name, script_file) as script:
-                old_bytes = target.read_bytes() if target.exists() else None
-                items, id_field, _, _, _ = get_storyboard_items(script)
-                matched = find_storyboard_item(items, id_field, shot_id)
-                if matched is None:
-                    raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
-                generation = _advance_shot_generation(key)
-                entered = True
-                matched[0]["end_frame_image"] = None
-                target.unlink(missing_ok=True)
+        with project_change_source("webui"), manager.locked_script(project_name, script_file) as script:
+            old_bytes = target.read_bytes() if target.exists() else None
+            items, id_field, _, _, _ = get_storyboard_items(script)
+            matched = find_storyboard_item(items, id_field, shot_id)
+            if matched is None:
+                raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
+            generation = _advance_shot_generation(key)
+            entered = True
+            matched[0]["end_frame_image"] = None
+            target.unlink(missing_ok=True)
     except EndFrameError:
         raise
     except BaseException:

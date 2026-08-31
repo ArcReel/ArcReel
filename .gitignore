@@ -80,6 +80,8 @@ frontend/.vite/
 htmlcov/
 .coverage
 coverage/
+coverage.xml
+coverage-pg.xml
 
 # File locks (project_manager 原子写产物)
 **/*.lock

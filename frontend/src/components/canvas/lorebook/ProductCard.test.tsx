@@ -6,9 +6,10 @@ import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 
-vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
-  VersionTimeMachine: () => <div data-testid="version-time-machine">versions</div>,
-}));
+vi.mock("@/components/canvas/timeline/VersionTimeMachine", async () => {
+  const { versionTimeMachineMock } = await import("@/__mocks__/VersionTimeMachine");
+  return versionTimeMachineMock();
+});
 
 
 describe("ProductCard", () => {
@@ -81,7 +82,7 @@ describe("ProductCard", () => {
     );
 
     expect(screen.getByDisplayValue("限量款背包")).toHaveAttribute("readonly");
-    expect(screen.queryByTestId("version-time-machine")).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByTestId("version-time-machine")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

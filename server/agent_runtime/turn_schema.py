@@ -108,10 +108,5 @@ def normalize_content(content: Any) -> list[dict[str, Any]]:
             return []
         return [{"type": "text", "text": content}]
     if isinstance(content, list):
-        normalized_blocks: list[dict[str, Any]] = []
-        for block in content:
-            normalized = normalize_block(block)
-            if isinstance(normalized, dict):
-                normalized_blocks.append(normalized)
-        return normalized_blocks
+        return [normalize_block(block) for block in content]
     return []

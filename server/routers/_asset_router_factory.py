@@ -137,8 +137,10 @@ def build_asset_router(
 
     router = APIRouter()
 
+    # 以下四个处理器由 @router.* 就地注册，模块内无其它引用；basedpyright 把函数作用域内的符号
+    # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @router.post(f"/projects/{{project_name}}/{spec.subdir}")
-    async def add_entry(
+    async def add_entry(  # pyright: ignore[reportUnusedFunction]
         project_name: str,
         req: _CreateRequest,
         _t: Translator,
@@ -147,8 +149,8 @@ def build_asset_router(
         # 否则后续生成与按名访问（PATCH/DELETE/{name}）全部失效。
         try:
             name = validate_asset_name(req.name)
-        except ValueError:
-            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.name))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.name)) from exc
         extras = req.model_extra or {}
         # 字符串字段（voice_style / reference_image / reference_audio 等）与列表字段
         # （reference_images / selling_points 等）在创建时即校验类型，非法类型 422 在
@@ -196,17 +198,17 @@ def build_asset_router(
 
             return await asyncio.to_thread(_sync)
         except ProjectAssetNameConflictError as exc:
-            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("请求处理失败")
-            raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+            raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     @router.patch(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}")
-    async def update_entry(
+    async def update_entry(  # pyright: ignore[reportUnusedFunction]
         project_name: str,
         entry_name: str,
         req: dict[str, Any],
@@ -247,28 +249,28 @@ def build_asset_router(
 
             return await asyncio.to_thread(_sync)
         except ProjectAssetNameConflictError as exc:
-            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
-        except KeyError:
-            raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name)) from exc
         except _InvalidFieldValue as exc:
             # 与相邻的类型校验 422（"field ... must be a string"）不同：这条路径不需要
             # 客户端主动构造非法请求即可触发——横幅渲染后声音被再次更新、用户随后才点击
             # 关闭即会触发，是真实用户可能看到的错误，须走翻译。
             if exc.field == "voice_notice_dismissed_at":
-                raise UnprocessableError("asset_voice_notice_dismissed_at_stale")
+                raise UnprocessableError("asset_voice_notice_dismissed_at_stale") from exc
             raise UnprocessableError("asset_field_invalid_value").with_diagnostic(
                 f"field '{exc.field}' has an invalid value"
-            )
+            ) from exc
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("请求处理失败")
-            raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+            raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     @router.post(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}/rename")
-    async def rename_entry(
+    async def rename_entry(  # pyright: ignore[reportUnusedFunction]
         project_name: str,
         entry_name: str,
         req: _RenameRequest,
@@ -277,8 +279,8 @@ def build_asset_router(
         """级联重命名（dry_run 形态即影响预览）：预览与执行共用同一套扫描逻辑，数字必然一致。"""
         try:
             validate_asset_name(req.new_name)
-        except ValueError:
-            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.new_name))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.new_name)) from exc
         try:
 
             def _sync():
@@ -298,30 +300,34 @@ def build_asset_router(
                 }
 
             return await asyncio.to_thread(_sync)
-        except AssetRenameNotFoundError:
-            raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
+        except AssetRenameNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name)) from exc
         except ProjectAssetNameConflictError as exc:
-            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
         except AssetRenameConflictError as exc:
-            raise HTTPException(status_code=409, detail=_t(keys["exists"], name=exc.conflict_name))
+            raise HTTPException(status_code=409, detail=_t(keys["exists"], name=exc.conflict_name)) from exc
         except AssetRenameFileCollisionError as exc:
-            raise HTTPException(status_code=409, detail=_t("asset_rename_file_conflict", filename=exc.destination.name))
+            raise HTTPException(
+                status_code=409, detail=_t("asset_rename_file_conflict", filename=exc.destination.name)
+            ) from exc
         except AssetRenameHistoryCollisionError as exc:
-            raise HTTPException(status_code=409, detail=_t("asset_rename_history_conflict", name=exc.resource_id))
+            raise HTTPException(
+                status_code=409, detail=_t("asset_rename_history_conflict", name=exc.resource_id)
+            ) from exc
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
-        except ValueError:
+        except ValueError as exc:
             # 结构「不更坏」校验拒绝等罕见情形：整体未落盘，提示用户重试或检查项目数据。
             logger.exception("资产重命名被校验拒绝")
-            raise HTTPException(status_code=422, detail=_t("asset_rename_rejected", name=entry_name))
+            raise HTTPException(status_code=422, detail=_t("asset_rename_rejected", name=entry_name)) from exc
         except HTTPException:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("请求处理失败")
-            raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+            raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     @router.delete(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}")
-    async def delete_entry(project_name: str, entry_name: str, _t: Translator):
+    async def delete_entry(project_name: str, entry_name: str, _t: Translator):  # pyright: ignore[reportUnusedFunction]
         try:
 
             def _sync():
@@ -333,15 +339,15 @@ def build_asset_router(
 
             return await asyncio.to_thread(_sync)
         except ProjectAssetNameConflictError as exc:
-            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
-        except KeyError:
-            raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name)) from exc
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("请求处理失败")
-            raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+            raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     return router

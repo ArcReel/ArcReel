@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 from lib.async_thread import run_noninterruptible_sync
 from lib.audio_utils import probe_reference_audio_total_seconds
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
 from lib.ledger import Ledger
@@ -47,7 +48,7 @@ logger = logging.getLogger(__name__)
 def task_media_staging_path(output_path: Path, task_id: str) -> Path:
     """Return the bounded, deterministic formal-output path owned by one task."""
 
-    if not isinstance(task_id, str) or not task_id:
+    if not task_id:
         raise ValueError("formal media output requires a task_id")
     token = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
     return output_path.with_name(f".{token}.task-output{output_path.suffix}")
@@ -106,7 +107,7 @@ async def _remove_staged_output_on_error(path: Path | None):
         yield
     except BaseException:
         if path is not None:
-            path.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)  # noqa: ASYNC240 -- 失败路径删除 staging 文件，本地元数据
         raise
 
 
@@ -393,8 +394,8 @@ class MediaGenerator:
         relative_path = resource_relative_path(resource_type, resource_id)
         try:
             return safe_join(self.project_path, relative_path)
-        except PathTraversalError:
-            raise ValueError(f"非法资源 ID: '{resource_id}'")
+        except PathTraversalError as exc:
+            raise ValueError(f"非法资源 ID: '{resource_id}'") from exc
 
     def _ensure_parent_dir(self, output_path: Path) -> None:
         """确保输出目录存在"""
@@ -720,7 +721,7 @@ class MediaGenerator:
         )
         os.close(fd)
         staged_path = Path(staged_name)
-        staged_path.unlink()
+        staged_path.unlink()  # noqa: ASYNC240 -- 删除 mkstemp 占位文件，本地元数据
 
         # audio 合成字符数 → 计费 token 的语义转写已收进 ledger union 分发（_settlement_from_result），
         # 此处仅把 backend 结果对象递交给 call.success。
@@ -746,7 +747,7 @@ class MediaGenerator:
                 if before_submit is not None:
                     await before_submit()
                 result = await self._audio_backend.synthesize(request)
-                if not staged_path.is_file():
+                if not staged_path.is_file():  # noqa: ASYNC240 -- staging 产物存在性检查，本地元数据
                     raise RuntimeError("audio backend completed without a regular output file")
                 call.success(result)
 
@@ -774,7 +775,7 @@ class MediaGenerator:
                 raise RuntimeError("audio commit completed without a regular formal output file")
             return output_path, version
         finally:
-            staged_path.unlink(missing_ok=True)
+            staged_path.unlink(missing_ok=True)  # noqa: ASYNC240 -- 收尾删除 staging 文件，本地元数据
 
     def generate_video(
         self,
@@ -789,6 +790,7 @@ class MediaGenerator:
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
+        poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """
@@ -826,6 +828,7 @@ class MediaGenerator:
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
+                poll_timeout_seconds=poll_timeout_seconds,
                 **version_metadata,
             )
         )
@@ -843,6 +846,7 @@ class MediaGenerator:
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
+        poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         task_id: str | None = None,
         before_submit: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None,
         formal_output: bool = False,
@@ -905,7 +909,7 @@ class MediaGenerator:
 
         # 空串 end_image 归一为 None：遗留/直接 Python 调用者可能以 "" 表示无尾帧
         # （kling _build_payload 的真值判断锁定了这个兼容语义，见
-        # tests/test_kling_video_backend.py::test_image2video_empty_end_frame_is_omitted）。
+        # tests/integration/lib/video_backends/test_kling_video_backend.py::test_image2video_empty_end_frame_is_omitted）。
         # 下方 gating 用 is not None 判空，"" 若不归一会被误判成真尾帧。
         if not end_image:
             end_image = None
@@ -934,25 +938,24 @@ class MediaGenerator:
         # （如 wan2.7）不必为每个请求多付一轮 ffprobe 子进程开销。
         reference_audio_total_seconds = (
             await probe_reference_audio_total_seconds(reference_audio_files)
-            if reference_audio_files
-            and video_caps is not None
-            and video_caps.max_reference_audio_total_seconds is not None
+            if reference_audio_files and video_caps.max_reference_audio_total_seconds is not None
             else None
+        )
+        slot_plan = plan_frame_slots(
+            start_image=start_image,
+            end_image=end_image,
+            reference_images=reference_images,
         )
         gate_video_request(
             caps=video_caps,
             provider=self._video_backend.name,
             model=model_name,
             prompt=prompt,
+            has_image=bool(slot_plan.specs),
             end_image=end_image,
             reference_images=reference_images,
             reference_audio_files=reference_audio_files,
             reference_audio_total_seconds=reference_audio_total_seconds,
-        )
-        slot_plan = plan_frame_slots(
-            start_image=start_image,
-            end_image=end_image,
-            reference_images=reference_images,
         )
         # 仅声明 first_frame_ratio_adaptive_only 的后端受影响；下发值与调用方持有的原始
         # aspect_ratio（记账、分镜图生成沿用）分离，不回写覆盖上游变量。
@@ -1050,9 +1053,13 @@ class MediaGenerator:
                         # reference_images 下标算出的 targets 对压缩后的 ref_arg 同样有效。
                         reference_audio_targets=reference_audio_targets,
                         generate_audio=effective_generate_audio,
+                        poll_timeout_seconds=poll_timeout_seconds,
                         project_name=self.project_name,
                         task_id=task_id,
                         on_provider_resubmit_unsafe=_mark_provider_resubmit_unsafe,
+                        on_provider_response=lambda _stage, body: self.ledger.record_provider_response(
+                            call_id=call.call_id, body=body
+                        ),
                         service_tier=version_metadata.get("service_tier", "default"),
                         seed=version_metadata.get("seed"),
                     )
@@ -1117,6 +1124,7 @@ class MediaGenerator:
         task_id: str | None = None,
         api_call_id: int | None = None,
         submitted_base_url: str | None = None,
+        poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         formal_output: bool = False,
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
@@ -1176,8 +1184,14 @@ class MediaGenerator:
             duration_seconds=duration_int,
             resolution=resolution,
             generate_audio=effective_generate_audio,
+            poll_timeout_seconds=poll_timeout_seconds,
             project_name=self.project_name,
             task_id=task_id,
+            on_provider_response=(
+                (lambda _stage, body: self.ledger.record_provider_response(call_id=api_call_id, body=body))
+                if api_call_id is not None
+                else None
+            ),
             service_tier=version_metadata.get("service_tier", "default"),
             seed=version_metadata.get("seed"),
             submitted_base_url=submitted_base_url,

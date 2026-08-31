@@ -6,9 +6,10 @@ import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 
-vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
-  VersionTimeMachine: () => <div data-testid="version-time-machine">versions</div>,
-}));
+vi.mock("@/components/canvas/timeline/VersionTimeMachine", async () => {
+  const { versionTimeMachineMock } = await import("@/__mocks__/VersionTimeMachine");
+  return versionTimeMachineMock();
+});
 
 
 describe("SceneCard", () => {
@@ -141,7 +142,7 @@ describe("SceneCard", () => {
         onGenerate={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/major|minor|主要|次要|location|场景类型/i)).toBeNull();
+    expect(screen.queryByText(/major|minor|主要|次要|location|场景类型/i)).not.toBeInTheDocument();
   });
 
   describe("read-only", () => {
@@ -165,9 +166,9 @@ describe("SceneCard", () => {
 
     it("drops the generate, upload and version entries", () => {
       renderReadOnly();
-      expect(screen.queryByRole("button", { name: /生成/ })).toBeNull();
-      expect(screen.queryByTestId("version-time-machine")).toBeNull();
-      expect(screen.queryByRole("button")).toBeNull();
+      expect(screen.queryByRole("button", { name: /生成/ })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("version-time-machine")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button")).not.toBeInTheDocument();
     });
 
     it("keeps the description from being edited", () => {
@@ -175,7 +176,7 @@ describe("SceneCard", () => {
       const textarea = screen.getByDisplayValue("阴森古朴");
       expect(textarea).toHaveAttribute("readonly");
       fireEvent.change(textarea, { target: { value: "新描述" } });
-      expect(screen.queryByRole("button", { name: /保存/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /保存/ })).not.toBeInTheDocument();
     });
   });
 

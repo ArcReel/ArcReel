@@ -22,6 +22,7 @@ from lib.config.resolver import (
     VideoCapability,
     builtin_video_audio_track,
     get_provider_fallback,
+    video_capability_satisfied,
 )
 from lib.narration_delivery import (
     POST_PRODUCTION as POST_PRODUCTION,
@@ -40,6 +41,7 @@ from lib.narration_delivery import (
 from lib.path_safety import PathTraversalError, safe_join
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.text_parser import derive_references_from_text
+from lib.schema_guards import is_int
 from lib.script_models import ReferenceResource
 from lib.speech_composition import admit_script_unit
 
@@ -66,16 +68,10 @@ class ReferenceRequestOptions(NarrationDeliveryRequestOptions):
         if floor is not None and (not math.isfinite(floor) or floor <= 0):
             raise ValueError("current_tts_duration_seconds must be positive and finite or null")
         visual_duration = self.current_visual_duration_seconds
-        if visual_duration is not None and (
-            not isinstance(visual_duration, int) or isinstance(visual_duration, bool) or visual_duration <= 0
-        ):
+        if visual_duration is not None and not is_int(visual_duration, minimum=1):
             raise ValueError("current_visual_duration_seconds must be a positive integer or null")
         reusable_visual_duration = self.current_reusable_visual_duration_seconds
-        if reusable_visual_duration is not None and (
-            not isinstance(reusable_visual_duration, int)
-            or isinstance(reusable_visual_duration, bool)
-            or reusable_visual_duration <= 0
-        ):
+        if reusable_visual_duration is not None and not is_int(reusable_visual_duration, minimum=1):
             raise ValueError("current_reusable_visual_duration_seconds must be a positive integer or null")
         preparation = self.narration_preparation
         if preparation is not None and preparation.delivery != self.narration_delivery:
@@ -139,6 +135,8 @@ class ProviderProjectionCandidate:
     voice_consistency: str = "soft"
     max_reference_audio_count: int = 0
     reference_audio_per_image: bool = False
+    first_frame: bool = True
+    text_to_video: bool = True
 
     @property
     def pair_key(self) -> str:
@@ -533,7 +531,7 @@ class ConfigReferenceCapabilityProjection:
             capability=capability,
         )
         max_references = caps.get("max_reference_images")
-        candidate = ProviderProjectionCandidate(
+        return ProviderProjectionCandidate(
             capability=capability,
             provider_id=provider_id,
             model_id=model_id,
@@ -547,8 +545,9 @@ class ConfigReferenceCapabilityProjection:
             voice_consistency=str(caps.get("voice_consistency") or "soft"),
             max_reference_audio_count=int(caps.get("max_reference_audio_count") or 0),
             reference_audio_per_image=bool(caps.get("reference_audio_per_image") or False),
+            first_frame=bool(caps.get("first_frame")),
+            text_to_video=bool(caps.get("text_to_video", True)),
         )
-        return candidate
 
 
 def clamp_reference_assets(
@@ -577,6 +576,7 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     "reference_capability_unavailable": ("configure_video_model", (("text",),)),
     "video_capability_missing_i2v": ("configure_video_model", (("text",),)),
     "video_capability_missing_r2v": ("configure_video_model", (("text",),)),
+    "video_capability_missing_t2v": ("configure_video_model", (("text",),)),
 }
 
 
@@ -629,17 +629,17 @@ class ReferenceUnitRequestProjector:
 
         problems: list[ProjectionProblem] = []
         if options.narration_preparation is not None:
-            for delivery_problem in options.narration_preparation.problems:
-                problems.append(
-                    ProjectionProblem(
-                        code=delivery_problem.code,
-                        blocking=delivery_problem.blocking,
-                        params=delivery_problem.params,
-                        reason=delivery_problem.reason,
-                        action=delivery_problem.action,
-                        locations=tuple(location.path for location in delivery_problem.locations),
-                    )
+            problems.extend(
+                ProjectionProblem(
+                    code=delivery_problem.code,
+                    blocking=delivery_problem.blocking,
+                    params=delivery_problem.params,
+                    reason=delivery_problem.reason,
+                    action=delivery_problem.action,
+                    locations=tuple(location.path for location in delivery_problem.locations),
                 )
+                for delivery_problem in options.narration_preparation.problems
+            )
         if hydration.missing:
             missing = tuple((ref.type, ref.name) for ref in hydration.missing)
             problems.append(
@@ -686,6 +686,25 @@ class ReferenceUnitRequestProjector:
 
         request_assets = available
         if candidate is not None:
+            if (
+                hydrated_capability == "i2v"
+                and not available
+                and not video_capability_satisfied(
+                    capability=hydrated_capability,
+                    first_frame=candidate.first_frame,
+                    max_reference_images=candidate.max_reference_images or 0,
+                    text_to_video=candidate.text_to_video,
+                    has_image=False,
+                )
+            ):
+                problems.append(
+                    _problem(
+                        "video_capability_missing_t2v",
+                        blocking=True,
+                        provider=candidate.provider_id,
+                        model=candidate.model_id,
+                    )
+                )
             request_assets = clamp_reference_assets(available, candidate.max_reference_images)
             if len(request_assets) < len(available):
                 problems.append(

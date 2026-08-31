@@ -20,7 +20,7 @@ from_episode-1 集原文范围末尾，源文指纹字段保留不动（已验�
 派生集文件按「是否可从账本重造」分流：账本条目带 ``source_range`` 的
 ``source/episode_N.txt`` 是派生物，直接删除；无 ``source_range`` 的集文件可能是
 老项目原件（含手工内容，无坐标可重造），改名留底而非删除。下游产物（剧本 JSON、
-step1 中间文件、媒体）一律不删。部分重置时上述处置只施于 from_episode 起的范围，
+script_plan 中间文件、媒体）一律不删。部分重置时上述处置只施于 from_episode 起的范围，
 保留段的派生文件与下游产物不受影响。
 """
 
@@ -130,7 +130,7 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, from_episode: int = 
     """扫描账本与磁盘得出处置计划。纯读：不改入参、不动文件。
 
     已消费判定取账本状态与磁盘产物的并集——账本损坏时 ``ledger_status`` 未必可信，
-    磁盘上的剧本 / step1 产物才是「这一集已经被消费过」的硬证据。
+    磁盘上的剧本 / script_plan 产物才是「这一集已经被消费过」的硬证据。
 
     ``from_episode`` 限定处置范围（默认 1 即全量，与既有调用方行为逐字一致）：
     集号小于它的账本条目、孤儿派生文件、孤儿下游产物均视为保留段，不参与本次
@@ -439,7 +439,7 @@ def reset_episode_planning(
     见 :func:`_resolve_partial_reset_cursor` 的前置校验；校验不通过时指名具体原因并指引
     改用全量重置，账本不被改动。
 
-    两种模式都对波及已消费集（账本标 consumed 或磁盘已有剧本 / step1 产物）且未
+    两种模式都对波及已消费集（账本标 consumed 或磁盘已有剧本 / script_plan 产物）且未
     ``confirm_consumed`` 时不执行，返回 :class:`ResetConfirmationRequired` 等待
     显式确认；确认后执行，下游产物一律保留。
 
@@ -468,7 +468,7 @@ def reset_episode_planning(
         )
 
     # 结果只能在锁内（按锁内复扫的实际处置）拼出，用闭包变量带回锁外
-    committed: EpisodeResetResult | None = None
+    committed: list[EpisodeResetResult] = []
     commit_plan: _ResetPlan | None = None
     manifest_expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
     manifest_removals: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
@@ -514,7 +514,6 @@ def reset_episode_planning(
         commit_plan = current
 
     def _commit_side_effects(_project_file: Path) -> None:
-        nonlocal committed
         if commit_plan is None:  # pragma: no cover - update_project calls mutate before on_commit
             raise EpisodeResetError("重置未执行：文件处置计划未生成")
         _assert_source_directory_safe(project_dir)
@@ -540,25 +539,28 @@ def reset_episode_planning(
                 )
             elif recover_unreadable_manifest:
                 ProjectArtifactManifestAdapter(project_dir).replace_unreadable_entries_atomically({})
-        committed = EpisodeResetResult(
-            removed_episodes=commit_plan.episode_nums,
-            deleted_files=deleted,
-            archived_files=archived,
-            consumed_episodes=commit_plan.consumed,
+        committed.append(
+            EpisodeResetResult(
+                removed_episodes=commit_plan.episode_nums,
+                deleted_files=deleted,
+                archived_files=archived,
+                consumed_episodes=commit_plan.consumed,
+            )
         )
 
     pm.update_project(project_name, _commit, on_commit=_commit_side_effects)
-    if committed is None:  # pragma: no cover - update_project 必然调用 mutate_fn
+    if not committed:  # pragma: no cover - update_project 必然调用 mutate_fn
         raise EpisodeResetError("重置未执行：账本更新回调未被调用")
+    result = committed[0]
     logger.info(
         "分集规划已%s重置：项目 %s，清空 %d 集，删除派生文件 %d 个，留底 %d 个",
         "全量" if from_episode == 1 else f"部分（从第 {from_episode} 集起）",
         project_name,
-        len(committed.removed_episodes),
-        len(committed.deleted_files),
-        len(committed.archived_files),
+        len(result.removed_episodes),
+        len(result.deleted_files),
+        len(result.archived_files),
     )
-    return committed
+    return result
 
 
 __all__ = [

@@ -13,7 +13,7 @@ import httpx
 from lib.ark_shared import create_ark_client
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_ARK
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ReferenceAudioMode,
@@ -25,6 +25,7 @@ from lib.video_backends.base import (
     download_video,
     poll_with_retry,
     reference_audio_to_data_uri,
+    should_retry_download,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,17 @@ _SEEDANCE_2_5_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 30.0
 # 与 dashscope 侧的同名表刻意各存一份：mp3 在这里按官方示例写 audio/mp3，dashscope 走标准
 # 的 audio/mpeg——供应商各自的接受口径，合并成一张共享表会让其中一家收到没验证过的 MIME。
 _REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mp3"}
+
+
+def _retry_ark_download(exc: Exception) -> bool:
+    """产物下载共用谓词 ⊕ Ark 特有的「任务已成功但产物未就绪」形态（400 video_not_ready）。"""
+    if (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code == 400
+        and "video_not_ready" in str(exc.response.text)
+    ):
+        return True
+    return should_retry_download(exc)
 
 
 def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]:
@@ -300,7 +312,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         if request.start_image:
             from lib.image_backends.base import image_to_base64_data_uri
 
-            data_uri = image_to_base64_data_uri(request.start_image)
+            data_uri = await asyncio.to_thread(image_to_base64_data_uri, request.start_image)
             content.append(
                 {
                     "type": "image_url",
@@ -313,13 +325,13 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             from lib.image_backends.base import image_to_base64_data_uri
 
             end_path = Path(request.end_image)
-            if not end_path.is_file():
+            if not end_path.is_file():  # noqa: ASYNC240 -- 尾帧存在性检查，本地元数据
                 # 尾帧缺失不静默跳过：跳过后任务照常提交并计费，用户拿到一段没有尾帧、
                 # 与分镜衔接不上的视频却无从知道原因。
                 raise VideoCapabilityError(
                     "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
                 )
-            data_uri = image_to_base64_data_uri(request.end_image)
+            data_uri = await asyncio.to_thread(image_to_base64_data_uri, request.end_image)
             content.append(
                 {
                     "type": "image_url",
@@ -339,33 +351,43 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                     model=self._model,
                     names=", ".join(p.name or str(p) for p in missing),
                 )
-            for ref_path in request.reference_images:
-                data_uri = image_to_base64_data_uri(Path(ref_path))
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": data_uri},
-                        "role": "reference_image",
-                    }
-                )
+            ref_data_uris = await asyncio.gather(
+                *[asyncio.to_thread(image_to_base64_data_uri, Path(ref_path)) for ref_path in request.reference_images]
+            )
+            content.extend(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_uri},
+                    "role": "reference_image",
+                }
+                for data_uri in ref_data_uris
+            )
 
         if request.reference_audio_files:
             # 音频条目与图片条目同列 content 数组，各自按类型独立编号：prompt 里的「音频N」
             # 指的是第 N 个 type="audio_url" 条目（官方《快速入门》提示词规则）。故这里必须
             # 保持 reference_audio_files 的原始顺序、不跳过任何一段——跳过会让编排层拼好的
-            # 指认文本整体错位，把 A 角色的音色安到 B 角色头上。
-            for audio_path in request.reference_audio_files:
-                content.append(
-                    {
-                        "type": "audio_url",
-                        "audio_url": {
-                            "url": reference_audio_to_data_uri(
-                                Path(audio_path), model=self._model, mime_types=_REFERENCE_AUDIO_MIME_TYPES
-                            )
-                        },
-                        "role": "reference_audio",
-                    }
-                )
+            # 指认文本整体错位，把 A 角色的音色安到 B 角色头上。gather 按入参顺序返回，
+            # 并发不影响该编号。读整段音频做 base64 编码是阻塞 I/O，逐段卸载到线程。
+            audio_data_uris = await asyncio.gather(
+                *[
+                    asyncio.to_thread(
+                        reference_audio_to_data_uri,
+                        Path(audio_path),
+                        model=self._model,
+                        mime_types=_REFERENCE_AUDIO_MIME_TYPES,
+                    )
+                    for audio_path in request.reference_audio_files
+                ]
+            )
+            content.extend(
+                {
+                    "type": "audio_url",
+                    "audio_url": {"url": data_uri},
+                    "role": "reference_audio",
+                }
+                for data_uri in audio_data_uris
+            )
 
         # 2. Build API params
         # 比例优先：ratio 是独立 SDK 字段，由 aspect_ratio 直接决定；resolution 仅清晰度档位，
@@ -398,35 +420,16 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         return create_result.id
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=lambda e: (
-            isinstance(e, httpx.HTTPStatusError)
-            and e.response.status_code == 400
-            and "video_not_ready" in str(e.response.text)
-        ),
-    )
     async def _download_video_with_retry(video_url: str, output_path) -> None:
         """单独重试视频下载，避免下载失败导致重新生成视频而浪费额度。
 
-        Ark 的视频 URL 在任务 succeeded 后可能仍未就绪（返回 400 video_not_ready），
-        仅针对该瞬态状态重试；其余 HTTP 错误及网络瞬态错误由内层 download_video 处理。
+        Ark 的视频 URL 在任务 succeeded 后可能仍未就绪，此时返回的是 400 video_not_ready
+        而非产物通道常见的 403/404，故在共用谓词之上补这一条。
         """
-        await download_video(video_url, output_path)
+        await download_video(video_url, output_path, label="Ark", retry_if=_retry_ark_download)
 
     async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
-        # 轮询节奏按**实际提交的**档位定，不按请求里写的档位：_supports_service_tier 为假的
-        # 型号根本不下传 service_tier，方舟按默认档建任务，此时若照 request 里残留的 flex 值
-        # 走 60s 节奏，已完成的任务要多空等近一分钟才被发现。
-        effective_tier = request.service_tier if self._supports_service_tier else "default"
-        poll_interval = 10 if effective_tier == "default" else 60
-        # 生成耗时大体随输出时长线性增长：固定 600s 上限只够到 10 秒档，30 秒档会在任务仍在
-        # 排队时被判超时（视频已在生成且照常计费）。按 60s/输出秒 取下限兜底，与 dashscope 侧
-        # 同口径；flex 队列本就按小时级排队，保持 3600 不变。
-        max_wait_time = max(600, 60 * request.duration_seconds) if effective_tier == "default" else 3600
-
         result = await poll_with_retry(
             poll_fn=lambda: asyncio.to_thread(self._client.content_generation.tasks.get, task_id=task_id),
             is_done=lambda r: r.status == "succeeded",
@@ -435,8 +438,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 if r.status in ("failed", "expired")
                 else None
             ),
-            poll_interval=poll_interval,
-            max_wait=max_wait_time,
+            max_wait=request.poll_timeout_seconds,
             label="Ark",
             on_progress=lambda r, elapsed: logger.info(
                 "Ark 视频生成中... 状态: %s, 已等待 %d 秒", r.status, int(elapsed)

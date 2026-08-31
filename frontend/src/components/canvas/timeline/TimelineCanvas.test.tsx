@@ -8,9 +8,10 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./TimelineCanvas";
 import type { NarrationEpisodeScript, ProjectData } from "@/types";
 
-vi.mock("./ScriptReviewGate", () => ({
-  ScriptReviewGate: () => <div data-testid="script-review-gate" />,
-}));
+vi.mock("./ScriptReviewGate", async () => {
+  const { scriptReviewGateMock } = await import("@/__mocks__/ScriptReviewGate");
+  return scriptReviewGateMock();
+});
 vi.mock("./ShotSplitView", () => ({
   ShotSplitView: ({
     onUpdatePrompt,
@@ -26,11 +27,10 @@ vi.mock("./ShotSplitView", () => ({
     />
   ),
 }));
-vi.mock("./EpisodeHeader", () => ({
-  EpisodeHeader: ({ canEditTitle }: { canEditTitle?: boolean }) => (
-    <div data-testid="episode-header" data-can-edit-title={canEditTitle ? "yes" : "no"} />
-  ),
-}));
+vi.mock("./EpisodeHeader", async () => {
+  const { episodeHeaderMock } = await import("@/__mocks__/EpisodeHeader");
+  return episodeHeaderMock();
+});
 
 function makeProjectData(): ProjectData {
   return {
@@ -116,7 +116,7 @@ describe("TimelineCanvas", () => {
       />,
     );
 
-    expect(screen.getByText("脚本尚未生成，先在「内容整理」中完成内容确认")).toBeInTheDocument();
+    expect(screen.getByText("脚本尚未生成，先在「脚本规划」中完成内容确认")).toBeInTheDocument();
     expect(screen.queryByTestId("shot-split-view")).not.toBeInTheDocument();
   });
 
@@ -167,7 +167,7 @@ describe("TimelineCanvas", () => {
       expect(shotView).toHaveAttribute("data-can-update-prompt", "no");
       expect(shotView).toHaveAttribute("data-can-generate-narration", "no");
       expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "no");
-      expect(screen.queryByRole("button", { name: "生成全集旁白配音" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "生成全集旁白配音" })).not.toBeInTheDocument();
     });
 
     it("keeps the same write handlers outside the demo workbench", () => {

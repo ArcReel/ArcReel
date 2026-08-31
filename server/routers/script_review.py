@@ -1,7 +1,7 @@
-"""step1→step2 web 内容确认路由。
+"""script_plan→prompt_authoring web 内容确认路由。
 
-暴露结构化中间态的审阅 / 编辑 / 确认：step1 产出后中间态在 web 可见可改，用户显式确认后才放行
-step2 视觉生成（step2 由 Agent 的 generate_episode_script 执行，读时经内容确认校验阻塞到确认）。
+暴露结构化中间态的审阅 / 编辑 / 确认：script_plan 产出后中间态在 web 可见可改，用户显式确认后才放行
+prompt_authoring 视觉生成（prompt_authoring 由 Agent 的 generate_episode_script 执行，读时经内容确认校验阻塞到确认）。
 drama（utterances + source_text）与 narration（结构化 novel_text）共用本机制。
 """
 
@@ -21,11 +21,11 @@ router = APIRouter()
 
 
 async def _attach_duration_tiers(service: ScriptReviewService, project_name: str, episode: int, state: dict) -> dict:
-    """把收窄后的逐 unit 时长档位挂到 state 上；三个改动 step1 内容的端点（GET/PUT/POST）
+    """把收窄后的逐 unit 时长档位挂到 state 上；三个改动 script_plan 内容的端点（GET/PUT/POST）
     都要走这一步——否则保存 / 确认后 ``adopt()`` 用不带 ``duration_tiers`` 的响应覆盖 GET
     读到的收窄结果，面板退回未收窄的 ``supported_durations``，与 GET 首次加载时的呈现不一致。
 
-    是否调用交给 ``get_reference_duration_tiers`` 自己按 step1_kind 判断，不靠
+    是否调用交给 ``get_reference_duration_tiers`` 自己按 script_plan_kind 判断，不靠
     ``state["supported_durations"] is not None`` 短路——那是另一个方法的返回值，型号解析
     不到时同样为 None，靠它短路会让这类项目连未收窄的档位都拿不到。
     """
@@ -50,12 +50,12 @@ def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> 
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
 async def get_script_review(project_name: str, episode: int, _t: Translator):
-    """读取该集 step1 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。
+    """读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。
 
     ``quarantine`` 字段单独合并（reference_video 变体、草稿在场时才非 None）：它按产出时
     那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。
     先取 ``quarantine`` 再取 ``state``：Agent 的晋升工具在两次读之间把草稿清掉、正式
-    step1 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的
+    script_plan 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的
     违约报告」这一侧——面板会误判成仍有待处置草稿、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
     让响应落在「content 仍是旧的、quarantine 已经是 None」这一侧，面板会误判成干净态放行确认，
     用户点下确认时实际晋升的是他从未看过的那份新内容。
@@ -84,7 +84,7 @@ async def update_script_review_content(
     """保存手动 / Agent 编辑后的结构化中间态，并使该集重新等待确认。
 
     ``base_fingerprint``（query）是编辑方 GET 时拿到的内容指纹：给定时服务端在锁内比对，
-    编辑期间 step1 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。
+    编辑期间 script_plan 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。
 
     ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与草稿是两份独立文件，保存在途时
     Agent 可能已经另外产出一份新的草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
@@ -111,7 +111,7 @@ async def update_script_review_content(
 
 @router.post("/projects/{project_name}/episodes/{episode}/script-review/confirm")
 async def confirm_script_review(project_name: str, episode: int, _t: Translator):
-    """用户显式确认 step1 内容，放行 step2 视觉生成。
+    """用户显式确认 script_plan 内容，放行 prompt_authoring 视觉生成。
 
     ``quarantine`` 同 GET / PUT 一并合并，保持三个端点响应形状一致——``confirm()`` 内部虽已
     按待处置草稿文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的草稿状态，而不是让这个字段在

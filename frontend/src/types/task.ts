@@ -55,3 +55,8 @@ export interface TaskStats {
   cancelled: number;
   total: number;
 }
+
+/** 终态：任务生命周期末端，不再占用 resource。 */
+export function isTerminalStatus(status: TaskStatus): boolean {
+  return status === "succeeded" || status === "failed" || status === "cancelled";
+}

@@ -96,7 +96,7 @@ class GrokVideoBackend:
             # 解析失败属预期内回落（SDK 字段未类型化），保留请求时长即可，无需上抛
             logger.debug("Grok 回报的 duration 无法解析: %r，回落请求时长 %s 秒", raw_duration, actual_duration)
 
-        await download_video(video_url, request.output_path)
+        await download_video(video_url, request.output_path, label="Grok")
         logger.info("Grok 视频下载完成: %s", request.output_path)
 
         return VideoGenerationResult(
@@ -115,18 +115,19 @@ class GrokVideoBackend:
             "model": self._model,
             "duration": request.duration_seconds,
             "aspect_ratio": request.aspect_ratio,
-            "timeout": timedelta(minutes=15),
+            # 轮询在 SDK 内部，仍按请求快照里的全局超时收口，否则该设置独独对 Grok 不生效。
+            "timeout": timedelta(seconds=request.poll_timeout_seconds),
             "interval": timedelta(seconds=5),
         }
         if request.resolution is not None:
             generate_kwargs["resolution"] = request.resolution
 
-        if request.start_image and Path(request.start_image).exists():
+        if request.start_image and Path(request.start_image).exists():  # noqa: ASYNC240 -- 首帧存在性检查，本地元数据；读图转 data URI 已 to_thread 卸载
             image_path = Path(request.start_image)
             generate_kwargs["image_url"] = await asyncio.to_thread(image_to_data_uri, image_path, IMAGE_MIME_TYPES)
 
         if request.reference_images:
-            ref_paths = [Path(p) if not isinstance(p, Path) else p for p in request.reference_images]
+            ref_paths = list(request.reference_images)
             existing_paths = [p for p in ref_paths if p.exists()]
             if existing_paths:
                 ref_urls = await asyncio.gather(

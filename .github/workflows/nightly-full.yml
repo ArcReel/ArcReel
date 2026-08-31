@@ -22,7 +22,9 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    secrets: inherit
+    secrets:
+      # 只传被调 workflow 声明需要的 secret；新增 secret 时两边都要显式声明
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     with:
       full: true
 

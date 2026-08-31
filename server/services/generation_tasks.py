@@ -57,6 +57,7 @@ from lib.audio_utils import (
 )
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import (
     CompensableGenerationResult,
@@ -86,21 +87,13 @@ from lib.project_manager import (
     resolve_episode_script_binding,
 )
 from lib.prompt_builders import (
-    append_product_fidelity_tail,
     build_character_prompt,
     build_product_prompt,
     build_prop_prompt,
     build_scene_prompt,
-    build_storyboard_prompt,
+    render_storyboard_image_prompt,
 )
-from lib.prompt_utils import (
-    build_drama_video_prompt,
-    build_drama_video_prompt_from_legacy_dialogue,
-    strip_voice_profiles,
-)
-from lib.prompt_utils import (
-    normalize_video_prompt as _normalize_video_prompt,
-)
+from lib.prompt_utils import render_storyboard_video_prompt
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     ProviderMediaInput,
@@ -111,6 +104,7 @@ from lib.reference_video.execution_checkpoint import (
     stage_provider_media_for_task,
 )
 from lib.resource_paths import resource_relative_path
+from lib.schema_guards import is_int
 from lib.script_editor import resolve_items
 from lib.script_models import resolve_content_mode
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_LABEL_KEYS, resolve_script_kind
@@ -120,7 +114,6 @@ from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
     get_storyboard_items,
-    group_scenes_by_segment_break,
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
@@ -168,6 +161,23 @@ logger = logging.getLogger(__name__)
 class _CancellationReceipt(Protocol):
     def compensate_cancelled(self) -> None:
         pass
+
+
+@dataclass(frozen=True, slots=True)
+class _CompositeCancellationReceipt:
+    receipts: tuple[_CancellationReceipt, ...]
+
+    def compensate_cancelled(self) -> None:
+        failures: list[Exception] = []
+        for receipt in self.receipts:
+            try:
+                receipt.compensate_cancelled()
+            except Exception as exc:
+                failures.append(exc)
+        if failures:
+            for failure in failures[1:]:
+                failures[0].add_note(f"additional cancellation compensation failed: {failure}")
+            raise failures[0]
 
 
 def register_formal_task_artifact(
@@ -236,11 +246,8 @@ def compensable_formal_task_result(
 
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
-    if resource_type == "characters":
-        # 角色采用四视图横版
-        return "16:9"
-    if resource_type in ("scenes", "props", "products"):
-        # 多视图横排版式（product sheet 同为多角度横版）
+    if resource_type in ("characters", "scenes", "props", "products"):
+        # 资产图生成必须显式指定宽高比；四类当前均固定为 16:9。
         return "16:9"
     return resolve_video_aspect_ratio(project, resource_type)
 
@@ -382,10 +389,17 @@ def _commit_staged_formal_image(
     )
 
 
-def _normalize_storyboard_prompt(prompt: object, style: str, style_description: str = "") -> str:
+def _normalize_storyboard_prompt(
+    prompt: object,
+    style: str,
+    style_description: str = "",
+    product_names: Sequence[str] | None = None,
+) -> str:
     """Render one semantic storyboard prompt through the shared provider projection."""
 
-    return build_storyboard_prompt(prompt, style, style_description)
+    return render_storyboard_image_prompt(
+        prompt, style=style, style_description=style_description, product_names=product_names
+    )
 
 
 def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:
@@ -417,8 +431,8 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
         return
     try:
         numeric = float(duration)
-    except (TypeError, ValueError):
-        raise VideoCapabilityError("video_duration_invalid", duration=duration)
+    except (TypeError, ValueError) as exc:
+        raise VideoCapabilityError("video_duration_invalid", duration=duration) from exc
     if not numeric.is_integer():
         raise VideoCapabilityError("video_duration_invalid", duration=duration)
     seconds = int(numeric)
@@ -589,7 +603,7 @@ def _collect_reference_images(
     return reference_images or None
 
 
-def _collect_shot_product_references(
+def collect_shot_product_references(
     project: dict,
     project_path: Path,
     item: dict,
@@ -627,13 +641,13 @@ def _collect_shot_product_references(
 def collect_product_references_for_names(
     project: dict,
     project_path: Path,
-    names: Sequence[str],
+    names: Sequence[Any],
     *,
     currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
     """按商品名列表收集商品参考集（注入二元规则的装配核心，条目语义见
-    ``_collect_shot_product_references``）。分镜图按分镜注入与广告/短片的参考生视频
+    ``collect_shot_product_references``）。分镜图按分镜注入与广告/短片的参考生视频
     按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
     """
     spec = ASSET_SPECS["product"]
@@ -672,15 +686,15 @@ def collect_product_references_for_names(
                     "kind": "sheet",
                 }
             )
-        for original in _collect_product_reference_images(project, project_path, canonical) or []:
-            references.append(
-                {
-                    "image": original,
-                    "label": f"商品「{canonical}」实拍原图（保真锚点）",
-                    "name": canonical,
-                    "kind": "original",
-                }
-            )
+        references.extend(
+            {
+                "image": original,
+                "label": f"商品「{canonical}」实拍原图（保真锚点）",
+                "name": canonical,
+                "kind": "original",
+            }
+            for original in _collect_product_reference_images(project, project_path, canonical) or []
+        )
         if len(references) == before:
             logger.warning("商品分镜引用的商品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
     return references
@@ -1607,7 +1621,6 @@ async def execute_storyboard_task(
         _style_description = _project.get("style_description", "")
         if not isinstance(_style, str) or not isinstance(_style_description, str):
             raise ValueError("storyboard style and style description must be strings")
-        _prompt_text = _normalize_storyboard_prompt(_semantic_prompt, _style, _style_description)
         _visual_references: list[VisualReference] = []
         _ref_images = _collect_reference_images(
             _project,
@@ -1626,7 +1639,7 @@ async def execute_storyboard_task(
         )
         # 商品分镜：商品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
         # 并附高保真还原指令；氛围分镜零商品图，既有装配不变。
-        _product_refs = _collect_shot_product_references(
+        _product_refs = collect_shot_product_references(
             _project,
             _project_path,
             _target_item,
@@ -1636,7 +1649,12 @@ async def execute_storyboard_task(
         if _product_refs:
             _ref_images = _product_refs + (_ref_images or [])
             _visual_references = _product_visual_references(_product_refs) + _visual_references
-            _prompt_text = append_product_fidelity_tail(_prompt_text, _product_names_in_references(_product_refs))
+        _prompt_text = _normalize_storyboard_prompt(
+            _semantic_prompt,
+            _style,
+            _style_description,
+            _product_names_in_references(_product_refs) if _product_refs else None,
+        )
         _frozen = freeze_image_references(_ref_images, _visual_references)
         try:
             _formal_claims = list(
@@ -1719,7 +1737,7 @@ def _resolve_tts_task_items(
     script: dict[str, Any],
     *,
     reference_video_route: bool,
-) -> tuple[list[dict[str, Any]], str, str]:
+) -> tuple[list[Any], str, str]:
     """Resolve TTS units from the generation route fixed at task start."""
 
     if not reference_video_route:
@@ -1804,6 +1822,7 @@ async def execute_tts_task(
         project_name=project_name,
         resource_ids=(resource_id,),
         script_file=script_file,
+        user_id=user_id,
     ):
         raise ConflictError("tts_conflicts_with_active_narrated_video", resource_id=resource_id)
 
@@ -1827,7 +1846,8 @@ async def execute_tts_task(
 
     audio_rel = resource_relative_path("audio", resource_id)
     duration_seconds: float | None = None
-    tts_selection_error: BaseException | None = None
+    # 选片依据的解析失败在回调里发生、在外层消费，用单元素信箱传递而非 nonlocal 哨兵。
+    tts_selection_errors: list[BaseException] = []
     tts_settings_bridge = EventLoopBridge.capture()
     selected_current = True
     missing_narration_audio = object()
@@ -1839,19 +1859,19 @@ async def execute_tts_task(
         pass
 
     async def _measure_staged(staged_path: Path) -> None:
-        nonlocal duration_seconds, tts_selection_error
+        nonlocal duration_seconds
         try:
             measured_duration = await probe_existing_audio_duration_seconds(staged_path)
         except (Exception, asyncio.CancelledError) as exc:
-            tts_selection_error = exc
+            tts_selection_errors.append(exc)
             return
         if measured_duration is None or not math.isfinite(measured_duration) or measured_duration <= 0:
-            tts_selection_error = RuntimeError("generated narration audio duration is unavailable")
+            tts_selection_errors.append(RuntimeError("generated narration audio duration is unavailable"))
             return
         duration_seconds = float(measured_duration)
 
     def _commit_staged(staged_path: Path, output_path: Path) -> int | PaidVersionCommit:
-        nonlocal prior_narration_audio, selected_current, tts_selection_error
+        nonlocal prior_narration_audio, selected_current
         if script_file is None or preparation is None or episode is None or basis is None:
             selected_current = False
             return generator.versions.commit_staged_paid_version(
@@ -1873,9 +1893,9 @@ async def execute_tts_task(
         committed_episode = episode
         committed_basis = basis
         pm = get_project_manager()
-        committed_outcome: PaidVersionCommit | None = None
+        committed_outcome: list[PaidVersionCommit] = []
         should_select = False
-        guarded_project: dict[str, Any] | None = None
+        guarded_project: list[dict[str, Any]] = []
 
         version_metadata = {
             "tts_provider_id": settings.provider_id,
@@ -1900,10 +1920,10 @@ async def execute_tts_task(
                 **version_metadata,
             )
 
-        if tts_selection_error is not None:
-            committed_outcome = _archive_paid_history()
+        if tts_selection_errors:
+            committed_outcome.append(_archive_paid_history())
             selected_current = False
-            return committed_outcome
+            return committed_outcome[-1]
 
         def _register_basis() -> None:
             register_narration_audio_transactionally(
@@ -1914,27 +1934,28 @@ async def execute_tts_task(
             )
 
         def _activate(_script_path: Path) -> None:
-            nonlocal committed_outcome, prior_manifest_captured, prior_manifest_entry
+            nonlocal prior_manifest_captured, prior_manifest_entry
             if should_select:
                 manifest_adapter = ProjectArtifactManifestAdapter(project_path)
                 prior_manifest_entry = manifest_adapter.get_entry(
                     ArtifactKey.episode_audio(committed_episode, resource_id)
                 )
                 prior_manifest_captured = True
-            committed_outcome = generator.versions.commit_staged_paid_version(
-                resource_type="audio",
-                resource_id=resource_id,
-                prompt=text,
-                staged_file=staged_path,
-                current_file=output_path,
-                select_current=lambda: should_select,
-                on_select=_register_basis,
-                **version_metadata,
+            committed_outcome.append(
+                generator.versions.commit_staged_paid_version(
+                    resource_type="audio",
+                    resource_id=resource_id,
+                    prompt=text,
+                    staged_file=staged_path,
+                    current_file=output_path,
+                    select_current=lambda: should_select,
+                    on_select=_register_basis,
+                    **version_metadata,
+                )
             )
 
         def _same_script(_project: dict) -> str:
-            nonlocal guarded_project
-            guarded_project = _project
+            guarded_project.append(_project)
             current_binding = resolve_episode_script_binding(_project, committed_episode, str(script_file))
             if current_binding is None:
                 raise EpisodeScriptReboundError(f"episode {committed_episode} script binding changed before TTS commit")
@@ -1947,7 +1968,7 @@ async def execute_tts_task(
                 validate=False,
                 on_commit=_activate,
             ) as current_script:
-                if guarded_project is None:
+                if not guarded_project:
                     raise RuntimeError("TTS commit guard did not expose the current project")
                 try:
                     current_commit_settings = tts_settings_bridge.run(
@@ -1956,10 +1977,10 @@ async def execute_tts_task(
                             user_id=user_id,
                             project_path=project_path,
                             context_resolver=resolve_generation_context,
-                        ).resolve_tts_synthesis_settings(guarded_project)
+                        ).resolve_tts_synthesis_settings(guarded_project[-1])
                     )
                 except (Exception, asyncio.CancelledError) as exc:
-                    tts_selection_error = exc
+                    tts_selection_errors.append(exc)
                     raise _TtsSelectionResolutionFailed from exc
                 items, id_field, current_kind = _resolve_tts_task_items(
                     current_script,
@@ -1974,7 +1995,7 @@ async def execute_tts_task(
                     None,
                 )
                 current_basis = None
-                if tts_selection_error is None and item is not None:
+                if not tts_selection_errors and item is not None:
                     current_admission = admit_script_unit(current_kind, item)
                     try:
                         current_basis = build_narration_audio_basis(
@@ -2000,7 +2021,7 @@ async def execute_tts_task(
                     assets["narration_audio"] = audio_rel
                     pm.update_scene_status(item)
         except (EpisodeScriptReboundError, _TtsSelectionResolutionFailed):
-            committed_outcome = _archive_paid_history()
+            committed_outcome.append(_archive_paid_history())
         except BaseException as failure:
             if staged_path.is_file():
                 try:
@@ -2009,10 +2030,10 @@ async def execute_tts_task(
                     failure.add_note(f"paid TTS history archival also failed: {archive_failure}")
             raise
 
-        if committed_outcome is None:
-            raise RuntimeError("TTS commit completed without a version")
-        selected_current = committed_outcome.selected
-        return committed_outcome
+        if not committed_outcome:
+            raise RuntimeError("paid TTS commit produced no version record")
+        selected_current = committed_outcome[-1].selected
+        return committed_outcome[-1]
 
     async def _before_submit() -> None:
         await asyncio.to_thread(
@@ -2036,8 +2057,8 @@ async def execute_tts_task(
         tts_basis_digest=basis.digest if basis is not None else None,
     )
 
-    if tts_selection_error is not None:
-        raise tts_selection_error
+    if tts_selection_errors:
+        raise tts_selection_errors[-1]
 
     version_record: dict[str, Any] | None = None
     try:
@@ -2269,6 +2290,7 @@ async def execute_video_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
     claimed_provider_id: str | None = None,
+    poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     payload_script_file = payload.get("script_file")
     if script_file is None and isinstance(payload_script_file, str):
@@ -2300,7 +2322,7 @@ async def execute_video_task(
             _script_input,
         )
 
-    project, project_path, item, content_mode, script_kind, script, script_input = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode, script_kind, _script, script_input = await asyncio.to_thread(_load)
     # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
     # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
@@ -2370,28 +2392,18 @@ async def execute_video_task(
 
     visual_basis_digest = await asyncio.to_thread(_current_visual_basis_digest)
 
-    # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 的机械派生：调用方（WebUI
-    # 请求体 / 剧本 JSON 残留）自带的 voice_profiles 一律先剥离，不因 utterances 门控不触发
-    # （narration/ad、或 drama 无 utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
-    if isinstance(prompt, dict):
-        prompt = strip_voice_profiles(prompt)
-
-    # drama 口型台词单一真相源在分镜级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
-    # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad
-    # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
-    if isinstance(item, dict) and isinstance(prompt, dict) and content_mode == "drama":
-        # 无声（C 类模型不产音、或本集关闭音频）传 characters=None 即不注入 Voice_Profiles；
-        # 有音轨模型（含恒有声、开关不可控的型号）机械派生角色声音风格。
-        # 两条无声路径同口径，判据落在 VideoLaneResult.is_silent。台词不受影响、照常下发。
-        voice_characters = None if ctx.video.is_silent else (project.get("characters") or {})
-        if "utterances" in item:
-            prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
-        else:
-            # utterances 迁移前的存量剧本：load_script 按原始 JSON 读盘不过 pydantic，不会
-            # 被 DramaScene._migrate_legacy 自动补齐，台词仍留在 video_prompt.dialogue。
-            prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
-
-    prompt_text = _normalize_video_prompt(prompt)
+    # 最终文本的合成收敛在 render_storyboard_video_prompt：voice_profiles 剥离、drama 口型台词
+    # 注入（分镜级有序 utterances 为单一真相源）、YAML 渲染与反向约束尾词都在其内完成，预览
+    # 接口与批量准入读同一出口。无声（C 类模型不产音、或本集关闭音频）传 characters=None 即不
+    # 注入 Voice_Profiles，两条无声路径同口径，判据落在 VideoLaneResult.is_silent。
+    prompt_text = render_storyboard_video_prompt(
+        prompt,
+        item if isinstance(item, dict) else None,
+        content_mode=content_mode,
+        voice_characters=(None if ctx.video.is_silent else (project.get("characters") or {}))
+        if content_mode == "drama"
+        else None,
+    )
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
     # provider / model / 能力 / 分辨率均取自单次解析的 video lane：能力按 backend 实际身份
@@ -2422,8 +2434,6 @@ async def execute_video_task(
     delivery_projection = None
     if delivery_options.narration_delivery == USE_TTS:
         episode = artifact_episode
-        if episode is None:
-            episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         current_planned_duration = item.get("duration_seconds") if isinstance(item, dict) else None
         if (
             not isinstance(current_planned_duration, int)
@@ -2465,6 +2475,7 @@ async def execute_video_task(
                 project_name=project_name,
                 resource_id=resource_id,
                 script_file=str(script_file),
+                user_id=user_id,
             ),
         )
         narration_actual_duration = delivery_projection.narration.actual_duration_seconds
@@ -2501,7 +2512,7 @@ async def execute_video_task(
     duration_seconds = int(float(duration_seconds))
 
     if delivery_projection is not None:
-        if not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool):
+        if not is_int(duration_seconds):
             raise RuntimeError("allowed TTS video projection produced a non-integer request duration")
         narration_actual_duration = delivery_projection.narration.actual_duration_seconds
         if narration_actual_duration is None:
@@ -2680,7 +2691,7 @@ async def execute_video_task(
     )
     try:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
-        output_path, version, _, video_uri = await generator.generate_video_async(
+        _output_path, version, _, video_uri = await generator.generate_video_async(
             prompt=prompt_text,
             resource_type="videos",
             resource_id=resource_id,
@@ -2698,6 +2709,7 @@ async def execute_video_task(
             service_tier=service_tier,
             visual_basis_digest=visual_basis_digest,
             generate_audio=ctx.video.requested_generate_audio,
+            poll_timeout_seconds=poll_timeout_seconds,
         )
 
         async def _finalize() -> dict[str, Any]:
@@ -2989,14 +3001,6 @@ async def execute_product_task(
     return await execute_design_task("product", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
-def _group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:
-    """Groups consecutive scene dicts, breaking at segment_break=True.
-
-    Delegates to :func:`lib.storyboard_sequence.group_scenes_by_segment_break`.
-    """
-    return group_scenes_by_segment_break(items, id_field)
-
-
 def _collect_grid_reference_images(
     project_path: Path,
     payload: dict[str, Any],
@@ -3158,10 +3162,7 @@ async def execute_grid_task(
     resource_id is the grid_id. Steps:
     1. Load GridGeneration, set status to generating
     2. Generate the joint image via MediaGenerator (versioned as resource_type "grids")
-    3. Mark completed
-
-    只产出联合图，不触碰任何分镜格；落格由独立的切分操作
-    （server.services.grid_split.apply_grid_split）显式执行。
+    3. Mark completed and split the requested cells before the task settles
     """
     from lib.grid.layout import GRID_FALLBACK_RESOLUTION, grid_aspect_ratio_for
     from lib.grid.prompt_builder import build_grid_prompt
@@ -3236,7 +3237,7 @@ async def execute_grid_task(
         # d) Generate grid image
         _needs_i2i = bool(reference_images)
         items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
-        item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, Mapping)}
+        item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, dict)}
         if len(set(grid.scene_ids)) != len(grid.scene_ids):
             raise ValueError("grid scene identities must be unique")
         missing_members = [scene_id for scene_id in grid.scene_ids if scene_id not in item_by_id]
@@ -3391,7 +3392,7 @@ async def execute_grid_task(
                 )
                 if not rejected:
                     failure.add_note("generated grid version changed before formal-write compensation")
-            except Exception as compensation_failure:  # noqa: BLE001
+            except Exception as compensation_failure:
                 failure.add_note(f"generated grid compensation also failed: {compensation_failure}")
         # The formal-write transaction restored the durable grid record, but
         # ``grid`` still carries the rejected completion fields in memory.
@@ -3409,6 +3410,47 @@ async def execute_grid_task(
             await run_noninterruptible_sync(frozen_references.cleanup)
 
     created_at = grid.created_at
+    unit_results: dict[str, dict[str, Any]] = {}
+    report_scene_ids = payload.get("report_scene_ids")
+    if isinstance(report_scene_ids, list) and report_scene_ids:
+        from server.services.grid_split import apply_grid_split
+
+        try:
+            with project_change_source("worker"):
+                split = await apply_grid_split(
+                    project_name,
+                    grid,
+                    only_scene_ids=frozenset(str(scene_id) for scene_id in report_scene_ids),
+                    task_aware=task_id is not None,
+                )
+            if task_id is not None:
+                receipt = _CompositeCancellationReceipt(
+                    tuple(candidate for candidate in (split, receipt) if candidate is not None)
+                )
+            cut = set(split.updated_scene_ids)
+            for scene_id in report_scene_ids:
+                if scene_id in cut:
+                    unit_results[scene_id] = {"file_path": resource_relative_path("storyboards", scene_id)}
+                else:
+                    unit_results[scene_id] = {
+                        "problem": {
+                            "code": "generation_post_processing_failed",
+                            "detail": f"联合图已生成，但分镜 {scene_id} 未落格（已不在剧本中）",
+                            "action": "fix_input",
+                            "params": {"grid_id": grid.id},
+                        }
+                    }
+        except Exception:
+            logger.exception("联合图切分落格失败: grid_id=%s", grid.id)
+            for scene_id in report_scene_ids:
+                unit_results[scene_id] = {
+                    "problem": {
+                        "code": "generation_post_processing_failed",
+                        "detail": "联合图已生成，但切分落格失败（不要重新生成）",
+                        "action": "none",
+                        "params": {"grid_id": grid.id},
+                    }
+                }
 
     return compensable_formal_task_result(
         {
@@ -3417,6 +3459,7 @@ async def execute_grid_task(
             "created_at": created_at,
             "resource_type": "grids",
             "resource_id": resource_id,
+            "unit_results": unit_results,
         },
         receipt,
     )
@@ -3431,6 +3474,7 @@ async def _execute_reference_video_task_proxy(
     user_id: str,
     task_id: str | None = None,
     claimed_provider_id: str | None = None,
+    poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Lazy proxy to avoid circular import: reference_video_tasks imports from this module."""
     from server.services.reference_video_tasks import execute_reference_video_task
@@ -3443,6 +3487,7 @@ async def _execute_reference_video_task_proxy(
         user_id=user_id,
         task_id=task_id,
         claimed_provider_id=claimed_provider_id,
+        poll_timeout_seconds=poll_timeout_seconds,
     )
 
 
@@ -3482,6 +3527,8 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
     payload = task.get("payload") or {}
     user_id = task.get("user_id", DEFAULT_USER_ID)
     queue_task_id = task.get("task_id")
+    # worker 派发时把当下的全局设置写进任务字典；非 worker 调用方（测试 / 直生）落回缺省。
+    video_poll_timeout_seconds = int(task.get("video_poll_timeout_seconds", DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS))
 
     if not project_name:
         raise ValueError("task.project_name is required")
@@ -3489,6 +3536,10 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
         raise ValueError("task.task_type is required")
 
     executor = _TASK_EXECUTORS.get(task_type)
+    if task_type.startswith("text_"):
+        from server.tool_runtime import execute_queued_text_task
+
+        return await execute_queued_text_task(task)
     if executor is None:
         raise ValueError(f"unsupported task_type: {task_type}")
 
@@ -3505,6 +3556,7 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
                 user_id=user_id,
                 task_id=queue_task_id,
                 claimed_provider_id=claimed_provider_id,
+                poll_timeout_seconds=video_poll_timeout_seconds,
             )
         elif task_type == "video":
             result = await executor(
@@ -3515,6 +3567,7 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
                 user_id=user_id,
                 task_id=queue_task_id,
                 claimed_provider_id=claimed_provider_id,
+                poll_timeout_seconds=video_poll_timeout_seconds,
             )
         else:
             result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)

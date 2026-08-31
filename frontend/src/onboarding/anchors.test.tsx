@@ -40,10 +40,15 @@ vi.mock("@/components/pages/CreateProjectModal", () => ({
 vi.mock("@/components/task-hud/TaskHud", () => ({ TaskHud: () => <div data-testid="task-hud" /> }));
 vi.mock("@/components/layout/UsageDrawer", () => ({ UsageDrawer: () => null }));
 vi.mock("@/components/layout/WorkspaceNotificationsDrawer", () => ({ WorkspaceNotificationsDrawer: () => null }));
-vi.mock("@/components/layout/ExportScopeDialog", () => ({ ExportScopeDialog: () => null }));
-vi.mock("@/components/canvas/timeline/ScriptReviewGate", () => ({ ScriptReviewGate: () => null }));
+vi.mock("@/components/canvas/timeline/ScriptReviewGate", async () => {
+  const { scriptReviewGateMock } = await import("@/__mocks__/ScriptReviewGate");
+  return scriptReviewGateMock();
+});
 vi.mock("@/components/canvas/timeline/ShotSplitView", () => ({ ShotSplitView: () => null }));
-vi.mock("@/components/canvas/timeline/EpisodeHeader", () => ({ EpisodeHeader: () => null }));
+vi.mock("@/components/canvas/timeline/EpisodeHeader", async () => {
+  const { episodeHeaderMock } = await import("@/__mocks__/EpisodeHeader");
+  return episodeHeaderMock();
+});
 
 function renderLobby() {
   const { hook } = memoryLocation({ path: "/app/projects" });

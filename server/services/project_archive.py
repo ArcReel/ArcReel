@@ -1487,22 +1487,21 @@ class ProjectArchiveService:
                 and resource_id
                 and resolved_raw.startswith(f"versions/{resource_type}/")
                 and Path(resolved_raw).name.startswith(f"{resource_id}_v")
+            ) and self._materialize_current_file(
+                project_dir / resolved_raw,
+                canonical_path,
             ):
-                if self._materialize_current_file(
-                    project_dir / resolved_raw,
-                    canonical_path,
-                ):
-                    payload[field_name] = canonical_rel
-                    diagnostics.add(
-                        "auto_fixed",
-                        "current_asset_materialized",
-                        ValidationMessage(
-                            "arch_current_asset_materialized",
-                            {"location": location, "source": resolved_raw, "target": canonical_rel},
-                        ),
-                        location=location,
-                    )
-                    return True
+                payload[field_name] = canonical_rel
+                diagnostics.add(
+                    "auto_fixed",
+                    "current_asset_materialized",
+                    ValidationMessage(
+                        "arch_current_asset_materialized",
+                        {"location": location, "source": resolved_raw, "target": canonical_rel},
+                    ),
+                    location=location,
+                )
+                return True
             return False
 
         if resource_type and resource_id and versions_payload is not None:
@@ -1512,22 +1511,21 @@ class ProjectArchiveService:
                 resource_type=resource_type,
                 resource_id=resource_id,
             )
-            if version_rel:
-                if self._materialize_current_file(
-                    project_dir / version_rel,
-                    canonical_path,
-                ):
-                    payload[field_name] = canonical_rel
-                    diagnostics.add(
-                        "auto_fixed",
-                        "current_asset_restored_from_version",
-                        ValidationMessage(
-                            "arch_current_asset_restored_from_version",
-                            {"location": location, "source": version_rel, "target": canonical_rel},
-                        ),
-                        location=location,
-                    )
-                    return True
+            if version_rel and self._materialize_current_file(
+                project_dir / version_rel,
+                canonical_path,
+            ):
+                payload[field_name] = canonical_rel
+                diagnostics.add(
+                    "auto_fixed",
+                    "current_asset_restored_from_version",
+                    ValidationMessage(
+                        "arch_current_asset_restored_from_version",
+                        {"location": location, "source": version_rel, "target": canonical_rel},
+                    ),
+                    location=location,
+                )
+                return True
 
         return False
 
@@ -1561,10 +1559,11 @@ class ProjectArchiveService:
 
         prefix = f"{resource_id}_v"
         extension = resource_extension(resource_type)
-        candidates: list[str] = []
-        for candidate in sorted(version_dir.iterdir(), key=lambda path: path.name):
-            if candidate.is_file() and candidate.name.startswith(prefix) and candidate.suffix == extension:
-                candidates.append(candidate.relative_to(project_dir).as_posix())
+        candidates: list[str] = [
+            candidate.relative_to(project_dir).as_posix()
+            for candidate in sorted(version_dir.iterdir(), key=lambda path: path.name)
+            if candidate.is_file() and candidate.name.startswith(prefix) and candidate.suffix == extension
+        ]
 
         if len(candidates) == 1:
             return candidates[0]
@@ -1723,7 +1722,7 @@ class ProjectArchiveService:
         if real is None:
             raise ValueError(f"路径越界，拒绝写入: {path}")
         real.parent.mkdir(parents=True, exist_ok=True)
-        with open(real, "w", encoding="utf-8") as handle:  # noqa: PTH123
+        with open(real, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
 
     @staticmethod

@@ -1,5 +1,6 @@
 """Database package — ORM models, engine, and session factory."""
 
+import contextlib
 import logging
 
 from lib.db.base import Base
@@ -72,10 +73,8 @@ async def close_db() -> None:
     aiosqlite connections may already be dead when SSE tasks were cancelled,
     so we tolerate errors during pool cleanup.
     """
-    try:
+    with contextlib.suppress(Exception):
         await async_engine.dispose()
-    except Exception:
-        pass  # aiosqlite connections may already be dead after SSE task cancellation
 
 
 __all__ = [

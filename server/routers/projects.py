@@ -30,6 +30,8 @@ from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
+
+# fastapi 只 re-export 复数的 BackgroundTasks，单数版本只能取 starlette。
 from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
@@ -37,9 +39,17 @@ logger = logging.getLogger(__name__)
 from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.asset_types import asset_name_comparison_key
+from lib.character_voice import PROJECT_FIELD as CHARACTER_VOICE_BINDING_FIELD
+from lib.character_voice import VALID_CHARACTER_VOICE_BINDINGS
 from lib.config.registry import default_model_for_provider
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.db import async_session_factory
+from lib.episode_target_duration import (
+    EPISODE_TARGET_DURATION_FIELD,
+    MAX_EPISODE_TARGET_DURATION,
+    MIN_EPISODE_TARGET_DURATION,
+    is_valid_episode_target_duration,
+)
 from lib.i18n import Translator
 from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import ContentMode
@@ -65,6 +75,7 @@ from server.services.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project_cover import resolve_project_cover
+from server.services.prompt_preview import ScriptItemNotFound, preview_item_prompts
 
 router = APIRouter()
 
@@ -75,6 +86,9 @@ self_auth_router = APIRouter()
 
 def get_workflow_state_service() -> WorkflowStateService:
     return WorkflowStateService(get_project_manager())
+
+
+WorkflowStateServiceDep = Annotated[WorkflowStateService, Depends(get_workflow_state_service)]
 
 
 def _project_status_payload(summary: ProjectSummary) -> dict[str, Any]:
@@ -115,8 +129,19 @@ def get_archive_service() -> ProjectArchiveService:
     return ProjectArchiveService(get_project_manager())
 
 
+ArchiveServiceDep = Annotated[ProjectArchiveService, Depends(get_archive_service)]
+
+
 def get_script_batch_editor(manager: Any | None = None) -> ScriptBatchEditor:
     return ScriptBatchEditor(manager or get_project_manager())
+
+
+def get_script_batch_editor_factory() -> Callable[[Any], ScriptBatchEditor]:
+    """批量编辑器的路由依赖；编辑器要绑处理器内解析出的 manager，故注入工厂而非实例。"""
+    return get_script_batch_editor
+
+
+ScriptBatchEditorFactoryDep = Annotated[Callable[[Any], ScriptBatchEditor], Depends(get_script_batch_editor_factory)]
 
 
 # 项目级模型字段：创建时逐一校验并写入 project.json，PATCH 时另加 audio_backend。
@@ -149,6 +174,24 @@ def _reject_bool_speech_rate(value: object) -> object:
 SpeechRateOverride = Annotated[float | None, BeforeValidator(_reject_bool_speech_rate)]
 
 
+def _validated_episode_target_duration(value: int, _t: Translator) -> int:
+    """把创建 / PATCH 传入的单集目标时长收进硬区间，越界即 422。
+
+    区间与 ``lib.episode_target_duration`` 的读时守卫、``patch_project`` 的强制转换、
+    前端输入校验同一把尺（``is_valid_episode_target_duration``），不在这里另写边界数字。
+    """
+    if not is_valid_episode_target_duration(value):
+        raise HTTPException(
+            status_code=422,
+            detail=_t(
+                "episode_target_duration_out_of_range",
+                min=MIN_EPISODE_TARGET_DURATION,
+                max=MAX_EPISODE_TARGET_DURATION,
+            ),
+        )
+    return value
+
+
 def _validated_speech_rate(value: float, _t: Translator) -> float:
     """把创建 / PATCH 传入的口播语速估算收进硬区间，越界即 422。
 
@@ -172,6 +215,8 @@ class CreateProjectRequest(BaseModel):
     source_kind: SourceKind | None = None
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
+    # 单集目标时长（秒）：可选软偏好，非 ad 项目适用；区间校验在 _validated_episode_target_duration。
+    episode_target_duration: int | None = None
     # 仅 content_mode=ad：目标总时长（秒）。UI 给四档（15/30/60/90，默认 60），
     # 数据层不硬枚举，任意正整数合法。
     target_duration: int | None = Field(default=None, gt=0)
@@ -217,6 +262,8 @@ class UpdateProjectRequest(BaseModel):
     style: str | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
+    # 单集目标时长（秒）：显式 null 清除该偏好；ad 项目对字段出现本身即拒绝
+    episode_target_duration: int | None = None
     # 仅 ad 项目：目标总时长（秒），任意正整数合法，不可清空
     target_duration: int | None = Field(default=None, gt=0)
     # 仅 ad 项目：创作诉求短文本；显式 null 清为空字符串
@@ -230,6 +277,8 @@ class UpdateProjectRequest(BaseModel):
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
     video_generate_audio: bool | None = None
+    # 角色声音绑定方式：prompt（默认，voice_style 提示词软约束）/ reference_audio（挂角色参考音频）
+    character_voice_binding: str | None = None
     # 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速；留空 = 跟随全局默认
     audio_backend: str | None = None
     narration_voice: str | None = None
@@ -260,6 +309,7 @@ def _cleanup_temp_dir(dir_path: str) -> None:
 @router.post("/projects/import")
 async def import_project_archive(
     _t: Translator,
+    archive_service: ArchiveServiceDep,
     file: UploadFile = File(...),
     conflict_policy: str = Form("prompt"),
 ):
@@ -284,7 +334,7 @@ async def import_project_archive(
         await asyncio.to_thread(_write_upload)
 
         def _sync():
-            return get_archive_service().import_project_archive(
+            return archive_service.import_project_archive(
                 Path(upload_path),
                 uploaded_filename=file.filename,
                 conflict_policy=conflict_policy,
@@ -328,6 +378,7 @@ async def create_export_token(
     name: str,
     current_user: CurrentUser,
     _t: Translator,
+    archive_service: ArchiveServiceDep,
     scope: str = Query("full"),
 ):
     """签发短时效下载 token，用于浏览器原生下载认证。"""
@@ -338,7 +389,7 @@ async def create_export_token(
         def _sync():
             if not get_project_manager().project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
-            return get_archive_service().get_export_diagnostics(name, scope=scope, translate=_t)
+            return archive_service.get_export_diagnostics(name, scope=scope, translate=_t)
 
         diagnostics = await asyncio.to_thread(_sync)
         username = current_user.sub
@@ -350,15 +401,16 @@ async def create_export_token(
         }
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @self_auth_router.get("/projects/{name}/export")
 async def export_project_archive(
     name: str,
     _t: Translator,
+    archive_service: ArchiveServiceDep,
     download_token: str = Query(...),
     scope: str = Query("full"),
 ):
@@ -371,17 +423,15 @@ async def export_project_archive(
 
     try:
         verify_download_token(download_token, name)
-    except pyjwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail=_t("download_expired"))
-    except ValueError:
-        raise HTTPException(status_code=403, detail=_t("download_token_mismatch"))
-    except pyjwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail=_t("download_token_invalid"))
+    except pyjwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_expired")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=_t("download_token_mismatch")) from exc
+    except pyjwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
 
     try:
-        archive_path, download_name = await asyncio.to_thread(
-            lambda: get_archive_service().export_project(name, scope=scope)
-        )
+        archive_path, download_name = await asyncio.to_thread(lambda: archive_service.export_project(name, scope=scope))
         return FileResponse(
             archive_path,
             media_type="application/zip",
@@ -392,9 +442,9 @@ async def export_project_archive(
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 # --- 剪映草稿导出 ---
@@ -404,6 +454,10 @@ def get_jianying_draft_service() -> JianyingDraftService:
     from server.services.jianying_draft_service import JianyingDraftService
 
     return JianyingDraftService(get_project_manager())
+
+
+# 具体类型只在 TYPE_CHECKING 下可见：pyJianYingDraft 是重依赖，运行期仍按需惰性导入。
+JianyingDraftServiceDep = Annotated[Any, Depends(get_jianying_draft_service)]
 
 
 def _validate_draft_path(draft_path: str, _t: Callable[..., str]) -> str:
@@ -421,6 +475,7 @@ def _validate_draft_path(draft_path: str, _t: Callable[..., str]) -> str:
 async def export_jianying_draft(
     name: str,
     _t: Translator,
+    svc: JianyingDraftServiceDep,
     episode: int = Query(..., description="集数编号"),
     draft_path: str = Query(..., description="用户本地剪映草稿目录"),
     download_token: str = Query(..., description="下载 token"),
@@ -436,12 +491,12 @@ async def export_jianying_draft(
     # 1. 验证 download_token
     try:
         verify_download_token(download_token, name)
-    except pyjwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail=_t("download_expired"))
-    except ValueError:
-        raise HTTPException(status_code=403, detail=_t("download_token_mismatch"))
-    except pyjwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail=_t("download_token_invalid"))
+    except pyjwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_expired")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=_t("download_token_mismatch")) from exc
+    except pyjwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
 
     # 2. 校验 draft_path
     draft_path = _validate_draft_path(draft_path, _t)
@@ -450,7 +505,6 @@ async def export_jianying_draft(
     from server.services.jianying_draft_service import NoCompletedSegmentsError
     from server.services.presentation_read_model import PresentationUnavailableError
 
-    svc = get_jianying_draft_service()
     try:
         zip_path = await svc.export_episode_draft(
             project_name=name,
@@ -469,11 +523,11 @@ async def export_jianying_draft(
     except PresentationUnavailableError as exc:
         logger.warning("剪映草稿 presentation 不可用: project=%s episode=%d (%s)", name, episode, exc)
         raise ApiError("presentation_unavailable", status_code=422) from exc
-    except Exception:
+    except Exception as exc:
         # 含暂存/写入阶段的路径越界守卫（ValueError，str(e) 带真实路径）：属安全告警而非
         # 常规空态，不应误报为「本集无已完成片段」，一律降级为通用 500，细节只进日志
         logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
-        raise HTTPException(status_code=500, detail=_t("jianying_export_failed"))
+        raise HTTPException(status_code=500, detail=_t("jianying_export_failed")) from exc
 
     download_name = f"{name}_episode_{episode}_jianying_draft.zip"
 
@@ -486,12 +540,11 @@ async def export_jianying_draft(
 
 
 @router.get("/projects")
-async def list_projects():
+async def list_projects(summaries: WorkflowStateServiceDep):
     """列出所有项目"""
 
     def _sync():
         manager = get_project_manager()
-        summaries = get_workflow_state_service()
         projects = []
         for name in manager.list_projects():
             try:
@@ -596,6 +649,8 @@ async def create_project(
             if content_mode == "ad":
                 if req.default_duration is not None:
                     raise HTTPException(status_code=400, detail=_t("ad_no_default_duration"))
+                if req.episode_target_duration is not None:
+                    raise HTTPException(status_code=400, detail=_t("ad_no_episode_target_duration"))
                 if req.grid_storyboard:
                     raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
             else:
@@ -617,11 +672,17 @@ async def create_project(
                 if req.speech_rate_units_per_second is None
                 else _validated_speech_rate(req.speech_rate_units_per_second, _t)
             )
+            # 单集目标时长：同理在 create_project 之前判，越界请求不留下半成品项目目录。
+            episode_target_duration = (
+                None
+                if req.episode_target_duration is None
+                else _validated_episode_target_duration(req.episode_target_duration, _t)
+            )
 
             try:
                 manager.create_project(project_name, content_mode=req.content_mode or "narration")
-            except FileExistsError:
-                raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name))
+            except FileExistsError as exc:
+                raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name)) from exc
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
@@ -639,6 +700,7 @@ async def create_project(
                     req.content_mode,
                     aspect_ratio=req.aspect_ratio,
                     default_duration=req.default_duration,
+                    episode_target_duration=episode_target_duration,
                     style_template_id=req.style_template_id,
                     extras=extras or None,
                     target_duration=req.target_duration,
@@ -654,9 +716,9 @@ async def create_project(
         raise BadRequestError("project_config_invalid") from e
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/projects/{name}/video-capabilities")
@@ -720,11 +782,15 @@ async def get_workflow_status(
 
 
 @router.post("/projects/{name}/workflow-plan", response_model=WorkflowPlan)
-async def get_workflow_plan(name: str, request: WorkflowPlanRequest):
+async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_user: CurrentUser):
     """Return the side-effect-free plan for one transient workflow request."""
 
     try:
-        return await workflow_plan_service.get_workflow_planner(get_project_manager()).get_plan(name, request)
+        return await workflow_plan_service.get_workflow_planner(get_project_manager()).get_plan(
+            name,
+            request,
+            user_id=current_user.id,
+        )
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:
@@ -735,6 +801,7 @@ async def get_workflow_plan(name: str, request: WorkflowPlanRequest):
 async def get_project(
     name: str,
     _t: Translator,
+    summaries: WorkflowStateServiceDep,
 ):
     """获取项目详情（含实时计算字段）"""
     try:
@@ -747,7 +814,7 @@ async def get_project(
             project = manager.load_project(name)
 
             # 阶段、产物计数与每集明细一律来自项目摘要投影（读时计算，不写入 JSON）
-            summary = get_workflow_state_service().get_project_summary(name)
+            summary = summaries.get_project_summary(name)
             project = _merge_episode_summaries(project, summary)
             project["status"] = _project_status_payload(summary)
 
@@ -781,9 +848,9 @@ async def get_project(
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/projects/{name}/agent-profile")
@@ -804,9 +871,9 @@ async def get_agent_profile_status(name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except ApiError:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("读取项目 Agent profile 状态失败: project=%s", name)
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.post("/projects/{name}/agent-profile/reset")
@@ -830,9 +897,9 @@ async def reset_agent_profile(name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except ApiError:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("重置项目 Agent profile 失败: project=%s", name)
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.patch("/projects/{name}")
@@ -864,6 +931,15 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project.pop("video_generate_audio", None)
                     else:
                         project["video_generate_audio"] = req.video_generate_audio
+                # 角色声音绑定方式：枚举，null / 空串 = 清除、回落默认（提示词软约束）
+                if "character_voice_binding" in req.model_fields_set:
+                    binding = (req.character_voice_binding or "").strip()
+                    if not binding:
+                        project.pop(CHARACTER_VOICE_BINDING_FIELD, None)
+                    elif binding in VALID_CHARACTER_VOICE_BINDINGS:
+                        project[CHARACTER_VOICE_BINDING_FIELD] = binding
+                    else:
+                        raise HTTPException(status_code=422, detail=_t("character_voice_binding_invalid"))
                 # 旁白音色：照供应商文档填的字符串 id；空串 = 清除回落全局默认
                 if "narration_voice" in req.model_fields_set:
                     voice = (req.narration_voice or "").strip()
@@ -902,6 +978,16 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project.pop("default_duration", None)
                     else:
                         project["default_duration"] = req.default_duration
+                if "episode_target_duration" in req.model_fields_set:
+                    # 与 default_duration 同口径：ad 项目对字段出现本身即拒绝（含 null）
+                    if is_ad:
+                        raise HTTPException(status_code=400, detail=_t("ad_no_episode_target_duration"))
+                    if req.episode_target_duration is None:
+                        project.pop(EPISODE_TARGET_DURATION_FIELD, None)
+                    else:
+                        project[EPISODE_TARGET_DURATION_FIELD] = _validated_episode_target_duration(
+                            req.episode_target_duration, _t
+                        )
                 if "target_duration" in req.model_fields_set:
                     if not is_ad:
                         raise HTTPException(status_code=400, detail=_t("ad_only_field", field="target_duration"))
@@ -985,9 +1071,9 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.delete("/projects/{name}")
@@ -1004,9 +1090,9 @@ async def delete_project(name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.get("/projects/{name}/scripts/{script_file}")
@@ -1019,9 +1105,9 @@ async def get_script(name: str, script_file: str, _t: Translator):
         raise NotFoundError("script_not_found", name=script_file) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.post(
@@ -1029,7 +1115,12 @@ async def get_script(name: str, script_file: str, _t: Translator):
     response_model=None,
     dependencies=[Depends(require_project_migration_ok)],
 )
-async def edit_script_batch(name: str, command: ScriptBatchEditCommand, _t: Translator) -> JSONResponse:
+async def edit_script_batch(
+    name: str,
+    command: ScriptBatchEditCommand,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+) -> JSONResponse:
     """Execute the same revisioned script-edit command exposed to the in-process Agent."""
 
     manager = None
@@ -1043,7 +1134,7 @@ async def edit_script_batch(name: str, command: ScriptBatchEditCommand, _t: Tran
             raise NotFoundError("project_not_found", name=name) from exc
 
         with project_change_source("webui"):
-            result = await asyncio.to_thread(get_script_batch_editor(manager).execute, name, command)
+            result = await asyncio.to_thread(make_script_batch_editor(manager).execute, name, command)
         return JSONResponse(status_code=script_batch_status(result), content=result.model_dump(mode="json"))
     except FileNotFoundError as exc:
         if manager is None or not manager.project_exists(name):
@@ -1057,13 +1148,62 @@ async def edit_script_batch(name: str, command: ScriptBatchEditCommand, _t: Tran
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
+@router.get(
+    "/projects/{name}/script-items/{item_id}/prompt-preview",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def preview_script_item_prompts(
+    name: str,
+    item_id: str,
+    _t: Translator,
+    script_file: str = Query(..., description="剧本文件名"),
+):
+    """渲染该条目当前会送进图像 / 视频模型的最终提示词文本。
+
+    与执行路径共用同一渲染出口，结果逐字等于本次生成实际发出的提示词。只读：不向供应商
+    发请求、不产生费用、不写产物清单。某一侧缺提示词或形状不合规时，该侧返回不可用原因、
+    另一侧照常渲染，半成品条目仍能看到已写好的那一半。
+
+    挂迁移闸门与生成入口同判据：商品参考的装配读产物清单，且被阻断的项目本就无法生成，
+    此时报「先修复」比渲染一份不会被发出的文本诚实。
+    """
+    try:
+        preview = await preview_item_prompts(name, script_file, item_id)
+    except ScriptItemNotFound as exc:
+        raise NotFoundError("script_item_not_found", id=item_id) from exc
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=script_file) from exc
+    except ValueError as exc:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+
+    def _side(rendered):
+        return {
+            "text": rendered.text,
+            "unavailable": _t(rendered.unavailable) if rendered.unavailable else None,
+            "is_text_form": rendered.is_text_form,
+        }
+
+    return {
+        "item_id": preview.item_id,
+        "content_mode": preview.content_mode,
+        "storyboard_image": _side(preview.storyboard_image),
+        "video": _side(preview.video),
+    }
+
+
 class UpdateSceneRequest(BaseModel):
     script_file: str
     updates: dict
 
 
 @router.patch("/projects/{name}/script-scenes/{scene_id}", dependencies=[Depends(require_project_migration_ok)])
-async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Translator):
+async def update_scene(
+    name: str,
+    scene_id: str,
+    req: UpdateSceneRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
     """更新剧情演绎剧本中的单个分镜（按 scene_id 定位）。
 
     路径与项目场景资产 CRUD（``/projects/{name}/scenes/{entry_name}``）做明确区分，
@@ -1108,7 +1248,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                     name,
                     req.script_file,
                     [{"op": "update", "id": scene_id, "fields": fields}],
-                    editor=get_script_batch_editor(manager),
+                    editor=make_script_batch_editor(manager),
                 )
             require_script_edit_result(
                 result,
@@ -1127,9 +1267,9 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 class UpdateShotRequest(BaseModel):
@@ -1180,7 +1320,13 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
 
 
 @router.patch("/projects/{name}/script-shots/{shot_id}", dependencies=[Depends(require_project_migration_ok)])
-async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Translator):
+async def update_shot(
+    name: str,
+    shot_id: str,
+    req: UpdateShotRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
     """更新广告/短片剧本中的单个分镜（按 shot_id 定位）。
 
     路径风格与 ``script-scenes`` 对齐；口播文案 / section / 时长 / 引用列表等
@@ -1208,7 +1354,7 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
                     name,
                     req.script_file,
                     [{"op": "update", "id": shot_id, "fields": fields}],
-                    editor=get_script_batch_editor(manager),
+                    editor=make_script_batch_editor(manager),
                 )
             require_script_edit_result(
                 result,
@@ -1227,9 +1373,9 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 class ReorderShotsRequest(BaseModel):
@@ -1238,7 +1384,12 @@ class ReorderShotsRequest(BaseModel):
 
 
 @router.post("/projects/{name}/script-shots/reorder", dependencies=[Depends(require_project_migration_ok)])
-async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
+async def reorder_shots(
+    name: str,
+    req: ReorderShotsRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
     """按给定全排列重排 ad 剧本的 shots 顺序（与视频单元重排端点同语义）。"""
     try:
 
@@ -1267,7 +1418,7 @@ async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
                     name,
                     req.script_file,
                     operations,
-                    editor=get_script_batch_editor(manager),
+                    editor=make_script_batch_editor(manager),
                 )
             require_script_edit_result(result)
             reordered = manager.load_script(name, req.script_file)["shots"]
@@ -1280,9 +1431,9 @@ async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 class UpdateSegmentRequest(BaseModel):
@@ -1310,7 +1461,13 @@ class UpdateEpisodeRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/segments/{segment_id}", dependencies=[Depends(require_project_migration_ok)])
-async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _t: Translator):
+async def update_segment(
+    name: str,
+    segment_id: str,
+    req: UpdateSegmentRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
     """更新旁白/解说分镜"""
     try:
 
@@ -1356,7 +1513,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                     name,
                     req.script_file,
                     [{"op": "update", "id": segment_id, "fields": fields}],
-                    editor=get_script_batch_editor(manager),
+                    editor=make_script_batch_editor(manager),
                 )
             require_script_edit_result(
                 result,
@@ -1375,9 +1532,9 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.patch("/projects/{name}/episodes/{episode}", dependencies=[Depends(require_project_migration_ok)])
@@ -1433,9 +1590,9 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
         raise
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 # ==================== 源文件管理 ====================
@@ -1490,8 +1647,8 @@ async def set_project_source(
                     safe_filename = Path(original_name).name
                     try:
                         text = raw.decode("utf-8")
-                    except UnicodeDecodeError:
-                        raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
+                    except UnicodeDecodeError as exc:
+                        raise HTTPException(status_code=400, detail=_t("invalid_encoding")) from exc
                     if len(text) > MAX_CHARS:
                         raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                     (source_dir / safe_filename).write_text(text, encoding="utf-8")
@@ -1525,9 +1682,9 @@ async def set_project_source(
         return result
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
     finally:
         if file:
             await file.close()
@@ -1549,9 +1706,9 @@ async def generate_overview(name: str, _t: Translator):
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     def _provider_not_configured(exc: ValueError) -> BadRequestError:
         # 非法项目名已由上方预校验拦截，此处均来自供应商解析链路（未配置/无可用供应商）；str(exc) 只进日志
@@ -1559,34 +1716,36 @@ async def generate_overview(name: str, _t: Translator):
         return BadRequestError("text_provider_not_configured")
 
     try:
-        with project_change_source("webui"):
-            # EmptySourceError / PydanticValidationError 都是 ValueError 子类，须放行给下方各自的
-            # 专属 except 分支，不能被这里的通用 ValueError 处理误判为「未配置供应商」
-            with domain_error_on_value_error(
+        # EmptySourceError / PydanticValidationError 都是 ValueError 子类，须放行给下方各自的
+        # 专属 except 分支，不能被 domain_error_on_value_error 的通用 ValueError 处理误判为「未配置供应商」
+        with (
+            project_change_source("webui"),
+            domain_error_on_value_error(
                 _provider_not_configured,
                 extra_passthrough=(EmptySourceError, PydanticValidationError),
-            ):
-                overview = await get_project_manager().generate_overview(name)
+            ),
+        ):
+            overview = await get_project_manager().generate_overview(name)
         return {"success": True, "overview": overview}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except PydanticValidationError:
+    except PydanticValidationError as exc:
         # 模型输出未通过 schema 校验（后端降级仍失守时的最后防线），
         # 裸 pydantic 错误串含模型原始输出片段，不透传给用户
         logger.exception("概述生成响应解析失败")
-        raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid"))
+        raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid")) from exc
     except EmptySourceError as e:
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
         logger.exception("生成概述失败：项目数据损坏 name=%s", name)
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 @router.patch("/projects/{name}/overview")
@@ -1621,6 +1780,6 @@ async def update_overview(name: str, req: UpdateOverviewRequest, _t: Translator)
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc

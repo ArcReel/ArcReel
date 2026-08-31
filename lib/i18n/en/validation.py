@@ -8,8 +8,9 @@ MESSAGES = {
     "val_missing_field_at": "{prefix}: missing required field {field}",
     "val_field_type_string": "Field type error: {field} must be a string",
     "val_field_type_bool": "Field type error: {field} must be a boolean",
+    "val_field_type_integer": "Field type error: {field} must be an integer",
     "val_field_type_number": "Field type error: {field} must be a number",
-    "val_speech_rate_out_of_range": "{field} value {value} is out of range; it must be between {min} and {max}",
+    "val_field_out_of_range": "{field} value {value} is out of range; it must be between {min} and {max}",
     "val_field_must_be_string": "{field} must be a string",
     "val_field_must_be_string_typed": "{field} must be a string, got {actual}",
     "val_field_must_be_array": "{field} must be an array",
@@ -56,6 +57,10 @@ MESSAGES = {
     "val_ad_no_default_duration": (
         "Ad/short-film projects do not carry default_duration "
         "(shot durations are budgeted per shot against target_duration)"
+    ),
+    "val_ad_no_episode_target_duration": (
+        "Ad/short-film projects do not carry episode_target_duration "
+        "(overall episode length is budgeted against target_duration)"
     ),
     "val_ad_no_grid_storyboard": "Ad/short-film projects do not support multi-grid storyboards (grid_storyboard)",
     "val_ad_episodes_single": "Ad/short-film projects must always have exactly one episode entry (episode 1)",
@@ -121,25 +126,25 @@ MESSAGES = {
     "val_skeleton_mismatch_reference_known": (
         "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script uses {actual} ({actual_noun}). "
-        "Re-run split-reference-video-units to re-split this episode, then regenerate the script. "
+        "Call generate_script_plan to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     "val_skeleton_mismatch_reference_none": (
         "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script has no skeleton array at all. "
-        "Re-run split-reference-video-units to re-split this episode, then regenerate the script. "
+        "Call generate_script_plan to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     "val_skeleton_mismatch_storyboard_known": (
         "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script uses {actual} ({actual_noun}). "
-        "Re-run episode splitting (step1) to re-split this episode, then regenerate the script. "
+        "Re-run episode splitting (script_plan) to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     "val_skeleton_mismatch_storyboard_none": (
         "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script has no skeleton array at all. "
-        "Re-run episode splitting (step1) to re-split this episode, then regenerate the script. "
+        "Re-run episode splitting (script_plan) to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     # ---- reference-video duration consolidation migration ----
@@ -204,5 +209,131 @@ MESSAGES = {
     "arch_conflict_detected": "Project ID conflict detected",
     "arch_project_name_conflict": (
         "Project ID '{name}' already exists. Choose to overwrite the existing project or import under a new name."
+    ),
+    # ---- Custom endpoint definition validation ----
+    "val_ce_missing_field": "Missing required field: {field}",
+    "val_ce_unknown_field": "Unknown field: {field}",
+    "val_ce_removed_field": "Field removed from the format: {field} - {reason}",
+    "val_ce_invalid_type": "Wrong type; expected {expected}",
+    "val_ce_invalid_enum_value": "Value is not allowed here; allowed: {allowed}",
+    "val_ce_invalid_value": "Value does not match the format: {detail}",
+    "val_ce_schema_violation": "Does not match the definition format: {detail}",
+    "val_ce_schema_minimum_constraint": "Minimum allowed: {limit}",
+    "val_ce_schema_maximum_constraint": "Maximum allowed: {limit}",
+    "val_ce_schema_format_constraint": "Required format not matched: {constraint}",
+    "val_ce_schema_forbidden_constraint": "The value matches a forbidden constraint",
+    "val_ce_schema_generic_constraint": "Definition constraint not satisfied ({keyword})",
+    "val_ce_removed_reason_request_query": (
+        "static and dynamic query parameters belong in the url template, credential query in auth.query"
+    ),
+    "val_ce_removed_reason_status_codes": (
+        "HTTP status handling is a runtime policy: 2xx succeeds, 429 and 5xx retry, everything else fails"
+    ),
+    "val_ce_removed_reason_polling_policy": "polling interval and timeout are runtime policy, not part of a definition",
+    "val_ce_removed_reason_extract_source": "extraction always starts at the response body; HTTP status is not a path",
+    "val_ce_removed_reason_extract_usage_keys": "usage now lives under poll.extract.usage",
+    "val_ce_removed_reason_mime_types": "asset formats are not allow-listed; the provider rejects what it cannot take",
+    "val_ce_removed_reason_media_type": "video is the only media type in this release",
+    "val_ce_malformed_placeholder": (
+        "{fragment} is not a valid placeholder: only bare variables are supported "
+        "(such as prompt or inputs.first_frame) — no filters, indexes or expressions, "
+        "and every opening brace must be closed"
+    ),
+    "val_ce_undeclared_variable": "Placeholder {name} references a variable that is not declared",
+    "val_ce_api_key_outside_auth": (
+        "api_key may only appear in the auth section: credentials stay out of the body and URL, "
+        "and out of definitions you share"
+    ),
+    "val_ce_auth_without_api_key": (
+        "The auth section is not empty but never references api_key: leave it empty for a credential-free API, "
+        "otherwise make it write the credential"
+    ),
+    "val_ce_auth_header_conflict": (
+        "{header} collides with auth.headers (case-insensitive): only the auth section may write credential headers"
+    ),
+    "val_ce_header_name_duplicate": (
+        "{header} differs from {first} in the same map only by case: HTTP header names are case-insensitive, "
+        "so both would be sent"
+    ),
+    "val_ce_auth_query_conflict": (
+        "The URL already carries the query parameter {param} declared in auth.query: "
+        "only the auth section may write credential query parameters"
+    ),
+    "val_ce_task_id_out_of_scope": "task_id is only available in the poll and result sections",
+    "val_ce_result_id_out_of_scope": "result_id is only available in the result section",
+    "val_ce_result_id_without_extract": "result_id is referenced but poll.extract does not declare result_id",
+    "val_ce_input_out_of_scope": (
+        "Asset {name} may only be referenced from submit: poll and result requests carry no assets"
+    ),
+    "val_ce_list_input_requires_each": "{name} is a list asset; expand it with $each instead of interpolating it",
+    "val_ce_each_in_not_list_input": "$each.in points at {name}, which is not a declared list asset",
+    "val_ce_each_shape_invalid": (
+        "$each takes either item, to spread array elements, or both key and value, to spread object entries; "
+        "the two forms cannot be mixed"
+    ),
+    "val_ce_each_position_mismatch": (
+        "The $each form does not match its position: use item in an array position to spread elements, "
+        "and key with value in an object position to spread entries"
+    ),
+    "val_ce_each_alias_reserved": (
+        "{name} is a reserved variable inside the loop body and cannot be used as the $each element alias"
+    ),
+    "val_ce_when_unknown_input": "$when points at {name}, which is not a declared asset",
+    "val_ce_input_not_referenced": (
+        "The asset is declared but never referenced from submit: it is never sent, and cannot back a capability"
+    ),
+    "val_ce_enum_map_variable_not_allowed": "{variable} cannot be mapped; mappable variables: {allowed}",
+    "val_ce_default_variable_not_allowed": "{variable} cannot have a default; variables that can: {allowed}",
+    "val_ce_default_value_type_invalid": "The default for {variable} must be of type {expected}",
+    "val_ce_default_value_not_in_enum_map": "The default {value} for {variable} is not in enum_maps; available values: {allowed}",
+    "val_ce_status_map_target_invalid": "Status {target} is outside {allowed}; map expiry semantics to failed",
+    "val_ce_capability_declared_without_input": (
+        "{capability} is declared but submit references no {source} asset, so the capability would lie"
+    ),
+    "val_ce_capability_input_without_declaration": (
+        "submit references a {source} asset without declaring {capability}, "
+        "so the asset is sent while the UI hides the capability"
+    ),
+    "val_ce_capability_incoherent": "Capability {capability} conflicts with its group; required: {requirement}",
+    "val_ce_jsonpath_not_a_string": "An extraction path must be a string: {path_expression}",
+    "val_ce_jsonpath_surrounding_whitespace": "An extraction path may not be padded with whitespace: {path_expression}",
+    "val_ce_jsonpath_missing_root": "An extraction path must start with $: {path_expression}",
+    "val_ce_jsonpath_recursive_descent": (
+        "Recursive descent is not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_union": (
+        "Union selectors are not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_slice_step": (
+        "Slice steps are not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_function_extension": (
+        "Function extensions are not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_filter_root_reference": (
+        "A filter may not reference the root node (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_filter_non_singular": (
+        "A filter may only use singular queries (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_regex_operator": (
+        "The regex match operator is not allowed in extraction paths (at character {position}): {path_expression}"
+    ),
+    "val_ce_jsonpath_syntax": "Extraction path syntax error (at character {position}): {path_expression}",
+    "val_ce_jsonpath_evaluation_failed": "Could not evaluate extraction path: {path_expression}",
+    "val_ce_template_render_failed": "Could not render the request template: {detail}",
+    "val_ce_auth_literal_credential": (
+        "This value appears to contain an actual secret key: reference the credential with the api_key "
+        "placeholder instead, or the key will be exposed when the definition is exported or shared"
+    ),
+    "val_ce_template_url_not_string": "The URL template must render to a string",
+    "val_ce_unknown_asset_encoding": "Unknown asset encoding: {encoding}",
+    "val_ce_enum_map_value_missing": "enum_maps.{name} has no entry for '{value}'",
+    "val_ce_template_text_variable_null": "Variable {name} is null and cannot be embedded in text",
+    "val_ce_each_value_not_list": "$each.in points at {name}, whose runtime value is not a list",
+    "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
+    "val_ce_jsonpath_wildcard_order": (
+        "{path_expression} uses a wildcard: an object wildcard takes the first member only, "
+        "and key order may differ between the preview and the backend"
     ),
 }

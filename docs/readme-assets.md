@@ -6,6 +6,7 @@
 
 - `docs/assets/hero-screenshot.png`
 - `docs/assets/feishu-qr.png`
+- `docs/assets/sponsors/metaso.png`
 
 产品型开源项目的首页转化主要依赖真实成果展示。ArcReel 尤其需要同时展示“工作台”和“最终成片”，不能只展示设置页或功能清单。
 

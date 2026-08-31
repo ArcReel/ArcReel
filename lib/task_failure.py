@@ -16,12 +16,12 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeGuard
 
 # Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
 # ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
 # so the mapping below is identity — no prefix indirection. Enumerated rather than
-# derived so an unregistered code fails fast; ``tests/test_task_failure_capability.py``
+# derived so an unregistered code fails fast; ``tests/integration/lib/test_task_failure_capability.py``
 # AST-scans the raise sites and fails CI when a new code is added without registering it.
 CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
     {
@@ -104,6 +104,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "dispatch_provider_requeue_failed": "task_fail_dispatch_provider_requeue_failed",
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",
+    "restart_lost_text": "task_fail_restart_lost_text",
     "restart_lost_no_job_id": "task_fail_restart_lost_no_job_id",
     "restart_lost_resume_no_job_id": "task_fail_restart_lost_resume_no_job_id",
     "resume_unsupported_provider": "task_fail_resume_unsupported_provider",
@@ -111,6 +112,9 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "resume_unsupported_detail": "task_fail_resume_unsupported_detail",
     "resume_expired_detail": "task_fail_resume_expired_detail",
     "resume_endpoint_changed_detail": "task_fail_resume_endpoint_changed_detail",
+    "declarative_template_render_failed": "task_fail_declarative_template_render_failed",
+    "declarative_response_extract_failed": "task_fail_declarative_response_extract_failed",
+    "artifact_download_failed": "task_fail_artifact_download_failed",
     "restart_lost_checkpoint_no_job_id": "task_fail_restart_lost_checkpoint_no_job_id",
     "execution_identity_unrecoverable": "task_fail_execution_identity_unrecoverable",
     # ScriptEditError.key 本身就是 errors.py 的 key（见 lib/script_editor.py），无需前缀间接层。
@@ -173,6 +177,16 @@ def _as_shrinkable(value: Any) -> Any:
         return json.dumps(value, ensure_ascii=False, default=str)
     except RecursionError:
         return "…"
+
+
+def _is_validation_message(value: Any) -> TypeGuard[dict[str, Any]]:
+    """Return whether ``value`` is the locale-neutral nested diagnostic envelope."""
+    return (
+        isinstance(value, dict)
+        and set(value) == {"key", "params"}
+        and isinstance(value.get("key"), str)
+        and isinstance(value.get("params"), dict)
+    )
 
 
 def collapse_cascade_reason(reason: str) -> str:
@@ -238,14 +252,29 @@ def bound_reason(reason: str, limit: int) -> str:
     if not isinstance(parsed, dict):
         return reason[:limit]
     params: dict[str, Any] = {key: _as_shrinkable(value) for key, value in parsed.items()}
-    string_keys = [k for k, v in params.items() if isinstance(v, str)]
-    if not string_keys:
+    detail = parsed.get("detail")
+    if _is_validation_message(detail):
+        # ``detail`` 必须保持机器结构，读侧才能按请求 locale 渲染。只把它的 params 中可能
+        # 过大的容器降级成可裁剪文本，并把字符串叶子加入与顶层参数相同的预算竞争。
+        params["detail"] = {
+            "key": detail["key"],
+            "params": {key: _as_shrinkable(value) for key, value in detail["params"].items()},
+        }
+
+    shrinkable: list[tuple[dict[str, Any], str]] = [
+        (params, key) for key, value in params.items() if isinstance(value, str)
+    ]
+    nested_detail = params.get("detail")
+    if _is_validation_message(nested_detail):
+        nested_params = nested_detail["params"]
+        shrinkable.extend((nested_params, key) for key, value in nested_params.items() if isinstance(value, str))
+    if not shrinkable:
         return reason[:limit]
 
     encoded = encode_failure(code, **params)
     while len(encoded) > limit:
-        longest_key = max(string_keys, key=lambda k: len(params[k]))
-        current: str = params[longest_key]
+        owner, longest_key = max(shrinkable, key=lambda item: len(item[0][item[1]]))
+        current: str = owner[longest_key]
         if not current:
             # 字符串参数全被削空仍超限，说明预算连信封骨架都装不下，只能退回按字符裁剪。
             return reason[:limit]
@@ -255,7 +284,7 @@ def bound_reason(reason: str, limit: int) -> str:
         # 可保留的诊断内容全丢掉。至少砍一个字符保证收敛。
         deficit = len(encoded) - limit
         drop = deficit if deficit < len(current) else max(1, len(current) // 2)
-        params[longest_key] = current[: len(current) - drop]
+        owner[longest_key] = current[: len(current) - drop]
         encoded = encode_failure(code, **params)
     return encoded
 
@@ -282,6 +311,10 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
         nested_reason = params.get("reason")
         if isinstance(nested_reason, str):
             params = {**params, "reason": render_failure(nested_reason, translate)}
+    if code in {"declarative_template_render_failed", "declarative_response_extract_failed"}:
+        detail = params.get("detail")
+        if _is_validation_message(detail):
+            params = {**params, "detail": translate(detail["key"], **detail["params"])}
     return translate(FAILURE_CODE_KEYS[code], **params)
 
 

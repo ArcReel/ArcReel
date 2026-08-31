@@ -3,7 +3,7 @@
 
 校验范围限于能对照代码真相源的结构：frontmatter 与变体身份、按创作类型物化后的
 Markdown 指针可达性、`mcp__arcreel__*` 工具名是否已注册、eval id 是否唯一。
-档案散文本身不做措辞校验——越界行为（如直改正式 step1）由 ``AgentAccessPolicy``
+档案散文本身不做措辞校验——越界行为（如直改正式 script_plan）由 ``AgentAccessPolicy``
 在工具边界上拒绝，不靠对散文做黑名单。
 """
 
@@ -117,9 +117,11 @@ def _validate_projection(
             if target is not None and target not in projected:
                 errors.append(f"{mode}:{source_rel}: missing Markdown pointer {pointer!r}")
         tool_names = {match.rstrip(_MCP_SENTENCE_PUNCTUATION) for match in _MCP_RE.findall(text)}
-        for tool_name in sorted(tool_names):
-            if tool_name != "*" and tool_name not in registered_tools:
-                errors.append(f"{mode}:{source_rel}: unregistered MCP tool mcp__arcreel__{tool_name}")
+        errors.extend(
+            f"{mode}:{source_rel}: unregistered MCP tool mcp__arcreel__{tool_name}"
+            for tool_name in sorted(tool_names)
+            if tool_name != "*" and tool_name not in registered_tools
+        )
 
 
 def _validate_evals(profile_dir: Path, errors: list[str]) -> None:

@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from lib.path_safety import safe_join, try_safe_join
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
@@ -42,7 +43,7 @@ PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
 )
 
 
-def get_storyboard_items(script: dict) -> tuple[list[dict], str, str | None, str, str]:
+def get_storyboard_items(script: dict) -> tuple[list[Any], str, str | None, str, str]:
     """返回 旁白/解说、剧情演绎与广告/短片剧本的分镜列表 + 各引用字段名。
 
     ``video_units`` 骨架没有 storyboard 一说（视频按 unit 直出，见
@@ -71,12 +72,13 @@ def get_storyboard_items(script: dict) -> tuple[list[dict], str, str | None, str
 
 
 def find_storyboard_item(
-    items: Sequence[dict],
+    items: Sequence[Any],
     id_field: str,
     resource_id: str,
-) -> tuple[dict, int] | None:
+) -> tuple[Any, int] | None:
     for index, item in enumerate(items):
-        if str(item.get(id_field)) == str(resource_id):
+        # 条目来自磁盘剧本 JSON，只有外层 list 被校验过：非映射条目跳过而不是抛 AttributeError。
+        if isinstance(item, dict) and str(item.get(id_field)) == str(resource_id):
             return item, index
     return None
 
@@ -164,7 +166,7 @@ def resolve_storyboard_video_inputs(
 
 def resolve_previous_storyboard_path(
     project_path: Path,
-    items: Sequence[dict],
+    items: Sequence[Any],
     id_field: str,
     resource_id: str,
 ) -> Path | None:
@@ -177,6 +179,8 @@ def resolve_previous_storyboard_path(
         return None
 
     previous_item = items[index - 1]
+    if not isinstance(previous_item, dict):
+        return None
     previous_id = str(previous_item.get(id_field) or "").strip()
     if not previous_id:
         return None

@@ -1,14 +1,15 @@
-"""step1 / step2 产出的草稿：落盘信封、违约报告与晋升口径。
+"""script_plan / prompt_authoring 产出的草稿：落盘信封、违约报告与晋升口径。
 
 生成一次要付费，产物违约时丢弃重抽既烧钱又不收敛（同一个模型对同一份原文大概率再犯同一
-类错）。正式文件保持不动；未满足约束的产物连同逐条违约报告落到同目录的草稿，Agent 用文件
-工具就地修 ``content``（或去补登记资产、改用登记名），再调晋升工具按**同一个校验器**全量重判
+类错）。正式文件保持不动；未满足约束的产物连同逐条违约报告落到同目录的草稿，Agent 用
+``open_draft`` 读取、``patch_draft`` 修 ``content``（或去补登记资产、改用登记名），再调晋升工具按
+**同一个校验器**全量重判
 ——过则晋升为正式文件、草稿随之清除，不过则报告刷新、继续改。无收敛轮次上限：每一轮都
 由 Agent 带着具体定位在改，不是重抽碰运气。
 
-同一个草稿位还承担第二种用途：**编辑工位**。正式 step1 不可用 Write/Edit 直改（它与 Web 端
+同一个草稿位还承担第二种用途：**编辑工位**。正式 script_plan 不可用 Write/Edit 直改（它与 Web 端
 保存、迁移读改写、重拆分共享一把 per-path 锁，而 Agent 的文件工具取不到这把锁），要改已定稿的
-step1 就先取回一份草稿、改完走同一条晋升通道写盘。两种用途共用一套信封与晋升口径：来路不同，
+script_plan 就先取回一份草稿、改完走同一条晋升通道写盘。两种用途共用一套信封与晋升口径：来路不同，
 但「正文在草稿里、写盘只发生在持锁的晋升侧」这一位相同，分两套只会让 gate 与生成侧各认一半。
 
 草稿装的是**该步模型输出那一层的形状**（LLM 面的形状），不是落盘形状：机器派生的字段
@@ -20,7 +21,7 @@ step1 就先取回一份草稿、改完走同一条晋升通道写盘。两种�
     {"kind": ..., "episode": N, "meta": {...}, "violations": [{"code","label","message"}, ...], "content": {...}}
 
 ``violations`` 是上一轮判定的快照，只供 Agent 阅读定位——晋升时一律按 ``content`` 现值重判，
-不信任草稿里的这份记录。``meta`` 存重判所需、又无法从项目状态重新导出的上下文：step1 的源文
+不信任草稿里的这份记录。``meta`` 存重判所需、又无法从项目状态重新导出的上下文：script_plan 的源文
 路径（晋升时按整个 ``source/`` 目录重解析会让原文锚的子串判定比产出时更松），以及产出 / 取回
 时正式文件的内容指纹（``base_fingerprint``，晋升前的乐观并发基线）。
 """
@@ -31,31 +32,32 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.content_digest import prefixed_canonical_json_digest
 from lib.draft_violation import DraftViolation, render_violation_report
 from lib.episode_paths import (
-    DRAMA_STEP1_QUARANTINE_FILENAME,
-    NARRATION_STEP1_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+    DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
     episode_drafts_dir,
 )
 from lib.json_io import atomic_write_json, load_json_or_none
 
-#: 草稿的产出来源。``content`` 与该来源那一步的模型输出 schema 同形：参考生视频 step1 是
-#: ``{units: [{duration_seconds, source_text, text}]}``、step2 是 ``{title, units: [{text}]}``，
-#: drama step1 是 ``{title, scenes: [...]}``（即 ``DramaNormalizedScript`` 去掉机器派生的
-#: ``needs_replan``），narration step1 是 ``{segments: [...]}``（即 ``NarrationStep1Draft``，
+#: 草稿的产出来源。``content`` 与该来源那一步的模型输出 schema 同形：参考生视频 script_plan 是
+#: ``{units: [{duration_seconds, source_text, text}]}``、prompt_authoring 是 ``{title, units: [{text}]}``，
+#: drama script_plan 是 ``{title, scenes: [...]}``（即 ``DramaNormalizedScript`` 去掉机器派生的
+#: ``needs_replan``），narration script_plan 是 ``{segments: [...]}``（即 ``NarrationScriptPlanDraft``，
 #: 该变体没有机器派生字段，草稿层与落盘层同形）。
-QUARANTINE_KIND_STEP1 = "reference_video_step1"
-QUARANTINE_KIND_STEP2 = "reference_video_step2"
-QUARANTINE_KIND_DRAMA_STEP1 = "drama_step1"
-QUARANTINE_KIND_NARRATION_STEP1 = "narration_step1"
+QUARANTINE_KIND_SCRIPT_PLAN = "reference_video_script_plan"
+QUARANTINE_KIND_PROMPT_AUTHORING = "reference_video_prompt_authoring"
+QUARANTINE_KIND_DRAMA_SCRIPT_PLAN = "drama_script_plan"
+QUARANTINE_KIND_NARRATION_SCRIPT_PLAN = "narration_script_plan"
 
 _QUARANTINE_FILENAMES: dict[str, str] = {
-    QUARANTINE_KIND_STEP1: REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
-    QUARANTINE_KIND_STEP2: REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
-    QUARANTINE_KIND_DRAMA_STEP1: DRAMA_STEP1_QUARANTINE_FILENAME,
-    QUARANTINE_KIND_NARRATION_STEP1: NARRATION_STEP1_QUARANTINE_FILENAME,
+    QUARANTINE_KIND_SCRIPT_PLAN: REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    QUARANTINE_KIND_PROMPT_AUTHORING: REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN: DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN: NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
 }
 
 #: 全部草稿文件名，供不关心 kind、只需按文件名定位草稿的消费方取用（如资产级联重命名的
@@ -66,29 +68,43 @@ QUARANTINE_FILENAMES: frozenset[str] = frozenset(_QUARANTINE_FILENAMES.values())
 #: 报告里「改哪个字段」的指引按来源分流：草稿正文的形状各不相同，指引落到不存在的字段名
 #: 会把 Agent 引到它改不动的地方。与文件名同表登记，新增一种来源只在本模块加一行。
 _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
-    QUARANTINE_KIND_STEP1: (
-        "step1 拆分",
+    QUARANTINE_KIND_SCRIPT_PLAN: (
+        "script_plan 拆分",
         "content（按报告字段路径修复；视频单元级字段位于 content.units[i]）",
     ),
-    QUARANTINE_KIND_STEP2: ("step2 视觉展开", "content.units[i].text"),
-    QUARANTINE_KIND_DRAMA_STEP1: (
-        "step1 规范化",
+    QUARANTINE_KIND_PROMPT_AUTHORING: ("prompt_authoring 提示词编写", "content.units[i].text"),
+    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN: (
+        "script_plan 规范化",
         "content（分镜级字段位于 content.scenes[i]）",
     ),
-    QUARANTINE_KIND_NARRATION_STEP1: (
-        "step1 分镜拆分",
+    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN: (
+        "script_plan 分镜拆分",
         "content（分镜级字段位于 content.segments[i]："
         "novel_text / duration_seconds / segment_break / characters_in_segment / scenes / props）",
     ),
 }
 
 #: 晋升工具名。报告里的处置指引要指名它，写死在这里而非各调用点各写一遍。
-PROMOTE_TOOL_NAME = "validate_and_promote_draft"
+PROMOTE_TOOL_NAME = "promote_draft"
 
-#: 取回正式 step1 供编辑的工具名。正式 step1 与 Web 端保存、迁移、重拆分共享一把 per-path 锁，
+#: 取回正式 script_plan 供编辑的工具名。正式 script_plan 与 Web 端保存、迁移、重拆分共享一把 per-path 锁，
 #: Agent 的 Write/Edit 在沙箱内跑、取不到这把锁，故对它的修改一律改走「取回草稿 → 改 → 晋升」：
 #: 写盘只发生在晋升侧，与另三条路径同一把锁。写禁策略的拒绝消息也要指名它，故同样收在这里。
-STEP1_EDIT_TOOL_NAME = "open_step1_for_edit"
+OPEN_DRAFT_TOOL_NAME = "open_draft"
+
+DOC_TYPE_DRAMA_SCRIPT_PLAN = "drama_script_plan"
+DOC_TYPE_NARRATION_SCRIPT_PLAN = "narration_script_plan"
+DOC_TYPE_REFERENCE_SCRIPT_PLAN = "reference_script_plan"
+DOC_TYPE_REFERENCE_PROMPT_AUTHORING = "reference_prompt_authoring"
+
+DOC_TYPE_TO_QUARANTINE_KIND: dict[str, str] = {
+    DOC_TYPE_DRAMA_SCRIPT_PLAN: QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+    DOC_TYPE_NARRATION_SCRIPT_PLAN: QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+    DOC_TYPE_REFERENCE_SCRIPT_PLAN: QUARANTINE_KIND_SCRIPT_PLAN,
+    DOC_TYPE_REFERENCE_PROMPT_AUTHORING: QUARANTINE_KIND_PROMPT_AUTHORING,
+}
+
+QUARANTINE_KIND_TO_DOC_TYPE: dict[str, str] = {kind: doc_type for doc_type, kind in DOC_TYPE_TO_QUARANTINE_KIND.items()}
 
 
 @dataclass(frozen=True)
@@ -103,8 +119,32 @@ class QuarantinedDraft:
     path: Path
 
 
+def draft_revision(draft: QuarantinedDraft) -> str:
+    """Return the canonical optimistic-concurrency token for persisted draft state."""
+    return prefixed_canonical_json_digest(
+        {
+            "kind": draft.kind,
+            "episode": draft.episode,
+            "meta": draft.meta,
+            "violations": draft.violations,
+            "content": draft.content,
+        }
+    )
+
+
+def draft_payload(draft: QuarantinedDraft) -> dict[str, Any]:
+    """Return the host-independent draft document exposed by MCP adapters."""
+    return {
+        "episode": draft.episode,
+        "doc_type": QUARANTINE_KIND_TO_DOC_TYPE[draft.kind],
+        "content": draft.content,
+        "violations": draft.violations,
+        "revision": draft_revision(draft),
+    }
+
+
 def quarantine_path(project_path: Path, episode: int, kind: str) -> Path:
-    """该集该阶段的草稿路径（与正式 step1 同目录）。"""
+    """该集该阶段的草稿路径（与正式 script_plan 同目录）。"""
     return episode_drafts_dir(project_path, episode) / _QUARANTINE_FILENAMES[kind]
 
 
@@ -140,7 +180,7 @@ def write_quarantine(
     """把未满足约束的产物与报告写入草稿（原子写，整份覆盖），返回草稿路径。
 
     整份覆盖而非合并：重抽或重跑晋升产生的是一份新产物，与上一轮的残留合并只会让 Agent 对着
-    半新半旧的正文改。目录可能尚不存在（该集从未产出过 step1），故先建目录。
+    半新半旧的正文改。目录可能尚不存在（该集从未产出过 script_plan），故先建目录。
     """
     path = quarantine_path(project_path, episode, kind)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,13 +200,13 @@ def write_quarantine(
 def read_quarantine(project_path: Path, episode: int, kind: str) -> QuarantinedDraft | None:
     """读回草稿；文件缺失 / 非法 JSON / 信封形状坏时返回 None。
 
-    形状坏按「无草稿」处理而非抛错：这份文件正是给 Agent 手改的，改坏 JSON 是可预期的
-    中间态。调用方据此给出「重新拆分」而非内部错误——但 ``exists`` 仍为真，gate 与生成侧照常
+    形状坏按「无草稿」处理而非抛错：存量文件或异常中断可能留下非法 JSON。
+    调用方据此给出「重新拆分」而非内部错误——但 ``exists`` 仍为真，gate 与生成侧照常
     阻塞，坏掉的草稿不会被当成「没有草稿」而放行。
 
     ``kind`` / ``episode`` 须与所请求的这份草稿一致，缺失或对不上同样按形状坏处理：不校验就
     等于把这两个字段解析出来又丢掉，一份从别集拷过来的信封会带着它自己的 ``meta.source``
-    过锚校验，再按本集的 unit_id 重建、覆盖本集的正式 step1。
+    过锚校验，再按本集的 unit_id 重建、覆盖本集的正式 script_plan。
     """
     path = quarantine_path(project_path, episode, kind)
     data = load_json_or_none(path)
@@ -212,12 +252,16 @@ def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, e
     要点，Agent 若不知道产物还在盘上，就会退回重抽。
     """
     stage, field = _QUARANTINE_REPORT_HINTS[kind]
+    doc_type = QUARANTINE_KIND_TO_DOC_TYPE[kind]
     return (
         f"❌ {stage}产出有 {len(violations)} 处违约，已保存为待修复草稿（正式文件未被改动）：{draft}\n\n"
         f"{render_violation_report(violations)}\n\n"
-        f"处置：直接编辑该草稿的 {field} 修正违约；"
+        f'处置：调用 open_draft({{"episode": {episode}, "doc_type": "{doc_type}"}}) 读取正文与 revision；'
+        f"修正 {field} 后用 patch_draft 携带 base_revision 提交；"
         "若违约是「资产名未登记」，也可改为在 project.json 登记该资产、或改用已登记的名称。\n"
-        f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 重新全量校验并晋升为正式文件；'
+        f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}", '
+        '"base_revision": "<patch_draft 返回的 revision>"}) '
+        "重新全量校验并晋升为正式文件；"
         "仍有违约时会返回刷新后的报告，可继续修改再晋升，无轮次上限。"
     )
 
@@ -241,15 +285,22 @@ def quarantine_and_report(
 
 
 __all__ = [
+    "DOC_TYPE_DRAMA_SCRIPT_PLAN",
+    "DOC_TYPE_NARRATION_SCRIPT_PLAN",
+    "DOC_TYPE_REFERENCE_PROMPT_AUTHORING",
+    "DOC_TYPE_REFERENCE_SCRIPT_PLAN",
+    "DOC_TYPE_TO_QUARANTINE_KIND",
+    "OPEN_DRAFT_TOOL_NAME",
     "PROMOTE_TOOL_NAME",
     "QUARANTINE_FILENAMES",
-    "QUARANTINE_KIND_DRAMA_STEP1",
-    "QUARANTINE_KIND_NARRATION_STEP1",
-    "QUARANTINE_KIND_STEP1",
-    "QUARANTINE_KIND_STEP2",
-    "STEP1_EDIT_TOOL_NAME",
+    "QUARANTINE_KIND_DRAMA_SCRIPT_PLAN",
+    "QUARANTINE_KIND_NARRATION_SCRIPT_PLAN",
+    "QUARANTINE_KIND_PROMPT_AUTHORING",
+    "QUARANTINE_KIND_SCRIPT_PLAN",
     "QuarantinedDraft",
     "clear_quarantine",
+    "draft_payload",
+    "draft_revision",
     "quarantine_and_report",
     "quarantine_exists",
     "quarantine_path",

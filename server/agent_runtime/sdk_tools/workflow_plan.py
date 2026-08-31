@@ -2,22 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from claude_agent_sdk import tool
 
 from lib.workflow_plan import WorkflowPlanRequest
-from lib.workflow_state import WorkflowRequestError
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
-from server.services import workflow_planner
-
-
-def _error(code: str, detail: str) -> dict[str, Any]:
-    return {
-        "content": [{"type": "text", "text": json.dumps({"error": code, "detail": detail}, ensure_ascii=False)}],
-        "is_error": True,
-    }
+from server.media_tools.context import ToolContext, tool_outcome_response, tool_services
+from server.tool_runtime import ToolOutcome, ToolProblem, ToolRequest, get_workflow_plan
 
 
 def get_workflow_plan_tool(ctx: ToolContext):
@@ -44,14 +35,10 @@ def get_workflow_plan_tool(ctx: ToolContext):
         try:
             request = WorkflowPlanRequest.model_validate(args)
         except ValueError as exc:
-            return _error("invalid_request", str(exc))
-        try:
-            plan = await workflow_planner.get_workflow_planner(ctx.pm).get_plan(ctx.project_name, request)
-            return {"content": [{"type": "text", "text": plan.model_dump_json()}]}
-        except WorkflowRequestError as exc:
-            return _error("invalid_request", str(exc))
-        except Exception as exc:  # noqa: BLE001
-            return tool_error("get_workflow_plan", exc)
+            outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+        else:
+            outcome = await get_workflow_plan(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
+        return tool_outcome_response("workflow_plan", outcome)
 
     return _handler
 

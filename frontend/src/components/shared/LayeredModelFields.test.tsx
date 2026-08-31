@@ -122,7 +122,7 @@ describe("LayeredModelFields", () => {
       renderFields({ renderOptionMeta: keyProbe });
       await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
       for (const option of screen.getAllByRole("option", { name: /veo-3|seedance/ })) {
-        expect(option.textContent).toContain("no-key");
+        expect(option).toHaveTextContent(/no-key/);
       }
     });
 
@@ -135,11 +135,11 @@ describe("LayeredModelFields", () => {
       await user.click(screen.getByText("按用途指定模型"));
 
       await user.click(screen.getByRole("combobox", { name: "图生视频" }));
-      expect(screen.getByRole("option", { name: /veo-3/ }).textContent).toContain("i2v");
+      expect(screen.getByRole("option", { name: /veo-3/ })).toHaveTextContent(/i2v/);
       await user.keyboard("{Escape}");
 
       await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
-      expect(screen.getByRole("option", { name: /veo-3/ }).textContent).toContain("r2v");
+      expect(screen.getByRole("option", { name: /veo-3/ })).toHaveTextContent(/r2v/);
     });
 
     it("转发的是原样的 key，不限于视频桶——图片桶同样拿到自己的 key", async () => {
@@ -150,7 +150,7 @@ describe("LayeredModelFields", () => {
       });
       await user.click(screen.getByText("按用途指定模型"));
       await user.click(screen.getByRole("combobox", { name: "文生图" }));
-      expect(screen.getByRole("option", { name: /veo-3/ }).textContent).toContain("t2i");
+      expect(screen.getByRole("option", { name: /veo-3/ })).toHaveTextContent(/t2i/);
     });
   });
 

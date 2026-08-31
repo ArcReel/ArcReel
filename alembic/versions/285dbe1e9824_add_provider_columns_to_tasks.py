@@ -39,7 +39,6 @@ def downgrade() -> None:
     放在它里面会被当作丢失回放，而 provider_id 此时已不在表上，回放必然报错。
     """
     op.drop_index("idx_tasks_status_provider_queued", table_name="tasks")
-    with preserve_sqlite_indexes("tasks"):
-        with op.batch_alter_table("tasks", schema=None) as batch_op:
-            batch_op.drop_column("provider_job_id")
-            batch_op.drop_column("provider_id")
+    with preserve_sqlite_indexes("tasks"), op.batch_alter_table("tasks", schema=None) as batch_op:
+        batch_op.drop_column("provider_job_id")
+        batch_op.drop_column("provider_id")

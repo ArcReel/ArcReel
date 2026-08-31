@@ -84,7 +84,7 @@ export interface ProviderConfigDetail {
   secret_field_groups: string[][];
 }
 
-export interface ProviderTestResult {
+export interface ConnectivityCheckResult {
   success: boolean;
   available_models: string[];
   message: string;

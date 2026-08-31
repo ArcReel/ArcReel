@@ -1,0 +1,629 @@
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
+import type {
+  ReferenceScriptPlanDraft,
+  ReferenceScriptPlanFlatUnit,
+  ScriptReviewState,
+  ScriptReviewViolation,
+} from "@/types";
+import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
+import { voidPromise } from "@/utils/async";
+import { sumItemDuration } from "@/utils/script-shape";
+import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
+import { AutoTextarea } from "@/components/ui/AutoTextarea";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
+import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
+import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
+import { extractMentions } from "@/utils/reference-mentions";
+
+interface ReferenceScriptPlanPreviewPanelProps {
+  projectName: string;
+  episode: number;
+  /** Asset name → kind, for mention coloring — same lookup the editor/parse preview share. */
+  lookup: MentionLookup;
+}
+
+/** 原文锚失配类违约：呈现为「原文」小节的红标，不进逐行锚定或聚合区。 */
+const SOURCE_ANCHOR_CODES = new Set(["source_text_not_verbatim", "source_text_empty"]);
+const SPEECH_VIOLATION_KEYS: Record<string, string> = {
+  mixed_speech: "speech_admission_mixed_speech",
+  needs_replan: "speech_admission_needs_replan",
+  parse_failed: "speech_admission_parse_failed",
+  empty_speaker: "speech_admission_empty_speaker",
+};
+
+function unitKeyFromLabel(label: string): string | null {
+  const m = /^unit\s+(\S+)$/.exec(label);
+  return m ? m[1] : null;
+}
+
+/** unit 卡的统一显示形状：结构化（已晋升）与扁平（草稿）两种来源在这里收敛。 */
+interface DisplayUnit {
+  key: string;
+  duration_seconds: number;
+  sourceText: string;
+  scriptText: string;
+  /** true 时可编辑（已晋升内容）；草稿的扁平产物只读，修复由 Agent 在草稿上完成。 */
+  editable: boolean;
+}
+
+/** 头部统计：被解析器认作台词的行数，与正文高亮同一套切分口径。 */
+function unitStats(scriptText: string, lookup: MentionLookup): { utterances: number } {
+  const lines = toScriptLines(scriptText, lookup);
+  return {
+    utterances: lines.filter((l) => l.kind === "dialogue" || l.kind === "voiceover").length,
+  };
+}
+
+function structuredDisplayUnits(draft: ReferenceScriptPlanDraft): DisplayUnit[] {
+  return draft.units.map((u) => ({
+    key: u.unit_id,
+    duration_seconds: u.duration_seconds,
+    sourceText: u.source_text,
+    scriptText: u.text,
+    editable: true,
+  }));
+}
+
+/**
+ * 草稿 → unit 卡。schema 违约时后端原样回传 Agent 手改的那份 content（不做收编），`units`
+ * 可能不是数组、逐 unit 字段也可能缺失或类型不对：这里逐项收窄而非信任类型声明——渲染崩掉
+ * 恰好发生在用户最需要看到面板的时候。收不成 unit 卡的内容由调用方作原始文本兜底呈现。
+ */
+function quarantinedDisplayUnits(
+  content: Record<string, unknown> | null,
+  episode: number,
+): DisplayUnit[] {
+  // content 为 null：草稿文件本身损坏无法解析（信封形状坏），不是「schema 违约但仍可读」。
+  const units: unknown = content?.units;
+  if (!Array.isArray(units)) return [];
+  return units.flatMap((raw: unknown, i) => {
+    if (raw == null || typeof raw !== "object") return [];
+    const u = raw as Partial<ReferenceScriptPlanFlatUnit>;
+    const text = typeof u.text === "string" ? u.text : "";
+    return [
+      {
+        key: `E${episode}U${String(i + 1).padStart(2, "0")}`,
+        duration_seconds: typeof u.duration_seconds === "number" ? u.duration_seconds : 0,
+        sourceText: typeof u.source_text === "string" ? u.source_text : "",
+        scriptText: text,
+        editable: false,
+      },
+    ];
+  });
+}
+
+interface UnitViolations {
+  /** 原文锚失配：呈现为「原文」小节的红标，不重复出现在逐行锚定或聚合区。 */
+  anchorSource: ScriptReviewViolation[];
+  /** 有行号的违约，按 sourceLine 分组，交给 ScriptHighlight 的 renderAfterLine 逐行渲染。 */
+  byLine: Map<number, ScriptReviewViolation[]>;
+  /** unit 级、无自然行归属的违约：落卡内聚合区。 */
+  aggregate: ScriptReviewViolation[];
+}
+
+function partitionViolations(violations: ScriptReviewViolation[], unitKey: string): UnitViolations {
+  const forUnit = violations.filter((v) => unitKeyFromLabel(v.label) === unitKey);
+  const anchorSource: ScriptReviewViolation[] = [];
+  const byLine = new Map<number, ScriptReviewViolation[]>();
+  const aggregate: ScriptReviewViolation[] = [];
+  for (const v of forUnit) {
+    if (SOURCE_ANCHOR_CODES.has(v.code)) {
+      anchorSource.push(v);
+    } else if (v.line != null) {
+      const list = byLine.get(v.line) ?? [];
+      list.push(v);
+      byLine.set(v.line, list);
+    } else {
+      aggregate.push(v);
+    }
+  }
+  return { anchorSource, byLine, aggregate };
+}
+
+/**
+ * unit 当前生效的时长档位（按是否带参考图收窄）；解析不到收窄表时返回 null，由调用方退回
+ * 未收窄的 `supported_durations`。
+ *
+ * 有无引用按当前正文实时判：参考图在执行期才由正文解析出来，编辑期新增/删除的
+ * `@[名称]` 必须当场改变可选档位。
+ */
+function unitDurationTiers(
+  unit: DisplayUnit,
+  lookup: MentionLookup,
+  tiers: NonNullable<ScriptReviewState["duration_tiers"]> | null,
+): number[] | null {
+  if (!tiers) return null;
+  // 四类资产同规则（ADR 0064）：任一已登记的提及都会在执行期派生出参考图。
+  const hasReferences = extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
+  return hasReferences ? tiers.with_references : tiers.without_references;
+}
+
+/**
+ * 该 unit 一个已登记场景资产都没引用——画面地点由模型自由决定，室内外交替的相邻 unit 会
+ * 各自发挥、对不上。镜像后端 `lib/reference_video/script_preview.py::unit_lacks_scene_reference`。
+ *
+ * 与档位收窄同样按当前正文实时判、不取服务端快照：本面板可就地改正文，补上 `@[场景]` 必须
+ * 当场撤下提示，等保存后才由服务端回话会让提示与眼前的正文对不上。
+ */
+function unitLacksSceneReference(scriptText: string, lookup: MentionLookup, projectHasScene: boolean): boolean {
+  if (!projectHasScene) return false;
+  return !extractMentions(scriptText).some((name) => lookup[name] === "scene");
+}
+
+function InlineViolations({ violations }: { violations: ScriptReviewViolation[] }) {
+  const { t } = useTranslation("dashboard");
+  if (!violations.length) return null;
+  return (
+    <>
+      {violations.map((v, i) => {
+        const speechKey = SPEECH_VIOLATION_KEYS[v.code];
+        const location = v.locations
+          ?.map(({ path, line }) => `${path.join(".")}${line === null ? "" : `:${line + 1}`}`)
+          .join(", ");
+        const message = speechKey && location
+          ? t(speechKey, { unitId: unitKeyFromLabel(v.label) ?? v.label, location })
+          : v.message;
+        return (
+          <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-[11px] leading-snug text-red-300">
+            <OctagonAlert className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+            <span>{message}</span>
+          </p>
+        );
+      })}
+    </>
+  );
+}
+
+function UnitCard({
+  unit,
+  violations,
+  lookup,
+  projectHasScene,
+  quarantined,
+  onScrollRef,
+  editing,
+  onToggleEdit,
+  onTextChange,
+  supportedDurations,
+  outOfTier,
+  onDurationChange,
+  busy,
+}: {
+  unit: DisplayUnit;
+  violations: UnitViolations;
+  lookup: MentionLookup;
+  /** 项目登记了场景资产——没有可引用的场景时不发「未引用场景」提示（纯商品的广告项目即属此列）。 */
+  projectHasScene: boolean;
+  quarantined: boolean;
+  onScrollRef: (key: string, el: HTMLElement | null) => void;
+  editing: boolean;
+  onToggleEdit: () => void;
+  onTextChange: ((text: string) => void) | null;
+  supportedDurations: number[] | null;
+  /** unit 当前存盘时长已不在收窄后的档位表内——展示照旧，但阻断确认（父组件按此禁用确认按钮）。 */
+  outOfTier: boolean;
+  onDurationChange: ((seconds: number) => void) | null;
+  /** 保存 / 确认请求在途：锁住时长下拉与正文，避免 adopt() 用服务端回显覆盖请求发出后的新编辑。 */
+  busy: boolean;
+}) {
+  const { t } = useTranslation("dashboard");
+  const hasViolation = violations.anchorSource.length + violations.byLine.size + violations.aggregate.length > 0;
+  const anchorBroken = violations.anchorSource.length > 0;
+  const stats = useMemo(() => unitStats(unit.scriptText, lookup), [unit.scriptText, lookup]);
+  const lacksScene = useMemo(
+    () => unitLacksSceneReference(unit.scriptText, lookup, projectHasScene),
+    [unit.scriptText, lookup, projectHasScene],
+  );
+  // 档位表解析不到、或内容不可编辑（草稿）时退回只读秒数：能选的档位必须是保存后
+  // 后端收编不会再改的那一档，拿不到权威档位表就不提供会被静默改掉的选择。
+  const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
+
+  return (
+    <article
+      ref={(el) => onScrollRef(unit.key, el)}
+      className={`rounded-[10px] border p-4 ${hasViolation ? "border-red-500/45" : "border-hairline"}`}
+      style={CARD_STYLE}
+    >
+      <div className="flex items-center gap-2">
+        <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{unit.key}</span>
+        {durationOptions && onDurationChange ? (
+          <select
+            value={unit.duration_seconds}
+            onChange={(e) => onDurationChange(Number(e.target.value))}
+            disabled={busy}
+            aria-label={t("reference_script_plan_duration_label", { unit: unit.key })}
+            className="rounded-[6px] border border-hairline bg-bg-grad-a/40 px-1 py-0.5 text-[11px] text-text-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {/* 存量草稿的秒数可能已不在当前档位表内：补一个当前值选项，否则 select 会静默
+                跳到首档，用户看到的秒数与盘上的对不上。 */}
+            {(durationOptions.includes(unit.duration_seconds)
+              ? durationOptions
+              : [...durationOptions, unit.duration_seconds].sort((a, b) => a - b)
+            ).map((d) => (
+              <option key={d} value={d}>
+                {t("reference_script_plan_duration_option", { seconds: d })}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-[11px] text-text-4">{t("reference_script_plan_duration_option", { seconds: unit.duration_seconds })}</span>
+        )}
+        {outOfTier && (
+          <span className="rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
+            {t("reference_script_plan_duration_out_of_tier")}
+          </span>
+        )}
+        <span className="text-[11px] text-text-4">
+          {t("reference_script_plan_unit_stats", { utterances: stats.utterances })}
+        </span>
+        <span className="flex-1" />
+        {onTextChange && (
+          <button
+            type="button"
+            onClick={onToggleEdit}
+            aria-label={editing ? t("reference_script_plan_edit_done") : t("reference_script_plan_edit_text")}
+            className={`rounded-[6px] p-1 transition-colors ${editing ? "bg-accent/20 text-accent" : "text-text-4 hover:text-text"}`}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      <details open className="group mt-3">
+        <summary className="flex cursor-pointer list-none items-center gap-1 font-mono text-[10px] tracking-[0.08em] text-text-4">
+          <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" aria-hidden="true" />
+          {t("reference_script_plan_source_text_label")}
+          {anchorBroken && (
+            <span className="ml-1 rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
+              {t("reference_script_plan_source_anchor_broken")}
+            </span>
+          )}
+        </summary>
+        <p
+          className={`mt-1.5 border-l pl-3 text-[11.5px] leading-relaxed ${
+            anchorBroken ? "border-red-400/50 text-red-200/70" : "border-hairline text-text-4"
+          }`}
+        >
+          {unit.sourceText}
+        </p>
+        <InlineViolations violations={violations.anchorSource} />
+      </details>
+
+      <div className="mt-3">
+        {editing && unit.editable && onTextChange ? (
+          <AutoTextarea
+            value={unit.scriptText}
+            onChange={onTextChange}
+            disabled={busy}
+            aria-label={t("reference_script_plan_unit_text_label", { unit: unit.key })}
+            className="text-text-3"
+          />
+        ) : (
+          <ScriptHighlight
+            text={unit.scriptText}
+            lookup={lookup}
+            renderAfterLine={(sourceLine) => <InlineViolations violations={violations.byLine.get(sourceLine) ?? []} />}
+          />
+        )}
+      </div>
+
+      <InlineViolations violations={violations.aggregate} />
+
+      {/* 降级提示（不阻断确认），与违约的红标区分开：正文合法，只是画面地点没被钉住。 */}
+      {lacksScene && (
+        <p className="mt-2 flex items-start gap-1.5 pl-1 text-[11px] leading-snug text-amber-300">
+          <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+          <span>{t("reference_script_plan_unit_without_scene")}</span>
+        </p>
+      )}
+
+      {quarantined && hasViolation && (
+        <p className="mt-2 text-[10.5px] text-text-4">{t("reference_script_plan_quarantined_unit_hint")}</p>
+      )}
+    </article>
+  );
+}
+
+/** 本面板只编辑 reference_video 变体的 units 内容；其余变体的内容不属于这里。 */
+function selectUnitsContent(state: ScriptReviewState): ReferenceScriptPlanDraft | null {
+  return state.content != null && "units" in state.content ? state.content : null;
+}
+
+/**
+ * reference_video script_plan 拆分结果的按集预览：与 drama/narration 的 `ScriptReviewGate` 同级、
+ * 专属 reference_video 变体的内容确认面板——文稿流布局（unit 卡：头部 + 原文 + 高亮正文），
+ * 草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 prompt_authoring。
+ *
+ * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（无待处置
+ * 草稿）内容上开放；草稿的修复走 Agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
+ */
+export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }: ReferenceScriptPlanPreviewPanelProps) {
+  const { t } = useTranslation("dashboard");
+  const pushToast = useAppStore((s) => s.pushToast);
+
+  const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
+
+  const handleConfirmed = useCallback(() => {
+    // 保存 / 确认两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目
+    // 本身变了才抑制全局副作用，否则会把续写消息写进用户切换到的别的项目/会话。同项目内切
+    // tab（如切到「视频单元」，本面板同样会被卸载）不属于这种情况——预填文案本身带着具体
+    // 集号，写进全局 assistant 输入框依然准确，不该被同一份卸载信号误伤。
+    if (useProjectsStore.getState().currentProjectName !== projectName) return;
+    pushToast(t("dashboard:review_confirmed"), "success");
+    // 确认放行 + 预填继续消息到会话输入框——只填不发送，用户自行核对后发送。
+    useAssistantStore.getState().setInput(t("reference_script_plan_confirm_continue_prefill", { episode }));
+    useAppStore.getState().setAssistantPanelOpen(true);
+  }, [projectName, episode, pushToast, t]);
+
+  const {
+    state,
+    draft,
+    setDraft,
+    dirty,
+    loading,
+    loadError,
+    saving,
+    busy,
+    retry: handleRetry,
+    save: handleSave,
+    confirm: handleConfirm,
+    confirming,
+  } = useScriptReviewDraft<ReferenceScriptPlanDraft>({
+    projectName,
+    episode,
+    selectContent: selectUnitsContent,
+    onConfirmed: handleConfirmed,
+  });
+
+  const updateUnitText = useCallback(
+    (unitIndex: number, text: string) => {
+      setDraft((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          units: prev.units.map((u, i) => (i === unitIndex ? { ...u, text } : u)),
+        };
+      });
+    },
+    [setDraft],
+  );
+
+  const updateDuration = useCallback(
+    (unitIndex: number, seconds: number) => {
+      setDraft((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          units: prev.units.map((u, i) => (i === unitIndex ? { ...u, duration_seconds: seconds } : u)),
+        };
+      });
+    },
+    [setDraft],
+  );
+
+  const handleRequestFix = useCallback(() => {
+    const violations = state?.quarantine?.violations ?? [];
+    const report =
+      violations.length === 0
+        ? t("dashboard:review_fix_request_promote_prefill", { episode, docType: "reference_script_plan" })
+        : [
+            t("reference_script_plan_fix_request_prefill_header", { episode, count: violations.length }),
+            ...violations.map((v, i) => `${i + 1}. ${v.message}`),
+          ].join("\n");
+    useAssistantStore.getState().setInput(report);
+    useAppStore.getState().setAssistantPanelOpen(true);
+  }, [state, episode, t]);
+
+  const projectHasScene = useMemo(() => Object.values(lookup).some((kind) => kind === "scene"), [lookup]);
+
+  const cardRefs = useRef(new Map<string, HTMLElement>());
+  const setCardRef = useCallback((key: string, el: HTMLElement | null) => {
+    if (el) cardRefs.current.set(key, el);
+    else cardRefs.current.delete(key);
+  }, []);
+  const scrollToUnit = useCallback((key: string) => {
+    cardRefs.current.get(key)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
+  if (loading) {
+    return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_script_plan")}</div>;
+  }
+
+  if (loadError) {
+    return (
+      <div role="alert" className="flex h-64 flex-col items-center justify-center gap-3 text-center">
+        <AlertTriangle className="h-6 w-6 text-amber-400" aria-hidden="true" />
+        <div className="flex flex-col gap-1">
+          <p className="text-[13px] font-medium text-text-2">{t("dashboard:review_load_failed")}</p>
+          {loadError.message && <p className="max-w-sm px-4 font-mono text-[11px] text-text-4">{loadError.message}</p>}
+        </div>
+        <button type="button" onClick={handleRetry} className={GHOST_BTN_LG_CLS}>
+          <RotateCcw className="h-3.5 w-3.5" />
+          {t("dashboard:review_retry")}
+        </button>
+      </div>
+    );
+  }
+
+  const status = state?.status ?? "no_script_plan";
+  const quarantine = state?.quarantine ?? null;
+  if (status === "no_script_plan" || (draft == null && quarantine == null)) {
+    return (
+      <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_script_plan_content")}</div>
+    );
+  }
+
+  const quarantined = quarantine != null;
+  const confirmed = status === "confirmed" && !dirty && !quarantined;
+  const displayUnits: DisplayUnit[] = quarantined
+    ? quarantinedDisplayUnits(quarantine.content, episode)
+    : draft
+      ? structuredDisplayUnits(draft)
+      : [];
+  // 收窄后的档位表若已不再包含某 unit 存量存盘的时长（模型 / 分辨率 / 参考图配置变化所致），
+  // 该值仍保留展示（避免 select 静默跳首档），但不能放行确认——_assert_reference_script_plan_ready
+  // 会在 prompt_authoring 落盘前硬拒同一个越档值，此处先一步拦下，而不是让用户确认后才在别处失败。
+  const outOfTierUnitKeys = quarantined
+    ? new Set<string>()
+    : new Set(
+        displayUnits
+          .filter((u) => {
+            const tiers = unitDurationTiers(u, lookup, state?.duration_tiers ?? null);
+            return tiers != null && !tiers.includes(u.duration_seconds);
+          })
+          .map((u) => u.key),
+      );
+  const allViolations = quarantine?.violations ?? [];
+  const hasDraftViolations = allViolations.length > 0;
+  const unitKeys = new Set(displayUnits.map((u) => u.key));
+  const unassignedViolations = allViolations.filter((v) => !unitKeys.has(unitKeyFromLabel(v.label) ?? ""));
+  const violatingUnitKeys = [...new Set(allViolations.map((v) => unitKeyFromLabel(v.label)).filter((k): k is string => k != null))];
+  // schema 违约会让草稿收不成任何 unit 卡（units 不是数组 / 条目不是对象）：原样摊开 Agent
+  // 手里那份内容，否则用户只看得到一条「结构不符」而看不到自己要改的是什么。content 为 null
+  // （信封本身损坏）时没有可摊的内容，聚合区的 quarantine_unreadable 违约已经说明情况。
+  const rawFallback =
+    quarantined && displayUnits.length === 0 && quarantine.content != null
+      ? JSON.stringify(quarantine.content, null, 2)
+      : null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <header
+        className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-[10px] border border-hairline px-3.5 py-2.5 backdrop-blur-md"
+        style={CARD_STYLE}
+      >
+        <div className="flex items-center gap-2">
+          {quarantined && hasDraftViolations ? (
+            <OctagonAlert className="h-4 w-4 shrink-0 text-red-400" />
+          ) : quarantined ? (
+            <Clock className="h-4 w-4 shrink-0 text-amber-400" />
+          ) : confirmed ? (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+          ) : (
+            <Clock className="h-4 w-4 shrink-0 text-amber-400" />
+          )}
+          <div className="flex flex-col">
+            <span className="text-[12.5px] font-medium text-text">
+              {quarantined
+                ? t(hasDraftViolations ? "reference_script_plan_status_quarantined" : "reference_script_plan_status_editable")
+                : confirmed
+                  ? t("dashboard:review_status_confirmed")
+                  : t("dashboard:review_status_pending")}
+            </span>
+            <span className="text-[11px] text-text-4">
+              {quarantined && hasDraftViolations ? (
+                <>
+                  {violatingUnitKeys.map((key, i) => (
+                    <span key={key}>
+                      {i > 0 && ", "}
+                      <button
+                        type="button"
+                        onClick={() => scrollToUnit(key)}
+                        className="text-red-300 underline decoration-red-300/40 underline-offset-2 hover:decoration-red-300"
+                      >
+                        {key} · {allViolations.filter((v) => unitKeyFromLabel(v.label) === key).length}
+                      </button>
+                    </span>
+                  ))}
+                  {unassignedViolations.length > 0 && (
+                    <span> · {t("reference_script_plan_unassigned_violations", { count: unassignedViolations.length })}</span>
+                  )}
+                  <span> — {t("reference_script_plan_click_to_locate")}</span>
+                </>
+              ) : quarantined ? (
+                t("reference_script_plan_editable_hint")
+              ) : confirmed ? (
+                t("dashboard:review_confirmed_hint")
+              ) : (
+                t("dashboard:review_pending_hint")
+              )}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {quarantined && (
+            <button type="button" onClick={handleRequestFix} className={GHOST_BTN_CLS}>
+              {t("reference_script_plan_request_fix")}
+            </button>
+          )}
+          {!quarantined && dirty && (
+            <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
+              <Save className="h-3.5 w-3.5" />
+              {saving ? t("common:saving") : t("common:save")}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={voidPromise(handleConfirm)}
+            disabled={busy || confirmed || quarantined || outOfTierUnitKeys.size > 0}
+            className={ACCENT_BTN_CLS}
+            style={ACCENT_BUTTON_STYLE}
+            title={
+              quarantined
+                ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
+                : outOfTierUnitKeys.size > 0
+                  ? t("reference_script_plan_duration_out_of_tier_hint")
+                  : undefined
+            }
+          >
+            {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {confirming
+              ? t("dashboard:review_confirming")
+              : confirmed
+                ? t("dashboard:review_confirmed_badge")
+                : t("reference_script_plan_confirm_continue")}
+          </button>
+        </div>
+      </header>
+
+      {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
+      {!quarantined && (
+        <EpisodeDurationSummary
+          totalSeconds={sumItemDuration(displayUnits)}
+          targetSeconds={state?.episode_target_duration ?? null}
+        />
+      )}
+
+      <div className="flex flex-col gap-2.5">
+        {displayUnits.map((unit, i) => (
+          <UnitCard
+            key={unit.key}
+            unit={unit}
+            violations={partitionViolations(allViolations, unit.key)}
+            lookup={lookup}
+            projectHasScene={projectHasScene}
+            quarantined={quarantined}
+            onScrollRef={setCardRef}
+            editing={!quarantined && editingUnitKey === unit.key}
+            onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
+            onTextChange={quarantined ? null : (text) => updateUnitText(i, text)}
+            supportedDurations={unitDurationTiers(unit, lookup, state?.duration_tiers ?? null) ?? (state?.supported_durations ?? null)}
+            outOfTier={outOfTierUnitKeys.has(unit.key)}
+            onDurationChange={quarantined ? null : (seconds) => updateDuration(i, seconds)}
+            busy={busy}
+          />
+        ))}
+      </div>
+
+      {(unassignedViolations.length > 0 || rawFallback) && (
+        <section className="rounded-[10px] border border-red-500/45 p-4" style={CARD_STYLE}>
+          <h3 className="font-mono text-[10px] tracking-[0.08em] text-text-4">
+            {t("reference_script_plan_unanchored_section")}
+          </h3>
+          <InlineViolations violations={unassignedViolations} />
+          {rawFallback && (
+            <pre className="mt-2 max-h-64 overflow-auto rounded-[6px] bg-bg-grad-a/40 p-2.5 font-mono text-[10.5px] leading-relaxed text-text-4">
+              {rawFallback}
+            </pre>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}

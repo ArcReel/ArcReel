@@ -35,8 +35,8 @@ export const WORKFLOW_ACTION_TYPES = [
   "analyze_assets",
   "plan_episodes",
   "reset_episode_planning",
-  "prepare_step1",
-  "confirm_step1",
+  "prepare_script_plan",
+  "confirm_script_plan",
   "generate_script",
   "generate_asset_sheets",
   "generate_storyboards",
@@ -57,6 +57,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "confirm_request_duration",
   "configure_provider",
   "repair_artifact_state",
+  "retry_artifact_download",
 ] as const;
 
 export type WorkflowActionType = (typeof WORKFLOW_ACTION_TYPES)[number];
@@ -114,7 +115,7 @@ export type WorkflowArtifactState = ArtifactStatus | "not_applicable" | "partial
 /**
  * 一个步骤下的产物集合。集合可枚举时给三份 id 列表；容器本身读不了时
  * 只给 `state: "blocked"`，此时不猜任何 id 落进 current / stale / missing。
- * 单份产物（剧本、step1 等）只给 `state`。
+ * 单份产物（剧本、script_plan 等）只给 `state`。
  */
 export interface WorkflowArtifactCollection {
   state?: WorkflowArtifactState;
@@ -218,8 +219,8 @@ export type WorkflowStateName =
   | "SELLING_POINTS"
   | "ASSET_INVENTORY"
   | "EPISODE_PLAN"
-  | "STEP1_CONTENT"
-  | "STEP1_REVIEW"
+  | "SCRIPT_PLAN_CONTENT"
+  | "SCRIPT_PLAN_REVIEW"
   | "FINAL_SCRIPT"
   | "ASSET_SHEETS"
   | "STORYBOARD"

@@ -56,6 +56,7 @@ from lib.reference_video.request_projection import (
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
+from lib.schema_guards import is_finite_number
 from lib.script_editor import resolve_items
 from lib.script_models import resolve_content_mode
 from lib.script_skeleton import resolve_script_kind
@@ -216,12 +217,7 @@ async def _selected_current_video_covering_duration(
 ) -> tuple[str, Path, dict[str, Any], int] | None:
     """Read one trusted selected visual whose measured media covers current TTS."""
 
-    if (
-        isinstance(minimum_actual_duration_seconds, bool)
-        or not isinstance(minimum_actual_duration_seconds, (int, float))
-        or not math.isfinite(minimum_actual_duration_seconds)
-        or minimum_actual_duration_seconds <= 0
-    ):
+    if not is_finite_number(minimum_actual_duration_seconds) or minimum_actual_duration_seconds <= 0:
         raise ValueError("minimum_actual_duration_seconds must be positive")
     selected = await asyncio.to_thread(
         _selected_current_video_record,
@@ -348,6 +344,7 @@ async def active_tts_resource_ids(
     resource_ids: Iterable[str],
     script_file: str,
     queue: GenerationQueue | None = None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> frozenset[str]:
     """Return units with active explicit TTS for one script's equivalent locators."""
 
@@ -367,6 +364,7 @@ async def active_tts_resource_ids(
                 task_type="tts",
                 resource_ids=normalized,
                 script_file=locator,
+                user_id=user_id,
             )
             for locator in locators
         )
@@ -380,6 +378,7 @@ async def active_narrated_video_resource_ids(
     resource_ids: Iterable[str],
     script_file: str,
     queue: GenerationQueue | None = None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> frozenset[str]:
     """Return units whose active video request explicitly consumes the current TTS."""
 
@@ -404,6 +403,7 @@ async def active_narrated_video_resource_ids(
                 task_type=task_type,
                 resource_ids=normalized,
                 script_file=locator,
+                user_id=user_id,
             )
             for task_type, _key, locator in queries
         )
@@ -422,6 +422,8 @@ async def tts_task_in_progress(
     project_name: str,
     resource_id: str,
     script_file: str,
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
 ) -> bool:
     """Whether one unit currently has an active explicit TTS task."""
 
@@ -429,6 +431,8 @@ async def tts_task_in_progress(
         project_name=project_name,
         resource_ids=(resource_id,),
         script_file=script_file,
+        user_id=user_id,
+        queue=queue,
     )
     return resource_id in active
 
@@ -447,10 +451,14 @@ async def prepare_current_storyboard_narrated_video_duration(
     planned_duration_seconds: int | None,
     confirmed_request_duration_seconds: int | None,
     tts_in_progress: bool | None = None,
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
+    config_resolver: ConfigResolver | None = None,
+    tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> NarratedVideoDurationPreparation:
     """Materialize current TTS and video-tier facts for one storyboard unit."""
 
-    resolver = ConfigResolver(async_session_factory)
+    resolver = config_resolver or ConfigResolver(async_session_factory)
     candidate = await ConfigReferenceCapabilityProjection(resolver).resolve_candidate(project, capability)
     request_resolution = await resolver.resolve_resolution(project, candidate.provider_id, candidate.model_id)
     planned = planned_duration_seconds
@@ -466,6 +474,8 @@ async def prepare_current_storyboard_narrated_video_duration(
             project_name=project_name,
             resource_id=preparation.unit_id,
             script_file=script_file,
+            user_id=user_id,
+            queue=queue,
         )
     narration = await prepare_current_narration_delivery(
         project=project,
@@ -478,7 +488,8 @@ async def prepare_current_storyboard_narrated_video_duration(
         preparation=preparation,
         project_path=project_path,
         delivery="use_tts",
-        resolver=CurrentTtsSettingsResolver(project_name),
+        resolver=tts_settings_resolver
+        or CurrentTtsSettingsResolver(project_name, user_id=user_id, project_path=project_path),
         tts_in_progress=active,
     )
     visual_basis_digest = await asyncio.to_thread(
@@ -552,6 +563,7 @@ async def prepare_current_reference_video_request_options(
     project_path: Path,
     options: ReferenceRequestOptions,
     project_name: str,
+    user_id: str = DEFAULT_USER_ID,
     tts_settings_resolver: TtsSettingsResolver | None = None,
     tts_in_progress: bool = False,
 ) -> ReferenceRequestOptions:
@@ -572,7 +584,8 @@ async def prepare_current_reference_video_request_options(
         unit=unit,
         project_path=project_path,
         options=options,
-        resolver=tts_settings_resolver or CurrentTtsSettingsResolver(project_name),
+        resolver=tts_settings_resolver
+        or CurrentTtsSettingsResolver(project_name, user_id=user_id, project_path=project_path),
         tts_in_progress=tts_in_progress,
         episode=episode,
     )
@@ -945,17 +958,17 @@ async def _prepare_current_task_narration_delivery(
 
 
 __all__ = [
+    "ResolvedTtsSettingsResolver",
     "active_narrated_video_resource_ids",
     "active_tts_resource_ids",
-    "current_selected_video_tier",
     "current_reusable_video_tier",
-    "prepare_current_storyboard_narrated_video_duration",
+    "current_selected_video_tier",
     "materialized_reference_video_visual_basis_digest",
     "prepare_current_reference_video_request_options",
-    "ResolvedTtsSettingsResolver",
+    "prepare_current_storyboard_narrated_video_duration",
     "require_generated_video_covers_current_tts",
-    "validate_generated_video_covers_tts_duration",
-    "validate_generated_video_covers_current_tts",
     "reuse_current_video_for_tier",
     "tts_task_in_progress",
+    "validate_generated_video_covers_current_tts",
+    "validate_generated_video_covers_tts_duration",
 ]

@@ -10,7 +10,7 @@ describe("ModalShell", () => {
         <p data-testid="body">hi</p>
       </ModalShell>,
     );
-    expect(screen.queryByTestId("body")).toBeNull();
+    expect(screen.queryByTestId("body")).not.toBeInTheDocument();
   });
 
   it("portals dialog under document.body with role=dialog + aria-modal", () => {
@@ -97,19 +97,19 @@ describe("ModalShell", () => {
         <p>body</p>
       </ModalShell>,
     );
-    expect(document.body.style.overflow).toBe("");
+    expect(document.body).toHaveStyle({overflow:""});
     rerender(
       <ModalShell open onClose={() => {}} ariaLabel="x">
         <p>body</p>
       </ModalShell>,
     );
-    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body).toHaveStyle({overflow:"hidden"});
     rerender(
       <ModalShell open={false} onClose={() => {}} ariaLabel="x">
         <p>body</p>
       </ModalShell>,
     );
-    expect(document.body.style.overflow).toBe("");
+    expect(document.body).toHaveStyle({overflow:""});
   });
 
   it("focuses first focusable element inside dialog on mount (focus trap initial focus)", () => {
@@ -120,7 +120,7 @@ describe("ModalShell", () => {
         </button>
       </ModalShell>,
     );
-    expect(screen.getByTestId("inner-btn")).toBe(document.activeElement);
+    expect(screen.getByTestId("inner-btn")).toHaveFocus();
   });
 
   it("preserves caller-set initial focus inside dialog (child useEffect runs first)", () => {
@@ -143,7 +143,7 @@ describe("ModalShell", () => {
         <Inner />
       </ModalShell>,
     );
-    expect(screen.getByTestId("name-input")).toBe(document.activeElement);
+    expect(screen.getByTestId("name-input")).toHaveFocus();
   });
 
   it("restores focus to the trigger element after close (not to the now-unmounted input)", () => {
@@ -179,39 +179,39 @@ describe("ModalShell", () => {
 
     const opener = screen.getByTestId("opener");
     opener.focus();
-    expect(opener).toBe(document.activeElement);
+    expect(opener).toHaveFocus();
 
     fireEvent.click(opener);
     // modal 打开后，子组件的 useEffect 把焦点放到 name-input
-    expect(screen.getByTestId("name-input")).toBe(document.activeElement);
+    expect(screen.getByTestId("name-input")).toHaveFocus();
 
     // 关闭 modal，焦点应该回到 opener，而不是 body
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(opener).toBe(document.activeElement);
+    expect(opener).toHaveFocus();
   });
 
   it("body overflow lock uses reference counting across stacked modals", () => {
-    expect(document.body.style.overflow).toBe("");
+    expect(document.body).toHaveStyle({overflow:""});
 
     const { unmount: unmountA } = render(
       <ModalShell open onClose={() => {}} ariaLabel="A">
         <p>a</p>
       </ModalShell>,
     );
-    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body).toHaveStyle({overflow:"hidden"});
 
     const { unmount: unmountB } = render(
       <ModalShell open onClose={() => {}} ariaLabel="B">
         <p>b</p>
       </ModalShell>,
     );
-    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body).toHaveStyle({overflow:"hidden"});
 
     // 关闭先开的 A：仍有 B 打开，不能误把 body 还原成可滚动
     unmountA();
-    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body).toHaveStyle({overflow:"hidden"});
 
     unmountB();
-    expect(document.body.style.overflow).toBe("");
+    expect(document.body).toHaveStyle({overflow:""});
   });
 });

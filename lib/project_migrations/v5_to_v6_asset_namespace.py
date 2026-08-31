@@ -20,16 +20,18 @@ from lib.asset_types import (
     normalize_asset_name,
     validate_asset_name,
 )
-from lib.episode_paths import REFERENCE_VIDEO_STEP1_LEGACY_FILENAME, STEP1_LEGACY_FILENAMES
 from lib.json_io import atomic_write_json, load_json
 from lib.project_migrations.staged_swap import new_rollback_dir, new_staging_dir
 from lib.reference_video.text_parser import line_speech_marks, rewrite_mentions
 
 logger = logging.getLogger(__name__)
 
+#: 本迁移面对的是 v5 项目：脚本规划草稿此时还叫 ``step1_*``（v9→v10 才改名）。名字是当时的
+#: 落盘事实，写死在这一步，不跟随 ``lib.episode_paths`` 的当前命名。
 _LEGACY_MARKDOWN_DRAFTS = {
-    REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
-    *(name for names in STEP1_LEGACY_FILENAMES.values() for name in names),
+    "step1_reference_units.md",
+    "step1_normalized_script.md",
+    "step1_segments.md",
 }
 
 
@@ -178,9 +180,7 @@ def _mention_owner_map(occurrences: list[_AssetOccurrence]) -> dict[str, _AssetO
     owners: dict[str, _AssetOccurrence] = {}
     for item in occurrences:
         current = owners.get(item.key)
-        if current is None or item.spec.namespace_priority < current.spec.namespace_priority:
-            owners[item.key] = item
-        elif item.spec.namespace_priority == current.spec.namespace_priority:
+        if current is None or item.spec.namespace_priority <= current.spec.namespace_priority:
             owners[item.key] = item
     return owners
 

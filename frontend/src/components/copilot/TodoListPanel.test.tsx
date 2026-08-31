@@ -60,6 +60,6 @@ describe("TodoListPanel", () => {
     const { container } = render(<TodoListPanel turns={turns} draftTurn={null} />);
 
     expect(screen.queryByText("旧任务")).not.toBeInTheDocument();
-    expect(container.firstChild).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 });

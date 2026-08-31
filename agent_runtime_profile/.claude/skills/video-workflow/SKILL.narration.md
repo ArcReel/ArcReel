@@ -112,45 +112,45 @@ expected source revision：{next_action.args.expected_source_revision}
 2. 调用 `mcp__arcreel__plan_episodes({})`。窗口字数与每批集数上限为工具内部默认，项目设置 `planning_window_chars` / `planning_max_episodes` 可覆盖（经 patch_project settings 写入）。**用户在规划前给出常驻分集偏好时**（如"严格按章节切分，一章一集""每集在某处收尾"），把偏好原文经 `instructions` 传入：`mcp__arcreel__plan_episodes({"instructions": "用户意见原文"})`；意见原样注入规划 prompt 的「用户意见」分节，遵循强度由正文表达——用户明确要求硬性遵循时，把强度措辞一并写进正文（如「必须全部落实：一章一集」）。长篇会分多批规划（每批一次工具调用），该偏好**不持久化**，须在规划完成前**每一批调用都重复带上同一 `instructions`**
 3. **批级审阅**：把工具返回的账本摘要（每集标题+钩子+体量）展示给用户，征求意见
 4. 用户提出意见（一句话可同时包含任意多处意见，含全局偏好）→ 走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning({"from_episode": N})`，`from_episode` 取意见中最早受影响的集，保留其前的集不受影响
-5. **已消费集警告确认**：重置会波及已消费集（已有 step1/剧本/媒体产物）时，工具会返回受影响集清单而不执行——把影响范围告知用户、获得明确确认后，追加 `"confirm_consumed": true` 重新调用；确认执行后这些集的账本条目被清除，产物本身不删除
+5. **已消费集警告确认**：重置会波及已消费集（已有 script_plan/剧本/媒体产物）时，工具会返回受影响集清单而不执行——把影响范围告知用户、获得明确确认后，追加 `"confirm_consumed": true` 重新调用；确认执行后这些集的账本条目被清除，产物本身不删除
 6. 重置完成后，全局性意见（如每集体量）先经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 显式写入，再带调整后的 `instructions` 重新调用 `mcp__arcreel__plan_episodes` 从 `from_episode` 起分批规划、结果再次展示审阅；若新提交的集号与原消费范围重叠，工具会自动标 stale（产物不删除，需重做下游产物），无需额外确认。**规划完毕后返回会附全局核对材料**（累计集数、体量最小几集、体量中位数、目标体量）：若用户给过总集数、按章节对齐等结构性偏好，须对照核对，有偏差须向用户明确说明（可引导用户重新走「重置 + 重新规划」修正）
 7. 用户对本批规划满意后刷新计划继续。**用户显式授权全自主时**（如"直接跑完整个流程不用逐步确认"），可跳过批级审阅直接继续
 
 ---
 
-## `prepare_step1`：单集内容整理
+## `prepare_script_plan`：单集脚本规划
 
-**触发**：`next_action.type == "prepare_step1"`
+**触发**：`next_action.type == "prepare_script_plan"`
 
-dispatch `next_action.args.preprocessor` 指名的子智能体，产出 `drafts/episode_{N}/` 下对应的 step1
+dispatch `next_action.args.preprocessor` 指名的子智能体，产出 `drafts/episode_{N}/` 下对应的 script_plan
 中间文件。**不要自己按 `generation_mode` × `content_mode` 反推该选谁**：服务端在同一张规则表上得出
-`preprocessor`，profile 侧再推一遍只会造出第二个真相源。各 step1 文件与 schema 的对应关系见
+`preprocessor`，profile 侧再推一遍只会造出第二个真相源。各 script_plan 文件与 schema 的对应关系见
 `.claude/references/generation-modes.md`。
 
 dispatch prompt 通用参数：项目名称、项目路径、集数、本集小说文件路径；可选附加说明（用户对本次生成的意见等任何需带给子智能体的临时上下文，原文透传）。
 
-若 `next_action.args` 含 `expected_stale_step1_revision`，子智能体成功产出正式 step1 后必须调用
-`mcp__arcreel__complete_step1_rebuild({"episode": N, "expected_stale_step1_revision": next_action.args.expected_stale_step1_revision})`。
+若 `next_action.args` 含 `expected_stale_script_plan_revision`，子智能体成功产出正式 script_plan 后必须调用
+`mcp__arcreel__complete_script_plan_rebuild({"episode": N, "expected_stale_script_plan_revision": next_action.args.expected_stale_script_plan_revision})`。
 该完成事实不可用“文件内容是否变化”推断：确定性重建可能产出完全相同的 JSON。工具报冲突时刷新计划，
 不得用旧参数重试。
 
-（两个内容整理子智能体会自行读 project.json + 调用
+（两个脚本规划子智能体会自行读 project.json + 调用
 `mcp__arcreel__get_video_capabilities({})`
 拿到模型能力与用户偏好；主 Agent 不需要预先注入角色/场景/道具列表或
-`supported_durations` / `max_duration` / `max_reference_images` / `default_duration` 等数据。）
+`supported_durations` / `max_duration` / `max_reference_images` / `default_duration` / `episode_target_duration` 等数据。）
 
-**中间文件变更必重生剧本 JSON**：`prepare_step1` 的中间文件被修改或重拆后（无论哪种生成模式、无论首次还是重做），即使 `scripts/episode_{N}.json` 已存在，也必须重新执行 `generate_script`——剧本 JSON 不会自动跟随中间文件更新，跳过会留下"新中间文件 + 旧 JSON"的陈旧组合。
+**中间文件变更必重生失效条目**：`prepare_script_plan` 的中间文件被修改或重拆后（无论哪种生成模式、无论首次还是重做），即使 `scripts/episode_{N}.json` 已存在，也必须重新执行 `generate_script`——剧本 JSON 不会自动跟随中间文件更新，跳过会留下"新中间文件 + 旧 JSON"的陈旧组合。`generate_script` 默认只重写内容变化与新增的条目（工作流状态在 `artifacts.script.stale_entry_ids` 列出它们），未变条目的提示词、备注、尾帧与已生成产物原样保留；要整集重写传 `scope: "all"`，只重做指定几条传 `entry_ids`。
 
 ---
 
-## `confirm_step1` / `generate_script`：JSON 剧本生成
+## `confirm_script_plan` / `generate_script`：JSON 剧本生成
 
 **触发**：
 
-- `next_action.type == "confirm_step1"` → 先完成下述内容确认，刷新计划后再路由
+- `next_action.type == "confirm_script_plan"` → 先完成下述内容确认，刷新计划后再路由
 - `next_action.type == "generate_script"` → dispatch 剧本生成
 
-**step1→step2 内容确认（阻塞）**：`prepare_step1` 的结构化 step1 中间态须经**显式确认**才放行剧本生成（三种结构化 step1 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `step1_reference_units.json` 同样须确认，不要跳过。ad 无 step1，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 step1 又被改）时 `generate_episode_script` 会被内容确认阻塞；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
+**script_plan→prompt_authoring 内容确认（阻塞）**：`prepare_script_plan` 的结构化 script_plan 中间态须经**显式确认**才放行剧本生成（三种结构化 script_plan 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `script_plan_reference_units.json` 同样须确认，不要跳过。ad 无 script_plan，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 script_plan 又被改）时 `generate_episode_script` 会被内容确认阻塞；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
 
 **dispatch `create-episode-script` 子智能体**：传入项目名称、项目路径、集数；可选附加说明（用户对本次生成的意见等任何需带给子智能体的临时上下文，原文透传）。
 
@@ -269,10 +269,10 @@ dispatch `generate-assets` 子智能体：
   项目名称：{project_name}
   工具调用（两个工具的 narration_delivery 均为必填，填本次已向用户确认的那个值）：
     requested_ids 非空 →
-      mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids,
-                                             "narration_delivery": chosen_narration_delivery})
+      mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "selected", "ids": requested_ids},
+                                             "force": true, "narration_delivery": chosen_narration_delivery})
     requested_ids == []（计划未点名；工具调用不传 scene_ids）→
-      mcp__arcreel__generate_video_episode({"script": target.script_filename,
+      mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode": target.episode},
                                             "narration_delivery": chosen_narration_delivery})
   验证方式：重新读取 target.script，检查各分镜的 video_clip 字段
 ```
@@ -333,11 +333,11 @@ dispatch `generate-assets` 子智能体：
 **触发**：`next_action.type` 为 `"repair_video_units"` 或 `"patch_episode_script"`。
 
 Read `target.script`，**只处理 `requested_ids` 对应的条目**。revision 按动作取：
-`patch_episode_script` 的 `next_action.args` 已直接给出 `expected_revision` 与逐条 `problems`，
+`patch_episode_script` 的 `next_action.args` 已直接给出 `base_revision` 与逐条 `problems`，
 直接用，不必再查；`repair_video_units` 的 args 里没有，先调
-`mcp__arcreel__get_episode_script_revision({"script": target.script_filename})` 取。
+`mcp__arcreel__get_episode_script({"script": target.script_filename})` 读取正文并取 revision。
 再用**一次** `mcp__arcreel__patch_episode_script({"script": target.script_filename,
-"expected_revision": <上面取到的 revision>, "operations": [...]})` 把全部条目改完——每条一个有序 `update`。
+"base_revision": <上面取到的 revision>, "operations": [...]})` 把全部条目改完——每条一个有序 `update`。
 `needs_replan` 之类的标记由工具重算，不要手写。工具报 revision 冲突时刷新计划重来，不得用旧
 revision 重试。改完后按上面的请求选择语义点名重做这些 ID，再刷新计划。
 

@@ -103,7 +103,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     contentMode === "narration" ? "narration" : contentMode === "ad" ? "ad" : "drama";
 
   const hasScript = Boolean(episodeScript);
-  // 广告/短片一键生成不走内容整理中间文件，内容整理 tab 对该创作类型无意义，仅 timeline 单 tab
+  // 广告/短片一键生成不走脚本规划中间文件，脚本规划 tab 对该创作类型无意义，仅 timeline 单 tab
   const showTabs = Boolean(hasDraft) && editorContentMode !== "ad";
   const defaultTab = hasScript ? "timeline" : "preprocessing";
   const [activeTab, setActiveTab] = useState<"preprocessing" | "timeline">(defaultTab);
@@ -255,7 +255,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                   : "var(--color-text-3)",
             }}
           >
-            {t("tab_preprocessing")}
+            {t("tab_script_plan")}
             {activeTab === "preprocessing" && (
               <span
                 aria-hidden="true"

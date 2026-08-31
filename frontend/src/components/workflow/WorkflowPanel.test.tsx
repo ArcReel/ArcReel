@@ -470,9 +470,11 @@ describe("WorkflowPanel 刷新纪律", () => {
     }
     expect(spy).toHaveBeenCalledTimes(1);
 
-    await advanceDebounce(249);
+    // shouldAdvanceTime 下假定时钟随真实时间插值前进，故两侧断言各留安全余量：
+    // 100ms 远未触达 250ms 防抖窗口，settleDebounce 则已远超该窗口。
+    await advanceDebounce(100);
     expect(spy).toHaveBeenCalledTimes(1);
-    await advanceDebounce(1);
+    await settleDebounce();
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   });
@@ -483,15 +485,15 @@ describe("WorkflowPanel 产品语言", () => {
     await renderExpanded(
       makePlan({
         steps: [
-          makeStep({ id: "step1_content", state: "pending" }),
-          makeStep({ id: "step1_review", state: "pending" }),
+          makeStep({ id: "script_plan_content", state: "pending" }),
+          makeStep({ id: "script_plan_review", state: "pending" }),
           makeStep({ id: "asset_sheets", state: "pending" }),
         ],
       }),
     );
-    const step1Row = screen.getByTestId("workflow-step-step1_content");
-    expect(within(step1Row).getByText("内容整理")).toBeInTheDocument();
-    const reviewRow = screen.getByTestId("workflow-step-step1_review");
+    const scriptPlanRow = screen.getByTestId("workflow-step-script_plan_content");
+    expect(within(scriptPlanRow).getByText("脚本规划")).toBeInTheDocument();
+    const reviewRow = screen.getByTestId("workflow-step-script_plan_review");
     expect(within(reviewRow).getByText("内容确认")).toBeInTheDocument();
     const sheetsRow = screen.getByTestId("workflow-step-asset_sheets");
     expect(within(sheetsRow).getByText("资产图")).toBeInTheDocument();

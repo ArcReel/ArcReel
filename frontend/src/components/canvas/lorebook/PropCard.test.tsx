@@ -6,9 +6,10 @@ import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 
-vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
-  VersionTimeMachine: () => <div data-testid="version-time-machine">versions</div>,
-}));
+vi.mock("@/components/canvas/timeline/VersionTimeMachine", async () => {
+  const { versionTimeMachineMock } = await import("@/__mocks__/VersionTimeMachine");
+  return versionTimeMachineMock();
+});
 
 
 describe("PropCard", () => {
@@ -141,7 +142,7 @@ describe("PropCard", () => {
         onGenerate={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/major|minor|主要|次要|道具类型/i)).toBeNull();
+    expect(screen.queryByText(/major|minor|主要|次要|道具类型/i)).not.toBeInTheDocument();
   });
 
   it("always shows generate button (not gated on importance)", () => {
@@ -170,7 +171,7 @@ describe("PropCard", () => {
     );
 
     expect(screen.getByDisplayValue("古铜色钥匙")).toHaveAttribute("readonly");
-    expect(screen.queryByTestId("version-time-machine")).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByTestId("version-time-machine")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

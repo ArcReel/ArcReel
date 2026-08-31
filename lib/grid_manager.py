@@ -35,7 +35,7 @@ class GridManager:
         位置，``grid_xxxxxxxxxxxx\\n`` 这类带尾随换行的输入能骗过 ``match()``，让换行符
         混入最终文件名。
         """
-        if not isinstance(grid_id, str) or _GRID_ID_RE.fullmatch(grid_id) is None:
+        if _GRID_ID_RE.fullmatch(grid_id) is None:
             raise ValueError(f"非法宫格 ID: {grid_id!r}")
         return safe_join(self._dir, f"{grid_id}{suffix}")
 
@@ -71,7 +71,7 @@ class GridManager:
         with self._record_lock(path), formal_write_transaction(path):
             try:
                 grid = self._get_unlocked(path)
-            except Exception:  # noqa: BLE001 - optional best-effort restore semantics apply only to the read
+            except Exception:  # best-effort：可选恢复语义只作用于读取
                 if not ignore_invalid:
                     raise
                 if on_miss is not None:
@@ -185,7 +185,6 @@ class GridManager:
                 and old.status not in ("pending", "generating")
                 and old.scene_ids
                 and set(old.scene_ids) <= scene_ids
-            ):
-                if self.delete(old.id):
-                    deleted += 1
+            ) and self.delete(old.id):
+                deleted += 1
         return deleted

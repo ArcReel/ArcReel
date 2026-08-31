@@ -195,13 +195,17 @@ There is no account-level RBAC, scoped API key, MFA, JWT revocation list, centra
 
 The absence of a `CurrentUser` parameter in a route function does not establish that the route is unauthenticated. The built-in `providers.router` is currently protected by the centralized registration dependency.
 
-Public routes include authentication bootstrap/login, project/global file delivery, `/health`, and `/skill.md`. Self-authenticating routes include event streams that accept a query token and project export routes that verify a short-lived download token.
+Public routes include authentication bootstrap/login, project/global file delivery, `/health`, and `/agent-installation-guide.md`. Self-authenticating routes include event streams that accept a query token and project export routes that verify a short-lived download token.
 
 ### 9.2 Secret handling
 
 - API responses generally mask stored secrets. The custom-provider credentials endpoint is a material exception: it returns the stored `api_key` in plaintext to any caller accepted by the generic authentication dependency, including an `arc-` API key.
 - The server fails fast when provider secrets are present in the parent process environment, reducing automatic inheritance by sandboxed child processes.
-- Agent policy denies sensitive-file reads and scrubs secret-like environment variables from sandboxed Bash execution.
+- Agent policy denies sensitive-file reads and scrubs provider and secret-like environment variables from sandboxed
+  Bash execution. The dedicated short-lived `ARCREEL_API_TOKEN` is intentionally retained so the embedded Agent can
+  call ArcReel's HTTP API. That retention cancels most of the scrubbing's value: the token authenticates the
+  custom-provider credentials endpoint described above, so an Agent holding it can read back the same provider
+  `api_key` values in plaintext over HTTP.
 - Vertex credential files are written with restrictive permissions where supported.
 
 Built-in provider, custom-provider, and Agent credentials are nevertheless stored in plaintext database columns. API masking does not protect a copied database, backup, snapshot, or compromised database account, and it does not protect custom-provider credentials from the authenticated plaintext-read endpoint described above.
@@ -237,12 +241,26 @@ On supported Linux and macOS deployments, ArcReel verifies sandbox tooling at st
 - Sensitive-file denial.
 - Protected-write workflows.
 - Sandbox filesystem deny rules.
-- Sandbox network-domain policy.
-- Secret-like environment scrubbing.
+- Unrestricted sandbox outbound network for provider documentation and custom-endpoint adaptation: the domain
+  allowlist is the single wildcard `*`, and `allowLocalBinding` additionally opens host loopback.
+- Secret-like environment scrubbing. This is not a boundary against an Agent that holds `ARCREEL_API_TOKEN`; see
+  section 9.2.
 - Windows command-whitelist fallback behavior.
 - Prevention of unsandboxed command fallback.
 
 SDK built-in `Read`, `Write`, `Edit`, `Glob`, and `Grep` tools execute in the main process and are constrained by `PreToolUse` hooks, not by the kernel sandbox. Bash and its descendants are constrained by the kernel sandbox on supported platforms. In-process MCP tools also run outside the OS sandbox and require independent project binding and argument validation.
+
+The embedded Agent receives a 15-minute administrator session JWT, outbound access to any domain, and — through
+`allowLocalBinding` — reachability of the host's loopback interface. Prompt injection in fetched provider
+documentation can therefore exfiltrate that token to an arbitrary host, exercise any authenticated ArcReel API
+during its lifetime (including the plaintext credentials read of section 9.2), and reach loopback services that are
+not ArcReel at all: a database, another application's development server, or any private service bound to
+`127.0.0.1` on the same machine. Filesystem confinement remains in force and covers none of these paths.
+
+The JWT is stateless and cannot be revoked before it expires. Rotating `AUTH_TOKEN_SECRET` is the only way to
+invalidate an outstanding token, and it invalidates every web session at the same time. The 15-minute lifetime
+shortens the window without reducing the token's privileges. The accepted boundary and rationale are recorded in
+ADR 0069.
 
 ### 9.6 Frontend and browser controls
 
@@ -254,9 +272,17 @@ SDK built-in `Read`, `Write`, `Edit`, `Glob`, and `Grep` tools execute in the ma
 
 ### 9.7 CORS and logging
 
-When `CORS_ORIGINS` is absent, empty, or contains `*`, ArcReel uses wildcard origins with credentials disabled. This does not independently bypass bearer authentication because an attacker-controlled origin does not know the token.
+When `CORS_ORIGINS` is absent, empty, or contains `*`, ArcReel uses wildcard origins with credentials disabled. This does not independently bypass bearer authentication because an attacker-controlled origin does not know the token. The allowlist is parsed once in `server/cors_config.py` and applied by a single application-level `CORSMiddleware` that also wraps the `/mcp` mount; there is no MCP-specific origin list.
 
 Application request logging records URL paths rather than complete query strings. Reverse proxies, ingress controllers, monitoring systems, and diagnostic middleware may still record query parameters.
+
+### 9.8 Remote MCP transport
+
+The remote MCP endpoint is mounted at `/mcp` and enforces an `arc-` API key on every request through `ArcApiKeyVerifier`. `AUTH_ENABLED=false` does not grant it anonymous access, and login JWTs and download tokens are rejected.
+
+The MCP SDK's DNS-rebinding protection is disabled (`TransportSecuritySettings(enable_dns_rebinding_protection=False)`), so ArcReel validates neither the `Host` nor the `Origin` header inside the MCP mount. A rebound request reaches the endpoint but carries no credential, because the API key is never held in a browser cookie or session, and receives 401. Host ownership is delegated to the reverse proxy and deployment topology. Cross-origin protection for browser MCP clients rests entirely on the application-level CORS allowlist described in 9.7. Disabling the flag does not affect the SDK's `Content-Type` validation for POST requests.
+
+`MCP_PUBLIC_URL` populates only the RFC 9728 protected-resource metadata and the 401 challenge. The `AccessToken` returned by `ArcApiKeyVerifier` carries no resource, so neither the issuer nor the resource URL participates in token validation.
 
 ## 10. Attack surfaces and abuse cases
 

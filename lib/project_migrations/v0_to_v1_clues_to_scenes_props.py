@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 from pathlib import Path
 from typing import Any
@@ -50,11 +51,9 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
     # 清理空 clues 目录（即使有残余未知文件也保留，避免误删）；
     # 注意不能在失败时 return—— 下方 versions/clues 迁移与此目录的可删性无关，
     # 必须无条件继续执行，否则 schema_version 升 1 后永久遗失版本文件。
-    try:
+    # 目录非空（有残余未知文件）则保留，不视为迁移失败
+    with contextlib.suppress(OSError):
         clues_dir.rmdir()
-    except OSError:
-        # 目录非空（有残余未知文件）则保留，不视为迁移失败
-        pass
 
     # versions/clues 同样按原 clue type 分流
     versions_clues = project_dir / "versions" / "clues"
@@ -65,11 +64,9 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
             target_versions.mkdir(parents=True, exist_ok=True)
             for file in versions_clues.glob(f"{name}*"):
                 shutil.move(str(file), str(target_versions / file.name))
-        try:
+        # versions/clues 非空（有未归类文件）则保留，不视为迁移失败
+        with contextlib.suppress(OSError):
             versions_clues.rmdir()
-        except OSError:
-            # versions/clues 非空（有未归类文件）则保留，不视为迁移失败
-            pass
 
 
 def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:

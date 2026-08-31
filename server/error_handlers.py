@@ -64,10 +64,7 @@ def _cors_headers_for(
     if allow_credentials:
         headers["Access-Control-Allow-Credentials"] = "true"
 
-    if allow_all_origins and allow_credentials:
-        headers["Access-Control-Allow-Origin"] = origin
-        headers["Vary"] = "Origin"
-    elif not allow_all_origins and origin in allow_origins:
+    if (allow_all_origins and allow_credentials) or (not allow_all_origins and origin in allow_origins):
         headers["Access-Control-Allow-Origin"] = origin
         headers["Vary"] = "Origin"
 
@@ -87,8 +84,10 @@ def register_error_handlers(
     ``server/app.py`` 调用处），默认值对应「未配置 CORS」的保守场景。
     """
 
+    # 以下处理器全部由 @app.exception_handler 就地注册，模块内无其它引用；basedpyright 把函数
+    # 作用域内的符号一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @app.exception_handler(ApiError)
-    async def _handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
+    async def _handle_api_error(request: Request, exc: ApiError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         _t = get_translator(request)
         content: dict[str, object] = {"detail": _t(exc.key, **exc.params)}
         if exc.diagnostic is not None:
@@ -96,7 +95,7 @@ def register_error_handlers(
         return JSONResponse(status_code=exc.status_code, content=content)
 
     @app.exception_handler(RequestValidationError)
-    async def _handle_request_validation(request: Request, exc: RequestValidationError) -> JSONResponse:
+    async def _handle_request_validation(request: Request, exc: RequestValidationError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         _t = get_translator(request)
         error_types = {error["type"] for error in exc.errors()}
         if "assistant_image_too_large" in error_types:
@@ -106,12 +105,12 @@ def register_error_handlers(
         return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
 
     @app.exception_handler(TaskSpecValidationError)
-    async def _handle_task_spec_error(request: Request, exc: TaskSpecValidationError) -> JSONResponse:
+    async def _handle_task_spec_error(request: Request, exc: TaskSpecValidationError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         _t = get_translator(request)
         return JSONResponse(status_code=400, content={"detail": _t(exc.code, **exc.params)})
 
     @app.exception_handler(ActiveTaskRequestConflict)
-    async def _handle_active_task_request_conflict(
+    async def _handle_active_task_request_conflict(  # pyright: ignore[reportUnusedFunction]
         request: Request,
         exc: ActiveTaskRequestConflict,
     ) -> JSONResponse:
@@ -127,20 +126,20 @@ def register_error_handlers(
         )
 
     @app.exception_handler(ScriptEditError)
-    async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:
+    async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         # 脏脚本（分镜数组键损坏等）→ 4xx 客户端错误
         _t = get_translator(request)
         return JSONResponse(status_code=400, content={"detail": script_edit_detail(exc, _t)})
 
     @app.exception_handler(FileNotFoundError)
-    async def _handle_file_not_found(request: Request, exc: FileNotFoundError) -> JSONResponse:
+    async def _handle_file_not_found(request: Request, exc: FileNotFoundError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         # 不回传 str(exc)：load_script 等异常消息含服务器绝对路径，只进日志
         logger.warning("资源不存在: %s %s (%s)", request.method, request.url.path, exc)
         _t = get_translator(request)
         return JSONResponse(status_code=404, content={"detail": _t("resource_not_found")})
 
     @app.exception_handler(Exception)
-    async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
+    async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         # 未预期异常的消息可能含服务器路径等内部细节，一律通用 500。
         # Starlette 发送本响应后会 re-raise，堆栈由 request_logging_middleware /
         # uvicorn 记录，此处不重复打印。

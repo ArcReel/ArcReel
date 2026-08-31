@@ -67,7 +67,7 @@ interface TasksState {
   optimisticActiveScriptFile: Set<string>;
 
   // Actions
-  setTasks: (tasks: TaskItem[]) => void;
+  setTasks: (tasks: TaskItem[] | ((prev: TaskItem[]) => TaskItem[])) => void;
   setStats: (stats: TaskStats) => void;
   setConnected: (connected: boolean) => void;
   setRefreshScope: (scope: TasksRefreshScope | null) => void;
@@ -345,11 +345,16 @@ export const useTasksStore = create<TasksState>((set, get) => {
     },
 
     setTasks: (tasks) =>
-      set((s) => ({
-        tasks,
-        optimisticActive: pruneSupersededOptimistic(tasks, s.optimisticActive),
-        optimisticActiveScriptFile: pruneSupersededOptimistic(tasks, s.optimisticActiveScriptFile),
-      })),
+      set((s) => {
+        // 传函数时按写入那一刻的快照求值：先读 getState() 再传数组，会把这两步之间到达的
+        // SSE 更新整份覆盖掉。
+        const next = typeof tasks === "function" ? tasks(s.tasks) : tasks;
+        return {
+          tasks: next,
+          optimisticActive: pruneSupersededOptimistic(next, s.optimisticActive),
+          optimisticActiveScriptFile: pruneSupersededOptimistic(next, s.optimisticActiveScriptFile),
+        };
+      }),
     setStats: (stats) => set({ stats }),
     setConnected: (connected) => set({ connected }),
     beginOptimisticActive: (projectName, resourceKind, resourceId, pendingTaskType) => {
@@ -448,11 +453,6 @@ export function selectNeedsFastPolling(s: {
  */
 export function isOccupyingStatus(status: TaskStatus): boolean {
   return status === "queued" || status === "running" || status === "cancelling";
-}
-
-/** 终态：任务生命周期末端，不再占用 resource。 */
-export function isTerminalStatus(status: TaskStatus): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
 /**
@@ -671,5 +671,27 @@ export function useLatestTasksByResource(
 ): Map<string, TaskItem> {
   return useTasksStore(
     useShallow((s) => selectLatestTaskByResource(s.tasks, { projectName, taskType })),
+  );
+}
+
+/**
+ * 按 task_id 取这些任务的队列行。
+ *
+ * 工作流面板的任务观测由工作流状态接口给出，其中不含时间戳；时长的真相源是任务队列，
+ * 故按 task_id 回查而不是让工作流接口多带一份时间戳——同一任务在两条链路上各带一份
+ * 时间戳，两者刷新节奏不同，迟早会互相矛盾。队列里没有对应行时该 id 不进 Map，
+ * 由调用方整块不渲染。返回 store 里的原对象而非裁剪出的子集，浅比较才能在任务列表
+ * 刷新但内容未变时命中。
+ */
+export function useTaskRowsByIds(taskIds: readonly string[]): Map<string, TaskItem> {
+  const wanted = new Set(taskIds);
+  return useTasksStore(
+    useShallow((s) => {
+      const rows = new Map<string, TaskItem>();
+      for (const task of s.tasks) {
+        if (wanted.has(task.task_id)) rows.set(task.task_id, task);
+      }
+      return rows;
+    }),
   );
 }

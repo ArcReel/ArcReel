@@ -4,9 +4,9 @@ Tools registered here run **in the server main process** (not inside the
 agent sandbox), so they can read ``projects/.arcreel.db`` and call provider
 HTTP without poking holes in ``filesystem.denyRead`` / network allowlist.
 
-Each session gets its own MCP server built via :func:`build_arcreel_mcp_server`
-— ``project_name`` is closure-bound, so the agent cannot redirect tools to a
-different project via prompt injection.
+Each session gets its own MCP server built via :func:`build_arcreel_mcp_server`.
+Project-scoped tools are closure-bound to ``project_name``; project entry tools
+may list, create, or upload within the same ``projects_root``.
 """
 
 from __future__ import annotations
@@ -17,12 +17,17 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server
 
-from server.agent_runtime.sdk_tools._context import (
-    ToolContext,
-    migration_failure_for,
-    migration_refusal_response,
-)
+from lib.db.base import DEFAULT_USER_ID
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
+from server.agent_runtime.sdk_tools.content_read import (
+    get_episode_script_tool,
+    get_project_content_tool,
+    get_script_plan_content_tool,
+    get_source_text_tool,
+    list_project_files_tool,
+    list_source_files_tool,
+    read_project_file_tool,
+)
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
     list_pending_assets_tool,
@@ -31,79 +36,85 @@ from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
 from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
-from server.agent_runtime.sdk_tools.enqueue_videos import (
-    generate_video_all_tool,
-    generate_video_episode_tool,
-    generate_video_scene_tool,
-    generate_video_selected_tool,
-)
+from server.agent_runtime.sdk_tools.enqueue_videos import generate_videos_tool
+from server.agent_runtime.sdk_tools.entry import create_project_tool, list_projects_tool, upload_source_tool
 from server.agent_runtime.sdk_tools.episode_planning import (
     plan_episodes_tool,
     reset_episode_planning_tool,
 )
+from server.agent_runtime.sdk_tools.generation_batches import cancel_generation_batch_tool, get_generation_batch_tool
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
-    get_episode_script_revision_tool,
-    insert_segment_tool,
     patch_episode_script_tool,
-    remove_segment_tool,
-    split_segment_tool,
 )
+from server.agent_runtime.sdk_tools.prompt_preview import get_prompt_preview_tool
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     confirm_script_review_tool,
+    discard_draft_tool,
     generate_episode_script_tool,
+    generate_script_plan_tool,
     get_video_capabilities_tool,
-    normalize_drama_script_tool,
-    open_step1_for_edit_tool,
-    split_narration_segments_tool,
-    split_reference_video_units_tool,
-    validate_and_promote_draft_tool,
+    open_draft_tool,
+    patch_draft_tool,
+    promote_draft_tool,
 )
 from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
-from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool
+from server.agent_runtime.sdk_tools.workflow_status import complete_script_plan_rebuild_tool
+from server.media_tools.context import (
+    ToolContext,
+    migration_failure_for,
+    migration_refusal_response,
+)
+from server.tool_runtime import CallerContext
 
-__all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
+__all__ = ["ARCREEL_MCP_TOOL_IDS", "ToolContext", "build_arcreel_mcp_server"]
 
 # Single source of truth for the ArcReel in-process MCP tool catalogue.
 # Each id is the **short tool name** (without the ``mcp__arcreel__`` prefix the
 # SDK adds at registration). Frontend display names live in
 # ``frontend/src/i18n/{zh,en,vi}/dashboard.ts`` under the ``tool_name_<id>``
-# keys; ``tests/test_frontend_mcp_tool_i18n.py`` cross-checks that every id
+# keys; ``tests/unit/test_frontend_mcp_tool_i18n.py`` cross-checks that every id
 # here has a translation in all locales, so adding a tool without wiring up
 # i18n fails CI.
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
+    "list_projects",
+    "create_project",
+    "upload_source",
     "complete_asset_inventory",
-    "complete_step1_rebuild",
+    "complete_script_plan_rebuild",
     "get_workflow_plan",
+    "get_prompt_preview",
+    "get_generation_batch",
+    "cancel_generation_batch",
+    "get_project_content",
+    "list_source_files",
+    "get_source_text",
+    "get_episode_script",
+    "get_script_plan_content",
+    "list_project_files",
+    "read_project_file",
     "list_pending_assets",
     "generate_assets",
     "generate_storyboards",
     "edit_images",
     "generate_grid",
-    "generate_video_episode",
-    "generate_video_scene",
-    "generate_video_all",
-    "generate_video_selected",
+    "generate_videos",
     "generate_narration_audio",
     "generate_episode_script",
+    "generate_script_plan",
     "confirm_script_review",
-    "normalize_drama_script",
-    "split_reference_video_units",
-    "open_step1_for_edit",
-    "validate_and_promote_draft",
-    "split_narration_segments",
+    "open_draft",
+    "patch_draft",
+    "promote_draft",
+    "discard_draft",
     "get_video_capabilities",
     "plan_episodes",
     "reset_episode_planning",
-    "get_episode_script_revision",
     "patch_episode_script",
     "patch_episode_meta",
-    "insert_segment",
-    "remove_segment",
-    "split_segment",
     "patch_project",
     "rename_asset",
     "retry_project_migration",
@@ -123,37 +134,30 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
 #
 # The read-only tools are outside this set on purpose — they answer the verdict inside
 # their own handlers, so this frozenset stays exactly the registration-time blocks.
-# ``list_pending_assets`` and ``get_episode_script_revision`` read it via
-# ``migration_failure_for`` and return the same ``migration_refusal_response`` envelope
-# the wrapper does; ``get_workflow_plan`` carries it as the plan's single problem rather
+# ``list_pending_assets`` reads it via ``migration_failure_for`` and returns the same
+# typed migration problem that the wrapper encodes; ``get_workflow_plan`` carries it as the plan's single problem rather
 # than refusing; ``get_video_capabilities`` reads model capability only, never the
 # project's artifacts, and stays fully available.
 MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
         "complete_asset_inventory",
-        "complete_step1_rebuild",
+        "complete_script_plan_rebuild",
         "generate_assets",
         "generate_storyboards",
         "edit_images",
         "generate_grid",
-        "generate_video_episode",
-        "generate_video_scene",
-        "generate_video_all",
-        "generate_video_selected",
+        "generate_videos",
         "generate_narration_audio",
         "generate_episode_script",
+        "generate_script_plan",
         "confirm_script_review",
-        "normalize_drama_script",
-        "split_reference_video_units",
-        "open_step1_for_edit",
-        "validate_and_promote_draft",
-        "split_narration_segments",
+        "open_draft",
+        "patch_draft",
+        "promote_draft",
+        "discard_draft",
         "plan_episodes",
         "reset_episode_planning",
         "patch_episode_script",
-        "insert_segment",
-        "remove_segment",
-        "split_segment",
     }
 )
 
@@ -179,39 +183,49 @@ def _refuse_while_migration_failed(sdk_tool: Any, ctx: ToolContext) -> Any:
     return replace(sdk_tool, handler=_guarded)
 
 
-def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
+def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id: str = DEFAULT_USER_ID) -> Any:
     """Build the per-session in-process MCP server with all ArcReel tools."""
-    ctx = ToolContext(project_name=project_name, projects_root=projects_root)
+    ctx = ToolContext(
+        project_name=project_name,
+        projects_root=projects_root,
+        caller=CallerContext(user_id=user_id, source="embedded"),
+    )
     tools = [
+        list_projects_tool(ctx),
+        create_project_tool(ctx),
+        upload_source_tool(ctx),
         complete_asset_inventory_tool(ctx),
-        complete_step1_rebuild_tool(ctx),
+        complete_script_plan_rebuild_tool(ctx),
         get_workflow_plan_tool(ctx),
+        get_prompt_preview_tool(ctx),
+        get_generation_batch_tool(ctx),
+        cancel_generation_batch_tool(ctx),
+        get_project_content_tool(ctx),
+        list_source_files_tool(ctx),
+        get_source_text_tool(ctx),
+        get_episode_script_tool(ctx),
+        get_script_plan_content_tool(ctx),
+        list_project_files_tool(ctx),
+        read_project_file_tool(ctx),
         list_pending_assets_tool(ctx),
         generate_assets_tool(ctx),
         generate_storyboards_tool(ctx),
         edit_images_tool(ctx),
         generate_grid_tool(ctx),
-        generate_video_episode_tool(ctx),
-        generate_video_scene_tool(ctx),
-        generate_video_all_tool(ctx),
-        generate_video_selected_tool(ctx),
+        generate_videos_tool(ctx),
         generate_narration_audio_tool(ctx),
         generate_episode_script_tool(ctx),
+        generate_script_plan_tool(ctx),
         confirm_script_review_tool(ctx),
-        normalize_drama_script_tool(ctx),
-        split_reference_video_units_tool(ctx),
-        open_step1_for_edit_tool(ctx),
-        validate_and_promote_draft_tool(ctx),
-        split_narration_segments_tool(ctx),
+        open_draft_tool(ctx),
+        patch_draft_tool(ctx),
+        promote_draft_tool(ctx),
+        discard_draft_tool(ctx),
         get_video_capabilities_tool(ctx),
         plan_episodes_tool(ctx),
         reset_episode_planning_tool(ctx),
-        get_episode_script_revision_tool(ctx),
         patch_episode_script_tool(ctx),
         patch_episode_meta_tool(ctx),
-        insert_segment_tool(ctx),
-        remove_segment_tool(ctx),
-        split_segment_tool(ctx),
         patch_project_tool(ctx),
         rename_asset_tool(ctx),
         retry_project_migration_tool(ctx),
