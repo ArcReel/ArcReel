@@ -18,7 +18,7 @@ interface ExternalAgentModalProps {
 
 const MCP_ENDPOINT = `${window.location.origin}/mcp`;
 const INSTALL_COMMAND = "npx skills add ArcReel/skills";
-const SETUP_COMMAND = "/setup-arcreel-skills";
+const SETUP_SKILL = "setup-arcreel-skills";
 const INSTALL_GUIDE_URL = `${window.location.origin}/agent-installation-guide.md`;
 
 type InstallTab = "manual" | "agent";
@@ -248,11 +248,11 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
               </p>
               <div className="mt-2 flex items-center gap-2 rounded-lg border border-hairline bg-bg p-2.5">
                 <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-accent-2">
-                  {SETUP_COMMAND}
+                  {SETUP_SKILL}
                 </code>
                 <button
                   type="button"
-                  onClick={() => handleCopy("setup", SETUP_COMMAND)}
+                  onClick={() => handleCopy("setup", SETUP_SKILL)}
                   className={GHOST_BTN_CLS}
                   aria-label={t("dashboard:external_agent_copy_setup_command")}
                 >

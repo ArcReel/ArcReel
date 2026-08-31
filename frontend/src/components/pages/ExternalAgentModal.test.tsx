@@ -41,14 +41,14 @@ describe("ExternalAgentModal", () => {
     await user.click(screen.getByRole("tab", { name: "手动接入" }));
 
     expect(screen.getByText("npx skills add ArcReel/skills")).toBeInTheDocument();
-    expect(screen.getByText("/setup-arcreel-skills")).toBeInTheDocument();
+    expect(screen.getByText("setup-arcreel-skills")).toBeInTheDocument();
     expect(screen.getByText(`${window.location.origin}/mcp`)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "复制安装命令" }));
     expect(copyText).toHaveBeenLastCalledWith("npx skills add ArcReel/skills");
 
-    await user.click(screen.getByRole("button", { name: "复制 setup 命令" }));
-    expect(copyText).toHaveBeenLastCalledWith("/setup-arcreel-skills");
+    await user.click(screen.getByRole("button", { name: "复制 setup skill" }));
+    expect(copyText).toHaveBeenLastCalledWith("setup-arcreel-skills");
 
     await user.click(screen.getByRole("button", { name: "复制 MCP 端点" }));
     expect(copyText).toHaveBeenLastCalledWith(`${window.location.origin}/mcp`);

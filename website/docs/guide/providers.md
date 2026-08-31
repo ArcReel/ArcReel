@@ -363,16 +363,11 @@ npx skills add ArcReel/skills
 
 在安装列表中选择 `adapt-custom-endpoint`。也可以直接[查看或下载同一份 skill 源文件](https://github.com/ArcReel/ArcReel/tree/main/agent_runtime_profile/.claude/skills/adapt-custom-endpoint)。
 
-把 ArcReel API 地址和设置页创建的 `arc-` API Key 通过 Agent 宿主的秘密环境变量提供；不要把
-API Key 写进命令、项目文件或聊天消息：
-
-```text
-ARCREEL_API_BASE=https://你的-arcreel.example/api/v1
-ARCREEL_API_TOKEN=由宿主秘密存储提供的 arc- API Key
-```
+先使用 `setup-arcreel-skills` skill 完成 ArcReel MCP 接入；它会在当前工作区持久化同一连接，供
+`adapt-custom-endpoint` 的本地脚本跨会话复用。
 
 然后让 Agent 读取供应商文档并使用该 skill。它会按「写定义 → 共享 validator 校验 → 离线验证
-响应 → 预览请求 → 测试连接 → 保存」执行；定义格式和薄 HTTP 脚本随 skill 一起下载，不需要
+响应 → 预览请求 → 测试连接 → 保存」执行；定义格式和薄 HTTP 脚本随 skill 一起下载，适配过程不新增
 MCP 或 SDK tool。`验证响应` 与 `预览请求` 不向供应商发请求；`测试连接` 会真实生成并可能计费，
 Agent 必须先取得你的明确同意。检测到同血统端点时，另存副本可以直接执行，覆盖既有端点必须先
 取得你的明确同意。

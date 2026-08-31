@@ -1415,10 +1415,10 @@ export default {
   'external_agent_install_command_desc': 'Chạy lệnh này trong terminal để cài cả skill thiết lập và quy trình sản xuất.',
   'external_agent_copy_install_command': 'Sao chép lệnh cài đặt',
   'external_agent_install_copied': 'Đã sao chép lệnh cài đặt.',
-  'external_agent_setup_command': '2. Bắt đầu thiết lập',
-  'external_agent_setup_command_desc': 'Quay lại Agent bên ngoài, nhập lệnh này rồi cung cấp endpoint và API Key khi được hỏi.',
-  'external_agent_copy_setup_command': 'Sao chép lệnh setup',
-  'external_agent_setup_copied': 'Đã sao chép lệnh setup.',
+  'external_agent_setup_command': '2. Chạy skill thiết lập',
+  'external_agent_setup_command_desc': 'Quay lại Agent bên ngoài và yêu cầu nó dùng skill bên dưới để kết nối.',
+  'external_agent_copy_setup_command': 'Sao chép skill thiết lập',
+  'external_agent_setup_copied': 'Đã sao chép skill thiết lập.',
   'external_agent_copy_failed': 'Sao chép thất bại. Hãy chọn và sao chép nội dung theo cách thủ công.',
 
 

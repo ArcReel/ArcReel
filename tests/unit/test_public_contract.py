@@ -24,10 +24,10 @@ class TestAgentInstallationGuide:
     def test_covers_installation_and_connection(self):
         assert "arc-" in self.guide
         assert "npx skills add ArcReel/skills" in self.guide
-        assert "/setup-arcreel-skills" in self.guide
+        assert "setup-arcreel-skills" in self.guide
         assert "video-workflow" in self.guide
         assert "{{BASE_URL}}/mcp" in self.guide
-        assert "tool_timeout_sec" in self.guide
+        assert "工作区的本地配置惯例" in self.guide
 
     def test_excludes_rest_workflow_reference(self):
         assert "/api/v1/" not in self.guide

@@ -84,7 +84,11 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
             ),
             encoding="utf-8",
         )
-        env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_API_")}
+        env = {
+            **{key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")},
+            "ARCREEL_API_BASE": "http://127.0.0.1:1/api/v1",
+            "ARCREEL_API_TOKEN": "stale-token",
+        }
 
         commands = [
             ["validate", str(definition)],
@@ -145,7 +149,7 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
 def test_cli_requires_persistent_settings_outside_embedded_agent(tmp_path: Path) -> None:
     definition = tmp_path / "definition.json"
     definition.write_text("{}", encoding="utf-8")
-    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_API_")}
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")}
 
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "validate", str(definition)],
@@ -166,7 +170,7 @@ def test_cli_reports_invalid_settings_encoding_without_traceback(tmp_path: Path)
     settings_dir = tmp_path / ".arcreel"
     settings_dir.mkdir()
     (settings_dir / "settings.json").write_bytes(b"\xff")
-    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_API_")}
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")}
 
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "validate", str(definition)],
@@ -192,9 +196,10 @@ def test_cli_reports_invalid_settings_encoding_without_traceback(tmp_path: Path)
 def test_cli_rejects_unsafe_connection_before_request(tmp_path: Path, source: str, url: str, error: str) -> None:
     definition = tmp_path / "definition.json"
     definition.write_text("{}", encoding="utf-8")
-    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_API_")}
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")}
     if source == "environment":
         env["ARCREEL_API_BASE"] = url
+        env["ARCREEL_EMBEDDED_AGENT"] = "1"
         expected_source = "ARCREEL_API_BASE"
     else:
         settings_dir = tmp_path / ".arcreel"
@@ -296,7 +301,11 @@ def test_cli_sends_endpoint_assets_with_the_shared_multipart_field_names(tmp_pat
                 str(assets["audio"]),
                 "--confirm-cost",
             ],
-            env={**os.environ, "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1"},
+            env={
+                **os.environ,
+                "ARCREEL_EMBEDDED_AGENT": "1",
+                "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1",
+            },
             text=True,
             capture_output=True,
             timeout=10,
@@ -342,7 +351,11 @@ def test_cli_reports_non_json_response_without_traceback(tmp_path: Path, body: b
     try:
         definition = tmp_path / "definition.json"
         definition.write_text('{"kind":"declarative"}', encoding="utf-8")
-        env = {**os.environ, "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1"}
+        env = {
+            **os.environ,
+            "ARCREEL_EMBEDDED_AGENT": "1",
+            "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1",
+        }
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "validate", str(definition)],
             env=env,

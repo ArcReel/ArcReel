@@ -37,7 +37,7 @@ def _validated_url(value: str, source: str) -> str:
 
 
 def _connection() -> tuple[str, str]:
-    if base := os.environ.get("ARCREEL_API_BASE", "").strip():
+    if os.environ.get("ARCREEL_EMBEDDED_AGENT") == "1" and (base := os.environ.get("ARCREEL_API_BASE", "").strip()):
         return _validated_url(base, "ARCREEL_API_BASE"), os.environ.get("ARCREEL_API_TOKEN", "").strip()
 
     settings_path = Path.cwd() / ".arcreel" / "settings.json"
