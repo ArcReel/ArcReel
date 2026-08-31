@@ -60,10 +60,14 @@ def _connection() -> tuple[str, str]:
     if not isinstance(mcp_url, str):
         raise SystemExit(f"ArcReel settings mcp_url must end with /mcp: {settings_path}")
     if not isinstance(api_key, str):
-        raise SystemExit(f"ArcReel settings api_key must start with arc-: {settings_path}")
+        raise SystemExit(
+            f"ArcReel settings api_key must start with arc- and contain no control characters: {settings_path}"
+        )
     api_key = api_key.strip()
-    if not api_key.startswith("arc-"):
-        raise SystemExit(f"ArcReel settings api_key must start with arc-: {settings_path}")
+    if not api_key.startswith("arc-") or not api_key.isprintable():
+        raise SystemExit(
+            f"ArcReel settings api_key must start with arc- and contain no control characters: {settings_path}"
+        )
     return _mcp_api_base(mcp_url, str(settings_path)), api_key
 
 

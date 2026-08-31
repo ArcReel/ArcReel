@@ -186,16 +186,19 @@ def test_cli_reports_invalid_settings_encoding_without_traceback(tmp_path: Path)
 
 
 @pytest.mark.parametrize(
-    ("source", "url", "error"),
+    ("source", "url", "api_key", "error"),
     [
-        ("environment", "http://example.com/api/v1", "must use HTTPS"),
-        ("settings", "http://example.com/mcp", "must use HTTPS"),
-        ("settings", "http://127.0.0.1:99999/mcp", "Invalid ArcReel URL"),
-        ("settings", "https://example.com/mcp?redirect=/mcp", "omit query and fragment"),
-        ("settings", "https://example.com/mcp#route=/mcp", "omit query and fragment"),
+        ("environment", "http://example.com/api/v1", "arc-test", "must use HTTPS"),
+        ("settings", "http://example.com/mcp", "arc-test", "must use HTTPS"),
+        ("settings", "http://127.0.0.1:99999/mcp", "arc-test", "Invalid ArcReel URL"),
+        ("settings", "https://example.com/mcp?redirect=/mcp", "arc-test", "omit query and fragment"),
+        ("settings", "https://example.com/mcp#route=/mcp", "arc-test", "omit query and fragment"),
+        ("settings", "https://example.com/mcp", "arc-secret\nrest", "contain no control characters"),
     ],
 )
-def test_cli_rejects_unsafe_connection_before_request(tmp_path: Path, source: str, url: str, error: str) -> None:
+def test_cli_rejects_unsafe_connection_before_request(
+    tmp_path: Path, source: str, url: str, api_key: str, error: str
+) -> None:
     definition = tmp_path / "definition.json"
     definition.write_text("{}", encoding="utf-8")
     env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")}
@@ -207,7 +210,7 @@ def test_cli_rejects_unsafe_connection_before_request(tmp_path: Path, source: st
         settings_dir = tmp_path / ".arcreel"
         settings_dir.mkdir()
         (settings_dir / "settings.json").write_text(
-            json.dumps({"mcp_url": url, "api_key": "arc-test"}),
+            json.dumps({"mcp_url": url, "api_key": api_key}),
             encoding="utf-8",
         )
         expected_source = ".arcreel/settings.json"
