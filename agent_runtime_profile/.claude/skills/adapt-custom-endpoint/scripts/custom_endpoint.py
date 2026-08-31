@@ -36,6 +36,14 @@ def _validated_url(value: str, source: str) -> str:
     return value.rstrip("/")
 
 
+def _mcp_api_base(value: str, source: str) -> str:
+    value = _validated_url(value, source)
+    parsed = urlsplit(value)
+    if not parsed.path.endswith("/mcp") or parsed.query or parsed.fragment:
+        raise SystemExit(f"ArcReel settings mcp_url must end with /mcp and omit query and fragment: {source}")
+    return f"{value.removesuffix('/mcp')}/api/v1"
+
+
 def _connection() -> tuple[str, str]:
     if os.environ.get("ARCREEL_EMBEDDED_AGENT") == "1" and (base := os.environ.get("ARCREEL_API_BASE", "").strip()):
         return _validated_url(base, "ARCREEL_API_BASE"), os.environ.get("ARCREEL_API_TOKEN", "").strip()
@@ -49,12 +57,11 @@ def _connection() -> tuple[str, str]:
         raise SystemExit(f"ArcReel settings must be a JSON object: {settings_path}")
     mcp_url = settings.get("mcp_url")
     api_key = settings.get("api_key")
-    if not isinstance(mcp_url, str) or not mcp_url.rstrip("/").endswith("/mcp"):
+    if not isinstance(mcp_url, str):
         raise SystemExit(f"ArcReel settings mcp_url must end with /mcp: {settings_path}")
     if not isinstance(api_key, str) or not api_key.startswith("arc-"):
         raise SystemExit(f"ArcReel settings api_key must start with arc-: {settings_path}")
-    mcp_url = _validated_url(mcp_url, str(settings_path))
-    return f"{mcp_url.removesuffix('/mcp')}/api/v1", api_key
+    return _mcp_api_base(mcp_url, str(settings_path)), api_key
 
 
 def _json_file(path: str) -> object:

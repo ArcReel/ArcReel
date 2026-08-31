@@ -191,6 +191,8 @@ def test_cli_reports_invalid_settings_encoding_without_traceback(tmp_path: Path)
         ("environment", "http://example.com/api/v1", "must use HTTPS"),
         ("settings", "http://example.com/mcp", "must use HTTPS"),
         ("settings", "http://127.0.0.1:99999/mcp", "Invalid ArcReel URL"),
+        ("settings", "https://example.com/mcp?redirect=/mcp", "omit query and fragment"),
+        ("settings", "https://example.com/mcp#route=/mcp", "omit query and fragment"),
     ],
 )
 def test_cli_rejects_unsafe_connection_before_request(tmp_path: Path, source: str, url: str, error: str) -> None:

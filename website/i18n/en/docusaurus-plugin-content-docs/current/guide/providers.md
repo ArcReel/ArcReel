@@ -363,7 +363,7 @@ Install the public skill:
 npx skills add ArcReel/skills
 ```
 
-Select `adapt-custom-endpoint` from the installation list. You can also
+Select both `setup-arcreel-skills` and `adapt-custom-endpoint` from the installation list. You can also
 [view or download the same skill source](https://github.com/ArcReel/ArcReel/tree/main/agent_runtime_profile/.claude/skills/adapt-custom-endpoint).
 
 First use the `setup-arcreel-skills` skill to connect ArcReel MCP. It persists the same connection in the current
