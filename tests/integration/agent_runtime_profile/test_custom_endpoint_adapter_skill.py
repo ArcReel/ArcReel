@@ -193,14 +193,15 @@ def test_cli_reports_invalid_settings_encoding_without_traceback(tmp_path: Path)
             "environment-token",
             "http://127.0.0.1:9/api/v1",
             "embedded\nsecret",
-            "contain no control characters",
+            "contain only printable ASCII",
         ),
         ("settings", "http://example.com/mcp", "arc-test", "must use HTTPS"),
         ("settings", "http://127.0.0.1:99999/mcp", "arc-test", "Invalid ArcReel URL"),
         ("settings", "https://exa\nmple.com/mcp", "arc-test", "must not contain whitespace"),
         ("settings", "https://example.com/mcp?redirect=/mcp", "arc-test", "omit query and fragment"),
         ("settings", "https://example.com/mcp#route=/mcp", "arc-test", "omit query and fragment"),
-        ("settings", "https://example.com/mcp", "arc-secret\nrest", "contain no control characters"),
+        ("settings", "https://example.com/mcp", "arc-secret\nrest", "contain only printable ASCII"),
+        ("settings", "https://example.com/mcp", "arc-秘密", "contain only printable ASCII"),
     ],
 )
 def test_cli_rejects_unsafe_connection_before_request(

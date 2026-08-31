@@ -49,8 +49,8 @@ def _mcp_api_base(value: str, source: str) -> str:
 
 def _validated_token(value: str, source: str) -> str:
     value = value.strip()
-    if any(not char.isprintable() for char in value):
-        raise SystemExit(f"ArcReel token in {source} must contain no control characters")
+    if not all(char.isascii() and char.isprintable() for char in value):
+        raise SystemExit(f"ArcReel token in {source} must contain only printable ASCII characters")
     return value
 
 
