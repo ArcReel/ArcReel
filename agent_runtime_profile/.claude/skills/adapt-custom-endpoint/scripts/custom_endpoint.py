@@ -15,6 +15,26 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
+def _connection() -> tuple[str, str]:
+    if base := os.environ.get("ARCREEL_API_BASE", "").strip():
+        return base.rstrip("/"), os.environ.get("ARCREEL_API_TOKEN", "").strip()
+
+    settings_path = Path.cwd() / ".arcreel" / "settings.json"
+    try:
+        settings = _json_file(str(settings_path))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Cannot read ArcReel settings {settings_path}: {exc}") from exc
+    if not isinstance(settings, dict):
+        raise SystemExit(f"ArcReel settings must be a JSON object: {settings_path}")
+    mcp_url = settings.get("mcp_url")
+    api_key = settings.get("api_key")
+    if not isinstance(mcp_url, str) or not mcp_url.rstrip("/").endswith("/mcp"):
+        raise SystemExit(f"ArcReel settings mcp_url must end with /mcp: {settings_path}")
+    if not isinstance(api_key, str) or not api_key.startswith("arc-"):
+        raise SystemExit(f"ArcReel settings api_key must start with arc-: {settings_path}")
+    return f"{mcp_url.rstrip('/')[:-4]}/api/v1", api_key
+
+
 def _json_file(path: str) -> object:
     with Path(path).open(encoding="utf-8") as source:
         return json.load(source)
@@ -53,8 +73,7 @@ def _request(
     payload: object | None = None,
     files: list[tuple[str, Path]] | None = None,
 ) -> object:
-    base = (os.environ.get("ARCREEL_API_BASE") or "http://127.0.0.1:1241/api/v1").rstrip("/")
-    token = os.environ.get("ARCREEL_API_TOKEN", "").strip()
+    base, token = _connection()
     headers = {"Accept": "application/json"}
     data = None
     if payload is not None:

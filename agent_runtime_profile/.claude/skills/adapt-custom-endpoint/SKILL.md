@@ -29,7 +29,10 @@ description: 当用户要求把采用 JSON 提交后轮询协议的视频供应�
 
 ## 连接
 
-脚本从环境读取 `ARCREEL_API_BASE` 与 `ARCREEL_API_TOKEN`。内嵌 Agent 会话自动注入 localhost API
-与短期 JWT；该 JWT 有效期 15 分钟且不续期，会话超时后 API 调用会以 401 失败，此时告知用户重开
-会话获取新 token。外部 Agent 使用 ArcReel 设置页创建的 `arc-` API Key，并通过宿主的秘密环境变量
-注入。`AUTH_ENABLED=false` 的本地部署可留空 token。运行 `--help` 查看各命令参数。
+在当前工作区根目录运行脚本。外部 Agent 读取 `setup-arcreel-skills` 创建的
+`.arcreel/settings.json`，从 `mcp_url` 派生同实例的 `/api/v1` 地址，并用 `api_key` 鉴权；配置缺失或
+无效时先执行 setup skill，不回退到 localhost。
+
+内嵌 Agent 会话通过 `ARCREEL_API_BASE` 与 `ARCREEL_API_TOKEN` 自动注入 localhost API 和短期 JWT，
+优先于工作区配置；该 JWT 有效期 15 分钟且不续期，会话超时后 API 调用会以 401 失败，此时告知用户
+重开会话获取新 token。`AUTH_ENABLED=false` 的本地部署可留空 token。运行 `--help` 查看各命令参数。

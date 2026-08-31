@@ -73,11 +73,18 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
         parameters.write_text('{"model":"demo","prompt":"hello"}', encoding="utf-8")
         credentials.write_text('{"base_url":"https://provider.example","api_key":"secret"}', encoding="utf-8")
         response.write_text('{"task_id":"t1"}', encoding="utf-8")
-        env = {
-            **os.environ,
-            "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1",
-            "ARCREEL_API_TOKEN": "arc-or-session-token",
-        }
+        settings_dir = tmp_path / ".arcreel"
+        settings_dir.mkdir()
+        (settings_dir / "settings.json").write_text(
+            json.dumps(
+                {
+                    "mcp_url": f"http://127.0.0.1:{server.server_port}/mcp",
+                    "api_key": "arc-or-session-token",
+                }
+            ),
+            encoding="utf-8",
+        )
+        env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_API_")}
 
         commands = [
             ["validate", str(definition)],
@@ -105,6 +112,7 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
         for args in commands:
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), *args],
+                cwd=tmp_path,
                 env=env,
                 text=True,
                 capture_output=True,
@@ -132,6 +140,24 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
         "response_body": {"task_id": "t1"},
     }
     assert requests[-1][3] == {"kind": "declarative"}
+
+
+def test_cli_requires_persistent_settings_outside_embedded_agent(tmp_path: Path) -> None:
+    definition = tmp_path / "definition.json"
+    definition.write_text("{}", encoding="utf-8")
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_API_")}
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", str(definition)],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert ".arcreel/settings.json" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_cli_requires_explicit_confirmation_for_cost_and_overwrite(tmp_path: Path) -> None:
