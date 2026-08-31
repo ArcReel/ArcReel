@@ -319,17 +319,25 @@ source_paths = ["lib", "server"]
 # 按批次填写待变异模块；留空则变异 source_paths 全域（一轮数小时，不实用）
 # only_mutate = ["lib/speech_rate.py"]
 # 变异后的模块 import mutmut.__main__，而该 import 在模块级就按 CWD 解析 [tool.mutmut]；
-# 本文件的用例一律在项目外的 tmp 目录启子进程跑 skill 脚本，子进程 CWD 无 pyproject.toml 即崩在
-# _guess_source_paths()。它们守的是 skill 脚本的 CWD 护栏，与被变异代码无关，故整体排除。
+# tests/unit/test_skill_script_path_guards.py 的用例一律在项目外的 tmp 目录启子进程跑 skill 脚本，
+# 子进程 CWD 无 pyproject.toml 即崩在 _guess_source_paths()。它们守的是 skill 脚本自己的 CWD 护栏，
+# 与被变异代码无关，故整体排除。
 pytest_add_cli_args = ["--ignore=tests/unit/test_skill_script_path_guards.py"]
 # pytest_add_cli_args_test_selection 不设：走全量 testpaths。仅 tests/unit 快 5.5 倍，
 # 但候选集约 45% 是假存活，复核每个都要跑一次全量套件，总账反而更贵。
 # timeout_multiplier / timeout_constant 保持默认（15 / 1.0），不要调小。
 # mutmut 的 fork 模型与本仓库的多线程测试套件不相容，存活 mutant 必然耗满墙钟预算被记成 ⏰；
 # 调小预算并不能省时间，只会让已证实的真存活被记成 killed（假杀死），把无效测试藏起来。
-# ⏰ 一律不算 killed，须在新进程里复核：
-#   cd mutants && MUTANT_UNDER_TEST=<名> ../.venv/bin/python -m pytest -x -q $(mutmut tests-for-mutant <名>)
-# 注意不要在 mutants/ 里跑 uv run：那份 pyproject.toml 的复制品缺 README.md，hatchling 构建失败。
+# ⏰ 一律不算 killed，须在新进程里复核（每个 3-11s）。三个前提缺一不可：
+#   1. mutmut 要能被 .venv 的解释器 import——变异后的模块顶部就 import 它的 trampoline：
+#        uv pip install --python .venv mutmut==3.7.0   # 不写进 pyproject，uv sync 会清掉
+#   2. tests-for-mutant 只在项目根可用，在 mutants/ 里跑报 Failed to load stats：
+#        .venv/bin/mutmut tests-for-mutant <名> > /tmp/nodeids.txt
+#   3. nodeid 列表用 xargs 传，不要用 $(...)：zsh 不对未加引号的命令替换做词分割，整串会被
+#      当成单个参数，pytest 报 no tests ran；bash 下能跑，因此这条只在 zsh 里暴露：
+#        cd mutants && xargs env MUTANT_UNDER_TEST=<名> ../.venv/bin/python -m pytest -x -q < /tmp/nodeids.txt
+# 复核用 .venv 的解释器而非 uv run：mutants/ 里那份 pyproject.toml 副本缺 README.md，
+# 在其中跑 uv run 会栽在 hatchling 构建。
 also_copy = [
     "agent_runtime_profile",
     "alembic",
