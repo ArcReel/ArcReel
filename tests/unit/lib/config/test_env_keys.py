@@ -6,6 +6,7 @@ from lib.config.env_keys import (
     ANTHROPIC_ENV_KEYS,
     OTHER_PROVIDER_ENV_KEYS,
     PROVIDER_SECRET_KEYS,
+    is_provider_env_key,
 )
 
 
@@ -48,3 +49,13 @@ def test_anthropic_keys_complete():
         "CLAUDE_CODE_SUBAGENT_MODEL",
     }
     assert required <= set(ANTHROPIC_ENV_KEYS)
+
+
+def test_claude_auth_tokens_are_isolated_with_correct_secret_scope():
+    """Claude 旁路认证令牌必须隔离；仅 Anthropic token 触发启动拒绝。"""
+    for key in ("ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+        assert key in OTHER_PROVIDER_ENV_KEYS
+        assert is_provider_env_key(key)
+
+    assert "ANTHROPIC_AUTH_TOKEN" in PROVIDER_SECRET_KEYS
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in PROVIDER_SECRET_KEYS

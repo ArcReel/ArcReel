@@ -179,7 +179,7 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 
 ArcReel 的沙箱要求父进程环境中不保留供应商密钥。以下凭据环境变量存在非空值时，服务会拒绝启动并提示迁移到 WebUI 设置页：
 
-- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`
 - `ARK_API_KEY` / `XAI_API_KEY` / `GEMINI_API_KEY` / `VIDU_API_KEY`
 - `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY` / `AGNES_API_KEY` / `OPENAI_API_KEY`
 - `GOOGLE_APPLICATION_CREDENTIALS`（Vertex 凭据继续放在 `vertex_keys/` 目录）
