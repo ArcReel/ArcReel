@@ -17,3 +17,4 @@ tests/
 htmlcov
 *.egg-info
 .claude/worktrees
+mutants/
