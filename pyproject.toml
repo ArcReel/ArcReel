@@ -310,3 +310,34 @@ reportCallIssue = "none"
 reportIndexIssue = "none"
 # 脚本用 sys.path 注入后再 import，静态不可解析，此域不做闸门
 reportMissingImports = "none"
+
+# 变异测试（mutmut 3.7.0）。不进 dev 依赖，按需 `uv run --with mutmut==3.7.0 mutmut run`。
+# 变异得分是信号不是闸门：不为杀死变异体补写测试，只用存活 mutant 筛选待审查的测试。
+[tool.mutmut]
+# 必须显式写：不写时 mutmut 只推断出 lib/，漏掉 server/
+source_paths = ["lib", "server"]
+# 按批次填写待变异模块；留空则变异 source_paths 全域（一轮数小时，不实用）
+# only_mutate = ["lib/speech_rate.py"]
+# 变异后的模块 import mutmut.__main__，而该 import 在模块级就按 CWD 解析 [tool.mutmut]；
+# 本文件的用例一律在项目外的 tmp 目录启子进程跑 skill 脚本，子进程 CWD 无 pyproject.toml 即崩在
+# _guess_source_paths()。它们守的是 skill 脚本的 CWD 护栏，与被变异代码无关，故整体排除。
+pytest_add_cli_args = ["--ignore=tests/unit/test_skill_script_path_guards.py"]
+# pytest_add_cli_args_test_selection 不设：走全量 testpaths。仅 tests/unit 快 5.5 倍，
+# 但候选集约 45% 是假存活，复核每个都要跑一次全量套件，总账反而更贵。
+# timeout_multiplier / timeout_constant 保持默认（15 / 1.0），不要调小。
+# mutmut 的 fork 模型与本仓库的多线程测试套件不相容，存活 mutant 必然耗满墙钟预算被记成 ⏰；
+# 调小预算并不能省时间，只会让已证实的真存活被记成 killed（假杀死），把无效测试藏起来。
+# ⏰ 一律不算 killed，须在新进程里复核：
+#   cd mutants && MUTANT_UNDER_TEST=<名> ../.venv/bin/python -m pytest -x -q $(mutmut tests-for-mutant <名>)
+# 注意不要在 mutants/ 里跑 uv run：那份 pyproject.toml 的复制品缺 README.md，hatchling 构建失败。
+also_copy = [
+    "agent_runtime_profile",
+    "alembic",
+    "alembic.ini",
+    "scripts",
+    "skills",
+    "skills-lock.json",
+    "public",
+    ".github",
+    "frontend/src",
+]
