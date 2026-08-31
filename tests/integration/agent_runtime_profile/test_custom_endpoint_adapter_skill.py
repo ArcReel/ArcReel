@@ -79,7 +79,7 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
             json.dumps(
                 {
                     "mcp_url": f"http://127.0.0.1:{server.server_port}/mcp",
-                    "api_key": "arc-or-session-token",
+                    "api_key": "arc-or-session-token \n",
                 }
             ),
             encoding="utf-8",
