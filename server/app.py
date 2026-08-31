@@ -23,7 +23,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from starlette.datastructures import MutableHeaders
 from starlette.types import Message, Receive, Scope, Send
 
@@ -664,6 +664,13 @@ app.include_router(
 )
 app.include_router(project_events.self_auth_router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
+
+
+@app.api_route("/mcp", methods=["DELETE", "GET", "HEAD", "POST"], include_in_schema=False)
+async def redirect_remote_mcp() -> RedirectResponse:
+    return RedirectResponse("/mcp/", status_code=307)
+
+
 app.mount("/mcp", remote_mcp_host)
 
 

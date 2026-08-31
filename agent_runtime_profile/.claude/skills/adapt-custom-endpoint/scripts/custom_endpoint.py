@@ -17,6 +17,9 @@ from urllib.request import Request, urlopen
 
 
 def _validated_url(value: str, source: str) -> str:
+    value = value.strip()
+    if any(char.isspace() for char in value):
+        raise SystemExit(f"ArcReel URL in {source} must not contain whitespace")
     try:
         parsed = urlsplit(value)
         host = parsed.hostname
@@ -44,9 +47,18 @@ def _mcp_api_base(value: str, source: str) -> str:
     return f"{value.removesuffix('/mcp')}/api/v1"
 
 
+def _validated_token(value: str, source: str) -> str:
+    value = value.strip()
+    if any(not char.isprintable() for char in value):
+        raise SystemExit(f"ArcReel token in {source} must contain no control characters")
+    return value
+
+
 def _connection() -> tuple[str, str]:
     if os.environ.get("ARCREEL_EMBEDDED_AGENT") == "1" and (base := os.environ.get("ARCREEL_API_BASE", "").strip()):
-        return _validated_url(base, "ARCREEL_API_BASE"), os.environ.get("ARCREEL_API_TOKEN", "").strip()
+        return _validated_url(base, "ARCREEL_API_BASE"), _validated_token(
+            os.environ.get("ARCREEL_API_TOKEN", ""), "ARCREEL_API_TOKEN"
+        )
 
     settings_path = Path.cwd() / ".arcreel" / "settings.json"
     try:
@@ -60,14 +72,10 @@ def _connection() -> tuple[str, str]:
     if not isinstance(mcp_url, str):
         raise SystemExit(f"ArcReel settings mcp_url must end with /mcp: {settings_path}")
     if not isinstance(api_key, str):
-        raise SystemExit(
-            f"ArcReel settings api_key must start with arc- and contain no control characters: {settings_path}"
-        )
-    api_key = api_key.strip()
-    if not api_key.startswith("arc-") or not api_key.isprintable():
-        raise SystemExit(
-            f"ArcReel settings api_key must start with arc- and contain no control characters: {settings_path}"
-        )
+        raise SystemExit(f"ArcReel settings api_key must start with arc-: {settings_path}")
+    api_key = _validated_token(api_key, f"{settings_path} api_key")
+    if not api_key.startswith("arc-"):
+        raise SystemExit(f"ArcReel settings api_key must start with arc-: {settings_path}")
     return _mcp_api_base(mcp_url, str(settings_path)), api_key
 
 

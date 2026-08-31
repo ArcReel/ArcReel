@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 import lib.db
@@ -121,3 +122,17 @@ class TestListenEnvVars:
         monkeypatch.setenv("LISTEN_HOST", "")
         monkeypatch.setenv("LISTEN_PORT", "")
         assert app_module._resolve_listen_addr() == ("0.0.0.0", 1241)
+
+
+@pytest.mark.asyncio
+async def test_mcp_mount_redirect_stays_relative_behind_https_proxy() -> None:
+    transport = httpx.ASGITransport(app=app_module.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://internal") as client:
+        response = await client.post(
+            "/mcp",
+            headers={"Host": "arcreel.example.com", "X-Forwarded-Proto": "https"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/mcp/"

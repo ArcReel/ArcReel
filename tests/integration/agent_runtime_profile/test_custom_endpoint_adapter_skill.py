@@ -78,7 +78,7 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
         (settings_dir / "settings.json").write_text(
             json.dumps(
                 {
-                    "mcp_url": f"http://127.0.0.1:{server.server_port}/mcp",
+                    "mcp_url": f"http://127.0.0.1:{server.server_port}/mcp\n",
                     "api_key": "arc-or-session-token \n",
                 }
             ),
@@ -189,8 +189,15 @@ def test_cli_reports_invalid_settings_encoding_without_traceback(tmp_path: Path)
     ("source", "url", "api_key", "error"),
     [
         ("environment", "http://example.com/api/v1", "arc-test", "must use HTTPS"),
+        (
+            "environment-token",
+            "http://127.0.0.1:9/api/v1",
+            "embedded\nsecret",
+            "contain no control characters",
+        ),
         ("settings", "http://example.com/mcp", "arc-test", "must use HTTPS"),
         ("settings", "http://127.0.0.1:99999/mcp", "arc-test", "Invalid ArcReel URL"),
+        ("settings", "https://exa\nmple.com/mcp", "arc-test", "must not contain whitespace"),
         ("settings", "https://example.com/mcp?redirect=/mcp", "arc-test", "omit query and fragment"),
         ("settings", "https://example.com/mcp#route=/mcp", "arc-test", "omit query and fragment"),
         ("settings", "https://example.com/mcp", "arc-secret\nrest", "contain no control characters"),
@@ -202,10 +209,11 @@ def test_cli_rejects_unsafe_connection_before_request(
     definition = tmp_path / "definition.json"
     definition.write_text("{}", encoding="utf-8")
     env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")}
-    if source == "environment":
+    if source.startswith("environment"):
         env["ARCREEL_API_BASE"] = url
+        env["ARCREEL_API_TOKEN"] = api_key
         env["ARCREEL_EMBEDDED_AGENT"] = "1"
-        expected_source = "ARCREEL_API_BASE"
+        expected_source = "ARCREEL_API_TOKEN" if source == "environment-token" else "ARCREEL_API_BASE"
     else:
         settings_dir = tmp_path / ".arcreel"
         settings_dir.mkdir()
@@ -214,7 +222,6 @@ def test_cli_rejects_unsafe_connection_before_request(
             encoding="utf-8",
         )
         expected_source = ".arcreel/settings.json"
-
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "validate", str(definition)],
         cwd=tmp_path,
