@@ -888,7 +888,7 @@ export function ProjectSettingsPage() {
 
               {/* 口播语速估算：驱动时长建议、说话量提示与字幕定时，与配音（TTS）无关，
                   故独立成卡、不与 Audio Channel 同栏，避免两个「语速」被读成一个设置 */}
-              <SectionCard kicker="Pacing Estimate">
+              <SectionCard kicker={t("pacing_estimate")}>
                 <SpeechRateField
                   value={speechRate}
                   onChange={setSpeechRate}

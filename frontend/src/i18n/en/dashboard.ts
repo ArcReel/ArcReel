@@ -330,6 +330,7 @@ export default {
   'speech_rate_hint_language_pending': 'The project language is not set yet: Chinese projects count characters per second, English and Vietnamese projects count words per second. You can adjust this in project settings once the language is known.',
   'speech_rate_hint': 'Estimates how long dialogue and voiceover take to read aloud, affecting duration suggestions, dialogue-load notices and subtitle pacing. Leave empty to estimate at the default pace for the project language. Does not change the actual voice speed.',
   'speech_rate_out_of_range': 'Enter a value between {{min}} and {{max}}',
+  'pacing_estimate': 'Pacing Estimate',
   'episode_target_duration_label': 'Episode target length (optional)',
   'episode_target_duration_unit': 'sec',
   'episode_target_duration_hint': 'The intended length of the finished episode. The AI uses it to decide how many shots or video units to split the episode into. It is a soft target: fewer units when there is not enough material, and it may run over when the content calls for it. Leave empty to let the AI judge from the content.',

@@ -330,6 +330,7 @@ export default {
   'speech_rate_hint_language_pending': '项目语言还未确定：中文项目按「字/秒」计，英文、越南语项目按「词/秒」计。语言确定后可在项目设置里调整。',
   'speech_rate_hint': '用于估算台词和旁白的朗读时长，影响时长建议、台词量提示和字幕节奏。留空时按项目语言的默认语速估算。不改变实际配音速度。',
   'speech_rate_out_of_range': '请输入 {{min}} 到 {{max}} 之间的数值',
+  'pacing_estimate': '语速估算',
   'episode_target_duration_label': '单集目标时长（可选）',
   'episode_target_duration_unit': '秒',
   'episode_target_duration_hint': '整集成片的期望长度，AI 据此决定本集拆多少个分镜或视频单元。软目标：内容不够时会少拆，内容需要时可以超出。留空则由 AI 按内容自行把握。',

@@ -333,6 +333,7 @@ export default {
   'speech_rate_hint_language_pending': 'Ngôn ngữ dự án chưa được xác định: dự án tiếng Trung tính ký tự mỗi giây, dự án tiếng Anh và tiếng Việt tính từ mỗi giây. Bạn có thể điều chỉnh trong cài đặt dự án sau khi ngôn ngữ được xác định.',
   'speech_rate_hint': 'Ước tính thời lượng đọc lời thoại và lời dẫn, ảnh hưởng đến gợi ý thời lượng, cảnh báo lượng thoại và nhịp phụ đề. Để trống để ước tính theo nhịp mặc định của ngôn ngữ dự án. Không thay đổi tốc độ giọng đọc thực tế.',
   'speech_rate_out_of_range': 'Vui lòng nhập giá trị từ {{min}} đến {{max}}',
+  'pacing_estimate': 'Ước tính tốc độ nói',
   'episode_target_duration_label': 'Thời lượng mục tiêu mỗi tập (tùy chọn)',
   'episode_target_duration_unit': 'giây',
   'episode_target_duration_hint': 'Độ dài mong muốn của tập hoàn chỉnh. AI dựa vào đó để quyết định chia tập thành bao nhiêu cảnh quay hoặc đơn vị video. Đây là mục tiêu mềm: chia ít hơn khi nội dung không đủ, và có thể vượt khi nội dung cần. Để trống để AI tự cân nhắc theo nội dung.',
