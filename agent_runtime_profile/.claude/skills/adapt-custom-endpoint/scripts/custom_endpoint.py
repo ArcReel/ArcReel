@@ -20,6 +20,7 @@ def _validated_url(value: str, source: str) -> str:
     try:
         parsed = urlsplit(value)
         host = parsed.hostname
+        port = parsed.port
     except ValueError as exc:
         raise SystemExit(f"Invalid ArcReel URL in {source}: {exc}") from exc
     if not host or parsed.scheme not in {"http", "https"}:
@@ -28,6 +29,8 @@ def _validated_url(value: str, source: str) -> str:
         loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
     except ValueError:
         loopback = host == "localhost"
+    if port == 0:
+        raise SystemExit(f"ArcReel URL in {source} must use a valid port")
     if parsed.scheme != "https" and not loopback:
         raise SystemExit(f"ArcReel URL in {source} must use HTTPS unless the host is loopback")
     return value.rstrip("/")
