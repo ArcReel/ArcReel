@@ -320,8 +320,10 @@ source_paths = ["lib", "server"]
 # only_mutate = ["lib/speech_rate.py"]
 # 变异后的模块 import mutmut.__main__，而该 import 在模块级就按 CWD 解析 [tool.mutmut]；
 # tests/unit/test_skill_script_path_guards.py 的用例一律在项目外的 tmp 目录启子进程跑 skill 脚本，
-# 子进程 CWD 无 pyproject.toml 即崩在 _guess_source_paths()。它们守的是 skill 脚本自己的 CWD 护栏，
-# 与被变异代码无关，故整体排除。
+# 子进程 CWD 无 pyproject.toml 即崩在 _guess_source_paths()，故整体排除。
+# 这些子进程确实会 import lib.project_manager / lib.script_models，排除后由它们独家覆盖的
+# mutant 会掉进存活集合；但保留同样杀不死——子进程在断言前就崩在上面那个 import。
+# 排除只把这类 mutant 推向假存活（多复核一个），不会造成假杀死（把无效测试藏起来）。
 pytest_add_cli_args = ["--ignore=tests/unit/test_skill_script_path_guards.py"]
 # pytest_add_cli_args_test_selection 不设：走全量 testpaths。仅 tests/unit 快 5.5 倍，
 # 但候选集约 45% 是假存活，复核每个都要跑一次全量套件，总账反而更贵。
@@ -333,11 +335,16 @@ pytest_add_cli_args = ["--ignore=tests/unit/test_skill_script_path_guards.py"]
 #        uv pip install --python .venv mutmut==3.7.0   # 不写进 pyproject，uv sync 会清掉
 #   2. tests-for-mutant 只在项目根可用，在 mutants/ 里跑报 Failed to load stats：
 #        .venv/bin/mutmut tests-for-mutant <名> > /tmp/nodeids.txt
-#   3. nodeid 列表用 xargs 传，不要用 $(...)：zsh 不对未加引号的命令替换做词分割，整串会被
-#      当成单个参数，pytest 报 no tests ran；bash 下能跑，因此这条只在 zsh 里暴露：
-#        cd mutants && xargs env MUTANT_UNDER_TEST=<名> ../.venv/bin/python -m pytest -x -q < /tmp/nodeids.txt
-# 复核用 .venv 的解释器而非 uv run：mutants/ 里那份 pyproject.toml 副本缺 README.md，
-# 在其中跑 uv run 会栽在 hatchling 构建。
+#   3. nodeid 列表按 NUL 分隔传，既不能用 $(...) 也不能用裸 xargs：
+#      $(...) 在 zsh 下不做词分割（bash 下做），整串成一个参数，pytest 静默报 no tests ran；
+#      裸 xargs 按空白切分并吞掉引号，而本套件有 180+ 个含空格或引号的参数化 nodeid，
+#      例如 test_static_code_enumeration_rejects_partially_dynamic_expressions["a" if cond else "b"-expected1]
+#      会被拆成 5 个参数且丢掉双引号。-0 两者都免疫：
+#        cd mutants && tr '\n' '\0' < /tmp/nodeids.txt \
+#          | xargs -0 env MUTANT_UNDER_TEST=<名> ../.venv/bin/python -m pytest -x -q
+# 复核用 .venv 的解释器而非 uv run。往 also_copy 补 README.md 只能修掉 mutants/ 里
+# uv run 栽在 hatchling 构建这一层：uv 会按那份 pyproject.toml 副本另建一个环境，而 mutmut
+# 按验收标准不在依赖里，变异模块顶部的 trampoline import 照样 ModuleNotFoundError。
 also_copy = [
     "agent_runtime_profile",
     "alembic",
