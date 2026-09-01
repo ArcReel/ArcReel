@@ -17,9 +17,9 @@
 单文件 3000 行熔断；前端测试文件位于 `__tests__/` 目录。后端 `tests/**/*.py` 与前端
 `frontend/src/**/*.test.*` 同受此类约束，前端语义类规则归 eslint、不在本脚本内。
 
-类 5「重复用例」：同一测试文件内，两个用例去掉 docstring 后函数体逐字相同；或一条用例的
-函数体等同于同文件某个 `@parametrize` 用例参数表中的一行。判定限定同文件，并要求形参名、
-非参数化装饰器与类级 setup 全部相同。
+类 5「重复用例」：同一测试文件内，两个用例去掉 docstring 后函数体的 `ast.unparse` 规范化
+表示相同；或一条用例的函数体等同于同文件某个 `@parametrize` 用例参数表中的一行。判定限定
+同文件，并要求形参名（含默认值）、非参数化装饰器与类级上下文全部相同。
 
 `--check` 是闸门形态：以 `规则号 file:line 修复指引` 列出上述全部命中，非零即退出码 1。
 零容忍，无基线、无豁免标注——误报通过修改本脚本解决。
@@ -1278,15 +1278,29 @@ def is_parametrize(dec: ast.expr) -> bool:
     return bool(name) and name.split(".")[-1] == PARAMETRIZE_NAME
 
 
-def param_names(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
-    """形参名（去掉 self / cls）：pytest 按名注入 fixture，名字集合不同即上下文不同。"""
+def param_names(node: ast.FunctionDef | ast.AsyncFunctionDef, *, is_method: bool) -> list[str]:
+    """形参名：pytest 按名注入 fixture，名字集合不同即上下文不同。
+
+    类内方法去掉绑定的接收者（按位置而非按名字，`self` / `cls` 在模块级是普通 fixture 名）。
+    带默认值的形参 pytest 不视为 fixture 请求，取值直接参与执行，故连同默认值一并记入。
+    """
     args = node.args
-    names = [a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)]
+    positional = [*args.posonlyargs, *args.args]
+    defaults = {
+        a.arg: ast.unparse(d)
+        for a, d in zip(positional[len(positional) - len(args.defaults) :], args.defaults, strict=True)
+    }
+    defaults.update(
+        {a.arg: ast.unparse(d) for a, d in zip(args.kwonlyargs, args.kw_defaults, strict=True) if d is not None}
+    )
+    if is_method and positional:
+        positional = positional[1:]
+    names = [a.arg for a in (*positional, *args.kwonlyargs)]
     if args.vararg:
         names.append(f"*{args.vararg.arg}")
     if args.kwarg:
         names.append(f"**{args.kwarg.arg}")
-    return [n for n in names if n not in ("self", "cls")]
+    return [f"{n}={defaults[n]}" if n in defaults else n for n in names]
 
 
 def parametrize_argnames(dec: ast.Call) -> list[str] | None:
@@ -1308,62 +1322,77 @@ def parametrize_argnames(dec: ast.Call) -> list[str] | None:
     return names or None
 
 
-def parametrize_rows(dec: ast.Call, arity: int) -> list[list[ast.Constant]] | None:
-    """参数表逐行的字面量。`indirect=`、`pytest.param(...)`、表达式取值一律返回 None。
+def is_literal(node: ast.expr) -> bool:
+    """节点是否静态可求值。负数是 `UnaryOp`、容器是 `List` / `Dict`，都不是 `Constant`。"""
+    try:
+        ast.literal_eval(node)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return False
+    return True
 
-    返回 None 即放弃判定：闸门零容忍，无法静态求值时宁可漏报也不能误报。
+
+def parametrize_rows(dec: ast.Call, arity: int) -> list[list[ast.expr]] | None:
+    """参数表逐行的字面量。`indirect`、`pytest.param(...)`、表达式取值一律返回 None。
+
+    `indirect` 也可按位置传（`parametrize` 的第三个位置参数），此时参数表的取值经 fixture
+    转换后才进入用例，与字面量代入不等价。返回 None 即放弃判定：闸门零容忍，无法静态求值
+    时宁可漏报也不能误报。
     """
-    if any(kw.arg == "indirect" for kw in dec.keywords):
+    if len(dec.args) > 2 or any(kw.arg == "indirect" for kw in dec.keywords):
         return None
     values = dec.args[1] if len(dec.args) >= 2 else None
     if not isinstance(values, ast.List | ast.Tuple):
         return None
-    rows: list[list[ast.Constant]] = []
+    rows: list[list[ast.expr]] = []
     for element in values.elts:
         if arity == 1:
-            if not isinstance(element, ast.Constant):
+            if not is_literal(element):
                 return None
             rows.append([element])
             continue
         if not isinstance(element, ast.List | ast.Tuple) or len(element.elts) != arity:
             return None
-        row = [v for v in element.elts if isinstance(v, ast.Constant)]
-        if len(row) != arity:
+        if not all(is_literal(v) for v in element.elts):
             return None
-        rows.append(row)
+        rows.append(list(element.elts))
     return rows or None
 
 
 class ParamSubstituter(ast.NodeTransformer):
     """把参数化形参名在读取位置替换成该行的字面量。"""
 
-    def __init__(self, values: dict[str, ast.Constant]) -> None:
+    def __init__(self, values: dict[str, ast.expr]) -> None:
         self.values = values
 
     def visit_Name(self, node: ast.Name) -> ast.AST:
         replacement = self.values.get(node.id) if isinstance(node.ctx, ast.Load) else None
         if replacement is None:
             return node
-        return ast.copy_location(ast.Constant(value=replacement.value), node)
+        return ast.copy_location(deepcopy(replacement), node)
 
 
 class ParametrizedBodies(NamedTuple):
     """参数化用例逐行代入后的形态：代入文本 -> 该行取值。"""
 
     argnames: list[str]
-    by_body: dict[str, tuple[object, ...]]
+    by_body: dict[str, tuple[str, ...]]
 
 
 def rebinds(node: ast.AST, names: set[str]) -> bool:
     """节点是否把 `names` 里的名字重新绑定：赋值与 for / with 目标、lambda 与嵌套函数形参、
-    except 与 import 别名、global / nonlocal 声明。名字被遮蔽后代入会取到错误的值。
+    嵌套 def / class 名、except 与 import 别名、match 捕获、global / nonlocal 声明。
+    名字被遮蔽后代入会取到错误的值。
     """
     if isinstance(node, ast.Name):
         return node.id in names and not isinstance(node.ctx, ast.Load)
     if isinstance(node, ast.arg):
         return node.arg in names
-    if isinstance(node, ast.ExceptHandler):
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.ExceptHandler):
         return node.name in names
+    if isinstance(node, ast.MatchAs | ast.MatchStar):
+        return node.name in names
+    if isinstance(node, ast.MatchMapping):
+        return node.rest in names
     if isinstance(node, ast.alias):
         return (node.asname or node.name.split(".")[0]) in names
     if isinstance(node, ast.Global | ast.Nonlocal):
@@ -1386,11 +1415,11 @@ def expanded_bodies(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Parametrize
     targets = set(argnames)
     if any(rebinds(sub, targets) for stmt in body for sub in ast.walk(stmt)):
         return None
-    by_body: dict[str, tuple[object, ...]] = {}
+    by_body: dict[str, tuple[str, ...]] = {}
     for row in rows:
         values = dict(zip(argnames, row, strict=True))
-        substituted = [ParamSubstituter(values).visit(deepcopy(stmt)) for stmt in body]
-        by_body.setdefault(unparse_block(substituted), tuple(v.value for v in row))
+        substituted = [ParamSubstituter(values).visit(stmt) for stmt in deepcopy(body)]
+        by_body.setdefault(unparse_block(substituted), tuple(ast.unparse(v) for v in row))
     return ParametrizedBodies(argnames, by_body)
 
 
@@ -1403,8 +1432,8 @@ def class_context(node: ast.ClassDef) -> str:
     members = [n for n in strip_docstring(node.body) if not is_test_function(n)]
     return "\n".join(
         [
-            ";".join(sorted(ast.unparse(d) for d in node.decorator_list)),
-            ";".join(sorted(ast.unparse(b) for b in node.bases)),
+            ";".join(ast.unparse(d) for d in node.decorator_list),
+            ";".join(ast.unparse(b) for b in node.bases),
             unparse_block(members),
         ]
     )
@@ -1444,8 +1473,8 @@ def collect_test_cases(tree: ast.Module) -> list[DuplicateCandidate]:
                         qual=f"{class_name}::{node.name}" if class_name else node.name,
                         line=node.lineno,
                         context="\n".join(context),
-                        decorators=tuple(sorted(ast.unparse(d) for d in node.decorator_list if not is_parametrize(d))),
-                        params=tuple(sorted(param_names(node))),
+                        decorators=tuple(ast.unparse(d) for d in node.decorator_list if not is_parametrize(d)),
+                        params=tuple(sorted(param_names(node, is_method=class_name is not None))),
                         is_async=isinstance(node, ast.AsyncFunctionDef),
                         node=node,
                     )
@@ -1455,8 +1484,8 @@ def collect_test_cases(tree: ast.Module) -> list[DuplicateCandidate]:
     return out
 
 
-def render_row(argnames: list[str], values: tuple[object, ...]) -> str:
-    return ", ".join(f"{name}={value!r}" for name, value in zip(argnames, values, strict=True))
+def render_row(argnames: list[str], values: tuple[str, ...]) -> str:
+    return ", ".join(f"{name}={value}" for name, value in zip(argnames, values, strict=True))
 
 
 def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]:
@@ -1481,7 +1510,7 @@ def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]
                 "DUP-BODY",
                 rel,
                 case.line,
-                f"`{case.qual}` 的函数体与同文件 `{earlier.qual}` 逐字相同",
+                f"`{case.qual}` 的函数体去掉 docstring 后与同文件 `{earlier.qual}` 等同",
                 "按无意义测试判据三步处置：行为已被另一条实质覆盖则删除，"
                 "用例名声称的契约点值得保护则补上该契约点特有的断言与输入",
             )

@@ -366,3 +366,78 @@ def test_check_exits_nonzero_on_violation_and_zero_when_clean(tmp_path: Path, ca
 
     assert main(["--root", str(tmp_path), "--check"]) == 0
     assert "闸门通过：0 处违规" in capsys.readouterr().out
+
+
+def test_parameter_defaults_and_module_level_self_stay_in_the_context(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_signature.py").write_text(
+        "def test_with_self(self):\n    assert probe() == 1\n\n\n"
+        "def test_without_self():\n    assert probe() == 1\n\n\n"
+        "def test_low(limit=1):\n    assert probe(limit) == 2\n\n\n"
+        "def test_high(limit=2):\n    assert probe(limit) == 2\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_declaration_order_of_bases_and_decorators_is_significant(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_order.py").write_text(
+        "import pytest\n\n\n"
+        f"class TestOne(Alpha, Beta):\n{_DUP_CASE}\n\n"
+        f"class TestTwo(Beta, Alpha):\n{_DUP_CASE}\n\n"
+        "@pytest.mark.slow\n@pytest.mark.flaky\n"
+        "def test_c():\n    assert run() == 1\n\n\n"
+        "@pytest.mark.flaky\n@pytest.mark.slow\n"
+        "def test_d():\n    assert run() == 1\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_nested_definition_and_match_capture_shadow_the_parameter(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_bindings.py").write_text(
+        "import pytest\n\n\n"
+        "def test_plain(env):\n"
+        "    def value():\n        return '1'\n"
+        "    assert parse(env, '1') is True\n\n\n"
+        '@pytest.mark.parametrize("value", ["1"])\n'
+        "def test_table(env, value):\n"
+        "    def value():\n        return '1'\n"
+        "    assert parse(env, value) is True\n\n\n"
+        "def test_plain_match(env):\n"
+        "    match env:\n        case value:\n            assert parse(env, '1') is True\n\n\n"
+        '@pytest.mark.parametrize("value", ["1"])\n'
+        "def test_table_match(env, value):\n"
+        "    match env:\n        case value:\n            assert parse(env, value) is True\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_positionally_passed_indirect_spares_the_matching_plain_case(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_indirect.py").write_text(
+        "import pytest\n\n\n"
+        'def test_plain(env):\n    assert parse(env, "primary") is True\n\n\n'
+        '@pytest.mark.parametrize("value", ["primary"], True)\n'
+        "def test_table(env, value):\n    assert parse(env, value) is True\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_signed_numbers_and_containers_count_as_literal_rows(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_literals.py").write_text(
+        "import pytest\n\n\n"
+        "def test_negative(env):\n    assert parse(env, -1) is True\n\n\n"
+        '@pytest.mark.parametrize("value", [0, -1])\n'
+        "def test_numbers(env, value):\n    assert parse(env, value) is True\n\n\n"
+        "def test_container(cfg):\n    assert load(cfg, [1, 2]) is None\n\n\n"
+        '@pytest.mark.parametrize("data", [[1, 2], {"k": 1}])\n'
+        "def test_containers(cfg, data):\n    assert load(cfg, data) is None\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == ["tests/test_literals.py:4", "tests/test_literals.py:13"]
