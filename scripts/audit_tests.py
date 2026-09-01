@@ -35,7 +35,7 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from fnmatch import fnmatch
@@ -1278,10 +1278,21 @@ def unparse_block(body: list[ast.stmt]) -> str:
     return ast.unparse(ast.Module(body=list(body), type_ignores=[]))
 
 
-def is_parametrize(dec: ast.expr) -> bool:
+def is_parametrize(dec: ast.expr, aliases: Container[str] = frozenset()) -> bool:
     target = dec.func if isinstance(dec, ast.Call) else dec
     name = dotted(target)
-    return bool(name) and name.split(".")[-1] == PARAMETRIZE_NAME
+    if not name:
+        return False
+    return name.split(".")[-1] == PARAMETRIZE_NAME or name in aliases
+
+
+def parametrize_aliases(tree: ast.Module) -> frozenset[str]:
+    """模块级 `_TABLE = pytest.mark.parametrize(...)`：`@_TABLE` 与直接写 parametrize 等价。"""
+    out: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and is_parametrize(node.value):
+            out.update(t.id for t in node.targets if isinstance(t, ast.Name))
+    return frozenset(out)
 
 
 def param_names(node: ast.FunctionDef | ast.AsyncFunctionDef, *, is_method: bool) -> list[str]:
@@ -1454,6 +1465,7 @@ class DuplicateCandidate(NamedTuple):
     decorators: tuple[str, ...]
     params: tuple[str, ...]
     is_async: bool
+    is_parametrized: bool
     node: ast.FunctionDef | ast.AsyncFunctionDef
 
     @property
@@ -1461,13 +1473,10 @@ class DuplicateCandidate(NamedTuple):
         """可比较的上下文：类级 setup、非参数化装饰器、协程与否。"""
         return (self.context, self.decorators, self.is_async)
 
-    @property
-    def is_parametrized(self) -> bool:
-        return any(is_parametrize(d) for d in self.node.decorator_list)
-
 
 def collect_test_cases(tree: ast.Module) -> list[DuplicateCandidate]:
     unittest_cases = resolve_unittest_cases(tree)
+    aliases = parametrize_aliases(tree)
     out: list[DuplicateCandidate] = []
 
     def walk(body: list[ast.stmt], context: list[str], class_path: str | None) -> None:
@@ -1485,9 +1494,10 @@ def collect_test_cases(tree: ast.Module) -> list[DuplicateCandidate]:
                         qual=f"{class_path}::{node.name}" if class_path else node.name,
                         line=node.lineno,
                         context="\n".join(context),
-                        decorators=tuple(ast.unparse(d) for d in node.decorator_list if not is_parametrize(d)),
+                        decorators=tuple(ast.unparse(d) for d in node.decorator_list if not is_parametrize(d, aliases)),
                         params=tuple(sorted(param_names(node, is_method=bound))),
                         is_async=isinstance(node, ast.AsyncFunctionDef),
+                        is_parametrized=any(is_parametrize(d, aliases) for d in node.decorator_list),
                         node=node,
                     )
                 )

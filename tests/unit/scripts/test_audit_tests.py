@@ -499,3 +499,15 @@ def test_parametrized_argument_carrying_a_default_still_matches_a_plain_case(tmp
         encoding="utf-8",
     )
     assert _dup_lines(_audit(tmp_path)) == ["tests/test_default_arg.py:4"]
+
+
+def test_parametrize_marks_stored_in_a_module_level_alias_still_count(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_alias.py").write_text(
+        "import pytest\n\n\n"
+        '_TABLE = pytest.mark.parametrize("value", ["1", "2"])\n\n\n'
+        "@_TABLE\ndef test_a(env, value):\n    assert parse(env, value) is True\n\n\n"
+        "@_TABLE\ndef test_b(env, value):\n    assert parse(env, value) is True\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
