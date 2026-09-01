@@ -305,19 +305,39 @@ def test_parametrized_case_outside_the_table_and_non_literal_values_are_spared(t
     assert _dup_lines(_audit(tmp_path)) == []
 
 
-def test_class_level_setup_must_match_before_bodies_count_as_duplicates(tmp_path: Path) -> None:
+_DUP_CASE = "    def test_it(self):\n        assert probe() == 1\n"
+
+
+def test_parameter_shadowed_inside_the_body_is_not_substituted(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
-    case = "    def test_it(self):\n        assert probe() == 1\n"
-    (tests / "test_setup.py").write_text(
-        f'class TestOne:\n    def setup_method(self):\n        reset(mode="a")\n\n{case}\n\n'
-        f'class TestTwo:\n    def setup_method(self):\n        reset(mode="b")\n\n{case}',
+    (tests / "test_shadow.py").write_text(
+        "import pytest\n\n\n"
+        "def test_plain(env):\n"
+        "    assert parse(env, (lambda value: '1')('x')) is True\n\n\n"
+        '@pytest.mark.parametrize("value", ["1"])\n'
+        "def test_table(env, value):\n"
+        "    assert parse(env, (lambda value: value)('x')) is True\n",
         encoding="utf-8",
     )
     assert _dup_lines(_audit(tmp_path)) == []
 
+
+def test_differing_class_level_setup_spares_identical_bodies(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
     (tests / "test_setup.py").write_text(
-        f'class TestOne:\n    """文档不是行为。"""\n\n    def setup_method(self):\n        reset(mode="a")\n\n{case}\n\n'
-        f'class TestTwo:\n    def setup_method(self):\n        reset(mode="a")\n\n{case}',
+        f'class TestOne:\n    def setup_method(self):\n        reset(mode="a")\n\n{_DUP_CASE}\n\n'
+        f'class TestTwo:\n    def setup_method(self):\n        reset(mode="b")\n\n{_DUP_CASE}',
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_matching_class_level_setup_lets_identical_bodies_count_as_duplicates(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_setup.py").write_text(
+        f'class TestOne:\n    """文档不是行为。"""\n\n'
+        f'    def setup_method(self):\n        reset(mode="a")\n\n{_DUP_CASE}\n\n'
+        f'class TestTwo:\n    def setup_method(self):\n        reset(mode="a")\n\n{_DUP_CASE}',
         encoding="utf-8",
     )
     assert _dup_lines(_audit(tmp_path)) == ["tests/test_setup.py:15"]

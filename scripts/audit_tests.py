@@ -40,7 +40,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, TypeGuard
 
 # ---------------------------------------------------------------- 常量表
 
@@ -408,6 +408,11 @@ def is_collected_test_class(node: ast.ClassDef, unittest_cases: set[str]) -> boo
     if node.name in unittest_cases:
         return True
     return fnmatch(node.name, COLLECTED_TEST_CLASS_GLOB) and not _has_explicit_init(node)
+
+
+def is_test_function(node: ast.stmt) -> TypeGuard[ast.FunctionDef | ast.AsyncFunctionDef]:
+    """pytest 按 `test` 前缀收集用例函数。"""
+    return isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith("test")
 
 
 def _opts_out_of_collection(node: ast.ClassDef) -> bool:
@@ -899,7 +904,7 @@ class FileScanner:
             if isinstance(node, ast.ClassDef):
                 if is_collected_test_class(node, self.unittest_cases):
                     self._scan_scope(node.body, class_marks + marks_of(node.decorator_list), node.name)
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            elif is_test_function(node):
                 self._analyze_test(node, class_marks, class_name)
 
     def _analyze_test(
@@ -1251,12 +1256,7 @@ def scan_frontend_layout(root: Path, paths: list[Path]) -> list[StructureFinding
 
 # ---------------------------------------------------------------- 类 5：重复用例
 
-DUPLICATE_RULE = "DUP-BODY"
 PARAMETRIZE_NAME = "parametrize"
-
-
-def is_test_function(node: ast.stmt) -> bool:
-    return isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith("test")
 
 
 def strip_docstring(body: list[ast.stmt]) -> list[ast.stmt]:
@@ -1354,6 +1354,23 @@ class ParametrizedBodies(NamedTuple):
     by_body: dict[str, tuple[object, ...]]
 
 
+def rebinds(node: ast.AST, names: set[str]) -> bool:
+    """节点是否把 `names` 里的名字重新绑定：赋值与 for / with 目标、lambda 与嵌套函数形参、
+    except 与 import 别名、global / nonlocal 声明。名字被遮蔽后代入会取到错误的值。
+    """
+    if isinstance(node, ast.Name):
+        return node.id in names and not isinstance(node.ctx, ast.Load)
+    if isinstance(node, ast.arg):
+        return node.arg in names
+    if isinstance(node, ast.ExceptHandler):
+        return node.name in names
+    if isinstance(node, ast.alias):
+        return (node.asname or node.name.split(".")[0]) in names
+    if isinstance(node, ast.Global | ast.Nonlocal):
+        return not names.isdisjoint(node.names)
+    return False
+
+
 def expanded_bodies(node: ast.FunctionDef | ast.AsyncFunctionDef) -> ParametrizedBodies | None:
     """把单个 `@parametrize` 逐行代入函数体。无法静态展开时返回 None。"""
     decorators = [d for d in node.decorator_list if is_parametrize(d)]
@@ -1367,12 +1384,7 @@ def expanded_bodies(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Parametrize
         return None
     body = strip_docstring(node.body)
     targets = set(argnames)
-    # 形参在体内被重新绑定时，代入后半段的读取点会得到错误的值
-    if any(
-        isinstance(sub, ast.Name) and sub.id in targets and not isinstance(sub.ctx, ast.Load)
-        for stmt in body
-        for sub in ast.walk(stmt)
-    ):
+    if any(rebinds(sub, targets) for stmt in body for sub in ast.walk(stmt)):
         return None
     by_body: dict[str, tuple[object, ...]] = {}
     for row in rows:
@@ -1412,6 +1424,10 @@ class DuplicateCandidate(NamedTuple):
         """可比较的上下文：类级 setup、非参数化装饰器、协程与否。"""
         return (self.context, self.decorators, self.is_async)
 
+    @property
+    def is_parametrized(self) -> bool:
+        return any(is_parametrize(d) for d in self.node.decorator_list)
+
 
 def collect_test_cases(tree: ast.Module) -> list[DuplicateCandidate]:
     unittest_cases = resolve_unittest_cases(tree)
@@ -1423,7 +1439,6 @@ def collect_test_cases(tree: ast.Module) -> list[DuplicateCandidate]:
                 if is_collected_test_class(node, unittest_cases):
                     walk(node.body, [*context, class_context(node)], node.name)
             elif is_test_function(node):
-                assert isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
                 out.append(
                     DuplicateCandidate(
                         qual=f"{class_name}::{node.name}" if class_name else node.name,
@@ -1447,8 +1462,8 @@ def render_row(argnames: list[str], values: tuple[object, ...]) -> str:
 def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]:
     """同一文件内函数体等同的测试用例。跨文件不判——局部辅助函数同名会造成整批假阳。"""
     cases = collect_test_cases(tree)
-    parametrized = [c for c in cases if any(is_parametrize(d) for d in c.node.decorator_list)]
-    plain = [c for c in cases if c not in parametrized]
+    parametrized = [c for c in cases if c.is_parametrized]
+    plain = [c for c in cases if not c.is_parametrized]
     bodies = {c.qual: unparse_block(strip_docstring(c.node.body)) for c in plain}
 
     findings: list[StructureFinding] = []
@@ -1463,7 +1478,7 @@ def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]
         reported.add(case.qual)
         findings.append(
             StructureFinding(
-                DUPLICATE_RULE,
+                "DUP-BODY",
                 rel,
                 case.line,
                 f"`{case.qual}` 的函数体与同文件 `{earlier.qual}` 逐字相同",
@@ -1486,7 +1501,7 @@ def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]
             reported.add(case.qual)
             findings.append(
                 StructureFinding(
-                    DUPLICATE_RULE,
+                    "DUP-BODY",
                     rel,
                     case.line,
                     f"`{case.qual}` 的函数体等同于同文件 `{owner.qual}` 参数表中的一行"
@@ -1803,6 +1818,14 @@ def main(argv: list[str] | None = None) -> int:
     for row in shape:
         print(f"{row['rule']:13s} {row['path']}:{row['line']}  {row['detail']}  → {row['guidance']}")
     if not shape:
+        print("无命中")
+
+    print("\n== 类 5：重复用例 ==")
+    duplicates = result["duplicate_body_findings"]
+    assert isinstance(duplicates, list)
+    for row in duplicates:
+        print(f"{row['rule']:13s} {row['path']}:{row['line']}  {row['detail']}  → {row['guidance']}")
+    if not duplicates:
         print("无命中")
 
     if args.json_out:
