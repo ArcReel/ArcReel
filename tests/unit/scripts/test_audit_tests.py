@@ -245,6 +245,84 @@ def test_unittest_ancestry_resolves_aliases_and_in_module_inheritance(tmp_path: 
     assert "IndirectCase::test_via_ancestor" in violations[2].guidance
 
 
+def _dup_lines(result: dict[str, object]) -> list[str]:
+    return [f"{v.path}:{v.line}" for v in gate_violations(result) if v.rule == "DUP-BODY"]
+
+
+def test_identical_bodies_hit_within_a_file_but_not_across_files(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    body = "    assert helper() == 1\n"
+    (tests / "test_same.py").write_text(
+        f'def test_a():\n{body}\n\ndef test_b():\n    """只差 docstring 仍是重复。"""\n{body}',
+        encoding="utf-8",
+    )
+    (tests / "test_other.py").write_text(f"def test_b():\n{body}", encoding="utf-8")
+    assert _dup_lines(_audit(tmp_path)) == ["tests/test_same.py:5"]
+
+
+def test_differing_fixtures_or_decorators_spare_identical_bodies(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_seams.py").write_text(
+        "import pytest\n\n\n"
+        "def test_a(sqlite_session):\n    assert run(sqlite_session) == 1\n\n\n"
+        "def test_b(pg_session):\n    assert run(pg_session) == 1\n\n\n"
+        "@pytest.mark.slow\n"
+        "def test_c():\n    assert run() == 1\n\n\n"
+        "def test_d():\n    assert run() == 1\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_parametrized_table_containing_a_plain_case_reports_the_contained_one(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_table.py").write_text(
+        "import pytest\n\n\n"
+        'def test_plain(env):\n    assert parse(env, "1") is True\n\n\n'
+        '@pytest.mark.parametrize("value", ["1", "true"])\n'
+        "def test_aliases(env, value):\n    assert parse(env, value) is True\n\n\n"
+        '@pytest.mark.parametrize("other", ["1", "true"])\n'
+        "def test_twin_table(env, other):\n    assert parse(env, other) is True\n",
+        encoding="utf-8",
+    )
+    violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "DUP-BODY"]
+    assert [f"{v.path}:{v.line}" for v in violations] == ["tests/test_table.py:4"]
+    assert "value='1'" in violations[0].guidance
+
+
+def test_parametrized_case_outside_the_table_and_non_literal_values_are_spared(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_table_misses.py").write_text(
+        "import pytest\n\n\n"
+        'def test_absent(env):\n    assert parse(env, "nope") is True\n\n\n'
+        '@pytest.mark.parametrize("value", ["1", "true"])\n'
+        "def test_aliases(env, value):\n    assert parse(env, value) is True\n\n\n"
+        "def test_computed(env):\n    assert parse(env, ALIASES[0]) is True\n\n\n"
+        '@pytest.mark.parametrize("value", [ALIASES[0]])\n'
+        "def test_dynamic(env, value):\n    assert parse(env, value) is True\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_class_level_setup_must_match_before_bodies_count_as_duplicates(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    case = "    def test_it(self):\n        assert probe() == 1\n"
+    (tests / "test_setup.py").write_text(
+        f'class TestOne:\n    def setup_method(self):\n        reset(mode="a")\n\n{case}\n\n'
+        f'class TestTwo:\n    def setup_method(self):\n        reset(mode="b")\n\n{case}',
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+    (tests / "test_setup.py").write_text(
+        f'class TestOne:\n    """文档不是行为。"""\n\n    def setup_method(self):\n        reset(mode="a")\n\n{case}\n\n'
+        f'class TestTwo:\n    def setup_method(self):\n        reset(mode="a")\n\n{case}',
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == ["tests/test_setup.py:15"]
+
+
 def test_unparsable_file_is_reported_at_its_syntax_error_line(tmp_path: Path, capsys) -> None:
     tests, _ = _repo(tmp_path)
     (tests / "test_broken.py").write_text("def test_a():\n    assert (1 ==\n", encoding="utf-8")

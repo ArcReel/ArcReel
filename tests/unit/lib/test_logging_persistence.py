@@ -63,13 +63,6 @@ def test_file_handler_registered_by_default(isolated_log_dir: Path) -> None:
     assert Path(file_handlers[0].baseFilename).parent == isolated_log_dir.resolve()
 
 
-def test_file_handler_disabled_by_env(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARCREEL_LOG_FILE_DISABLED", "1")
-    logging_config.setup_logging()
-    root = logging.getLogger()
-    assert not any(isinstance(h, TimedRotatingFileHandler) for h in root.handlers)
-
-
 def test_logs_written_to_file(isolated_log_dir: Path) -> None:
     logging_config.setup_logging()
     logging.getLogger("test.persistence").info("hello-arcreel")

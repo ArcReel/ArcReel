@@ -101,15 +101,16 @@ Every backend test belongs to exactly one tier; CI runs `-m "not e2e"` by defaul
 
 ### Meaningless-test criteria {#meaningless-tests}
 
-Meaningless tests are negative value; deletion beats retention. Three mechanical criteria (gate):
+Meaningless tests are negative value; deletion beats retention. Four mechanical criteria (gate):
 
 1. **All assertions land on double call records**—the test's subject has become the mock itself. Assert real output instead: the returned object's type and attributes, the real request captured by respx, or observable state.
 2. **Patching the unit under test's own logic steps and then testing that unit**—an integration test mocking the public entry point of the module under test is a special case of this.
 3. **Zero-assertion tests**—if you can say what to protect, add the assertion; if you cannot, delete the test.
+4. **Tests with equivalent bodies inside one file**—two tests whose bodies are byte-identical once docstrings are stripped, or one test whose body equals a single row of a `@parametrize` table in the same file. The check is confined to one file (same-named local helpers across files would produce a batch of false positives) and requires identical parameter names, non-parametrize decorators, and class-level setup; it scans the backend `tests/` only, and the frontend equivalent is left to review.
 
 On a hit, disposal follows three fixed steps, with no per-case discretion: ① the behavior is already substantively covered by another test → delete, with no coverage compensation; ② uncovered but not worth protecting (no real branch or contract) → delete; ③ worth protecting → rework, and cases needing a production seam move to the seam-consolidation batch.
 
-Four audit criteria rely on review and dedicated audits, not gates: weakened duplication (same path as another test with weaker assertions), over-specification (asserting log text, dict key order, private attributes, and other implementation details rather than contracts), severe setup-to-assertion imbalance, and assertion helpers that only assert double call records internally.
+Four audit criteria rely on review and dedicated audits, not gates: weakened duplication (same path as another test with weaker assertions—the "equivalent bodies" sub-form is now criterion 4 above, leaving forms such as a strict assertion subset to human judgment), over-specification (asserting log text, dict key order, private attributes, and other implementation details rather than contracts), severe setup-to-assertion imbalance, and assertion helpers that only assert double call records internally.
 
 ### Shared infrastructure {#shared-test-fixtures}
 

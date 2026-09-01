@@ -17,6 +17,10 @@
 单文件 3000 行熔断；前端测试文件位于 `__tests__/` 目录。后端 `tests/**/*.py` 与前端
 `frontend/src/**/*.test.*` 同受此类约束，前端语义类规则归 eslint、不在本脚本内。
 
+类 5「重复用例」：同一测试文件内，两个用例去掉 docstring 后函数体逐字相同；或一条用例的
+函数体等同于同文件某个 `@parametrize` 用例参数表中的一行。判定限定同文件，并要求形参名、
+非参数化装饰器与类级 setup 全部相同。
+
 `--check` 是闸门形态：以 `规则号 file:line 修复指引` 列出上述全部命中，非零即退出码 1。
 零容忍，无基线、无豁免标注——误报通过修改本脚本解决。
 
@@ -32,6 +36,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -1244,6 +1249,272 @@ def scan_frontend_layout(root: Path, paths: list[Path]) -> list[StructureFinding
     ]
 
 
+# ---------------------------------------------------------------- 类 5：重复用例
+
+DUPLICATE_RULE = "DUP-BODY"
+PARAMETRIZE_NAME = "parametrize"
+
+
+def is_test_function(node: ast.stmt) -> bool:
+    return isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith("test")
+
+
+def strip_docstring(body: list[ast.stmt]) -> list[ast.stmt]:
+    """去掉首条 docstring——说明文字不是行为，只差 docstring 的两条用例仍是重复。"""
+    head = body[0] if body else None
+    if isinstance(head, ast.Expr) and isinstance(head.value, ast.Constant) and isinstance(head.value.value, str):
+        return body[1:]
+    return body
+
+
+def unparse_block(body: list[ast.stmt]) -> str:
+    """语句序列的规范化文本：`ast.unparse` 抹平换行、括号与引号风格的差异。"""
+    return ast.unparse(ast.Module(body=list(body), type_ignores=[]))
+
+
+def is_parametrize(dec: ast.expr) -> bool:
+    target = dec.func if isinstance(dec, ast.Call) else dec
+    name = dotted(target)
+    return bool(name) and name.split(".")[-1] == PARAMETRIZE_NAME
+
+
+def param_names(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """形参名（去掉 self / cls）：pytest 按名注入 fixture，名字集合不同即上下文不同。"""
+    args = node.args
+    names = [a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)]
+    if args.vararg:
+        names.append(f"*{args.vararg.arg}")
+    if args.kwarg:
+        names.append(f"**{args.kwarg.arg}")
+    return [n for n in names if n not in ("self", "cls")]
+
+
+def parametrize_argnames(dec: ast.Call) -> list[str] | None:
+    """`@parametrize("a,b", ...)` 或 `(["a", "b"], ...)` 的形参名。非字面量返回 None。"""
+    if not dec.args:
+        return None
+    literal = const_str(dec.args[0])
+    if literal is not None:
+        return [part.strip() for part in literal.split(",")]
+    node = dec.args[0]
+    if not isinstance(node, ast.List | ast.Tuple):
+        return None
+    names: list[str] = []
+    for element in node.elts:
+        name = const_str(element)
+        if name is None:
+            return None
+        names.append(name)
+    return names or None
+
+
+def parametrize_rows(dec: ast.Call, arity: int) -> list[list[ast.Constant]] | None:
+    """参数表逐行的字面量。`indirect=`、`pytest.param(...)`、表达式取值一律返回 None。
+
+    返回 None 即放弃判定：闸门零容忍，无法静态求值时宁可漏报也不能误报。
+    """
+    if any(kw.arg == "indirect" for kw in dec.keywords):
+        return None
+    values = dec.args[1] if len(dec.args) >= 2 else None
+    if not isinstance(values, ast.List | ast.Tuple):
+        return None
+    rows: list[list[ast.Constant]] = []
+    for element in values.elts:
+        if arity == 1:
+            if not isinstance(element, ast.Constant):
+                return None
+            rows.append([element])
+            continue
+        if not isinstance(element, ast.List | ast.Tuple) or len(element.elts) != arity:
+            return None
+        row = [v for v in element.elts if isinstance(v, ast.Constant)]
+        if len(row) != arity:
+            return None
+        rows.append(row)
+    return rows or None
+
+
+class ParamSubstituter(ast.NodeTransformer):
+    """把参数化形参名在读取位置替换成该行的字面量。"""
+
+    def __init__(self, values: dict[str, ast.Constant]) -> None:
+        self.values = values
+
+    def visit_Name(self, node: ast.Name) -> ast.AST:
+        replacement = self.values.get(node.id) if isinstance(node.ctx, ast.Load) else None
+        if replacement is None:
+            return node
+        return ast.copy_location(ast.Constant(value=replacement.value), node)
+
+
+class ParametrizedBodies(NamedTuple):
+    """参数化用例逐行代入后的形态：代入文本 -> 该行取值。"""
+
+    argnames: list[str]
+    by_body: dict[str, tuple[object, ...]]
+
+
+def expanded_bodies(node: ast.FunctionDef | ast.AsyncFunctionDef) -> ParametrizedBodies | None:
+    """把单个 `@parametrize` 逐行代入函数体。无法静态展开时返回 None。"""
+    decorators = [d for d in node.decorator_list if is_parametrize(d)]
+    if len(decorators) != 1 or not isinstance(decorators[0], ast.Call):
+        return None
+    argnames = parametrize_argnames(decorators[0])
+    if not argnames:
+        return None
+    rows = parametrize_rows(decorators[0], len(argnames))
+    if rows is None:
+        return None
+    body = strip_docstring(node.body)
+    targets = set(argnames)
+    # 形参在体内被重新绑定时，代入后半段的读取点会得到错误的值
+    if any(
+        isinstance(sub, ast.Name) and sub.id in targets and not isinstance(sub.ctx, ast.Load)
+        for stmt in body
+        for sub in ast.walk(stmt)
+    ):
+        return None
+    by_body: dict[str, tuple[object, ...]] = {}
+    for row in rows:
+        values = dict(zip(argnames, row, strict=True))
+        substituted = [ParamSubstituter(values).visit(deepcopy(stmt)) for stmt in body]
+        by_body.setdefault(unparse_block(substituted), tuple(v.value for v in row))
+    return ParametrizedBodies(argnames, by_body)
+
+
+def class_context(node: ast.ClassDef) -> str:
+    """类级上下文：装饰器、基类，以及类体内一切非测试成员（`setup_method`、类级 fixture、`pytestmark`）。
+
+    判据只比函数体，两个类的 setup 不同却函数体相同时会误报；闸门零容忍、无豁免，
+    故上下文必须一并相等才认定重复。
+    """
+    members = [n for n in strip_docstring(node.body) if not is_test_function(n)]
+    return "\n".join(
+        [
+            ";".join(sorted(ast.unparse(d) for d in node.decorator_list)),
+            ";".join(sorted(ast.unparse(b) for b in node.bases)),
+            unparse_block(members),
+        ]
+    )
+
+
+class DuplicateCandidate(NamedTuple):
+    qual: str
+    line: int
+    context: str
+    decorators: tuple[str, ...]
+    params: tuple[str, ...]
+    is_async: bool
+    node: ast.FunctionDef | ast.AsyncFunctionDef
+
+    @property
+    def scope(self) -> tuple[str, tuple[str, ...], bool]:
+        """可比较的上下文：类级 setup、非参数化装饰器、协程与否。"""
+        return (self.context, self.decorators, self.is_async)
+
+
+def collect_test_cases(tree: ast.Module) -> list[DuplicateCandidate]:
+    unittest_cases = resolve_unittest_cases(tree)
+    out: list[DuplicateCandidate] = []
+
+    def walk(body: list[ast.stmt], context: list[str], class_name: str | None) -> None:
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                if is_collected_test_class(node, unittest_cases):
+                    walk(node.body, [*context, class_context(node)], node.name)
+            elif is_test_function(node):
+                assert isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+                out.append(
+                    DuplicateCandidate(
+                        qual=f"{class_name}::{node.name}" if class_name else node.name,
+                        line=node.lineno,
+                        context="\n".join(context),
+                        decorators=tuple(sorted(ast.unparse(d) for d in node.decorator_list if not is_parametrize(d))),
+                        params=tuple(sorted(param_names(node))),
+                        is_async=isinstance(node, ast.AsyncFunctionDef),
+                        node=node,
+                    )
+                )
+
+    walk(tree.body, [], None)
+    return out
+
+
+def render_row(argnames: list[str], values: tuple[object, ...]) -> str:
+    return ", ".join(f"{name}={value!r}" for name, value in zip(argnames, values, strict=True))
+
+
+def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]:
+    """同一文件内函数体等同的测试用例。跨文件不判——局部辅助函数同名会造成整批假阳。"""
+    cases = collect_test_cases(tree)
+    parametrized = [c for c in cases if any(is_parametrize(d) for d in c.node.decorator_list)]
+    plain = [c for c in cases if c not in parametrized]
+    bodies = {c.qual: unparse_block(strip_docstring(c.node.body)) for c in plain}
+
+    findings: list[StructureFinding] = []
+    reported: set[str] = set()
+
+    first_seen: dict[tuple[object, ...], DuplicateCandidate] = {}
+    for case in plain:
+        key = (*case.scope, case.params, bodies[case.qual])
+        earlier = first_seen.setdefault(key, case)
+        if earlier is case:
+            continue
+        reported.add(case.qual)
+        findings.append(
+            StructureFinding(
+                DUPLICATE_RULE,
+                rel,
+                case.line,
+                f"`{case.qual}` 的函数体与同文件 `{earlier.qual}` 逐字相同",
+                "按无意义测试判据三步处置：行为已被另一条实质覆盖则删除，"
+                "用例名声称的契约点值得保护则补上该契约点特有的断言与输入",
+            )
+        )
+
+    for owner in parametrized:
+        expanded = expanded_bodies(owner.node)
+        if expanded is None:
+            continue
+        owner_params = tuple(sorted(p for p in owner.params if p not in expanded.argnames))
+        for case in plain:
+            if case.qual in reported or case.scope != owner.scope or case.params != owner_params:
+                continue
+            values = expanded.by_body.get(bodies[case.qual])
+            if values is None:
+                continue
+            reported.add(case.qual)
+            findings.append(
+                StructureFinding(
+                    DUPLICATE_RULE,
+                    rel,
+                    case.line,
+                    f"`{case.qual}` 的函数体等同于同文件 `{owner.qual}` 参数表中的一行"
+                    f"（{render_row(expanded.argnames, values)}）",
+                    "删除本用例——它的输入已被该参数表完全包含",
+                )
+            )
+    return findings
+
+
+def scan_duplicate_bodies(root: Path, tests_dir: Path) -> list[StructureFinding]:
+    """后端 `tests/` 的重复用例扫描。
+
+    前端 `frontend/src/**/*.test.*` 不在内：本脚本零第三方依赖、只用 `ast`，无法解析
+    TS/TSX，语义类规则按分工归 eslint。
+    """
+    findings: list[StructureFinding] = []
+    for path in sorted(tests_dir.rglob("*.py")):
+        if path.name == "__init__.py" or not is_collected_test_module(path):
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        findings.extend(scan_module_duplicates(path.relative_to(root).as_posix(), tree))
+    return findings
+
+
 # ---------------------------------------------------------------- 汇总输出
 
 
@@ -1311,6 +1582,7 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
     double_by_file = Counter(d.path for d in double_only)
     structure = scan_shared_facilities(root, tests_dir)
     structure_counter = Counter(f.rule for f in structure)
+    duplicates = scan_duplicate_bodies(root, tests_dir)
 
     frontend_files = frontend_test_files(frontend_src) if frontend_src and frontend_src.is_dir() else []
     shape = scan_file_shape(root, files + frontend_files) + scan_frontend_layout(root, frontend_files)
@@ -1338,6 +1610,7 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
             "split_suffix_files": shape_counter["NAME-SPLIT"],
             "oversized_files": shape_counter["SIZE-LIMIT"],
             "frontend_tests_dir_files": shape_counter["FE-TESTS-DIR"],
+            "duplicate_body_sites": len(duplicates),
         },
         "double_only_by_file": [
             {"path": s.path, "double_only": s.double_only, "test_funcs": s.test_funcs}
@@ -1361,6 +1634,7 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
         "integration_collaborator_patch_sites": [asdict(p) for p in integ_collaborator],
         "shared_facility_findings": [asdict(f) for f in structure],
         "file_shape_findings": [asdict(f) for f in shape],
+        "duplicate_body_findings": [asdict(f) for f in duplicates],
         "parse_failures": failures,
     }
 
@@ -1425,7 +1699,7 @@ def gate_violations(result: dict[str, object]) -> list[Violation]:
             int(str(finding["line"])),
             f"{finding['detail']}；{finding['guidance']}",
         )
-        for finding in rows("shared_facility_findings") + rows("file_shape_findings")
+        for finding in rows("shared_facility_findings") + rows("file_shape_findings") + rows("duplicate_body_findings")
     )
     failures = result["parse_failures"]
     assert isinstance(failures, list)

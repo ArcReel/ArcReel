@@ -118,11 +118,17 @@ class TestVideoGenerateAudio:
         assert result is False
 
     async def test_project_none_skips_override(self, tmp_path):
-        """project_name=None 时不读取项目配置。"""
+        """project_name=None 时不读取项目配置。
+
+        项目层备好一个会翻转结果的覆盖值（全局 False、项目 True）：若漏了 project_name 的
+        短路而去读项目配置，结果会变成 True。断言 False 即证明项目层未被读取。
+        """
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={"video_generate_audio": "true"})
-        result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)
-        assert result is True
+        fake_svc = _FakeConfigService(settings={"video_generate_audio": "false"})
+        with patch("lib.config.resolver.get_project_manager") as mock_pm:
+            mock_pm.return_value.load_project.return_value = {"video_generate_audio": True}
+            result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)
+        assert result is False
 
     async def test_project_override_string_value(self, tmp_path):
         """项目级覆盖值为字符串时也能正确解析。"""
@@ -200,15 +206,6 @@ class TestDefaultBackends:
         result = await resolver._resolve_default_image_backend(fake_svc, None, "t2i")
         assert result == ("ark", "stable-diffusion-3")
 
-    async def test_default_image_backend_t2i_falls_back_to_default_layer(self):
-        """只设默认层 default_image_backend、t2i 桶未配时回退到默认层。"""
-        resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(
-            settings={"default_image_backend": "grok/grok-2-image"},
-        )
-        result = await resolver._resolve_default_image_backend(fake_svc, None, "t2i")
-        assert result == ("grok", "grok-2-image")
-
     async def test_default_image_backend_i2i_bucket_overrides_default_layer(self):
         """对称测试 i2i：全局桶覆盖全局默认层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -220,15 +217,6 @@ class TestDefaultBackends:
         )
         result = await resolver._resolve_default_image_backend(fake_svc, None, "i2i")
         assert result == ("ark", "kolors-img2img")
-
-    async def test_default_image_backend_i2i_falls_back_to_default_layer(self):
-        """只设默认层 default_image_backend、i2i 桶未配时回退到默认层。"""
-        resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(
-            settings={"default_image_backend": "grok/grok-2-image"},
-        )
-        result = await resolver._resolve_default_image_backend(fake_svc, None, "i2i")
-        assert result == ("grok", "grok-2-image")
 
     @pytest.mark.parametrize("capability", ["t2i", "i2i"])
     async def test_default_image_backend_empty_bucket_falls_back_to_default_layer(self, db_factory, capability: str):

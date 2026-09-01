@@ -266,11 +266,6 @@ class TestPasswordHash:
     def setup_method(self):
         auth_module._cached_password_hash = None
 
-    def test_check_credentials_with_hash(self):
-        """密码通过哈希比对验证"""
-        with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
-            assert auth_module.check_credentials("admin", "pass123") is True
-
     def test_check_credentials_wrong_password_with_hash(self):
         """错误密码哈希比对失败"""
         with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
