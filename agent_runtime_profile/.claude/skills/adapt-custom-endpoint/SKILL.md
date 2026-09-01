@@ -17,7 +17,7 @@ description: 当用户要求把采用 JSON 提交后轮询协议的视频供应�
    `provider_id`；不得把 API Key 写入项目文件、命令参数或回复。
 3. 运行当前 skill 目录下的 `scripts/custom_endpoint.py`，用 `validate <definition.json>` 子命令校验。
    修正到 `errors` 为空。`schema_version.level` 非 `direct` 或仍有 `warnings` 时，修正或向用户说明接受的原因和影响；用 `hints` 准备测试所需的接口地址和模型。
-4. 对供应商的提交与轮询响应分别运行 `check-response`；定义包含 `result` 时也检查取件响应。这一步离线且免费，应先于出站测试。
+4. 对供应商的提交与轮询响应分别运行 `check-response`；定义包含 `result` 时也检查取件响应。
 5. 运行 `preview-request`，核对 URL、method、打码后的 headers、body 与素材摘要。定义有必需素材时，
    用 `--start-image` / `--end-image` / `--reference-images` / `--reference-audio-files` 附上对应文件。
 6. **测试连接会真实请求供应商并可能计费。调用前必须回问用户。** 获得明确同意后才运行
@@ -29,10 +29,10 @@ description: 当用户要求把采用 JSON 提交后轮询协议的视频供应�
 
 ## 连接
 
-在当前工作区根目录运行脚本。外部 Agent 读取 `setup-arcreel-skills` 创建的
-`.arcreel/settings.json`，从 `mcp_url` 派生同实例的 `/api/v1` 地址，并用 `api_key` 鉴权；配置缺失或
-无效时先执行 setup skill，不回退到 localhost。
+在当前工作区根目录运行脚本。脚本读取 `setup-arcreel-skills` 创建的 `.arcreel/settings.json`，从
+`mcp_url` 派生同实例的 `/api/v1` 地址，并用 `api_key` 鉴权；配置缺失或无效时先执行 setup skill，
+不回退到 localhost。
 
-内嵌 Agent 会话通过 `ARCREEL_API_BASE` 与 `ARCREEL_API_TOKEN` 自动注入 localhost API 和短期 JWT，
-优先于工作区配置；该 JWT 有效期 15 分钟且不续期，会话超时后 API 调用会以 401 失败，此时告知用户
-重开会话获取新 token。`AUTH_ENABLED=false` 的本地部署可留空 token。
+设置 `ARCREEL_EMBEDDED_AGENT=1` 时，脚本优先使用 `ARCREEL_API_BASE` 与 `ARCREEL_API_TOKEN`；该 JWT
+有效期 15 分钟且不续期，API 调用返回 401 时告知用户重开会话获取新 token。
+`AUTH_ENABLED=false` 的本地部署可留空 token。
