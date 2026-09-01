@@ -13,7 +13,7 @@ export function AgentPageIntro({ onOpenExternalGuide }: AgentPageIntroProps) {
   return (
     <section aria-labelledby="agent-access-title">
       <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-        {t("agent_access_kicker")}
+        Agent Access
       </div>
       <h2 id="agent-access-title" className="font-editorial mt-1 text-2xl text-text">
         {t("agent_access_title")}

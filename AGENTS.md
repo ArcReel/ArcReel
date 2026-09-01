@@ -18,7 +18,7 @@ uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-file
 
 ## 通用规范
 
-- 面向用户的文本须同步添加全部已支持语言的翻译 key（语言清单以 `frontend/src/i18n/` 为准，由 `tests/unit/lib/i18n/test_i18n_consistency.py` 校验）。
+- 面向用户的文本须同步添加全部已支持语言的翻译 key（语言清单以 `frontend/src/i18n/` 为准，由 `tests/unit/lib/i18n/test_i18n_consistency.py` 校验）。例外：卡片与区块顶部的 mono kicker（`SectionCard` / `ChannelCard` / `SectionShell` / `PlaceholderTile` 的 `kicker` 及同款 eyebrow 标签）是 Darkroom 设计语言的一部分，固定英文直接写在组件里，不进 i18n。
 - 代码与测试注释仅描述当前行为与约束；变更原因与议题编号写在 commit message / PR 描述中。
 
 ## 架构

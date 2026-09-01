@@ -367,7 +367,7 @@ function NewProjectTile({ onClick, t }: { onClick: () => void; t: TFunction }) {
     <PlaceholderTile
       onClick={onClick}
       title={t("dashboard:lobby_new_project_title")}
-      kicker={t("dashboard:lobby_new_project_kicker")}
+      kicker="START · NEW REEL"
       icon={<Plus className="h-6 w-6" />}
     />
   );
