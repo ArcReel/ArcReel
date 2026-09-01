@@ -692,3 +692,145 @@ def test_opted_out_case_is_neither_a_duplicate_nor_part_of_the_class_context(tmp
     )
 
     assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_generic_base_carries_the_inherited_optout(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_generic_base.py").write_text(
+        "from typing import Generic, TypeVar\n"
+        "\n"
+        "\n"
+        "T = TypeVar('T')\n"
+        "\n"
+        "\n"
+        "class TestSupport(Generic[T]):\n"
+        "    __test__ = False\n"
+        "\n"
+        "    def test_base(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class TestChild(TestSupport[int]):\n"
+        "    def test_inherits_the_optout(self):\n"
+        "        value = 1\n",
+        encoding="utf-8",
+    )
+
+    assert gate_violations(_audit(tmp_path)) == []
+
+
+def test_abstract_subclass_of_an_abstract_base_is_not_collected(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_deep_abstract.py").write_text(
+        "from abc import ABC, abstractmethod\n"
+        "\n"
+        "\n"
+        "class TestContract(ABC):\n"
+        "    @abstractmethod\n"
+        "    def build(self):\n"
+        "        ...\n"
+        "\n"
+        "\n"
+        "class TestSubContract(TestContract):\n"
+        "    def build(self):\n"
+        "        return 1\n"
+        "\n"
+        "    @abstractmethod\n"
+        "    def refine(self):\n"
+        "        ...\n"
+        "\n"
+        "    def test_still_abstract(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class TestOnlyDecorated:\n"
+        "    @abstractmethod\n"
+        "    def build(self):\n"
+        "        ...\n"
+        "\n"
+        "    def test_plain_class_is_collected(self):\n"
+        "        value = 1\n",
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.line) for v in violations] == [("NO-ASSERTION", 27)]
+    assert "TestOnlyDecorated::test_plain_class_is_collected" in violations[0].guidance
+
+
+def test_constructor_inherited_from_a_support_base_blocks_collection(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_inherited_ctor.py").write_text(
+        "class Singleton:\n"
+        "    def __new__(cls):\n"
+        "        return super().__new__(cls)\n"
+        "\n"
+        "\n"
+        "class TestViaInheritedNew(Singleton):\n"
+        "    def test_not_collected(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class Configured:\n"
+        "    def __init__(self):\n"
+        "        self.value = 1\n"
+        "\n"
+        "\n"
+        "class TestViaInheritedInit(Configured):\n"
+        "    def test_also_not_collected(self):\n"
+        "        value = 1\n",
+        encoding="utf-8",
+    )
+
+    assert gate_violations(_audit(tmp_path)) == []
+
+
+def test_optout_written_back_to_true_restores_collection(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_written_back.py").write_text(
+        "def test_toggled():\n"
+        "    value = 1\n"
+        "\n"
+        "\n"
+        "test_toggled.__test__ = False\n"
+        "test_toggled.__test__ = True\n"
+        "\n"
+        "\n"
+        "class TestSupport:\n"
+        "    __test__ = False\n"
+        "\n"
+        "    def test_reopened(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "TestSupport.__test__ = True\n",
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.line) for v in violations] == [("NO-ASSERTION", 1), ("NO-ASSERTION", 12)]
+    assert "test_toggled" in violations[0].guidance
+    assert "TestSupport::test_reopened" in violations[1].guidance
+
+
+def test_same_named_nested_classes_share_the_stricter_optout(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_same_named_nested.py").write_text(
+        "class TestOuterA:\n"
+        "    class TestSame:\n"
+        "        __test__ = False\n"
+        "\n"
+        "        def test_opted_out(self):\n"
+        "            value = 1\n"
+        "\n"
+        "\n"
+        "class TestOuterB:\n"
+        "    class TestSame:\n"
+        "        def test_shares_the_optout(self):\n"
+        "            value = 1\n",
+        encoding="utf-8",
+    )
+
+    assert gate_violations(_audit(tmp_path)) == []
