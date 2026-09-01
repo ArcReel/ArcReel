@@ -134,6 +134,7 @@ async def test_build_injects_short_lived_arcreel_api_credentials(
     options = await _make_assembler(tmp_path, provider_env_loader=fake_loader).build("demo")
 
     payload = verify_token(options.env["ARCREEL_API_TOKEN"])
+    assert options.env["ARCREEL_EMBEDDED_AGENT"] == "1"
     assert options.env["ARCREEL_API_BASE"] == "http://127.0.0.1:9123/api/v1"
     assert payload is not None
     assert payload["sub"] == "embedded-agent"

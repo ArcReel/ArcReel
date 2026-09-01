@@ -73,10 +73,21 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
         parameters.write_text('{"model":"demo","prompt":"hello"}', encoding="utf-8")
         credentials.write_text('{"base_url":"https://provider.example","api_key":"secret"}', encoding="utf-8")
         response.write_text('{"task_id":"t1"}', encoding="utf-8")
+        settings_dir = tmp_path / ".arcreel"
+        settings_dir.mkdir()
+        (settings_dir / "settings.json").write_text(
+            json.dumps(
+                {
+                    "mcp_url": f"http://127.0.0.1:{server.server_port}/mcp\n",
+                    "api_key": "arc-or-session-token \n",
+                }
+            ),
+            encoding="utf-8",
+        )
         env = {
-            **os.environ,
-            "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1",
-            "ARCREEL_API_TOKEN": "arc-or-session-token",
+            **{key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")},
+            "ARCREEL_API_BASE": "http://127.0.0.1:1/api/v1",
+            "ARCREEL_API_TOKEN": "stale-token",
         }
 
         commands = [
@@ -105,6 +116,7 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
         for args in commands:
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), *args],
+                cwd=tmp_path,
                 env=env,
                 text=True,
                 capture_output=True,
@@ -132,6 +144,98 @@ def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None
         "response_body": {"task_id": "t1"},
     }
     assert requests[-1][3] == {"kind": "declarative"}
+
+
+def test_cli_requires_persistent_settings_outside_embedded_agent(tmp_path: Path) -> None:
+    definition = tmp_path / "definition.json"
+    definition.write_text("{}", encoding="utf-8")
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")}
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", str(definition)],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert ".arcreel/settings.json" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_reports_invalid_settings_encoding_without_traceback(tmp_path: Path) -> None:
+    definition = tmp_path / "definition.json"
+    definition.write_text("{}", encoding="utf-8")
+    settings_dir = tmp_path / ".arcreel"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_bytes(b"\xff")
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")}
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", str(definition)],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "Cannot read ArcReel settings" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("source", "url", "api_key", "error"),
+    [
+        ("environment", "http://example.com/api/v1", "arc-test", "must use HTTPS"),
+        (
+            "environment-token",
+            "http://127.0.0.1:9/api/v1",
+            "embedded\nsecret",
+            "contain only printable ASCII",
+        ),
+        ("settings", "http://example.com/mcp", "arc-test", "must use HTTPS"),
+        ("settings", "http://127.0.0.1:99999/mcp", "arc-test", "Invalid ArcReel URL"),
+        ("settings", "https://exa\nmple.com/mcp", "arc-test", "must not contain whitespace"),
+        ("settings", "https://localhost/路径/mcp", "arc-test", "contain only printable ASCII"),
+        ("settings", "https://example.com/mcp?redirect=/mcp", "arc-test", "omit query and fragment"),
+        ("settings", "https://example.com/mcp#route=/mcp", "arc-test", "omit query and fragment"),
+        ("settings", "https://example.com/mcp", "arc-secret\nrest", "contain only printable ASCII"),
+        ("settings", "https://example.com/mcp", "arc-秘密", "contain only printable ASCII"),
+    ],
+)
+def test_cli_rejects_unsafe_connection_before_request(
+    tmp_path: Path, source: str, url: str, api_key: str, error: str
+) -> None:
+    definition = tmp_path / "definition.json"
+    definition.write_text("{}", encoding="utf-8")
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ARCREEL_")}
+    if source.startswith("environment"):
+        env["ARCREEL_API_BASE"] = url
+        env["ARCREEL_API_TOKEN"] = api_key
+        env["ARCREEL_EMBEDDED_AGENT"] = "1"
+        expected_source = "ARCREEL_API_TOKEN" if source == "environment-token" else "ARCREEL_API_BASE"
+    else:
+        settings_dir = tmp_path / ".arcreel"
+        settings_dir.mkdir()
+        (settings_dir / "settings.json").write_text(
+            json.dumps({"mcp_url": url, "api_key": api_key}),
+            encoding="utf-8",
+        )
+        expected_source = ".arcreel/settings.json"
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", str(definition)],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert error in result.stderr
+    assert expected_source in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_cli_requires_explicit_confirmation_for_cost_and_overwrite(tmp_path: Path) -> None:
@@ -211,7 +315,11 @@ def test_cli_sends_endpoint_assets_with_the_shared_multipart_field_names(tmp_pat
                 str(assets["audio"]),
                 "--confirm-cost",
             ],
-            env={**os.environ, "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1"},
+            env={
+                **os.environ,
+                "ARCREEL_EMBEDDED_AGENT": "1",
+                "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1",
+            },
             text=True,
             capture_output=True,
             timeout=10,
@@ -257,7 +365,11 @@ def test_cli_reports_non_json_response_without_traceback(tmp_path: Path, body: b
     try:
         definition = tmp_path / "definition.json"
         definition.write_text('{"kind":"declarative"}', encoding="utf-8")
-        env = {**os.environ, "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1"}
+        env = {
+            **os.environ,
+            "ARCREEL_EMBEDDED_AGENT": "1",
+            "ARCREEL_API_BASE": f"http://127.0.0.1:{server.server_port}/api/v1",
+        }
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "validate", str(definition)],
             env=env,

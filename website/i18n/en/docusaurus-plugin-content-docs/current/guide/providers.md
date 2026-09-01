@@ -363,21 +363,16 @@ Install the public skill:
 npx skills add ArcReel/skills
 ```
 
-Select `adapt-custom-endpoint` from the installation list. You can also
+Select both `setup-arcreel-skills` and `adapt-custom-endpoint` from the installation list. You can also
 [view or download the same skill source](https://github.com/ArcReel/ArcReel/tree/main/agent_runtime_profile/.claude/skills/adapt-custom-endpoint).
 
-Provide the ArcReel API URL and an `arc-` API Key created on the Settings page through your Agent host's secret
-environment. Do not place the API Key in commands, project files, or chat messages:
-
-```text
-ARCREEL_API_BASE=https://your-arcreel.example/api/v1
-ARCREEL_API_TOKEN=arc- API Key supplied by the host's secret store
-```
+First use the `setup-arcreel-skills` skill to connect ArcReel MCP. It persists the same connection in the current
+workspace so the local `adapt-custom-endpoint` script can reuse it across sessions.
 
 Then ask the Agent to read the provider documentation and use this skill. It follows the sequence “write a
 definition → run the shared validator → check responses offline → preview requests → run a connection test →
-save.” The definition reference and thin HTTP script are downloaded with the skill; no MCP or SDK tool is
-required. Response checks and request previews do not contact the provider. A connection test performs a real
+save.” The definition reference and thin HTTP script are downloaded with the skill; the adaptation flow adds no
+MCP or SDK tool. Response checks and request previews do not contact the provider. A connection test performs a real
 generation and may incur charges, so the Agent must obtain your explicit approval first. When a definition with
 the same lineage exists, the Agent may save a copy and report it; overwriting the existing endpoint always
 requires your explicit approval.

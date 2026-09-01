@@ -54,16 +54,7 @@
 - `status_map` 的目标只取 `queued`、`running`、`succeeded`、`failed`。若成功后还需二次取件，
   在 poll 提取 `result_id`，并增加 `result` 节从 `task_id` / `result_id` 获取 `video_url`。
 
-## HTTP CLI 请求形状
-
-```bash
-python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py validate definition.json
-python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py check-response definition.json --stage submit --response submit-response.json
-python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py preview-request definition.json --parameters parameters.json --credentials credentials-ref.json --start-image start.png
-python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py trial-run definition.json --parameters parameters.json --credentials credentials-ref.json --reference-images subject-1.png --reference-images subject-2.png --confirm-cost
-python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py trial-status RUN_ID
-python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py save definition.json
-```
+## 测试输入
 
 `parameters.json` 与 API 同名，例如：
 
