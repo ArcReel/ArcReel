@@ -245,6 +245,169 @@ def test_unittest_ancestry_resolves_aliases_and_in_module_inheritance(tmp_path: 
     assert "IndirectCase::test_via_ancestor" in violations[2].guidance
 
 
+def test_module_level_dunder_test_false_opts_the_whole_file_out(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_support.py").write_text(
+        "__test__ = False\n\n\ndef test_helper():\n    value = 1\n",
+        encoding="utf-8",
+    )
+    (tests / "test_real.py").write_text("def test_silent():\n    value = 1\n", encoding="utf-8")
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.path) for v in violations] == [("NO-ASSERTION", "tests/test_real.py")]
+
+
+def test_dunder_test_false_opts_single_functions_and_methods_out(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_optout_func.py").write_text(
+        "def test_kept():\n"
+        "    value = 1\n"
+        "\n"
+        "\n"
+        "def test_helper():\n"
+        "    value = 1\n"
+        "\n"
+        "\n"
+        "test_helper.__test__ = False\n"
+        "\n"
+        "\n"
+        "class TestThing:\n"
+        "    def test_method_kept(self):\n"
+        "        value = 1\n"
+        "\n"
+        "    def test_method_helper(self):\n"
+        "        value = 1\n"
+        "\n"
+        "    test_method_helper.__test__ = False\n",
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.line) for v in violations] == [("NO-ASSERTION", 1), ("NO-ASSERTION", 13)]
+    assert "test_kept" in violations[0].guidance
+    assert "TestThing::test_method_kept" in violations[1].guidance
+
+
+def test_new_constructor_blocks_collection_like_init(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_ctor.py").write_text(
+        "class TestWithNew:\n"
+        "    def __new__(cls):\n"
+        "        return super().__new__(cls)\n"
+        "\n"
+        "    def test_not_collected(self):\n"
+        "        value = 1\n",
+        encoding="utf-8",
+    )
+
+    assert gate_violations(_audit(tmp_path)) == []
+
+
+def test_abstract_classes_are_not_collected_on_either_branch(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_abstract.py").write_text(
+        "import abc\n"
+        "import unittest\n"
+        "from abc import ABC, abstractmethod\n"
+        "\n"
+        "\n"
+        "class TestContract(ABC):\n"
+        "    @abstractmethod\n"
+        "    def build(self):\n"
+        "        ...\n"
+        "\n"
+        "    def test_shared(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class TestViaMetaclass(metaclass=abc.ABCMeta):\n"
+        "    @abc.abstractmethod\n"
+        "    def build(self):\n"
+        "        ...\n"
+        "\n"
+        "    def test_also_shared(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class AbstractCase(unittest.TestCase, ABC):\n"
+        "    @abstractmethod\n"
+        "    def build(self):\n"
+        "        ...\n"
+        "\n"
+        "    def test_unittest_shared(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class TestConcrete(TestContract):\n"
+        "    def build(self):\n"
+        "        return 1\n"
+        "\n"
+        "    def test_implemented(self):\n"
+        "        value = 1\n",
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.line) for v in violations] == [("NO-ASSERTION", 37)]
+    assert "TestConcrete::test_implemented" in violations[0].guidance
+
+
+def test_dunder_test_false_is_inherited_until_a_subclass_writes_it_back(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_inherited_optout.py").write_text(
+        "class TestSupport:\n"
+        "    __test__ = False\n"
+        "\n"
+        "    def test_base(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class TestChild(TestSupport):\n"
+        "    def test_inherits_the_optout(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class TestGrandchild(TestChild):\n"
+        "    __test__ = True\n"
+        "\n"
+        "    def test_written_back(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class TestOptedOutFromOutside:\n"
+        "    def test_not_collected(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "TestOptedOutFromOutside.__test__ = False\n",
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.line) for v in violations] == [("NO-ASSERTION", 16)]
+    assert "TestGrandchild::test_written_back" in violations[0].guidance
+
+
+def test_conftest_fixture_override_is_reported_from_the_shared_parse(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "conftest.py").write_text(
+        "import pytest\n\n\n@pytest.fixture\ndef client():\n    return object()\n",
+        encoding="utf-8",
+    )
+    (tests / "test_client_fixture.py").write_text(
+        "import pytest\n\n\n@pytest.fixture\ndef client():\n    return object()\n\n\n" + _HEALTHY_TEST,
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.path, v.line) for v in violations] == [("FIXTURE-OVERRIDE", "tests/test_client_fixture.py", 5)]
+
+
 def _dup_lines(result: dict[str, object]) -> list[str]:
     return [f"{v.path}:{v.line}" for v in gate_violations(result) if v.rule == "DUP-BODY"]
 
@@ -510,4 +673,22 @@ def test_parametrize_marks_stored_in_a_module_level_alias_still_count(tmp_path: 
         "@_TABLE\ndef test_b(env, value):\n    assert parse(env, value) is True\n",
         encoding="utf-8",
     )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_opted_out_case_is_neither_a_duplicate_nor_part_of_the_class_context(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_optout_dup.py").write_text(
+        "def test_a():\n"
+        "    assert helper() == 1\n"
+        "\n"
+        "\n"
+        "def test_helper():\n"
+        "    assert helper() == 1\n"
+        "\n"
+        "\n"
+        "test_helper.__test__ = False\n",
+        encoding="utf-8",
+    )
+
     assert _dup_lines(_audit(tmp_path)) == []
