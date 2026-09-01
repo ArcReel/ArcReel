@@ -1,0 +1,226 @@
+非整体近似重复对 1067 / 1109，抽 15（seed=2267）
+
+--- 52T 7L
+    A tests/integration/server/services/test_artifact_version_restore.py[89:95] 宿主::test_typed_audio_restore_selects_media_script_pointer_and_manifest_together cover=0.17
+    B tests/integration/server/services/test_artifact_version_restore.py[152:158] 宿主::test_restore_registration_failure_rolls_back_media_pointer_and_script cover=0.16
+      | def test_typed_audio_restore_selects_media_script_pointer_and_manifest_together(tmp_path):
+      |     pm, project_path = _project(tmp_path)
+      |     vm = VersionManager(project_path)
+      |     current = project_path / "audio" / "segment_E1S01.wav"
+      |     old_basis = _descriptor("old")
+      |     current_basis = _descriptor("current")
+      |     old_version = _add_audio_version(vm, current, content=b"old", basis=old_basis)
+
+--- 93T 14L
+    A tests/integration/server/test_remote_mcp.py[765:778] 宿主::test_remote_mcp_entry_tools_share_one_projects_root cover=0.38
+    B tests/integration/server/test_remote_mcp.py[802:815] 宿主::test_remote_mcp_draft_supports_multiple_patches_and_discard cover=0.25
+      | async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> None:
+      |     app = _mounted(remote_server)
+      |     async with (
+      |         remote_server.session_manager.run(),
+      |         httpx.AsyncClient(
+      |             transport=httpx.ASGITransport(app=app),
+      |             base_url="http://localhost",
+      |             headers={"Authorization": "Bearer arc-valid"},
+      |             follow_redirects=True,
+      |         ) as client,
+      |         streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+      |         ClientSession(read, write) as session,
+      |     ):
+      |         await session.initialize()
+
+--- 62T 15L
+    A tests/integration/lib/test_script_batch_edit.py[344:358] 宿主::test_invalid_second_field_reports_exact_operation_field cover=0.41
+    B tests/integration/lib/test_script_batch_edit.py[724:734] 宿主::test_reference_failure_maps_numeric_path_and_responsible_operation cover=0.44
+      | def test_invalid_second_field_reports_exact_operation_field(
+      |     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+      | ) -> None:
+      |     pm, service, project_dir = editor
+      |     before = (project_dir / "scripts" / "episode_1.json").read_bytes()
+      | 
+      |     result = service.execute(
+      |         "demo",
+      |         _command(
+      |             pm,
+      |             [
+      |                 {
+      |                     "op": "update",
+      |                     "id": "E1S01",
+
+--- 81T 7L
+    A tests/integration/lib/db/migrations/conftest.py[27:33] 宿主::migration_revisions cover=0.33
+    B tests/integration/lib/db/migrations/test_alembic_custom_provider_capability_overrides.py[25:31] 宿主::revisions cover=0.44
+      |         for line in matches[0].read_text(encoding="utf-8").splitlines():
+      |             if line.startswith("revision: str ="):
+      |                 revision = line.split("=")[1].strip().strip('"').strip("'")
+      |             elif line.startswith("down_revision:"):
+      |                 down_revision = line.split("=")[1].strip().strip('"').strip("'")
+      |         if not revision or not down_revision:
+      |             raise RuntimeError(f"未在 {matches[0].name} 中找到 revision / down_revision")
+
+--- 70T 10L
+    A tests/integration/server/media_tools/test_videos.py[488:497] 宿主::test_generate_videos_episode_scope_reference_duration_needs_confirmation cover=0.12
+    B tests/integration/server/media_tools/test_videos.py[1309:1320] 宿主::test_generate_videos_episode_scope_reference_duration_resolves_project_context_once cover=0.26
+      |     def fake_precheck(ctx, unit):
+      |         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
+      | 
+      |     enqueued: list[Any] = []
+      | 
+      |     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+      |         enqueued.extend(specs)
+      |         return [], []
+      | 
+      |     async def fake_active_tasks(**_kwargs):
+
+--- 57T 10L
+    A tests/integration/server/media_tools/test_grid.py[117:126] 宿主::test_generate_grid_list_only_shows_split_for_oversized_group cover=0.67
+    B tests/integration/server/media_tools/test_grid.py[648:657] 宿主::test_generate_grid_list_only_falls_back_on_null_aspect_ratio cover=0.67
+      |         {"segment_id": f"E1S{i:02d}", "image_prompt": "p", "segment_break": False} for i in range(1, 13)
+      |     ]
+      | 
+      |     async def _gate(_project: dict) -> bool:
+      |         return False
+      | 
+      |     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+      |     tool_obj = generate_grid_tool(fake_ctx)
+      |     out = await call(tool_obj, {"script": "episode_1.json", "list_only": True})
+      |     assert out.get("is_error") is not True
+
+--- 83T 12L
+    A tests/unit/server/services/test_execute_tts_task.py[504:515] 宿主::TestExecuteTtsTask::test_project_transaction_failure_still_archives_paid_audio cover=0.30
+    B tests/unit/server/services/test_execute_tts_task.py[586:599] 宿主::TestExecuteTtsTask::test_tts_settings_change_before_commit_keeps_paid_history_without_taking_current cover=0.20
+      |     async def test_project_transaction_failure_still_archives_paid_audio(
+      |         self,
+      |         tts_env,
+      |         monkeypatch: pytest.MonkeyPatch,
+      |     ):
+      |         pm, gen = tts_env
+      |         formal = pm.project_path / "audio" / "segment_E1S01.wav"
+      |         formal.parent.mkdir(parents=True, exist_ok=True)
+      |         formal.write_bytes(b"paid-old-audio")
+      |         pm.project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json"}]
+      | 
+      |         def _failed_transaction(*_args, **_kwargs) -> AbstractContextManager[object]:
+
+--- 56T 8L
+    A tests/unit/server/test_tool_runtime.py[158:165] 宿主::test_video_capabilities_returns_typed_domain_outcome cover=0.67
+    B tests/unit/server/test_tool_runtime.py[350:357] 宿主::test_patch_episode_script_returns_typed_revision_conflict cover=0.35
+      |         ToolRequest(None),
+      |         ProjectScope("demo", Path("/projects")),
+      |         CallerContext(user_id="u1", source="embedded"),
+      |         Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
+      |     )
+      | 
+      |     assert outcome.problem is None
+      |     assert outcome.value == {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
+
+--- 105T 19L
+    A tests/integration/server/routers/test_reference_videos_router.py[30:48] 宿主::reference_videos_client cover=0.31
+    B tests/unit/server/services/test_reference_video_e2e_backend.py[44:63] 宿主::seeded_client cover=0.26
+      |     (proj_dir / "scripts").mkdir()
+      |     (proj_dir / "project.json").write_text(
+      |         json.dumps(
+      |             {
+      |                 "schema_version": 7,
+      |                 "title": "T",
+      |                 "content_mode": "narration",
+      |                 "generation_mode": "reference_video",
+      |                 "style": "s",
+      |                 "characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}},
+      |                 "scenes": {"酒馆": {"description": "x", "scene_sheet": "scenes/酒馆.png"}},
+      |                 "props": {},
+      |                 "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
+      |             },
+
+--- 50T 15L
+    A tests/integration/server/routers/test_generate_router.py[153:167] 宿主::_FakePM::get_project_path cover=1.00
+    B tests/unit/server/services/test_image_edit_executor.py[135:148] 宿主::_FakePM::get_project_path cover=1.00
+      |                     )
+      | 
+      |     def load_project(self, project_name):
+      |         self.sync_disk()
+      |         return self.project
+      | 
+      |     def get_project_path(self, project_name):
+      |         return self.project_path
+      | 
+      |     def load_script(self, project_name, script_file):
+      |         self.sync_disk()
+      |         return self.script
+      | 
+      | 
+
+--- 50T 8L
+    A tests/integration/server/services/test_project_archive_service.py[1851:1858] 宿主::TestExportScope::test_export_scope_full_includes_version_history cover=0.50
+    B tests/integration/server/services/test_project_archive_service.py[1917:1924] 宿主::TestExportScope::test_export_scope_full_manifest_scope_field cover=0.78
+      |     def test_export_scope_full_includes_version_history(self, tmp_path):
+      |         pm = ProjectManager(tmp_path / "projects")
+      |         self._create_project_with_versions(pm)
+      |         service = ProjectArchiveService(pm)
+      | 
+      |         archive_path, _ = service.export_project("demo", scope="full")
+      | 
+      |         with zipfile.ZipFile(archive_path) as archive:
+
+--- 70T 11L
+    A tests/integration/lib/test_generation_worker_module.py[1262:1272] 宿主::TestGenerationWorker::test_drain_finished_tasks_absorbs_cancelled_error cover=0.58
+    B tests/integration/lib/test_generation_worker_module.py[1313:1323] 宿主::TestGenerationWorker::test_drain_fallback_mark_cancelled_failure_does_not_propagate cover=0.52
+      |         queue = _FakeQueue()
+      |         worker = GenerationWorker(queue=queue)
+      | 
+      |         async def _long():
+      |             await asyncio.sleep(10)
+      | 
+      |         t = asyncio.create_task(_long())
+      |         t.cancel()
+      |         await asyncio.gather(t, return_exceptions=True)  # 驱动到 done(cancelled)，吞掉取消结果
+      |         assert t.cancelled()
+      |         worker._slots.register("test", "video", "tid", t)
+
+--- 53T 12L
+    A tests/integration/server/services/test_emit_generation_success_batch.py[139:150] 宿主::TestGenerationTasks::test_emit_success_batch_reference_video_entity_type_aligns_with_frontend cover=0.41
+    B tests/integration/server/services/test_emit_generation_success_batch.py[298:309] 宿主::TestGenerationTasks::test_emit_success_batch_attaches_script_file_and_episode cover=0.44
+      |         兜底；条目文案统一使用「视频单元」，不随骨架名词改动。"""
+      |         captured = []
+      |         monkeypatch.setattr(
+      |             generation_tasks,
+      |             "emit_project_change_batch",
+      |             lambda project_name, changes: captured.append(changes),
+      |         )
+      | 
+      |         project_path = tmp_path / "demo"
+      |         project_path.mkdir()
+      |         fake_pm = _FakePM(project_path)
+      |         fake_pm.script = {"content_mode": "narration", "video_units": [{"unit_id": "U01"}]}
+
+--- 53T 14L
+    A tests/unit/lib/config/test_config_resolver_resolution.py[31:44] 宿主::_add_custom_video_model cover=0.64
+    B tests/unit/lib/custom_provider/test_custom_provider_resolution.py[178:191] 宿主::test_custom_video_max_reference_images_from_endpoint cover=0.31
+      |     provider = CustomProvider(
+      |         display_name="VideoProv",
+      |         discovery_format="openai",
+      |         base_url="https://api.example.com",
+      |         api_key="k",
+      |     )
+      |     db_session.add(provider)
+      |     await db_session.flush()
+      | 
+      |     model = CustomProviderModel(
+      |         provider_id=provider.id,
+      |         model_id=model_id,
+      |         display_name="Vid Model",
+      |         endpoint="newapi-video",
+
+--- 63T 9L
+    A tests/unit/lib/db/models/test_credential_api.py[220:228] 宿主::TestCredentialGroupSwitch::test_update_switch_to_api_key_clears_dual_secret cover=0.60
+    B tests/unit/lib/db/models/test_credential_api.py[268:276] 宿主::TestCredentialGroupSwitch::test_update_name_only_does_not_clear cover=0.69
+      |         """反向切换：完整提交 api_key → access_key/secret_key 被清空。"""
+      |         app, _ = _make_app()
+      |         mock_repo = MagicMock(spec=CredentialRepository)
+      |         mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
+      |         mock_repo.update = AsyncMock()
+      |         with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
+      |             resp = client.patch(
+      |                 "/api/v1/providers/kling/credentials/1",
+      |                 json={"api_key": "AK-bearer"},
+

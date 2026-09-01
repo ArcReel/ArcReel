@@ -1,0 +1,11 @@
+  TestVideoGenerateAudio.test_global_true (81, 85)  ≡  TestVideoGenerateAudio.test_project_none_skips_override (121, 125)
+  TestValidScripts.test_valid_drama (82, 82)  ≡  TestModeDetection.test_drama_detected_by_scenes (120, 120)
+  TestCheckCredentials.test_check_credentials_valid (107, 109)  ≡  TestPasswordHash.test_check_credentials_with_hash (270, 272)
+
+k= 10  未命中  未命中  未命中
+k= 25  命中  未命中  未命中
+k= 50  未命中  未命中  未命中
+k= 75  未命中  未命中  未命中
+k=100  未命中  未命中  未命中
+k=150  未命中  未命中  未命中
+k=200  未命中  未命中  未命中

@@ -1,0 +1,1 @@
+lib+server k=50: {'sources': 401, 'lines': 131822, 'tokens': 722062, 'clones': 137, 'duplicatedLines': 1455, 'percentage': 1.103761132436164, 'percentageTokens': 1.3655337076317546}

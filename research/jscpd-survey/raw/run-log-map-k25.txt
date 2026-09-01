@@ -1,0 +1,79 @@
+clone 对 3809；同文件 3110 (81.6%)；涉及文件 359
+两端宿主都是 test 函数的对: 3297 (86.6%)
+  其中片段落在 fixture / 辅助函数 / 类体 / 模块级的对: 512
+整体近似重复对（两端 cover>=0.8、宿主不同）: 78，其中同文件 73
+同文件整体近似重复族: 63，涉及测试函数 136
+
+最大的族：
+  [ 4] unit/server/routers/test_providers_api.py
+        TestGetProviderConfig::test_secret_field_groups_kling_api_key_or_dual_secret
+        TestGetProviderConfig::test_secret_field_groups_single_secret_provider_falls_back_to_one_group
+        TestGetProviderConfig::test_secret_fields_single_secret_provider
+        TestGetProviderConfig::test_supports_base_url_derived_from_optional_keys
+  [ 3] integration/lib/config/test_config_resolver.py
+        TestDefaultBackends::test_default_image_backend_i2i_falls_back_to_default_layer
+        TestDefaultBackends::test_default_image_backend_t2i_falls_back_to_default_layer
+        TestDefaultBackends::test_image_backend_explicit
+  [ 3] integration/lib/test_audio_utils.py
+        TestProbeExistingVideoDuration::test_falls_back_to_container_duration_when_stream_duration_is_absent
+        TestProbeExistingVideoDuration::test_prefers_video_stream_duration_over_longer_container_tail
+        TestProbeExistingVideoDuration::test_rejects_container_without_a_video_stream
+  [ 3] integration/server/routers/test_capability_overrides_api.py
+        TestSaveDropsUnlistedOverrides::test_known_but_unallowlisted_key_stripped_on_create
+        TestSaveDropsUnlistedOverrides::test_unknown_key_stripped_on_create
+        TestSaveValidatesOpenOverrides::test_reference_audio_none_accepted_on_endpoint_without_audio_support
+  [ 3] integration/server/services/test_jianying_draft_routes.py
+        TestJianyingDraftExport::test_control_chars_in_draft_path_returns_422
+        TestJianyingDraftExport::test_empty_draft_path_returns_422
+        TestJianyingDraftExport::test_long_draft_path_returns_422
+  [ 3] unit/lib/test_retry.py
+        TestWithRetryAsync::test_retry_on_retryable_error
+        TestWithRetryAsync::test_retry_on_string_pattern
+        TestWithRetryAsync::test_success_no_retry
+  [ 3] unit/server/routers/test_assistant_routes.py
+        TestAssistantRoutes::test_messages_endpoint_returns_410
+        TestAssistantRoutes::test_snapshot_endpoint_returns_410
+        TestAssistantRoutes::test_stream_endpoint_returns_410
+  [ 3] unit/server/routers/test_grids_router.py
+        test_generate_grid_corrupted_project_maps_to_500_not_invalid_name
+        test_generate_grid_invalid_project_name
+        test_generate_grid_unexpected_error_no_leak
+  [ 3] unit/server/routers/test_providers_api.py
+        TestPatchProviderConfig::test_non_null_value_calls_set
+        TestPatchProviderConfig::test_null_value_calls_delete
+        TestPatchProviderConfig::test_returns_204
+  [ 2] integration/lib/config/test_config_resolver.py
+        TestVideoGenerateAudio::test_global_true
+        TestVideoGenerateAudio::test_project_none_skips_override
+  [ 2] integration/lib/config/test_config_resolver.py
+        TestDefaultBackends::test_image_backend_auto_resolve_no_ready_provider
+        TestDefaultBackends::test_video_backend_auto_resolve_no_ready_provider
+  [ 2] integration/lib/config/test_config_resolver.py
+        TestPayloadPinnedVideoModel::test_pin_of_other_bucket_ignored_when_capability_given
+        TestPayloadPinnedVideoModel::test_pinned_bucket_key_hit_without_capability
+  [ 2] integration/lib/test_data_validator.py
+        TestDataValidator::test_validate_episode_drama_rejects_non_string_speaker
+        TestDataValidator::test_validate_episode_drama_rejects_voiceover_with_speaker
+  [ 2] integration/lib/test_data_validator.py
+        TestGenerationModeValidation::test_non_binary_route_rejected
+        TestGenerationModeValidation::test_non_scalar_route_reported_as_error
+  [ 2] integration/lib/test_media_generator_module.py
+        TestFirstFrameRatioAdaptiveOnly::test_ledger_records_user_intent_not_adaptive_override
+        TestFirstFrameRatioAdaptiveOnly::test_no_first_frame_task_keeps_user_ratio
+  [ 2] integration/lib/test_script_batch_edit.py
+        test_manifest_post_replace_failure_restores_all_three_stores
+        test_manifest_write_failure_restores_script_and_project_bytes
+  [ 2] integration/lib/test_script_generator.py
+        TestScriptGenerator::test_generate_drama_prompt_authoring_appends_user_instructions
+        TestScriptGenerator::test_load_drama_script_plan_content_rejects_non_dict_top_level
+  [ 2] integration/lib/test_script_generator.py
+        test_resolve_supported_durations_narrows_by_reference_mode
+        test_resolve_supported_durations_respects_project_resolution
+  [ 2] integration/lib/test_task_failure_capability.py
+        test_capability_code_has_all_three_locales
+        test_video_bucket_codes_registered_with_all_three_locales
+  [ 2] integration/lib/test_task_failure_capability.py
+        test_narration_delivery_failure_codes_are_machine_encodable_in_all_locales
+        test_projection_failure_codes_are_machine_encodable_in_all_locales
+
+写出 research/jscpd-survey/raw/mapped-k25.json

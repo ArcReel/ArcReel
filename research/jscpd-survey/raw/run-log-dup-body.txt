@@ -1,0 +1,19 @@
+测试函数 8806，函数体规范化后完全相同的组 20，涉及函数 53
+  跨文件组（局部辅助函数同名，多为假阳）: 5
+  含 parametrize 的组（差异在装饰器里，属可合并而非可删）: 12
+  严格组（同文件 + 双方都无 parametrize）: 3，涉及函数 6
+
+-- 严格同体 2 个 --
+   tests/integration/lib/config/test_config_resolver.py::TestVideoGenerateAudio::test_global_true
+   tests/integration/lib/config/test_config_resolver.py::TestVideoGenerateAudio::test_project_none_skips_override
+   body: resolver = ConfigResolver.__new__(ConfigResolver) ⏎ fake_svc = _FakeConfigService(settings={'video_generate_audio': 'true'}) ⏎ result = await resolver._resolve_video_generate_audio(fake_svc, project_n
+
+-- 严格同体 2 个 --
+   tests/unit/lib/test_script_structure_validator.py::TestValidScripts::test_valid_drama
+   tests/unit/lib/test_script_structure_validator.py::TestModeDetection::test_drama_detected_by_scenes
+   body: assert validate_script_structure(_drama()).valid
+
+-- 严格同体 2 个 --
+   tests/unit/server/test_auth.py::TestCheckCredentials::test_check_credentials_valid
+   tests/unit/server/test_auth.py::TestPasswordHash::test_check_credentials_with_hash
+   body: with patch.dict(os.environ, {'AUTH_USERNAME': 'admin', 'AUTH_PASSWORD': 'pass123'}): ⏎     assert auth_module.check_credentials('admin', 'pass123') is True

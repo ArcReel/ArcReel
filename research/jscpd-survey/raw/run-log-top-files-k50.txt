@@ -1,0 +1,33 @@
+=== k=50：按「被 clone 覆盖的去重行数」排前 15 的文件 ===
+   1008 行   115 对  tests/integration/server/services/test_execute_reference_video_task.py
+    642 行    74 对  tests/integration/server/services/test_execute_video_task.py
+    609 行    49 对  tests/integration/server/media_tools/test_videos.py
+    560 行    76 对  tests/unit/lib/custom_provider/test_declarative_video_backend.py
+    532 行    58 对  tests/integration/lib/test_workflow_state.py
+    531 行    56 对  tests/integration/server/services/test_cost_estimation_service.py
+    432 行    62 对  tests/unit/server/routers/test_versions_router.py
+    404 行    54 对  tests/integration/server/routers/test_reference_videos_router.py
+    385 行    45 对  tests/integration/server/services/test_project_archive_service.py
+    357 行    23 对  tests/integration/server/services/test_project_events_service.py
+    350 行    30 对  tests/integration/server/routers/test_generate_router.py
+    287 行    20 对  tests/integration/server/services/test_video_artifact_currency.py
+    282 行    43 对  tests/unit/server/routers/test_providers_api.py
+    275 行    26 对  tests/integration/server/media_tools/test_grid.py
+    274 行    26 对  tests/integration/lib/test_episode_reset.py
+
+=== k=50：最大的 clone 块（按 tokens）前 15 ===
+   201T  31L 同文件  integration/server/services/test_execute_reference_video_task.py[408:438] <-> integration/server/services/test_execute_reference_video_task.py[505:535]
+   200T  24L 同文件  integration/server/services/test_execute_reference_video_task.py[1653:1676] <-> integration/server/services/test_execute_reference_video_task.py[1767:1790]
+   198T  32L 同文件  integration/server/services/test_execute_reference_video_task.py[936:967] <-> integration/server/services/test_execute_reference_video_task.py[998:1029]
+   195T  28L 同文件  unit/lib/custom_provider/test_declarative_video_backend.py[1090:1117] <-> unit/lib/custom_provider/test_declarative_video_backend.py[1125:1152]
+   193T  22L 跨文件  integration/server/services/test_project_archive_reference_video.py[25:46] <-> unit/server/services/test_project_archive_ad_reference.py[12:33]
+   191T  29L 同文件  integration/server/services/test_execute_reference_video_task.py[408:436] <-> integration/server/services/test_execute_reference_video_task.py[699:727]
+   187T  28L 同文件  integration/server/services/test_execute_reference_video_task.py[408:435] <-> integration/server/services/test_execute_reference_video_task.py[635:662]
+   177T  33L 同文件  unit/lib/image_backends/test_quality_propagation.py[151:183] <-> unit/lib/image_backends/test_quality_propagation.py[192:221]
+   174T  34L 同文件  unit/lib/custom_provider/test_custom_provider_resolution.py[270:303] <-> unit/lib/custom_provider/test_custom_provider_resolution.py[322:355]
+   170T  20L 同文件  integration/server/services/test_execute_reference_video_task.py[491:510] <-> integration/server/services/test_execute_reference_video_task.py[609:629]
+   160T  30L 同文件  integration/server/routers/test_generate_router.py[463:492] <-> integration/server/routers/test_generate_router.py[547:576]
+   159T  26L 跨文件  integration/lib/test_media_generator_module.py[123:148] <-> unit/lib/test_tts_skeleton.py[156:181]
+   159T  23L 同文件  unit/lib/custom_provider/test_declarative_video_backend.py[1061:1083] <-> unit/lib/custom_provider/test_declarative_video_backend.py[1095:1117]
+   156T  15L 同文件  integration/lib/test_script_generator_incremental.py[342:356] <-> integration/lib/test_script_generator_incremental.py[693:708]
+   156T  31L 同文件  integration/server/media_tools/test_videos.py[1187:1217] <-> integration/server/media_tools/test_videos.py[1242:1272]
