@@ -1535,7 +1535,8 @@ def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]
         expanded = expanded_bodies(owner.node)
         if expanded is None:
             continue
-        owner_params = tuple(sorted(p for p in owner.params if p not in expanded.argnames))
+        # 形参在 `params` 里连默认值一并编码，剔除参数化形参时按基础名比对
+        owner_params = tuple(sorted(p for p in owner.params if p.partition("=")[0] not in expanded.argnames))
         for case in plain:
             if case.qual in reported or case.scope != owner.scope or case.params != owner_params:
                 continue

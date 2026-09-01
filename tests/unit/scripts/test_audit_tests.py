@@ -487,3 +487,15 @@ def test_nested_class_cases_are_named_by_their_full_path(tmp_path: Path) -> None
     assert violations[0].guidance.startswith(
         "`TestOuter::TestInner::test_twin` 的函数体去掉 docstring 后与同文件 `TestOuter::TestInner::test_it` 等同"
     )
+
+
+def test_parametrized_argument_carrying_a_default_still_matches_a_plain_case(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_default_arg.py").write_text(
+        "import pytest\n\n\n"
+        'def test_plain(env):\n    assert parse(env, "x") is True\n\n\n'
+        '@pytest.mark.parametrize("value", ["x"])\n'
+        'def test_table(env, value="fallback"):\n    assert parse(env, value) is True\n',
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == ["tests/test_default_arg.py:4"]
