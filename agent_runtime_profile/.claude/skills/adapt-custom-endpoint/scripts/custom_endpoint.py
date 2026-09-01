@@ -20,6 +20,8 @@ def _validated_url(value: str, source: str) -> str:
     value = value.strip()
     if any(char.isspace() for char in value):
         raise SystemExit(f"ArcReel URL in {source} must not contain whitespace")
+    if not all(char.isascii() and char.isprintable() for char in value):
+        raise SystemExit(f"ArcReel URL in {source} must contain only printable ASCII characters")
     try:
         parsed = urlsplit(value)
         host = parsed.hostname

@@ -198,6 +198,7 @@ def test_cli_reports_invalid_settings_encoding_without_traceback(tmp_path: Path)
         ("settings", "http://example.com/mcp", "arc-test", "must use HTTPS"),
         ("settings", "http://127.0.0.1:99999/mcp", "arc-test", "Invalid ArcReel URL"),
         ("settings", "https://exa\nmple.com/mcp", "arc-test", "must not contain whitespace"),
+        ("settings", "https://localhost/路径/mcp", "arc-test", "contain only printable ASCII"),
         ("settings", "https://example.com/mcp?redirect=/mcp", "arc-test", "omit query and fragment"),
         ("settings", "https://example.com/mcp#route=/mcp", "arc-test", "omit query and fragment"),
         ("settings", "https://example.com/mcp", "arc-secret\nrest", "contain only printable ASCII"),
