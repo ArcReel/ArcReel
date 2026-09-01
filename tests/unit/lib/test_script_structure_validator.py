@@ -116,9 +116,6 @@ class TestModeDetection:
         script["video_units"] = [{"unit_id": "E1U1", "generated_assets": {"status": "pending"}}]
         assert validate_script_structure(script).valid
 
-    def test_drama_detected_by_scenes(self):
-        assert validate_script_structure(_drama()).valid
-
     def test_empty_scenes_drama_detected_by_content_mode(self):
         """空场景 drama（scenes=[]，结构合法）应按 content_mode 判到 Drama，而非靠列表真值落回 Narration。
 

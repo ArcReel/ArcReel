@@ -245,6 +245,104 @@ def test_unittest_ancestry_resolves_aliases_and_in_module_inheritance(tmp_path: 
     assert "IndirectCase::test_via_ancestor" in violations[2].guidance
 
 
+def _dup_lines(result: dict[str, object]) -> list[str]:
+    return [f"{v.path}:{v.line}" for v in gate_violations(result) if v.rule == "DUP-BODY"]
+
+
+def test_identical_bodies_hit_within_a_file_but_not_across_files(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    body = "    assert helper() == 1\n"
+    (tests / "test_same.py").write_text(
+        f'def test_a():\n{body}\n\ndef test_b():\n    """只差 docstring 仍是重复。"""\n{body}',
+        encoding="utf-8",
+    )
+    (tests / "test_other.py").write_text(f"def test_b():\n{body}", encoding="utf-8")
+    assert _dup_lines(_audit(tmp_path)) == ["tests/test_same.py:5"]
+
+
+def test_differing_fixtures_or_decorators_spare_identical_bodies(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_seams.py").write_text(
+        "import pytest\n\n\n"
+        "def test_a(sqlite_session):\n    assert run(sqlite_session) == 1\n\n\n"
+        "def test_b(pg_session):\n    assert run(pg_session) == 1\n\n\n"
+        "@pytest.mark.slow\n"
+        "def test_c():\n    assert run() == 1\n\n\n"
+        "def test_d():\n    assert run() == 1\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_parametrized_table_containing_a_plain_case_reports_the_contained_one(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_table.py").write_text(
+        "import pytest\n\n\n"
+        'def test_plain(env):\n    assert parse(env, "1") is True\n\n\n'
+        '@pytest.mark.parametrize("value", ["1", "true"])\n'
+        "def test_aliases(env, value):\n    assert parse(env, value) is True\n\n\n"
+        '@pytest.mark.parametrize("other", ["1", "true"])\n'
+        "def test_twin_table(env, other):\n    assert parse(env, other) is True\n",
+        encoding="utf-8",
+    )
+    violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "DUP-BODY"]
+    assert [f"{v.path}:{v.line}" for v in violations] == ["tests/test_table.py:4"]
+    assert "value='1'" in violations[0].guidance
+
+
+def test_parametrized_case_outside_the_table_and_non_literal_values_are_spared(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_table_misses.py").write_text(
+        "import pytest\n\n\n"
+        'def test_absent(env):\n    assert parse(env, "nope") is True\n\n\n'
+        '@pytest.mark.parametrize("value", ["1", "true"])\n'
+        "def test_aliases(env, value):\n    assert parse(env, value) is True\n\n\n"
+        "def test_computed(env):\n    assert parse(env, ALIASES[0]) is True\n\n\n"
+        '@pytest.mark.parametrize("value", [ALIASES[0]])\n'
+        "def test_dynamic(env, value):\n    assert parse(env, value) is True\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+_DUP_CASE = "    def test_it(self):\n        assert probe() == 1\n"
+
+
+def test_parameter_shadowed_inside_the_body_is_not_substituted(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_shadow.py").write_text(
+        "import pytest\n\n\n"
+        "def test_plain(env):\n"
+        "    assert parse(env, (lambda value: '1')('x')) is True\n\n\n"
+        '@pytest.mark.parametrize("value", ["1"])\n'
+        "def test_table(env, value):\n"
+        "    assert parse(env, (lambda value: value)('x')) is True\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_differing_class_level_setup_spares_identical_bodies(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_setup.py").write_text(
+        f'class TestOne:\n    def setup_method(self):\n        reset(mode="a")\n\n{_DUP_CASE}\n\n'
+        f'class TestTwo:\n    def setup_method(self):\n        reset(mode="b")\n\n{_DUP_CASE}',
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_matching_class_level_setup_lets_identical_bodies_count_as_duplicates(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_setup.py").write_text(
+        f'class TestOne:\n    """文档不是行为。"""\n\n'
+        f'    def setup_method(self):\n        reset(mode="a")\n\n{_DUP_CASE}\n\n'
+        f'class TestTwo:\n    def setup_method(self):\n        reset(mode="a")\n\n{_DUP_CASE}',
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == ["tests/test_setup.py:15"]
+
+
 def test_unparsable_file_is_reported_at_its_syntax_error_line(tmp_path: Path, capsys) -> None:
     tests, _ = _repo(tmp_path)
     (tests / "test_broken.py").write_text("def test_a():\n    assert (1 ==\n", encoding="utf-8")
@@ -268,3 +366,148 @@ def test_check_exits_nonzero_on_violation_and_zero_when_clean(tmp_path: Path, ca
 
     assert main(["--root", str(tmp_path), "--check"]) == 0
     assert "闸门通过：0 处违规" in capsys.readouterr().out
+
+
+def test_parameter_defaults_and_module_level_self_stay_in_the_context(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_signature.py").write_text(
+        "def test_with_self(self):\n    assert probe() == 1\n\n\n"
+        "def test_without_self():\n    assert probe() == 1\n\n\n"
+        "def test_low(limit=1):\n    assert probe(limit) == 2\n\n\n"
+        "def test_high(limit=2):\n    assert probe(limit) == 2\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_declaration_order_of_bases_and_decorators_is_significant(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_order.py").write_text(
+        "import pytest\n\n\n"
+        f"class TestOne(Alpha, Beta):\n{_DUP_CASE}\n\n"
+        f"class TestTwo(Beta, Alpha):\n{_DUP_CASE}\n\n"
+        "@pytest.mark.slow\n@pytest.mark.flaky\n"
+        "def test_c():\n    assert run() == 1\n\n\n"
+        "@pytest.mark.flaky\n@pytest.mark.slow\n"
+        "def test_d():\n    assert run() == 1\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_nested_definition_and_match_capture_shadow_the_parameter(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_bindings.py").write_text(
+        "import pytest\n\n\n"
+        "def test_plain(env):\n"
+        "    def value():\n        return '1'\n"
+        "    assert parse(env, '1') is True\n\n\n"
+        '@pytest.mark.parametrize("value", ["1"])\n'
+        "def test_table(env, value):\n"
+        "    def value():\n        return '1'\n"
+        "    assert parse(env, value) is True\n\n\n"
+        "def test_plain_match(env):\n"
+        "    match env:\n        case value:\n            assert parse(env, '1') is True\n\n\n"
+        '@pytest.mark.parametrize("value", ["1"])\n'
+        "def test_table_match(env, value):\n"
+        "    match env:\n        case value:\n            assert parse(env, value) is True\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_positionally_passed_indirect_spares_the_matching_plain_case(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_indirect.py").write_text(
+        "import pytest\n\n\n"
+        'def test_plain(env):\n    assert parse(env, "primary") is True\n\n\n'
+        '@pytest.mark.parametrize("value", ["primary"], True)\n'
+        "def test_table(env, value):\n    assert parse(env, value) is True\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_signed_numbers_and_containers_count_as_literal_rows(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_literals.py").write_text(
+        "import pytest\n\n\n"
+        "def test_negative(env):\n    assert parse(env, -1) is True\n\n\n"
+        '@pytest.mark.parametrize("value", [0, -1])\n'
+        "def test_numbers(env, value):\n    assert parse(env, value) is True\n\n\n"
+        "def test_container(cfg):\n    assert load(cfg, [1, 2]) is None\n\n\n"
+        '@pytest.mark.parametrize("data", [[1, 2], {"k": 1}])\n'
+        "def test_containers(cfg, data):\n    assert load(cfg, data) is None\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == ["tests/test_literals.py:4", "tests/test_literals.py:13"]
+
+
+def test_static_test_methods_keep_their_first_fixture(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_static.py").write_text(
+        "class TestStatics:\n"
+        "    @staticmethod\n    def test_a(alpha):\n        assert run() == 1\n\n"
+        "    @staticmethod\n    def test_b(beta):\n        assert run() == 1\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_differing_class_keywords_spare_identical_bodies(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_meta.py").write_text(
+        f"class TestOne(metaclass=Meta):\n{_DUP_CASE}\n\nclass TestTwo(metaclass=Other):\n{_DUP_CASE}",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_fixtures_named_with_the_test_prefix_are_not_cases(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_fixture_names.py").write_text(
+        "import pytest\n\n\n"
+        "@pytest.fixture\ndef test_alpha():\n    return build(1)\n\n\n"
+        "@pytest.fixture\ndef test_beta():\n    return build(1)\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_nested_class_cases_are_named_by_their_full_path(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_nested.py").write_text(
+        "class TestOuter:\n    class TestInner:\n"
+        "        def test_it(self):\n            assert probe() == 1\n\n"
+        "        def test_twin(self):\n            assert probe() == 1\n",
+        encoding="utf-8",
+    )
+    violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "DUP-BODY"]
+    assert len(violations) == 1
+    assert violations[0].guidance.startswith(
+        "`TestOuter::TestInner::test_twin` 的函数体去掉 docstring 后与同文件 `TestOuter::TestInner::test_it` 等同"
+    )
+
+
+def test_parametrized_argument_carrying_a_default_still_matches_a_plain_case(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_default_arg.py").write_text(
+        "import pytest\n\n\n"
+        'def test_plain(env):\n    assert parse(env, "x") is True\n\n\n'
+        '@pytest.mark.parametrize("value", ["x"])\n'
+        'def test_table(env, value="fallback"):\n    assert parse(env, value) is True\n',
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == ["tests/test_default_arg.py:4"]
+
+
+def test_parametrize_marks_stored_in_a_module_level_alias_still_count(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_alias.py").write_text(
+        "import pytest\n\n\n"
+        '_TABLE = pytest.mark.parametrize("value", ["1", "2"])\n\n\n'
+        "@_TABLE\ndef test_a(env, value):\n    assert parse(env, value) is True\n\n\n"
+        "@_TABLE\ndef test_b(env, value):\n    assert parse(env, value) is True\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []

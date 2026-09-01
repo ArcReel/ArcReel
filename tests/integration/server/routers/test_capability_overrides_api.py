@@ -590,10 +590,6 @@ class TestReplaceModelsOverrideSemantics:
         )
         assert resp.status_code == 422
 
-    def test_invalid_override_rejected_on_create(self, capability_client: TestClient):
-        resp = _post_provider(capability_client, [_video_model(capability_overrides={"last_frame": 1})])
-        assert resp.status_code == 422
-
     def test_invalid_override_rejected_on_full_update(self, capability_client: TestClient):
         pid = _create_provider(capability_client, [_video_model()])
 
