@@ -441,3 +441,49 @@ def test_signed_numbers_and_containers_count_as_literal_rows(tmp_path: Path) -> 
         encoding="utf-8",
     )
     assert _dup_lines(_audit(tmp_path)) == ["tests/test_literals.py:4", "tests/test_literals.py:13"]
+
+
+def test_static_test_methods_keep_their_first_fixture(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_static.py").write_text(
+        "class TestStatics:\n"
+        "    @staticmethod\n    def test_a(alpha):\n        assert run() == 1\n\n"
+        "    @staticmethod\n    def test_b(beta):\n        assert run() == 1\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_differing_class_keywords_spare_identical_bodies(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_meta.py").write_text(
+        f"class TestOne(metaclass=Meta):\n{_DUP_CASE}\n\nclass TestTwo(metaclass=Other):\n{_DUP_CASE}",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_fixtures_named_with_the_test_prefix_are_not_cases(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_fixture_names.py").write_text(
+        "import pytest\n\n\n"
+        "@pytest.fixture\ndef test_alpha():\n    return build(1)\n\n\n"
+        "@pytest.fixture\ndef test_beta():\n    return build(1)\n",
+        encoding="utf-8",
+    )
+    assert _dup_lines(_audit(tmp_path)) == []
+
+
+def test_nested_class_cases_are_named_by_their_full_path(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_nested.py").write_text(
+        "class TestOuter:\n    class TestInner:\n"
+        "        def test_it(self):\n            assert probe() == 1\n\n"
+        "        def test_twin(self):\n            assert probe() == 1\n",
+        encoding="utf-8",
+    )
+    violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "DUP-BODY"]
+    assert len(violations) == 1
+    assert violations[0].guidance.startswith(
+        "`TestOuter::TestInner::test_twin` 的函数体去掉 docstring 后与同文件 `TestOuter::TestInner::test_it` 等同"
+    )

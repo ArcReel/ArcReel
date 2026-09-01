@@ -410,9 +410,17 @@ def is_collected_test_class(node: ast.ClassDef, unittest_cases: set[str]) -> boo
     return fnmatch(node.name, COLLECTED_TEST_CLASS_GLOB) and not _has_explicit_init(node)
 
 
+def is_fixture(dec: ast.expr) -> bool:
+    target = dec.func if isinstance(dec, ast.Call) else dec
+    name = dotted(target)
+    return bool(name) and name.split(".")[-1] == "fixture"
+
+
 def is_test_function(node: ast.stmt) -> TypeGuard[ast.FunctionDef | ast.AsyncFunctionDef]:
-    """pytest 按 `test` 前缀收集用例函数。"""
-    return isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith("test")
+    """pytest 按 `test` 前缀收集用例函数；`@pytest.fixture` 装饰的同名函数注册为 fixture，不收集。"""
+    if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) or not node.name.startswith("test"):
+        return False
+    return not any(is_fixture(d) for d in node.decorator_list)
 
 
 def _opts_out_of_collection(node: ast.ClassDef) -> bool:
@@ -1047,9 +1055,7 @@ def module_level_fixtures(tree: ast.Module) -> list[tuple[str, int]]:
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         for dec in node.decorator_list:
-            target = dec.func if isinstance(dec, ast.Call) else dec
-            name = dotted(target)
-            if not name or name.split(".")[-1] != "fixture":
+            if not is_fixture(dec):
                 continue
             fixture_name = node.name
             if isinstance(dec, ast.Call):
@@ -1424,7 +1430,8 @@ def expanded_bodies(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Parametrize
 
 
 def class_context(node: ast.ClassDef) -> str:
-    """类级上下文：装饰器、基类，以及类体内一切非测试成员（`setup_method`、类级 fixture、`pytestmark`）。
+    """类级上下文：装饰器、基类与类关键字（`metaclass=` 等），以及类体内一切非测试成员
+    （`setup_method`、类级 fixture、`pytestmark`）。
 
     判据只比函数体，两个类的 setup 不同却函数体相同时会误报；闸门零容忍、无豁免，
     故上下文必须一并相等才认定重复。
@@ -1434,6 +1441,7 @@ def class_context(node: ast.ClassDef) -> str:
         [
             ";".join(ast.unparse(d) for d in node.decorator_list),
             ";".join(ast.unparse(b) for b in node.bases),
+            ";".join(ast.unparse(k) for k in node.keywords),
             unparse_block(members),
         ]
     )
@@ -1462,19 +1470,23 @@ def collect_test_cases(tree: ast.Module) -> list[DuplicateCandidate]:
     unittest_cases = resolve_unittest_cases(tree)
     out: list[DuplicateCandidate] = []
 
-    def walk(body: list[ast.stmt], context: list[str], class_name: str | None) -> None:
+    def walk(body: list[ast.stmt], context: list[str], class_path: str | None) -> None:
         for node in body:
             if isinstance(node, ast.ClassDef):
                 if is_collected_test_class(node, unittest_cases):
-                    walk(node.body, [*context, class_context(node)], node.name)
+                    nested = f"{class_path}::{node.name}" if class_path else node.name
+                    walk(node.body, [*context, class_context(node)], nested)
             elif is_test_function(node):
+                bound = class_path is not None and not any(
+                    ast.unparse(d) == "staticmethod" for d in node.decorator_list
+                )
                 out.append(
                     DuplicateCandidate(
-                        qual=f"{class_name}::{node.name}" if class_name else node.name,
+                        qual=f"{class_path}::{node.name}" if class_path else node.name,
                         line=node.lineno,
                         context="\n".join(context),
                         decorators=tuple(ast.unparse(d) for d in node.decorator_list if not is_parametrize(d)),
-                        params=tuple(sorted(param_names(node, is_method=class_name is not None))),
+                        params=tuple(sorted(param_names(node, is_method=bound))),
                         is_async=isinstance(node, ast.AsyncFunctionDef),
                         node=node,
                     )
@@ -1489,7 +1501,10 @@ def render_row(argnames: list[str], values: tuple[str, ...]) -> str:
 
 
 def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]:
-    """同一文件内函数体等同的测试用例。跨文件不判——局部辅助函数同名会造成整批假阳。"""
+    """同一文件内函数体等同的测试用例。跨文件不判——局部辅助函数同名会造成整批假阳。
+
+    只扫后端：本脚本零第三方依赖、只用 `ast`，无法解析 TS/TSX，前端同类判断按分工归 eslint。
+    """
     cases = collect_test_cases(tree)
     parametrized = [c for c in cases if c.is_parametrized]
     plain = [c for c in cases if not c.is_parametrized]
@@ -1541,24 +1556,6 @@ def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]
     return findings
 
 
-def scan_duplicate_bodies(root: Path, tests_dir: Path) -> list[StructureFinding]:
-    """后端 `tests/` 的重复用例扫描。
-
-    前端 `frontend/src/**/*.test.*` 不在内：本脚本零第三方依赖、只用 `ast`，无法解析
-    TS/TSX，语义类规则按分工归 eslint。
-    """
-    findings: list[StructureFinding] = []
-    for path in sorted(tests_dir.rglob("*.py")):
-        if path.name == "__init__.py" or not is_collected_test_module(path):
-            continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:
-            continue
-        findings.extend(scan_module_duplicates(path.relative_to(root).as_posix(), tree))
-    return findings
-
-
 # ---------------------------------------------------------------- 汇总输出
 
 
@@ -1568,6 +1565,7 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
     double_only: list[DoubleOnlyTest] = []
     no_assertion_cases: list[NoAssertionTest] = []
     patches: list[PatchSite] = []
+    duplicates: list[StructureFinding] = []
     failures: list[dict[str, object]] = []
     prod = ProductionIndex(root)
 
@@ -1585,6 +1583,8 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
             )
             continue
         stats.append(scanner.stat)
+        if is_collected_test_module(path):
+            duplicates.extend(scan_module_duplicates(path.relative_to(root).as_posix(), scanner.tree))
         double_only.extend(scanner.double_only)
         no_assertion_cases.extend(scanner.no_assertion)
         patches.extend(scanner.patches)
@@ -1626,7 +1626,6 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
     double_by_file = Counter(d.path for d in double_only)
     structure = scan_shared_facilities(root, tests_dir)
     structure_counter = Counter(f.rule for f in structure)
-    duplicates = scan_duplicate_bodies(root, tests_dir)
 
     frontend_files = frontend_test_files(frontend_src) if frontend_src and frontend_src.is_dir() else []
     shape = scan_file_shape(root, files + frontend_files) + scan_frontend_layout(root, frontend_files)
