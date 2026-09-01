@@ -54,7 +54,9 @@ jobs:
         if: ${{ steps.release.outputs.pr }}
         env:
           PUSH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR_BRANCH: ${{ fromJson(steps.release.outputs.pr).headBranchName }}
+          # release PR 无变化时 action 不输出 pr，取值为空串。step 级 env 先于 if 求值，
+          # 直接 fromJson 会解析空串失败并让整个 job 红；短路后 fromJson 只在有值时调用
+          PR_BRANCH: ${{ steps.release.outputs.pr && fromJson(steps.release.outputs.pr).headBranchName }}
         run: |
           uv lock
           if ! git diff --quiet uv.lock; then
