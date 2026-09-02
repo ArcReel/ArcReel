@@ -43,6 +43,23 @@ from server.agent_runtime.session_store import SessionMetaStore
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _discard_pooled_connections_in_forked_child() -> None:
+    """fork 出的子进程丢弃模块级 engine 池里从父进程继承的连接。
+
+    aiosqlite 每个连接由一条专属工作线程驱动，fork 只复制调用线程，子进程里池中
+    连接的工作线程不存在，经它发出的任何查询都永远等不到结果。``close=False``
+    只丢引用不关连接，父进程那份连接不受影响。mutmut 按 mutant fork 跑测试，
+    子进程首个走 ``lib.db.engine`` 的用例会就此挂到超时。
+    """
+    from lib.db.engine import async_engine
+
+    async_engine.sync_engine.dispose(close=False)
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_discard_pooled_connections_in_forked_child)
+
+
 @pytest.fixture(autouse=True)
 def reset_app_data_dir_cache():
     """``app_data_dir()`` uses ``functools.cache`` for production; reset it between

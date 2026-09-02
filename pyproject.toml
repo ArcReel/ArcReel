@@ -335,8 +335,7 @@ pytest_add_cli_args = ["--ignore=tests/unit/test_skill_script_path_guards.py"]
 # pytest_add_cli_args_test_selection 不设：走全量 testpaths。仅 tests/unit 快 5.5 倍，
 # 但存活集合约 45% 是假存活，复核每个都要跑一次全量套件，总账反而更贵。
 # timeout_multiplier / timeout_constant 保持默认（15 / 1.0），不要调小。
-# mutmut 的 fork 模型与本仓库的多线程测试套件不相容，存活 mutant 必然耗满墙钟预算被记成超时；
-# 调小预算并不能省时间，只会让已证实的真存活被记成 killed（假杀死），把无效测试藏起来。
+# 预算按关联用例的实测时长外推，调小只会把慢用例上的真存活记成 killed（假杀死），把无效测试藏起来。
 also_copy = [
     "agent_runtime_profile",
     "alembic",

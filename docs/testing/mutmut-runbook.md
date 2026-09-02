@@ -43,7 +43,7 @@ uv sync --group mutation
 
 ## 4. 超时的新进程复核
 
-mutmut 用 fork 起子进程，本仓库测试套件里有 fixture 起线程，两者不相容：真正存活的 mutant 会耗满超时预算被记成超时，而不是存活。所以超时不算 killed，要在新进程里只跑关联用例再确认一次，每个 3 到 11 秒。首批的超时与「关联用例集含 `tests/integration/lib/test_script_generator_reference_branch.py`」完全重合（12 对 12，其余 120 个候选零超时），根治见 #2283。
+超时是罕见兜底，不是常态。曾经的成因是 fork：mutmut 按 mutant fork 子进程跑测试，父进程模块级 engine（`lib.db.engine`）池里残留的 aiosqlite 连接被子进程继承，而驱动它的工作线程没有一起过来，子进程首个走该 engine 的用例就永远等不到查询结果、耗满预算记成超时。`tests/conftest.py` 用 `os.register_at_fork` 在子进程里丢弃池中连接（`dispose(close=False)`），首批 8 模块 8 路全量复跑超时为 0。仍出现的超时不算 killed，要在新进程里只跑关联用例再确认一次，每个 3 到 11 秒。
 
 ```bash
 # 在项目根跑：tests-for-mutant 读 mutants/mutmut-stats.json，在 mutants/ 里跑会报 Failed to load stats
@@ -56,11 +56,11 @@ cd mutants && MUTANT_UNDER_TEST=lib.speech_rate.x_estimate_spoken_seconds__mutmu
 
 pytest 原生支持 `@文件` 读参数，一行一个、原样保留空格和引号，本套件 180 多个含空格或引号的参数化 nodeid 都能过。不要用 `$(cat …)` 或裸 `xargs`：前者在 zsh 下整串成一个参数、pytest 静默跑 0 个用例，后者会把带空格的 nodeid 拆开。
 
-判读：**1 failed 即 killed；全部通过即存活。** 复核确认 killed 的（含段错误之类两头不落的），在第 2 节保存的基线副本里把该 mutant 的 exit code 改成 1，这样第 5 节会把它们归入「基线 killed」那层护栏；确认存活的保持原样。首批 616 个 mutant 里 exit code 不等于 1 的 130 个，其中要复核的只有 12 个超时和 2 个段错误：复核后 2 个段错误确认 killed、12 个超时全部确认存活。
+判读：**1 failed 即 killed；全部通过即存活。** 复核确认 killed 的（含段错误之类两头不落的），在第 2 节保存的基线副本里把该 mutant 的 exit code 改成 1，这样第 5 节会把它们归入「基线 killed」那层护栏；确认存活的保持原样。首批 616 个 mutant 里要复核的只有 2 个段错误，复核后确认 killed。
 
 ## 5. 改造后的三层验收
 
-改完断言后，对同一批模块**全量复跑**一次 `mutmut run`，然后比对：
+改完断言后，对同一批模块**全量复跑**一次 `mutmut run`，然后比对。`mutmut run` 不重跑已有结果的 mutant，而 mutant 清单本身又存在 `.meta` 里，只删 `.meta` 会得到 0 个 mutant。同一批模块复跑：把 `mutants/mutmut-stats.json` 挪出来、删掉整个 `mutants/`、再把它放回新建的 `mutants/`，stats 不用重收（省 5 分钟）。换了 `only_mutate` 的模块集则整个 `mutants/` 连 stats 一起删：stats 只记录被变异模块的函数命中，新加的模块会整批记成 🫥 无关联用例。
 
 ```bash
 uv run python scripts/mutmut_compare.py \
@@ -86,8 +86,8 @@ uv run python scripts/mutmut_compare.py \
 
 ## 6. 已知陷阱
 
-- **假杀死链**（根治见 #2284）。mutmut 默认按 CPU 数 fork 子进程，多个 pytest 会话同时建/清 `pytest-of-<user>/pytest-current` 软链会竞争抛 `FileNotFoundError`；该异常让子进程走异常退出而非 `os._exit`，退出码 1 记成 killed 且 atexit 会跑，`tests/conftest.py` 注册的清理把共享临时库删了，之后所有子进程的会话级 DB fixture 全部报错、整批记 killed。探针是第 5 节第三层：等价变异体不可能被杀，出现即整轮作废。规避是 `mutmut run --max-children 4`，代价是 8 模块复跑从 17:47 变 1:22:36（4.6 倍），因为每个超时都耗满预算，并行度减半后串行叠加。
-- **基线 killed 的 mutant 在并行下也会被记超时。** 关联用例只有几个的 mutant 超时预算极小，pytest 启动开销就能撞线。所以第 5 节第二层把「变超时」列为待复核而不是回退。
+- **假杀死链**（根治见 #2284）。mutmut 默认按 CPU 数 fork 子进程，多个 pytest 会话同时建/清 `pytest-of-<user>/pytest-current` 软链会竞争抛 `FileNotFoundError`；该异常让子进程走异常退出而非 `os._exit`，退出码 1 记成 killed 且 atexit 会跑，`tests/conftest.py` 注册的清理把共享临时库删了，之后所有子进程的会话级 DB fixture 全部报错、整批记 killed。探针是第 5 节第三层：等价变异体不可能被杀，出现即整轮作废。规避是 `mutmut run --max-children 4`，代价是并行度减半；超时归零前曾量到 4.6 倍（每个超时耗满预算、串行叠加），归零后按并行度反比估。
+- **新增的测试文件不触及任何被变异函数时，增量 stats 会中止。** mutmut 检测到新用例只对它们跑一次 stats，若这批用例没碰到任何 mutant，报 `Stopping early, because we could not find any test case for any mutant` 退出。删 `mutants/mutmut-stats.json` 走全量 stats。
 - **不要在 `mutants/` 里跑 `uv run`。** uv 会按那份 `pyproject.toml` 副本另建一个环境，mutmut 不在里面，变异模块顶部的 trampoline import 直接 `ModuleNotFoundError`。用 `../.venv/bin/python`。
 - **`tests-for-mutant` 只在项目根可用。** 它读 `mutants/mutmut-stats.json`，在 `mutants/` 里跑找不到。
 - **`tests/unit/test_skill_script_path_guards.py` 被整体排除**，理由在 `[tool.mutmut]` 注释。排除只会多出假存活（多复核一个），不会造成假杀死。
@@ -101,7 +101,7 @@ uv run python scripts/mutmut_compare.py \
 | 项 | 数值 |
 | --- | ---: |
 | mutant 密度 | 约 1100 个 / 千行源码 |
-| 一轮墙钟（8 路并行） | 65 到 75 分钟 / 千行；墙钟随超时数走，不随 mutant 总数走 |
-| 一轮墙钟（`--max-children 4`） | 上项的 4.6 倍 |
+| 一轮墙钟（8 路并行） | 8 模块 616 个 mutant 约 10 分钟（不含全量 stats 约 5 分钟）；超时归零前是 17:47，墙钟随超时数走 |
+| 一轮墙钟（`--max-children 4`） | 按并行度反比估；超时归零前量到 8 路的 4.6 倍 |
 | 超时新进程复核 | 3 到 11 秒 / 个 |
 | 逐条判定 | 约 3 秒 / 个 |

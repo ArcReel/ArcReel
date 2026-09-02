@@ -140,7 +140,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 变异得分是信号，不是闸门，与覆盖率同构：不为杀死 mutant 写测试，不做覆盖补偿，不进 CI。按批次手动跑，把本批模块填进 `pyproject.toml` 的 `[tool.mutmut] only_mutate`；操作步骤与已知陷阱见 [`docs/testing/mutmut-runbook.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/testing/mutmut-runbook.md)。
 
 - **存活只是把测试送上审查台，不是删除依据**。存活 mutant 落在已有测试覆盖的代码上时，按无意义测试判据的三步处置逐条判定；两种情形不处置：保持既有用例输入不变只加强断言杀不死、须换输入才能杀死的（属覆盖补偿，不做），以及等价变异体（改了源码但行为不变）。无覆盖代码上的存活一律不管。
-- **超时不算 killed**。mutmut 的 fork 模型与本仓库的多线程测试套件不相容，真正存活的 mutant 会被记成超时；`.meta` 里 exit code 既不是 1 也不是 0 的一律在新进程里只跑关联用例复核，复核确认存活的才进入判定（0 是 pytest 全部通过，本身就是确认存活）。
+- **超时不算 killed**。`.meta` 里 exit code 既不是 1 也不是 0 的一律在新进程里只跑关联用例复核，复核确认存活的才进入判定（0 是 pytest 全部通过，本身就是确认存活）。
 - **改造后的三层验收**（`scripts/mutmut_compare.py`）：本次改造针对的 mutant 全部 killed；基线里 killed 的 mutant 没有一个变成存活，变成超时的须新进程复核；基线里存活且本次未改造的 mutant 被杀死只登记不报警，其中判为等价变异体的被杀死即整轮作废。改造 PR 的 diff 不得触及 `lib/` 与 `server/`。
 
 ### 闸门
