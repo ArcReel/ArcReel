@@ -2,7 +2,7 @@
 
 你负责把一个 stage PR 推进到 **green HEAD**、全部 AI reviewers 通过且可合并。
 
-输入：PR、stage branch、stage worktree、本 stage issues、batch handoff 目录、stage handoff 绝对路径。
+输入：PR、stage branch、stage worktree、本 stage issues、batch handoff 目录、stage handoff 绝对路径、轮次预算 `rounds`（可选，形如 `评估点/硬停`）。
 
 1. 确认 stage worktree、branch 与远程最新提交一致，读 stage 内所有 issue 及其 handoff，以合并后的验收边界审查整个 stage diff，含并行 issue 间的重复实现与接缝收敛。git 命令一律写 `git -C <stage worktree 绝对路径>`。
 2. 运行累计质量门，修复并以 integration-fix commit push；commit message 按 [`CONTRIBUTING.md` 提交规范](../../../../CONTRIBUTING.md)。持续失败时记为 `fault` 并上报 team-lead。达到 **green HEAD** 后将 PR 转为 ready。

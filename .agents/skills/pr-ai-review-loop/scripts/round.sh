@@ -101,6 +101,7 @@ case "$CMD" in
       jq -n --argjson pr "$PR" '{pr: $pr, rounds: []}' > "$LEDGER_FILE"
     fi
     TMP_FILE=$(mktemp "$SNAP_DIR/rounds.XXXXXX")
+    trap 'rm -f "$TMP_FILE"' EXIT
     jq --arg head "$HEAD_SHA" --arg marked_at "$MARKED_AT" --arg note "$NOTE" \
        --argjson implemented "$IMPLEMENTED" --argjson pushback "$PUSHBACK" '
       .rounds += [{
@@ -110,6 +111,7 @@ case "$CMD" in
       }]
     ' "$LEDGER_FILE" > "$TMP_FILE"
     mv "$TMP_FILE" "$LEDGER_FILE"
+    trap - EXIT
     jq -c '.rounds | (last + {rounds: length})' "$LEDGER_FILE"
     ;;
 

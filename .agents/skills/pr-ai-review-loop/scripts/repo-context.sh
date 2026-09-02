@@ -38,6 +38,8 @@ enter_repo_root() {
 # A pre-planted symlink (mkdir -p would follow it) or a foreign-owned dir at the path
 # aborts loudly before anything is written. Plain mkdir (no -p) never follows a symlink to
 # create elsewhere; on EEXIST re-validate, including -L for a symlink raced in after the check.
+# The dir is born 700 (umask 077 in a subshell) so a group-writable umask leaves no window
+# before chmod in which another user could plant a symlink at a snapshot or ledger path.
 enter_snapshot_dir() {
   local error_prefix="$1"
   local snap_base="${TMPDIR:-/tmp}"
@@ -46,7 +48,7 @@ enter_snapshot_dir() {
     echo "${error_prefix}: snapshot dir is a symlink: $SNAP_DIR" >&2
     return 4
   fi
-  if ! mkdir "$SNAP_DIR" 2>/dev/null; then
+  if ! (umask 077; mkdir "$SNAP_DIR") 2>/dev/null; then
     if [[ -L "$SNAP_DIR" || ! -d "$SNAP_DIR" || ! -O "$SNAP_DIR" ]]; then
       echo "${error_prefix}: snapshot dir is a symlink, missing, or not owned by the current user: $SNAP_DIR" >&2
       return 4
