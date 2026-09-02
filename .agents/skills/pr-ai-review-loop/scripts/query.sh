@@ -4,7 +4,6 @@
 # USAGE
 #   bash query.sh --repo-root <path> <PR_NUMBER> details <id>...      # full bodies by id
 #   bash query.sh --repo-root <path> <PR_NUMBER> gemini-latest-body   # latest Gemini summary
-#   bash query.sh --repo-root <path> <PR_NUMBER> quality-all          # all quality inline comments
 #   bash query.sh --repo-root <path> <PR_NUMBER> history              # review/comment history
 #   bash query.sh --repo-root <path> <PR_NUMBER> unacked <bot[bot]>   # old unacked inline comments
 #   bash query.sh --repo-root <path> <PR_NUMBER> index                # re-print the last poll index
@@ -29,7 +28,7 @@ enter_repo_root "QUERY_ERROR" "$@"
 shift "$REPO_CONTEXT_SHIFT"
 
 usage() {
-  echo "QUERY_ERROR: usage: bash query.sh [--repo-root <path>] <PR_NUMBER> {details <id>...|gemini-latest-body|quality-all|history|unacked <bot[bot]>|index}" >&2
+  echo "QUERY_ERROR: usage: bash query.sh [--repo-root <path>] <PR_NUMBER> {details <id>...|gemini-latest-body|history|unacked <bot[bot]>|index}" >&2
   exit 2
 }
 
@@ -59,10 +58,8 @@ OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) || {
   exit 4
 }
 
-# Keep in sync with poll.sh's SNAP_DIR/SNAPSHOT_FILE derivation (user-private subdir).
-SNAP_BASE="${TMPDIR:-/tmp}"
-SNAP_DIR="${SNAP_BASE%/}/pr-ai-review-loop-$(id -u)"
-SNAPSHOT_FILE="$SNAP_DIR/poll-${OWNER_REPO//\//-}-${PR}.json"
+enter_snapshot_dir "QUERY_ERROR" || exit $?
+SNAPSHOT_FILE=$(snapshot_file_for "$OWNER_REPO" "$PR")
 
 if [[ ! -f "$SNAPSHOT_FILE" ]]; then
   echo "QUERY_ERROR: snapshot not found: $SNAPSHOT_FILE — run poll.sh $PR first" >&2
@@ -73,7 +70,7 @@ fi
 jq -r '"QUERY_SNAPSHOT: repo=\(.repo) pr=\(.pr) head=\(.head) generated_at=\(.generated_at)"' "$SNAPSHOT_FILE" >&2
 
 # Bots that appear in inline_comments_by_user. Keep in sync with poll.sh's bot-login regex.
-KNOWN_BOTS=("coderabbitai[bot]" "gemini-code-assist[bot]" "chatgpt-codex-connector[bot]" "github-code-quality[bot]" "github-advanced-security[bot]")
+KNOWN_BOTS=("coderabbitai[bot]" "gemini-code-assist[bot]" "chatgpt-codex-connector[bot]" "github-advanced-security[bot]")
 
 case "$CMD" in
 
@@ -88,7 +85,8 @@ case "$CMD" in
         (.coderabbit.reviews[]?
            | {source: "coderabbit_review", id, created_at: .submittedAt, state, body}),
         (.gemini.reviews[]?
-           | {source: "gemini_review", id, created_at: .submittedAt, state, has_pass_marker, body}),
+           | {source: "gemini_review", id, created_at: .submittedAt, state,
+              reviewed_current_head, has_pass_marker, body}),
         (.gemini.comments[]?
            | {source: "gemini_comment", id, created_at: .createdAt, body}),
         (.codex.reviews[]?
@@ -118,10 +116,6 @@ case "$CMD" in
       echo "QUERY_ERROR: no gemini reviews in snapshot" >&2
       exit 6
     fi
-    ;;
-
-  quality-all)
-    jq '.inline_comments_by_user["github-code-quality[bot]"] // []' "$SNAPSHOT_FILE"
     ;;
 
   history)

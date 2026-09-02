@@ -117,9 +117,9 @@ elif [[ "$*" == *'/pulls/1767/comments'* ]]; then
     updated_at='2026-08-11T00:01:00Z'
   fi
   if [[ "$mode" == "null_nested_fields" ]]; then
-    printf '[{"id":1,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":null},{"id":2,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":{"login":"github-code-quality[bot]"}}]\n' "$updated_at" "$updated_at"
+    printf '[{"id":1,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":null},{"id":2,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":{"login":"github-advanced-security[bot]"}}]\n' "$updated_at" "$updated_at"
   else
-    printf '[{"id":2,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":{"login":"github-code-quality[bot]"}}]\n' "$updated_at"
+    printf '[{"id":2,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":{"login":"github-advanced-security[bot]"}}]\n' "$updated_at"
   fi
 elif [[ "$*" == *'/check-runs?per_page=100'* ]]; then
   count=$(next_count checks)

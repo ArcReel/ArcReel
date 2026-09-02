@@ -20,7 +20,9 @@
 #              carries no cross-round state: it materializes THIS poll's fetch and is fully
 #              rebuilt by re-running poll.sh. query.sh is its only intended reader.
 #   index    — last fully-printed index plus its printed_at, at <snapshot>.index.json;
-#              backs the no_change comparison, the round_estimate ratchet, and `query.sh index`.
+#              backs the no_change comparison and `query.sh index`.
+#   rounds   — per-PR round ledger written by round.sh at <snapshot>.rounds.json; poll.sh reads
+#              its entry count and the last marked_at (the pushback-only watermark, see PITFALL 8).
 #   seen     — per-PR ledger of every comment/review id observed by any earlier poll, at
 #              <snapshot>.seen.json; backs the straggler half of is_new (see PITFALL 6).
 #
@@ -39,12 +41,8 @@
 #   "pr_created_at": "<ISO8601>",                       # PR createdAt — distinct from last_push_at
 #   "head": "<sha>",                                    # current PR head commit SHA
 #   "last_push_at": "<ISO8601>",                        # head commit committedDate — see PITFALL 1
-#   "round_estimate": <int>,                            # fix-round count: commits with committedDate > pr_created_at,
-#                                                       # clustered by >5min gaps; ratcheted against the last printed
-#                                                       # index so it never decreases within a PR — a rebase refreshes
-#                                                       # all dates, collapsing the clustering, and would otherwise
-#                                                       # silently reset the convergence guardrail. The snapshot keeps
-#                                                       # the raw computed value (heuristic only)
+#   "rounds": <int>,                                    # disposed feedback batches recorded by `round.sh mark`
+#                                                       # (0 until the first mark) — the convergence budget counter
 #   "snapshot_file": "<path>",                          # full snapshot staged for query.sh
 #   "base_oid": "<sha>" | null,                         # last commit at/before PR creation — SINCE_SHA for the
 #                                                       # first fix batch (null when every commit postdates creation)
@@ -69,6 +67,7 @@
 #   },
 #   "gemini": {
 #     "reviews":          [{id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
+#                                                       # listed while is_new OR reviewed_current_head (PITFALL 8);
 #                                                       # body NEVER inlined — query.sh gemini-latest-body
 #     "reviews_history":  {total, last_submitted_at},
 #     "comments_new":     [{id, createdAt, preview}],
@@ -77,10 +76,10 @@
 #   "codex": {
 #     "has_started":      <bool>,                       # Codex has acknowledged with eyes or a clean-pass comment
 #     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head,
-#                            has_body_finding, is_new, preview}],
+#                            has_body_finding, is_new, preview}], # listed while is_new OR reviewed_current_head
 #     "reviews_history":  {total, last_submitted_at},
 #     "comments_new":     [{id, createdAt, reviewed_commit, reviewed_current_head,
-#                            has_pass_marker, preview}], # top-level clean-pass compatibility path
+#                            has_pass_marker, is_new, preview}], # top-level clean-pass path; same listing rule
 #     "comments_history": {total, last_created_at},
 #     "reactions":        [{content, created_at, is_new}] # eyes = reviewing current HEAD; +1 = silent pass
 #   },
@@ -98,8 +97,7 @@
 #                                                       # in the snapshot) so a superseded failure cannot pin them red
 #   "checks_failing": [{name, conclusion}],             # check runs on current HEAD with a failing-ish conclusion —
 #                                                       # the failing set: failure/timed_out/cancelled/action_required/
-#                                                       # startup_failure (single source of truth for "failed check");
-#                                                       # red CI can block reviewers, so fix it before waiting on them
+#                                                       # startup_failure (single source of truth for "failed check")
 #   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 7
 #     "available": <bool>,                              # false = alerts API unreachable; gate must degrade.
 #     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false (GitHub
@@ -113,8 +111,8 @@
 # }
 #
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
-#   is_new                 new this round: created_at/submittedAt > last_push_at, OR id absent from the
-#                          seen ledger (straggler catch, see PITFALL 6; timestamp rule see PITFALL 2)
+#   is_new                 new this round: created_at/submittedAt > max(last_push_at, last round's marked_at)
+#                          (PITFALL 2 and 8), OR id absent from the seen ledger (straggler catch, PITFALL 6)
 #   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND the latest CR
 #                          review's commit anchor (when present) matches the head. CR rewrites its first comment
 #                          each review — but a rate-limit banner rewrite also advances updated_at without
@@ -138,7 +136,9 @@
 #                          feedback", "no feedback is provided"; any case) / word "approved" (any case), or body
 #                          is empty aside from the "## Code Review" heading (any case). Gemini-only; an unmatched
 #                          summary is treated as still actionable (safe default — no silent pass).
-#   has_started            Codex has posted eyes on the PR or an @codex review trigger comment
+#   has_started            Codex has posted eyes on the PR or an @codex review trigger comment, or a
+#                          clean-pass comment; reactions count only when the reactor is
+#                          chatgpt-codex-connector[bot] — anyone else's eyes never register
 #   has_outside_diff       CodeRabbit review body carries one or more "Outside diff range
 #                          comments" that could not be posted as inline comments
 #   has_body_finding       Codex review body itself carries a P0-P3 finding badge; this shape
@@ -202,6 +202,15 @@
 #    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
 #    Trivy scans on main) would otherwise block the exit gate forever. Alert numbers are
 #    repo-global and identical across refs, so a set difference on number is exact.
+#
+# 8. A batch disposed entirely by pushback pushes nothing, so last_push_at stands still and
+#    the timestamp half of is_new would keep re-surfacing the same comments as new every poll
+#    until the next push. round.sh mark stamps marked_at on every disposed batch; the freshness
+#    watermark is max(last_push_at, last marked_at), so a marked batch retires without a push.
+#    Stragglers created between the last poll and the mark are still caught by the seen ledger.
+#    Head-freshness (reviewed_current_head, reactions) stays push-based, and a review or
+#    comment row with reviewed_current_head == true stays listed (is_new false) after the
+#    mark retires it, so the current-HEAD status is still recoverable from the index.
 
 set -euo pipefail
 
@@ -233,23 +242,8 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # Snapshot dir: a user-private subdir (0700) keeps the predictable filename out of the
-# shared /tmp namespace on multi-user hosts; a pre-planted symlink (mkdir -p follows it)
-# or a foreign-owned dir at the path aborts loudly before anything is written.
-SNAP_BASE="${TMPDIR:-/tmp}"
-SNAP_DIR="${SNAP_BASE%/}/pr-ai-review-loop-$(id -u)"
-if [[ -L "$SNAP_DIR" ]]; then
-  echo "POLL_ERROR: snapshot dir is a symlink: $SNAP_DIR" >&2
-  exit 4
-fi
-# Plain mkdir (no -p): never follows a symlink to create elsewhere; parent tmpdir always
-# exists. On EEXIST re-validate — including -L for a symlink raced in after the check.
-if ! mkdir "$SNAP_DIR" 2>/dev/null; then
-  if [[ -L "$SNAP_DIR" || ! -d "$SNAP_DIR" || ! -O "$SNAP_DIR" ]]; then
-    echo "POLL_ERROR: snapshot dir is a symlink, missing, or not owned by the current user: $SNAP_DIR" >&2
-    exit 4
-  fi
-fi
-chmod 700 "$SNAP_DIR"
+# shared /tmp namespace on multi-user hosts (derivation shared via repo-context.sh).
+enter_snapshot_dir "POLL_ERROR" || exit $?
 
 # Stage gh output into temp files. Large PRs (dozens of comments) make --argjson
 # overflow ARG_MAX; --slurpfile reads from disk and is unbounded. Each gh call paginates,
@@ -267,8 +261,7 @@ OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$WORKDIR/gh_
   exit 4
 }
 
-# The repo slug keeps same-numbered PRs from different repos apart.
-SNAPSHOT_FILE="$SNAP_DIR/poll-${OWNER_REPO//\//-}-${PR}.json"
+SNAPSHOT_FILE=$(snapshot_file_for "$OWNER_REPO" "$PR")
 
 # Main query — GraphQL via gh pr view. author.login here is WITHOUT [bot] suffix.
 gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "$WORKDIR/main.json" 2>"$WORKDIR/gh_pr_view.err" || {
@@ -372,6 +365,20 @@ else
   printf 'null' > "$WORKDIR/seen.json"
 fi
 
+# Round ledger (PITFALL 8). A missing ledger is the pre-first-mark norm (0 rounds, no
+# watermark); an unreadable or empty one is not — the count is the convergence budget, so a
+# corrupt ledger fails loudly (`jq -e` exits 4 on empty input) instead of resetting it.
+ROUNDS_FILE="${SNAPSHOT_FILE%.json}.rounds.json"
+ROUNDS=0
+LAST_MARKED_AT=""
+if [[ -f "$ROUNDS_FILE" ]]; then
+  ROUNDS=$(jq -e '.rounds | length' "$ROUNDS_FILE") || {
+    echo "POLL_ERROR: round ledger unreadable: $ROUNDS_FILE" >&2
+    exit 6
+  }
+  LAST_MARKED_AT=$(jq -r '.rounds | last | .marked_at // ""' "$ROUNDS_FILE")
+fi
+
 # ---- Pass 1: build the FULL SNAPSHOT (full bodies + every flag) ----
 # Flags are computed once, here, so the index and every query.sh consumer see identical
 # judgments. Bot login normalization happens here so consumers see consistent keys.
@@ -393,6 +400,7 @@ jq -n \
   --arg security_hint "$SECURITY_ALERTS_HINT" \
   --arg repo "$OWNER_REPO" \
   --arg generated_at "$GENERATED_AT" \
+  --arg last_marked "$LAST_MARKED_AT" \
   '
   ($main_w[0]) as $main
   | (($sub_a_w | add) // []) as $sub_a
@@ -403,6 +411,7 @@ jq -n \
   | ($sub_c2 | map(select(.node_id != null))
      | map({key: .node_id, value: .commit_id}) | from_entries) as $review_commit_by_id
   | ($main.commits | last | .committedDate) as $last_push
+  | (if $last_marked > $last_push then $last_marked else $last_push end) as $fresh_since
   | ($seen_w[0]) as $seen_ids
   # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
   # superseded failure cannot pin codeql_checks / checks_failing red forever.
@@ -410,10 +419,11 @@ jq -n \
   # ---- shared helpers ----
   # Every body-consuming helper opens with (. // "") — jq string functions (gsub/test/
   # contains/capture) raise fatal errors on null input, and a null body must not kill a poll.
-  # is_new with the straggler catch (PITFALL 6): newer than the last push, or an id no
-  # earlier poll has observed. $seen_ids == null (first poll) keeps the timestamp rule alone.
+  # is_new with the straggler catch (PITFALL 6): newer than the freshness watermark (last
+  # push or last marked batch, PITFALL 8), or an id no earlier poll has observed.
+  # $seen_ids == null (first poll) keeps the timestamp rule alone.
   def fresh($ts; $id):
-    ($ts > $last_push)
+    ($ts > $fresh_since)
     or ($seen_ids != null and $id != null
         and (any($seen_ids[]; . == ($id | tostring)) | not));
 
@@ -551,7 +561,7 @@ jq -n \
        preview: ($cb | mk_preview), body};
 
   def inline_by_bot:
-    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))]
+    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-advanced-security)\\[bot\\]$"))]
     | group_by(.user.login)
     | map({
         key:   .[0].user.login,
@@ -602,12 +612,6 @@ jq -n \
     repo:          $repo,
     generated_at:  $generated_at,
     commits:       [$main.commits[] | {oid, committedDate}],
-    round_estimate:
-      ([$main.commits[] | select(.committedDate > $main.createdAt) | .committedDate]
-       | sort | map(fromdateiso8601)
-       | reduce .[] as $t ({prev: 0, n: 0};
-           if ($t - .prev) > 300 then {prev: $t, n: (.n + 1)} else {prev: $t, n: .n} end)
-       | .n),
 
     coderabbit: {
       walkthrough: cr_walkthrough_rest,
@@ -654,7 +658,7 @@ jq -n \
 
     codeql_checks:
       [$check_runs[]
-       | select((.app == "github-advanced-security" or .app == "github-code-quality")
+       | select(.app == "github-advanced-security"
                 or (.name | test("^Analyze \\(|^codeql-required$|^CodeQL$")))
        | . + {is_failing: (.conclusion | is_failing_conclusion)}],
 
@@ -705,10 +709,13 @@ mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
 # ---- Pass 2: project the MINIMAL INDEX from the snapshot ----
 # New rows carry flags + preview; older rows collapse to per-bot counts. Bodies never
 # reach stdout — query.sh reads them from the snapshot on demand.
-jq --arg snapshot_file "$SNAPSHOT_FILE" '
+jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
   def prune_hist: if .total == 0 then {total} else . end;
+  # Rows carrying reviewed_current_head stay listed after retirement (PITFALL 8) — head
+  # status must survive a pushback-only mark — so history excludes them too.
+  def shown: (.is_new or (.reviewed_current_head // false));
   def review_history:
-    [.[] | select(.is_new | not)]
+    [.[] | select(shown | not)]
     | {total: length, last_submitted_at: (map(.submittedAt) | max // null)}
     | prune_hist;
   . as $s
@@ -718,7 +725,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
       pr_created_at:  $s.pr_created_at,
       head:           $s.head,
       last_push_at:   $s.last_push_at,
-      round_estimate: $s.round_estimate,
+      rounds:         $rounds,
       snapshot_file:  $snapshot_file,
       base_oid:       ([$s.commits[] | select(.committedDate <= $created)] | (last | .oid) // null),
       commits_since_pr_created: [$s.commits[] | select(.committedDate > $created)],
@@ -739,7 +746,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
 
       gemini: {
         reviews:
-          [$s.gemini.reviews[] | select(.is_new)
+          [$s.gemini.reviews[] | select(shown)
            | {id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
         reviews_history: ($s.gemini.reviews | review_history),
         comments_new:
@@ -757,15 +764,15 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
            or (any($s.own_trigger_comments[];
                    .command == "@codex review" and .has_codex_eyes))),
         reviews:
-          [$s.codex.reviews[] | select(.is_new)
+          [$s.codex.reviews[] | select(shown)
            | {id, submittedAt, state, reviewed_commit, reviewed_current_head,
               has_body_finding, is_new, preview}],
         reviews_history: ($s.codex.reviews | review_history),
         comments_new:
-          [$s.codex.comments[] | select(.is_new)
-           | {id, createdAt, reviewed_commit, reviewed_current_head, has_pass_marker, preview}],
+          [$s.codex.comments[] | select(shown)
+           | {id, createdAt, reviewed_commit, reviewed_current_head, has_pass_marker, is_new, preview}],
         comments_history:
-          ([$s.codex.comments[] | select(.is_new | not)]
+          ([$s.codex.comments[] | select(shown | not)]
            | {total: length, last_created_at: (map(.createdAt) | max // null)}
            | prune_hist),
         reactions: [$s.codex.reactions[] | {content, created_at, is_new}]
@@ -801,22 +808,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
     }
   ' "$SNAPSHOT_FILE" > "$WORKDIR/index.json"
 
-# ---- Round-estimate ratchet ----
-# The date-gap clustering resets after a rebase: every committedDate refreshes, all fix
-# commits collapse into one cluster, and the >=3-round convergence guardrail would quietly
-# loosen. Within one PR the fix-round count never genuinely decreases, so carry forward the
-# max of (computed, last printed). The snapshot keeps the raw computed value.
 INDEX_FILE="${SNAPSHOT_FILE%.json}.index.json"
-PREV_ROUND=0
-if [[ -f "$INDEX_FILE" ]]; then
-  # The fallback still covers a present-but-unparsable index; absence is the first-poll norm.
-  PREV_ROUND=$(jq -r '.index.round_estimate // 0' "$INDEX_FILE" 2>/dev/null) || PREV_ROUND=0
-fi
-if [[ "$PREV_ROUND" =~ ^[0-9]+$ ]] && (( PREV_ROUND > 0 )); then
-  jq --argjson prev "$PREV_ROUND" '.round_estimate = ([.round_estimate, $prev] | max)' \
-    "$WORKDIR/index.json" > "$WORKDIR/index_ratchet.json"
-  mv "$WORKDIR/index_ratchet.json" "$WORKDIR/index.json"
-fi
 
 # ---- Pass 3: no-change collapse + semi-compact print ----
 # Waiting rounds dominate the loop; re-printing an identical index every poll is pure

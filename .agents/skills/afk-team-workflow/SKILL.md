@@ -31,7 +31,7 @@ disable-model-invocation: true
 
 实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响事项及其下游并询问用户。**quiesce first**：停止受影响 agents 并废弃未集成 handoff；review-looper 运行时，先停止它并核对 worktree、branch、remote HEAD 与 handoff。然后为已有 issue 移除 `ready-for-agent`、添加 `ready-for-human`，记录原因，并将暂停范围移出当前 stage。其余 frontier 继续执行。用户决定继续时：已有 issue 恢复标签；Spec gap 先创建并挂为 sub-issue，再重新编排。决定保留暂停时，仅当相关 commit 已进入 stage branch 才重建 stage，排除该 issue 及其下游；已有 PR 同步更新 `Closes` 清单。重建后重新运行累计质量门与审查循环。
 
-可吸收的运行故障、reviewer 重复噪声与无需业务选择的技术裁决由 team-lead 处理并记账；阻断 **green HEAD** 且无法自行恢复的故障按上文暂停。
+可吸收的运行故障、reviewer 重复噪声与无需业务选择的技术裁决由 team-lead 处理并记账；阻断 **green HEAD** 且无法自行恢复的故障按上文暂停。review-looper 硬停汇报后由 team-lead 裁决 merge、接力（新 looper 并给出延长的 `rounds`）或转呈：merge 的前提是 HEAD green，且末批每条都已有在案 pushback——team-lead 裁定为驳回的由其自行回复或交接力 looper 回复，有任何一条需实施即接力；涉业务取舍一律转呈用户。
 
 ## 4. 收尾
 
