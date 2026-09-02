@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lib import script_review
 from lib.artifact_activation import ArtifactCurrencyResolver
+from lib.artifact_currency import ArtifactComparer, RegisteredArtifactResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
 from lib.content_digest import prefixed_canonical_json_digest
@@ -188,6 +189,8 @@ EpisodeScriptStatus = Literal["none", "segmented", "generated"]
 
 #: 每集在广度视图上的粗粒度进度，由该集产物计数派生。
 EpisodeProductionStatus = Literal["draft", "scripted", "in_production", "completed"]
+#: 项目摘要的产物判定口径：``verified`` 与规范状态逐件比对；``registered`` 只看清单登记与文件在场。
+ProjectSummaryCurrency = Literal["verified", "registered"]
 
 
 class ArtifactCount(BaseModel):
@@ -247,6 +250,10 @@ class ProjectSummary(BaseModel):
     以及源文是否已全部排布成集。因此本投影可能把「产物齐备但源文尚未排布完」的项目显示为
     「完成」，而工作台按 11 值状态仍报 EPISODE_PLAN。产物口径本身两处一致：可用与 stale
     都取自同一份产物清单。
+
+    产物判定有两种口径（``ProjectSummaryCurrency``）：``verified`` 逐件与规范状态比对，能
+    区分 current 与 stale；``registered`` 只看清单登记与文件在场，stale 恒为 0。前者供
+    单个项目的详情与剧集卡，后者供项目列表——列出 N 个项目时不哈希任何产物字节。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -399,7 +406,7 @@ class WorkflowStateService:
 
     @staticmethod
     def _artifact_state(
-        resolver: ArtifactCurrencyResolver,
+        resolver: ArtifactComparer,
         key: ArtifactKey,
         artifact_path: str,
         blockers: list[WorkflowBlocker],
@@ -431,7 +438,7 @@ class WorkflowStateService:
         cls,
         collection: dict[str, Any],
         *,
-        resolver: ArtifactCurrencyResolver,
+        resolver: ArtifactComparer,
         key: ArtifactKey,
         artifact_path: str,
         resource_id: str,
@@ -524,7 +531,7 @@ class WorkflowStateService:
         project_path: Path,
         project: dict[str, Any],
         blockers: list[WorkflowBlocker],
-        resolver: ArtifactCurrencyResolver | None,
+        resolver: ArtifactComparer | None,
     ) -> dict[str, dict[str, Any]]:
         collections: dict[str, dict[str, Any]] = {}
         for asset_type, spec in ASSET_SPECS.items():
@@ -875,10 +882,11 @@ class WorkflowStateService:
         field: str,
         *,
         episode: int,
-        resolver: ArtifactCurrencyResolver | None,
+        resolver: ArtifactComparer | None,
         blockers: list[WorkflowBlocker],
         manual_video_versions: VersionManager | None = None,
         manual_video_resource_type: str | None = None,
+        manual_video_verify_content: bool = True,
     ) -> dict[str, Any]:
         collection: dict[str, Any] = _empty_collection()
         if kind is None:
@@ -904,6 +912,7 @@ class WorkflowStateService:
                         manual_video_resource_type,
                         resource_id,
                         artifact_path,
+                        verify_content=manual_video_verify_content,
                     )
                 key = (
                     ArtifactKey.episode_storyboard(episode, resource_id)
@@ -939,11 +948,16 @@ class WorkflowStateService:
         project_name: str,
         *,
         preloaded_scripts: Mapping[str, dict[str, Any]] | None = None,
+        currency: ProjectSummaryCurrency = "verified",
     ) -> ProjectSummary:
         """项目在广度视图上的投影（见 ``ProjectSummary``）。
 
         ``preloaded_scripts`` 按 ``episodes[].script_file`` 原值作 key，命中即复用调用方
         （项目列表把同一份剧本喂给封面解析）已经读过的那份，一次列表请求每集只读一次剧本。
+
+        ``currency`` 选产物判定口径：``verified`` 逐件与规范状态比对，代价是每件产物都要
+        重建基线（读清单、哈希分镜图与其引用图）；``registered`` 一次读入清单，只判断登记
+        与在场，不读产物字节。列表页取后者，其余取前者。
         """
 
         project = self.pm.load_project_readonly(project_name)
@@ -953,12 +967,16 @@ class WorkflowStateService:
         if failure is not None:
             return self._migration_blocked_summary(project, episodes, failure)
         try:
-            currency: ArtifactCurrencyResolver | None = ArtifactCurrencyResolver(project_path)
+            resolver: ArtifactComparer | None = (
+                RegisteredArtifactResolver(project_path, project)
+                if currency == "registered"
+                else ArtifactCurrencyResolver(project_path)
+            )
         except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError):
             # 清单读不出来时不退回「文件存在即产物存在」：本投影一律按 0 件可用报告，
             # 与工作台把它记成 artifact_currency_unavailable 阻断同一口径。
-            currency = None
-        assets = self._asset_counts(project_path, project, currency)
+            resolver = None
+        assets = self._asset_counts(project_path, project, resolver)
         episode_summaries = [
             self._episode_summary(
                 project_name,
@@ -966,8 +984,9 @@ class WorkflowStateService:
                 project_path,
                 number,
                 entry,
-                currency=currency,
+                currency=resolver,
                 preloaded_scripts=preloaded_scripts,
+                manual_video_verify_content=currency == "verified",
             )
             for number, entry in episodes
         ]
@@ -986,7 +1005,7 @@ class WorkflowStateService:
         self,
         project_path: Path,
         project: dict[str, Any],
-        currency: ArtifactCurrencyResolver | None,
+        currency: ArtifactComparer | None,
     ) -> dict[str, ArtifactCount]:
         sheets = self._asset_sheets(project_path, project, [], currency)
         return {
@@ -1005,8 +1024,9 @@ class WorkflowStateService:
         number: int,
         entry: dict[str, Any],
         *,
-        currency: ArtifactCurrencyResolver | None,
+        currency: ArtifactComparer | None,
         preloaded_scripts: Mapping[str, dict[str, Any]] | None,
+        manual_video_verify_content: bool,
     ) -> EpisodeSummary:
         script_status = self._episode_script_status(project, project_path, number, entry, currency)
         items: list[dict[str, Any]] = []
@@ -1052,6 +1072,7 @@ class WorkflowStateService:
                 manual_video_resource_type=(
                     "reference_videos" if project.get("generation_mode") == "reference_video" else "videos"
                 ),
+                manual_video_verify_content=manual_video_verify_content,
             ),
             total=len(items),
         )
@@ -1089,7 +1110,7 @@ class WorkflowStateService:
         project_path: Path,
         number: int,
         entry: dict[str, Any],
-        currency: ArtifactCurrencyResolver | None,
+        currency: ArtifactComparer | None,
     ) -> EpisodeScriptStatus:
         """由 script_plan 与正式脚本的产物态派生该集的脚本进度。
 

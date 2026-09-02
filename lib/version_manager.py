@@ -232,6 +232,8 @@ class VersionManager:
         resource_type: str,
         resource_id: str,
         artifact_path: object,
+        *,
+        verify_content: bool = True,
     ) -> bool:
         """Whether the canonical video is the exact selected manual-upload snapshot.
 
@@ -240,6 +242,10 @@ class VersionManager:
         than a script pointer or same-named file: the selected version record must
         be a manual upload and its managed snapshot must byte-match the canonical
         formal file while the version selection is locked.
+
+        ``verify_content=False`` skips the byte comparison and only requires both
+        files to be safely present; it serves breadth views that count artifacts
+        without reading them.
         """
 
         if resource_type not in {"videos", "reference_videos"}:
@@ -276,8 +282,9 @@ class VersionManager:
                 return False
             try:
                 adapter = ProjectArtifactManifestAdapter(self.project_path)
-                canonical = adapter.inspect_artifact_content(canonical_rel)
-                snapshot = adapter.inspect_artifact_content(snapshot_rel)
+                inspect = adapter.inspect_artifact_content if verify_content else adapter.inspect_artifact
+                canonical = inspect(canonical_rel)
+                snapshot = inspect(snapshot_rel)
             except ArtifactManifestError:
                 return False
             if (
@@ -287,7 +294,7 @@ class VersionManager:
                 or not snapshot.present
             ):
                 return False
-            return canonical.content_digest == snapshot.content_digest
+            return not verify_content or canonical.content_digest == snapshot.content_digest
 
     def add_version(
         self, resource_type: str, resource_id: str, prompt: str, source_file: Path | None = None, **metadata

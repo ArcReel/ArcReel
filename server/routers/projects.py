@@ -578,9 +578,15 @@ async def list_projects(summaries: WorkflowStateServiceDep):
                     # —— 同时覆盖分镜图生视频（含宫格装配）与参考生视频。
                     thumbnail = resolve_project_cover(manager, name, project, preloaded_scripts=preloaded_scripts)
 
-                    # 阶段与产物计数一律来自项目摘要投影（读时计算，产物口径取产物清单）
+                    # 阶段与产物计数一律来自项目摘要投影（读时计算，产物口径取产物清单）。
+                    # 列表只看清单登记与文件在场：逐件比对规范状态要哈希每个项目的
+                    # 全部分镜图与引用图，N 个项目的列表付不起这个代价。
                     status = _project_status_payload(
-                        summaries.get_project_summary(name, preloaded_scripts=preloaded_scripts)
+                        summaries.get_project_summary(
+                            name,
+                            preloaded_scripts=preloaded_scripts,
+                            currency="registered",
+                        )
                     )
 
                     raw_title = project.get("title")

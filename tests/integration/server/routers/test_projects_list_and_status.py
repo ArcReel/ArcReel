@@ -35,6 +35,18 @@ class TestProjectsRouter:
         # 预加载 map 被传给项目摘要投影
         assert fake_summaries.last_preloaded_scripts is not None
         assert "scripts/episode_1.json" in fake_summaries.last_preloaded_scripts
+        # 列表只看清单登记与文件在场，不逐件比对规范状态
+        assert set(fake_summaries.currencies) == {"registered"}
+
+    def test_get_project_status_verifies_artifact_currency(self, tmp_path, monkeypatch):
+        """单个项目的详情走完整比对口径：剧集卡要区分 current 与 stale。"""
+        fake_summaries = _FakeSummaries()
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path), fake_summaries)
+        with client:
+            resp = client.get("/api/v1/projects/ready")
+
+        assert resp.status_code == 200
+        assert fake_summaries.currencies == ["verified"]
 
     def test_list_projects_status_comes_from_the_project_summary(self, tmp_path, monkeypatch):
         """列表页的阶段与计数一律来自项目摘要：四值阶段在，五值 current_phase 不在。"""
