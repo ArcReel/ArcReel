@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -40,12 +41,15 @@ def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
 
 class TestOpenAITextBackend:
     def test_name_and_model(self):
-        with captured_openai_clients():
+        with captured_openai_clients() as created:
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
             assert backend.name == PROVIDER_OPENAI
             assert backend.model == "gpt-5.4-mini"
+
+        # 未给 base_url 时回填官方端点；SDK 内置重试关闭，由 generate() 统一管理重试
+        assert created == [{"api_key": "test-key", "base_url": "https://api.openai.com/v1", "max_retries": 0}]
 
     def test_custom_model(self):
         with captured_openai_clients():
@@ -110,7 +114,8 @@ class TestOpenAITextBackend:
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("I see a cat"))
 
         img_path = tmp_path / "test.png"
-        img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+        png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 10
+        img_path.write_bytes(png_bytes)
 
         with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
@@ -124,11 +129,17 @@ class TestOpenAITextBackend:
 
         assert result.text == "I see a cat"
         call_kwargs = mock_client.chat.completions.create.call_args[1]
-        user_msg = call_kwargs["messages"][-1]
-        assert isinstance(user_msg["content"], list)
-        types = [part["type"] for part in user_msg["content"]]
-        assert "image_url" in types
-        assert "text" in types
+        # 本地图片内联为 data URI 的 image_url part，文本 part 排在图片之后
+        data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode()
+        assert call_kwargs["messages"] == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": data_uri}},
+                    {"type": "text", "text": "What is this?"},
+                ],
+            }
+        ]
 
     async def test_generate_structured_output(self):
         schema_response = json.dumps({"name": "Alice", "age": 30})
@@ -232,7 +243,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patch("instructor.from_openai", return_value=mock_patched) as from_openai,
         ):
             from lib.text_backends.openai import OpenAITextBackend
 
@@ -249,6 +260,12 @@ class TestInstructorFallback:
         assert result.input_tokens == 150
         assert result.output_tokens == 80
         mock_client.chat.completions.create.assert_awaited_once()
+        # 降级复用同一个客户端、从 TOOLS 档起步，并把原生调用的 model / messages 原样交给 Instructor
+        from_openai.assert_called_once_with(mock_client, mode=Mode.TOOLS)
+        fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
+        assert fallback_kwargs["model"] == "gpt-5.4-mini"
+        assert fallback_kwargs["messages"] == [{"role": "user", "content": "Extract info"}]
+        assert fallback_kwargs["response_model"] is _PersonSchema
 
     async def test_schema_violating_json_triggers_instructor_fallback_pydantic(self):
         """原生返回 200 + 合法 JSON 但违反 response_schema（代理接受却不强制 schema），应降级到 Instructor。"""
@@ -407,7 +424,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patch("instructor.from_openai", return_value=mock_patched) as from_openai,
         ):
             from lib.text_backends.openai import OpenAITextBackend
 
@@ -422,6 +439,12 @@ class TestInstructorFallback:
         assert result.provider == PROVIDER_OPENAI
         assert result.input_tokens == 20
         assert result.output_tokens == 10
+        # 降级复用同一个客户端、从 TOOLS 档起步，并把原生调用的 model / messages 原样交给 Instructor
+        from_openai.assert_called_once_with(mock_client, mode=Mode.TOOLS)
+        fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
+        assert fallback_kwargs["model"] == "gpt-5.4-mini"
+        assert fallback_kwargs["messages"] == [{"role": "user", "content": "Extract info"}]
+        assert fallback_kwargs["response_model"] is _PersonSchema
 
     async def test_response_format_rejected_succeeds_via_tools_mode(self):
         """上游拒收 response_format 但支持 tools：降级链首档 TOOLS 即产出合规结构化结果。"""
