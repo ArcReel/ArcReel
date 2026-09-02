@@ -12,7 +12,8 @@
    其中判为等价变异体的（`--equivalent` 名单）被杀死即整轮作废。
 
 `exit code == 1` 视为 killed，其余一律列为待复核，与 runbook 的判据一致；有待复核项时不判通过。
-基线与本轮的 mutant 名集合不一致时直接失败：源码一变 `mutants/` 重生成，比对本身不成立。
+基线与本轮的 mutant 名集合不一致、或同名函数的源码哈希不同时直接失败：源码一变 `mutants/` 重生成，比对本身不成立；
+改造名单为空同样视为无效输入。
 
 零第三方依赖。用法见 `--help`，流程见 `docs/testing/mutmut-runbook.md`。
 """
@@ -61,24 +62,47 @@ class ComparisonReport:
         )
 
 
-def load_exit_codes(root: Path) -> dict[str, int | None]:
-    """合并目录下全部 `*.meta` 的 `exit_code_by_key`。"""
-    merged: dict[str, int | None] = {}
+@dataclass(frozen=True)
+class MetaSnapshot:
+    """一轮 mutmut 的结果：mutant 名 → exit code，以及被变异函数的源码哈希。"""
+
+    exit_codes: Mapping[str, int | None]
+    function_hashes: Mapping[str, str]
+
+
+def load_meta(root: Path) -> MetaSnapshot:
+    """合并目录下全部 `*.meta` 的 `exit_code_by_key` 与 `hash_by_function_name`。
+
+    哈希以「模块.函数」为键：mutant 名是 `lib.a.x_f__mutmut_3`，同一 .meta 里的 `hash_by_function_name`
+    键是 `x_f`，模块前缀取自该文件的 mutant 名。
+    """
+    exit_codes: dict[str, int | None] = {}
+    function_hashes: dict[str, str] = {}
     for meta in sorted(root.rglob("*.meta")):
         with meta.open(encoding="utf-8") as f:
             data = json.load(f)
         codes = data.get("exit_code_by_key")
-        if not isinstance(codes, dict):
-            raise ValueError(f"{meta} 缺少 exit_code_by_key")
+        hashes = data.get("hash_by_function_name", {})
+        if not isinstance(codes, dict) or not isinstance(hashes, dict):
+            raise ValueError(f"{meta} 缺少 exit_code_by_key 或 hash_by_function_name 不是对象")
+        modules: set[str] = set()
         for key, code in codes.items():
             if not isinstance(key, str) or not (code is None or isinstance(code, int)):
                 raise ValueError(f"{meta} 的 exit_code_by_key 含非法项：{key!r}: {code!r}")
-            if key in merged:
+            if key in exit_codes:
                 raise ValueError(f"mutant {key} 在 {root} 下出现多次")
-            merged[key] = code
-    if not merged:
+            exit_codes[key] = code
+            modules.add(key.partition("__mutmut_")[0].rpartition(".")[0])
+        if len(modules) > 1:
+            raise ValueError(f"{meta} 混有多个模块的 mutant：{sorted(modules)}")
+        module = modules.pop() if modules else ""
+        for func, digest in hashes.items():
+            if not isinstance(func, str) or not isinstance(digest, str):
+                raise ValueError(f"{meta} 的 hash_by_function_name 含非法项：{func!r}: {digest!r}")
+            function_hashes[f"{module}.{func}" if module else func] = digest
+    if not exit_codes:
         raise ValueError(f"{root} 下没有任何 *.meta 或其 exit_code_by_key 为空")
-    return merged
+    return MetaSnapshot(exit_codes=exit_codes, function_hashes=function_hashes)
 
 
 def read_names(path: Path) -> list[str]:
@@ -96,11 +120,26 @@ def compare(
     current: Mapping[str, int | None],
     reworked: Iterable[str],
     equivalent: Iterable[str] = (),
+    *,
+    baseline_hashes: Mapping[str, str] | None = None,
+    current_hashes: Mapping[str, str] | None = None,
 ) -> ComparisonReport:
     reworked_set = set(reworked)
     equivalent_set = set(equivalent)
     invalid: list[str] = []
 
+    if not reworked_set:
+        invalid.append("改造名单为空：没有任何 mutant 可验收，检查名单文件是否生成正确")
+    changed_functions = sorted(
+        func
+        for func, digest in (baseline_hashes or {}).items()
+        if func in (current_hashes or {}) and (current_hashes or {})[func] != digest
+    )
+    if changed_functions:
+        invalid.append(
+            f"基线与本轮有 {len(changed_functions)} 个函数源码哈希不同：mutant 名可能没变但语义已变，先重建基线"
+        )
+        invalid.extend(f"  源码已变 {func}" for func in changed_functions[:10])
     missing = sorted(set(baseline) - set(current))
     extra = sorted(set(current) - set(baseline))
     if missing or extra:
@@ -217,15 +256,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        baseline = load_exit_codes(args.baseline)
-        current = load_exit_codes(args.current)
+        baseline = load_meta(args.baseline)
+        current = load_meta(args.current)
         reworked = read_names(args.reworked)
         equivalent = read_names(args.equivalent) if args.equivalent else []
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"读取输入失败：{exc}", file=sys.stderr)
         return EXIT_INVALID
 
-    report = compare(baseline, current, reworked, equivalent)
+    report = compare(
+        baseline.exit_codes,
+        current.exit_codes,
+        reworked,
+        equivalent,
+        baseline_hashes=baseline.function_hashes,
+        current_hashes=current.function_hashes,
+    )
     print(render(report))
     if report.invalid:
         return EXIT_INVALID

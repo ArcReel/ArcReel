@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.mutmut_compare import EXIT_FAILED, EXIT_INVALID, EXIT_OK, compare, load_exit_codes, main, render
+from scripts.mutmut_compare import EXIT_FAILED, EXIT_INVALID, EXIT_OK, compare, load_meta, main, render
 
 _BASELINE = {
     "lib.a.x_f__mutmut_1": 1,
@@ -17,9 +17,9 @@ _BASELINE = {
 }
 
 
-def _write_meta(root: Path, name: str, codes: dict[str, int | None]) -> None:
+def _write_meta(root: Path, name: str, codes: dict[str, int | None], hashes: dict[str, str] | None = None) -> None:
     root.mkdir(parents=True, exist_ok=True)
-    payload = {"exit_code_by_key": codes, "hash_by_function_name": {}}
+    payload = {"exit_code_by_key": codes, "hash_by_function_name": hashes or {}}
     (root / name).write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -87,6 +87,7 @@ def test_killed_equivalent_mutant_invalidates_the_round() -> None:
         (dict(_BASELINE), ["lib.zzz__mutmut_9"], [], "不在基线中：lib.zzz__mutmut_9"),
         (dict(_BASELINE), ["lib.a.x_f__mutmut_1"], [], "在基线已是 killed"),
         (dict(_BASELINE), ["lib.a.x_f__mutmut_2"], ["lib.a.x_f__mutmut_2"], "既在改造名单又在等价变异体名单"),
+        (dict(_BASELINE), [], [], "改造名单为空"),
     ],
 )
 def test_inconsistent_inputs_make_the_comparison_invalid(
@@ -99,24 +100,63 @@ def test_inconsistent_inputs_make_the_comparison_invalid(
     assert report.reworked_killed == []
 
 
-def test_load_exit_codes_merges_meta_files_recursively_and_rejects_duplicates(tmp_path: Path) -> None:
-    _write_meta(tmp_path / "lib", "a.py.meta", {"lib.a.x_f__mutmut_1": 1, "lib.a.x_f__mutmut_2": None})
-    _write_meta(tmp_path / "server", "b.py.meta", {"server.b.x_g__mutmut_1": 0})
+def test_changed_function_hash_invalidates_even_when_mutant_names_match() -> None:
+    hashes_before = {"lib.a.x_f": "h1", "lib.b.x_g": "h2"}
+    hashes_after = {"lib.a.x_f": "h1-changed", "lib.b.x_g": "h2"}
 
-    assert load_exit_codes(tmp_path) == {
+    report = compare(
+        _BASELINE,
+        {**_BASELINE, "lib.a.x_f__mutmut_2": 1},
+        reworked=["lib.a.x_f__mutmut_2"],
+        baseline_hashes=hashes_before,
+        current_hashes=hashes_after,
+    )
+
+    assert not report.passed
+    assert report.invalid == [
+        "基线与本轮有 1 个函数源码哈希不同：mutant 名可能没变但语义已变，先重建基线",
+        "  源码已变 lib.a.x_f",
+    ]
+
+
+def test_load_meta_merges_meta_files_recursively_and_rejects_duplicates(tmp_path: Path) -> None:
+    _write_meta(tmp_path / "lib", "a.py.meta", {"lib.a.x_f__mutmut_1": 1, "lib.a.x_f__mutmut_2": None}, {"x_f": "h1"})
+    _write_meta(tmp_path / "server", "b.py.meta", {"server.b.x_g__mutmut_1": 0}, {"x_g": "h2"})
+
+    snapshot = load_meta(tmp_path)
+
+    assert snapshot.exit_codes == {
         "lib.a.x_f__mutmut_1": 1,
         "lib.a.x_f__mutmut_2": None,
         "server.b.x_g__mutmut_1": 0,
     }
+    assert snapshot.function_hashes == {"lib.a.x_f": "h1", "server.b.x_g": "h2"}
 
     _write_meta(tmp_path / "dup", "a.py.meta", {"lib.a.x_f__mutmut_1": 1})
     with pytest.raises(ValueError, match=r"lib\.a\.x_f__mutmut_1 在 .* 下出现多次"):
-        load_exit_codes(tmp_path)
+        load_meta(tmp_path)
+
+
+def test_load_meta_rejects_meta_file_mixing_modules(tmp_path: Path) -> None:
+    _write_meta(tmp_path, "mixed.py.meta", {"lib.a.x_f__mutmut_1": 1, "lib.b.x_g__mutmut_1": 0}, {"x_f": "h1"})
+
+    with pytest.raises(ValueError, match=r"混有多个模块的 mutant：\['lib\.a', 'lib\.b'\]"):
+        load_meta(tmp_path)
+
+
+def _write_round(root: Path, codes: dict[str, int | None], hashes: dict[str, str] | None = None) -> None:
+    """按真实 mutmut 的布局落盘：一个源模块一份 .meta。"""
+    for module in {key.partition("__mutmut_")[0].rpartition(".")[0] for key in codes}:
+        module_codes = {key: code for key, code in codes.items() if key.startswith(f"{module}.")}
+        module_hashes = {
+            func.rpartition(".")[2]: digest for func, digest in (hashes or {}).items() if func.startswith(f"{module}.")
+        }
+        _write_meta(root, f"{module}.py.meta", module_codes, module_hashes)
 
 
 def test_main_exit_codes_follow_verdict(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _write_meta(tmp_path / "baseline", "a.py.meta", _BASELINE)
-    _write_meta(tmp_path / "current", "a.py.meta", {**_BASELINE, "lib.a.x_f__mutmut_2": 1})
+    _write_round(tmp_path / "baseline", _BASELINE)
+    _write_round(tmp_path / "current", {**_BASELINE, "lib.a.x_f__mutmut_2": 1})
     reworked = tmp_path / "reworked.txt"
     reworked.write_text("# 本次改造\nlib.a.x_f__mutmut_2\n\n", encoding="utf-8")
     args = ["--baseline", str(tmp_path / "baseline"), "--current", str(tmp_path / "current"), "--reworked"]
@@ -130,6 +170,12 @@ def test_main_exit_codes_follow_verdict(tmp_path: Path, capsys: pytest.CaptureFi
 
     reworked.write_text("lib.a.x_f__mutmut_1\n", encoding="utf-8")
     assert main([*args, str(reworked)]) == EXIT_INVALID
+
+    reworked.write_text("lib.a.x_f__mutmut_2\n", encoding="utf-8")
+    _write_round(tmp_path / "baseline", _BASELINE, {"lib.a.x_f": "h1"})
+    _write_round(tmp_path / "current", {**_BASELINE, "lib.a.x_f__mutmut_2": 1}, {"lib.a.x_f": "h1-changed"})
+    assert main([*args, str(reworked)]) == EXIT_INVALID
+    assert "源码已变 lib.a.x_f" in capsys.readouterr().out
 
     assert main([*args, str(tmp_path / "missing.txt")]) == EXIT_INVALID
     assert "读取输入失败" in capsys.readouterr().err
