@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
+import sys
 import tempfile
 import uuid as _uuid
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -49,11 +50,13 @@ def _discard_pooled_connections_in_forked_child() -> None:
     aiosqlite 每个连接由一条专属工作线程驱动，fork 只复制调用线程，子进程里池中
     连接的工作线程不存在，经它发出的任何查询都永远等不到结果。``close=False``
     只丢引用不关连接，父进程那份连接不受影响。mutmut 按 mutant fork 跑测试，
-    子进程首个走 ``lib.db.engine`` 的用例会就此挂到超时。
+    子进程首个走 ``lib.db.engine`` 的用例会就此挂到超时。父进程从未 import 过
+    该模块时池中无连接可丢，也不在子进程里触发 engine 创建。
     """
-    from lib.db.engine import async_engine
-
-    async_engine.sync_engine.dispose(close=False)
+    engine_module = sys.modules.get("lib.db.engine")
+    if engine_module is None:
+        return
+    engine_module.async_engine.sync_engine.dispose(close=False)
 
 
 if hasattr(os, "register_at_fork"):
