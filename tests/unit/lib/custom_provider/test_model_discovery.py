@@ -89,11 +89,11 @@ class TestDiscoverModelsOpenAI:
             api_key="sk-test",
         )
 
-        # 鉴权与 base_url 透传到 SDK 客户端构造参数，base_url 已补全 /v1
-        assert mock_openai_cls.call_args.kwargs == {
-            "api_key": "sk-test",
-            "base_url": "https://api.example.com/v1",
-        }
+        # 鉴权与 base_url 原样透传到 SDK 客户端构造参数
+        mock_openai_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://api.example.com/v1",
+        )
         assert len(result) == 3
         # 按 id 排序
         ids = [m["model_id"] for m in result]
