@@ -103,6 +103,12 @@ def test_equivalent_mutant_with_abnormal_exit_code_blocks_the_verdict_until_rech
         (dict(_BASELINE), ["lib.a.x_f__mutmut_1"], [], "在基线已是 killed"),
         (dict(_BASELINE), ["lib.a.x_f__mutmut_2"], ["lib.a.x_f__mutmut_2"], "既在改造名单又在等价变异体名单"),
         (dict(_BASELINE), [], [], "改造名单为空"),
+        (
+            dict(_BASELINE),
+            ["lib.a.x_f__mutmut_2"],
+            ["lib.b.x_g__mutmut_1"],
+            "等价变异体名单里的 mutant 在基线已是 killed",
+        ),
     ],
 )
 def test_inconsistent_inputs_make_the_comparison_invalid(

@@ -11,7 +11,7 @@
 3. 基线里存活且本次未改造的 mutant：被杀死只登记不报警；
    其中判为等价变异体的（`--equivalent` 名单）被杀死即整轮作废。
 
-`exit code == 1` 视为 killed，其余一律列为待复核，与 runbook 的判据一致；有待复核项时不判通过。
+`exit code == 1` 视为 killed，`0` 视为存活，其余列为待复核，与 runbook 的判据一致；有待复核项时不判通过。
 基线与本轮的 mutant 名集合不一致、或同名函数的源码哈希不同时直接失败：源码一变 `mutants/` 重生成，比对本身不成立；
 改造名单为空同样视为无效输入。
 
@@ -176,6 +176,11 @@ def compare(
         f"同一 mutant 既在改造名单又在等价变异体名单：{name}" for name in sorted(equivalent_set & reworked_set)
     )
     invalid.extend(f"等价变异体名单里的 mutant 不在基线中：{name}" for name in sorted(equivalent_set - set(baseline)))
+    invalid.extend(
+        f"等价变异体名单里的 mutant 在基线已是 killed：等价变异体不可能被杀，基线本身可疑，先查假杀死链：{name}"
+        for name in sorted(equivalent_set & set(baseline))
+        if baseline[name] == KILLED
+    )
     if invalid:
         return ComparisonReport(invalid=invalid)
 
