@@ -60,7 +60,7 @@
 1. 本轮无新 inline,或本轮新 inline 全部为 `low/nit/style` 或全部 `is_ack`
 2. 最新一条 `reviewed_current_head == true` 的 review 的 `has_pass_marker == true`
 
-**pushback 例外**:存在 pushback 时 pass marker 不可达,按「本轮非 ack inline 均已处置」判定通过。
+**pushback 例外**:存在 pushback 时 pass marker 不可达,改按 finding 覆盖判定:summary 与 inline 中的每条 finding 均已实施或有在案 pushback 即通过,仅处置 inline 不足以通过。
 
 ## OpenAI Codex
 

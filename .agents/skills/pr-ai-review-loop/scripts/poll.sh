@@ -21,8 +21,8 @@
 #              rebuilt by re-running poll.sh. query.sh is its only intended reader.
 #   index    — last fully-printed index plus its printed_at, at <snapshot>.index.json;
 #              backs the no_change comparison and `query.sh index`.
-#   rounds   — per-PR round ledger written by round.sh at <snapshot>.rounds.json; poll.sh only
-#              reads its entry count.
+#   rounds   — per-PR round ledger written by round.sh at <snapshot>.rounds.json; poll.sh reads
+#              its entry count and the last marked_at (the pushback-only watermark, see PITFALL 8).
 #   seen     — per-PR ledger of every comment/review id observed by any earlier poll, at
 #              <snapshot>.seen.json; backs the straggler half of is_new (see PITFALL 6).
 #
@@ -110,8 +110,8 @@
 # }
 #
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
-#   is_new                 new this round: created_at/submittedAt > last_push_at, OR id absent from the
-#                          seen ledger (straggler catch, see PITFALL 6; timestamp rule see PITFALL 2)
+#   is_new                 new this round: created_at/submittedAt > max(last_push_at, last round's marked_at)
+#                          (PITFALL 2 and 8), OR id absent from the seen ledger (straggler catch, PITFALL 6)
 #   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND the latest CR
 #                          review's commit anchor (when present) matches the head. CR rewrites its first comment
 #                          each review — but a rate-limit banner rewrite also advances updated_at without
@@ -201,6 +201,13 @@
 #    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
 #    Trivy scans on main) would otherwise block the exit gate forever. Alert numbers are
 #    repo-global and identical across refs, so a set difference on number is exact.
+#
+# 8. A batch disposed entirely by pushback pushes nothing, so last_push_at stands still and
+#    the timestamp half of is_new would keep re-surfacing the same comments as new every poll
+#    until the next push. round.sh mark stamps marked_at on every disposed batch; the freshness
+#    watermark is max(last_push_at, last marked_at), so a marked batch retires without a push.
+#    Stragglers created between the last poll and the mark are still caught by the seen ledger.
+#    Head-freshness (reviewed_current_head, reactions) stays push-based.
 
 set -euo pipefail
 
@@ -355,6 +362,20 @@ else
   printf 'null' > "$WORKDIR/seen.json"
 fi
 
+# Round ledger (PITFALL 8). A missing ledger is the pre-first-mark norm (0 rounds, no
+# watermark); an unreadable or empty one is not — the count is the convergence budget, so a
+# corrupt ledger fails loudly (`jq -e` exits 4 on empty input) instead of resetting it.
+ROUNDS_FILE="${SNAPSHOT_FILE%.json}.rounds.json"
+ROUNDS=0
+LAST_MARKED_AT=""
+if [[ -f "$ROUNDS_FILE" ]]; then
+  ROUNDS=$(jq -e '.rounds | length' "$ROUNDS_FILE") || {
+    echo "POLL_ERROR: round ledger unreadable: $ROUNDS_FILE" >&2
+    exit 6
+  }
+  LAST_MARKED_AT=$(jq -r '.rounds | last | .marked_at // ""' "$ROUNDS_FILE")
+fi
+
 # ---- Pass 1: build the FULL SNAPSHOT (full bodies + every flag) ----
 # Flags are computed once, here, so the index and every query.sh consumer see identical
 # judgments. Bot login normalization happens here so consumers see consistent keys.
@@ -376,6 +397,7 @@ jq -n \
   --arg security_hint "$SECURITY_ALERTS_HINT" \
   --arg repo "$OWNER_REPO" \
   --arg generated_at "$GENERATED_AT" \
+  --arg last_marked "$LAST_MARKED_AT" \
   '
   ($main_w[0]) as $main
   | (($sub_a_w | add) // []) as $sub_a
@@ -386,6 +408,7 @@ jq -n \
   | ($sub_c2 | map(select(.node_id != null))
      | map({key: .node_id, value: .commit_id}) | from_entries) as $review_commit_by_id
   | ($main.commits | last | .committedDate) as $last_push
+  | (if $last_marked > $last_push then $last_marked else $last_push end) as $fresh_since
   | ($seen_w[0]) as $seen_ids
   # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
   # superseded failure cannot pin codeql_checks / checks_failing red forever.
@@ -393,10 +416,11 @@ jq -n \
   # ---- shared helpers ----
   # Every body-consuming helper opens with (. // "") — jq string functions (gsub/test/
   # contains/capture) raise fatal errors on null input, and a null body must not kill a poll.
-  # is_new with the straggler catch (PITFALL 6): newer than the last push, or an id no
-  # earlier poll has observed. $seen_ids == null (first poll) keeps the timestamp rule alone.
+  # is_new with the straggler catch (PITFALL 6): newer than the freshness watermark (last
+  # push or last marked batch, PITFALL 8), or an id no earlier poll has observed.
+  # $seen_ids == null (first poll) keeps the timestamp rule alone.
   def fresh($ts; $id):
-    ($ts > $last_push)
+    ($ts > $fresh_since)
     or ($seen_ids != null and $id != null
         and (any($seen_ids[]; . == ($id | tostring)) | not));
 
@@ -682,16 +706,6 @@ mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
 # ---- Pass 2: project the MINIMAL INDEX from the snapshot ----
 # New rows carry flags + preview; older rows collapse to per-bot counts. Bodies never
 # reach stdout — query.sh reads them from the snapshot on demand.
-# A missing ledger is the pre-first-mark norm (0 rounds); an unreadable one is not — the
-# count is the convergence budget, so a corrupt ledger fails loudly instead of resetting it.
-ROUNDS_FILE="${SNAPSHOT_FILE%.json}.rounds.json"
-ROUNDS=0
-if [[ -f "$ROUNDS_FILE" ]]; then
-  ROUNDS=$(jq '.rounds | length' "$ROUNDS_FILE") || {
-    echo "POLL_ERROR: round ledger unreadable: $ROUNDS_FILE" >&2
-    exit 6
-  }
-fi
 jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
   def prune_hist: if .total == 0 then {total} else . end;
   def review_history:
