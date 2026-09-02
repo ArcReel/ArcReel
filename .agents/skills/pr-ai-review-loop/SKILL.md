@@ -67,7 +67,7 @@ bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n>
 
 **一轮** = 一批新反馈 → 一次处置 push 或全部 pushback 回复发出。CI 修红、rebase、触发命令都不是轮。账本落盘在 poll.sh snapshot 旁,`round.sh show` 可随时重读,上下文压缩与换人后轮数不丢。
 
-预算默认**评估点 3、硬停 6**,委派方指令可给出其它数值;账本只累计,不清零。轮数到达硬停值,记账后再等一个复审周期:全过则正常退出;仍有新 actionable 则停止,本批留待委派方裁决,按 convergence.md「硬停汇报」汇报。
+预算默认**评估点 3、硬停 6**,委派方指令可给出其它数值;账本只累计,不清零。轮数到达硬停值,记账后回到步骤 1 走最后一遍:该轮有 push 的等 reviewer 复审,纯 pushback 的直接终核;目标状态全过则正常退出,出现新 actionable 则停止,本批留待委派方裁决,按 convergence.md「硬停汇报」汇报。
 
 ## 暂停询问委派方
 
