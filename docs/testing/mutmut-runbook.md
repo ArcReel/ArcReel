@@ -70,7 +70,7 @@ uv run python scripts/mutmut_compare.py \
   --equivalent equivalent.txt
 ```
 
-`reworked.txt` 一行一个本次改造针对的 mutant 名；`equivalent.txt` 可选，一行一个判定为等价变异体的 mutant 名。脚本输出三层表与待复核清单，exit code 0 通过、1 未通过、2 输入不一致（基线与本轮 mutant 名集合不同、名单里的 mutant 不在基线等）。
+`reworked.txt` 一行一个本次改造针对的 mutant 名；`equivalent.txt` 可选，一行一个判定为等价变异体的 mutant 名。脚本输出三层表与待复核清单，exit code 0 通过、1 未通过或有待复核项、2 输入不一致（基线与本轮 mutant 名集合不同、名单里的 mutant 不在基线等）。有待复核项时不判通过：按第 4 节复核后，确认 killed 的把本轮 `.meta` 里该 mutant 的 exit code 改成 1，确认存活的改成 0，再比对一次拿最终结论。
 
 | 层 | 通过条件 | 未通过怎么办 |
 | --- | --- | --- |

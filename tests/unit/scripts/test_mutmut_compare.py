@@ -57,6 +57,18 @@ def test_baseline_killed_turning_survived_is_regression_but_timeout_is_recheck()
     assert report.baseline_killed_recheck == [("lib.b.x_g__mutmut_1", 36)]
 
 
+def test_baseline_killed_timeout_alone_blocks_the_verdict_until_rechecked() -> None:
+    current = {**_BASELINE, "lib.a.x_f__mutmut_2": 1, "lib.b.x_g__mutmut_1": -24}
+
+    report = compare(_BASELINE, current, reworked=["lib.a.x_f__mutmut_2"])
+
+    assert not report.passed
+    assert report.pending_recheck
+    assert report.regressed == []
+    assert report.baseline_killed_recheck == [("lib.b.x_g__mutmut_1", -24)]
+    assert render(report).splitlines()[-1].startswith("验收未完成")
+
+
 def test_killed_equivalent_mutant_invalidates_the_round() -> None:
     current = {**_BASELINE, "lib.a.x_f__mutmut_2": 1, "lib.a.x_f__mutmut_5": 1}
 

@@ -11,7 +11,7 @@
 3. 基线里存活且本次未改造的 mutant：被杀死只登记不报警；
    其中判为等价变异体的（`--equivalent` 名单）被杀死即整轮作废。
 
-`exit code == 1` 视为 killed，其余一律列为待复核，与 runbook 的判据一致。
+`exit code == 1` 视为 killed，其余一律列为待复核，与 runbook 的判据一致；有待复核项时不判通过。
 基线与本轮的 mutant 名集合不一致时直接失败：源码一变 `mutants/` 重生成，比对本身不成立。
 
 零第三方依赖。用法见 `--help`，流程见 `docs/testing/mutmut-runbook.md`。
@@ -50,9 +50,14 @@ class ComparisonReport:
     equivalent_killed: list[str] = field(default_factory=list)
 
     @property
+    def pending_recheck(self) -> bool:
+        """有 mutant 变成超时之类的非 0/1 exit code，结论要等新进程复核。"""
+        return bool(self.reworked_recheck or self.baseline_killed_recheck)
+
+    @property
     def passed(self) -> bool:
         return not (
-            self.invalid or self.reworked_survived or self.reworked_recheck or self.regressed or self.equivalent_killed
+            self.invalid or self.reworked_survived or self.regressed or self.equivalent_killed or self.pending_recheck
         )
 
 
@@ -182,7 +187,12 @@ def render(report: ComparisonReport) -> str:
     _section(lines, "顺手杀死（只登记）", report.untouched_killed)
     _section(lines, "等价变异体被杀死——整轮作废，先查假杀死链", report.equivalent_killed)
     lines.append("")
-    lines.append("验收通过" if report.passed else "验收未通过")
+    if report.passed:
+        lines.append("验收通过")
+    elif report.reworked_survived or report.regressed or report.equivalent_killed:
+        lines.append("验收未通过")
+    else:
+        lines.append("验收未完成：有待复核项，新进程复核后按结果改基线或改本轮 .meta 再比对")
     return "\n".join(lines)
 
 
