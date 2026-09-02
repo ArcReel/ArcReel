@@ -28,6 +28,7 @@ const ANCHORS = new Map([
   ["### 共享设施", "shared-test-fixtures"],
   ["### 时序与偶发失败", "timing-and-flakiness"],
   ["### 覆盖率", "coverage"],
+  ["### 变异测试", "mutation-testing"],
   ["### 闸门", "test-gates"],
   ["### 前端测试（vitest）", "frontend-vitest"],
   ["## 代码质量", "code-quality"],
