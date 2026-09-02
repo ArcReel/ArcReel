@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 
 import pytest
@@ -47,7 +48,7 @@ def test_sha256_file_with_size_reports_byte_count(tmp_path: Path) -> None:
 
 
 def test_sha256_file_rejects_non_file(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError, match=re.escape(str(tmp_path))):
         sha256_file(tmp_path)
 
 
