@@ -76,7 +76,7 @@ uv run python scripts/mutmut_compare.py \
 | --- | --- | --- |
 | 本次改造针对的 mutant | 全部 exit code 1 | 变超时 → 按第 4 节复核，1 failed 即 killed；仍存活 → 四路分诊（见下） |
 | 基线 killed 的 mutant | 没有一个变成 exit code 0 | 变超时 → 新进程复核，1 failed 即护栏成立，只有全部通过才是回退；回退 = 改坏了别的用例 |
-| 基线存活且本次未改造的 mutant | 被杀死只登记 | 判为等价变异体的被杀死 → 整轮作废，先查第 6 节的假杀死链 |
+| 基线存活且本次未改造的 mutant | 被杀死只登记；等价变异体的 exit code 仍是 0 | 判为等价变异体的被杀死 → 整轮作废，先查第 6 节的假杀死链；等价变异体变超时或段错误 → 按第 4 节复核，1 failed 即被杀死。其余未改造 mutant 的异常 exit code 不影响结论 |
 
 同时有一道独立硬门：`git diff --name-only origin/main` 不得含 `lib/` 与 `server/`。生产代码一变，`mutants/` 重生成、mutant 名错位，比对本身不成立。
 

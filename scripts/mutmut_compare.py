@@ -49,11 +49,15 @@ class ComparisonReport:
     untouched_total: int = 0
     untouched_killed: list[str] = field(default_factory=list)
     equivalent_killed: list[str] = field(default_factory=list)
+    equivalent_recheck: list[tuple[str, int]] = field(default_factory=list)
 
     @property
     def pending_recheck(self) -> bool:
-        """有 mutant 变成超时之类的非 0/1 exit code，结论要等新进程复核。"""
-        return bool(self.reworked_recheck or self.baseline_killed_recheck)
+        """有 mutant 变成超时之类的非 0/1 exit code，结论要等新进程复核。
+
+        第三层只对等价变异体复核：其余未改造 mutant 被杀只登记，异常 exit code 不影响结论。
+        """
+        return bool(self.reworked_recheck or self.baseline_killed_recheck or self.equivalent_recheck)
 
     @property
     def passed(self) -> bool:
@@ -198,6 +202,8 @@ def compare(
                 report.untouched_killed.append(name)
                 if name in equivalent_set:
                     report.equivalent_killed.append(name)
+            elif after != SURVIVED and name in equivalent_set:
+                report.equivalent_recheck.append((name, _code(after)))
     return report
 
 
@@ -226,7 +232,7 @@ def render(report: ComparisonReport) -> str:
     )
     lines.append(
         f"| 基线存活且未改造的 mutant | {report.untouched_total} | 顺手杀死 {len(report.untouched_killed)}，"
-        f"其中等价变异体 {len(report.equivalent_killed)} |"
+        f"其中等价变异体 {len(report.equivalent_killed)}，等价变异体待复核 {len(report.equivalent_recheck)} |"
     )
 
     _section(lines, "改造后仍存活（改造未生效）", report.reworked_survived)
@@ -239,6 +245,11 @@ def render(report: ComparisonReport) -> str:
     )
     _section(lines, "顺手杀死（只登记）", report.untouched_killed)
     _section(lines, "等价变异体被杀死——整轮作废，先查假杀死链", report.equivalent_killed)
+    _section(
+        lines,
+        "等价变异体待复核（新进程复核，1 failed 即被杀死、整轮作废）",
+        _with_codes(report.equivalent_recheck),
+    )
     lines.append("")
     if report.passed:
         lines.append("验收通过")

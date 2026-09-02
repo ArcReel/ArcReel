@@ -82,6 +82,19 @@ def test_killed_equivalent_mutant_invalidates_the_round() -> None:
     assert "整轮作废" in render(report)
 
 
+def test_equivalent_mutant_with_abnormal_exit_code_blocks_the_verdict_until_rechecked() -> None:
+    current = {**_BASELINE, "lib.a.x_f__mutmut_2": 1, "lib.a.x_f__mutmut_5": -11, "lib.a.x_f__mutmut_4": 36}
+
+    report = compare(_BASELINE, current, reworked=["lib.a.x_f__mutmut_2"], equivalent=["lib.a.x_f__mutmut_5"])
+
+    assert not report.passed
+    assert report.pending_recheck
+    assert report.equivalent_recheck == [("lib.a.x_f__mutmut_5", -11)]
+    assert report.untouched_killed == []
+    assert "等价变异体待复核 1" in render(report)
+    assert "验收未完成" in render(report)
+
+
 @pytest.mark.parametrize(
     ("current", "reworked", "equivalent", "expected_fragment"),
     [
