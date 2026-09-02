@@ -59,10 +59,8 @@ OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) || {
   exit 4
 }
 
-# Keep in sync with poll.sh's SNAP_DIR/SNAPSHOT_FILE derivation (user-private subdir).
-SNAP_BASE="${TMPDIR:-/tmp}"
-SNAP_DIR="${SNAP_BASE%/}/pr-ai-review-loop-$(id -u)"
-SNAPSHOT_FILE="$SNAP_DIR/poll-${OWNER_REPO//\//-}-${PR}.json"
+enter_snapshot_dir "QUERY_ERROR" || exit $?
+SNAPSHOT_FILE=$(snapshot_file_for "$OWNER_REPO" "$PR")
 
 if [[ ! -f "$SNAPSHOT_FILE" ]]; then
   echo "QUERY_ERROR: snapshot not found: $SNAPSHOT_FILE — run poll.sh $PR first" >&2

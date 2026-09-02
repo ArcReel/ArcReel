@@ -20,7 +20,9 @@
 #              carries no cross-round state: it materializes THIS poll's fetch and is fully
 #              rebuilt by re-running poll.sh. query.sh is its only intended reader.
 #   index    — last fully-printed index plus its printed_at, at <snapshot>.index.json;
-#              backs the no_change comparison, the round_estimate ratchet, and `query.sh index`.
+#              backs the no_change comparison and `query.sh index`.
+#   rounds   — per-PR round ledger written by round.sh at <snapshot>.rounds.json; poll.sh only
+#              reads its entry count.
 #   seen     — per-PR ledger of every comment/review id observed by any earlier poll, at
 #              <snapshot>.seen.json; backs the straggler half of is_new (see PITFALL 6).
 #
@@ -39,12 +41,8 @@
 #   "pr_created_at": "<ISO8601>",                       # PR createdAt — distinct from last_push_at
 #   "head": "<sha>",                                    # current PR head commit SHA
 #   "last_push_at": "<ISO8601>",                        # head commit committedDate — see PITFALL 1
-#   "round_estimate": <int>,                            # fix-round count: commits with committedDate > pr_created_at,
-#                                                       # clustered by >5min gaps; ratcheted against the last printed
-#                                                       # index so it never decreases within a PR — a rebase refreshes
-#                                                       # all dates, collapsing the clustering, and would otherwise
-#                                                       # silently reset the convergence guardrail. The snapshot keeps
-#                                                       # the raw computed value (heuristic only)
+#   "rounds": <int>,                                    # disposed feedback batches recorded by `round.sh mark`
+#                                                       # (0 until the first mark) — the convergence budget counter
 #   "snapshot_file": "<path>",                          # full snapshot staged for query.sh
 #   "base_oid": "<sha>" | null,                         # last commit at/before PR creation — SINCE_SHA for the
 #                                                       # first fix batch (null when every commit postdates creation)
@@ -138,7 +136,9 @@
 #                          feedback", "no feedback is provided"; any case) / word "approved" (any case), or body
 #                          is empty aside from the "## Code Review" heading (any case). Gemini-only; an unmatched
 #                          summary is treated as still actionable (safe default — no silent pass).
-#   has_started            Codex has posted eyes on the PR or an @codex review trigger comment
+#   has_started            Codex has posted eyes on the PR or an @codex review trigger comment, or a
+#                          clean-pass comment; reactions count only when the reactor is
+#                          chatgpt-codex-connector[bot] — anyone else's eyes never register
 #   has_outside_diff       CodeRabbit review body carries one or more "Outside diff range
 #                          comments" that could not be posted as inline comments
 #   has_body_finding       Codex review body itself carries a P0-P3 finding badge; this shape
@@ -233,23 +233,8 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # Snapshot dir: a user-private subdir (0700) keeps the predictable filename out of the
-# shared /tmp namespace on multi-user hosts; a pre-planted symlink (mkdir -p follows it)
-# or a foreign-owned dir at the path aborts loudly before anything is written.
-SNAP_BASE="${TMPDIR:-/tmp}"
-SNAP_DIR="${SNAP_BASE%/}/pr-ai-review-loop-$(id -u)"
-if [[ -L "$SNAP_DIR" ]]; then
-  echo "POLL_ERROR: snapshot dir is a symlink: $SNAP_DIR" >&2
-  exit 4
-fi
-# Plain mkdir (no -p): never follows a symlink to create elsewhere; parent tmpdir always
-# exists. On EEXIST re-validate — including -L for a symlink raced in after the check.
-if ! mkdir "$SNAP_DIR" 2>/dev/null; then
-  if [[ -L "$SNAP_DIR" || ! -d "$SNAP_DIR" || ! -O "$SNAP_DIR" ]]; then
-    echo "POLL_ERROR: snapshot dir is a symlink, missing, or not owned by the current user: $SNAP_DIR" >&2
-    exit 4
-  fi
-fi
-chmod 700 "$SNAP_DIR"
+# shared /tmp namespace on multi-user hosts (derivation shared via repo-context.sh).
+enter_snapshot_dir "POLL_ERROR" || exit $?
 
 # Stage gh output into temp files. Large PRs (dozens of comments) make --argjson
 # overflow ARG_MAX; --slurpfile reads from disk and is unbounded. Each gh call paginates,
@@ -267,8 +252,7 @@ OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$WORKDIR/gh_
   exit 4
 }
 
-# The repo slug keeps same-numbered PRs from different repos apart.
-SNAPSHOT_FILE="$SNAP_DIR/poll-${OWNER_REPO//\//-}-${PR}.json"
+SNAPSHOT_FILE=$(snapshot_file_for "$OWNER_REPO" "$PR")
 
 # Main query — GraphQL via gh pr view. author.login here is WITHOUT [bot] suffix.
 gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "$WORKDIR/main.json" 2>"$WORKDIR/gh_pr_view.err" || {
@@ -602,12 +586,6 @@ jq -n \
     repo:          $repo,
     generated_at:  $generated_at,
     commits:       [$main.commits[] | {oid, committedDate}],
-    round_estimate:
-      ([$main.commits[] | select(.committedDate > $main.createdAt) | .committedDate]
-       | sort | map(fromdateiso8601)
-       | reduce .[] as $t ({prev: 0, n: 0};
-           if ($t - .prev) > 300 then {prev: $t, n: (.n + 1)} else {prev: $t, n: .n} end)
-       | .n),
 
     coderabbit: {
       walkthrough: cr_walkthrough_rest,
@@ -705,7 +683,17 @@ mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
 # ---- Pass 2: project the MINIMAL INDEX from the snapshot ----
 # New rows carry flags + preview; older rows collapse to per-bot counts. Bodies never
 # reach stdout — query.sh reads them from the snapshot on demand.
-jq --arg snapshot_file "$SNAPSHOT_FILE" '
+# A missing ledger is the pre-first-mark norm (0 rounds); an unreadable one is not — the
+# count is the convergence budget, so a corrupt ledger fails loudly instead of resetting it.
+ROUNDS_FILE="${SNAPSHOT_FILE%.json}.rounds.json"
+ROUNDS=0
+if [[ -f "$ROUNDS_FILE" ]]; then
+  ROUNDS=$(jq '.rounds | length' "$ROUNDS_FILE") || {
+    echo "POLL_ERROR: round ledger unreadable: $ROUNDS_FILE" >&2
+    exit 6
+  }
+fi
+jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
   def prune_hist: if .total == 0 then {total} else . end;
   def review_history:
     [.[] | select(.is_new | not)]
@@ -718,7 +706,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
       pr_created_at:  $s.pr_created_at,
       head:           $s.head,
       last_push_at:   $s.last_push_at,
-      round_estimate: $s.round_estimate,
+      rounds:         $rounds,
       snapshot_file:  $snapshot_file,
       base_oid:       ([$s.commits[] | select(.committedDate <= $created)] | (last | .oid) // null),
       commits_since_pr_created: [$s.commits[] | select(.committedDate > $created)],
@@ -801,22 +789,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
     }
   ' "$SNAPSHOT_FILE" > "$WORKDIR/index.json"
 
-# ---- Round-estimate ratchet ----
-# The date-gap clustering resets after a rebase: every committedDate refreshes, all fix
-# commits collapse into one cluster, and the >=3-round convergence guardrail would quietly
-# loosen. Within one PR the fix-round count never genuinely decreases, so carry forward the
-# max of (computed, last printed). The snapshot keeps the raw computed value.
 INDEX_FILE="${SNAPSHOT_FILE%.json}.index.json"
-PREV_ROUND=0
-if [[ -f "$INDEX_FILE" ]]; then
-  # The fallback still covers a present-but-unparsable index; absence is the first-poll norm.
-  PREV_ROUND=$(jq -r '.index.round_estimate // 0' "$INDEX_FILE" 2>/dev/null) || PREV_ROUND=0
-fi
-if [[ "$PREV_ROUND" =~ ^[0-9]+$ ]] && (( PREV_ROUND > 0 )); then
-  jq --argjson prev "$PREV_ROUND" '.round_estimate = ([.round_estimate, $prev] | max)' \
-    "$WORKDIR/index.json" > "$WORKDIR/index_ratchet.json"
-  mv "$WORKDIR/index_ratchet.json" "$WORKDIR/index.json"
-fi
 
 # ---- Pass 3: no-change collapse + semi-compact print ----
 # Waiting rounds dominate the loop; re-printing an identical index every poll is pure

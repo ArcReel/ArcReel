@@ -77,8 +77,6 @@
 - 已有 `@codex review` 但尚无结果 → 评论上的 Codex `👀` 会令 `codex.has_started == true`;未出现时同样等待,30 分钟后按故障处理
 - Codex 已参审,新 push 后尚无已审当前 HEAD 信号 → 等待;距 `last_push_at` 超过 30 分钟仍无 review / 顶层通过评论 / `+1` / inline → 按故障处理
 
-`codex.has_started` 汇总三种已接单信号:Codex 在 PR 上的 `eyes` reaction、历史顶层 clean-pass 评论,或 `own_trigger_comments` 中 `@codex review` 的 `has_codex_eyes == true`;reaction 均按 `chatgpt-codex-connector[bot]` 身份精确核验,不把其他人的 👀 算作 Codex。
-
 PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮 `+1` 换成 `eyes`;此时上一轮通过失效,当前 HEAD 进入审查中。
 
 **已审当前 HEAD**:满足四种历史兼容信号任一:
@@ -87,8 +85,6 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 2. `codex.reactions` 有 `content == "+1"` 且 `is_new == true`
 3. 空 body `COMMENTED` review,其 `reviewed_current_head == true`,且本轮无新 inline
 4. `codex.comments_new` 中顶层评论的 `has_pass_marker == true` 且 `reviewed_current_head == true`
-
-`poll.sh` 优先用 REST review 的 `commit_id` 判当前 HEAD,缺失时解析 body 的 `Reviewed commit`,再缺失才按 review 提交时间回退;顶层通过评论同样先解析 `Reviewed commit`,缺失时按评论创建时间回退。
 
 **actionable**:本轮新 `codex.reviews` 任一行 `has_body_finding == true` 即进入处置,用该行 `id` 经 `query.sh details` 取正文;本轮非 ack inline 的 `P0 Badge` / `P1 Badge` 同样 actionable。两种投递面的 P2/P3 均按 `receiving-code-review` 的纪律核实;判定为非 actionable 并记录 pushback 后不再阻塞通过。
 
@@ -111,10 +107,10 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 
 1. **分析完成且成功**:`codeql_checks.all_ok == true`(要求 total > 0 且无 pending、无 failing;失败态集合定义见 poll.sh header `checks_failing` 条,同名重跑已由 poll.sh 归一为每名最新一条)。`total == 0` 只说明分析未注册(继续等待)或仓库未接入(见下),不是通过;`failing` 非空时 alerts 数据停留在上次成功分析,直接核对门槛 2 会漏报新告警——归入故障类暂停。分析超过 30 分钟未完成同样归入故障类暂停
 2. **security 无遗留**:`security_alerts.open_introduced` 为空(poll.sh 已做 base 分支差集,排除存量告警);仅剩已认定误报在案清单内的 alert(按上文已知误报流程核实并留痕)同样视为达成,退出汇报列明待 dismiss 清单。**勿采信 CodeQL check-run 标题里的 "N new alerts" 计数**——该数字按 merge-ref 全量统计,存量场景会把 main 上的旧告警一并计入,`N` 虚高会误导判定;口径一律以 `open_introduced`(已做 base 差集)为准。`available == false` 时降级:把 `unavailable_hint` 贴给用户,说明无法核对 alerts API(权限或 merge ref 原因),请人工确认后再退出
-3. **quality 无遗留**:终核时跑 `query.sh quality-all` 取 `github-code-quality[bot]` 的**全量** inline 评论(不限本轮)逐条核对——对应代码已修改,或已有 pushback 记录(PR 评论说明)。quality 没有可查的告警列表 API(实测 404),全量评论 + 代码现状就是完整事实,以本次查询结果为准而非对话记忆(压缩后无法重建)。常规 PR 该量级是个位数;若全量达数十条,向用户说明数量并商定抽查口径
+3. **quality 无遗留**:终核时跑 `query.sh quality-all` 取 `github-code-quality[bot]` 的**全量** inline 评论(不限本轮)逐条核对——对应代码已修改,或已有 pushback 记录(PR 评论说明)。quality 没有可查的告警列表 API(返回 404),全量评论 + 代码现状就是完整事实,以本次查询结果为准而非对话记忆(压缩后无法重建)。常规 PR 该量级是个位数;若全量达数十条,向用户说明数量并商定抽查口径
 
 **仓库未接入 code scanning 的判定**:`codeql_checks.total` 全程为 0 + `security_alerts.available == false`(两端 alerts API 均不可用)+ PR 上从无两家 bot 评论 → 疑似未接入。跳过该门槛前必须先向用户确认一次——GitHub 对无权限的资源同样返回 404,权限不足(如 token 缺 `security_events` scope)会伪装成与未接入相同的三信号,静默跳过等于放行未核对的安全告警。判别辅助:读 `unavailable_hint`,含 403 / permission / "must be enabled"(Advanced Security 未开)字样 → 权限或配置问题,按故障类暂停处理;含 404 + "not enabled" / "no analysis found" → 未接入佐证。经用户确认跳过后,在退出汇报中注明"code scanning 未接入(经用户确认),该门槛未核对"
 
-## REST vs GraphQL 命名陷阱
+## 现场查询
 
-`poll.sh` 输出已统一 key 命名——`inline_*_by_user` 用 REST 的带 `[bot]` 名,其它顶层字段用 GraphQL 的不带 `[bot]` 名(差异由来见 poll.sh PITFALL 3)。确需对快照现场写 jq 时,先用已知非空的查询验证字段路径——空结果与路径打错不可区分。绕过 query.sh 直接打 GitHub API 时:GraphQL(`gh pr view --json ...`)的 `.author.login` 不带 `[bot]`,REST inline / reaction 的 `.user.login` 带 `[bot]`,两边字符串不通用;code scanning 两家 bot 只出现在 REST inline 数据中(不发 GraphQL 可见的 review/comment)。
+确需对快照现场写 jq 时,先用已知非空的查询验证字段路径——空结果与路径打错不可区分。绕过 query.sh 直接打 GitHub API 时,登录名按总表两列取用(差异由来见 poll.sh PITFALL 3);code scanning 两家 bot 只出现在 REST inline 数据中。
