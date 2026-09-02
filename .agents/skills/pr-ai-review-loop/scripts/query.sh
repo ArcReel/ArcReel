@@ -4,7 +4,6 @@
 # USAGE
 #   bash query.sh --repo-root <path> <PR_NUMBER> details <id>...      # full bodies by id
 #   bash query.sh --repo-root <path> <PR_NUMBER> gemini-latest-body   # latest Gemini summary
-#   bash query.sh --repo-root <path> <PR_NUMBER> quality-all          # all quality inline comments
 #   bash query.sh --repo-root <path> <PR_NUMBER> history              # review/comment history
 #   bash query.sh --repo-root <path> <PR_NUMBER> unacked <bot[bot]>   # old unacked inline comments
 #   bash query.sh --repo-root <path> <PR_NUMBER> index                # re-print the last poll index
@@ -29,7 +28,7 @@ enter_repo_root "QUERY_ERROR" "$@"
 shift "$REPO_CONTEXT_SHIFT"
 
 usage() {
-  echo "QUERY_ERROR: usage: bash query.sh [--repo-root <path>] <PR_NUMBER> {details <id>...|gemini-latest-body|quality-all|history|unacked <bot[bot]>|index}" >&2
+  echo "QUERY_ERROR: usage: bash query.sh [--repo-root <path>] <PR_NUMBER> {details <id>...|gemini-latest-body|history|unacked <bot[bot]>|index}" >&2
   exit 2
 }
 
@@ -71,7 +70,7 @@ fi
 jq -r '"QUERY_SNAPSHOT: repo=\(.repo) pr=\(.pr) head=\(.head) generated_at=\(.generated_at)"' "$SNAPSHOT_FILE" >&2
 
 # Bots that appear in inline_comments_by_user. Keep in sync with poll.sh's bot-login regex.
-KNOWN_BOTS=("coderabbitai[bot]" "gemini-code-assist[bot]" "chatgpt-codex-connector[bot]" "github-code-quality[bot]" "github-advanced-security[bot]")
+KNOWN_BOTS=("coderabbitai[bot]" "gemini-code-assist[bot]" "chatgpt-codex-connector[bot]" "github-advanced-security[bot]")
 
 case "$CMD" in
 
@@ -116,10 +115,6 @@ case "$CMD" in
       echo "QUERY_ERROR: no gemini reviews in snapshot" >&2
       exit 6
     fi
-    ;;
-
-  quality-all)
-    jq '.inline_comments_by_user["github-code-quality[bot]"] // []' "$SNAPSHOT_FILE"
     ;;
 
   history)

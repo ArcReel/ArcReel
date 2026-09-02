@@ -363,7 +363,7 @@ probe_once() {
         inline_comments:
           ([$inline_comments[][]?
             | select((.user.login // "")
-                | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))
+                | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-advanced-security)\\[bot\\]$"))
             | {id, updated_at, commit_id, in_reply_to_id, user: .user.login}]
            | sort_by(.id)),
         check_runs:

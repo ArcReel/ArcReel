@@ -96,8 +96,7 @@
 #                                                       # in the snapshot) so a superseded failure cannot pin them red
 #   "checks_failing": [{name, conclusion}],             # check runs on current HEAD with a failing-ish conclusion —
 #                                                       # the failing set: failure/timed_out/cancelled/action_required/
-#                                                       # startup_failure (single source of truth for "failed check");
-#                                                       # red CI can block reviewers, so fix it before waiting on them
+#                                                       # startup_failure (single source of truth for "failed check")
 #   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 7
 #     "available": <bool>,                              # false = alerts API unreachable; gate must degrade.
 #     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false (GitHub
@@ -535,7 +534,7 @@ jq -n \
        preview: ($cb | mk_preview), body};
 
   def inline_by_bot:
-    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))]
+    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-advanced-security)\\[bot\\]$"))]
     | group_by(.user.login)
     | map({
         key:   .[0].user.login,
@@ -632,7 +631,7 @@ jq -n \
 
     codeql_checks:
       [$check_runs[]
-       | select((.app == "github-advanced-security" or .app == "github-code-quality")
+       | select(.app == "github-advanced-security"
                 or (.name | test("^Analyze \\(|^codeql-required$|^CodeQL$")))
        | . + {is_failing: (.conclusion | is_failing_conclusion)}],
 
