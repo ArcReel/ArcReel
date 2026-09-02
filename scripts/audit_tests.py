@@ -35,11 +35,12 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Callable, Container
+from collections.abc import Callable, Container, Iterable, Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from fnmatch import fnmatch
 from pathlib import Path
+from types import MappingProxyType
 from typing import NamedTuple, TypeGuard
 
 # ---------------------------------------------------------------- 常量表
@@ -338,19 +339,22 @@ def marks_of(decorators: list[ast.expr]) -> list[str]:
 COLLECTED_TEST_FILE_GLOBS = ("test_*.py", "*_test.py")
 
 
-def is_collected_test_module(path: Path) -> bool:
-    """pytest 只从 `test_*.py` / `*_test.py` 收集用例。
+def is_collected_test_module(path: Path, tree: ast.Module) -> bool:
+    """pytest 只从 `test_*.py` / `*_test.py` 收集用例，且模块级 `__test__ = False` 一律退出。
 
     conftest 与支持模块里 `test` 开头的函数是工具函数，按名字当成用例会虚增类 1 计数。
+    模块的收集走 `PyCollector.collect`，与类同一段代码读 `__test__`，故两级标记等效。
     """
-    return any(fnmatch(path.name, pattern) for pattern in COLLECTED_TEST_FILE_GLOBS)
+    if not any(fnmatch(path.name, pattern) for pattern in COLLECTED_TEST_FILE_GLOBS):
+        return False
+    return not opts_out_of_collection(tree.body)
 
 
 COLLECTED_TEST_CLASS_GLOB = "Test*"
 UNITTEST_BASES = ("TestCase", "IsolatedAsyncioTestCase")
 
 
-def resolve_unittest_cases(tree: ast.Module) -> set[str]:
+def resolve_unittest_cases(imports: list[ast.Import | ast.ImportFrom], classes: list[ast.ClassDef]) -> set[str]:
     """模块内可解析的 unittest 用例类名：import 别名 + 本模块内的继承闭包。
 
     判定文法到此为止：只认本模块可见的证据。跨模块继承（基类在别的模块里继承
@@ -360,18 +364,17 @@ def resolve_unittest_cases(tree: ast.Module) -> set[str]:
     """
     direct: set[str] = set()
     module_aliases: set[str] = set()
-    for node in ast.walk(tree):
+    for node in imports:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == "unittest" or alias.name.startswith("unittest."):
                     module_aliases.add(alias.asname or alias.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "unittest":
+        elif (node.module or "").split(".")[0] == "unittest":
             for alias in node.names:
                 if alias.name in UNITTEST_BASES:
                     direct.add(alias.asname or alias.name)
 
     known = set(direct)
-    classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
     changed = True
     while changed:
         changed = False
@@ -393,21 +396,125 @@ def _is_unittest_base(base: ast.expr, known: set[str], module_aliases: set[str])
     return False
 
 
-def is_collected_test_class(node: ast.ClassDef, unittest_cases: set[str]) -> bool:
+class CollectionScope(NamedTuple):
+    """模块级预解析的收集口径：`is_collected_test_class` 逐类判定时要用的全模块证据。"""
+
+    unittest_cases: frozenset[str]
+    opted_out_classes: frozenset[str]
+    abstract_classes: frozenset[str]
+    ctor_classes: frozenset[str]
+
+
+def resolve_collection_scope(tree: ast.Module) -> CollectionScope:
+    """一趟 `ast.walk` 取齐各条口径的全模块证据：逐条各走一遍在 500 个文件的规模上是可观的重复遍历。
+
+    同名类（不同外层作用域下的嵌套类）在这里按裸名合并——基类引用写的就是裸名，静态还原
+    不出各自的词法归属。合并一律偏保守：任一同名类退出收集 / 抽象 / 带构造器，该名字就整体
+    按不收集处理，与本段其它口径同向，宁可漏不可误。
+    """
+    classes: list[ast.ClassDef] = []
+    imports: list[ast.Import | ast.ImportFrom] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            classes.append(node)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            imports.append(node)
+    by_name: dict[str, list[ast.ClassDef]] = defaultdict(list)
+    for node in classes:
+        by_name[node.name].append(node)
+    return CollectionScope(
+        frozenset(resolve_unittest_cases(imports, classes)),
+        resolve_opted_out_classes(tree, by_name),
+        resolve_abstract_classes(by_name),
+        _inherited(by_name, {name for name, nodes in by_name.items() if any(_declares_ctor(n) for n in nodes)}),
+    )
+
+
+def base_names(node: ast.ClassDef) -> list[str]:
+    """本模块内可解析的基类名。
+
+    泛型基类 `Base[int]` 是 `ast.Subscript`，真正的基类在 `.value` 上；点分基类来自别的
+    模块，静态无从解析，按不匹配处理。
+    """
+    out: list[str] = []
+    for base in node.bases:
+        target = base.value if isinstance(base, ast.Subscript) else base
+        if isinstance(target, ast.Name):
+            out.append(target.id)
+    return out
+
+
+def _inherited(by_name: dict[str, list[ast.ClassDef]], seeds: set[str]) -> frozenset[str]:
+    """种子集合沿本模块内可解析的继承链向下传播到全部子类。"""
+    known = set(seeds)
+    changed = True
+    while changed:
+        changed = False
+        for name, nodes in by_name.items():
+            if name in known:
+                continue
+            if any(base in known for node in nodes for base in base_names(node)):
+                known.add(name)
+                changed = True
+    return frozenset(known)
+
+
+def resolve_opted_out_classes(tree: ast.Module, by_name: dict[str, list[ast.ClassDef]]) -> frozenset[str]:
+    """模块内 `__test__ = False` 生效的类名，含本模块可解析的继承。
+
+    pytest 读的是类对象上的属性（`safe_getattr`），基类标了退出、子类没覆盖同样不收集。
+    子类显式写回 `__test__ = True` 时收集恢复，故沿继承链取第一个显式取值而非只看有无。
+
+    多重继承按深度优先取第一个显式取值，不解 C3 MRO：两条分支给出相反取值时可能多判一次
+    退出，方向是漏报，与本段其它口径同向。
+    """
+    # 类体外的 `TestFoo.__test__ = ...` 在类定义之后执行，覆盖类体内的取值
+    overrides = collection_overrides(tree.body)
+    own = {name: _merge_flags(collection_flag(node.body) for node in nodes) for name, nodes in by_name.items()}
+
+    def flag_of(name: str, seen: frozenset[str]) -> bool | None:
+        override = overrides.get(name)
+        if override is not None:
+            return override
+        flag = own.get(name)
+        if flag is not None or name not in by_name or name in seen:
+            return flag
+        for base in (b for node in by_name[name] for b in base_names(node)):
+            inherited = flag_of(base, seen | {name})
+            if inherited is not None:
+                return inherited
+        return None
+
+    return frozenset(name for name in by_name if flag_of(name, frozenset()) is False)
+
+
+def _merge_flags(flags: Iterable[bool | None]) -> bool | None:
+    """同名类的取值合并：任一退出即退出，其余取显式写过的取值。"""
+    seen = [flag for flag in flags if flag is not None]
+    if not seen:
+        return None
+    return all(seen)
+
+
+def is_collected_test_class(node: ast.ClassDef, scope: CollectionScope) -> bool:
     """pytest 从 `Test*` 类与 unittest 用例类的子类收集用例。
 
     同 `is_collected_test_module` 的口径下沉一层：支持类（fake、client 包装）上
     `test` 开头的方法是普通 API，按名字当成用例会虚增类 1 计数并误报闸门。
 
-    两条分支不可合并：unittest 用例类不受名字与 `__init__` 约束，收集由 unittest
-    自身完成；而 `Test*` 类带显式 `__init__` 时 pytest 拒绝收集。名字规则也不沿
-    继承传递——`class Sub(TestHelpers)` 不因基类名叫 `Test*` 就被收集。
+    两条分支不可合并：unittest 用例类不受名字与构造器约束，收集由 unittest 自身完成；
+    而 `Test*` 类带显式 `__init__` 或 `__new__` 时 pytest 拒绝收集并只发一条收集期告警。
+    名字规则也不沿继承传递——`class Sub(TestHelpers)` 不因基类名叫 `Test*` 就被收集。
+    抽象类两条分支都不收集：实例化不出来，收了也没法跑。
+
+    构造器与抽象性都按继承取值：pytest 查的是 `getattr(obj, ...)`，从支持基类继承来的
+    `__new__` 同样让 `hasnew` 成立。
     """
-    if _opts_out_of_collection(node):
+    if node.name in scope.opted_out_classes or node.name in scope.abstract_classes:
         return False
-    if node.name in unittest_cases:
+    if node.name in scope.unittest_cases:
         return True
-    return fnmatch(node.name, COLLECTED_TEST_CLASS_GLOB) and not _has_explicit_init(node)
+    return fnmatch(node.name, COLLECTED_TEST_CLASS_GLOB) and node.name not in scope.ctor_classes
 
 
 def is_fixture(dec: ast.expr) -> bool:
@@ -416,33 +523,102 @@ def is_fixture(dec: ast.expr) -> bool:
     return bool(name) and name.split(".")[-1] == "fixture"
 
 
-def is_test_function(node: ast.stmt) -> TypeGuard[ast.FunctionDef | ast.AsyncFunctionDef]:
-    """pytest 按 `test` 前缀收集用例函数；`@pytest.fixture` 装饰的同名函数注册为 fixture，不收集。"""
+def is_test_function(
+    node: ast.stmt, overrides: Mapping[str, bool] = MappingProxyType({})
+) -> TypeGuard[ast.FunctionDef | ast.AsyncFunctionDef]:
+    """pytest 按 `test` 前缀收集用例函数；`@pytest.fixture` 装饰的同名函数注册为 fixture，不收集。
+
+    `overrides` 是所在作用域里 `test_x.__test__ = ...` 给出的取值。只认退出方向：写成 `True`
+    的作用仅是取消退出，不让不带 `test` 前缀的名字进入收集——那条 opt-in（`isnosetest`）是
+    增加报告的方向，且 unittest 分支走 `TestLoader` 只认前缀，语义与这里不同。
+    """
     if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) or not node.name.startswith("test"):
+        return False
+    if overrides.get(node.name) is False:
         return False
     return not any(is_fixture(d) for d in node.decorator_list)
 
 
-def _opts_out_of_collection(node: ast.ClassDef) -> bool:
-    """`__test__ = False`：pytest 的显式退出收集标记，对两条分支一律生效。
+def _assign_targets(stmt: ast.stmt) -> list[ast.expr]:
+    if isinstance(stmt, ast.Assign):
+        return stmt.targets
+    if isinstance(stmt, ast.AnnAssign):
+        return [stmt.target]
+    return []
 
-    这是支持类被闸门误伤时的标准逃生口，必须认——否则被误报的人无路可走。
-    """
-    for stmt in node.body:
-        targets = (
-            stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target] if isinstance(stmt, ast.AnnAssign) else []
-        )
-        if not any(isinstance(t, ast.Name) and t.id == "__test__" for t in targets):
+
+def collection_flag(body: list[ast.stmt]) -> bool | None:
+    """作用域体内 `__test__` 的显式取值；没写或不是布尔字面量时 `None`。"""
+    flag: bool | None = None
+    for stmt in body:
+        if not any(isinstance(t, ast.Name) and t.id == "__test__" for t in _assign_targets(stmt)):
             continue
-        value = stmt.value
-        if isinstance(value, ast.Constant) and value.value is False:
-            return True
-    return False
+        value = getattr(stmt, "value", None)
+        if isinstance(value, ast.Constant) and isinstance(value.value, bool):
+            flag = value.value
+    return flag
 
 
-def _has_explicit_init(node: ast.ClassDef) -> bool:
+def opts_out_of_collection(body: list[ast.stmt]) -> bool:
+    """`__test__ = False`：pytest 的显式退出收集标记，模块与类同一套读法。
+
+    这是支持模块 / 支持类被闸门误伤时的标准逃生口，必须认——否则被误报的人无路可走。
+    """
+    return collection_flag(body) is False
+
+
+def collection_overrides(body: list[ast.stmt]) -> dict[str, bool]:
+    """作用域体内 `X.__test__ = <bool>` 对名字 X 的取值，按源码顺序取最后一次。
+
+    这是函数与方法唯一的退出写法：函数体内没有类体那样的命名空间可放 `__test__`。pytest 读
+    的是收集期的属性终值，先关后开（`test_x.__test__ = False` 后又 `= True`）照常收集。
+    """
+    out: dict[str, bool] = {}
+    for stmt in body:
+        value = getattr(stmt, "value", None)
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, bool):
+            continue
+        for target in _assign_targets(stmt):
+            if isinstance(target, ast.Attribute) and target.attr == "__test__" and isinstance(target.value, ast.Name):
+                out[target.value.id] = value.value
+    return out
+
+
+def _declares_ctor(node: ast.ClassDef) -> bool:
     return any(
-        isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "__init__" for stmt in node.body
+        isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name in ("__init__", "__new__")
+        for stmt in node.body
+    )
+
+
+ABSTRACT_DECORATORS = ("abstractmethod", "abstractproperty")
+
+
+def resolve_abstract_classes(by_name: dict[str, list[ast.ClassDef]]) -> frozenset[str]:
+    """`inspect.isabstract` 的静态近似：站在 ABCMeta 上，且本类体内留有未实现的抽象成员。
+
+    元类沿继承传递，故 ABC 的资格用继承闭包解——`class Sub(TestContract)` 里新写的
+    `@abstractmethod` 同样让 `__abstractmethods__` 非空；只有本类体内声明才算，抽象成员由
+    基类声明、本类未实现的情形无从静态解析，按可收集处理，与其它收集口径同向。
+
+    只带 `@abstractmethod` 而不站在 ABCMeta 上的类不算：`__abstractmethods__` 由 ABCMeta
+    填，普通类照样实例化，pytest 也照收。
+    """
+    on_abc = _inherited(by_name, {name for name, nodes in by_name.items() if any(_declares_abc_root(n) for n in nodes)})
+    return frozenset(name for name in on_abc if name in by_name and any(_declares_abstract(n) for n in by_name[name]))
+
+
+def _declares_abc_root(node: ast.ClassDef) -> bool:
+    return any((dotted(base) or "").split(".")[-1] == "ABC" for base in node.bases) or any(
+        kw.arg == "metaclass" and (dotted(kw.value) or "").split(".")[-1] == "ABCMeta" for kw in node.keywords
+    )
+
+
+def _declares_abstract(node: ast.ClassDef) -> bool:
+    return any(
+        isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any((dotted(dec) or "").split(".")[-1] in ABSTRACT_DECORATORS for dec in stmt.decorator_list)
+        for stmt in node.body
     )
 
 
@@ -873,7 +1049,7 @@ class FileScanner:
         self.rel = str(path.relative_to(root))
         self.tree = ast.parse(path.read_text(encoding="utf-8"))
         self.aliases = AliasIndex(self.tree)
-        self.unittest_cases = resolve_unittest_cases(self.tree)
+        self.collection = resolve_collection_scope(self.tree)
         self.pytest_asserts = resolve_pytest_asserts(self.tree)
         self.mut = self.aliases.module_under_test(path, prod.is_module)
         tier = tier_from_path(path, tests_dir)
@@ -903,16 +1079,17 @@ class FileScanner:
         return out
 
     def scan(self) -> None:
-        if is_collected_test_module(self.path):
+        if is_collected_test_module(self.path, self.tree):
             self._scan_scope(self.tree.body, [], None)
         self._scan_patch_sites()
 
     def _scan_scope(self, body: list[ast.stmt], class_marks: list[str], class_name: str | None) -> None:
+        overrides = collection_overrides(body)
         for node in body:
             if isinstance(node, ast.ClassDef):
-                if is_collected_test_class(node, self.unittest_cases):
+                if is_collected_test_class(node, self.collection):
                     self._scan_scope(node.body, class_marks + marks_of(node.decorator_list), node.name)
-            elif is_test_function(node):
+            elif is_test_function(node, overrides):
                 self._analyze_test(node, class_marks, class_name)
 
     def _analyze_test(
@@ -1089,23 +1266,20 @@ def conftest_import_lines(tree: ast.Module) -> list[tuple[int, str]]:
     return out
 
 
-def scan_shared_facilities(root: Path, tests_dir: Path) -> list[StructureFinding]:
+def scan_shared_facilities(root: Path, parsed: list[tuple[Path, ast.Module]]) -> list[StructureFinding]:
     """扫描共享设施三角色的结构违规。
 
     conftest 的生效范围按目录祖先关系判定：`tests/unit/lib/conftest.py` 的 fixture 对
     `tests/unit/lib/**` 生效，测试文件与其祖先 conftest 同名即构成覆写。
+
+    `parsed` 由主循环给出，是 `tests/` 下解析成功的全部文件与其 AST——本类规则要看整棵
+    目录树，重新遍历一遍就是第二次全量 parse。
     """
     conftest_fixtures: dict[Path, dict[str, int]] = {}
     test_fixtures: dict[Path, list[tuple[str, int]]] = {}
     findings: list[StructureFinding] = []
 
-    for path in sorted(tests_dir.rglob("*.py")):
-        if path.name == "__init__.py":
-            continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:
-            continue
+    for path, tree in sorted(parsed, key=lambda item: item[0]):
         rel = path.relative_to(root).as_posix()
         fixtures = module_level_fixtures(tree)
         for lineno, module in conftest_import_lines(tree):
@@ -1447,7 +1621,8 @@ def class_context(node: ast.ClassDef) -> str:
     判据只比函数体，两个类的 setup 不同却函数体相同时会误报；闸门零容忍、无豁免，
     故上下文必须一并相等才认定重复。
     """
-    members = [n for n in strip_docstring(node.body) if not is_test_function(n)]
+    overrides = collection_overrides(node.body)
+    members = [n for n in strip_docstring(node.body) if not is_test_function(n, overrides)]
     return "\n".join(
         [
             ";".join(ast.unparse(d) for d in node.decorator_list),
@@ -1474,18 +1649,18 @@ class DuplicateCandidate(NamedTuple):
         return (self.context, self.decorators, self.is_async)
 
 
-def collect_test_cases(tree: ast.Module) -> list[DuplicateCandidate]:
-    unittest_cases = resolve_unittest_cases(tree)
+def collect_test_cases(tree: ast.Module, scope: CollectionScope) -> list[DuplicateCandidate]:
     aliases = parametrize_aliases(tree)
     out: list[DuplicateCandidate] = []
 
     def walk(body: list[ast.stmt], context: list[str], class_path: str | None) -> None:
+        overrides = collection_overrides(body)
         for node in body:
             if isinstance(node, ast.ClassDef):
-                if is_collected_test_class(node, unittest_cases):
+                if is_collected_test_class(node, scope):
                     nested = f"{class_path}::{node.name}" if class_path else node.name
                     walk(node.body, [*context, class_context(node)], nested)
-            elif is_test_function(node):
+            elif is_test_function(node, overrides):
                 bound = class_path is not None and not any(
                     ast.unparse(d) == "staticmethod" for d in node.decorator_list
                 )
@@ -1510,12 +1685,12 @@ def render_row(argnames: list[str], values: tuple[str, ...]) -> str:
     return ", ".join(f"{name}={value}" for name, value in zip(argnames, values, strict=True))
 
 
-def scan_module_duplicates(rel: str, tree: ast.Module) -> list[StructureFinding]:
+def scan_module_duplicates(rel: str, tree: ast.Module, scope: CollectionScope) -> list[StructureFinding]:
     """同一文件内函数体等同的测试用例。跨文件不判——局部辅助函数同名会造成整批假阳。
 
     只扫后端：本脚本零第三方依赖、只用 `ast`，无法解析 TS/TSX，前端同类判断按分工归 eslint。
     """
-    cases = collect_test_cases(tree)
+    cases = collect_test_cases(tree, scope)
     parametrized = [c for c in cases if c.is_parametrized]
     plain = [c for c in cases if not c.is_parametrized]
     bodies = {c.qual: unparse_block(strip_docstring(c.node.body)) for c in plain}
@@ -1578,6 +1753,7 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
     patches: list[PatchSite] = []
     duplicates: list[StructureFinding] = []
     failures: list[dict[str, object]] = []
+    parsed: list[tuple[Path, ast.Module]] = []
     prod = ProductionIndex(root)
 
     for path in files:
@@ -1594,8 +1770,11 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
             )
             continue
         stats.append(scanner.stat)
-        if is_collected_test_module(path):
-            duplicates.extend(scan_module_duplicates(path.relative_to(root).as_posix(), scanner.tree))
+        parsed.append((path, scanner.tree))
+        if is_collected_test_module(path, scanner.tree):
+            duplicates.extend(
+                scan_module_duplicates(path.relative_to(root).as_posix(), scanner.tree, scanner.collection)
+            )
         double_only.extend(scanner.double_only)
         no_assertion_cases.extend(scanner.no_assertion)
         patches.extend(scanner.patches)
@@ -1635,7 +1814,7 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
             samples_by_motive[p.motive].append(asdict(p))
 
     double_by_file = Counter(d.path for d in double_only)
-    structure = scan_shared_facilities(root, tests_dir)
+    structure = scan_shared_facilities(root, parsed)
     structure_counter = Counter(f.rule for f in structure)
 
     frontend_files = frontend_test_files(frontend_src) if frontend_src and frontend_src.is_dir() else []
