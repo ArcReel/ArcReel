@@ -54,10 +54,12 @@ class TestEstimateSpokenSeconds:
         assert longer > short
 
     def test_language_changes_timing(self):
-        # 同为 5 个阅读单位，zh（计字）与 en（计词）语速不同 → 时长不同，
-        # 证明语速随语言变化、非全局写死单值。
+        # 同为 5 个阅读单位，zh（计字）与 en（计词）各按本语言的语速换算：
+        # language 既决定阅读单位计法，也决定语速，两处都不能退回默认。
         zh = estimate_spoken_seconds("一二三四五", "zh")
         en = estimate_spoken_seconds("one two three four five", "en")
+        assert zh == pytest.approx(5 / speech_rate_units_per_second("zh"))
+        assert en == pytest.approx(5 / speech_rate_units_per_second("en"))
         assert zh != en
 
     def test_unknown_language_uses_default_rate(self):

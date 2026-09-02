@@ -89,6 +89,11 @@ class TestDiscoverModelsOpenAI:
             api_key="sk-test",
         )
 
+        # 鉴权与 base_url 透传到 SDK 客户端构造参数，base_url 已补全 /v1
+        assert mock_openai_cls.call_args.kwargs == {
+            "api_key": "sk-test",
+            "base_url": "https://api.example.com/v1",
+        }
         assert len(result) == 3
         # 按 id 排序
         ids = [m["model_id"] for m in result]
@@ -393,7 +398,7 @@ class TestUnknownFormat:
 class TestDiscoverModelsAnthropic:
     @patch("lib.custom_provider.discovery.get_http_client")
     async def test_basic_discovery(self, mock_get_client):
-        """Anthropic 协议返回的模型按 id 排序，仅保留 model_id。"""
+        """Anthropic 协议返回的模型按 id 排序，返回项与 OpenAI/Google 路径同形态且 endpoint 为空。"""
         from unittest.mock import AsyncMock
 
         mock_response = MagicMock()
@@ -416,8 +421,22 @@ class TestDiscoverModelsAnthropic:
             api_key="sk-ant-test",
         )
 
-        ids = [m["model_id"] for m in result]
-        assert ids == ["claude-haiku-4-5", "claude-opus-4-7"]
+        assert result == [
+            {
+                "model_id": "claude-haiku-4-5",
+                "display_name": "Haiku 4.5",
+                "endpoint": "",
+                "is_default": False,
+                "is_enabled": True,
+            },
+            {
+                "model_id": "claude-opus-4-7",
+                "display_name": "Opus 4.7",
+                "endpoint": "",
+                "is_default": False,
+                "is_enabled": True,
+            },
+        ]
         # URL 规范化：/v1 应被剥掉，请求 path 为 /v1/models
         called_url = mock_client.get.call_args.args[0]
         assert called_url == "https://example.com/v1/models"
@@ -425,6 +444,8 @@ class TestDiscoverModelsAnthropic:
         headers = mock_client.get.call_args.kwargs["headers"]
         assert headers["x-api-key"] == "sk-ant-test"
         assert headers["anthropic-version"] == "2023-06-01"
+        # 发现请求带 15 秒超时，不沿用共享客户端的默认超时
+        assert mock_client.get.call_args.kwargs["timeout"] == 15.0
 
     @patch("lib.custom_provider.discovery.get_http_client")
     async def test_default_base_url_when_none(self, mock_get_client):
@@ -447,7 +468,7 @@ class TestDiscoverModelsAnthropic:
 
     @patch("lib.custom_provider.discovery.get_http_client")
     async def test_skips_entries_without_id(self, mock_get_client):
-        """data 中 id 缺失的条目被跳过。"""
+        """data 中 id 缺失的条目被跳过；缺 display_name 的条目以 id 作显示名。"""
         from unittest.mock import AsyncMock
 
         mock_response = MagicMock()
@@ -463,6 +484,7 @@ class TestDiscoverModelsAnthropic:
 
         result = await discover_models(discovery_format="anthropic", base_url=None, api_key="k")
         assert [m["model_id"] for m in result] == ["claude-x"]
+        assert result[0]["display_name"] == "claude-x"
 
     async def test_unknown_format_raises(self):
         """anthropic 仍是已知 format；未知 format 抛 ValueError 含 anthropic。"""
