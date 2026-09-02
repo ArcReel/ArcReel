@@ -260,8 +260,8 @@ class TestInstructorFallback:
         assert result.input_tokens == 150
         assert result.output_tokens == 80
         mock_client.chat.completions.create.assert_awaited_once()
-        # 降级复用同一个客户端，并把原生调用的 model / messages 原样交给 Instructor
-        assert from_openai.call_args.args == (mock_client,)
+        # 降级复用同一个客户端、从 TOOLS 档起步，并把原生调用的 model / messages 原样交给 Instructor
+        from_openai.assert_called_once_with(mock_client, mode=Mode.TOOLS)
         fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
         assert fallback_kwargs["model"] == "gpt-5.4-mini"
         assert fallback_kwargs["messages"] == [{"role": "user", "content": "Extract info"}]
@@ -439,8 +439,8 @@ class TestInstructorFallback:
         assert result.provider == PROVIDER_OPENAI
         assert result.input_tokens == 20
         assert result.output_tokens == 10
-        # 降级复用同一个客户端，并把原生调用的 model / messages 原样交给 Instructor
-        assert from_openai.call_args.args == (mock_client,)
+        # 降级复用同一个客户端、从 TOOLS 档起步，并把原生调用的 model / messages 原样交给 Instructor
+        from_openai.assert_called_once_with(mock_client, mode=Mode.TOOLS)
         fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
         assert fallback_kwargs["model"] == "gpt-5.4-mini"
         assert fallback_kwargs["messages"] == [{"role": "user", "content": "Extract info"}]
