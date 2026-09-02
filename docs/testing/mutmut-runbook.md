@@ -22,7 +22,7 @@ uv sync --group mutation
    uv run mutmut run
    ```
 
-   并行度默认取 CPU 数，不用降。各 pytest 会话的临时目录与临时库回收由 `tests/conftest.py` 按进程隔离，并行子进程之间不共享清理动作。
+   并行度默认取 CPU 数，不用降。各会话的临时目录由 `tests/mutmut_plugin.py`（经 `[tool.mutmut] pytest_add_cli_args` 加载）设为私有，临时库回收由 `tests/conftest.py` 按创建者进程守卫，并行子进程之间不共享清理动作。
 4. 跑完把 `mutants/**/*.meta` 复制到一个不会被下一次 `mutmut run` 覆盖的地方，这是第 5 节验收要用的基线。首批放在 `research/mutmut-batch-1` 分支的 `baseline/` 下。
 
 `only_mutate` 跑完记得还原成注释，`mutants/` 已在 `.gitignore`。

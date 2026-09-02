@@ -331,7 +331,9 @@ source_paths = ["lib", "server"]
 # 这些子进程确实会 import lib.project_manager / lib.script_models，排除后由它们独家覆盖的
 # mutant 会掉进存活集合；但保留同样杀不死——子进程在断言前就崩在上面那个 import。
 # 排除只把这类 mutant 推向假存活（多复核一个），不会造成假杀死（把无效测试藏起来）。
-pytest_add_cli_args = ["--ignore=tests/unit/test_skill_script_path_guards.py"]
+# tests.mutmut_plugin 给每个 mutmut 会话一个私有 basetemp，让并行子进程收尾时不再竞争共享根下的软链；
+# 它只在这里加载，本地与 CI 的 pytest 不带它。
+pytest_add_cli_args = ["-p", "tests.mutmut_plugin", "--ignore=tests/unit/test_skill_script_path_guards.py"]
 # pytest_add_cli_args_test_selection 不设：走全量 testpaths。仅 tests/unit 快 5.5 倍，
 # 但存活集合约 45% 是假存活，复核每个都要跑一次全量套件，总账反而更贵。
 # timeout_multiplier / timeout_constant 保持默认（15 / 1.0），不要调小。

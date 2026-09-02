@@ -77,24 +77,6 @@ def _discard_pooled_connections_in_forked_child() -> None:
 _fork_hook_registered = False
 
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_configure(config: pytest.Config) -> None:
-    """mutmut 会话各用一个私有 basetemp，不进共享的 ``pytest-of-<user>`` 根。
-
-    mutmut 按 mutant fork 出多个 pytest 会话并行跑，它们在会话收尾时同时清理共享根下的
-    ``pytest-current`` 软链，竞争抛出的 ``FileNotFoundError`` 从 ``pytest.main`` 冒出，
-    让子进程走正常退出路径、退出码 1 记成 killed。显式给定的 basetemp 不登记任何清理，
-    收尾时无事可做；目录由本会话在 unconfigure 时自己回收。``MUTANT_UNDER_TEST`` 由
-    mutmut 在其进程内设置（stats、forced-fail 与各 mutant 子进程），本地 pytest 不受影响。
-    ``tryfirst`` 使赋值先于 pytest 自带 tmpdir 插件读取 ``config.option.basetemp``。
-    """
-    if not os.environ.get("MUTANT_UNDER_TEST") or config.option.basetemp is not None:
-        return
-    private_basetemp = Path(tempfile.mkdtemp(prefix="arcreel-mutmut-basetemp-"))
-    config.option.basetemp = private_basetemp
-    config.add_cleanup(lambda: shutil.rmtree(private_basetemp, ignore_errors=True))
-
-
 @pytest.fixture(scope="session", autouse=True)
 def discard_pooled_connections_after_fork() -> None:
     """把 ``_discard_pooled_connections_in_forked_child`` 挂到本进程的 fork 钩子上。
