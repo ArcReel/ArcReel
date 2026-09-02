@@ -59,8 +59,21 @@ def _discard_pooled_connections_in_forked_child() -> None:
     engine_module.async_engine.sync_engine.dispose(close=False)
 
 
-if hasattr(os, "register_at_fork"):
+_fork_hook_registered = False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def discard_pooled_connections_after_fork() -> None:
+    """把 ``_discard_pooled_connections_in_forked_child`` 挂到本进程的 fork 钩子上。
+
+    钩子是进程级、不可注销的；mutmut 会在同一父进程里连开几个 pytest 会话再按 mutant
+    fork，故只注册一次。
+    """
+    global _fork_hook_registered
+    if _fork_hook_registered or not hasattr(os, "register_at_fork"):
+        return
     os.register_at_fork(after_in_child=_discard_pooled_connections_in_forked_child)
+    _fork_hook_registered = True
 
 
 @pytest.fixture(autouse=True)

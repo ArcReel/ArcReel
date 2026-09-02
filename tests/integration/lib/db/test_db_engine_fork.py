@@ -7,7 +7,7 @@ import signal
 import pytest
 from sqlalchemy import text
 
-from lib.db.engine import async_session_factory
+from lib.db import async_session_factory
 
 
 async def _select_one() -> int:
@@ -35,6 +35,8 @@ def test_forked_child_can_query_module_level_engine_after_parent_used_pool():
         _, status = os.waitpid(pid, 0)
         reaped = True
     finally:
+        # 父进程侧的期限由 pytest-timeout 的 SIGALRM 打断 ``waitpid`` 提供，子进程连
+        # 自己的定时器都没跑到时也在这里被回收。
         if not reaped:
             os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
