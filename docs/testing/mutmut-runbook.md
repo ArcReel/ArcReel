@@ -22,7 +22,7 @@ uv sync --group mutation
    uv run mutmut run
    ```
 
-   `--max-children N` 可降并行，代价与理由见第 6 节的假杀死链。
+   并行度默认取 CPU 数，不用降。各 pytest 会话的临时目录与临时库回收由 `tests/conftest.py` 按进程隔离，并行子进程之间不共享清理动作。
 4. 跑完把 `mutants/**/*.meta` 复制到一个不会被下一次 `mutmut run` 覆盖的地方，这是第 5 节验收要用的基线。首批放在 `research/mutmut-batch-1` 分支的 `baseline/` 下。
 
 `only_mutate` 跑完记得还原成注释，`mutants/` 已在 `.gitignore`。
@@ -76,7 +76,7 @@ uv run python scripts/mutmut_compare.py \
 | --- | --- | --- |
 | 本次改造针对的 mutant | 全部 exit code 1 | 变超时 → 按第 4 节复核，1 failed 即 killed；仍存活 → 四路分诊（见下） |
 | 基线 killed 的 mutant | 没有一个变成 exit code 0 | 变超时 → 新进程复核，1 failed 即护栏成立，只有全部通过才是回退；回退 = 改坏了别的用例 |
-| 基线存活且本次未改造的 mutant | 被杀死只登记；等价变异体的 exit code 仍是 0 | 判为等价变异体的被杀死 → 整轮作废，先查第 6 节的假杀死链；等价变异体变超时或段错误 → 按第 4 节复核，1 failed 即被杀死。其余未改造 mutant 的异常 exit code 不影响结论 |
+| 基线存活且本次未改造的 mutant | 被杀死只登记；等价变异体的 exit code 仍是 0 | 判为等价变异体的被杀死 → 整轮作废：等价变异体不可能被杀，说明这轮子进程的结果不可信（如异常退出被记成 killed）；等价变异体变超时或段错误 → 按第 4 节复核，1 failed 即被杀死。其余未改造 mutant 的异常 exit code 不影响结论 |
 
 同时有一道独立硬门：`git diff --name-only origin/main` 不得含 `lib/` 与 `server/`。生产代码一变，`mutants/` 重生成、mutant 名错位，比对本身不成立。
 
@@ -86,7 +86,6 @@ uv run python scripts/mutmut_compare.py \
 
 ## 6. 已知陷阱
 
-- **假杀死链**（根治见 #2284）。mutmut 默认按 CPU 数 fork 子进程，多个 pytest 会话同时建/清 `pytest-of-<user>/pytest-current` 软链会竞争抛 `FileNotFoundError`；该异常让子进程走异常退出而非 `os._exit`，退出码 1 记成 killed 且 atexit 会跑，`tests/conftest.py` 注册的清理把共享临时库删了，之后所有子进程的会话级 DB fixture 全部报错、整批记 killed。探针是第 5 节第三层：等价变异体不可能被杀，出现即整轮作废。规避是 `mutmut run --max-children 4`，代价是并行度减半；超时归零前曾量到 4.6 倍（每个超时耗满预算、串行叠加），归零后按并行度反比估。
 - **新增的测试文件不触及任何被变异函数时，增量 stats 会中止。** mutmut 检测到新用例只对它们跑一次 stats，若这批用例没碰到任何 mutant，报 `Stopping early, because we could not find any test case for any mutant` 退出。删 `mutants/mutmut-stats.json` 走全量 stats。
 - **不要在 `mutants/` 里跑 `uv run`。** uv 会按那份 `pyproject.toml` 副本另建一个环境，mutmut 不在里面，变异模块顶部的 trampoline import 直接 `ModuleNotFoundError`。用 `../.venv/bin/python`。
 - **`tests-for-mutant` 只在项目根可用。** 它读 `mutants/mutmut-stats.json`，在 `mutants/` 里跑找不到。
@@ -102,6 +101,5 @@ uv run python scripts/mutmut_compare.py \
 | --- | ---: |
 | mutant 密度 | 约 1100 个 / 千行源码 |
 | 一轮墙钟（8 路并行） | 8 模块 616 个 mutant 约 10 分钟（不含全量 stats 约 5 分钟）；超时归零前是 17:47，墙钟随超时数走 |
-| 一轮墙钟（`--max-children 4`） | 按并行度反比估；超时归零前量到 8 路的 4.6 倍 |
 | 超时新进程复核 | 3 到 11 秒 / 个 |
 | 逐条判定 | 约 3 秒 / 个 |

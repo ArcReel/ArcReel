@@ -28,13 +28,28 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 # 从而每个进程都独占一个库。
 _OWNED_DB_MARKER = "ARCREEL_TEST_OWNED_DB"
 _OWNED_TEST_DB_DIR: str | None = None
+_OWNED_TEST_DB_OWNER_PID = os.getpid()
+
+
+def _remove_owned_test_db_dir() -> None:
+    """只在铸造临时库的进程里回收它。
+
+    atexit 登记表随 fork 复制到子进程。mutmut 按 mutant fork 出的 pytest 会话若走了
+    正常退出路径而非 ``os._exit``，会带着父进程的登记表跑一遍；不设 pid 守卫时它会
+    删掉所有并行子进程共用的库，之后每个子进程的会话级 DB fixture 都报错。
+    """
+    if _OWNED_TEST_DB_DIR is None or os.getpid() != _OWNED_TEST_DB_OWNER_PID:
+        return
+    shutil.rmtree(_OWNED_TEST_DB_DIR, ignore_errors=True)
+
+
 if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MARKER) == "1":
     _OWNED_TEST_DB_DIR = tempfile.mkdtemp(prefix="arcreel-test-db-")
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_OWNED_TEST_DB_DIR}/.arcreel.db"
     os.environ[_OWNED_DB_MARKER] = "1"
     # 回收挂在 atexit 而非 fixture teardown 上：`--collect-only`（CI 的分类 marker 闸门）
     # 与收集期中断都只 import conftest、不跑 fixture。
-    atexit.register(shutil.rmtree, _OWNED_TEST_DB_DIR, ignore_errors=True)
+    atexit.register(_remove_owned_test_db_dir)
 
 import lib.generation_queue as generation_queue_module
 from lib.db.base import Base
@@ -60,6 +75,24 @@ def _discard_pooled_connections_in_forked_child() -> None:
 
 
 _fork_hook_registered = False
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config: pytest.Config) -> None:
+    """mutmut 会话各用一个私有 basetemp，不进共享的 ``pytest-of-<user>`` 根。
+
+    mutmut 按 mutant fork 出多个 pytest 会话并行跑，它们在会话收尾时同时清理共享根下的
+    ``pytest-current`` 软链，竞争抛出的 ``FileNotFoundError`` 从 ``pytest.main`` 冒出，
+    让子进程走正常退出路径、退出码 1 记成 killed。显式给定的 basetemp 不登记任何清理，
+    收尾时无事可做；目录由本会话在 unconfigure 时自己回收。``MUTANT_UNDER_TEST`` 由
+    mutmut 在其进程内设置（stats、forced-fail 与各 mutant 子进程），本地 pytest 不受影响。
+    ``tryfirst`` 使赋值先于 pytest 自带 tmpdir 插件读取 ``config.option.basetemp``。
+    """
+    if not os.environ.get("MUTANT_UNDER_TEST") or config.option.basetemp is not None:
+        return
+    private_basetemp = tempfile.mkdtemp(prefix="arcreel-mutmut-basetemp-")
+    config.option.basetemp = private_basetemp
+    config.add_cleanup(lambda: shutil.rmtree(private_basetemp, ignore_errors=True))
 
 
 @pytest.fixture(scope="session", autouse=True)
