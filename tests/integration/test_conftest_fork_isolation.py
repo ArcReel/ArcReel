@@ -66,7 +66,7 @@ def test_mutmut_session_uses_private_basetemp_outside_shared_root(tmp_path: Path
         "TMPDIR": str(tmpdir),
     }
     nodeid = (
-        f"{Path(__file__).relative_to(_REPO_ROOT)}"
+        f"{Path(__file__).relative_to(_REPO_ROOT).as_posix()}"
         f"::{test_mutmut_session_uses_private_basetemp_outside_shared_root.__name__}"
     )
     result = subprocess.run(

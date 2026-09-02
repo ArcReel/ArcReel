@@ -90,7 +90,7 @@ def pytest_configure(config: pytest.Config) -> None:
     """
     if not os.environ.get("MUTANT_UNDER_TEST") or config.option.basetemp is not None:
         return
-    private_basetemp = tempfile.mkdtemp(prefix="arcreel-mutmut-basetemp-")
+    private_basetemp = Path(tempfile.mkdtemp(prefix="arcreel-mutmut-basetemp-"))
     config.option.basetemp = private_basetemp
     config.add_cleanup(lambda: shutil.rmtree(private_basetemp, ignore_errors=True))
 
