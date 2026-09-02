@@ -39,7 +39,7 @@ uv sync --group mutation
 | 3 | mutmut 把 pytest 内部错误当 killed | 复核 |
 | 其他（含 −11 段错误、None 未检查） | 可疑或未记 | 复核 |
 
-判据只有一条：**exit code 不等于 1 的一律复核**，复核确认存活的才进入判定。
+判据只有一条：**exit code 既不是 1 也不是 0 的一律复核**，复核确认存活的才进入判定。0 是 pytest 全部通过，本身就是确认存活，不用复核。
 
 ## 4. 超时的新进程复核
 
@@ -56,7 +56,7 @@ cd mutants && MUTANT_UNDER_TEST=lib.speech_rate.x_estimate_spoken_seconds__mutmu
 
 pytest 原生支持 `@文件` 读参数，一行一个、原样保留空格和引号，本套件 180 多个含空格或引号的参数化 nodeid 都能过。不要用 `$(cat …)` 或裸 `xargs`：前者在 zsh 下整串成一个参数、pytest 静默跑 0 个用例，后者会把带空格的 nodeid 拆开。
 
-判读：**1 failed 即 killed；全部通过即存活。** 复核确认 killed 的（含段错误之类两头不落的），在第 2 节保存的基线副本里把该 mutant 的 exit code 改成 1，这样第 5 节会把它们归入「基线 killed」那层护栏；确认存活的保持原样。首批 616 个 mutant 里 exit code 不等于 1 的 130 个，复核后 2 个段错误确认 killed、12 个超时全部确认存活。
+判读：**1 failed 即 killed；全部通过即存活。** 复核确认 killed 的（含段错误之类两头不落的），在第 2 节保存的基线副本里把该 mutant 的 exit code 改成 1，这样第 5 节会把它们归入「基线 killed」那层护栏；确认存活的保持原样。首批 616 个 mutant 里 exit code 不等于 1 的 130 个，其中要复核的只有 12 个超时和 2 个段错误：复核后 2 个段错误确认 killed、12 个超时全部确认存活。
 
 ## 5. 改造后的三层验收
 

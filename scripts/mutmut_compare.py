@@ -74,7 +74,8 @@ def load_meta(root: Path) -> MetaSnapshot:
     """合并目录下全部 `*.meta` 的 `exit_code_by_key` 与 `hash_by_function_name`。
 
     哈希以「模块.函数」为键：mutant 名是 `lib.a.x_f__mutmut_3`，同一 .meta 里的 `hash_by_function_name`
-    键是 `x_f`，模块前缀取自该文件的 mutant 名。
+    键是 `x_f`，模块前缀取自该文件的 mutant 名。缺少 `hash_by_function_name`、或有 mutant 对应的函数
+    没有哈希，一律拒绝：源码哈希核对是比对有效性的前提，缺项会让它静默失效。
     """
     exit_codes: dict[str, int | None] = {}
     function_hashes: dict[str, str] = {}
@@ -82,9 +83,9 @@ def load_meta(root: Path) -> MetaSnapshot:
         with meta.open(encoding="utf-8") as f:
             data = json.load(f)
         codes = data.get("exit_code_by_key")
-        hashes = data.get("hash_by_function_name", {})
+        hashes = data.get("hash_by_function_name")
         if not isinstance(codes, dict) or not isinstance(hashes, dict):
-            raise ValueError(f"{meta} 缺少 exit_code_by_key 或 hash_by_function_name 不是对象")
+            raise ValueError(f"{meta} 缺少 exit_code_by_key 或 hash_by_function_name")
         modules: set[str] = set()
         for key, code in codes.items():
             if not isinstance(key, str) or not (code is None or isinstance(code, int)):
@@ -96,6 +97,9 @@ def load_meta(root: Path) -> MetaSnapshot:
         if len(modules) > 1:
             raise ValueError(f"{meta} 混有多个模块的 mutant：{sorted(modules)}")
         module = modules.pop() if modules else ""
+        unhashed = sorted({key.partition("__mutmut_")[0].rpartition(".")[2] for key in codes} - set(hashes))
+        if unhashed:
+            raise ValueError(f"{meta} 的 hash_by_function_name 缺少 mutant 对应的函数：{unhashed}")
         for func, digest in hashes.items():
             if not isinstance(func, str) or not isinstance(digest, str):
                 raise ValueError(f"{meta} 的 hash_by_function_name 含非法项：{func!r}: {digest!r}")
@@ -140,6 +144,16 @@ def compare(
             f"基线与本轮有 {len(changed_functions)} 个函数源码哈希不同：mutant 名可能没变但语义已变，先重建基线"
         )
         invalid.extend(f"  源码已变 {func}" for func in changed_functions[:10])
+    if baseline_hashes is not None or current_hashes is not None:
+        hash_only_baseline = sorted(set(baseline_hashes or {}) - set(current_hashes or {}))
+        hash_only_current = sorted(set(current_hashes or {}) - set(baseline_hashes or {}))
+        if hash_only_baseline or hash_only_current:
+            invalid.append(
+                f"基线与本轮的函数哈希集合不一致（基线独有 {len(hash_only_baseline)}，"
+                f"本轮独有 {len(hash_only_current)}）：源码变了或 .meta 不完整，先重建基线"
+            )
+            invalid.extend(f"  基线独有哈希 {func}" for func in hash_only_baseline[:10])
+            invalid.extend(f"  本轮独有哈希 {func}" for func in hash_only_current[:10])
     missing = sorted(set(baseline) - set(current))
     extra = sorted(set(current) - set(baseline))
     if missing or extra:

@@ -18,8 +18,10 @@ _BASELINE = {
 
 
 def _write_meta(root: Path, name: str, codes: dict[str, int | None], hashes: dict[str, str] | None = None) -> None:
+    """按真实 .meta 的形状落盘：每个 mutant 对应的函数都有哈希，未指定的用占位值。"""
     root.mkdir(parents=True, exist_ok=True)
-    payload = {"exit_code_by_key": codes, "hash_by_function_name": hashes or {}}
+    derived = {key.partition("__mutmut_")[0].rpartition(".")[2]: "h" for key in codes}
+    payload = {"exit_code_by_key": codes, "hash_by_function_name": {**derived, **(hashes or {})}}
     (root / name).write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -117,6 +119,34 @@ def test_changed_function_hash_invalidates_even_when_mutant_names_match() -> Non
         "基线与本轮有 1 个函数源码哈希不同：mutant 名可能没变但语义已变，先重建基线",
         "  源码已变 lib.a.x_f",
     ]
+
+
+def test_mismatched_function_hash_sets_invalidate_the_comparison() -> None:
+    report = compare(
+        _BASELINE,
+        {**_BASELINE, "lib.a.x_f__mutmut_2": 1},
+        reworked=["lib.a.x_f__mutmut_2"],
+        baseline_hashes={"lib.a.x_f": "h1", "lib.b.x_g": "h2"},
+        current_hashes={"lib.a.x_f": "h1"},
+    )
+
+    assert not report.passed
+    assert report.invalid == [
+        "基线与本轮的函数哈希集合不一致（基线独有 1，本轮独有 0）：源码变了或 .meta 不完整，先重建基线",
+        "  基线独有哈希 lib.b.x_g",
+    ]
+
+
+def test_load_meta_rejects_meta_without_hash_for_every_mutant(tmp_path: Path) -> None:
+    payload = {"exit_code_by_key": {"lib.a.x_f__mutmut_1": 1}}
+    (tmp_path / "a.py.meta").write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"缺少 exit_code_by_key 或 hash_by_function_name"):
+        load_meta(tmp_path)
+
+    payload["hash_by_function_name"] = {"x_other": "h1"}
+    (tmp_path / "a.py.meta").write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"hash_by_function_name 缺少 mutant 对应的函数：\['x_f'\]"):
+        load_meta(tmp_path)
 
 
 def test_load_meta_merges_meta_files_recursively_and_rejects_duplicates(tmp_path: Path) -> None:
