@@ -405,13 +405,15 @@ class _FakeBatchEditor:
 
 
 class _FakeSummaries:
-    """项目摘要投影替身：记录列表端点是否把一次性加载的剧本 map 交给它。"""
+    """项目摘要投影替身：记录列表端点是否把一次性加载的剧本 map 交给它，以及各端点选的产物口径。"""
 
     def __init__(self):
         self.last_preloaded_scripts: dict | None = None
+        self.currencies: list[str] = []
 
-    def get_project_summary(self, name, *, preloaded_scripts=None) -> ProjectSummary:
+    def get_project_summary(self, name, *, preloaded_scripts=None, currency="verified") -> ProjectSummary:
         self.last_preloaded_scripts = preloaded_scripts
+        self.currencies.append(currency)
         return ProjectSummary(
             phase="production",
             phase_progress=0.5,

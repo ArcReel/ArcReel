@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from lib.artifact_manifest import (
     ArtifactBasis,
@@ -68,6 +68,44 @@ def decode_script_content_snapshot(content: bytes, artifact_path: str) -> dict[s
         raise ValueError(f"episode script must contain an object: {artifact_path}")
     migrate_script_unit_durations(script)
     return script
+
+
+class ArtifactComparer(Protocol):
+    """一件产物的可用性判定入口：完整时新性比对与只看登记的轻量判定共用。"""
+
+    def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison: ...
+
+
+class RegisteredArtifactResolver:
+    """只按「清单已登记且文件在场」判定产物，不重建规范状态。
+
+    与 ``ArtifactCurrencyResolver`` 的差别是不回答「是否比当前内容旧」：清单一次读入
+    内存，每件产物只做一次路径准入检查（在场探针只读一个字节），不哈希产物内容、
+    不构造目标态规划。
+    因此它只会返回 current / missing / blocked，登记在案的过期产物一律按 current 报告。
+    适用于项目列表这类只需要「有几件可用」的广度视图；工作台的决策仍走完整比对。
+    """
+
+    def __init__(self, project_dir: Path, project: Mapping[str, Any]) -> None:
+        if not project_schema_is_current(project):
+            raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
+        self._adapter = ProjectArtifactManifestAdapter(Path(project_dir).resolve(strict=True))
+        self._entries = self._adapter.snapshot_entries()
+
+    def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
+        observation = self._adapter.inspect_artifact(artifact_path)
+        if observation.blocker is not None:
+            return ArtifactComparison(
+                status=ArtifactStatus.BLOCKED,
+                artifact_path=observation.artifact_path,
+                blocker=observation.blocker,
+            )
+        if not observation.present:
+            return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=observation.artifact_path)
+        entry = self._entries.get(key)
+        if entry is None or entry.artifact_path != observation.artifact_path:
+            return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=observation.artifact_path)
+        return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=observation.artifact_path)
 
 
 class ArtifactCurrencyResolver:

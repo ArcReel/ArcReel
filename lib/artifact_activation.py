@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from lib.artifact_currency import (
+    ArtifactComparer,
     ArtifactCurrencyResolver,
+    RegisteredArtifactResolver,
     active_artifact_currency_resolver,
     artifact_is_usable,
     read_artifact_content_digest,
@@ -478,11 +480,13 @@ def _commit_schema_version(project_dir: Path, project: Mapping[str, Any]) -> Non
 
 __all__ = [
     "ARTIFACT_MANIFEST_SCHEMA_VERSION",
+    "ArtifactComparer",
     "ArtifactCurrencyResolver",
     "ArtifactInputClaim",
     "ArtifactRegistrationReceipt",
     "ArtifactTargetStatePlan",
     "EpisodeScriptInput",
+    "RegisteredArtifactResolver",
     "activate_artifact_target_state",
     "active_artifact_currency_resolver",
     "artifact_input_is_usable",

@@ -1,25 +1,29 @@
 """项目摘要投影：广度视图（项目列表、卡片、全局头）读到的阶段与产物计数。
 
 断言的是投影的外部输出——阶段归并、可用 / stale 计数、分集汇总，以及它与工作台
-制作状态同用一份产物清单这件事，不断言内部调用顺序。
+制作状态同用一份产物清单这件事，不断言内部调用顺序。两种产物口径各有一组：
+``verified`` 与工作台逐件同数，``registered`` 只看登记与在场、不读产物内容。
 """
 
 from __future__ import annotations
 
+import builtins
 import json
+import os
 from pathlib import Path
+from typing import IO, Any
 
 import pytest
 
 from lib.artifact_activation import register_current_artifact
-from lib.artifact_manifest import ArtifactKey
+from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactKey
 from lib.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints, discover_sources
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_with_verdict
 from lib.resource_paths import resource_relative_path
 from lib.source_revision import SourceRevisionResult, compute_source_revision
-from lib.workflow_state import WorkflowStateService
+from lib.workflow_state import ProjectSummaryCurrency, WorkflowStateService
 from tests.integration.lib.test_workflow_state import (
     _complete_episode_media,
     _count_source_reads,
@@ -80,6 +84,82 @@ def _episode_with_media(pm: ProjectManager, project_path: Path, source_text: str
         },
     )
     _register_produced_artifacts(project_path)
+
+
+def _count_artifact_opens(monkeypatch: pytest.MonkeyPatch, project_path: Path) -> dict[str, int]:
+    """在文件系统边界上记录：产物图被按路径打开（哈希）的次数、单个产物描述符上读到的最大字节数、
+    产物清单与版本历史被打开的次数。"""
+
+    counts = {"artifact_bytes": 0, "artifact_max_read": 0, "manifest_opens": 0, "versions_opens": 0}
+    root = project_path.resolve()
+    artifact_dirs = {root / "characters", root / "scenes", root / "props", root / "storyboards", root / "videos"}
+    artifact_identities = {
+        (stat.st_dev, stat.st_ino)
+        for directory in (*artifact_dirs, root / "versions")
+        if directory.is_dir()
+        for file in directory.rglob("*")
+        if file.is_file() and file.suffix != ".json"
+        for stat in (file.stat(),)
+    }
+    artifact_fd_reads: dict[int, int] = {}
+
+    def _under_artifact_dir(path: Path) -> bool:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            return False
+        return any(parent in artifact_dirs for parent in resolved.parents)
+
+    original_open = Path.open
+    original_read_bytes = Path.read_bytes
+    original_os_open = os.open
+    original_os_read = os.read
+    original_os_close = os.close
+
+    def _counted_path_open(self: Path, *args: Any, **kwargs: Any) -> IO[Any]:
+        if _under_artifact_dir(self):
+            counts["artifact_bytes"] += 1
+        return original_open(self, *args, **kwargs)
+
+    def _counted_read_bytes(self: Path) -> bytes:
+        if _under_artifact_dir(self):
+            counts["artifact_bytes"] += 1
+        return original_read_bytes(self)
+
+    def _counted_os_open(path: object, *args: object, **kwargs: object) -> int:
+        if isinstance(path, (str, Path)) and Path(path).name == MANIFEST_FILENAME:
+            counts["manifest_opens"] += 1
+        fd = original_os_open(path, *args, **kwargs)
+        stat = os.fstat(fd)
+        if (stat.st_dev, stat.st_ino) in artifact_identities:
+            artifact_fd_reads[fd] = 0
+        return fd
+
+    def _counted_os_read(fd: int, length: int, /) -> bytes:
+        data = original_os_read(fd, length)
+        if fd in artifact_fd_reads:
+            artifact_fd_reads[fd] += len(data)
+            counts["artifact_max_read"] = max(counts["artifact_max_read"], artifact_fd_reads[fd])
+        return data
+
+    def _counted_os_close(fd: int, /) -> None:
+        artifact_fd_reads.pop(fd, None)
+        original_os_close(fd)
+
+    original_builtin_open = builtins.open
+
+    def _counted_builtin_open(file: Any, *args: Any, **kwargs: Any) -> IO[Any]:
+        if isinstance(file, (str, Path)) and Path(file).name == "versions.json":
+            counts["versions_opens"] += 1
+        return original_builtin_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", _counted_path_open)
+    monkeypatch.setattr(Path, "read_bytes", _counted_read_bytes)
+    monkeypatch.setattr(os, "open", _counted_os_open)
+    monkeypatch.setattr(os, "read", _counted_os_read)
+    monkeypatch.setattr(os, "close", _counted_os_close)
+    monkeypatch.setattr(builtins, "open", _counted_builtin_open)
+    return counts
 
 
 def test_project_without_asset_inventory_is_in_preparation(tmp_path: Path) -> None:
@@ -397,3 +477,129 @@ def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) 
     # 夹具本身要有区分力：两侧全 0 相等不构成证据。
     assert episode.storyboards.stale == 1
     assert episode.storyboards.available == 1
+
+
+def test_registered_currency_counts_stale_artifacts_as_current(tmp_path: Path) -> None:
+    """列表口径不比对规范状态：登记在案且文件在场的产物一律可用，产物比对不产生 stale。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    _add_character_with_sheet(pm, project_path)
+    _episode_with_media(pm, project_path, source_text)
+    service = WorkflowStateService(pm)
+
+    def _redescribe(project: dict) -> None:
+        project["characters"]["小明"]["description"] = "改过的设定"
+
+    pm.update_project("demo", _redescribe)
+
+    verified = service.get_project_summary("demo", currency="verified")
+    registered = service.get_project_summary("demo", currency="registered")
+
+    assert verified.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 1}
+    assert registered.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 0}
+    # 阶段、进度与分集汇总不因口径而异：可用数相同，只是不再区分新旧。
+    assert (registered.phase, registered.phase_progress) == (verified.phase, verified.phase_progress)
+    assert registered.episodes_summary == verified.episodes_summary
+
+
+def test_registered_currency_still_requires_registration_and_presence(tmp_path: Path) -> None:
+    """列表口径仍以清单为准：落盘未登记不算可用，登记后删掉文件也不算。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    _episode_with_media(pm, project_path, source_text)
+    service = WorkflowStateService(pm)
+    assert service.get_project_summary("demo", currency="registered").phase == "completed"
+
+    # 补录之后才写入的资产图：清单里没有它。
+    _add_character_with_sheet(pm, project_path, name="小红")
+    (project_path / resource_relative_path("videos", "E1S01")).unlink()
+
+    summary = service.get_project_summary("demo", currency="registered")
+
+    assert summary.assets["character"].model_dump() == {"total": 1, "available": 0, "stale": 0}
+    episode = summary.episodes[0]
+    assert (episode.videos.total, episode.videos.available) == (1, 0)
+    assert episode.status == "in_production"
+    assert summary.phase == "production"
+
+
+def test_registered_currency_never_reads_artifact_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """列出 N 个项目不该哈希 N 个项目的图：列表口径不按路径打开任何产物、单个产物描述符上
+    最多读一个字节（在场探针），清单每项目只读一次。
+
+    ``verified`` 口径在同一夹具上会整读产物内容并多次打开清单，用来证明夹具有区分力。
+    """
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    _add_character_with_sheet(pm, project_path)
+    _episode_with_media(pm, project_path, source_text)
+    service = WorkflowStateService(pm)
+
+    verified_counts = _count_artifact_opens(monkeypatch, project_path)
+    verified = service.get_project_summary("demo", currency="verified")
+    monkeypatch.undo()
+
+    registered_counts = _count_artifact_opens(monkeypatch, project_path)
+    registered = service.get_project_summary("demo", currency="registered")
+
+    assert verified.phase == registered.phase == "completed"
+    assert verified_counts["artifact_bytes"] > 0
+    assert verified_counts["artifact_max_read"] > 1
+    assert verified_counts["manifest_opens"] > 2
+    assert registered_counts["artifact_bytes"] == 0
+    assert registered_counts["artifact_max_read"] <= 1
+    # 无锁读取为保证一致性读两遍同一份清单，算作一次读入。
+    assert registered_counts["manifest_opens"] <= 2
+
+
+def test_registered_currency_trusts_the_selected_manual_upload_without_byte_comparison(tmp_path: Path) -> None:
+    """手动上传的视频没有清单认领：完整口径要逐字节比对快照，列表口径只要求两份文件在场。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    _episode_with_media(pm, project_path, source_text)
+    service = WorkflowStateService(pm)
+
+    (project_path / resource_relative_path("videos", "E1S01")).write_bytes(b"replaced outside the version flow")
+
+    verified = service.get_project_summary("demo", currency="verified").episodes[0]
+    registered = service.get_project_summary("demo", currency="registered").episodes[0]
+
+    assert (verified.videos.available, verified.status) == (0, "in_production")
+    assert (registered.videos.available, registered.status) == (1, "completed")
+
+
+@pytest.mark.parametrize("currency", ["verified", "registered"])
+def test_project_summary_reads_the_version_history_once_per_episode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, currency: ProjectSummaryCurrency
+) -> None:
+    """手动上传的视频按版本记录认领：一集里有几个分镜，版本历史也只读一次，不随分镜数线性重读。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    _plan_one_episode(pm, project_path, source_text)
+    _write_script_plan(project_path)
+    segments = [
+        _valid_narration_segment(segment_id=shot, generated_assets=_complete_episode_media(project_path, shot))
+        for shot in ("E1S01", "E1S02", "E1S03")
+    ]
+    _write_registered_script(
+        project_path,
+        {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": segments},
+    )
+    _register_produced_artifacts(project_path)
+    service = WorkflowStateService(pm)
+
+    counts = _count_artifact_opens(monkeypatch, project_path)
+    summary = service.get_project_summary("demo", currency=currency)
+
+    assert summary.episodes[0].videos.model_dump() == {"total": 3, "available": 3, "stale": 0}
+    assert counts["versions_opens"] == 1
