@@ -97,19 +97,22 @@ case "$CMD" in
     }
     MARKED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-    if [[ ! -f "$LEDGER_FILE" ]]; then
-      jq -n --argjson pr "$PR" '{pr: $pr, rounds: []}' > "$LEDGER_FILE"
-    fi
+    # Every write, the first included, lands via mktemp + mv so the ledger is never
+    # observed half-written; a missing ledger is synthesised in-stream instead.
     TMP_FILE=$(mktemp "$SNAP_DIR/rounds.XXXXXX")
     trap 'rm -f "$TMP_FILE"' EXIT
-    jq --arg head "$HEAD_SHA" --arg marked_at "$MARKED_AT" --arg note "$NOTE" \
+    if [[ -f "$LEDGER_FILE" ]]; then
+      cat "$LEDGER_FILE"
+    else
+      jq -n --argjson pr "$PR" '{pr: $pr, rounds: []}'
+    fi | jq --arg head "$HEAD_SHA" --arg marked_at "$MARKED_AT" --arg note "$NOTE" \
        --argjson implemented "$IMPLEMENTED" --argjson pushback "$PUSHBACK" '
       .rounds += [{
         round: ((.rounds | length) + 1),
         head: $head, marked_at: $marked_at,
         implemented: $implemented, pushback: $pushback, note: $note
       }]
-    ' "$LEDGER_FILE" > "$TMP_FILE"
+    ' > "$TMP_FILE"
     mv "$TMP_FILE" "$LEDGER_FILE"
     trap - EXIT
     jq -c '.rounds | (last + {rounds: length})' "$LEDGER_FILE"
