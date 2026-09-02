@@ -250,51 +250,102 @@ class VersionManager:
 
         if resource_type not in {"videos", "reference_videos"}:
             return False
+        with self._lock:
+            history = self._load_versions().get(resource_type, {}).get(resource_id)
+            return self._selected_manual_upload_matches(
+                history,
+                resource_type,
+                resource_id,
+                artifact_path,
+                verify_content=verify_content,
+            )
+
+    def manual_upload_matcher(
+        self,
+        resource_type: str,
+        *,
+        verify_content: bool = True,
+    ) -> Callable[[str, object], bool]:
+        """Return ``selected_manual_upload_matches_current_file`` bound to one read of the history.
+
+        A breadth view asks the question for every shot of an episode; answering
+        each from disk would parse ``versions.json`` once per shot.  The matcher
+        loads the history and opens the project adapter on the first question
+        and answers the rest from memory.  It is a point-in-time snapshot for
+        read models: admission decisions keep using the locked single-resource
+        check above.
+        """
+
+        if resource_type not in {"videos", "reference_videos"}:
+            return lambda resource_id, artifact_path: False
+        histories: dict[str, Any] | None = None
+        adapter: ProjectArtifactManifestAdapter | None = None
+
+        def match(resource_id: str, artifact_path: object) -> bool:
+            nonlocal histories, adapter
+            if histories is None:
+                with self._lock:
+                    loaded = self._load_versions().get(resource_type, {})
+                histories = loaded if isinstance(loaded, dict) else {}
+                adapter = ProjectArtifactManifestAdapter(self.project_path)
+            return self._selected_manual_upload_matches(
+                histories.get(resource_id),
+                resource_type,
+                resource_id,
+                artifact_path,
+                verify_content=verify_content,
+                adapter=adapter,
+            )
+
+        return match
+
+    def _selected_manual_upload_matches(
+        self,
+        history: object,
+        resource_type: str,
+        resource_id: str,
+        artifact_path: object,
+        *,
+        verify_content: bool,
+        adapter: ProjectArtifactManifestAdapter | None = None,
+    ) -> bool:
         try:
             canonical_rel = resource_relative_path(resource_type, resource_id)
         except (TypeError, ValueError):
             return False
-        if artifact_path != canonical_rel:
+        if artifact_path != canonical_rel or not isinstance(history, Mapping):
             return False
-
-        with self._lock:
-            history = self.get_versions(resource_type, resource_id)
-            selected_version = history.get("current_version")
-            if type(selected_version) is not int or selected_version <= 0:
-                return False
-            records = history.get("versions")
-            if not isinstance(records, list):
-                return False
-            selected = next(
-                (
-                    record
-                    for record in records
-                    if isinstance(record, Mapping)
-                    and record.get("version") == selected_version
-                    and record.get("is_current") is True
-                ),
-                None,
-            )
-            if selected is None or selected.get("source") != MANUAL_UPLOAD_VERSION_SOURCE:
-                return False
-            snapshot_rel = selected.get("file")
-            if not isinstance(snapshot_rel, str) or not self.is_managed_snapshot_path(resource_type, snapshot_rel):
-                return False
-            try:
+        selected_version = history.get("current_version")
+        if type(selected_version) is not int or selected_version <= 0:
+            return False
+        records = history.get("versions")
+        if not isinstance(records, list):
+            return False
+        selected = next(
+            (record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version),
+            None,
+        )
+        if selected is None or selected.get("source") != MANUAL_UPLOAD_VERSION_SOURCE:
+            return False
+        snapshot_rel = selected.get("file")
+        if not isinstance(snapshot_rel, str) or not self.is_managed_snapshot_path(resource_type, snapshot_rel):
+            return False
+        try:
+            if adapter is None:
                 adapter = ProjectArtifactManifestAdapter(self.project_path)
-                inspect = adapter.inspect_artifact_content if verify_content else adapter.inspect_artifact
-                canonical = inspect(canonical_rel)
-                snapshot = inspect(snapshot_rel)
-            except ArtifactManifestError:
-                return False
-            if (
-                canonical.blocker is not None
-                or snapshot.blocker is not None
-                or not canonical.present
-                or not snapshot.present
-            ):
-                return False
-            return not verify_content or canonical.content_digest == snapshot.content_digest
+            inspect = adapter.inspect_artifact_content if verify_content else adapter.inspect_artifact
+            canonical = inspect(canonical_rel)
+            snapshot = inspect(snapshot_rel)
+        except ArtifactManifestError:
+            return False
+        if (
+            canonical.blocker is not None
+            or snapshot.blocker is not None
+            or not canonical.present
+            or not snapshot.present
+        ):
+            return False
+        return not verify_content or canonical.content_digest == snapshot.content_digest
 
     def add_version(
         self, resource_type: str, resource_id: str, prompt: str, source_file: Path | None = None, **metadata

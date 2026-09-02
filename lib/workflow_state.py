@@ -21,8 +21,7 @@ from portalocker.exceptions import BaseLockException
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib import script_review
-from lib.artifact_activation import ArtifactCurrencyResolver
-from lib.artifact_currency import ArtifactComparer, RegisteredArtifactResolver
+from lib.artifact_activation import ArtifactComparer, ArtifactCurrencyResolver, RegisteredArtifactResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
 from lib.content_digest import prefixed_canonical_json_digest
@@ -252,8 +251,10 @@ class ProjectSummary(BaseModel):
     都取自同一份产物清单。
 
     产物判定有两种口径（``ProjectSummaryCurrency``）：``verified`` 逐件与规范状态比对，能
-    区分 current 与 stale；``registered`` 只看清单登记与文件在场，stale 恒为 0。前者供
-    单个项目的详情与剧集卡，后者供项目列表——列出 N 个项目时不哈希任何产物字节。
+    区分 current 与 stale；``registered`` 只看清单登记与文件在场，产物比对不产生 stale。
+    前者供单个项目的详情与剧集卡，后者供项目列表——列出 N 个项目时不读任何产物内容。
+    参考生视频的重规划壳（``needs_replan``）在两种口径下都计 stale：那是脚本条目自身的
+    标记，不是产物比对的结果。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -884,9 +885,7 @@ class WorkflowStateService:
         episode: int,
         resolver: ArtifactComparer | None,
         blockers: list[WorkflowBlocker],
-        manual_video_versions: VersionManager | None = None,
-        manual_video_resource_type: str | None = None,
-        manual_video_verify_content: bool = True,
+        manual_video_matcher: Callable[[str, object], bool] | None = None,
     ) -> dict[str, Any]:
         collection: dict[str, Any] = _empty_collection()
         if kind is None:
@@ -902,18 +901,8 @@ class WorkflowStateService:
             artifact_path = get_generated_assets(item).get(field)
             if resolver is not None and isinstance(artifact_path, str) and artifact_path:
                 missing_fallback: Callable[[], bool] | None = None
-                if (
-                    field == "video_clip"
-                    and manual_video_versions is not None
-                    and manual_video_resource_type is not None
-                ):
-                    missing_fallback = partial(
-                        manual_video_versions.selected_manual_upload_matches_current_file,
-                        manual_video_resource_type,
-                        resource_id,
-                        artifact_path,
-                        verify_content=manual_video_verify_content,
-                    )
+                if field == "video_clip" and manual_video_matcher is not None:
+                    missing_fallback = partial(manual_video_matcher, resource_id, artifact_path)
                 key = (
                     ArtifactKey.episode_storyboard(episode, resource_id)
                     if field == "storyboard_image"
@@ -933,6 +922,18 @@ class WorkflowStateService:
             else:
                 collection["missing_ids"].append(resource_id)
         return collection
+
+    @staticmethod
+    def _manual_video_matcher(
+        project_path: Path,
+        generation_mode: object,
+        *,
+        verify_content: bool = True,
+    ) -> Callable[[str, object], bool]:
+        """手动上传的视频没有清单认领，按版本记录认领；一集内所有分镜共用一次读入的版本历史。"""
+
+        resource_type = "reference_videos" if generation_mode == "reference_video" else "videos"
+        return VersionManager(project_path).manual_upload_matcher(resource_type, verify_content=verify_content)
 
     def get_status(self, project_name: str, episode: int | None = None) -> WorkflowStatus:
         project = self.pm.load_project_readonly(project_name)
@@ -957,7 +958,7 @@ class WorkflowStateService:
 
         ``currency`` 选产物判定口径：``verified`` 逐件与规范状态比对，代价是每件产物都要
         重建基线（读清单、哈希分镜图与其引用图）；``registered`` 一次读入清单，只判断登记
-        与在场，不读产物字节。列表页取后者，其余取前者。
+        与在场，不读产物内容（在场检查只探一个字节）。列表页取后者，其余取前者。
         """
 
         project = self.pm.load_project_readonly(project_name)
@@ -984,9 +985,9 @@ class WorkflowStateService:
                 project_path,
                 number,
                 entry,
-                currency=resolver,
+                resolver=resolver,
                 preloaded_scripts=preloaded_scripts,
-                manual_video_verify_content=currency == "verified",
+                verify_manual_videos=currency == "verified",
             )
             for number, entry in episodes
         ]
@@ -1005,9 +1006,9 @@ class WorkflowStateService:
         self,
         project_path: Path,
         project: dict[str, Any],
-        currency: ArtifactComparer | None,
+        resolver: ArtifactComparer | None,
     ) -> dict[str, ArtifactCount]:
-        sheets = self._asset_sheets(project_path, project, [], currency)
+        sheets = self._asset_sheets(project_path, project, [], resolver)
         return {
             asset_type: ArtifactCount.of(
                 sheets.get(asset_type, _empty_collection()),
@@ -1024,11 +1025,11 @@ class WorkflowStateService:
         number: int,
         entry: dict[str, Any],
         *,
-        currency: ArtifactComparer | None,
+        resolver: ArtifactComparer | None,
         preloaded_scripts: Mapping[str, dict[str, Any]] | None,
-        manual_video_verify_content: bool,
+        verify_manual_videos: bool,
     ) -> EpisodeSummary:
-        script_status = self._episode_script_status(project, project_path, number, entry, currency)
+        script_status = self._episode_script_status(project, project_path, number, entry, resolver)
         items: list[dict[str, Any]] = []
         kind: str | None = None
         if script_status == "generated":
@@ -1051,7 +1052,7 @@ class WorkflowStateService:
                     kind,
                     "storyboard_image",
                     episode=number,
-                    resolver=currency,
+                    resolver=resolver,
                     blockers=[],
                 ),
                 total=len(items),
@@ -1066,13 +1067,15 @@ class WorkflowStateService:
                 kind,
                 "video_clip",
                 episode=number,
-                resolver=currency,
+                resolver=resolver,
                 blockers=[],
-                manual_video_versions=VersionManager(project_path) if currency is not None else None,
-                manual_video_resource_type=(
-                    "reference_videos" if project.get("generation_mode") == "reference_video" else "videos"
+                manual_video_matcher=(
+                    self._manual_video_matcher(
+                        project_path, project.get("generation_mode"), verify_content=verify_manual_videos
+                    )
+                    if resolver is not None
+                    else None
                 ),
-                manual_video_verify_content=manual_video_verify_content,
             ),
             total=len(items),
         )
@@ -1110,7 +1113,7 @@ class WorkflowStateService:
         project_path: Path,
         number: int,
         entry: dict[str, Any],
-        currency: ArtifactComparer | None,
+        resolver: ArtifactComparer | None,
     ) -> EpisodeScriptStatus:
         """由 script_plan 与正式脚本的产物态派生该集的脚本进度。
 
@@ -1121,8 +1124,8 @@ class WorkflowStateService:
         if entry.get("ledger_status") == "stale":
             return "none"
         script_file = entry.get("script_file")
-        if currency is not None and isinstance(script_file, str) and script_file:
-            state = self._artifact_state(currency, ArtifactKey.episode_script(number), script_file, [])
+        if resolver is not None and isinstance(script_file, str) and script_file:
+            state = self._artifact_state(resolver, ArtifactKey.episode_script(number), script_file, [])
             if state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}:
                 return "generated"
         script_plan = script_review.script_plan_path(project_path, project, number)
@@ -1132,10 +1135,10 @@ class WorkflowStateService:
             # 草稿在场即已分段：首轮拆分失败时正式文件从未写过，报 none 会把用户
             # 路由回源文审阅页，见不到草稿详情与修复入口。
             return "segmented"
-        if currency is None:
+        if resolver is None:
             return "none"
         state = self._artifact_state(
-            currency, ArtifactKey.episode_script_plan(number), script_plan.relative_to(project_path).as_posix(), []
+            resolver, ArtifactKey.episode_script_plan(number), script_plan.relative_to(project_path).as_posix(), []
         )
         return "segmented" if state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value} else "none"
 
@@ -1636,9 +1639,10 @@ class WorkflowStateService:
                             episode=target.episode,
                             resolver=currency,
                             blockers=blockers,
-                            manual_video_versions=VersionManager(project_path) if currency is not None else None,
-                            manual_video_resource_type=(
-                                "reference_videos" if generation_mode == "reference_video" else "videos"
+                            manual_video_matcher=(
+                                self._manual_video_matcher(project_path, generation_mode)
+                                if currency is not None
+                                else None
                             ),
                         )
                         # 旁白配音只作为信息报告，不参与状态推进：缺 TTS 既不是工作流缺口

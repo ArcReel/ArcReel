@@ -1,3 +1,4 @@
+import builtins
 import os
 import shutil
 from pathlib import Path
@@ -77,6 +78,49 @@ class TestVersionManager:
             "E1S01",
             "videos/scene_E1S01.mp4",
         )
+
+    def test_manual_upload_matcher_answers_many_resources_from_one_history_read(self, tmp_path, monkeypatch):
+        """匹配器与逐个查询同答案，但版本历史只在第一次提问时读一次。"""
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        for shot in ("E1S01", "E1S02"):
+            staged = project / "videos" / f".scene_{shot}.upload.mp4"
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            staged.write_bytes(b"manual-video")
+            vm.commit_staged_version(
+                "videos",
+                shot,
+                "",
+                staged_file=staged,
+                current_file=project / "videos" / f"scene_{shot}.mp4",
+                source=MANUAL_UPLOAD_VERSION_SOURCE,
+            )
+        (project / "videos" / "scene_E1S02.mp4").write_bytes(b"concurrent-replacement")
+
+        opens = 0
+        original_open = builtins.open
+
+        def _counted_open(file, *args, **kwargs):
+            nonlocal opens
+            if isinstance(file, (str, Path)) and Path(file).name == "versions.json":
+                opens += 1
+            return original_open(file, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", _counted_open)
+        match = vm.manual_upload_matcher("videos")
+        assert opens == 0
+
+        answers = [
+            match("E1S01", "videos/scene_E1S01.mp4"),
+            match("E1S02", "videos/scene_E1S02.mp4"),
+            match("E1S03", "videos/scene_E1S03.mp4"),
+            match("E1S01", "videos/other.mp4"),
+        ]
+
+        assert answers == [True, False, False, False]
+        assert opens == 1
+        assert vm.manual_upload_matcher("videos", verify_content=False)("E1S02", "videos/scene_E1S02.mp4")
+        assert not vm.manual_upload_matcher("characters")("E1S01", "videos/scene_E1S01.mp4")
 
     def test_add_backup_restore_paths(self, tmp_path):
         project = tmp_path / "demo"
