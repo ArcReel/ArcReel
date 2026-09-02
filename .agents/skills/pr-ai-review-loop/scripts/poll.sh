@@ -67,6 +67,7 @@
 #   },
 #   "gemini": {
 #     "reviews":          [{id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
+#                                                       # listed while is_new OR reviewed_current_head (PITFALL 8);
 #                                                       # body NEVER inlined — query.sh gemini-latest-body
 #     "reviews_history":  {total, last_submitted_at},
 #     "comments_new":     [{id, createdAt, preview}],
@@ -75,10 +76,10 @@
 #   "codex": {
 #     "has_started":      <bool>,                       # Codex has acknowledged with eyes or a clean-pass comment
 #     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head,
-#                            has_body_finding, is_new, preview}],
+#                            has_body_finding, is_new, preview}], # listed while is_new OR reviewed_current_head
 #     "reviews_history":  {total, last_submitted_at},
 #     "comments_new":     [{id, createdAt, reviewed_commit, reviewed_current_head,
-#                            has_pass_marker, preview}], # top-level clean-pass compatibility path
+#                            has_pass_marker, is_new, preview}], # top-level clean-pass path; same listing rule
 #     "comments_history": {total, last_created_at},
 #     "reactions":        [{content, created_at, is_new}] # eyes = reviewing current HEAD; +1 = silent pass
 #   },
@@ -207,7 +208,9 @@
 #    until the next push. round.sh mark stamps marked_at on every disposed batch; the freshness
 #    watermark is max(last_push_at, last marked_at), so a marked batch retires without a push.
 #    Stragglers created between the last poll and the mark are still caught by the seen ledger.
-#    Head-freshness (reviewed_current_head, reactions) stays push-based.
+#    Head-freshness (reviewed_current_head, reactions) stays push-based, and a review or
+#    comment row with reviewed_current_head == true stays listed (is_new false) after the
+#    mark retires it, so the current-HEAD status is still recoverable from the index.
 
 set -euo pipefail
 
@@ -708,8 +711,11 @@ mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
 # reach stdout — query.sh reads them from the snapshot on demand.
 jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
   def prune_hist: if .total == 0 then {total} else . end;
+  # Rows carrying reviewed_current_head stay listed after retirement (PITFALL 8) — head
+  # status must survive a pushback-only mark — so history excludes them too.
+  def shown: (.is_new or (.reviewed_current_head // false));
   def review_history:
-    [.[] | select(.is_new | not)]
+    [.[] | select(shown | not)]
     | {total: length, last_submitted_at: (map(.submittedAt) | max // null)}
     | prune_hist;
   . as $s
@@ -740,7 +746,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
 
       gemini: {
         reviews:
-          [$s.gemini.reviews[] | select(.is_new)
+          [$s.gemini.reviews[] | select(shown)
            | {id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
         reviews_history: ($s.gemini.reviews | review_history),
         comments_new:
@@ -758,15 +764,15 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
            or (any($s.own_trigger_comments[];
                    .command == "@codex review" and .has_codex_eyes))),
         reviews:
-          [$s.codex.reviews[] | select(.is_new)
+          [$s.codex.reviews[] | select(shown)
            | {id, submittedAt, state, reviewed_commit, reviewed_current_head,
               has_body_finding, is_new, preview}],
         reviews_history: ($s.codex.reviews | review_history),
         comments_new:
-          [$s.codex.comments[] | select(.is_new)
-           | {id, createdAt, reviewed_commit, reviewed_current_head, has_pass_marker, preview}],
+          [$s.codex.comments[] | select(shown)
+           | {id, createdAt, reviewed_commit, reviewed_current_head, has_pass_marker, is_new, preview}],
         comments_history:
-          ([$s.codex.comments[] | select(.is_new | not)]
+          ([$s.codex.comments[] | select(shown | not)]
            | {total: length, last_created_at: (map(.createdAt) | max // null)}
            | prune_hist),
         reactions: [$s.codex.reactions[] | {content, created_at, is_new}]

@@ -85,7 +85,8 @@ case "$CMD" in
         (.coderabbit.reviews[]?
            | {source: "coderabbit_review", id, created_at: .submittedAt, state, body}),
         (.gemini.reviews[]?
-           | {source: "gemini_review", id, created_at: .submittedAt, state, has_pass_marker, body}),
+           | {source: "gemini_review", id, created_at: .submittedAt, state,
+              reviewed_current_head, has_pass_marker, body}),
         (.gemini.comments[]?
            | {source: "gemini_comment", id, created_at: .createdAt, body}),
         (.codex.reviews[]?
