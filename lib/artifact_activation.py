@@ -11,7 +11,6 @@ state; ordinary readers never repair or infer entries on first access.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
@@ -26,7 +25,6 @@ from lib.artifact_currency import (
     active_artifact_currency_resolver,
     artifact_is_usable,
     read_artifact_content_digest,
-    read_artifact_content_snapshot,
     resolve_artifact_episode,
     resolve_current_artifact_basis,
     resolve_current_artifact_target,
@@ -77,6 +75,7 @@ from lib.artifact_registration import (
     register_task_current_resource_artifact,
     resolve_current_resource_artifact_basis,
 )
+from lib.content_digest import TextModeDigest
 from lib.formal_write import project_metadata_lock
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.project_schema import project_schema_is_current
@@ -234,14 +233,14 @@ def _archived_content_evidence(
 
     Archives exported through a text-mode descriptor hashed CRLF folded to LF and stopped at
     the first ``0x1A``.  Both translations drop bytes, so such a digest cannot prove the whole
-    artifact; it only shows the bytes came through that export path.
+    artifact; it only shows the bytes came through that export path.  Both digests come from
+    one streamed read so large formal media is never buffered.
     """
 
-    if read_artifact_content_digest(adapter, artifact_path) == archived_digest:
+    text_mode = TextModeDigest()
+    if read_artifact_content_digest(adapter, artifact_path, chunk_observer=text_mode.update) == archived_digest:
         return "exact"
-    content, _digest = read_artifact_content_snapshot(adapter, artifact_path)
-    text_mode_view = content.split(b"\x1a", 1)[0].replace(b"\r\n", b"\n")
-    return "text_mode" if hashlib.sha256(text_mode_view).hexdigest() == archived_digest else "mismatch"
+    return "text_mode" if text_mode.hexdigest() == archived_digest else "mismatch"
 
 
 def _plan_preserved_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:

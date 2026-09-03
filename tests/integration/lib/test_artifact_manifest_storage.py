@@ -1226,3 +1226,31 @@ def test_project_adapter_content_digest_matches_visual_file_digest(tmp_path: Pat
 
     assert snapshot.present
     assert snapshot.content_digest == visual_file_digest(image) == hashlib.sha256(image.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize("inspection_path", ["posix", "portable"])
+def test_project_adapter_streams_hashed_chunks_to_the_observer(tmp_path: Path, inspection_path: str) -> None:
+    """``chunk_observer`` sees exactly the bytes hashed, chunk by chunk, so callers derive a second digest without buffering."""
+    if inspection_path == "posix" and os.name != "posix":
+        pytest.skip("descriptor traversal is the POSIX artifact inspection path")
+    project = tmp_path / "project"
+    project.mkdir()
+    payload = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 8 * 1024
+    (project / "sheet.png").write_bytes(payload)
+    adapter = ProjectArtifactManifestAdapter(project)
+    seen: list[bytes] = []
+
+    if inspection_path == "posix":
+        observation = adapter._inspect_artifact_posix(
+            "sheet.png", include_content_digest=True, chunk_observer=seen.append
+        )
+    else:
+        observation = adapter._inspect_artifact_portable(
+            "sheet.png", include_content_digest=True, chunk_observer=seen.append
+        )
+
+    assert observation.present
+    assert observation.content_bytes is None
+    assert len(seen) > 1
+    assert b"".join(seen) == payload
+    assert observation.content_digest == hashlib.sha256(payload).hexdigest()

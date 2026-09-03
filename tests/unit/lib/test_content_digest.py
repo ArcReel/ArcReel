@@ -13,6 +13,7 @@ import pytest
 from lib.content_digest import (
     CHUNK_BYTES,
     HASH_ALGORITHM,
+    TextModeDigest,
     canonical_json,
     canonical_json_bytes,
     canonical_json_digest,
@@ -95,3 +96,46 @@ def test_canonical_json_rejects_non_finite_floats_when_strict() -> None:
 def test_prefixed_canonical_json_digest_matches_bare_digest() -> None:
     payload = {"kind": "demo", "version": 1}
     assert prefixed_canonical_json_digest(payload) == prefixed(canonical_json_digest(payload))
+
+
+def _text_mode_view(content: bytes) -> bytes:
+    return content.split(b"\x1a", 1)[0].replace(b"\r\n", b"\n")
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"",
+        b"plain\n",
+        b"a\r\nb\r\n",
+        b"lone\rcr\r",
+        b"\x89PNG\r\n\x1a\nIHDR\r\n",
+        b"\x1a",
+        b"tail-cr\r",
+    ],
+)
+def test_text_mode_digest_matches_whole_read_view(content: bytes) -> None:
+    digest = TextModeDigest()
+    digest.update(content)
+
+    assert digest.hexdigest() == hashlib.sha256(_text_mode_view(content)).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("chunks", "content"),
+    [
+        ((b"a\r", b"\nb"), b"a\r\nb"),
+        ((b"a\r", b"\r\nb"), b"a\r\r\nb"),
+        ((b"a\r", b"x"), b"a\rx"),
+        ((b"a\r", b""), b"a\r"),
+        ((b"a\r", b"\x1a\r\n"), b"a\r\x1a\r\n"),
+        ((b"head\x1a", b"\r\ntail\r"), b"head\x1a\r\ntail\r"),
+    ],
+)
+def test_text_mode_digest_folds_across_chunk_boundaries(chunks: tuple[bytes, ...], content: bytes) -> None:
+    """块边界上的 ``\\r`` 要等到下一块才能决定是否折叠，结果须与一次性读取一致。"""
+    digest = TextModeDigest()
+    for chunk in chunks:
+        digest.update(chunk)
+
+    assert digest.hexdigest() == hashlib.sha256(_text_mode_view(content)).hexdigest()
