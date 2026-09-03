@@ -213,33 +213,68 @@ describe("单资源入队动作的乐观标记 kind / taskType", () => {
 });
 
 describe("enqueueEpisodeNarration", () => {
-  it("有缺失片段时弹批量提交 toast，不打乐观标记", async () => {
+  it("按映射逐段打标，未入队的段不打标，并弹批量提交 toast", async () => {
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
       success: true,
       task_ids: ["t1", "t2"],
+      task_ids_by_segment: { E1S01: "t1", E1S02: "t2" },
       deduped: false,
       message: "ok",
     });
 
     const res = await enqueueEpisodeNarration("demo", "episode_1.json");
 
+    expect(occupied("demo", "tts", "E1S01")).toBe(true);
+    expect(occupied("demo", "tts", "E1S02")).toBe(true);
+    // 服务端跳过的段（已有旁白 / 无原文）不在映射里，不能被标成生成中
+    expect(occupied("demo", "tts", "E1S03")).toBe(false);
+    expect(markCounts()).toEqual({ resource: 2, scriptFile: 0 });
     expect(useAppStore.getState().toast?.text).toBe(
       i18n.t("dashboard:narration_batch_submitted_toast", { count: 2 }),
     );
-    expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
     expect(res).toEqual({ taskIds: ["t1", "t2"], deduped: false });
   });
 
-  it("无缺失片段（task_ids 为空）时弹无缺失提示", async () => {
+  // 每段的标记只等它自己的任务行：等全批落库时，任务列表快照只留最新若干行，
+  // 早的行可能再不出现，那些段会一直显示成生成中。
+  it("每段的标记只等自己的任务行", async () => {
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
       success: true,
-      task_ids: [],
+      task_ids: ["t1", "t2"],
+      task_ids_by_segment: { E1S01: "t1", E1S02: "t2" },
       deduped: false,
       message: "ok",
     });
 
     await enqueueEpisodeNarration("demo", "episode_1.json");
 
+    // 只有 E1S01 的任务行落库：它让位，E1S02 仍占用。
+    useTasksStore.getState().setTasks([
+      {
+        task_id: "t1",
+        project_name: "demo",
+        task_type: "tts",
+        resource_id: "E1S01",
+        status: "completed",
+      },
+    ] as never);
+
+    expect(occupied("demo", "tts", "E1S01")).toBe(false);
+    expect(occupied("demo", "tts", "E1S02")).toBe(true);
+  });
+
+  it("无缺失片段（task_ids 为空）时弹无缺失提示且不留标记", async () => {
+    vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
+      success: true,
+      task_ids: [],
+      task_ids_by_segment: {},
+      deduped: false,
+      message: "ok",
+    });
+
+    await enqueueEpisodeNarration("demo", "episode_1.json");
+
+    expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
     expect(useAppStore.getState().toast?.text).toBe(
       i18n.t("dashboard:narration_batch_none_missing_toast"),
     );
@@ -265,11 +300,12 @@ describe("enqueueImageEdit", () => {
 });
 
 describe("enqueueGrid", () => {
-  it("task_ids 非空时按 scriptFile 粒度打标，toast 用后端 message", async () => {
+  it("task_ids 非空时同时打 scriptFile 粒度与逐宫格标记，toast 用后端 message", async () => {
     vi.spyOn(API, "generateGrid").mockResolvedValue({
       success: true,
       grid_ids: ["g1"],
       task_ids: ["t1"],
+      task_ids_by_grid: { g1: "t1" },
       deduped: false,
       message: "已入队 1 个多宫格分镜",
     });
@@ -277,8 +313,38 @@ describe("enqueueGrid", () => {
     const res = await enqueueGrid("demo", 1, "episode_1.json");
 
     expect(scriptFileOccupied("demo", "grid", "episode_1.json")).toBe(true);
+    expect(occupied("demo", "grid", "g1")).toBe(true);
     expect(useAppStore.getState().toast?.text).toBe("已入队 1 个多宫格分镜");
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
+  });
+
+  // 每张宫格的标记只等它自己的任务行，理由与参考视频批量同：等全批落库会让早的宫格
+  // 因任务快照裁剪而一直显示成生成中。
+  it("每张宫格的标记只等自己的任务行", async () => {
+    vi.spyOn(API, "generateGrid").mockResolvedValue({
+      success: true,
+      grid_ids: ["g1", "g2"],
+      task_ids: ["t1", "t2"],
+      task_ids_by_grid: { g1: "t1", g2: "t2" },
+      deduped: false,
+      message: "已入队 2 个多宫格分镜",
+    });
+
+    await enqueueGrid("demo", 1, "episode_1.json");
+
+    // 只有 g1 的任务行落库：它让位，g2 仍占用。
+    useTasksStore.getState().setTasks([
+      {
+        task_id: "t1",
+        project_name: "demo",
+        task_type: "grid",
+        resource_id: "g1",
+        status: "completed",
+      },
+    ] as never);
+
+    expect(occupied("demo", "grid", "g1")).toBe(false);
+    expect(occupied("demo", "grid", "g2")).toBe(true);
   });
 
   it("task_ids 为空时回滚标记（无任务落库，标记会永久残留）", async () => {
@@ -286,13 +352,14 @@ describe("enqueueGrid", () => {
       success: true,
       grid_ids: [],
       task_ids: [],
+      task_ids_by_grid: {},
       deduped: false,
       message: "无匹配分组",
     });
 
     await enqueueGrid("demo", 1, "episode_1.json", ["S9"]);
 
-    expect(markCounts().scriptFile).toBe(0);
+    expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
     expect(scriptFileOccupied("demo", "grid", "episode_1.json")).toBe(false);
   });
 });

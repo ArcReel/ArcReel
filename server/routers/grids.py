@@ -60,6 +60,9 @@ class GenerateGridResponse(BaseModel):
     success: bool
     grid_ids: list[str]
     task_ids: list[str]
+    # 逐宫格给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每一张
+    # 宫格都等到全批落库为止；未产出宫格的分组不进映射，调用方据此不给它们打标。
+    task_ids_by_grid: dict[str, str]
     # 批量语义：全部入队都命中既有任务（本次一个新任务都没建）才为 True
     deduped: bool
     message: str
@@ -100,7 +103,7 @@ async def generate_grid(
     提交宫格图生成任务到队列，按分段分组，每组生成一张宫格图；场景数超过单张宫格
     格数上限的分组切为多张，末张不足一档时落到更小档并由占位格补齐。
 
-    立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
+    立即返回 grid_ids、task_ids 与两者的逐项映射。生成由 GenerationWorker 异步执行。
     """
     # 广告/短片项目与关闭宫格开关的项目在此一并拒绝：写入边界（create/PATCH 拒 ad 开启
     # grid_storyboard）之外，动作端点再设一道防线，不让 HTTP 直调绕过开关产生计费任务
@@ -128,6 +131,7 @@ async def generate_grid(
 
     grid_ids: list[str] = []
     task_ids: list[str] = []
+    task_ids_by_grid: dict[str, str] = {}
     deduped_flags: list[bool] = []
     queue = get_generation_queue()
     gm = GridManager(project_path)
@@ -198,12 +202,14 @@ async def generate_grid(
             )
             grid_ids.append(grid.id)
             task_ids.append(task["task_id"])
+            task_ids_by_grid[grid.id] = task["task_id"]
             deduped_flags.append(bool(task.get("deduped", False)))
 
     return GenerateGridResponse(
         success=True,
         grid_ids=grid_ids,
         task_ids=task_ids,
+        task_ids_by_grid=task_ids_by_grid,
         deduped=bool(task_ids) and all(deduped_flags),
         message=_t("grid_task_submitted", count=len(grid_ids)),
     )

@@ -545,11 +545,20 @@ async def generate_tts_batch(
     project, missing_ids = await asyncio.to_thread(_sync)
 
     if not missing_ids:
-        return {"success": True, "task_ids": [], "deduped": False, "message": _t("tts_batch_none_missing")}
+        return {
+            "success": True,
+            "task_ids": [],
+            "task_ids_by_segment": {},
+            "deduped": False,
+            "message": _t("tts_batch_none_missing"),
+        }
 
     provider_id = await _require_audio_provider_configured(project)
 
     task_ids: list[str] = []
+    # 逐段给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每一段
+    # 都等到全批落库为止；被跳过的段不进映射，调用方据此不给它们打标。
+    task_ids_by_segment: dict[str, str] = {}
     deduped_flags: list[bool] = []
     for seg_id in missing_ids:
         result = await _enqueue_tts_segment(
@@ -560,6 +569,7 @@ async def generate_tts_batch(
             provider_id=provider_id,
         )
         task_ids.append(result["task_id"])
+        task_ids_by_segment[seg_id] = result["task_id"]
         deduped_flags.append(bool(result.get("deduped", False)))
 
     message = _t("tts_batch_submitted", count=len(task_ids)) if task_ids else _t("tts_batch_none_missing")
@@ -567,6 +577,7 @@ async def generate_tts_batch(
     return {
         "success": True,
         "task_ids": task_ids,
+        "task_ids_by_segment": task_ids_by_segment,
         "deduped": bool(task_ids) and all(deduped_flags),
         "message": message,
     }
