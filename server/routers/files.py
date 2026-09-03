@@ -58,7 +58,7 @@ from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 router = APIRouter()
 
-# 公开端点：前端经 <img src> / <video src> 加载，浏览器直发请求带不了 Authorization header。
+# 公开端点：前端经 <img src> / <video src> 加载，浏览器原生请求带不了 Authorization header。
 # 两者都有 safe_join 路径穿越防护，但内容本身对未认证请求可读。
 public_router = APIRouter()
 

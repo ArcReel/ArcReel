@@ -14,7 +14,7 @@ from lib.i18n import DEFAULT_LOCALE, get_translator
 from server.agent_runtime.event_log import EventLogService, EventLogStore
 from server.agent_runtime.models import LiveMessage, SubscriptionReady
 from server.agent_runtime.service import AssistantService
-from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
+from server.auth import CurrentUserInfo, get_current_user
 from server.routers import assistant
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_session_meta, make_translator
@@ -287,12 +287,10 @@ def _build_client(monkeypatch, fake_service) -> TestClient:
     monkeypatch.setattr(assistant, "get_assistant_service", lambda: fake_service)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
-    app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
     app.dependency_overrides[get_translator] = lambda: make_translator()
     app.include_router(
         assistant.router, prefix="/api/v1/projects/{project_name}/assistant", dependencies=AUTH_DEPENDENCIES
     )
-    app.include_router(assistant.self_auth_router, prefix="/api/v1/projects/{project_name}/assistant")
     return TestClient(app)
 
 

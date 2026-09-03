@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from lib.i18n import get_translator
 from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
-from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
+from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import assistant
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -71,12 +71,10 @@ def _client(monkeypatch):
     monkeypatch.setattr(assistant, "get_assistant_service", lambda: fake)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
-    app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
     app.dependency_overrides[get_translator] = lambda: make_translator()
     app.include_router(
         assistant.router, prefix="/api/v1/projects/{project_name}/assistant", dependencies=AUTH_DEPENDENCIES
     )
-    app.include_router(assistant.self_auth_router, prefix="/api/v1/projects/{project_name}/assistant")
     register_error_handlers(app)
     return TestClient(app)
 

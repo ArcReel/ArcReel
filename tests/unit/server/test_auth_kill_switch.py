@@ -140,22 +140,6 @@ class TestGetCurrentUserKillSwitch:
                 await auth_module.get_current_user(token=None)
             assert exc_info.value.status_code == 401
 
-    @pytest.mark.asyncio
-    async def test_flexible_disabled_returns_anonymous_without_token(self):
-        with patch.dict(os.environ, {"AUTH_ENABLED": "false"}):
-            user = await auth_module.get_current_user_flexible(token=None, query_token=None)
-        assert user.sub == "local"
-
-    @pytest.mark.asyncio
-    async def test_flexible_enabled_without_token_raises_401(self):
-        env = os.environ.copy()
-        env.pop("AUTH_ENABLED", None)
-        env["AUTH_TOKEN_SECRET"] = "test-secret-key-that-is-at-least-32-bytes"
-        with patch.dict(os.environ, env, clear=True):
-            with pytest.raises(HTTPException) as exc_info:
-                await auth_module.get_current_user_flexible(token=None, query_token=None)
-            assert exc_info.value.status_code == 401
-
 
 class TestLoginRouteKillSwitch:
     @pytest.mark.asyncio

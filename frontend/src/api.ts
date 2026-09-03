@@ -95,6 +95,7 @@ import type {
   UpdateAgentCredentialRequest,
 } from "@/types/agent-credential";
 import { getToken, clearToken } from "@/utils/auth";
+import { openSseStream, type SseStreamError, type SseStreamHandle } from "@/utils/sse-stream";
 import { isDemoProject } from "@/onboarding/demo-project";
 import i18n from "./i18n";
 
@@ -354,11 +355,22 @@ export interface ShotUploadResult {
 
 export interface ProjectEventStreamOptions {
   projectName: string;
-  onSnapshot?: (payload: ProjectEventSnapshotPayload, event: MessageEvent) => void;
-  onChanges?: (payload: ProjectChangeBatchPayload, event: MessageEvent) => void;
-  /** 项目目录被删除后收到一次，随后流正常结束（浏览器会紧接着触发一次 onError）。 */
-  onProjectDeleted?: (payload: ProjectDeletedPayload, event: MessageEvent) => void;
-  onError?: (event: Event) => void;
+  /** 每次建连（含断线重建）后服务端都会先发一次 snapshot。 */
+  onSnapshot?: (payload: ProjectEventSnapshotPayload) => void;
+  onChanges?: (payload: ProjectChangeBatchPayload) => void;
+  /** 项目目录被删除后收到一次，随后服务端正常关流；订阅方应在此关闭句柄以停止自动重建。 */
+  onProjectDeleted?: (payload: ProjectDeletedPayload) => void;
+  /** 连接失败或中断；`retryable` 为 true 时客户端随后自动重建。 */
+  onError?: (error: SseStreamError) => void;
+}
+
+export interface AssistantEntriesStreamOptions {
+  projectName: string;
+  sessionId: string;
+  /** 冷订阅游标（seq）；断线重建的续传由 `Last-Event-ID` 承担。 */
+  after?: number;
+  onEvent: (event: string, payload: Record<string, unknown>) => void;
+  onError?: (error: SseStreamError) => void;
 }
 
 /** Filters for {@link API.listTasks} and {@link API.listProjectTasks}. */
@@ -522,7 +534,11 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
 
 function handleUnauthorized(response: Response): void {
   if (response.status !== 401) return;
+  redirectToLogin();
+  throw new Error("认证已过期，请重新登录");
+}
 
+function redirectToLogin(): void {
   clearToken();
   // 携带当前所在的站内地址，登录成功后回跳；仅对 /app/ 下的页面附加 from，
   // 避免把登录页自身等非应用路径写进回跳参数。
@@ -530,7 +546,6 @@ function handleUnauthorized(response: Response): void {
   globalThis.location.href = current.startsWith("/app/")
     ? `/login?from=${encodeURIComponent(current)}`
     : "/login";
-  throw new Error("认证已过期，请重新登录");
 }
 
 function isAgentFailureDetail(value: unknown): value is AgentFailureDetail {
@@ -781,12 +796,36 @@ function withAuth(endpoint: string, options: RequestInit = {}): RequestInit {
   return { ...options, headers };
 }
 
-/** 为 EventSource URL 追加 token query param。 */
-function withAuthQuery(url: string): string {
+/** SSE 建连请求头：与 {@link withAuth} 同一套凭证与语言，每次重建前重新取。 */
+function sseHeaders(): HeadersInit {
+  const headers: Record<string, string> = { "Accept-Language": i18n.language || "zh" };
   const token = getToken();
-  if (!token) return url;
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}token=${encodeURIComponent(token)}`;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+function parseSseJson(data: string, label: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(data || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch (err) {
+    console.error(`解析${label} SSE 数据失败:`, err, data);
+    return null;
+  }
+}
+
+/** 事件流被服务端以 401 拒绝时与普通请求同样处理：清凭证并回登录页。 */
+function sseErrorHandler(onError?: (error: SseStreamError) => void) {
+  return (error: SseStreamError) => {
+    if (error.status === 401) {
+      redirectToLogin();
+    }
+    onError?.(error);
+  };
 }
 
 function endpointTestRequest(
@@ -2214,44 +2253,31 @@ class API {
     );
   }
 
-  static openProjectEventStream(options: ProjectEventStreamOptions): EventSource {
-    const url = withAuthQuery(
-      `${API_BASE}/projects/${encodeURIComponent(options.projectName)}/events/stream`
-    );
-    const source = new EventSource(url);
-
-    const parsePayload = (event: MessageEvent): unknown => {
-      try {
-        return JSON.parse((event.data as string) || "{}");
-      } catch (err) {
-        console.error("解析项目事件 SSE 数据失败:", err, event.data);
-        return null;
-      }
-    };
-
-    const createHandler = <T>(
-      callback?: (payload: T, event: MessageEvent) => void
-    ) => {
-      return (event: Event) => {
-        if (typeof callback !== "function") return;
-        const payload = parsePayload(event as MessageEvent);
-        if (payload) {
-          callback(payload as T, event as MessageEvent);
+  /** 订阅项目事件流；断线后自动重建，重建后服务端重新下发 snapshot。 */
+  static openProjectEventStream(options: ProjectEventStreamOptions): SseStreamHandle {
+    const url = `${API_BASE}/projects/${encodeURIComponent(options.projectName)}/events/stream`;
+    return openSseStream({
+      url,
+      headers: sseHeaders,
+      onMessage(message) {
+        const payload = parseSseJson(message.data, "项目事件");
+        if (!payload) return;
+        switch (message.event) {
+          case "snapshot":
+            options.onSnapshot?.(payload as unknown as ProjectEventSnapshotPayload);
+            break;
+          case "changes":
+            options.onChanges?.(payload as unknown as ProjectChangeBatchPayload);
+            break;
+          case "project_deleted":
+            options.onProjectDeleted?.(payload as unknown as ProjectDeletedPayload);
+            break;
+          default:
+            break;
         }
-      };
-    };
-
-    source.addEventListener("snapshot", createHandler(options.onSnapshot));
-    source.addEventListener("changes", createHandler(options.onChanges));
-    source.addEventListener("project_deleted", createHandler(options.onProjectDeleted));
-
-    source.onerror = (event: Event) => {
-      if (typeof options.onError === "function") {
-        options.onError(event);
-      }
-    };
-
-    return source;
+      },
+      onError: sseErrorHandler(options.onError),
+    });
   }
 
   // ==================== 版本管理 API ====================
@@ -2454,15 +2480,27 @@ class API {
     );
   }
 
-  /** entry 流 SSE URL（after 为 seq 游标；重连续传由 EventSource Last-Event-ID 承担）。 */
+  /** entry 流 SSE URL（after 为 seq 游标；断线续传由流式客户端的 Last-Event-ID 承担）。 */
   static getAssistantEntriesStreamUrl(
     projectName: string,
     sessionId: string,
     after: number = -1
   ): string {
     const base = `${API_BASE}${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/entries/stream`;
-    const url = after >= 0 ? `${base}?after=${after}` : base;
-    return withAuthQuery(url);
+    return after >= 0 ? `${base}?after=${after}` : base;
+  }
+
+  /** 订阅会话 entry 流；事件 id 即 seq，断线后自动带 Last-Event-ID 重建续传。 */
+  static openAssistantEntriesStream(options: AssistantEntriesStreamOptions): SseStreamHandle {
+    return openSseStream({
+      url: this.getAssistantEntriesStreamUrl(options.projectName, options.sessionId, options.after ?? -1),
+      headers: sseHeaders,
+      onMessage(message) {
+        const payload = parseSseJson(message.data, "会话");
+        if (payload) options.onEvent(message.event, payload);
+      },
+      onError: sseErrorHandler(options.onError),
+    });
   }
 
   static async listAssistantSkills(

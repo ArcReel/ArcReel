@@ -12,14 +12,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from lib.api_errors import BadRequestError, NotFoundError
-from server.auth import CurrentUserFlexible
 from server.services.project_events import ProjectEventService
 
 logger = logging.getLogger(__name__)
 
-# 自带认证端点：本 router 只有项目事件 SSE，EventSource 是浏览器直发请求，
-# 带不了 Authorization header，端点内声明 CurrentUserFlexible 收 ?token=。
-self_auth_router = APIRouter()
+router = APIRouter()
 
 PROJECT_EVENTS_SSE_POLL_SECONDS = 1.0
 
@@ -48,14 +45,13 @@ async def _project_events_service(
     return service
 
 
-@self_auth_router.get(
+@router.get(
     "/projects/{project_name}/events/stream",
     response_class=EventSourceResponse,
 )
 async def stream_project_events(
     project_name: str,
     request: Request,
-    _user: CurrentUserFlexible,
     service: ProjectEventService = Depends(_project_events_service),
 ) -> AsyncIterator[ServerSentEvent]:
     try:

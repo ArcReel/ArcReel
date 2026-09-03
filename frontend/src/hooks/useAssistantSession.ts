@@ -5,6 +5,7 @@ import { AgentFailureError, API } from "@/api";
 import { uid } from "@/utils/id";
 import type { AttachedImage } from "@/hooks/useImageAttachments";
 import { useAssistantStore } from "@/stores/assistant-store";
+import type { SseStreamHandle } from "@/utils/sse-stream";
 import type {
   DraftDeltaPayload,
   DraftState,
@@ -17,14 +18,6 @@ import type {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function parseSsePayload(event: MessageEvent): Record<string, unknown> {
-  try {
-    return JSON.parse(String(event.data || "{}")) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
 
 const TERMINAL = new Set(["completed", "error", "interrupted"]);
 
@@ -69,16 +62,15 @@ function saveLastSessionId(projectName: string, sessionId: string): void {
 /**
  * 管理 Agent 会话生命周期，时间线唯一读源为会话事件日志：
  * - 冷读 GET entries（历史回放）
- * - SSE entry 流实时接收（事件 id 即 seq，断线按游标续传）
+ * - SSE entry 流实时接收（事件 id 即 seq，断线由流式客户端带 Last-Event-ID 续传）
  * - 发送消息：服务端先写日志分配身份，响应回传权威条目；
  *   client_key 幂等，重试不产生重复；不渲染本地合成消息
  */
 export function useAssistantSession(projectName: string | null) {
   const { t } = useTranslation("dashboard");
   const store = useAssistantStore;
-  const streamRef = useRef<EventSource | null>(null);
+  const streamRef = useRef<SseStreamHandle | null>(null);
   const streamSessionRef = useRef<string | null>(null);
-  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusRef = useRef<string>("idle");
   const pendingSendVersionRef = useRef(0);
   // 失败重试复用同一幂等键（同内容签名），成功后清除
@@ -184,12 +176,8 @@ export function useAssistantSession(projectName: string | null) {
     refreshSessions();
   }, [projectName, refreshSessions]);
 
-  // 关闭流
+  // 关闭流（同时停止流式客户端的自动重建）
   const closeStream = useCallback(() => {
-    if (reconnectRef.current) {
-      clearTimeout(reconnectRef.current);
-      reconnectRef.current = null;
-    }
     if (streamRef.current) {
       streamRef.current.close();
       streamRef.current = null;
@@ -200,101 +188,74 @@ export function useAssistantSession(projectName: string | null) {
   // 连接 SSE entry 流
   const connectStream = useCallback(
     (sessionId: string) => {
-      // 如果已连接到同一 session 且连接健康，跳过重连
-      if (
-        streamRef.current &&
-        streamSessionRef.current === sessionId &&
-        streamRef.current.readyState !== EventSource.CLOSED
-      ) {
+      // 已连接到同一 session 且句柄未关闭时跳过：断线重建由流式客户端自行完成。
+      if (streamRef.current && streamSessionRef.current === sessionId && !streamRef.current.closed) {
         return;
       }
 
       closeStream();
       streamSessionRef.current = sessionId;
 
-      // 冷订阅游标：已有条目之后；浏览器自动重连由 Last-Event-ID 续传
-      const after = lastEntrySeq(store.getState().entries);
-      const url = API.getAssistantEntriesStreamUrl(projectName!, sessionId, after);
-      const source = new EventSource(url);
-      streamRef.current = source;
-      const isActiveStream = () =>
-        streamRef.current === source &&
-        streamSessionRef.current === sessionId &&
-        store.getState().currentSessionId === sessionId;
-
-      source.addEventListener("entry", (event) => {
-        if (!isActiveStream()) return;
-        const entry = parseSsePayload(event);
-        if (typeof entry.seq === "number" && typeof entry.type === "string") {
-          store.getState().appendEntry(entry as unknown as TimelineEntry);
-        }
-      });
-
-      source.addEventListener("draft", (event) => {
-        if (!isActiveStream()) return;
-        const payload = parseSsePayload(event);
-        const draft = (payload.draft ?? null) as DraftState | null;
-        const rev = typeof payload.rev === "number" ? payload.rev : 0;
-        store.getState().setDraftSnapshot(draft, rev);
-      });
-
-      source.addEventListener("delta", (event) => {
-        if (!isActiveStream()) return;
-        const payload = parseSsePayload(event);
-        if (typeof payload.message_id === "string" && typeof payload.rev === "number") {
-          store.getState().applyDelta(payload as unknown as DraftDeltaPayload);
-        }
-      });
-
-      source.addEventListener("status", (event) => {
-        if (!isActiveStream()) return;
-        const data = parseSsePayload(event);
-        const status = (data.status as string) ?? statusRef.current;
-
-        statusRef.current = status;
-        store.getState().setSessionStatus(status as "idle");
-
-        if (TERMINAL.has(status)) {
-          store.getState().setSending(false);
-          store.getState().setInterrupting(false);
-          clearPendingQuestion();
-          // 中断时保留 draft：被中断的流式内容不入日志，刷新后自然消失
-          if (status !== "interrupted") {
-            store.getState().clearDraft();
+      const handlers: Record<string, (payload: Record<string, unknown>) => void> = {
+        entry(entry) {
+          if (typeof entry.seq === "number" && typeof entry.type === "string") {
+            store.getState().appendEntry(entry as unknown as TimelineEntry);
           }
-          closeStream();
+        },
+        draft(payload) {
+          const draft = (payload.draft ?? null) as DraftState | null;
+          const rev = typeof payload.rev === "number" ? payload.rev : 0;
+          store.getState().setDraftSnapshot(draft, rev);
+        },
+        delta(payload) {
+          if (typeof payload.message_id === "string" && typeof payload.rev === "number") {
+            store.getState().applyDelta(payload as unknown as DraftDeltaPayload);
+          }
+        },
+        status(data) {
+          const status = (data.status as string) ?? statusRef.current;
 
-          // Turn 结束后刷新会话列表，获取 SDK summary 标题
-          refreshSessions();
-        }
-      });
+          statusRef.current = status;
+          store.getState().setSessionStatus(status as "idle");
 
-      source.addEventListener("question", (event) => {
-        if (!isActiveStream()) return;
-        const payload = parseSsePayload(event);
-        const pendingQuestion = getPendingQuestionFromEvent(payload);
-        if (pendingQuestion) {
-          syncPendingQuestion(pendingQuestion);
-        }
-      });
+          if (TERMINAL.has(status)) {
+            store.getState().setSending(false);
+            store.getState().setInterrupting(false);
+            clearPendingQuestion();
+            // 中断时保留 draft：被中断的流式内容不入日志，刷新后自然消失
+            if (status !== "interrupted") {
+              store.getState().clearDraft();
+            }
+            closeStream();
 
-      source.onerror = () => {
-        if (!isActiveStream()) return;
-        // 浏览器原生自动重连携带 Last-Event-ID 续传；此处仅兜底
-        // 连接被判死（CLOSED）的场景，运行中或发送中才重建。
-        if (
-          source.readyState === EventSource.CLOSED &&
-          (statusRef.current === "running" || store.getState().sending)
-        ) {
-          reconnectRef.current = setTimeout(() => {
-            // 自引用 SSE 重连：useEffectEvent 不允许在 setTimeout 内调用，
-            // 用 ref 中转又被 immutability 规则禁止。当前写法是延迟到下一 tick
-            // 才执行，闭包内的 connectStream 引用已稳定，行为正确。
-            // eslint-disable-next-line react-hooks/immutability
-            connectStream(sessionId);
-          }, 3000);
-        }
+            // Turn 结束后刷新会话列表，获取 SDK summary 标题
+            refreshSessions();
+          }
+        },
+        question(payload) {
+          const pendingQuestion = getPendingQuestionFromEvent(payload);
+          if (pendingQuestion) {
+            syncPendingQuestion(pendingQuestion);
+          }
+        },
       };
+
+      // 冷订阅游标：已有条目之后；断线重建由流式客户端携带 Last-Event-ID 续传
+      const after = lastEntrySeq(store.getState().entries);
+      const stream = API.openAssistantEntriesStream({
+        projectName: projectName!,
+        sessionId,
+        after,
+        onEvent(event, payload) {
+          const isActiveStream =
+            streamRef.current === stream &&
+            streamSessionRef.current === sessionId &&
+            store.getState().currentSessionId === sessionId;
+          if (!isActiveStream || !Object.hasOwn(handlers, event)) return;
+          handlers[event](payload);
+        },
+      });
+      streamRef.current = stream;
     },
     [clearPendingQuestion, projectName, closeStream, refreshSessions, store, syncPendingQuestion],
   );

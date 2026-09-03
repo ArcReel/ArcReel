@@ -4,12 +4,11 @@
 提供密码生成、JWT token 创建/验证、凭据校验等功能。
 同时支持 API Key 认证（`arc-` 前缀的 Bearer token）。
 
-浏览器发起请求的认证模式：
-- SSE 与需鉴权的原生媒体端点同时接受 Authorization header 和 ``?token=`` query param，
-  两处凭证范围一致：JWT 或 ``arc-`` 前缀 API Key
-- 导出端点使用短时效下载 token（``purpose=download``）作为 query param 唯一认证方式
+凭证只经 ``Authorization`` header 传递，不接受 query param 形态的会话凭证。
+浏览器原生请求（``<img>`` / ``<video>`` src 与原生下载导航）带不了该 header：
+- 导出下载端点使用短时效下载 token（``purpose=download``）作为 query param 唯一认证方式
 - 静态媒体文件不要求认证
-新端点须按用途选用对应模式。
+SSE 由前端以 fetch 带 header 消费，与普通受保护端点走同一依赖（见 ``docs/adr/0071``）。
 """
 
 import hashlib
@@ -24,7 +23,7 @@ from pathlib import Path
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
 from pydantic import BaseModel, ConfigDict
@@ -451,27 +450,5 @@ async def get_current_user(
     return _payload_to_user(payload)
 
 
-async def get_current_user_flexible(
-    token: Annotated[str | None, Depends(oauth2_scheme_optional)] = None,
-    query_token: str | None = Query(None, alias="token"),
-) -> CurrentUserInfo:
-    """浏览器原生请求认证依赖 — 同时支持 Authorization header 和 ?token= query param。
-
-    ``AUTH_ENABLED=false`` 时无视 token，直接返回匿名 admin。
-    """
-    if not is_auth_enabled():
-        return _anonymous_user()
-    raw = token or query_token
-    if not raw:
-        raise HTTPException(
-            status_code=401,
-            detail="缺少认证 token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    payload = await _verify_and_get_payload_async(raw)
-    return _payload_to_user(payload)
-
-
 # Type aliases for FastAPI dependency injection
 CurrentUser = Annotated[CurrentUserInfo, Depends(get_current_user)]
-CurrentUserFlexible = Annotated[CurrentUserInfo, Depends(get_current_user_flexible)]

@@ -10,19 +10,19 @@ import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { ProjectChange } from "@/types";
 import { createDeferred } from "@/test/deferred";
-import { FakeEventSource } from "@/test/fakeEventSource";
+import { FakeSseStream } from "@/test/fakeSseStream";
 
 /**
- * 把 `API.openProjectEventStream` 打桩为返回 {@link FakeEventSource} 实例的 spy：
- * 测试直接驱动 `options` 上的回调（onSnapshot/onChanges/onError/onProjectDeleted），
- * 不经真实 EventSource。`options` 反映被测 hook 最近一次注册的那组回调。
+ * 把 `API.openProjectEventStream` 打桩为返回 {@link FakeSseStream} 句柄的 spy：
+ * 测试直接驱动 `options` 上的回调（onSnapshot/onChanges/onProjectDeleted），
+ * 不经真实 fetch 流。`options` 反映被测 hook 最近一次注册的那组回调。
  */
 function mockProjectEventStream() {
   let capturedOptions: ProjectEventStreamOptions | undefined;
-  FakeEventSource.reset();
+  FakeSseStream.reset();
   const openSpy = vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
     capturedOptions = options;
-    return new FakeEventSource() as unknown as EventSource;
+    return new FakeSseStream();
   });
   return {
     get options() {
@@ -30,7 +30,7 @@ function mockProjectEventStream() {
     },
     /** 最近一次建立的连接；断言 close 次数时用它的 `close`。 */
     get source() {
-      return FakeEventSource.instances[FakeEventSource.instances.length - 1];
+      return FakeSseStream.instances[FakeSseStream.instances.length - 1];
     },
     get close() {
       return this.source.close;
@@ -132,7 +132,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
 
@@ -190,7 +189,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
 
@@ -247,7 +245,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
 
@@ -284,7 +281,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
 
@@ -354,7 +350,6 @@ describe("useProjectEventsSSE", () => {
               },
             ],
           },
-          new MessageEvent("changes"),
         );
       });
 
@@ -413,7 +408,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
 
@@ -475,7 +469,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
 
@@ -538,7 +531,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
 
@@ -581,7 +573,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
 
@@ -613,7 +604,6 @@ describe("useProjectEventsSSE", () => {
     act(() => {
       stream.options?.onSnapshot?.(
         { project_name: "demo", fingerprint: "fp-a", generated_at: "2026-03-01T00:00:00Z" },
-        new MessageEvent("snapshot"),
       );
     });
     expect(getProjectSpy).not.toHaveBeenCalled();
@@ -622,7 +612,6 @@ describe("useProjectEventsSSE", () => {
     act(() => {
       stream.options?.onSnapshot?.(
         { project_name: "demo", fingerprint: "fp-b", generated_at: "2026-03-01T00:00:01Z" },
-        new MessageEvent("snapshot"),
       );
     });
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
@@ -647,7 +636,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
     // 在途合并：这批只是排队，不会立即多发一次请求。
@@ -708,7 +696,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
@@ -733,7 +720,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
     // 在途合并:第二批只是排队，不会立即多发一次请求。
@@ -784,7 +770,6 @@ describe("useProjectEventsSSE", () => {
             },
           ],
         },
-        new MessageEvent("changes"),
       );
     });
 
@@ -792,68 +777,32 @@ describe("useProjectEventsSSE", () => {
     expect(useProjectsStore.getState().getAssetFingerprint("storyboards/scene_E1S01.png")).toBe(1710288000);
   });
 
-  it("stops the reconnect loop after the project_deleted termination event", async () => {
+  it("closes the stream handle after the project_deleted termination event", () => {
     const stream = mockProjectEventStream();
 
     renderHarness("/");
     expect(stream.openSpy).toHaveBeenCalledTimes(1);
 
+    // 后端在项目删除后正常关流；断线重建由流式客户端承担，hook 关闭句柄即停止对已删项目的重连。
     act(() => {
-      stream.options?.onProjectDeleted?.(
-        { project_name: "demo" },
-        new MessageEvent("project_deleted"),
-      );
+      stream.options?.onProjectDeleted?.({ project_name: "demo" });
     });
+
     expect(stream.close).toHaveBeenCalledTimes(1);
-
-    vi.useFakeTimers();
-    try {
-      // 浏览器原生行为：流被服务端关闭后，EventSource 紧接着会触发一次 onerror；
-      // terminatedRef 应拦住它排的重连，即便等过了原本的 3s 重连延迟。
-      act(() => {
-        stream.options?.onError?.(new Event("error"));
-      });
-      act(() => {
-        vi.advanceTimersByTime(5000);
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-
+    expect(stream.source.closed).toBe(true);
     expect(stream.openSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("clears an already-pending reconnect timer when the project_deleted event arrives", async () => {
+  it("closes the stream handle on unmount", () => {
     const stream = mockProjectEventStream();
 
-    renderHarness("/");
+    const view = renderHarness("/");
     expect(stream.openSpy).toHaveBeenCalledTimes(1);
+    expect(stream.close).not.toHaveBeenCalled();
 
-    vi.useFakeTimers();
-    try {
-      // 先触发一次普通 onError，排入 3s 后的重连定时器。
-      act(() => {
-        stream.options?.onError?.(new Event("error"));
-      });
+    view.unmount();
 
-      // 定时器排队期间收到终止事件：onProjectDeleted 应清掉这个待触发的重连定时器，
-      // 而不仅是处理之后新触发的 onError（见上一条用例）。
-      act(() => {
-        stream.options?.onProjectDeleted?.(
-          { project_name: "demo" },
-          new MessageEvent("project_deleted"),
-        );
-      });
-
-      act(() => {
-        vi.advanceTimersByTime(5000);
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-
-    // 若定时器未被清除，会在 3s 时触发 connect() 导致 openSpy 被再次调用。
-    expect(stream.openSpy).toHaveBeenCalledTimes(1);
+    expect(stream.close).toHaveBeenCalledTimes(1);
   });
 
   describe("任务终态事件", () => {
@@ -883,7 +832,6 @@ describe("useProjectEventsSSE", () => {
             source: "worker",
             changes,
           },
-          new MessageEvent("changes"),
         );
       });
     }
@@ -1104,7 +1052,6 @@ describe("useProjectEventsSSE", () => {
               },
             ],
           },
-          new MessageEvent("changes"),
         );
       });
 

@@ -22,7 +22,7 @@ ArcReel is currently a **single-operator administrative application**, not a mul
 
 ArcReel is a self-hosted AI video production workspace with the following principal components:
 
-- A FastAPI backend that exposes authenticated APIs, public/static routes, self-authenticating event/download routes, and serves the React SPA.
+- A FastAPI backend that exposes authenticated APIs, public/static routes, self-authenticating download routes, and serves the React SPA.
 - A React frontend that stores its bearer token in browser `localStorage` and sends it in `Authorization: Bearer ...` headers for normal API calls.
 - Project files stored beneath `app_data_dir()` and managed through project, asset, upload, archive, versioning, and generation services.
 - A SQLAlchemy database, commonly SQLite, that stores configuration, provider credentials, API-key hashes, task state, usage records, and other application data.
@@ -58,7 +58,7 @@ This profile is not currently supported. If mutually untrusted people use the sa
 
 - Provider API keys, access keys, secret keys, custom-provider secrets, and Vertex JSON credential files.
 - Anthropic and Claude agent credentials, SDK session data, and any secrets injected into agent execution.
-- JWT bearer tokens, `arc-` API keys, download tokens, event-stream tokens, authentication passwords, and token-signing secrets.
+- JWT bearer tokens, `arc-` API keys, download tokens, authentication passwords, and token-signing secrets.
 - Database credentials, reverse-proxy credentials, and deployment secrets.
 
 ### 4.2 Project and user content
@@ -145,7 +145,7 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 | Boundary | Untrusted or sensitive data crossing it | Primary controls | Consequence of control failure |
 |---|---|---|---|
 | Browser → FastAPI API | Bearer tokens, project data, uploads, prompts, provider settings | Centralized FastAPI dependencies, Pydantic validation, route-specific checks | Unauthorized administrative actions, data modification, cost abuse |
-| Browser → public/self-auth routes | Project paths, media paths, query tokens, download tokens | Public-route allowlists, path confinement, purpose-bound token verification | Anonymous disclosure, token leakage, same-origin active content |
+| Browser → public/self-auth routes | Project paths, media paths, download tokens | Public-route allowlists, path confinement, purpose-bound token verification | Anonymous disclosure, token leakage, same-origin active content |
 | FastAPI → database | Secrets, hashes, configuration, task and usage state | ORM parameterization, API masking, DB permissions | Credential and state disclosure, persistence tampering |
 | FastAPI → project filesystem | Names, paths, archives, generated files, agent writes | Name normalization, `safe_join`, project locks, atomic writes, schema validation | Traversal, cross-project access, overwrite, persistent malicious content |
 | FastAPI → external providers | Credentials, prompts, media, base URLs, job IDs | Authentication, provider registry, configured endpoints, path-specific HTTP timeouts | SSRF, secret forwarding, malformed responses, unexpected cost |
@@ -195,7 +195,7 @@ There is no account-level RBAC, scoped API key, MFA, JWT revocation list, centra
 
 The absence of a `CurrentUser` parameter in a route function does not establish that the route is unauthenticated. The built-in `providers.router` is currently protected by the centralized registration dependency.
 
-Public routes include authentication bootstrap/login, project/global file delivery, `/health`, and `/agent-installation-guide.md`. Self-authenticating routes include event streams that accept a query token and project export routes that verify a short-lived download token.
+Public routes include authentication bootstrap/login, project/global file delivery, `/health`, and `/agent-installation-guide.md`. Self-authenticating routes are limited to the project export routes that verify a short-lived download token; event streams are ordinary protected routes consumed by the frontend through `fetch` with an `Authorization` header (ADR 0071).
 
 ### 9.2 Secret handling
 
@@ -292,12 +292,12 @@ The MCP SDK's DNS-rebinding protection is disabled (`TransportSecuritySettings(e
 - A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes. A stolen API key can read custom-provider API keys in plaintext and use them independently of ArcReel.
 - A leaked download token can be replayed and used as a broad administrator bearer credential during its five-minute validity; if minted through an API key, its inherited `apikey:` subject remains excluded from API-key management.
 - Seven-day JWT lifetime increases the useful period of a stolen token.
-- Event-stream routes may accept a full JWT or API key in a query parameter.
+- Event-stream routes accept only the `Authorization` header; a session JWT or API key in a query parameter is rejected with 401 (ADR 0071). The frontend consumes them through `fetch` rather than `EventSource`.
 - `AUTH_ENABLED=false` causes authentication dependencies to return an anonymous administrator identity.
 
 ### 10.2 Public and self-authenticating routes
 
-Browser-native `<img>`, `<video>`, EventSource, and download navigation create pressure to bypass normal authorization headers. Every public or self-authenticating route must therefore be reviewed as a separate authorization boundary, including:
+Browser-native `<img>`, `<video>`, and download navigation create pressure to bypass normal authorization headers. Every public or self-authenticating route must therefore be reviewed as a separate authorization boundary, including:
 
 - Allowed resource classes.
 - Project and resource binding.
