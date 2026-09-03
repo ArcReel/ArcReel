@@ -417,7 +417,7 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext) -> None:
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
-    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+    (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
     use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -458,7 +458,7 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
-    (src / "chapter1.txt").write_text("once upon a time", encoding="utf-8")
+    (src / "episode_1.txt").write_text("once upon a time", encoding="utf-8")
 
     use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -474,7 +474,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
-    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+    (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
     class _EmptyGenerator:
         async def generate(self, _request, project_name=None):
@@ -520,7 +520,7 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
-    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+    (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
     fake_ctx.pm.project_payload["episodes"] = [
         {
             "episode": 1,
@@ -547,7 +547,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
-    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+    (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
     captured: dict[str, Any] = {}
 
@@ -759,7 +759,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     project_path = fake_ctx.project_path
     source_dir = project_path / "source"
     source_dir.mkdir(parents=True)
-    (source_dir / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+    (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
     class _FakeGenerator:
         async def generate(self, _request, project_name=None):
@@ -805,17 +805,75 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     assert [utterance["text"] for utterance in saved["scenes"][0]["utterances"]] == ["我回来了。", "三年后。"]
 
 
-async def test_normalize_drama_script_no_source(fake_ctx: ToolContext) -> None:
-    tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1})
+async def test_normalize_drama_script_defaults_to_the_episode_derived_source(fake_ctx: ToolContext) -> None:
+    """省略 source 时只读本集派生源文：``source/`` 里的原文与别集派生文件都不进 prompt。
+
+    该目录同时存放整本原文与各集派生文件，把它们一并送进 prompt 会让每一集拿到同一份源文。
+    """
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "episode_1.txt").write_text("本集派生源文", encoding="utf-8")
+    (source_dir / "novel.txt").write_text("整本小说原文", encoding="utf-8")
+    (source_dir / "episode_2.txt").write_text("第二集派生源文", encoding="utf-8")
+
+    use_fake_caps(fake_ctx)
+    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "本集派生源文" in prompt_text
+    assert "整本小说原文" not in prompt_text
+    assert "第二集派生源文" not in prompt_text
+
+
+async def test_normalize_drama_script_rejects_an_empty_explicit_source(fake_ctx: ToolContext) -> None:
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "episode_1.txt").write_text("本集派生源文", encoding="utf-8")
+
+    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "", "dry_run": True})
+
     assert out.get("is_error") is True
+    assert "源文件路径不能为空" in json.loads(out["content"][0]["text"])["problem"]["detail"]
+
+
+async def test_normalize_drama_script_rejects_a_default_source_symlink_escape(fake_ctx: ToolContext) -> None:
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    outside = fake_ctx.projects_root / "outside.txt"
+    outside.write_text("项目外内容", encoding="utf-8")
+    (source_dir / "episode_1.txt").symlink_to(outside)
+
+    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert out.get("is_error") is True
+    detail = json.loads(out["content"][0]["text"])["problem"]["detail"]
+    assert "路径超出项目目录" in detail
+    assert "source/episode_1.txt" in detail
+
+
+async def test_normalize_drama_script_refuses_when_the_episode_derived_source_is_missing(
+    fake_ctx: ToolContext,
+) -> None:
+    """派生文件缺失时报错并指名重建路径，不回落到目录里的原文——那同样不是本集的内容。"""
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "novel.txt").write_text("整本小说原文", encoding="utf-8")
+
+    use_fake_caps(fake_ctx)
+    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert out.get("is_error") is True
+    detail = json.loads(out["content"][0]["text"])["problem"]["detail"]
+    assert "source/episode_1.txt" in detail
+    assert "plan_episodes" in detail
 
 
 async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext) -> None:
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
-    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+    (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
     use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)

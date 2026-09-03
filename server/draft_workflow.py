@@ -164,14 +164,14 @@ async def revalidate_reference_script_plan_draft(
 
     ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
     """
-    # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按整个 source/ 重解析
-    # ——那比产出时更松，一份从别集抄来的原文锚会恰好命中而被放行。
+    # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按缺省源文重解析
+    # ——产出时若指定过别的源文件，换一份范围重判等于放行一份从别处抄来的原文锚。
     if "source" not in draft.meta:
         raise ValueError(
             f"草稿 {draft.path} 的 meta.source 缺失（产出时记录的源文范围）；"
-            "请恢复该字段（指定源文时为其相对路径，按整个 source/ 产出时为 null）后重试"
+            "请恢复该字段（指定源文时为其相对路径，按本集派生源文产出时为 null）后重试"
         )
-    # 源文可能达数百 KB（整个 source/ 目录拼接），同步读盘直接放在这个 async 函数体里会占用
+    # 源文可能达数百 KB，同步读盘直接放在这个 async 函数体里会占用
     # 事件循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）
     # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
     novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
@@ -302,8 +302,8 @@ def _open_script_plan_draft(
         )
 
 
-def _validate_open_source(project_path: Path, source: str) -> None:
-    _load_novel_source(project_path, source)
+def _validate_open_source(project_path: Path, episode: int, source: str) -> None:
+    _load_novel_source(project_path, source, episode=episode)
 
 
 def _rewrite_invalid_draft(
@@ -705,7 +705,7 @@ async def _open_drama_script_plan_for_edit(
     # 会卡在一个自己改不动的死角。校验失败时不落盘，无效参数不留持久副作用。
     if source is not None:
         try:
-            await asyncio.to_thread(_validate_open_source, project_path, source)
+            await asyncio.to_thread(_validate_open_source, project_path, episode, source)
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
@@ -743,14 +743,14 @@ async def revalidate_narration_script_plan_draft(
 
     ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
     """
-    # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按整个 source/ 重解析
-    # ——那比产出时更松，一份删过字的分镜表可能恰好被别集的原文补齐而被放行。
+    # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按缺省源文重解析
+    # ——产出时若指定过别的源文件，换一份范围重判的覆盖判定与产出时不是同一道题。
     if "source" not in draft.meta:
         raise ValueError(
             f"草稿 {draft.path} 的 meta.source 缺失（产出时记录的源文范围）；"
-            "请恢复该字段（指定源文时为其相对路径，按整个 source/ 产出时为 null）后重试"
+            "请恢复该字段（指定源文时为其相对路径，按本集派生源文产出时为 null）后重试"
         )
-    # 源文可能达数百 KB（整个 source/ 目录拼接），同步读盘直接放在这个 async 函数体里会占用事件
+    # 源文可能达数百 KB，同步读盘直接放在这个 async 函数体里会占用事件
     # 循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）在请求
     # 协程里跑，卸到线程避免拖慢并发的其它请求。
     novel_text, prompt_inputs, script_plan_basis = await asyncio.to_thread(
@@ -799,11 +799,11 @@ async def revalidate_narration_script_plan_draft(
         props=cast(dict[str, Any], prompt_inputs["props"]),
         novel_text=novel_text,
         # 重判用的源文范围来自草稿自己的 meta.source：取回时未指定 source
-        # 的草稿记的是 null（整个 source/），若本集正式 script_plan 当初是按单个源文件产出的，这里会把
+        # 的草稿记的是 null（本集派生源文），若本集正式 script_plan 当初是按别的源文件产出的，这里会把
         # 一份原样取回、一字未改的草稿判成覆盖不全。把范围与改法一并写进消息，Agent 才走得出去
         # ——草稿在场时不能重新取回，须由 patch_draft 更新源文范围。
         source_scope=(
-            f"{_coverage_source_scope(cast(str | None, draft.meta['source']))}"
+            f"{_coverage_source_scope(cast(str | None, draft.meta['source']), episode=episode)}"
             "，取自草稿的源文范围；若该范围与产出本集正式 script_plan 时不同，"
             "请调用 patch_draft，用 source 传入当初那个源文件的相对路径后重试"
         ),
@@ -911,7 +911,7 @@ async def _open_narration_script_plan_for_edit(
     # 会卡在一个自己改不动的死角。校验失败时不落盘，无效参数不留持久副作用。
     if source is not None:
         try:
-            await asyncio.to_thread(_validate_open_source, project_path, source)
+            await asyncio.to_thread(_validate_open_source, project_path, episode, source)
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
@@ -1011,7 +1011,7 @@ async def _open_reference_script_plan_for_edit(
     # 无效参数不留持久副作用。
     if source is not None:
         try:
-            await asyncio.to_thread(_validate_open_source, project_path, source)
+            await asyncio.to_thread(_validate_open_source, project_path, episode, source)
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
@@ -1197,7 +1197,7 @@ class DraftWorkflow:
         if updates_source:
             if resolved == QUARANTINE_KIND_PROMPT_AUTHORING:
                 raise DraftWorkflowError("invalid_request", "source is only valid for script_plan drafts")
-            _load_novel_source(self.ctx.project_path, source)
+            _load_novel_source(self.ctx.project_path, source, episode=episode)
             meta = {**meta, "source": source}
         if accepts_formal_revision:
             actual_formal_revision = script_review.content_fingerprint(self._formal_path(episode, resolved))

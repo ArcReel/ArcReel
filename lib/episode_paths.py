@@ -80,6 +80,15 @@ def episode_drafts_dir(project_path: Path, episode: int) -> Path:
     return project_path / "drafts" / f"episode_{episode}"
 
 
+def episode_source_relpath(episode: int) -> str:
+    """该集派生源文相对项目根的路径 ``source/episode_N.txt``。
+
+    分集规划工具按账本 ``source_range`` 派生该文件；script_plan 生成侧缺省读它、
+    工作流状态与产物指纹按同一路径取源文，三处共享本函数以保持同一口径。
+    """
+    return f"source/episode_{episode}.txt"
+
+
 def episode_script_filename(episode: int) -> str:
     """该集剧本文件名 ``episode_N.json``（不含 ``scripts/`` 目录前缀）。"""
     return f"episode_{episode}.json"

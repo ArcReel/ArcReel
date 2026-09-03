@@ -50,6 +50,7 @@ from lib.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     SCRIPT_PLAN_LEGACY_FILENAMES,
     episode_drafts_dir,
+    episode_source_relpath,
 )
 from lib.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
 from lib.i18n import _ as translate
@@ -493,11 +494,16 @@ def _parse_normalized_content(response_text: str, model: type[BaseModel]) -> dic
     return _parse_script_plan_json(response_text, model, label="script_plan 规范化内容", top_shape="{title, scenes}")
 
 
-def _load_novel_source(project_path: Path, source: str | None) -> str:
-    """读取 script_plan 工具的源文：指定 source 文件或 ``source/`` 目录全部文本；异常情况抛 ValueError。
+def _load_novel_source(project_path: Path, source: str | None, *, episode: int) -> str:
+    """读取 script_plan 工具的源文：指定 source 文件，或缺省时本集派生源文；异常情况抛 ValueError。
 
-    normalize / split 两类 script_plan 工具共用：路径越界、文件缺失、目录为空、内容为空均 fail-fast，
+    normalize / split 两类 script_plan 工具共用：路径越界、文件缺失、内容为空均 fail-fast，
     调用方把消息包装为工具错误信封。
+
+    缺省（``source`` 为 None）解析为 ``source/episode_N.txt``，与 ``WorkflowTarget.source``
+    及 ``ArtifactBasis`` 的指纹来源同口径：``source/`` 目录同时存放原文与各集派生文件，按整个
+    目录拼接会把别集内容一并送进 prompt，各集因此拿到同一份源文。派生文件缺失时不回落到原文
+    ——那同样是「本集之外的内容」，报错指引先跑分集规划工具重建。
 
     ``source`` 除工具自己产出外，也会被 ``revalidate_reference_script_plan_draft`` 传入草稿的
     ``meta.source``——那是 Agent 可编辑的 JSON 字段，类型标注管不住运行时值。非 str/None 时
@@ -507,27 +513,25 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
     """
     if source is not None and not is_str(source):
         raise ValueError(f"meta.source 类型非法，须为字符串或 null：{source!r}")
-    if source:
-        try:
-            source_path = safe_join(project_path, source)
-        except PathTraversalError as exc:
-            raise ValueError(f"路径超出项目目录: {source}") from exc
-        if not source_path.is_file():
-            # 存在但不是文件（如指向目录）同样按「未找到源文件」处理：直接 read_text() 对目录
-            # 会抛 IsADirectoryError，落进本函数调用方一律只接的 ValueError 之外，在内容确认的
-            # 读时重算里会变成未处理的 500。
+    if source == "":
+        raise ValueError("源文件路径不能为空")
+    resolved = episode_source_relpath(episode) if source is None else source
+    try:
+        # 缺省路径由集号拼出、并非不可信输入，但仍走 safe_join：派生文件可能是指向项目外的
+        # 符号链接，两条分支共用同一道越界校验才不留下只有缺省路径才踩得到的缝。
+        source_path = safe_join(project_path, resolved)
+    except PathTraversalError as exc:
+        raise ValueError(f"路径超出项目目录: {resolved}") from exc
+    if not source_path.is_file():
+        # 存在但不是文件（如指向目录）同样按「未找到源文件」处理：直接 read_text() 对目录
+        # 会抛 IsADirectoryError，落进本函数调用方一律只接的 ValueError 之外，在内容确认的
+        # 读时重算里会变成未处理的 500。
+        if source is not None:
             raise ValueError(f"未找到源文件: {source_path}")
-        novel_text = source_path.read_text(encoding="utf-8")
-    else:
-        source_dir = project_path / "source"
-        if not source_dir.exists() or not any(source_dir.iterdir()):
-            raise ValueError(f"source/ 目录为空或不存在: {source_dir}")
-        texts = [
-            f.read_text(encoding="utf-8")
-            for f in sorted(source_dir.iterdir())
-            if f.is_file() and f.suffix in (".txt", ".md", ".text")
-        ]
-        novel_text = "\n\n".join(texts)
+        raise ValueError(
+            f"未找到本集派生源文: {source_path}；请先运行分集规划工具（plan_episodes）按账本派生该文件，再重试"
+        )
+    novel_text = source_path.read_text(encoding="utf-8")
     if not novel_text.strip():
         raise ValueError("小说原文为空")
     return novel_text
@@ -542,7 +546,7 @@ def _load_script_plan_source_with_basis(
 ) -> tuple[str, dict[str, object], ArtifactBasis]:
     """Freeze the exact source text and project semantics consumed by a script_plan request."""
 
-    novel_text = _load_novel_source(project_path, source)
+    novel_text = _load_novel_source(project_path, source, episode=episode)
     prompt_inputs, basis = build_script_plan_request(
         novel_text,
         episode=episode,
@@ -1287,14 +1291,14 @@ def _normalize_for_coverage(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
 
 
-def _coverage_source_scope(source: str | None) -> str:
+def _coverage_source_scope(source: str | None, *, episode: int) -> str:
     """覆盖判定所依据的源文范围的人话描述，供违约消息指名。
 
     覆盖判定是「分镜拼接 == 整份源文」的全等式，判定结果因此既取决于分镜正文、也取决于源文
-    范围本身：范围取宽了（如按整个 ``source/`` 判一集的分镜表），分镜一个字没改也判不过。不把
+    范围本身：范围取错了（如拿别集的源文件判这一集的分镜表），分镜一个字没改也判不过。不把
     范围写进消息，Agent 只会反复去改分镜正文，而问题不在那里。
     """
-    return f"源文件 {source}" if source else "整个 source/ 目录（未指定单个源文件）"
+    return f"源文件 {source or episode_source_relpath(episode)}"
 
 
 def _covers_source_verbatim(parts: list[str], source: str) -> bool:
@@ -1683,7 +1687,7 @@ async def generate_narration_script_plan(
             scenes=scenes,
             props=props,
             novel_text=novel_text,
-            source_scope=_coverage_source_scope(request.source),
+            source_scope=_coverage_source_scope(request.source, episode=episode),
         )
         if violations:
             async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):

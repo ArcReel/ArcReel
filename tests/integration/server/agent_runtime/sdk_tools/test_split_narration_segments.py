@@ -107,7 +107,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
     assert captured["generate_project_name"] == "demo"
 
 
-async def test_split_narration_segments_registers_the_frozen_combined_source_basis(
+async def test_split_narration_segments_registers_the_frozen_default_source_basis(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
@@ -127,16 +127,14 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     source_dir = fake_ctx.project_path / "source"
     source_dir.mkdir(parents=True)
-    first_source = source_dir / "episode_1.txt"
-    second_source = source_dir / "episode_2.txt"
-    first_source.write_text("第一段原文。", encoding="utf-8")
-    second_source.write_text("第二段原文。", encoding="utf-8")
-    frozen_source = "第一段原文。\n\n第二段原文。"
+    episode_source = source_dir / "episode_1.txt"
+    episode_source.write_text("第一段原文。", encoding="utf-8")
+    frozen_source = "第一段原文。"
     expected = build_script_plan_basis(frozen_source, episode=1, project=project)
 
     class _Generator:
         async def generate(self, _request, project_name=None):
-            second_source.write_text("等待供应商期间改过的第二段。", encoding="utf-8")
+            episode_source.write_text("等待供应商期间改过的原文。", encoding="utf-8")
             latest = {**project, "source_language": "English"}
             fake_ctx.pm.project_payload = latest
             project_file.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
