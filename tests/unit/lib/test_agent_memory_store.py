@@ -1,5 +1,7 @@
 """Tests for lib.agent_memory_store."""
 
+from pathlib import Path
+
 import pytest
 
 from lib.agent_memory_store import (
@@ -103,17 +105,56 @@ class TestOverview:
         assert overview["index"] == {
             "exists": True,
             "line_count": 1,
-            "byte_size": len(b"- notes.md\n"),
+            "byte_size": len(b"- notes.md"),
+            "over_limit": False,
+        }
+
+    def test_index_stats_measure_the_stripped_body(self, store):
+        """统计口径同装配时的截断：首尾空行不占加载额度。"""
+        store.write(INDEX_FILENAME, b"\n- notes.md\n- tone.md\n\n\n")
+
+        index = store.overview()["index"]
+
+        assert (index["line_count"], index["byte_size"]) == (2, len(b"- notes.md\n- tone.md"))
+
+    def test_index_stats_are_zero_when_the_index_is_not_utf8(self, store):
+        """索引不是 UTF-8：装配读不进它，统计也不报磁盘上的规模。"""
+        store.write(INDEX_FILENAME, "- 说明\n".encode("gbk"))
+
+        assert store.overview()["index"] == {
+            "exists": True,
+            "line_count": 0,
+            "byte_size": 0,
             "over_limit": False,
         }
 
     @pytest.mark.parametrize(
         ("content", "over_limit"),
-        [(b"line\n" * 200, False), (b"line\n" * 201, True), (b"x" * 25_001, True)],
+        [
+            (b"line\n" * 200, False),
+            (b"line\n" * 200 + b"\n\n", False),
+            (b"line\n" * 201, True),
+            (b"x" * 25_001, True),
+        ],
     )
     def test_index_over_limit_flag(self, store, content, over_limit):
         store.write(INDEX_FILENAME, content)
         assert store.overview()["index"]["over_limit"] is over_limit
+
+    def test_entry_vanishing_after_enumeration_is_skipped(self, store, monkeypatch):
+        """枚举之后条目被删除（另一个标签页的删除或清空）：跳过它，其余照常列出。"""
+        store.write("gone.md", b"body")
+        store.write("notes.md", b"body")
+        real_stat = Path.stat
+
+        def stat(self, *args, **kwargs):
+            if self.name == "gone.md":
+                raise FileNotFoundError(self)
+            return real_stat(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", stat)
+
+        assert [entry["name"] for entry in store.overview()["files"]] == ["notes.md"]
 
     def test_entry_carries_size_mtime_and_frontmatter(self, store):
         store.write("tone.md", b"---\nname: Tone\ndescription: Short lines\ntype: feedback\n---\nbody\n")

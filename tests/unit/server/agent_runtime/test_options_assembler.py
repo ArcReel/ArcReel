@@ -21,7 +21,6 @@ from server.agent_runtime.options_assembler import (
     CLI_STDOUT_MAX_BUFFER_BYTES,
     OptionsAssembler,
     load_provider_env_overrides,
-    truncate_memory_index,
 )
 from server.auth import verify_token
 from tests.fakes import blocking_file_read_gate
@@ -366,9 +365,3 @@ async def test_append_prompt_omits_user_memory_for_invalid_user_id(tmp_path: Pat
 
     assert "## 用户记忆" not in prompt
     assert "ArcReel Agent" in prompt
-
-
-def test_truncate_memory_index_passes_through_within_limits() -> None:
-    """未超限：原样返回（首尾空白剪掉），不带提示。"""
-    assert truncate_memory_index("\n- 一条\n- 两条\n\n") == "- 一条\n- 两条"
-    assert truncate_memory_index("   ") == ""

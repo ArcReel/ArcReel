@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from lib.agent_memory_index import INDEX_FILENAME, truncate_memory_index
 from lib.agent_memory_paths import is_valid_memory_user_id, project_memory_dir, user_memory_dir
 from lib.agent_session_store import (
     is_known_session_store_mode,
@@ -45,45 +46,6 @@ _EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS = 15 * 60
 # 原样回显，Read 读图的 tool_result 也走同一条 stdout。按自身负载定额——5 张 ×
 # 1.5 MB 源 × 4/3 base64 ≈ 10 MB，取 32 MiB 留余量。官方无推荐值。
 CLI_STDOUT_MAX_BUFFER_BYTES = 32 * 1024 * 1024
-
-# 用户记忆索引文件名与加载上限，取自原生 auto memory（CLI 2.1.259：``MEMORY.md``、
-# 200 行、25 000）。项目记忆由原生自己按这套规则加载，用户记忆由本模块注入，
-# 两级索引因此在上下文里占同一个额度，Agent 的整理判断不必分两套。
-MEMORY_INDEX_FILENAME = "MEMORY.md"
-MEMORY_INDEX_MAX_LINES = 200
-MEMORY_INDEX_MAX_BYTES = 25_000
-
-
-def truncate_memory_index(text: str) -> str:
-    """按原生 auto memory 的规则截断记忆索引，超限时追加一行提示。
-
-    先按行截到 200 行，再按 UTF-8 字节截到 25 000 以内的最后一个换行——两道都做，
-    因为单行可以很长，只截行数护不住上下文。原生同一处用 JS 字符串 ``.length``
-    （UTF-16 码元）当字节数；这里按 UTF-8 实际字节算，中文索引下更保守，与
-    「25 000 字节」的字面一致。截断后不静默：Agent 看不到被丢掉的部分，
-    只有提示能让它去整理索引而不是以为索引就这么长。
-    """
-    trimmed = text.strip()
-    if not trimmed:
-        return ""
-    line_count = trimmed.count("\n") + 1
-    byte_count = len(trimmed.encode("utf-8"))
-    if line_count <= MEMORY_INDEX_MAX_LINES and byte_count <= MEMORY_INDEX_MAX_BYTES:
-        return trimmed
-
-    kept = "\n".join(trimmed.split("\n")[:MEMORY_INDEX_MAX_LINES])
-    encoded = kept.encode("utf-8")
-    if len(encoded) > MEMORY_INDEX_MAX_BYTES:
-        head = encoded[:MEMORY_INDEX_MAX_BYTES]
-        newline_at = head.rfind(b"\n")
-        head = head[:newline_at] if newline_at > 0 else head
-        kept = head.decode("utf-8", errors="ignore")
-    return (
-        f"{kept}\n"
-        f"> 提示：`{MEMORY_INDEX_FILENAME}` 共 {line_count} 行 / {byte_count} 字节，"
-        f"超出 {MEMORY_INDEX_MAX_LINES} 行 / {MEMORY_INDEX_MAX_BYTES} 字节的加载上限，"
-        f"以上只是被加载的部分。每条索引保持一行、约 200 字符以内，细节写进主题文件。"
-    )
 
 
 async def load_provider_env_overrides() -> dict[str, str]:
@@ -230,7 +192,7 @@ class OptionsAssembler:
             "- **读写**：用 Read / Write / Edit / Glob / Grep 直接读写该目录下的文件；Bash 读不到记忆目录",
         ]
         if index:
-            lines.append(f"- **索引**：以下是用户记忆的 `{MEMORY_INDEX_FILENAME}`，你以往会话留下的笔记")
+            lines.append(f"- **索引**：以下是用户记忆的 `{INDEX_FILENAME}`，你以往会话留下的笔记")
             lines.append("")
             lines.append(index)
         return "\n".join(lines)
@@ -246,7 +208,7 @@ class OptionsAssembler:
         笔记就开不了任何会话。不改用 ``errors="replace"``：GBK 之类整体错位的内容
         换不回可读文本，注入一段乱码比省略索引更糟。
         """
-        index_path = memory_dir / MEMORY_INDEX_FILENAME
+        index_path = memory_dir / INDEX_FILENAME
         try:
             return await asyncio.to_thread(index_path.read_text, encoding="utf-8")
         except FileNotFoundError:
