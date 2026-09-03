@@ -545,6 +545,56 @@ def test_generate_grid_5_and_6_scenes_use_grid_9(monkeypatch, tmp_path, scene_co
     assert (payloads[0]["rows"], payloads[0]["cols"]) == (3, 3)
 
 
+def test_generate_grid_maps_each_grid_to_the_task_it_enqueued(monkeypatch, tmp_path):
+    """逐宫格映射：每个 grid_id 指向它自己那次入队拿到的 task_id。"""
+
+    async def _gate(_project):
+        return False
+
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        # 30 个分段在 9 格封顶下切成多张宫格，映射才有可分辨的对应关系
+        get_project_manager=lambda: _FakePMScenes(tmp_path, 30),
+        get_generation_queue=lambda: fake_queue,
+        resolve_large_grid_allowed=_gate,
+    )
+    with client:
+        resp = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    enqueued = {call["resource_id"]: f"task-{index}" for index, call in enumerate(fake_queue.calls, start=1)}
+    assert len(enqueued) > 1
+    assert body["task_ids_by_grid"] == enqueued
+    assert body["grid_ids"] == list(enqueued)
+    assert body["task_ids"] == list(enqueued.values())
+
+
+def test_generate_grid_without_matching_groups_maps_nothing(monkeypatch, tmp_path):
+    """scene_ids 过滤掉全部分组时一个任务都没建，映射为空。"""
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMGenerate(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json", "scene_ids": ["E9S99"]},
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["grid_ids"] == []
+    assert body["task_ids_by_grid"] == {}
+    assert fake_queue.calls == []
+
+
 def test_grid_capability_reports_gate(monkeypatch, tmp_path):
     async def _gate(_project):
         return True

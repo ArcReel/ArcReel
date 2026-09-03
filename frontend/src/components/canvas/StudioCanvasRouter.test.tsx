@@ -1518,6 +1518,7 @@ describe("StudioCanvasRouter", () => {
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
       success: true,
       task_ids: ["t-1", "t-2"],
+      task_ids_by_segment: { "seg-1": "t-1", "seg-2": "t-2" },
       deduped: false,
       message: "已提交",
     });
@@ -1546,6 +1547,7 @@ describe("StudioCanvasRouter", () => {
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
       success: true,
       task_ids: [],
+      task_ids_by_segment: {},
       deduped: false,
       message: "无需补缺",
     });
@@ -1679,6 +1681,7 @@ describe("StudioCanvasRouter", () => {
       success: true,
       grid_ids: ["grid-1"],
       task_ids: ["t-1"],
+      task_ids_by_grid: { "grid-1": "t-1" },
       deduped: false,
       message: "已提交",
     });
@@ -1710,6 +1713,7 @@ describe("StudioCanvasRouter", () => {
       success: true,
       grid_ids: [],
       task_ids: [],
+      task_ids_by_grid: {},
       deduped: false,
       message: "已提交 0 个多宫格分镜生成任务",
     });

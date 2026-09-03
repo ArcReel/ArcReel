@@ -1981,7 +1981,14 @@ class API {
   static async generateEpisodeNarrationAudio(
     projectName: string,
     scriptFile: string
-  ): Promise<{ success: boolean; task_ids: string[]; deduped: boolean; message: string }> {
+  ): Promise<{
+    success: boolean;
+    task_ids: string[];
+    /** segment_id → task_id；只含本次真正入队的段，被跳过的段不在其中。 */
+    task_ids_by_segment: Record<string, string>;
+    deduped: boolean;
+    message: string;
+  }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/tts`,
       {
@@ -2975,7 +2982,15 @@ class API {
     episode: number,
     scriptFile: string,
     sceneIds?: string[]
-  ): Promise<{ success: boolean; grid_ids: string[]; task_ids: string[]; deduped: boolean; message: string }> {
+  ): Promise<{
+    success: boolean;
+    grid_ids: string[];
+    task_ids: string[];
+    /** grid_id → task_id；只含本次真正入队的宫格。 */
+    task_ids_by_grid: Record<string, string>;
+    deduped: boolean;
+    message: string;
+  }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/grid/${episode}`,
       { method: "POST", body: JSON.stringify({ script_file: scriptFile, scene_ids: sceneIds }) }

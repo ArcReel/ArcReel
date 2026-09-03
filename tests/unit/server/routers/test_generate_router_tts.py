@@ -341,6 +341,42 @@ class TestGenerateTtsBatch:
             assert call["task_type"] == "tts"
             assert call["media_type"] == "audio"
 
+    def test_batch_maps_each_missing_segment_to_the_task_it_enqueued(self, tmp_path, monkeypatch):
+        """逐段映射：每个 segment_id 指向它自己那次入队拿到的 task_id。"""
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        # 让 E1S02 也缺旁白，凑出两段入队，映射才有可分辨的对应关系
+        fake_pm.script["segments"][1]["generated_assets"] = {}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert res.status_code == 200, res.text
+        body = res.json()
+        enqueued = {call["resource_id"]: f"task-{index}" for index, call in enumerate(fake_queue.calls, start=1)}
+        assert enqueued == {"E1S01": "task-1", "E1S02": "task-2"}
+        assert body["task_ids_by_segment"] == enqueued
+        assert body["task_ids"] == ["task-1", "task-2"]
+
+    def test_batch_skipped_segments_are_absent_from_the_mapping(self, tmp_path, monkeypatch):
+        """跳过的段（已有旁白 / 无原文）不进映射，调用方据此不给它们打标。"""
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert res.status_code == 200, res.text
+        assert res.json()["task_ids_by_segment"] == {"E1S01": "task-1"}
+
     def test_metadata_path_without_a_manifest_entry_is_reselected(self, tmp_path, monkeypatch):
         """metadata 里留着旁白路径但清单没有认领 → 算缺失，重新入队。"""
 
@@ -436,6 +472,7 @@ class TestGenerateTtsBatch:
             body = res.json()
             assert body["success"] is True
             assert body["task_ids"] == []
+            assert body["task_ids_by_segment"] == {}
             assert fake_queue.calls == []
 
     def test_audio_provider_not_configured_400(self, tmp_path, monkeypatch):
@@ -468,6 +505,7 @@ class TestGenerateTtsBatch:
             body = res.json()
             assert body["success"] is True
             assert body["task_ids"] == []
+            assert body["task_ids_by_segment"] == {}
             assert fake_queue.calls == []
 
 

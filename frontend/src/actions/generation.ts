@@ -4,7 +4,8 @@
  * 每个动作内部固定封装三件事：
  * 1. 在**请求发出前**于 tasks-store 打乐观占用标记，请求失败即回滚，成功则用后端
  *    返回的 task_id 兑现（见 {@link submit}）——占用态因此从点击那一刻起就成立，
- *    调用方无须自备「请求在途」标记来覆盖网络往返窗口；
+ *    调用方无须自备「请求在途」标记来覆盖网络往返窗口；目标集合由服务端决定的批量
+ *    入口无法预先知道命中哪些资源，改在响应后按映射逐项补打（见 {@link markResourcesByTaskId}）；
  * 2. 调用对应 API 入队端点；
  * 3. 弹提示：后端 deduped=true（同资源任务已在处理中，该调用未新建）时统一
  *    弹 info 提示，否则沿用各操作原有的成功文案。
@@ -101,6 +102,24 @@ function manyTaskIds(res: { task_ids: string[] }): string[] {
   return res.task_ids;
 }
 
+/**
+ * 按后端返回的「资源 id → task_id」映射逐项补打资源粒度标记。
+ *
+ * 用于目标集合由服务端决定的批量入口：请求发出前调用方不知道会命中哪些资源，标记
+ * 因此在响应后补打并立即认领自己那条任务行——每项只等自己的任务落库，未进映射的项
+ * （服务端跳过或未入队成功）一律不打标。
+ */
+function markResourcesByTaskId(
+  projectName: string,
+  resourceKind: ResourceKind,
+  pendingTaskType: string,
+  taskIdsByResource: Record<string, string>,
+): void {
+  for (const [resourceId, taskId] of Object.entries(taskIdsByResource)) {
+    markResource(projectName, resourceKind, resourceId, pendingTaskType).settle([taskId]);
+  }
+}
+
 export async function enqueueStoryboard(
   projectName: string,
   segmentId: string,
@@ -154,8 +173,8 @@ export async function enqueueEpisodeNarration(
   scriptFile: string,
 ): Promise<EnqueueResult> {
   const res = await API.generateEpisodeNarrationAudio(projectName, scriptFile);
-  // 批量响应不含各段 segment_id，无法逐段打乐观标记；批量入口本身没有
-  // 逐段占用消费方，空窗期由 SSE 轮询写回真实任务行兜住。
+  // 入队哪几段由服务端筛选（缺旁白且有原文），请求发出前无从打标，故按响应映射逐段补打。
+  markResourcesByTaskId(projectName, "tts", "tts", res.task_ids_by_segment);
   notifyEnqueued(
     res.deduped,
     res.task_ids.length > 0
@@ -271,6 +290,9 @@ export async function enqueueGrid(
     () => API.generateGrid(projectName, episode, scriptFile, sceneIds),
     manyTaskIds,
   );
+  // grid_id 由服务端现场生成，请求发出前不存在，故按响应映射在响应后逐格补打资源标记；
+  // 往返窗口由上面那个 scriptFile 粒度标记覆盖。
+  markResourcesByTaskId(projectName, "grid", "grid", res.task_ids_by_grid);
   notifyEnqueued(res.deduped, res.message);
   return { taskIds: res.task_ids, deduped: res.deduped };
 }
