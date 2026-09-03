@@ -66,7 +66,7 @@ mcp__arcreel__get_video_capabilities({})
 通过 MCP 工具调用（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加说明原文，可选，无则省略>"})
+mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
 ```
 
 > dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化内容 JSON。
@@ -127,7 +127,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "bas
 重新 open 取得最新 `formal_revision`，把正式文档修改合并进 `content`，再 patch；此时额外传 `"accept_formal_revision": "<formal_revision>"`，不得直接编辑草稿元数据。
 可编辑草稿在场期间，内容确认与 prompt_authoring 生成都被阻塞，处置完才能继续。
 
-**`screenplay` 项目的逐字保真**：本项目 `source_kind=screenplay` 时（不确定就 Read `project.json` 确认），手动修改同样受逐字约束——`utterances` 里作者写下的台词与画外音、以及 `source_text` 原文锚**一字不改**，除非用户的修改要求明确针对这些口播 / 原文文字本身。`scene_description`、运镜、景别等视觉描述可按用户意见调整，但不要借「润色」之名改动作者的对白原文。
+**`screenplay` 项目的逐字保真**：本项目 `source_kind=screenplay` 时（不确定就 Read `project.json` 确认），手动修改同样受逐字约束——`utterances` 里作者写下的台词与画外音、以及 `source_text` 原文锚**一字不改**，除非用户的修改要求明确针对这些口播 / 原文文字本身。`scene_description`、运镜、景别等视觉描述可按用户要求调整，但不要借「润色」之名改动作者的对白原文。
 
 **修改必重生失效条目**：内容修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script`，否则留下「新内容 + 旧剧本」的陈旧组合。重生只覆盖内容变化与新增的条目，未变条目的提示词与已生成产物原样保留。在返回摘要中明确提示这一点。
 

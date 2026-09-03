@@ -426,9 +426,9 @@ class EpisodePlanner:
         当前源文件已无剩余有效内容时按文件名序自动推进到下一个源文件；
         ``source_exhausted=True`` 表示全部源文件都已规划完毕。
 
-        ``instructions`` 是可选的用户分集意见（如按章节对齐切分），strip 后为空视同未传；
-        非空则原样注入规划 prompt 的中性「用户意见」分节，遵循强度由意见正文自行表达。规划按窗口
-        分多批、意见不持久化，调用方须在每批 plan 调用都重复带上。
+        ``instructions`` 是可选的用户分集附加指令（如按章节对齐切分），strip 后为空视同未传；
+        非空则原样注入规划 prompt 的中性「附加指令」分节，遵循强度由附加指令正文自行表达。规划按窗口
+        分多批、附加指令不持久化，调用方须在每批 plan 调用都重复带上。
 
         新提交的集号若在磁盘上已有下游产物（剧本/script_plan/媒体，见
         :func:`lib.episode_ledger.has_downstream_products`），说明该集实际已被消费过
@@ -502,7 +502,7 @@ class EpisodePlanner:
         )
         language = _language_of(project)
         # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
-        # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无意见路径行为可复现，
+        # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无附加指令路径行为可复现，
         # 注入全局进度会改写 prompt，因此只在有 instructions 时才计算并注入。
         progress: _PlanningProgress | None = None
         if planning_instructions:
@@ -1080,8 +1080,8 @@ def _build_planning_prompt(
 ) -> str:
     """规划 prompt。仅面向文本模型，不做 i18n。
 
-    ``instructions`` 非空时注入一个中性的「用户意见」分节（遵循强度由意见正文自行表达，
-    模板不加强度限定词）；为空则不注入，prompt 与无意见时逐字一致。``progress`` 非 None 时
+    ``instructions`` 非空时注入一个中性的「附加指令」分节（遵循强度由附加指令正文自行表达，
+    模板不加强度限定词）；为空则不注入，prompt 与无附加指令时逐字一致。``progress`` 非 None 时
     注入「全局进度」分节（调用方只在 instructions 非空时传入）。
     """
     overview = project.get("overview") or {}
@@ -1122,7 +1122,7 @@ def _build_planning_prompt(
             f"- 已规划 {progress.planned_count} 集",
             f"- 未规划余量约 {progress.remaining_units} {unit_name}（含本窗口，含后续源文件）",
             f"- 本窗口为其中前 {progress.window_units} {unit_name}",
-            "- 若用户意见含总集数、按章节对齐等全局约束，请结合以上进度与余量换算本批的切分节奏与集数。",
+            "- 若附加指令含总集数、按章节对齐等全局约束，请结合以上进度与余量换算本批的切分节奏与集数。",
         ]
 
     lines += [

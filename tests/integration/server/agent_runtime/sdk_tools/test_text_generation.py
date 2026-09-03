@@ -880,7 +880,7 @@ async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext
     out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
-    assert "# 用户意见" in prompt_text
+    assert "# 附加指令" in prompt_text
     assert "打斗场面多拆几个短镜头" in prompt_text
 
 

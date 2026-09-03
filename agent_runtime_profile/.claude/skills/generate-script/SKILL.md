@@ -30,7 +30,7 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 ```text
 mcp__arcreel__generate_episode_script({"episode": N})
-mcp__arcreel__generate_episode_script({"episode": N, "instructions": "<用户意见原文，可选，无则省略>"})
+mcp__arcreel__generate_episode_script({"episode": N, "instructions": "<附加指令原文，可选，无则省略>"})
 mcp__arcreel__generate_episode_script({"episode": N, "dry_run": true})   # 仅预览 prompt
 ```
 

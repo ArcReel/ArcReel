@@ -179,7 +179,7 @@ def generation_batch_submission_outcome(result: GenerationBatchReadModel) -> Too
 
 
 # instructions 超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。
-# 上限对意见文本足够宽松，仅挡病态输入。
+# 上限对附加指令文本足够宽松，仅挡病态输入。
 MAX_INSTRUCTIONS_LEN = 4000
 
 

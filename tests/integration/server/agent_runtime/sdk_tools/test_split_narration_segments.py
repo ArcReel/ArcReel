@@ -38,12 +38,12 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolContext) -> None:
     assert "E1S" in prompt_text
     assert "张三" in prompt_text
     assert "4" in prompt_text
-    # 未传 instructions 时无用户意见分节
-    assert "# 用户意见" not in prompt_text
+    # 未传 instructions 时无附加指令分节
+    assert "# 附加指令" not in prompt_text
 
 
 async def test_split_narration_segments_injects_instructions(fake_ctx: ToolContext) -> None:
-    """instructions 原样进 prompt 末尾的中性「用户意见」分节，不附加强度措辞。"""
+    """instructions 原样进 prompt 末尾的中性「附加指令」分节，不附加强度措辞。"""
 
     nr_source(fake_ctx)
     use_fake_caps(fake_ctx)
@@ -52,7 +52,7 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolConte
     out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单个分镜出场人物尽量不超过两人"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
-    assert "# 用户意见" in prompt_text
+    assert "# 附加指令" in prompt_text
     assert "单个分镜出场人物尽量不超过两人" in prompt_text
     assert "必须全部落实" not in prompt_text
 
@@ -73,7 +73,7 @@ async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolC
 
     out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "   \n  "})
     assert out.get("is_error") is not True, out
-    assert "# 用户意见" not in out["content"][0]["text"]
+    assert "# 附加指令" not in out["content"][0]["text"]
 
 
 async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch) -> None:

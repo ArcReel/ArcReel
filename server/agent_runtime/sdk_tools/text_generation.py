@@ -38,12 +38,12 @@ from server.tool_runtime import (
     generate_script_plan as run_generate_script_plan,
 )
 
-# 四个分集数据生成工具共用的 instructions 参数 schema：用户意见原样注入 prompt 末尾的
-# 「用户意见」分节，遵循强度由正文表达（需要强约束时在正文写明）。
+# 四个分集数据生成工具共用的 instructions 参数 schema：附加指令原样注入 prompt 末尾的
+# 「附加指令」分节，遵循强度由正文表达（需要强约束时在正文写明）。
 _INSTRUCTIONS_SCHEMA: dict[str, Any] = {
     "type": "string",
     "description": (
-        "用户对本次生成的意见原文（可选）；原样注入 prompt 末尾的「用户意见」分节，"
+        "用户对本次生成的附加指令原文（可选）；原样注入 prompt 末尾的「附加指令」分节，"
         f"遵循强度由正文表达，缺省/空白视同未传，最长 {MAX_INSTRUCTIONS_LEN} 字符"
     ),
 }
