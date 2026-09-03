@@ -333,15 +333,19 @@ source_paths = ["lib", "server"]
 # 排除只把这类 mutant 推向假存活（多复核一个），不会造成假杀死（把无效测试藏起来）。
 # tests.mutmut_plugin 给每个 mutmut 会话一个私有 basetemp，让并行子进程收尾时不再竞争共享根下的软链；
 # 它只在这里加载，本地与 CI 的 pytest 不带它。
-# tests/integration/lib/test_task_failure_capability.py 用正则扫 lib/ 源码里的 capability code 字面量并与登记表比对；
-# mutants/ 里的源文件同时含全部字符串 mutant 变体（XXcodeXX / CODE），扫描必报「未登记」，stats 阶段直接失败。
-# 凡读源码文本而非 import 模块的测试都要这样排除。排除同样只会多出假存活：该文件独家能杀的只有 code 字面量的变体，
-# 而各 backend 用例都断言 exc.code。
+# tests/integration/lib/test_task_failure_capability.py 里三个用例用 ast 扫 lib/ server/ 源码里的 capability code
+# 字面量并与登记表比对；mutants/ 里的源文件同时含全部字符串 mutant 变体（XXcodeXX / CODE），扫描必报「未登记」，
+# stats 阶段直接失败。凡读源码文本而非 import 模块的用例都要这样按 nodeid --deselect，不整文件 --ignore：
+# 同文件其余用例是 bound_reason / collapse_cascade_reason / 级联渲染的行为测试，其中部分路径由它们独家覆盖，
+# 整文件排除会让 lib/task_failure.py 的真变异体记成存活。
+# 只排除扫描用例同样只会多出假存活：它们独家能杀的只有 code 字面量的变体，而各 backend 用例都断言 exc.code。
 pytest_add_cli_args = [
     "-p",
     "tests.mutmut_plugin",
     "--ignore=tests/unit/test_skill_script_path_guards.py",
-    "--ignore=tests/integration/lib/test_task_failure_capability.py",
+    "--deselect=tests/integration/lib/test_task_failure_capability.py::test_capability_codes_registered_no_drift",
+    "--deselect=tests/integration/lib/test_task_failure_capability.py::test_no_unscannable_capability_construction_sites",
+    "--deselect=tests/integration/lib/test_task_failure_capability.py::test_capability_construction_sites_supply_every_template_param",
 ]
 # pytest_add_cli_args_test_selection 不设：走全量 testpaths。仅 tests/unit 快 5.5 倍，
 # 但存活集合约 45% 是假存活，复核每个都要跑一次全量套件，总账反而更贵。
