@@ -768,7 +768,7 @@ def test_protected_write_rules_project_new_rule_in_both_layers(
 
 
 # ============================================================
-# 两级记忆目录围栏（ADR 0072）
+# 两级记忆目录围栏（ADR 0074）
 # ============================================================
 
 
@@ -839,7 +839,7 @@ def test_memory_dirs_still_reject_code_extensions(policy: AgentAccessPolicy) -> 
         assert "代码" in reason
 
 
-@pytest.mark.parametrize("bad_user_id", ["", "..", "../other", "a/b"])
+@pytest.mark.parametrize("bad_user_id", ["", "..", "../other", "a/b", "\x00"])
 def test_invalid_user_id_denies_memory_instead_of_widening(policy: AgentAccessPolicy, bad_user_id: str) -> None:
     """user_id 不是单个路径段时 fail-closed：不放行任何记忆路径，也不逃出数据根。"""
     cwd = _cwd(policy)
@@ -856,6 +856,28 @@ def test_build_sandbox_settings_allows_write_to_user_memory(policy: AgentAccessP
     # 其余沙箱规则不变
     assert str(cwd / "project.json") in settings["filesystem"]["denyWrite"]
     assert settings["network"] == {"allowedDomains": ["*"], "allowLocalBinding": True}
+
+
+def test_build_sandbox_settings_denies_read_of_the_whole_memory_root(policy: AgentAccessPolicy) -> None:
+    """内核沙箱层：Bash 不经读 hook，数据根 ``.arcreel/`` 整棵须在 denyRead 里，
+    否则 ``cat`` 得到别的用户的记忆。"""
+    settings = policy.build_sandbox_settings(_cwd(policy), user_id=_USER_ID)
+    assert str(policy.projects_root / ".arcreel") in settings["filesystem"]["denyRead"]
+
+
+def test_memory_deny_read_holds_for_invalid_user_id(policy: AgentAccessPolicy) -> None:
+    """读拒不依赖 user_id：非法 user_id 只让写放行整键消失，读禁照旧。"""
+    settings = policy.build_sandbox_settings(_cwd(policy), user_id="../escape")
+    assert str(policy.projects_root / ".arcreel") in settings["filesystem"]["denyRead"]
+
+
+def test_build_sandbox_settings_materializes_the_deny_root(policy: AgentAccessPolicy) -> None:
+    """CLI 跳过不存在的 deny 路径，而围栏只在会话启动时编译一次：目录得先建出来，
+    否则会话中途才出现的别人的记忆目录整场都没有内核层保护。"""
+    deny_root = policy.projects_root / ".arcreel"
+    assert not deny_root.exists()
+    policy.build_sandbox_settings(_cwd(policy), user_id=_USER_ID)
+    assert deny_root.is_dir()
 
 
 def test_build_sandbox_settings_omits_allow_write_for_invalid_user_id(policy: AgentAccessPolicy) -> None:

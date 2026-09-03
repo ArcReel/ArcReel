@@ -288,6 +288,9 @@ class AgentAccessPolicy:
           在 cwd 外，默认不可写；Agent 要用 Write/Edit 记跨项目笔记，须在内核层单独放行。
           项目记忆在 cwd 内本已可写，不重复登记。``user_id`` 非法（不是单个路径段）时不
           登记任何放行——fail-closed 优先于让记忆可写。
+        - ``filesystem.denyRead`` 另含数据根 ``.arcreel/`` 整棵（见
+          ``_build_memory_deny_read_abs_paths``）：hook 层的同一条读拒只管内置 Read/Glob/Grep，
+          Bash 不经该 hook（ADR 0026）。
         - ``allowUnsandboxedCommands=False``：禁止 Agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
         - ``network``：``allowedDomains`` 是「预放行清单」而非「限制清单」——不写该键等于零
@@ -299,7 +302,7 @@ class AgentAccessPolicy:
         if not self.sandbox_enabled:
             return {"enabled": False}
         filesystem: dict[str, Any] = {
-            "denyRead": self._build_sensitive_abs_paths(),
+            "denyRead": self._build_sensitive_abs_paths() + self._build_memory_deny_read_abs_paths(),
             "denyWrite": self._build_protected_write_abs_paths(project_cwd),
         }
         # 无路径可放行时整键不写：``allowWrite`` 是加法放行，空列表不表达任何意图。
@@ -314,6 +317,31 @@ class AgentAccessPolicy:
             "enableWeakerNestedSandbox": bool(self.in_docker),
             "filesystem": filesystem,
         }
+
+    def _build_memory_deny_read_abs_paths(self) -> list[str]:
+        """内核沙箱层的记忆读禁清单：数据根 ``.arcreel/`` 整棵。
+
+        ``_check_read_access`` 的同一条读拒只覆盖内置 Read/Glob/Grep；Bash 及其子进程
+        不经该 hook，只受内核沙箱约束（ADR 0026），单层存在即留 ``cat`` 旁路——别的用户的
+        记忆与数据根内部状态都会被读到。
+
+        投影比 hook 严一档（hook 放行当前用户自己的记忆，这里连它一起拒）：与
+        ``PROTECTED_WRITE_RULES`` 的「hook 只拒 drafts/ 下的正式 script_plan、sandbox 整目录拒」
+        同一取法。Agent 读写记忆走 Read/Write/Edit（不经 sandbox），Bash 无须读记忆；
+        整棵拒换来的是新用户目录一出现即被覆盖，不必逐个枚举兄弟项。
+
+        编译前先把目录建出来：CLI 对不存在的 deny 路径「Skipping non-existent read deny
+        path」、不装 deny mount，而围栏只在会话启动时编译一次——全新安装上第一个会话
+        跑起来时 ``.arcreel/`` 还不存在，此后别的用户的记忆目录一建出来，这个会话的
+        Bash 就能读到它。建目录失败（只读挂载、权限）时退回只登记路径：CLI 跳过它，
+        hook 层仍拦住内置读工具。
+        """
+        deny_root = self.projects_root / ARCREEL_DIRNAME
+        try:
+            deny_root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            logger.warning("记忆读禁根建不出来,sandbox deny 可能被 CLI 跳过: %s", deny_root)
+        return [str(deny_root)]
 
     def _build_memory_allow_write_abs_paths(self, user_id: str) -> list[str]:
         """内核沙箱层的记忆写放行清单：仅用户记忆目录（项目记忆在 cwd 内本已可写）。"""

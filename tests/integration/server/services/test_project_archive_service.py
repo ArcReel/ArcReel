@@ -1418,6 +1418,30 @@ class TestProjectArchiveService:
         assert restored.joinpath("MEMORY.md").read_text(encoding="utf-8") == "index"
         assert restored.joinpath("dangling.md").is_symlink()
 
+    def test_import_overwrite_skips_a_symlinked_project_memory_root(self, tmp_path):
+        """记忆根本身是软链时不恢复：``copytree`` 会解引用 src 自身，把链接目标整棵
+        拷进新项目的记忆目录，而这次拷贝跑在不受 sandbox 约束的服务端进程里。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        outside_dir = tmp_path / "outside"
+        _write_text(outside_dir / "host-secret.md", "secret")
+        arcreel_dir = pm.get_project_path("demo") / ".arcreel"
+        arcreel_dir.mkdir(parents=True, exist_ok=True)
+        (arcreel_dir / "memory").symlink_to(outside_dir, target_is_directory=True)
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="overwrite",
+        )
+
+        assert result.conflict_resolution == "overwritten"
+        assert not (pm.get_project_path("demo") / ".arcreel" / "memory").exists()
+        assert outside_dir.joinpath("host-secret.md").read_text(encoding="utf-8") == "secret"
+
     def test_import_overwrite_without_project_memory_leaves_no_memory_dir(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")

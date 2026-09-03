@@ -37,15 +37,24 @@ def user_memory_dir(projects_root: Path, user_id: str) -> Path:
     """用户记忆目录：``<数据根>/.arcreel/users/<user_id>/memory/``。
 
     ``user_id`` 须是单个路径段：它直接构成目录名，含 ``/`` / ``\\`` / ``.`` /
-    ``..`` 或为空时会让用户记忆目录逃出数据根，进而把围栏放行范围扩到任意路径。
-    非法值抛 ``ValueError``——调用方在围栏里应按 fail-closed 处置（见
-    ``AgentAccessPolicy._user_memory_dir_or_none``）。
+    ``..`` 或为空时会让用户记忆目录逃出数据根，进而把围栏放行范围扩到任意路径；
+    含 NUL 时派生出的路径任何文件系统调用都会抛 ``ValueError``，围栏登记的却是
+    一个永远用不了的目录。非法值抛 ``ValueError``——调用方在围栏里应按 fail-closed
+    处置（见 ``AgentAccessPolicy._user_memory_dir_or_none``）。
     """
     if not is_valid_memory_user_id(user_id):
-        raise ValueError(f"user_id 必须是单个路径段，不能为空或含路径分隔符：{user_id!r}")
+        raise ValueError(f"user_id 必须是单个路径段，不能为空或含路径分隔符 / 驱动器冒号 / NUL：{user_id!r}")
     return projects_root / ARCREEL_DIRNAME / USERS_DIRNAME / user_id / MEMORY_DIRNAME
 
 
 def is_valid_memory_user_id(user_id: str) -> bool:
-    """``user_id`` 是否可安全用作用户记忆目录的单个路径段。"""
-    return bool(user_id) and user_id not in {".", ".."} and "/" not in user_id and "\\" not in user_id
+    """``user_id`` 是否可安全用作用户记忆目录的单个路径段。
+
+    判据取所有平台的交集，不按当前平台放宽：``:`` 在 POSIX 上是普通字符，在
+    Windows 上让 ``<数据根>/.arcreel/users`` 与 ``C:`` 拼出的是驱动器相对路径
+    （``Path`` 会丢掉左侧整段），记忆目录因此落到该驱动器的当前目录而不是数据根下。
+    未来接 OIDC 身份（``issuer:subject`` 形态）时须先规整成单段再传进来。
+    """
+    if not user_id or user_id in {".", ".."}:
+        return False
+    return not any(char in user_id for char in ("/", "\\", ":", "\x00"))

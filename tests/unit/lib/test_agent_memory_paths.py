@@ -31,9 +31,11 @@ def test_distinct_users_get_distinct_dirs() -> None:
     assert user_memory_dir(projects_root, "alice") != user_memory_dir(projects_root, "bob")
 
 
-@pytest.mark.parametrize("user_id", ["", ".", "..", "../other", "a/b", "a\\b"])
+@pytest.mark.parametrize("user_id", ["", ".", "..", "../other", "a/b", "a\\b", "\x00", "a\x00b", "C:", "iss:sub"])
 def test_user_memory_dir_rejects_non_segment_user_id(user_id: str) -> None:
-    """user_id 直接构成目录名，非单段值会让目录逃出数据根、把围栏放行范围扩到任意路径。"""
+    """user_id 直接构成目录名，非单段值会让目录逃出数据根、把围栏放行范围扩到任意路径；
+    含 NUL 的值派生出的路径任何文件系统调用都会抛错，围栏登记的是个用不了的目录；
+    含 ``:`` 的值在 Windows 上拼成驱动器相对路径，判据取所有平台的交集。"""
     assert not is_valid_memory_user_id(user_id)
     with pytest.raises(ValueError, match="user_id"):
         user_memory_dir(Path("/nonexistent/data/projects"), user_id)
