@@ -861,7 +861,7 @@ class AssistantService:
 
     @staticmethod
     def _entry_sse_event(entry: dict[str, Any]) -> ServerSentEvent:
-        """entry 事件：SSE ``id`` 字段即 seq，EventSource 原生 Last-Event-ID 续传。"""
+        """entry 事件：SSE ``id`` 字段即 seq，前端流式客户端重连时以 Last-Event-ID 续传。"""
         return ServerSentEvent(event="entry", data=entry, id=str(entry.get("seq")))
 
     _TERMINAL_STATUSES: ClassVar[set[str]] = {"idle", "running", "completed", "error", "interrupted"}

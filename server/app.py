@@ -621,6 +621,9 @@ app.include_router(
     dependencies=[Depends(get_current_user)],
     tags=["Agent 会话"],
 )
+app.include_router(
+    project_events.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["项目变更流"]
+)
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
 app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
@@ -655,14 +658,8 @@ app.include_router(onboarding.router, prefix="/api/v1", dependencies=[Depends(ge
 app.include_router(auth_router.public_router, prefix="/api/v1", tags=["认证"])
 app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 
-# 自带认证端点：成因都是浏览器直发请求带不了 Authorization header，
-# 端点内自行校验凭证（SSE 用 CurrentUserFlexible 收 ?token=，导出用短时效下载 token）。
-app.include_router(
-    assistant.self_auth_router,
-    prefix="/api/v1/projects/{project_name}/assistant",
-    tags=["Agent 会话"],
-)
-app.include_router(project_events.self_auth_router, prefix="/api/v1", tags=["项目变更流"])
+# 自带认证端点：浏览器原生下载导航带不了 Authorization header，
+# 端点内 verify_download_token 校验短时效下载 token（见 docs/adr/0071）。
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
 
 

@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgentFailureError,
   API,
@@ -9,6 +9,7 @@ import {
   SpeechAdmissionError,
 } from "@/api";
 import { clearToken, setToken } from "@/utils/auth";
+import { flushStream, stubSseFetch } from "@/test/fakeSseFetch";
 
 type JsonResponseOptions = {
   ok?: boolean;
@@ -1194,6 +1195,110 @@ describe("API", () => {
         expect(API.getJianyingDraftDownloadUrl("demo", 1, "/drafts", "token", "6", "use_tts"))
           .toContain("narration_delivery=use_tts");
       });
+    });
+  });
+
+  describe("event streams", () => {
+    afterEach(() => {
+      clearToken();
+      vi.useRealTimers();
+    });
+
+    it("openProjectEventStream subscribes with the bearer token in a header and dispatches named events", async () => {
+      setToken("jwt-1");
+      const fake = stubSseFetch();
+      const onSnapshot = vi.fn();
+      const onChanges = vi.fn();
+      const onProjectDeleted = vi.fn();
+
+      const handle = API.openProjectEventStream({ projectName: "my project", onSnapshot, onChanges, onProjectDeleted });
+      await flushStream();
+
+      expect(fake.latest.url).toBe("/api/v1/projects/my%20project/events/stream");
+      expect(fake.latest.url).not.toContain("token=");
+      expect(fake.latest.headers.get("Authorization")).toBe("Bearer jwt-1");
+      expect(fake.latest.headers.get("Accept")).toBe("text/event-stream");
+
+      fake.latest.emit("snapshot", { fingerprint: "f1" });
+      fake.latest.emit("changes", { fingerprint: "f2", changes: [] });
+      fake.latest.emit("project_deleted", { project_name: "my project" });
+      fake.latest.write("event: changes\ndata: not json\n\n");
+      await flushStream();
+
+      expect(onSnapshot).toHaveBeenCalledWith({ fingerprint: "f1" });
+      expect(onChanges).toHaveBeenCalledTimes(1);
+      expect(onChanges).toHaveBeenCalledWith({ fingerprint: "f2", changes: [] });
+      expect(onProjectDeleted).toHaveBeenCalledWith({ project_name: "my project" });
+      handle.close();
+    });
+
+    it("openProjectEventStream rebuilds the connection after the stream drops and receives a fresh snapshot", async () => {
+      vi.useFakeTimers();
+      const fake = stubSseFetch();
+      const onSnapshot = vi.fn();
+      const handle = API.openProjectEventStream({ projectName: "demo", onSnapshot });
+      await flushStream();
+      fake.latest.emit("snapshot", { fingerprint: "f1" });
+      fake.latest.end();
+      await flushStream();
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await flushStream();
+      expect(fake.connections).toHaveLength(2);
+      fake.latest.emit("snapshot", { fingerprint: "f2" });
+      await flushStream();
+
+      expect(onSnapshot.mock.calls.map(([payload]) => payload.fingerprint)).toEqual(["f1", "f2"]);
+      handle.close();
+    });
+
+    it("openAssistantEntriesStream resumes with Last-Event-ID after a drop and stops on 401", async () => {
+      vi.useFakeTimers();
+      setToken("jwt-1");
+      const fake = stubSseFetch((index) => (index < 2 ? 200 : 401));
+      const onEvent = vi.fn();
+      const onError = vi.fn();
+
+      const handle = API.openAssistantEntriesStream({
+        projectName: "demo",
+        sessionId: "session-1",
+        after: 4,
+        onEvent,
+        onError,
+      });
+      await flushStream();
+
+      expect(fake.latest.url).toBe("/api/v1/projects/demo/assistant/sessions/session-1/entries/stream?after=4");
+      expect(fake.latest.headers.get("Authorization")).toBe("Bearer jwt-1");
+      expect(fake.latest.headers.has("Last-Event-ID")).toBe(false);
+
+      fake.latest.emit("entry", { seq: 5, type: "user" }, "5");
+      fake.latest.emit("status", { status: "running" });
+      await flushStream();
+      fake.latest.fail();
+      await flushStream();
+
+      expect(onEvent.mock.calls).toEqual([
+        ["entry", { seq: 5, type: "user" }],
+        ["status", { status: "running" }],
+      ]);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await flushStream();
+      expect(fake.connections).toHaveLength(2);
+      expect(fake.latest.headers.get("Last-Event-ID")).toBe("5");
+
+      // 凭证失效：与普通请求一致，清 token 并回登录页，不再重连
+      fake.latest.end();
+      await flushStream();
+      await vi.advanceTimersByTimeAsync(1000);
+      await flushStream();
+      expect(fake.connections).toHaveLength(3);
+      expect(handle.closed).toBe(true);
+      expect(onError).toHaveBeenLastCalledWith(expect.objectContaining({ status: 401, retryable: false }));
+      expect(localStorage.getItem("arcreel_auth_token")).toBeNull();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fake.connections).toHaveLength(3);
     });
   });
 

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
+from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -20,9 +20,6 @@ class TestTasksRouter:
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: _FakeQueue(task=None))
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
-            id="default", sub="testuser", role="admin"
-        )
         app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
 
@@ -63,9 +60,6 @@ class TestRetryArtifactDownload:
         app = FastAPI()
         app.state.generation_worker = worker
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
-            id="default", sub="testuser", role="admin"
-        )
         app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         return app
@@ -132,9 +126,6 @@ class TestTaskErrorLocalization:
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
-            id="default", sub="testuser", role="admin"
-        )
         app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         return TestClient(app)
 

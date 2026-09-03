@@ -30,13 +30,8 @@ from server.agent_runtime.service import (
 )
 from server.agent_runtime.session_branch import SessionBranchError
 from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
-from server.auth import CurrentUserFlexible
 
 router = APIRouter()
-
-# 自带认证端点：EventSource 是浏览器直发请求，带不了 Authorization header，
-# 端点内声明 CurrentUserFlexible 收 ?token=，注册时不挂 Bearer 依赖。
-self_auth_router = APIRouter()
 
 assistant_service = AssistantService(project_root=PROJECT_ROOT)
 
@@ -338,19 +333,18 @@ async def list_entries(
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-@self_auth_router.get("/sessions/{session_id}/entries/stream", response_class=EventSourceResponse)
+@router.get("/sessions/{session_id}/entries/stream", response_class=EventSourceResponse)
 async def stream_entries(
     project_name: str,
     session_id: str,
     request: Request,
-    _user: CurrentUserFlexible,
     _t: Translator,
     after: int = Query(default=-1, ge=-1),
     deps: tuple[AssistantService, SessionMeta] = Depends(_assistant_service_for_stream),
 ) -> AsyncIterator[ServerSentEvent]:
     """SSE entry 流：事件 id 即 seq。
 
-    游标优先级：EventSource 自动重连携带的 ``Last-Event-ID`` > ``?after=<seq>``
+    游标优先级：前端流式客户端重连携带的 ``Last-Event-ID`` > ``?after=<seq>``
     （冷订阅）。
     """
     service, meta = deps
@@ -430,8 +424,8 @@ async def answer_question(
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-@self_auth_router.get("/sessions/{session_id}/stream")
-async def stream_events(project_name: str, session_id: str, _user: CurrentUserFlexible, _t: Translator):
+@router.get("/sessions/{session_id}/stream")
+async def stream_events(project_name: str, session_id: str, _t: Translator):
     raise HTTPException(
         status_code=410,
         detail=_t("interface_offline"),

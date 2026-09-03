@@ -29,18 +29,23 @@ PUBLIC_OPERATIONS = frozenset(
     }
 )
 
-# 自带认证：浏览器直发请求带不了 Authorization header，端点内自行校验凭证。
+# 自带认证：浏览器原生下载导航带不了 Authorization header，端点内校验短时效下载 token。
 SELF_AUTH_OPERATIONS = frozenset(
     {
-        "GET /api/v1/projects/{project_name}/assistant/sessions/{session_id}/entries/stream",
-        "GET /api/v1/projects/{project_name}/assistant/sessions/{session_id}/stream",
-        "GET /api/v1/projects/{project_name}/events/stream",
         "GET /api/v1/projects/{name}/export",
         "GET /api/v1/projects/{name}/export/jianying-draft",
     }
 )
 
 EXEMPT_OPERATIONS = PUBLIC_OPERATIONS | SELF_AUTH_OPERATIONS
+
+# SSE 端点走普通受保护 router，由前端以 fetch 带 Authorization header 消费；
+# 会话凭证不接受 query param 形态，见 docs/adr/0071。
+SSE_PATHS = (
+    "/api/v1/projects/demo/assistant/sessions/s1/entries/stream",
+    "/api/v1/projects/demo/assistant/sessions/s1/stream",
+    "/api/v1/projects/demo/events/stream",
+)
 
 # 验证「放行」的探针端点：受保护，且处理函数只读进程内常量。换端点时要保持这个性质——
 # 依赖数据库等 lifespan 建立的状态，会让这两个用例在干净环境里以 500 失败，掩盖认证结论。
@@ -138,17 +143,51 @@ def test_public_endpoints_stay_reachable(auth_coverage_client):
     assert auth_coverage_client.get("/api/v1/global-assets/characters/x.png").status_code != 401
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/api/v1/projects/demo/assistant/sessions/s1/entries/stream",
-        "/api/v1/projects/demo/assistant/sessions/s1/stream",
-        "/api/v1/projects/demo/events/stream",
-    ],
-)
-def test_query_token_endpoints_reject_anonymous(auth_coverage_client, path):
-    """不挂 router 级依赖的端点仍须由 CurrentUserFlexible 拦住无 token 请求。"""
-    assert auth_coverage_client.get(path).status_code == 401
+def _login_token(client: TestClient) -> str:
+    return client.post(
+        "/api/v1/auth/token",
+        data={"username": "testuser", "password": "testpass"},
+    ).json()["access_token"]
+
+
+@pytest.mark.parametrize("path", SSE_PATHS)
+def test_sse_endpoints_reject_query_token(auth_coverage_client, path):
+    """长效会话 JWT 不得经 ?token= 订阅事件流：即便 JWT 有效也须 401。"""
+    token = _login_token(auth_coverage_client)
+    response = auth_coverage_client.get(path, params={"token": token})
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("path", SSE_PATHS)
+def test_sse_endpoints_accept_bearer_token(auth_coverage_client, path):
+    """带 Bearer JWT 时 router 级依赖放行。
+
+    放行后的状态由端点自身决定（会话不存在、接口已下线，或项目事件服务未随 lifespan
+    建立），这里只断言认证层没有拒绝。
+    """
+    token = _login_token(auth_coverage_client)
+    response = auth_coverage_client.get(path, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code != 401
+
+
+@pytest.mark.parametrize("path", SSE_PATHS)
+def test_sse_endpoints_accept_api_key(auth_coverage_client, path):
+    """带 ``arc-`` API Key 时 router 级依赖放行。"""
+    key = "arc-auth-coverage-key"
+    key_hash = auth_module._hash_api_key(key)
+    auth_module._set_api_key_cache(key_hash, {"sub": "apikey:coverage", "via": "apikey"})
+    try:
+        response = auth_coverage_client.get(path, headers={"Authorization": f"Bearer {key}"})
+        assert response.status_code != 401
+    finally:
+        auth_module.invalidate_api_key_cache(key_hash)
+
+
+@pytest.mark.parametrize("path", SSE_PATHS)
+def test_sse_endpoints_allow_anonymous_when_auth_disabled(auth_coverage_client, path):
+    """AUTH_ENABLED=false 时 SSE 与其它受保护端点一致，匿名请求也放行。"""
+    with patch.dict(os.environ, {"AUTH_ENABLED": "false"}):
+        assert auth_coverage_client.get(path).status_code != 401
 
 
 def test_trial_artifact_rejects_query_token(auth_coverage_client):

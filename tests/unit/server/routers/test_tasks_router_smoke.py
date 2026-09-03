@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
+from server.auth import CurrentUserInfo, get_current_user
 from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
@@ -11,9 +11,6 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 def _build_app():
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
-        id="default", sub="testuser", role="admin"
-    )
     app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 

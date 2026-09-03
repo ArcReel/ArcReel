@@ -151,10 +151,10 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 ### 前端测试（vitest）
 
-- **API 打桩**：`vi.spyOn(API, method)` 是标准打桩边界（新增出站调用一律经 `API` class，少数历史直连 `fetch` / `EventSource` 尚未收编）；`api.ts` 本体测试用手写 fetch/Response stub；不引入 msw。禁止整模块 `vi.mock("@/api")` 与 `vi.mock("react-i18next")`（eslint 强制；全局 setup 已加载真实中文 i18n，整体 mock 后无法发现翻译缺失）。
-- **SSE 打桩**：统一使用 `src/test/` 的共享 `FakeEventSource`，由 `API.openProjectEventStream` 的 spy 返回其实例。
+- **API 打桩**：`vi.spyOn(API, method)` 是标准打桩边界（新增出站调用一律经 `API` class，少数历史直连 `fetch` 尚未收编）；`api.ts` 本体测试用手写 fetch/Response stub；不引入 msw。禁止整模块 `vi.mock("@/api")` 与 `vi.mock("react-i18next")`（eslint 强制；全局 setup 已加载真实中文 i18n，整体 mock 后无法发现翻译缺失）。
+- **SSE 打桩**：hook 测试统一使用 `src/test/` 的共享 `FakeSseStream` 句柄，由 `API.openProjectEventStream` / `API.openAssistantEntriesStream` 的 spy 返回其实例；流式客户端 `openSseStream` 与 `api.ts` 的流式封装用 `src/test/fakeSseFetch.ts` 的可控 fetch 响应流。
 - **mock 内部子组件**须属三类之一：重量级（虚拟化/动画/canvas）、有副作用（发起请求/启动定时器）、与本测试无关的纯展示；同一组件被 ≥3 个文件 mock 时上提 `src/__mocks__/`。
-- **共享设施**：与被测对象无关的横切工具（`createDeferred`、`FakeEventSource`、factories）重复出现在 ≥3 个文件时上提 `src/test/`；API spy 组合豁免收编（各文件 spy 的方法组合互不相同，没有可提取的公共形状）；本地 `renderXxx` 仅在同一形状重复出现于 ≥3 个文件时上提。
+- **共享设施**：与被测对象无关的横切工具（`createDeferred`、`FakeSseStream`、factories）重复出现在 ≥3 个文件时上提 `src/test/`；API spy 组合豁免收编（各文件 spy 的方法组合互不相同，没有可提取的公共形状）；本地 `renderXxx` 仅在同一形状重复出现于 ≥3 个文件时上提。
 - **目录与体量**：测试文件与源文件同级并放，不使用 `__tests__/` 目录；「一文件一被测对象」、分裂命名禁令与 3000 行熔断三条与后端一致，允许语义化主题后缀（如 `ShotDetail.drama.test.tsx`）。
 - **可测性改造**：不得改变生产行为；允许抽纯函数、抽 hook 级的结构性抽取。
 - **配置与 lint**：`testTimeout` 用 vitest 默认 5s，个别慢用例显式覆写并说明；eslint 启用 vitest、testing-library、jest-dom 插件（`expect-expect` 检出零断言用例）；裸 `toHaveBeenCalled` 不设禁令，断言强度归 review。
