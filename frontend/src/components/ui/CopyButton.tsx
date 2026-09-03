@@ -5,13 +5,15 @@ import { copyText } from "@/utils/clipboard";
 
 interface CopyButtonProps {
   text: string;
-  /** 覆盖默认的按钮无障碍名称（默认「复制」/「已复制」）。 */
+  /** 覆盖未复制状态的按钮无障碍名称。 */
   label?: string;
+  /** 覆盖复制成功后的按钮无障碍名称。 */
+  copiedLabel?: string;
   className?: string;
 }
 
 /** 无底色图标按钮：hover 出灰色圆角方形背景，复制成功后图标短暂变对勾。 */
-export function CopyButton({ text, label, className = "" }: CopyButtonProps) {
+export function CopyButton({ text, label, copiedLabel, className = "" }: CopyButtonProps) {
   const { t } = useTranslation("dashboard");
   const [copied, setCopied] = useState(false);
 
@@ -22,7 +24,9 @@ export function CopyButton({ text, label, className = "" }: CopyButtonProps) {
   }, [copied]);
 
   const Icon = copied ? Check : Copy;
-  const title = copied ? t("message_copied") : (label ?? t("message_copy"));
+  const title = copied
+    ? (copiedLabel ?? t("message_copied"))
+    : (label ?? t("message_copy"));
 
   return (
     <button

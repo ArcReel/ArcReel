@@ -25,6 +25,15 @@ describe("CopyButton", () => {
     expect(writeText).toHaveBeenCalledWith("sk-secret");
   });
 
+  it("uses the provided copied-state label", async () => {
+    stubClipboard(() => Promise.resolve());
+    render(<CopyButton text="sk-secret" label="复制密钥" copiedLabel="密钥已复制" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "复制密钥" }));
+
+    expect(await screen.findByRole("button", { name: "密钥已复制" })).toBeInTheDocument();
+  });
+
   it("returns to the idle state after the copied state expires", async () => {
     vi.useFakeTimers();
     stubClipboard(() => Promise.resolve());
