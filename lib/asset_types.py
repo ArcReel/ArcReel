@@ -24,8 +24,8 @@ class AssetSpec:
     string」、`_build_asset_entry` 据此初始化默认空串、REST PATCH 据此扩展可更新字段集；
     ``extra_list_fields`` 是 schema 维度的列表变体——字段若存在须为「字符串列表」，
     `_build_asset_entry` 初始化默认空列表，REST PATCH 同样据此扩展；
-    ``agent_editable_extra_fields`` 是权限维度——`upsert_assets`（agent 走的入口）的字段
-    白名单来自这里，**不复用 schema 维度**。两者解耦的原因：``reference_image`` /
+    ``agent_editable_extra_fields`` 是权限维度——Agent 写入路径的字段白名单
+    （:attr:`agent_writable_fields`）由它构造，**不复用 schema 维度**。两者解耦的原因：``reference_image`` /
     ``reference_images`` 是用户上传或系统生成的文件路径，是 schema 维度字段但不是
     ``agent_editable_extra_fields``（agent 不该覆写用户上传的路径，更新走专用 API，
     与 sheet_field 同性质）。
@@ -59,6 +59,19 @@ class AssetSpec:
     agent_editable_extra_fields: tuple[str, ...] = ()
     in_global_library: bool = True
     supports_derivatives: bool = False
+
+    @property
+    def agent_writable_fields(self) -> frozenset[str]:
+        """Agent 写入路径（`upsert_assets` 与资产抽取的原子提交）的字段白名单。
+
+        `description` 是所有类型的必填基底，`agent_editable_extra_fields` 是各类型的字符串
+        扩展，开启衍生能力的类型另收嵌套的 ``DERIVATIVES_FIELD``（它不是字符串字段，故不
+        列进那个 tuple）。两条 Agent 入口取同一份，新增可写字段只改这里。
+        """
+        fields = {"description", *self.agent_editable_extra_fields}
+        if self.supports_derivatives:
+            fields.add(DERIVATIVES_FIELD)
+        return frozenset(fields)
 
 
 ASSET_SPECS: dict[str, AssetSpec] = {

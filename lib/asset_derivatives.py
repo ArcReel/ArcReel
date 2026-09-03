@@ -21,8 +21,10 @@ from lib.artifact_manifest import ArtifactBasis, ArtifactKey
 from lib.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
+    AssetSpec,
     normalize_asset_name,
     resolve_asset_key,
+    validate_asset_name,
 )
 from lib.resource_paths import (
     CHARACTER_DERIVATIVE_RESOURCE_TYPE,
@@ -100,6 +102,73 @@ def derivative_table(entry: Mapping[str, Any] | None) -> dict[str, Any]:
         return {}
     table = entry.get(DERIVATIVES_FIELD)
     return dict(table) if isinstance(table, Mapping) else {}
+
+
+def ensure_derivative_table(entry: dict[str, Any]) -> dict[str, Any]:
+    """取本体条目里可写的衍生表；缺失或畸形时就地补空表，让写入落在可预期的形状上。
+
+    与只读的 :func:`derivative_table` 分工：那个返回副本供读取，这个返回条目内的原表供写入。
+    """
+
+    table = entry.get(DERIVATIVES_FIELD)
+    if not isinstance(table, dict):
+        table = {}
+        entry[DERIVATIVES_FIELD] = table
+    return table
+
+
+def normalize_agent_derivatives(raw: object, *, spec: AssetSpec, field_path: str) -> dict[str, dict[str, Any]]:
+    """把 Agent 写入路径收到的衍生表归一成落盘形状，非法输入 fail-loud。
+
+    Agent 只写得动变化描述：资产图由生成流水线回写，故每条一律以空 sheet 字段构造，
+    合并进已有衍生时由 :func:`merge_agent_derivatives` 保留原路径。名字沿用资产名校验，
+    规范化（strip + NFC）后等价的两个键会静默互相覆盖，因此整表拒绝而非取其一。
+
+    *field_path* 是错误消息里指向该表的字段路径前缀，由调用方按自己的入参形状拼出。
+    """
+
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{field_path}.{DERIVATIVES_FIELD} 必须是对象（衍生名 → {{description}}）")
+    normalized: dict[str, dict[str, Any]] = {}
+    raw_keys: dict[str, object] = {}
+    for raw_name, attrs in raw.items():
+        try:
+            name = validate_asset_name(raw_name)
+        except ValueError as exc:
+            raise ValueError(f"{field_path}.{DERIVATIVES_FIELD}: {exc}") from None
+        if name in normalized:
+            raise ValueError(
+                f"{field_path}.{DERIVATIVES_FIELD} 含规范化后冲突的衍生名 {name!r}："
+                f"原始键 {raw_keys[name]!r} 与 {raw_name!r} 在规范化（strip + NFC）后等价"
+            )
+        if not isinstance(attrs, Mapping):
+            raise ValueError(f"{field_path}.{DERIVATIVES_FIELD}[{name!r}] 必须是对象")
+        extra = sorted(str(key) for key in attrs if key != "description")
+        if extra:
+            raise ValueError(f"{field_path}.{DERIVATIVES_FIELD}[{name!r}] 含不可写字段: {extra}")
+        description = attrs.get("description")
+        if not isinstance(description, str):
+            raise ValueError(f"{field_path}.{DERIVATIVES_FIELD}[{name!r}].description 必须是字符串")
+        normalized[name] = {"description": description, spec.sheet_field: ""}
+        raw_keys[name] = raw_name
+    return normalized
+
+
+def merge_agent_derivatives(entry: dict[str, Any], normalized: Mapping[str, dict[str, Any]]) -> None:
+    """把归一化后的衍生表并入本体条目：同名改描述、新名整条加入，未提及的原样留下。
+
+    整表替换会连带抹掉未提及衍生的资产图，故按名合并；已有条目的存量 key 可能是 NFD，
+    按 :func:`resolve_asset_key` 就地更新而非按 NFC 名新建第二条。
+    """
+
+    table = ensure_derivative_table(entry)
+    for name, derivative in normalized.items():
+        key = resolve_asset_key(table, name)
+        current = table.get(key) if key is not None else None
+        if key is not None and isinstance(current, dict):
+            current["description"] = derivative["description"]
+        else:
+            table[key if key is not None else name] = dict(derivative)
 
 
 @dataclass(frozen=True, slots=True)

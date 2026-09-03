@@ -2655,6 +2655,7 @@ class ProjectManager:
         把忽略原因明示给 Agent，避免 Agent 重复尝试同样会被丢的字段。
         """
         # data_validator 在模块级 import 本模块（VALID_GENERATION_MODES），故惰性 import 破环。
+        from lib.asset_derivatives import merge_agent_derivatives, normalize_agent_derivatives
         from lib.data_validator import DataValidator
 
         asset_type = self._resolve_asset_type(table)
@@ -2692,7 +2693,9 @@ class ProjectManager:
         # 不允许的字段同样含 `sheet_field`（character_sheet / scene_sheet / prop_sheet，资产生成流水线
         # 在图像就绪后通过 `_update_asset_sheet` 专用 API 回写）以及 spec 之外的任意 key。
         # `_strip_legacy_asset_fields` 处理 type/importance 等历史字段，这层再加白名单形成「最小特权」。
-        allowed_fields = {"description", *spec.agent_editable_extra_fields}
+        # 白名单里的 `derivatives`（开启该能力的类型才有）归一与合并走 `lib.asset_derivatives` 的
+        # Agent 写入口径：只写得动变化描述，资产图路径由生成流水线保留。
+        allowed_fields = spec.agent_writable_fields
         # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示 Agent。silent drop 仍是设计意图,
         # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知 Agent,避免 LLM 重复尝试。
         cleaned: dict[str, dict[str, Any]] = {}
@@ -2719,6 +2722,10 @@ class ProjectManager:
                     )
             if non_allowed:
                 dropped_fields[name] = sorted(non_allowed)
+            if DERIVATIVES_FIELD in entry_clean:
+                entry_clean[DERIVATIVES_FIELD] = normalize_agent_derivatives(
+                    entry_clean[DERIVATIVES_FIELD], spec=spec, field_path=f"{table} {name!r}"
+                )
             cleaned[name] = entry_clean
 
         added: list[str] = []
@@ -2741,19 +2748,26 @@ class ProjectManager:
                     raise ProjectAssetNameConflictError(name, match, asset_type)
                 key = match.name if match is not None else name
                 existing = isinstance(bucket.get(key), dict)
+                # 衍生表按名合并（同名改描述、新名加入、未提及的留下），整表替换会抹掉
+                # 未提及衍生的资产图；本体条目的其余字段仍是整值覆盖。空表不算改动，
+                # 与「全字段被丢空」同归 no-op。
+                derivatives = attrs.get(DERIVATIVES_FIELD) or {}
+                body_attrs = {k: v for k, v in attrs.items() if k != DERIVATIVES_FIELD}
                 # 仅对已存在 entry 检测 no-op:全字段被白名单/legacy strip 丢空时 update({})
                 # 实际不变,归到 noop 而非 merged 避免「合并 1 个」误报。新 entry 即使
                 # cleaned 空也仍走 _build_asset_entry,让 description 缺失的 validator 拒写
                 # fail-loud(不能让"无可写字段"变成绕过 entry 创建必填校验的旁路)。
-                if existing and not attrs:
+                if existing and not body_attrs and not derivatives:
                     noop.append(name)
                     continue
                 if existing:
-                    bucket[key].update(attrs)  # 改：合并字段，保留 sheet 路径等既有字段
+                    bucket[key].update(body_attrs)  # 改：合并字段，保留 sheet 路径等既有字段
                     merged.append(name)
                 else:
-                    bucket[key] = self._build_asset_entry(asset_type, attrs.get("description", ""), attrs)
+                    bucket[key] = self._build_asset_entry(asset_type, body_attrs.get("description", ""), body_attrs)
                     added.append(name)
+                if derivatives:
+                    merge_agent_derivatives(bucket[key], derivatives)
             after_errors = set(validator.validate_project_payload(project).errors)
             # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
             #   - 改前合法、改后非法 → new_errors=全部 after errors → 拒
@@ -3603,8 +3617,8 @@ class ProjectManager:
         默认值（字符串字段空串、列表字段空列表）；source 提供时（batch 新增），同时允许
         覆盖 sheet 字段。source 中的非法类型不在此处修正，由落盘前的结构校验 fail-loud。
 
-        开启 ``supports_derivatives`` 的类型一律初始化为空衍生表：衍生只经角色路由下的
-        衍生子资源登记，批量新增与 agent 写入路径都不携带它。
+        开启 ``supports_derivatives`` 的类型一律初始化为空衍生表，衍生本身由调用方按各自的
+        写入口径并入（衍生子资源端点直写，Agent 入口经 ``lib.asset_derivatives``）。
         """
         spec = ASSET_SPECS[asset_type]
         data = source or {}

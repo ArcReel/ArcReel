@@ -206,3 +206,93 @@ async def test_complete_inventory_mcp_distinguishes_invalid_request_from_broken_
 
     unavailable = await tool.handler({"scope": {"kind": "all", "files": []}, "expected_source_revision": expected})
     assert json.loads(unavailable["content"][0]["text"])["problem"]["code"] == "inventory_unavailable"
+
+
+def test_extraction_registers_character_derivatives_alongside_the_owner(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path)
+    expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert expected is not None
+
+    complete_asset_inventory(
+        pm,
+        "demo",
+        SourceScope(kind="all"),
+        expected,
+        {
+            "characters": {
+                "阿青": {
+                    "description": "青衣少女",
+                    "voice_style": "清亮",
+                    "derivatives": {"战袍": {"description": "换上玄色战袍，其余外观保持不变"}},
+                }
+            }
+        },
+    )
+
+    entry = pm.load_project("demo")["characters"]["阿青"]
+    assert entry["derivatives"] == {"战袍": {"description": "换上玄色战袍，其余外观保持不变", "character_sheet": ""}}
+
+
+def test_extracted_character_without_derivatives_still_carries_an_empty_table(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path)
+    expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert expected is not None
+
+    complete_asset_inventory(
+        pm,
+        "demo",
+        SourceScope(kind="all"),
+        expected,
+        {"characters": {"阿青": {"description": "青衣少女"}}, "scenes": {"竹林": {"description": "雨后竹林"}}},
+    )
+
+    saved = pm.load_project("demo")
+    assert saved["characters"]["阿青"]["derivatives"] == {}
+    assert "derivatives" not in saved["scenes"]["竹林"]
+
+
+def test_extraction_rejects_derivatives_on_a_type_without_the_capability(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path)
+    expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert expected is not None
+
+    with pytest.raises(AssetInventoryInvalidRequest):
+        complete_asset_inventory(
+            pm,
+            "demo",
+            SourceScope(kind="all"),
+            expected,
+            {"scenes": {"竹林": {"description": "雨后竹林", "derivatives": {"雪夜": {"description": "覆雪"}}}}},
+        )
+
+    assert "竹林" not in pm.load_project("demo").get("scenes", {})
+
+
+@pytest.mark.parametrize(
+    "derivatives",
+    [
+        {"战/袍": {"description": "变化"}},
+        {"战袍": {"description": 1}},
+        {"战袍": {"description": "变化", "character_sheet": "characters/x.png"}},
+        {"战袍": "变化"},
+        ["战袍"],
+    ],
+    ids=["illegal-name", "non-string-description", "system-field", "non-object-entry", "non-object-table"],
+)
+def test_extraction_rejects_malformed_derivatives_without_writing_the_owner(
+    tmp_path: Path, derivatives: object
+) -> None:
+    pm, project_path = _make_project(tmp_path)
+    expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert expected is not None
+
+    with pytest.raises(AssetInventoryInvalidRequest):
+        complete_asset_inventory(
+            pm,
+            "demo",
+            SourceScope(kind="all"),
+            expected,
+            {"characters": {"阿青": {"description": "青衣少女", "derivatives": derivatives}}},
+        )
+
+    assert "阿青" not in pm.load_project("demo").get("characters", {})

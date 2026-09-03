@@ -26,6 +26,7 @@ user-invocable: false
 
 ```text
 mcp__arcreel__patch_project({"table": "characters", "entries": {"角色名": {"description": "...", "voice_style": "..."}}})
+mcp__arcreel__patch_project({"table": "characters", "entries": {"角色名": {"derivatives": {"战斗装": {"description": "换上黑色重甲，其余外观保持不变"}}}}})
 mcp__arcreel__patch_project({"table": "scenes", "entries": {"场景名": {"description": "..."}}})
 mcp__arcreel__patch_project({"table": "props", "entries": {"道具名": {"description": "..."}}})
 mcp__arcreel__patch_project({"settings": {"episode_target_units": 1000}})
@@ -34,6 +35,11 @@ mcp__arcreel__patch_project({"settings": {"source_language": "en"}})
 mcp__arcreel__patch_project({"settings": {"narration_voice": "Ethan", "narration_speed": 1.2}})
 mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与救赎"}})
 ```
+
+角色条目的 `derivatives` 表登记同一角色在本体之外的另一套外观（跨场景持续存在、可由图像生成表现），
+脚本里引用作 `@[角色/衍生]`。它按衍生名合并：同名改描述、新名加入、未提及的衍生原样保留（连同其资产图）。
+衍生只写 `description`——相对本体的变化，图像编辑指令的口吻；资产图由生成流水线回写。
+改衍生名走衍生子资源的改名端点（Web 端角色卡「衍生」浮层），`patch_project` 写新名只会新建一条。
 
 **三种调用形态三选一**：传 `{"table", "entries"}` 走资产 upsert，传 `{"settings"}` 走顶层字段写入，
 传 `{"overview"}` 走项目概述编辑；同时给出多个或都不给会被拒。`settings` 白名单字段：

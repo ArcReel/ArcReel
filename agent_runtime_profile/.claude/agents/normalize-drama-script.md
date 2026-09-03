@@ -204,3 +204,4 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "bas
 - 时长决策序（高到低）：硬约束（取值必须在 Step 0 查得的 `supported_durations` 内，不超过 `max_duration`）> `default_duration` 偏好（非 null 时优先贴近）与本集体量（本集各单元时长合计向 `episode_target_duration` 靠拢（非 null 时；软目标，内容不足宁少拆、内容需要可超出））> 按内容取值（复杂画面如打斗 / 大场面 / 情绪铺陈可取更长值）
 - segment_break 标记真正的镜头切换点（场景、时间、地点的重大变化）
 - 口播逐字落 `utterances`（dialogue 带 speaker、voiceover 无 speaker）、原文逐字落 `source_text`；`novel` 画外音由语境判断、`screenplay` 逐字保留，泛指群演不进 characters_in_scene
+- 角色有衍生（同一角色的另一套外观，见 `project.json` 角色条目的 `derivatives` 表）时，`characters_in_scene` 按该分镜的剧情状态写：此刻处于该形态写 `本体/衍生`，回到本体描述的常态写本体名；`utterances[].speaker` 一律只填本体名
