@@ -281,9 +281,12 @@ def test_speaker_without_reference_audio_warns_and_keeps_voice_style():
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "旁白人"}} in rendered.warnings
 
 
-def test_voiceover_line_renders_as_offscreen_speech():
+def test_unattributed_narration_mark_is_dropped_from_the_prompt():
+    """无归属旁白由 TTS / 后期配音承担，整段不下发视频模型；同段的画面描述照常渲染。"""
     rendered = render_unit_prompt("镜头1：空镜。\n{多年以后他仍记得这句话。}", _project(), [], _SOFT)
-    assert "画外音说 {多年以后他仍记得这句话。}" in rendered.prompt
+    assert "画外音说" not in rendered.prompt
+    assert "多年以后他仍记得这句话" not in rendered.prompt
+    assert "镜头1：空镜。" in rendered.prompt
 
 
 def test_inline_speech_renders_the_same_official_phrasing_as_the_whole_line_form():
@@ -310,12 +313,25 @@ def test_inline_speech_renders_the_same_official_phrasing_as_the_whole_line_form
 def test_inline_speech_keeps_the_description_around_it_in_place():
     """记号就地重组，两侧描述留在原处——一行的行文顺序原样传给供应商。"""
     rendered = render_unit_prompt(
+        "镜头1：@[张三] 推门，@[张三]{我来了。}，他按住 @[长剑]。",
+        _project(),
+        _refs(("character", "张三"), ("prop", "长剑")),
+        _SOFT,
+    )
+    assert "<张三> 推门，<张三>说 {我来了。}，他按住 <长剑>。" in rendered.prompt
+
+
+def test_inline_unattributed_narration_is_dropped_without_losing_the_line():
+    """行内旁白记号整段丢弃，同一行的描述与主体记号留在原处，整行不被丢掉。"""
+    rendered = render_unit_prompt(
         "镜头1：@[张三] 推门，{夜风灌进来}，他按住 @[长剑]。",
         _project(),
         _refs(("character", "张三"), ("prop", "长剑")),
         _SOFT,
     )
-    assert "<张三> 推门，画外音说 {夜风灌进来}，他按住 <长剑>。" in rendered.prompt
+    assert "夜风灌进来" not in rendered.prompt
+    assert "<张三> 推门" in rendered.prompt
+    assert "他按住 <长剑>。" in rendered.prompt
 
 
 def test_unregistered_speaker_line_is_sent_verbatim_with_warning():

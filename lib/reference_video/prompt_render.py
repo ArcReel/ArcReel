@@ -8,7 +8,8 @@
 - **第一段**：``<X>@图片N`` 简式绑定（图片编号 = 随请求发出的参考图顺序）+ 声音声明集中
   声明区（``<X>的台词音色参考 @音频N，声音特征：…``）。听得到声音的 A/B 类均注入声音特征，
   两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入
-- **第二段**：单元正文 + 发声记号（``<X>说 {台词}`` / ``画外音说 {台词}``）
+- **第二段**：单元正文 + 角色台词记号（``<X>说 {台词}``）；无归属旁白（裸 ``{台词}``）
+  不下发视频模型，由 TTS / 后期配音承担
 - **第三段**：风格锚定 + 画质/稳定/字幕/水印约束包（本路径的反向约束全部由它承担，不另加
   尾词）；两个及以上角色参考图时补双胞胎兜底
 
@@ -268,6 +269,11 @@ def _render_segment_one(
     return "\n".join(lines)
 
 
+#: 旁白记号被丢弃后，用于判定其两侧是否需要合并的分隔标点与空白（中英两形）。
+_MARK_SEPARATORS = "，,、；;：:。.！!？?"
+_MARK_SPACES = " \t\u3000"
+
+
 def _render_segment_two(text: str, subjects: Collection[str], characters: dict) -> str:
     """单元正文段：画面描述做 mention 替换，发声记号就地重组为官方句式。
 
@@ -280,21 +286,49 @@ def _render_segment_two(text: str, subjects: Collection[str], characters: dict) 
     而非参考图列表：纯画外角色无参考图，台词照常重组。未登记的说话人按原文发送（warning 已由
     :func:`derive_voice_bindings` 发出），未被识别成记号的花括号同样原样发送——不做剥除，
     作者能在成片里看见自己写坏的那一段。
+
+    无归属旁白（裸 ``{台词}``）整段丢弃、不进 prompt：叙述旁白只经 TTS 与后期配音交付
+    （ADR 0040 / 0061），会产音的视频模型拿到这段文本会连提示语一起念出、或让画面人物对着
+    旁白对口型。同一行的画面描述照常渲染，只有记号本身消失。
     """
     lines: list[str] = []
     for line in text.splitlines():
-        pieces: list[str] = []
+        pieces: list[str | None] = []
         for part in split_speech_line(line):
             if isinstance(part, str):
                 pieces.append(render_mentions_as_subjects(part, subjects))
             elif not part.speaker:
-                pieces.append(f"画外音说 {{{part.text}}}")
+                pieces.append(None)
             elif part.speaker in characters:
                 pieces.append(f"<{part.speaker}>说 {{{part.text}}}")
             else:
                 pieces.append(render_mentions_as_subjects(part.raw, subjects))
-        lines.append("".join(pieces))
+        lines.append(_join_line_pieces(pieces))
     return "\n".join(line for line in lines if line.strip())
+
+
+def _join_line_pieces(pieces: list[str | None]) -> str:
+    """拼接一行的渲染片段；``None`` 是被丢弃的旁白记号，其两侧多出的分隔标点与空白在此合并。
+
+    作者把旁白写在两段描述之间时（``推门，{夜风灌进来}，他按住剑``），记号左右各有一个分隔
+    标点，直接拼接会留下「，，」。左侧已有分隔时丢掉右侧的，两侧都只是空白时并成一个。
+    """
+    rendered = ""
+    dropped = False
+    for piece in pieces:
+        if piece is None:
+            dropped = True
+            continue
+        if dropped:
+            dropped = False
+            head = rendered.rstrip()
+            if head and head[-1] in _MARK_SEPARATORS:
+                rendered = head
+                piece = piece.lstrip(_MARK_SEPARATORS + _MARK_SPACES)
+            elif rendered[-1:].isspace():
+                piece = piece.lstrip()
+        rendered += piece
+    return rendered
 
 
 def _render_segment_three(character_reference_count: int, style: str | None) -> str:
