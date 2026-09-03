@@ -36,6 +36,7 @@ from lib.db import async_session_factory, get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
+from lib.http_status_errors import raise_for_status_redacted
 from lib.i18n import Locale, Translator, translate_or
 from lib.video_backends.base import VideoAudioMode
 from server.dependencies import get_config_service
@@ -980,7 +981,7 @@ def _check_kling(config: dict[str, str], _t: Callable[..., str]) -> Connectivity
             err = kling_response_error(payload)
             if err is not None:
                 raise RuntimeError(err)
-    resp.raise_for_status()
+    raise_for_status_redacted(resp)
     return ConnectivityCheckResponse(
         success=True,
         available_models=[],

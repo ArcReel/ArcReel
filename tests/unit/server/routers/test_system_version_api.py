@@ -216,6 +216,24 @@ class TestGetLatestReleaseCache:
         assert route.call_count == 2
         assert second_at > first_at
 
+    async def test_status_error_message_drops_query_credentials(self):
+        """4xx 抛的是脱敏后的 HTTPStatusError：请求 URL 上的查询串不进异常消息。
+
+        用跟随重定向的客户端把失败请求引到带签名查询串的下游地址，构造出「失败的那一条请求
+        URL 带着凭证」：裸 raise_for_status 会把整条 URL 写进消息，端点再把它记进 warning 日志。
+        """
+        leaky = "https://objects.githubusercontent.com/release?api_key=sk-leaked-gh"
+        with capture_http(assert_all_called=True) as http:
+            http.get(_GITHUB_LATEST).respond(status_code=302, headers={"Location": leaky})
+            http.get(url__startswith="https://objects.githubusercontent.com/release").respond(status_code=401)
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                    await system_config._get_latest_release(http_client=client)
+
+        assert "sk-leaked-gh" in str(exc_info.value.request.url)
+        assert str(exc_info.value) == "401 response for https://objects.githubusercontent.com/release"
+        assert exc_info.value.response.status_code == 401
+
     async def test_http_error_is_not_cached(self):
         """失败响应不写缓存，下一次调用仍然出站重试。"""
         with capture_http(assert_all_called=True) as http:
