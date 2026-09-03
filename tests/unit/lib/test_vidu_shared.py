@@ -80,3 +80,19 @@ class TestViduConnectionTestUrl:
     def test_400_is_undecidable(self):
         with _probe_route(status_code=400, body="CODEC parse error"), pytest.raises(RuntimeError, match="无法判定"):
             vidu_shared.test_vidu_connection({"api_key": "vda_test"})
+
+
+class TestFetchViduTaskErrorRedaction:
+    async def test_poll_4xx_message_drops_query_credentials(self):
+        # 轮询 4xx 的异常消息会经 str(exc) 落进 task.error_message 与日志；按 query 传的
+        # 凭证渲染在 raise_for_status 写进消息的那条 URL 里，须先脱敏再抛。
+        with capture_http() as router:
+            router.get(url__regex=r"^https://api\.vidu\.cn/ent/v2/tasks/t-1/creations").mock(
+                return_value=httpx.Response(401, json={"detail": "invalid token"})
+            )
+            async with httpx.AsyncClient(base_url=vidu_shared.VIDU_BASE_URL, params={"api_key": "SECRETKEY"}) as client:
+                with pytest.raises(httpx.HTTPStatusError) as excinfo:
+                    await vidu_shared.fetch_vidu_task(client, "t-1")
+
+        assert "SECRETKEY" not in str(excinfo.value)
+        assert excinfo.value.response.status_code == 401

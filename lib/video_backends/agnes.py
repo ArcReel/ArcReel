@@ -50,6 +50,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_resumable_video,
     poll_with_retry,
+    raise_for_status_redacted,
     recording_poll,
     should_retry_poll,
     should_retry_submit,
@@ -435,7 +436,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             f"{self._base_url}{_VIDEOS_ENDPOINT}/{task_id}",
             headers=agnes_headers(self._api_key),
         )
-        resp.raise_for_status()
+        raise_for_status_redacted(resp)
         return resp.json()
 
     @with_retry_async(
@@ -457,7 +458,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
                 params={"video_id": video_id},
                 headers=agnes_headers(self._api_key),
             )
-            resp.raise_for_status()
+            raise_for_status_redacted(resp)
             return resp.json()
 
         return await recording_poll(fetch, request, stage="result")()

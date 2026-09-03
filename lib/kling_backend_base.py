@@ -39,6 +39,7 @@ from lib.video_backends.base import (
     VIDEO_POLL_INTERVAL_SECONDS,
     VideoGenerationRequest,
     poll_with_retry,
+    raise_for_status_redacted,
     should_retry_poll,
     should_retry_submit,
     submit_post,
@@ -138,7 +139,7 @@ class KlingBackendBase:
             f"{self._base_url}/{endpoint_path}",
             headers=self._headers(),
         )
-        resp.raise_for_status()
+        raise_for_status_redacted(resp)
         return resp.json()
 
     async def _poll_until_terminal(

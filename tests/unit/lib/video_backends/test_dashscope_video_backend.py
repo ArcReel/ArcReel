@@ -1265,3 +1265,23 @@ class TestCustomProviderBaseUrlReplay:
             )
 
         assert client.gets[-1]["url"] == "https://custom-a.example.com/api/v1/tasks/job-c1"
+
+
+class TestPollErrorRedaction:
+    async def test_poll_4xx_message_drops_query_credentials(self):
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        # 轮询 4xx 的异常消息会经 str(exc) 落进 task.error_message 与日志；按 query 传的
+        # 凭证渲染在 raise_for_status 写进消息的那条 URL 里，须先脱敏再抛。
+        backend = DashScopeVideoBackend(api_key="k")
+        base_url = "https://dashscope.example/api/v1"
+        with capture_http() as router:
+            router.get(url__regex=rf"^{base_url}/tasks/task-1").mock(
+                return_value=httpx.Response(403, json={"message": "forbidden"})
+            )
+            async with httpx.AsyncClient(params={"api_key": "SECRETKEY"}) as client:
+                with pytest.raises(httpx.HTTPStatusError) as excinfo:
+                    await backend._poll_once(client, "task-1", base_url)
+
+        assert "SECRETKEY" not in str(excinfo.value)
+        assert excinfo.value.response.status_code == 403

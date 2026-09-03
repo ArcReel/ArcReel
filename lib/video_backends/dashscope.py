@@ -56,6 +56,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_resumable_video,
     poll_with_retry,
+    raise_for_status_redacted,
     recording_poll,
     should_retry_poll,
     should_retry_submit,
@@ -729,7 +730,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             f"{base_url}/tasks/{task_id}",
             headers=dashscope_headers(self._api_key),
         )
-        resp.raise_for_status()
+        raise_for_status_redacted(resp)
         return resp.json()
 
     async def _poll_and_build(

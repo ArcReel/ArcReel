@@ -22,6 +22,7 @@ from pathlib import Path
 import httpx
 
 from lib.data_uri import image_to_data_uri as _image_to_data_uri
+from lib.http_status_errors import raise_for_status_redacted
 from lib.retry import BASE_RETRYABLE_ERRORS
 
 logger = logging.getLogger(__name__)
@@ -113,7 +114,7 @@ _FAILED_STATE = "failed"
 async def fetch_vidu_task(client: httpx.AsyncClient, task_id: str) -> dict:
     """查询 Vidu 任务状态（GET /tasks/{id}/creations）。"""
     resp = await client.get(f"/tasks/{task_id}/creations")
-    resp.raise_for_status()
+    raise_for_status_redacted(resp)
     return resp.json()
 
 

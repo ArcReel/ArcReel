@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import inspect
 
+import httpx
 import jwt
 import pytest
 
 from lib.image_backends.kling import KlingImageBackend
 from lib.kling_backend_base import KlingBackendBase
 from lib.video_backends.kling import KlingVideoBackend
+from tests.http_capture import capture_http
 
 _SECRET = "s" * 40
 
@@ -67,3 +69,20 @@ class TestDualModeAuthViaBase:
     def test_unknown_auth_mode_raises_from_base(self):
         with pytest.raises(ValueError, match=r"未知 Kling auth_mode"):
             KlingImageBackend(auth_mode="oauth", api_key="k")
+
+
+class TestPollErrorRedaction:
+    async def test_poll_4xx_message_drops_query_credentials(self):
+        # 轮询 4xx 的异常消息会经 str(exc) 落进 task.error_message 与日志；按 query 传的
+        # 凭证渲染在 raise_for_status 写进消息的那条 URL 里，须先脱敏再抛。
+        backend = KlingVideoBackend(auth_mode="bearer", api_key="static-key", base_url="https://kling.example/v1")
+        with capture_http() as router:
+            router.get(url__regex=r"^https://kling\.example/v1/tasks/job-1").mock(
+                return_value=httpx.Response(403, json={"message": "forbidden"})
+            )
+            async with httpx.AsyncClient(params={"api_key": "SECRETKEY"}) as client:
+                with pytest.raises(httpx.HTTPStatusError) as excinfo:
+                    await backend._poll_query(client, "tasks/job-1")
+
+        assert "SECRETKEY" not in str(excinfo.value)
+        assert excinfo.value.response.status_code == 403

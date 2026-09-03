@@ -790,3 +790,30 @@ class TestRegistration:
         assert PROVIDER_AGNES in get_registered_backends()
         backend = create_backend(PROVIDER_AGNES, api_key="sk-test", base_url=_BASE_URL)
         assert backend.name == PROVIDER_AGNES
+
+
+class TestPollErrorRedaction:
+    """轮询与成片查询的 4xx 异常消息会经 str(exc) 落进 task.error_message 与日志；按 query
+    传的凭证渲染在 raise_for_status 写进消息的那条 URL 里，须先脱敏再抛。"""
+
+    async def test_poll_4xx_message_drops_query_credentials(self):
+        backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+        with _agnes_api() as routes:
+            routes.poll.mock(return_value=_json({"message": "forbidden"}, 403))
+            async with httpx.AsyncClient(params={"api_key": "SECRETKEY"}) as client:
+                with pytest.raises(httpx.HTTPStatusError) as excinfo:
+                    await backend._poll_once(client, "task-1")
+
+        assert "SECRETKEY" not in str(excinfo.value)
+        assert excinfo.value.response.status_code == 403
+
+    async def test_video_query_4xx_message_drops_query_credentials(self, tmp_path: Path):
+        backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+        with _agnes_api() as routes:
+            routes.query.mock(return_value=_json({"message": "forbidden"}, 403))
+            async with httpx.AsyncClient(params={"api_key": "SECRETKEY"}) as client:
+                with pytest.raises(httpx.HTTPStatusError) as excinfo:
+                    await backend._query_video(client, "vid-1", _request(tmp_path))
+
+        assert "SECRETKEY" not in str(excinfo.value)
+        assert excinfo.value.response.status_code == 403
