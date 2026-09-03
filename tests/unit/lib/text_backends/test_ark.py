@@ -104,6 +104,10 @@ class TestGenerate:
         assert result.provider == "ark"
         assert result.input_tokens == 15
         assert result.output_tokens == 8
+        assert result.model == backend.model
+        call_kwargs = backend._test_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["model"] == backend.model
+        assert call_kwargs["messages"] == [{"role": "user", "content": "hello"}]
 
 
 class TestVision:
@@ -154,6 +158,7 @@ class TestVision:
         call_args = mock_client.chat.completions.create.call_args
         messages = call_args.kwargs["messages"]
         assert messages[0] == {"role": "system", "content": "you are helpful"}
+        assert messages[1]["role"] == "user"
         user_content = messages[1]["content"]
         assert user_content[0] == {"type": "image_url", "image_url": {"url": "https://example.com/img.jpg"}}
         assert user_content[1] == {"type": "text", "text": "describe"}
@@ -220,7 +225,12 @@ class TestCapabilityAwareStructured:
 
         assert result.text == '{"key": "value"}'
         call_args = backend_with_structured._test_client.chat.completions.create.call_args
-        assert "response_format" in call_args.kwargs
+        assert call_args.kwargs["model"] == "mock-model-with-structured"
+        assert call_args.kwargs["messages"] == [{"role": "user", "content": "gen"}]
+        assert call_args.kwargs["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": schema},
+        }
 
     async def test_unknown_model_falls_back_to_instructor(self, mock_ark):
         """未注册模型保守降级为 Instructor。"""
@@ -291,6 +301,7 @@ class TestCapabilityAwareStructured:
 
         assert exc_info.value.provider == "ark"
         assert exc_info.value.model == "mock-model-with-structured"
+        assert exc_info.value.output_tokens == 8192
 
     async def test_max_output_tokens_plain(self, backend_no_structured, sync_to_thread):
         """plain 路径透传 max_tokens。"""
