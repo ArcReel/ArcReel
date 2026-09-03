@@ -158,9 +158,13 @@ def ensure_imported_artifact_target_state(
 
     Official exports carry the complete source Manifest in their visible archive
     envelope.  Its basis digests are immutable generation evidence and its content
-    digests bind those claims to the exported formal bytes.  Validate both against
-    the imported canonical target plan, then restore that whole snapshot in one
-    commit.  Legacy archives without the envelope retain the self-proving path.
+    digests bind those claims to the exported formal bytes.  Validate the claims
+    against the imported canonical target plan, then commit one snapshot in which
+    each claim is settled by its content evidence: an exact digest match restores
+    the frozen claim; a digest that only matches the text-mode view (CRLF folded,
+    cut at ``0x1A``) cannot prove the whole artifact, so that key is re-registered
+    from the current self-proving projection instead; any other digest rejects the
+    import.  Legacy archives without the envelope retain the self-proving path.
     """
 
     raw = (project_dir / "project.json").read_bytes()
