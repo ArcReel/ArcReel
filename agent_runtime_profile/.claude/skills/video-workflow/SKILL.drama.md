@@ -185,7 +185,7 @@ dispatch `generate-assets` 子智能体：
   项目名称：{project_name}
   待生成项：{names 交集}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "character", "names": [该类型 requested_ids]})
+    mcp__arcreel__generate_assets({"type": "character", "names": [该类型 names]})
   验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
 ```
 
@@ -199,7 +199,7 @@ dispatch `generate-assets` 子智能体：
   项目名称：{project_name}
   待生成项：{names 交集}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "scene", "names": [该类型 requested_ids]})
+    mcp__arcreel__generate_assets({"type": "scene", "names": [该类型 names]})
   验证方式：重新读取 project.json，检查对应场景的 scene_sheet 字段
 ```
 
@@ -213,7 +213,7 @@ dispatch `generate-assets` 子智能体：
   项目名称：{project_name}
   待生成项：{names 交集}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "prop", "names": [该类型 requested_ids]})
+    mcp__arcreel__generate_assets({"type": "prop", "names": [该类型 names]})
   验证方式：重新读取 project.json，检查对应道具的 prop_sheet 字段
 ```
 

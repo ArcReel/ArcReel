@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -254,3 +255,15 @@ def test_every_content_mode_materializes_the_video_workflow_skill(mode: str) -> 
     assert mapping[".claude/references/workflow-plan.md"] == ".claude/references/workflow-plan.md"
     assert mapping["CLAUDE.md"] == f"CLAUDE.{mode}.md"
     assert not any(logical.startswith(".claude/skills/manga-workflow/") for logical in mapping)
+
+
+@pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
+def test_generate_assets_calls_pass_the_intersection_variable(filename: str) -> None:
+    calls = re.findall(r"mcp__arcreel__generate_assets\((\{[^}]*\})\)", _skill(filename))
+
+    assert calls, f"{filename} 没有 generate_assets 调用模板，断言失去意义"
+    for call in calls:
+        names_value = re.search(r'"names":\s*(\[[^\]]*\])', call)
+        assert names_value is not None, f"{filename} 的 {call} 未给出 names 参数"
+        assert "requested_ids" not in names_value.group(1)
+        assert "names" in names_value.group(1)
