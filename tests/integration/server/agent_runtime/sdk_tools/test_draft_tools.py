@@ -19,6 +19,7 @@ from lib.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
+    QUARANTINE_SCHEMA_VERSION,
     quarantine_path,
     write_quarantine,
 )
@@ -444,6 +445,35 @@ async def test_open_draft_returns_existing_narration_draft(fake_ctx: ToolContext
 
     assert out.get("is_error") is not True
     assert read_nr_quarantine(fake_ctx)["content"]["segments"][0]["novel_text"] == "改到一半的正文"
+
+
+async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelope(fake_ctx: ToolContext) -> None:
+    """patch 是草稿的另一条写入口：它写回的信封同样盖当前版本，不沿用盘上读到的版本位。"""
+    rv_source(fake_ctx)
+    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
+    opened = _draft_result(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+
+    path = rv_quarantine_path(fake_ctx)
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    del envelope["meta"]["schema_version"]
+    path.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    content = opened["content"]
+    content["units"][0]["text"] = "@[张三] 走向 @[村口]"
+    patched = await call(
+        patch_draft_tool(fake_ctx),
+        {
+            "episode": 1,
+            "doc_type": "reference_script_plan",
+            "content": content,
+            "base_revision": opened["revision"],
+        },
+    )
+
+    assert patched.get("is_error") is not True, patched
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["meta"]["schema_version"] == QUARANTINE_SCHEMA_VERSION
+    assert saved["meta"]["source"] == "source/episode_1.txt"
 
 
 async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(fake_ctx: ToolContext) -> None:

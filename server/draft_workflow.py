@@ -29,6 +29,7 @@ from lib.draft_quarantine import (
     draft_payload,
     draft_revision,
     quarantine_and_report,
+    quarantine_envelope,
     quarantine_exists,
     quarantine_path,
     read_quarantine,
@@ -1212,13 +1213,13 @@ class DraftWorkflow:
             before_commit()
         atomic_write_json(
             path,
-            {
-                "kind": draft.kind,
-                "episode": draft.episode,
-                "meta": meta,
-                "violations": draft.violations,
-                "content": content,
-            },
+            quarantine_envelope(
+                draft.kind,
+                draft.episode,
+                content=content,
+                violations=draft.violations,
+                meta=meta,
+            ),
         )
         return self._read(episode, resolved)
 
