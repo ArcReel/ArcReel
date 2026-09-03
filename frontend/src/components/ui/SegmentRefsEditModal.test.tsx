@@ -137,6 +137,45 @@ describe("SegmentRefsEditModal", () => {
     expect(screen.queryByRole("button", { name: /Mentor/ })).not.toBeInTheDocument();
   });
 
+  it("lists each character form and toggles the raw `本体/衍生` reference", () => {
+    const withDerivative: Record<string, Character> = {
+      Hero: {
+        description: "main protagonist",
+        derivatives: { Armored: { description: "in black armor" } },
+      },
+    };
+    const onSave = vi.fn();
+    render(
+      <SegmentRefsEditModal
+        {...baseProps}
+        characters={withDerivative}
+        initialCharacters={[]}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Hero \/ Armored/ }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(onSave).toHaveBeenCalledWith({ characters: ["Hero/Armored"] });
+  });
+
+  it("does not mark an already-registered derivative as an unresolved reference", () => {
+    const withDerivative: Record<string, Character> = {
+      Hero: { description: "main protagonist", derivatives: { Armored: { description: "in black armor" } } },
+    };
+    render(
+      <SegmentRefsEditModal
+        {...baseProps}
+        characters={withDerivative}
+        initialCharacters={["Hero/Armored"]}
+      />,
+    );
+
+    expect(screen.queryByText("此引用已失效，点击可移除")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Hero \/ Armored/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("close (X) button invokes onClose", () => {
     const onClose = vi.fn();
     render(<SegmentRefsEditModal {...baseProps} onClose={onClose} />);

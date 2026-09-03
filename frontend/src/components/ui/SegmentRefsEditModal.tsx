@@ -20,6 +20,11 @@ import { type AssetKind, SHEET_FIELD } from "@/types/reference-video";
 
 type SegmentAssetKind = Exclude<AssetKind, "product">;
 import { colorForName } from "@/utils/color";
+import {
+  characterReferenceForms,
+  formatReferenceName,
+  referenceInitial,
+} from "@/utils/reference-mentions";
 import { WARM_TONE } from "@/utils/severity-tone";
 
 type Asset = Character | Scene | Prop;
@@ -85,6 +90,28 @@ function buildRows<A extends Asset>(
   return rows;
 }
 
+/**
+ * 角色行按「形态」而非「资产条目」列：`characters_in_*` 收的是引用名，衍生
+ * （`本体名/衍生名`）与本体一样可选（见 `docs/adr/0072`），各带自己的资产图与变化描述。
+ */
+function buildCharacterRows(characters: Record<string, Character>, selected: string[]): RefRow[] {
+  const forms = characterReferenceForms(characters);
+  const rows: RefRow[] = forms
+    .map((form) => ({
+      kind: "character" as const,
+      name: form.name,
+      thumbPath: getSheetPath("character", form.asset),
+      description: form.asset.description,
+      isStale: false,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const known = new Set(forms.map((form) => form.name));
+  for (const name of selected.filter((n) => !known.has(n)).sort()) {
+    rows.push({ kind: "character", name, isStale: true });
+  }
+  return rows;
+}
+
 export function SegmentRefsEditModal({
   open,
   onClose,
@@ -111,7 +138,7 @@ export function SegmentRefsEditModal({
   const tempPropsSet = new Set(tempProps);
 
   const charRows = useMemo(
-    () => buildRows("character", characters, tempChars),
+    () => buildCharacterRows(characters, tempChars),
     [characters, tempChars],
   );
   const sceneRows = useMemo(
@@ -126,7 +153,12 @@ export function SegmentRefsEditModal({
   const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     const filterRows = (rows: RefRow[]) =>
-      q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
+      q
+        ? rows.filter(
+            (r) =>
+              r.name.toLowerCase().includes(q) || formatReferenceName(r.name).toLowerCase().includes(q),
+          )
+        : rows;
     return {
       character: filterRows(charRows),
       scene: filterRows(sceneRows),
@@ -494,7 +526,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
       type="button"
       onClick={onToggle}
       aria-pressed={selected}
-      title={row.isStale ? staleHint : row.name}
+      title={row.isStale ? staleHint : formatReferenceName(row.name)}
       className="focus-ring group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors"
       style={baseStyle}
       onMouseEnter={(e) => {
@@ -522,7 +554,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
       {showImage ? (
         <img
           src={API.getFileUrl(projectName, row.thumbPath!, sheetFp)}
-          alt={row.name}
+          alt={formatReferenceName(row.name)}
           className={`h-8 w-8 shrink-0 object-cover ${thumbShape}`}
         />
       ) : (
@@ -536,7 +568,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
               : undefined
           }
         >
-          {row.name.charAt(0)}
+          {referenceInitial(row.name)}
         </span>
       )}
       <div className="min-w-0 flex-1">
@@ -548,7 +580,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
             color: row.isStale ? WARM_TONE.color : "var(--color-text)",
           }}
         >
-          {row.name}
+          {formatReferenceName(row.name)}
         </p>
         {row.isStale ? (
           <p

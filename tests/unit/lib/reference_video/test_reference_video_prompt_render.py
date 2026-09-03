@@ -420,7 +420,7 @@ def test_third_segment_anchors_style_and_constraint_packs():
     assert "禁止出现背景音乐。" in rendered.prompt
 
 
-def test_twin_guard_only_when_two_or_more_character_images():
+def test_twin_guard_only_when_two_or_more_characters():
     single = render_unit_prompt("镜头1：@[张三] 独行。", _project(), _refs(("character", "张三")), _SOFT)
     assert "双胞胎" not in single.prompt
     both = render_unit_prompt(
@@ -602,3 +602,95 @@ def test_resolve_reference_audio_paths_ignores_non_dict_characters_bucket(tmp_pa
     resolved = resolve_reference_audio_paths(project, tmp_path)
 
     assert resolved == {}
+
+
+def _project_with_derivatives(**overrides):
+    project = _project(**overrides)
+    project["characters"]["张三"] = {
+        **project["characters"]["张三"],
+        "derivatives": {"劲装": {"description": "换上黑色劲装"}, "兽化": {"description": "半兽化"}},
+    }
+    return project
+
+
+def test_derivative_subject_marks_declare_one_character_in_several_forms():
+    """本体与衍生同现：各自绑定自己的参考图，并声明它们是同一个人的不同外观。"""
+    rendered = render_unit_prompt(
+        "@[张三] 与 @[张三/劲装] 对峙。",
+        _project_with_derivatives(),
+        _refs(("character", "张三"), ("character", "张三/劲装")),
+        _SOFT,
+    )
+
+    assert rendered.prompt.startswith("<张三>@图片1、<张三/劲装>@图片2。")
+    assert "<张三>与<张三/劲装>是同一角色的不同形态，各自按对应参考图呈现。" in rendered.prompt
+
+
+def test_several_derivatives_of_one_character_share_a_single_form_declaration():
+    rendered = render_unit_prompt(
+        "@[张三/劲装] 与 @[张三/兽化] 同框。",
+        _project_with_derivatives(),
+        _refs(("character", "张三/劲装"), ("character", "张三/兽化")),
+        _SOFT,
+    )
+
+    assert "<张三/劲装>与<张三/兽化>是同一角色的不同形态，各自按对应参考图呈现。" in rendered.prompt
+
+
+def test_one_character_in_two_forms_does_not_trigger_the_twin_guard():
+    """双胞胎兜底数的是不同角色：本体 + 衍生是两张图、一个人，兜底会与形态说明句对立。"""
+    rendered = render_unit_prompt(
+        "@[张三] 与 @[张三/劲装] 对峙。",
+        _project_with_derivatives(),
+        _refs(("character", "张三"), ("character", "张三/劲装")),
+        _SOFT,
+    )
+
+    assert "双胞胎" not in rendered.prompt
+
+
+def test_two_characters_still_trigger_the_twin_guard_when_one_is_a_derivative():
+    rendered = render_unit_prompt(
+        "@[张三/劲装] 与 @[李四] 对峙。",
+        _project_with_derivatives(),
+        _refs(("character", "张三/劲装"), ("character", "李四")),
+        _SOFT,
+    )
+
+    assert "双胞胎" in rendered.prompt
+
+
+def test_a_lone_form_needs_no_declaration():
+    rendered = render_unit_prompt(
+        "@[张三/劲装] 推门。",
+        _project_with_derivatives(),
+        _refs(("character", "张三/劲装")),
+        _SOFT,
+    )
+
+    assert "同一角色的不同形态" not in rendered.prompt
+
+
+def test_speaker_position_renders_the_form_written_down():
+    """说话人位与描述位同一种主体记号：写下衍生就渲染衍生，声音仍绑本体。"""
+    rendered = render_unit_prompt(
+        "@[张三/劲装]：{今晚的酒，我请。}",
+        _project_with_derivatives(),
+        _refs(("character", "张三/劲装")),
+        VoiceRenderSettings(voice_consistency="soft"),
+    )
+
+    assert "<张三/劲装>说 {今晚的酒，我请。}" in rendered.prompt
+    assert "<张三>说" not in rendered.prompt
+    assert "<张三>的声音特征：低沉沙哑的男声。" in rendered.prompt
+
+
+def test_unregistered_speaker_derivative_falls_back_to_the_ontology_mark():
+    rendered = render_unit_prompt(
+        "@[张三/不存在]：{今晚的酒，我请。}",
+        _project_with_derivatives(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+
+    assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt

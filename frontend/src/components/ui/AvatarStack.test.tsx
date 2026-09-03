@@ -42,6 +42,38 @@ describe("AvatarStack (read-only)", () => {
     expect(screen.getByText("+1")).toBeInTheDocument();
   });
 
+  it("takes the derivative's own sheet for a `本体/衍生` name", () => {
+    const withDerivative: Record<string, Character> = {
+      Hero: {
+        description: "main protagonist",
+        character_sheet: "characters/Hero.png",
+        derivatives: {
+          Armored: { description: "in black armor", character_sheet: "characters/derivatives/Hero/Armored.png" },
+        },
+      },
+    };
+    render(
+      <AvatarStack
+        names={["Hero", "Hero/Armored"]}
+        characters={withDerivative}
+        projectName="demo"
+      />,
+    );
+    const sources = screen.getAllByRole("img").map((img) => img.getAttribute("src") ?? "");
+    expect(sources.some((src) => src.includes("characters/Hero.png"))).toBe(true);
+    expect(sources.some((src) => src.includes("characters/derivatives/Hero/Armored.png"))).toBe(true);
+  });
+
+  it("falls back to the derivative's initial so sibling forms stay distinguishable", () => {
+    const withDerivative: Record<string, Character> = {
+      Hero: { description: "main protagonist", derivatives: { Armored: { description: "in black armor" } } },
+    };
+    render(
+      <AvatarStack names={["Hero/Armored"]} characters={withDerivative} projectName="demo" />,
+    );
+    expect(screen.getByText("A")).toBeInTheDocument();
+  });
+
   it("does not render any edit affordance (no add / remove buttons)", () => {
     render(
       <AvatarStack

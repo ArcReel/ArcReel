@@ -21,6 +21,7 @@ from lib.prompt_builders_script import (
     _format_names,
     format_duration_constraint,
 )
+from lib.prompt_rules.asset_appearance import asset_reference_names
 from lib.reference_video.writing_syntax import writing_syntax_spec
 from lib.schema_guards import is_int
 from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
@@ -205,9 +206,9 @@ def build_ad_prompt(
     speech_rate = speech_rate_units_per_second(target_language, speech_rate_override)
     unit_label = reading_unit_noun(target_language)
     voiceover_rate_note = f"口播长度按约 {speech_rate:g} {unit_label}/秒折算"
-    character_names = list(characters.keys())
-    scene_names = list(scenes.keys())
-    prop_names = list(props.keys())
+    character_names = asset_reference_names("character", characters)
+    scene_names = asset_reference_names("scene", scenes)
+    prop_names = asset_reference_names("prop", props)
     product_names = list(products.keys())
 
     common_header = f"""**输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
@@ -234,15 +235,15 @@ def build_ad_prompt(
 </brief>
 
 <characters>
-{_format_names(characters)}
+{_format_names(characters, "character")}
 </characters>
 
 <scenes>
-{_format_names(scenes)}
+{_format_names(scenes, "scene")}
 </scenes>
 
 <props>
-{_format_names(props)}
+{_format_names(props, "prop")}
 </props>"""
 
     common_constraints = f"""<episode_constraints>

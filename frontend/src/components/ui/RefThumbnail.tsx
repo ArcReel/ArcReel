@@ -4,12 +4,13 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { Popover } from "@/components/ui/Popover";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { Character, Prop, Scene } from "@/types";
+import type { Character, CharacterDerivative, Prop, Scene } from "@/types";
 import { type AssetKind, SHEET_FIELD } from "@/types/reference-video";
 import { colorForName } from "@/utils/color";
+import { formatReferenceName, referenceInitial, splitDerivativeReference } from "@/utils/reference-mentions";
 
 type ThumbnailAssetKind = Exclude<AssetKind, "product">;
-type Asset = Character | Scene | Prop;
+type Asset = Character | CharacterDerivative | Scene | Prop;
 
 interface KindMeta {
   shape: string;
@@ -42,6 +43,16 @@ const KIND_META: Record<ThumbnailAssetKind, KindMeta> = {
   },
 };
 
+type BadgeKey = KindMeta["badgeKey"] | "segment_refs_badge_character_derivative";
+
+/** 引用名带衍生段时改用衍生徽标：浮层里显示的是这套外观，不是本体那条资产。 */
+function badgeKeyFor(kind: ThumbnailAssetKind, name: string): BadgeKey {
+  if (kind === "character" && splitDerivativeReference(name)[1]) {
+    return "segment_refs_badge_character_derivative";
+  }
+  return KIND_META[kind].badgeKey;
+}
+
 export function getSheetPath(
   kind: ThumbnailAssetKind,
   asset: Asset | undefined,
@@ -71,6 +82,7 @@ function RefPopover({
   const sheetPath = getSheetPath(kind, asset);
   const firstLine = asset.description?.split("\n")[0] ?? "";
   const { Icon } = meta;
+  const displayName = formatReferenceName(name);
 
   return (
     <Popover
@@ -86,7 +98,7 @@ function RefPopover({
         {sheetPath ? (
           <img
             src={API.getFileUrl(projectName, sheetPath, sheetFp)}
-            alt={name}
+            alt={displayName}
             className="h-[120px] w-[90px] shrink-0 rounded object-cover"
           />
         ) : (
@@ -96,11 +108,11 @@ function RefPopover({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-medium text-white">{name}</p>
+            <p className="truncate text-sm font-medium text-white">{displayName}</p>
             <span
               className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}
             >
-              {t(meta.badgeKey)}
+              {t(badgeKeyFor(kind, name))}
             </span>
           </div>
           {firstLine && (
@@ -147,7 +159,7 @@ export function RefThumbnail({
         {showImage ? (
           <img
             src={API.getFileUrl(projectName, sheetPath, sheetFp)}
-            alt={name}
+            alt={formatReferenceName(name)}
             className={`h-7 w-7 border-2 border-gray-900 object-cover ${meta.shape}`}
             onError={() => setErrorKey(currentKey)}
           />
@@ -155,7 +167,7 @@ export function RefThumbnail({
           <span
             className={`flex h-7 w-7 items-center justify-center border-2 border-gray-900 text-[10px] font-semibold text-white ${meta.shape} ${colorForName(name)}`}
           >
-            {name.charAt(0)}
+            {referenceInitial(name)}
           </span>
         )}
       </span>

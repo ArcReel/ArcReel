@@ -189,3 +189,50 @@ def test_storyboard_items_merge_gaps_across_the_batch():
 
     assert admission.unregistered == ("李四", "酒馆")
     assert admission.without_sheet == (("character", "张三"),)
+
+
+def _character_with_derivatives(sheet: str, **derivatives: str) -> dict[str, object]:
+    return {
+        "character_sheet": sheet,
+        "derivatives": {name: {"description": "变化", "character_sheet": value} for name, value in derivatives.items()},
+    }
+
+
+def test_a_derivative_without_a_sheet_blocks_and_names_the_form():
+    """阻断指向的是写在正文里的那个引用名 `角色/衍生`，不是本体（ADR 0073）。"""
+    catalog = _catalog(character={"张三": _character_with_derivatives("characters/张三.png", 劲装="")})
+
+    admission = admit_references(catalog, references=[("character", "张三/劲装")])
+
+    assert admission.without_sheet == (("character", "张三/劲装"),)
+    assert admission.without_sheet_text() == "character: 张三/劲装"
+    assert admission.admitted is False
+
+
+def test_a_derivative_with_its_own_sheet_is_admitted_alongside_the_ontology():
+    catalog = _catalog(
+        character={
+            "张三": _character_with_derivatives("characters/张三.png", 劲装="characters/derivatives/张三/劲装.png")
+        }
+    )
+
+    admission = admit_references(catalog, references=[("character", "张三"), ("character", "张三/劲装")])
+
+    assert admission.admitted is True
+
+
+def test_an_unregistered_derivative_of_a_registered_character_is_unregistered():
+    catalog = _catalog(character={"张三": _character_with_derivatives("characters/张三.png")})
+
+    admission = admit_references(catalog, references=[("character", "张三/劲装")])
+
+    assert admission.unregistered == ("张三/劲装",)
+    assert admission.without_sheet == ()
+
+
+def test_storyboard_item_admits_a_derivative_written_in_characters_in_shot():
+    catalog = _catalog(character={"张三": _character_with_derivatives("characters/张三.png", 劲装="")})
+
+    admission = admit_storyboard_item(catalog, {"characters_in_shot": ["张三/劲装"]})
+
+    assert admission.without_sheet == (("character", "张三/劲装"),)

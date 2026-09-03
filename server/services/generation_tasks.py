@@ -95,6 +95,7 @@ from lib.prompt_builders import (
     render_storyboard_image_prompt,
 )
 from lib.prompt_utils import render_storyboard_video_prompt
+from lib.reference_catalog import build_reference_catalog
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     ProviderMediaInput,
@@ -466,8 +467,10 @@ def _collect_sheet_references(
     label 取剧本条目里的资产名，与 prompt 里的专名严格一致——供支持内联标签的
     后端（如 Gemini）把参考图与 prompt 专名显式绑定，不再依赖文件名推断。
 
-    剧本里的资产名与资产桶 key 可能是 NFC/NFD 中的任一形态（登记闸口落 NFC，存量剧本
-    与桶均无需迁移），索引前按 ``lib.asset_types`` 的比对坐标系归一，label 保留剧本原文。
+    引用名经 :class:`lib.reference_catalog.ReferenceCatalog` 解析：``characters_in_*`` 里
+    写的 ``本体名/衍生名`` 因此取到该形态自己的资产图（见 ``docs/adr/0072``），本体与衍生
+    同现时各注入一张——它们是两个引用名、两条资产图路径，天然不互相去重。目录同时收敛
+    NFC/NFD 判等坐标系（登记闸口落 NFC，存量剧本与桶均无需迁移），label 保留剧本原文。
 
     ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
     references 条目形态存在），``item.get(None) or []`` 天然跳过角色 sheet 收集。
@@ -475,35 +478,23 @@ def _collect_sheet_references(
     seen: set[str] = set()
     refs: list[dict] = []
 
+    catalog = build_reference_catalog(project)
     sources = (
-        (
-            "character",
-            char_field,
-            normalize_asset_bucket(project.get("characters")),
-            "character_sheet",
-        ),
-        (
-            "scene",
-            scene_field,
-            normalize_asset_bucket(project.get("scenes")),
-            "scene_sheet",
-        ),
-        (
-            "prop",
-            prop_field,
-            normalize_asset_bucket(project.get("props")),
-            "prop_sheet",
-        ),
+        ("character", char_field),
+        ("scene", scene_field),
+        ("prop", prop_field),
     )
 
     for item in items:
-        for asset_type, field, bucket, sheet_field in sources:
+        for asset_type, field in sources:
             for name in item.get(field) or []:
                 if not isinstance(name, str):
                     continue
-                canonical_name = normalize_asset_name(name)
-                data = bucket.get(canonical_name)
-                sheet = data.get(sheet_field) if isinstance(data, dict) else None
+                entry = catalog.lookup(asset_type, name)
+                if entry is None:
+                    continue
+                data = entry.asset
+                sheet = data.get(entry.spec.sheet_field) if isinstance(data, dict) else None
                 if not isinstance(sheet, str) or not sheet or sheet in seen:
                     continue
                 path = project_path / sheet
@@ -512,7 +503,7 @@ def _collect_sheet_references(
                 if max_count and len(refs) >= max_count:
                     seen.add(sheet)
                     continue
-                key = ArtifactKey.asset_sheet(asset_type, canonical_name)
+                key = ArtifactKey.asset_sheet(asset_type, entry.name)
                 if not artifact_input_is_usable(
                     resolver=currency_resolver,
                     key=key,

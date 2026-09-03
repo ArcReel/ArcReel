@@ -312,3 +312,20 @@ class TestEpisodeTargetDurationInjection:
         prompt = _split_prompt(default_duration=8, episode_target_duration=120)
         assert render_episode_target_duration_rule(120) in prompt
         assert "unit 默认取 8 秒" in prompt
+
+
+_CHARACTERS_WITH_DERIVATIVE = {
+    "主角": {"description": "少年剑客", "derivatives": {"劲装": {"description": "换上黑色劲装"}}},
+}
+
+
+def test_prompt_authoring_asset_block_lists_the_derivative_with_its_composed_appearance():
+    prompt = _prompt_authoring_prompt(characters=_CHARACTERS_WITH_DERIVATIVE)
+
+    assert "- 主角/劲装: 少年剑客\n  当前形态：换上黑色劲装" in prompt
+
+
+def test_split_prompt_lists_the_derivative_among_the_character_candidates():
+    prompt = _split_prompt(characters=_CHARACTERS_WITH_DERIVATIVE)
+
+    assert "- character: 主角, 主角/劲装" in prompt

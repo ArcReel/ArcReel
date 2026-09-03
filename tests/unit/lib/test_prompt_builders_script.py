@@ -16,9 +16,9 @@ from lib.speech_rate import speech_rate_units_per_second
 
 class TestPromptBuildersScript:
     def test_format_names_emits_bullet_lists(self):
-        assert _format_names({"A": {}, "B": {}}) == "- A\n- B"
-        assert _format_names({"玉佩": {}, "祠堂": {}}) == "- 玉佩\n- 祠堂"
-        assert _format_names({}) == "（暂无）"
+        assert _format_names({"A": {}, "B": {}}, "character") == "- A\n- B"
+        assert _format_names({"玉佩": {}, "祠堂": {}}, "prop") == "- 玉佩\n- 祠堂"
+        assert _format_names({}, "scene") == "（暂无）"
 
     def test_build_narration_prompt_renders_script_plan_segments_as_context(self):
         prompt = build_narration_prompt(
@@ -597,3 +597,43 @@ class TestBuildNarrationSplitPrompt:
     def test_novel_text_verbatim_instruction(self):
         text = self._prompt()
         assert "张三走向村口，久久凝望。" in text
+
+
+#: 一个带衍生的角色表：候选块要列出 `姜月茴/劲装`，其外观是本体描述加上这一段变化。
+_CHARACTERS_WITH_DERIVATIVE = {
+    "姜月茴": {"description": "青衣少女", "derivatives": {"劲装": {"description": "换上黑色劲装"}}}
+}
+
+
+class TestDerivativeAssetCandidates:
+    """角色候选块列出 `本体/衍生`，外观是本体描述加上这一段变化（ADR 0072）。"""
+
+    def test_narration_split_prompt_lists_the_derivative_candidate(self):
+        prompt = build_narration_split_prompt(
+            project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
+            novel_text="她推开祠堂的门。",
+            characters=_CHARACTERS_WITH_DERIVATIVE,
+            scenes={"祠堂": {}},
+            props={},
+            supported_durations=[8],
+            default_duration=None,
+            episode=1,
+        )
+
+        assert "- 姜月茴/劲装" in prompt
+        assert "character: 姜月茴, 姜月茴/劲装" in prompt
+
+    def test_narration_prompt_asset_block_composes_the_derivative_appearance(self):
+        prompt = build_narration_prompt(
+            project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
+            style="古风",
+            style_description="cinematic",
+            characters=_CHARACTERS_WITH_DERIVATIVE,
+            scenes={},
+            props={},
+            script_plan_segments=[],
+            aspect_ratio="9:16",
+            episode=1,
+        )
+
+        assert "- 姜月茴/劲装：青衣少女\n  当前形态：换上黑色劲装" in prompt
