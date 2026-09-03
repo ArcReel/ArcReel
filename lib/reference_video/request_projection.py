@@ -669,9 +669,9 @@ class ReferenceUnitRequestProjector:
                 )
                 for delivery_problem in options.narration_preparation.problems
             )
-        # 未登记引用不产生派生引用，因而不会出现在 ``hydration.missing`` 里：它此前被静默丢弃、
-        # 照常发出一次不带这张图的付费请求，现在在生成入口阻断并列名。无资产图的角色 / 场景 /
-        # 道具不需要在此另报——它们不再退回原图，展开时就不产生候选，一律落进 ``hydration.missing``。
+        # 未登记引用不产生派生引用，因而不会出现在 ``hydration.missing`` 里，须在此单独阻断并
+        # 列名。无资产图的角色 / 场景 / 道具不需要在此另报——它们不退回原图，展开时就不产生
+        # 候选，一律落进 ``hydration.missing``。
         admission = unit_reference_admission(project, unit)
         if admission.unregistered:
             problems.append(

@@ -47,9 +47,10 @@ class TestMigrateProjectDict:
         """手编脏值不在迁移里修复，其结构错误由 DataValidator 另行报告。"""
         assert migrate_project_dict({"characters": characters})["characters"] == characters
 
-    def test_non_object_derivative_table_replaced_with_empty(self):
+    def test_non_object_derivative_table_preserved(self):
+        """脏衍生表原样留给 DataValidator 报告，迁移不覆盖用户手写的内容。"""
         after = migrate_project_dict({"characters": {"阿岚": {"description": "少女", "derivatives": "dirty"}}})
-        assert after["characters"]["阿岚"]["derivatives"] == {}
+        assert after["characters"]["阿岚"]["derivatives"] == "dirty"
 
     def test_unrelated_fields_preserved(self):
         after = migrate_project_dict({"title": "T", "video_backend": "ark/m"})

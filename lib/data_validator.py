@@ -580,7 +580,9 @@ class DataValidator:
         if table is None:
             return
         if not isinstance(table, dict):
-            errors.append(_m("val_field_must_be_object", field=f"{entry_name}.{DERIVATIVES_FIELD}"))
+            errors.append(
+                _m("val_asset_field_must_be_object", asset_type=kind, name=entry_name, field=DERIVATIVES_FIELD)
+            )
             return
         for derivative_name, derivative in table.items():
             qualified = f"{entry_name}/{derivative_name}"
