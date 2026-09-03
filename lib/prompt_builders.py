@@ -35,6 +35,12 @@ _CHARACTER_GUARD = "三个面板中角色面部、发型、服装、配饰完全
 # 物件本身，layout 也已限定纯净背景，不存在同类冲突，只需反向提示词；商品另有实拍
 # 参考图这条通道，其正向声明见 _PRODUCT_GUARD。
 _SCENE_GUARD = "画面中没有人物出镜。"
+# 衍生资产图是对本体资产图的图片编辑，守卫句限定「只改被描述到的部分」：版式与其余外观
+# 保持不变，否则同一角色的两种形态会在分镜里长成两个人。
+_CHARACTER_DERIVATIVE_GUARD = (
+    "保持原图的三视图版式（正面 / 正侧 / 背面水平排列）、构图、比例、取景与纯白背景不变；"
+    "除上述变化外，角色的面部、发型、体型及其余外观一律与原图保持一致。"
+)
 _PROP_GUARD = ""
 # 商品保真核心句：sheet 生成守卫与分镜注入指令共用，调优措辞只改这一处。
 _PRODUCT_FIDELITY_CORE = "logo、文字、配色、材质、比例与结构不得改变或臆造"
@@ -89,6 +95,15 @@ def build_character_prompt(name: str, description: str, style: str = "", style_d
         f"{_CHARACTER_GUARD}\n\n"
         f"{_NEGATIVE_TAIL_CHARACTER}"
     )
+
+
+def build_character_derivative_prompt(description: str) -> str:
+    """角色衍生资产图 prompt：对本体资产图的一次编辑指令。
+
+    衍生只写相对本体的外观变化，其余一切（三视图版式、构图、未被描述改动的外观）由
+    守卫句钉住；不注入项目画风——画风已由被编辑的本体资产图自身承载。
+    """
+    return f"{description}\n\n{_CHARACTER_DERIVATIVE_GUARD}\n\n{_NEGATIVE_TAIL_CHARACTER}"
 
 
 def build_scene_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:

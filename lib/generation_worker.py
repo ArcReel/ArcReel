@@ -44,6 +44,7 @@ from lib.api_errors import ApiError
 from lib.config.resolver import VideoBucketCapabilityError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
 from lib.generation_queue import (
+    I2I_ONLY_TASK_TYPES,
     TASK_POLL_INTERVAL_SEC,
     TASK_WORKER_HEARTBEAT_SEC,
     TASK_WORKER_LEASE_TTL_SEC,
@@ -413,8 +414,8 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     这是解析链的薄投影：按 media lane（``media_type``）派发到 ``resolve_video_backend`` /
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
-    生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
-    按 i2i 槽精确解析。两种视频生成模式都忽略 enqueue payload 中的旧身份，分镜视频定桶经
+    生成正确性（执行层会独立精确再解析一次）；``I2I_ONLY_TASK_TYPES``（图片编辑与衍生资产图）是
+    唯一例外（必然 i2i、入队即知），按 i2i 槽精确解析。两种视频生成模式都忽略 enqueue payload 中的旧身份，分镜视频定桶经
     ``video_bucket_for_queued_task`` 与入队派生共用；reference_video 则重读最新
     project/script/unit，以实际可用资产调用公共 request projection。
     这份 provider 投影只服务 claim 过滤与限流路由，不是执行身份；正常 executor 会在开始时
@@ -460,7 +461,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload)
         else:
-            capability = "i2i" if task.get("task_type") == "image_edit" else "t2i"
+            capability = "i2i" if task.get("task_type") in I2I_ONLY_TASK_TYPES else "t2i"
             resolved = await resolver.resolve_image_backend(project, payload, capability=capability)
     except Exception:
         logger.debug("provider 解析失败，回退 DEFAULT_PROVIDER 仅供限流路由", exc_info=True)

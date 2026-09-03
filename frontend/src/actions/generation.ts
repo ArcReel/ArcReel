@@ -15,7 +15,7 @@
  *
  * 组件禁止绕过本层直调入队类 API 方法（ESLint no-restricted-syntax 强制）。
  */
-import { API } from "@/api";
+import { API, derivativeResourceId } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import type {
@@ -195,6 +195,25 @@ export async function enqueueCharacter(
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:character_task_submitted_toast", { name }));
+  return { taskIds: [res.task_id], deduped: res.deduped };
+}
+
+/**
+ * 提交一次角色衍生资产图生成。衍生的占用槽按 `本体/衍生` 复合 id 独立成一格，与本体的
+ * 生成任务互不遮蔽；指令由后端按当次登记重算，此处不传 prompt。
+ */
+export async function enqueueCharacterDerivative(
+  projectName: string,
+  characterName: string,
+  derivativeName: string,
+): Promise<EnqueueResult> {
+  const resourceId = derivativeResourceId(characterName, derivativeName);
+  const res = await submit(
+    [markResource(projectName, "character_derivative", resourceId, "character_derivative")],
+    () => API.generateCharacterDerivative(projectName, characterName, derivativeName),
+    oneTaskId,
+  );
+  notifyEnqueued(res.deduped, res.message);
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 

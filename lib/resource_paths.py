@@ -15,11 +15,16 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ResourcePattern:
-    """单一资源类型的路径形状。"""
+    """单一资源类型的路径形状。
+
+    ``id_segments`` 是 resource id 占用的路径段数：默认 1（id 就是文件名主体）；
+    角色衍生资产图为 2（id 写作 ``本体名/衍生名``，本体名是一级目录）。
+    """
 
     subdir: str
     extension: str
     prefix: str = ""  # 文件名前缀：storyboards/videos 用 "scene_"，audio 用 "segment_"，其余空
+    id_segments: int = 1
 
 
 # 尾帧快照的资源类型名。独立导出到这个无反向依赖的纯函数模块，供
@@ -27,6 +32,12 @@ class ResourcePattern:
 # import 对方所在的 server.services 包造成循环依赖；同时作为 `_PATTERNS` 对应 key 的唯一
 # 来源，防止两处字面量各自维护后读写侧路径口径分叉。
 END_FRAME_RESOURCE_TYPE = "end_frames"
+
+#: 角色衍生资产图的资源类型名。衍生共享本体的身份，资源 id 写作 ``本体名/衍生名``，
+#: 因此它不能落在 ``characters/`` 下（本体可以叫 ``derivatives``），单列一层子目录。
+#: 与 END_FRAME_RESOURCE_TYPE 同理导出到这个无反向依赖的模块，供写侧、版本管理与
+#: 产物规划共用一个字面量。
+CHARACTER_DERIVATIVE_RESOURCE_TYPE = "character_derivatives"
 
 _PATTERNS: dict[str, ResourcePattern] = {
     "storyboards": ResourcePattern("storyboards", ".png", prefix="scene_"),
@@ -40,6 +51,7 @@ _PATTERNS: dict[str, ResourcePattern] = {
     "grids": ResourcePattern("grids", ".png"),
     "reference_videos": ResourcePattern("reference_videos", ".mp4"),
     "audio": ResourcePattern("audio", ".wav", prefix="segment_"),
+    CHARACTER_DERIVATIVE_RESOURCE_TYPE: ResourcePattern("characters/derivatives", ".png", id_segments=2),
 }
 
 RESOURCE_TYPES: tuple[str, ...] = tuple(_PATTERNS)
@@ -66,3 +78,26 @@ def resource_relative_path(resource_type: str, resource_id: str) -> str:
 def resource_extension(resource_type: str) -> str:
     """返回资源类型的文件扩展名（含点，如 ``.png``）。未知类型抛 ``ValueError``。"""
     return _pattern(resource_type).extension
+
+
+def resource_id_segments(resource_type: str) -> int:
+    """返回该资源类型的 resource id 占用的路径段数。未知类型抛 ``ValueError``。"""
+    return _pattern(resource_type).id_segments
+
+
+def version_snapshot_dir(resource_type: str) -> str:
+    """返回该资源类型版本快照桶的项目内相对目录（posix）。未知类型抛 ``ValueError``。"""
+    return f"versions/{_pattern(resource_type).subdir}"
+
+
+def version_snapshot_relative_path(resource_type: str, resource_id: str, *, version: int, timestamp: str) -> str:
+    """返回一份版本快照在项目内的相对路径（posix）。
+
+    形如 ``versions/{subdir}/{id 的前置段}/{id 末段}_v{n}_{timestamp}{ext}``：多段 id
+    的前置段原样成为目录层级，与当前图 ``{subdir}/{id}{ext}`` 的层级一一对应。
+    未知类型抛 ``ValueError``。
+    """
+    pattern = _pattern(resource_type)
+    parent, _, stem = resource_id.rpartition("/")
+    parent_prefix = f"{parent}/" if parent else ""
+    return f"versions/{pattern.subdir}/{parent_prefix}{stem}_v{version}_{timestamp}{pattern.extension}"

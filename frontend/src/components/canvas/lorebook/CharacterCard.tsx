@@ -402,6 +402,7 @@ export function CharacterCard({
             projectName={projectName}
             characterName={name}
             derivatives={character.derivatives ?? {}}
+            ownerHasSheet={Boolean(character.character_sheet)}
             busy={generating || uploadingSheet || saving || deletingAudio}
             onReload={onReload}
           />

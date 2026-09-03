@@ -6,6 +6,7 @@
  */
 
 import type {
+  CharacterDerivativeStatus,
   ProjectData,
   ProjectSummary,
   ImportConflictPolicy,
@@ -113,9 +114,30 @@ const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
   product: "products",
 };
 
+/** 角色衍生资产图在版本与图片编辑端点上的资源类型名（与后端 `lib/resource_paths` 一致）。 */
+export const CHARACTER_DERIVATIVE_RESOURCE_TYPE = "character_derivatives";
+
+/** 衍生的复合资源 id：本体名与衍生名各占一段，与后端的落盘、队列与版本口径一致。 */
+export function derivativeResourceId(characterName: string, derivativeName: string): string {
+  return `${characterName}/${derivativeName}`;
+}
+
 /** 角色衍生子资源的路径前缀；衍生挂在角色条目下，两段名字各自编码。 */
 function derivativesPath(projectName: string, charName: string): string {
   return `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}/derivatives`;
+}
+
+/**
+ * 版本端点的资源前缀。角色衍生的资源 id 是 `本体/衍生`，塞不进通用路由的单段路径参数，
+ * 后端为它单列了两段路径；此处按资源类型分流，调用方仍只传一个 resource id。
+ */
+function versionsResourcePath(projectName: string, resourceType: string, resourceId: string): string {
+  const base = `/projects/${encodeURIComponent(projectName)}/versions`;
+  if (resourceType === CHARACTER_DERIVATIVE_RESOURCE_TYPE) {
+    const [owner = "", derivative = ""] = resourceId.split("/");
+    return `${base}/character-derivative/${encodeURIComponent(owner)}/${encodeURIComponent(derivative)}`;
+  }
+  return `${base}/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`;
 }
 
 function referenceRequestQuery(
@@ -1286,7 +1308,8 @@ class API {
 
   /**
    * 衍生是挂在角色下的子身份（换装、变身、易容），名字只在该角色内唯一，脚本中写作
-   * `@[角色/衍生]`。以下四个方法只做登记；衍生资产图的生成与版本不在此。
+   * `@[角色/衍生]`。以下四个方法只做登记；资产图的读取与生成见本节末尾两个方法，版本与
+   * 图片编辑复用通用端点（资源类型 `character_derivatives` / `character_derivative`）。
    */
   static async addCharacterDerivative(
     projectName: string,
@@ -1343,6 +1366,32 @@ class API {
       {
         method: "DELETE",
       }
+    );
+  }
+
+  /**
+   * 读该角色名下每个衍生的资产图与过期标记。过期是产物清单与规范状态的一次比对（要读文件、
+   * 算指纹），不随项目数据下发，故单独按需取。
+   */
+  static async getCharacterDerivativeSheets(
+    projectName: string,
+    charName: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ success: boolean; derivatives: Record<string, CharacterDerivativeStatus> }> {
+    return this.request(derivativesPath(projectName, charName), { signal: options?.signal });
+  }
+
+  /**
+   * 提交一次衍生资产图生成。指令由衍生自己的外观变化描述加固定守卫构成，请求体没有 prompt。
+   */
+  static async generateCharacterDerivative(
+    projectName: string,
+    charName: string,
+    derivativeName: string
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}/derivatives/${encodeURIComponent(derivativeName)}`,
+      { method: "POST" }
     );
   }
 
@@ -2300,7 +2349,7 @@ class API {
   static async editImage(
     projectName: string,
     params: {
-      resourceType: "character" | "scene" | "prop" | "product" | "storyboard";
+      resourceType: "character" | "scene" | "prop" | "product" | "storyboard" | "character_derivative";
       resourceId: string;
       instruction: string;
       scriptFile?: string | null;
@@ -2461,9 +2510,7 @@ class API {
     current_version: number;
     versions: VersionInfo[];
   }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/versions/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`
-    );
+    return this.request(versionsResourcePath(projectName, resourceType, resourceId));
   }
 
   /**
@@ -2480,7 +2527,7 @@ class API {
     version: number
   ): Promise<SuccessResponse & { file_path?: string; asset_fingerprints?: Record<string, number> }> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/versions/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/restore/${version}`,
+      `${versionsResourcePath(projectName, resourceType, resourceId)}/restore/${version}`,
       {
         method: "POST",
       }

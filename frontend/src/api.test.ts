@@ -1703,3 +1703,51 @@ describe("Agent 记忆的两级路径", () => {
     await expect(API.getAgentMemoryFile({ level: "user" }, "missing.md")).rejects.toThrow("记忆文件不存在");
   });
 });
+
+describe("character derivative endpoints", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function stubFetch() {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse({ jsonData: { success: true } }));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("routes the compound derivative id to the two-segment versions endpoints", async () => {
+    const fetchMock = stubFetch();
+
+    await API.getVersions("demo", "character_derivatives", "阿岚/战斗装");
+    await API.restoreVersion("demo", "character_derivatives", "阿岚/战斗装", 2);
+
+    // 衍生的 resource id 是 `本体/衍生`，整体编码进单段路径会被后端当成一个名字。
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/v1/projects/demo/versions/character-derivative/%E9%98%BF%E5%B2%9A/%E6%88%98%E6%96%97%E8%A3%85",
+    );
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/api/v1/projects/demo/versions/character-derivative/%E9%98%BF%E5%B2%9A/%E6%88%98%E6%96%97%E8%A3%85/restore/2",
+    );
+  });
+
+  it("keeps flat resource types on the generic versions route", async () => {
+    const fetchMock = stubFetch();
+
+    await API.getVersions("demo", "characters", "阿岚");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/projects/demo/versions/characters/%E9%98%BF%E5%B2%9A");
+  });
+
+  it("submits a derivative generation without a prompt body", async () => {
+    const fetchMock = stubFetch();
+
+    await API.generateCharacterDerivative("demo", "阿岚", "战斗装");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/v1/projects/demo/generate/character/%E9%98%BF%E5%B2%9A/derivatives/%E6%88%98%E6%96%97%E8%A3%85",
+    );
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+  });
+});

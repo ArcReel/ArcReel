@@ -24,6 +24,7 @@ from lib.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifact_manifest import ArtifactKey
+from lib.asset_derivatives import DERIVATIVE_TASK_TYPE, DerivativeSheetSource, resolve_derivative_sheet_source
 from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation_queue import get_generation_queue
@@ -58,8 +59,12 @@ from lib.storyboard_sequence import (
 from server.auth import CurrentUser
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
 from server.services.cost_estimation import quote_video_request
+from server.services.derivative_sheet_tasks import build_derivative_sheet_instruction
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
-from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
+from server.services.image_edit_tasks import (
+    EDITABLE_RESOURCE_TYPES,
+    resolve_usable_image_edit_source,
+)
 from server.services.narration_delivery_tasks import (
     active_narrated_video_resource_ids,
     prepare_current_storyboard_narrated_video_duration,
@@ -860,6 +865,56 @@ async def generate_character(
     )
 
 
+@router.post("/projects/{project_name}/generate/character/{char_name}/derivatives/{derivative_name}")
+async def generate_character_derivative(
+    project_name: str,
+    char_name: str,
+    derivative_name: str,
+    user: CurrentUser,
+    _t: Translator,
+):
+    """提交角色衍生资产图生成任务到队列，立即返回 task_id。
+
+    衍生图是对本体资产图的一次编辑，指令由衍生自己的外观变化描述加固定守卫构成，请求体
+    因此没有 prompt——入队与执行都按当次的项目状态取，避免两侧各持一份指令。本体没有
+    资产图、或衍生还没写变化描述时在此拒绝，不建任务。
+    """
+
+    def _sync() -> tuple[dict, DerivativeSheetSource]:
+        project = get_project_manager().load_project(project_name)
+        return project, resolve_derivative_sheet_source(project, char_name, derivative_name)
+
+    try:
+        project, source = await asyncio.to_thread(_sync)
+    except KeyError as exc:
+        raise NotFoundError("character_not_found", name=char_name) from exc
+
+    provider_id = await _require_i2i_image_provider_configured(project)
+
+    spec = TaskSpec.from_request(
+        task_type=DERIVATIVE_TASK_TYPE,
+        media_type="image",
+        resource_id=source.target.artifact_id,
+        prompt=build_derivative_sheet_instruction(source.description),
+    )
+    result = await get_generation_queue().enqueue_task(
+        project_name=project_name,
+        task_type=spec.task_type,
+        media_type=spec.media_type,
+        resource_id=spec.resource_id,
+        payload=spec.payload,
+        source="webui",
+        user_id=user.id,
+        provider_id=provider_id,
+    )
+    return {
+        "success": True,
+        "task_id": result["task_id"],
+        "deduped": result.get("deduped", False),
+        "message": _t("derivative_task_submitted", name=source.target.derivative_key),
+    }
+
+
 @router.post("/projects/{project_name}/generate/scene/{scene_name}")
 async def generate_scene(
     project_name: str,
@@ -979,6 +1034,8 @@ async def edit_image(
         except KeyError as exc:
             if is_storyboard:
                 raise NotFoundError("segment_not_found", id=req.resource_id) from exc
+            if req.resource_type == DERIVATIVE_TASK_TYPE:
+                raise NotFoundError("asset_derivative_not_found", name=req.resource_id) from exc
             raise NotFoundError(_ASSET_GENERATE_I18N[req.resource_type]["not_found"], name=req.resource_id) from exc
         if source is None:
             raise BadRequestError("image_edit_no_current_image", id=req.resource_id)

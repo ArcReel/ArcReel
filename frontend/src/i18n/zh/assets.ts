@@ -84,5 +84,11 @@ export default {
   "derivative_saved": "已保存衍生「{{name}}」",
   "derivative_renamed": "已重命名为「{{name}}」",
   "derivative_deleted": "已删除衍生「{{name}}」",
+  "derivative_generate": "生成衍生图",
+  "derivative_regenerate": "重新生成",
+  "derivative_no_sheet": "还没有衍生图",
+  "derivative_owner_sheet_required": "请先生成本体资产图",
+  "derivative_stale": "已过期",
+  "derivative_stale_hint": "这张衍生图与当前的本体资产图或外观变化描述已经对不上；重新生成即可对齐。",
   "derivative_busy_hint": "生成或编辑进行中，暂无法修改衍生",
 } satisfies Record<keyof typeof enAssets, string>;

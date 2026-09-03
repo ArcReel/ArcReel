@@ -53,6 +53,8 @@ class FakeProjectAssetMutationMixin:
         project_name: str,
         name: str,
         mutate_fn: Callable[[dict], None],
+        *,
+        on_commit: Callable[[Path], None] | None = None,
     ) -> dict[str, Any]:
         from lib.asset_types import ASSET_SPECS, resolve_asset_key
 
@@ -69,6 +71,8 @@ class FakeProjectAssetMutationMixin:
             result.update(entry)
 
         self.update_project(project_name, _mutate)
+        if on_commit is not None:
+            on_commit(Path(project_name))
         return result
 
     def rename_asset_derivative(

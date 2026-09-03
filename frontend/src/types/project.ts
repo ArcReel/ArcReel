@@ -31,6 +31,12 @@ export interface CharacterDerivative {
   referenced?: boolean;
 }
 
+/** 衍生的读取视图：登记字段加上「这张图相对本体现状是否已过期」。 */
+export interface CharacterDerivativeStatus extends CharacterDerivative {
+  /** 已登记的衍生图不再等于规范状态时为真；还没生成过则为假。 */
+  stale: boolean;
+}
+
 export interface Character {
   description: string;
   character_sheet?: string;

@@ -39,6 +39,7 @@ from lib.artifact_manifest import (
     compose_video_artifact_basis,
 )
 from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
+from lib.asset_derivatives import DERIVATIVE_TASK_TYPE
 from lib.asset_types import (
     ASSET_SPECS,
     AssetSpec,
@@ -103,7 +104,7 @@ from lib.reference_video.execution_checkpoint import (
     cleanup_staged_provider_media,
     stage_provider_media_for_task,
 )
-from lib.resource_paths import resource_relative_path
+from lib.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 from lib.schema_guards import is_int
 from lib.script_editor import resolve_items
 from lib.script_models import resolve_content_mode
@@ -246,8 +247,8 @@ def compensable_formal_task_result(
 
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
-    if resource_type in ("characters", "scenes", "props", "products"):
-        # 资产图生成必须显式指定宽高比；四类当前均固定为 16:9。
+    if resource_type in ("characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE):
+        # 资产图生成必须显式指定宽高比；四类资产与角色衍生当前均固定为 16:9。
         return "16:9"
     return resolve_video_aspect_ratio(project, resource_type)
 
@@ -3491,6 +3492,20 @@ async def _execute_reference_video_task_proxy(
     )
 
 
+async def _execute_character_derivative_task_proxy(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """Lazy proxy to avoid circular import: derivative_sheet_tasks imports from this module."""
+    from server.services.derivative_sheet_tasks import execute_character_derivative_task
+
+    return await execute_character_derivative_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+
+
 async def _execute_image_edit_task_proxy(
     project_name: str,
     resource_id: str,
@@ -3517,6 +3532,7 @@ _TASK_EXECUTORS = {
     "grid": execute_grid_task,
     "reference_video": _execute_reference_video_task_proxy,
     "image_edit": _execute_image_edit_task_proxy,
+    DERIVATIVE_TASK_TYPE: _execute_character_derivative_task_proxy,
 }
 
 

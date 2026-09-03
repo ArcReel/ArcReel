@@ -1,6 +1,7 @@
 """角色衍生子资源路由：登记、改描述、改名、删除，以及能力未开启的资产类型不暴露该子资源。"""
 
 import json
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -15,7 +16,9 @@ from tests.fakes import FakeProjectAssetMutationMixin
 
 
 class _FakePM(FakeProjectAssetMutationMixin):
-    def __init__(self):
+    def __init__(self, project_dir: Path):
+        # 删除路径要清理衍生的图、版本与清单条目，因此假替身也要给出一个真实项目目录。
+        self.project_dir = project_dir
         self.projects = {
             "demo": {
                 "characters": {
@@ -46,6 +49,11 @@ class _FakePM(FakeProjectAssetMutationMixin):
             raise FileNotFoundError(project_name)
         return self.projects[project_name]
 
+    def get_project_path(self, project_name):
+        if project_name not in self.projects:
+            raise FileNotFoundError(project_name)
+        return self.project_dir
+
     def update_project(self, project_name, mutate_fn):
         project = self.load_project(project_name)
         mutate_fn(project)
@@ -66,8 +74,8 @@ def _derivatives(pm: _FakePM) -> dict:
 
 
 class TestCharacterDerivativesRouter:
-    def test_add_update_rename_delete_round_trip(self, monkeypatch):
-        pm = _FakePM()
+    def test_add_update_rename_delete_round_trip(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         with _client(monkeypatch, pm) as client:
             added = client.post(
                 "/api/v1/projects/demo/characters/阿岚/derivatives",
@@ -99,8 +107,8 @@ class TestCharacterDerivativesRouter:
             assert "轻甲" in deleted.json()["message"]
             assert _derivatives(pm) == {}
 
-    def test_rename_keeps_other_derivatives(self, monkeypatch):
-        pm = _FakePM()
+    def test_rename_keeps_other_derivatives(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         _derivatives(pm).update(
             {
                 "战斗装": {"description": "重甲", "character_sheet": ""},
@@ -115,8 +123,8 @@ class TestCharacterDerivativesRouter:
         assert response.status_code == 200, response.text
         assert set(_derivatives(pm)) == {"铠甲", "便装"}
 
-    def test_duplicate_name_is_rejected_with_translated_detail(self, monkeypatch):
-        pm = _FakePM()
+    def test_duplicate_name_is_rejected_with_translated_detail(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         _derivatives(pm)["战斗装"] = {"description": "重甲", "character_sheet": ""}
         with _client(monkeypatch, pm) as client:
             created = client.post(
@@ -136,8 +144,8 @@ class TestCharacterDerivativesRouter:
         assert list(_derivatives(pm)) == ["战斗装"]
         assert _derivatives(pm)["战斗装"]["description"] == "重甲"
 
-    def test_rename_onto_a_sibling_name_is_rejected(self, monkeypatch):
-        pm = _FakePM()
+    def test_rename_onto_a_sibling_name_is_rejected(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         _derivatives(pm).update(
             {
                 "战斗装": {"description": "重甲", "character_sheet": ""},
@@ -152,8 +160,8 @@ class TestCharacterDerivativesRouter:
         assert response.status_code == 422, response.text
         assert _derivatives(pm)["便装"]["description"] == "布衣"
 
-    def test_illegal_names_are_rejected_in_all_locales(self, monkeypatch):
-        pm = _FakePM()
+    def test_illegal_names_are_rejected_in_all_locales(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         with _client(monkeypatch, pm) as client:
             responses = {
                 locale: client.post(
@@ -170,8 +178,8 @@ class TestCharacterDerivativesRouter:
         assert "Tên phái sinh" in details["vi"]
         assert _derivatives(pm) == {}
 
-    def test_missing_character_and_missing_derivative_are_404(self, monkeypatch):
-        pm = _FakePM()
+    def test_missing_character_and_missing_derivative_are_404(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         with _client(monkeypatch, pm) as client:
             no_character = client.post(
                 "/api/v1/projects/demo/characters/无名/derivatives",
@@ -186,8 +194,8 @@ class TestCharacterDerivativesRouter:
         assert no_derivative.status_code == 404
         assert no_project.status_code == 404
 
-    def test_deleting_the_character_takes_its_derivatives_with_it(self, monkeypatch):
-        pm = _FakePM()
+    def test_deleting_the_character_takes_its_derivatives_with_it(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         pm.expected_delete_asset_table = "characters"
         _derivatives(pm)["战斗装"] = {"description": "重甲", "character_sheet": ""}
         with _client(monkeypatch, pm) as client:
@@ -195,8 +203,8 @@ class TestCharacterDerivativesRouter:
         assert response.status_code == 200, response.text
         assert pm.projects["demo"]["characters"] == {}
 
-    def test_scene_router_has_no_derivative_sub_resource(self, monkeypatch):
-        pm = _FakePM()
+    def test_scene_router_has_no_derivative_sub_resource(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         with _client(monkeypatch, pm, module=scenes) as client:
             response = client.post(
                 "/api/v1/projects/demo/scenes/茶楼/derivatives",
@@ -205,8 +213,8 @@ class TestCharacterDerivativesRouter:
         assert response.status_code == 404
         assert "derivatives" not in pm.projects["demo"]["scenes"]["茶楼"]
 
-    def test_created_character_carries_an_empty_derivative_table(self, monkeypatch):
-        pm = _FakePM()
+    def test_created_character_carries_an_empty_derivative_table(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         with _client(monkeypatch, pm) as client:
             response = client.post(
                 "/api/v1/projects/demo/characters",
@@ -217,8 +225,8 @@ class TestCharacterDerivativesRouter:
         assert response.json()["character"]["derivatives"] == {}
         assert pm.projects["demo"]["characters"]["老陈"]["derivatives"] == {}
 
-    def test_scene_create_and_patch_never_persist_derivatives(self, monkeypatch):
-        pm = _FakePM()
+    def test_scene_create_and_patch_never_persist_derivatives(self, monkeypatch, tmp_path):
+        pm = _FakePM(tmp_path)
         with _client(monkeypatch, pm, module=scenes) as client:
             created = client.post(
                 "/api/v1/projects/demo/scenes",

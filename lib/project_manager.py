@@ -2082,6 +2082,8 @@ class ProjectManager:
         project_name: str,
         name: str,
         mutate_fn: Callable[[dict], None],
+        *,
+        on_commit: Callable[[Path], None] | None = None,
     ) -> dict:
         """Update one asset and reconcile a moved formal sheet claim.
 
@@ -2089,6 +2091,10 @@ class ProjectManager:
         metadata-only input change keeps the current sheet claim so currency
         comparison can report it stale; clearing or replacing the canonical
         sheet path removes the old claim in the same durable commit.
+
+        ``on_commit`` runs inside that same commit, after the sheet claim is
+        reconciled, so a mutation that also retires sub-resources (a derivative
+        and its image) can retire their claims without a second transaction.
         """
 
         from lib.artifact_activation import reconcile_artifact_target_claims
@@ -2125,7 +2131,12 @@ class ProjectManager:
                 (ArtifactKey.asset_sheet(asset_type, canonical_name),),
             )
 
-        self.update_project(project_name, _mutate, on_commit=_reconcile_claim)
+        def _commit(project_file: Path) -> None:
+            _reconcile_claim(project_file)
+            if on_commit is not None:
+                on_commit(project_file)
+
+        self.update_project(project_name, _mutate, on_commit=_commit)
         return result
 
     def update_project_reconciling_episode_bindings(
@@ -2772,11 +2783,13 @@ class ProjectManager:
         """
 
         from lib.artifact_activation import forget_current_resource_artifact
+        from lib.asset_derivative_cleanup import purge_owner_derivative_sheets
 
         asset_type = self._resolve_asset_type(table)
         spec = ASSET_SPECS[asset_type]
         project_dir = self.get_project_path(project_name)
         deleted_name: str | None = None
+        deleted_entry: dict[str, Any] = {}
 
         def _mutate(project: dict) -> None:
             nonlocal deleted_name
@@ -2785,6 +2798,9 @@ class ProjectManager:
             if not isinstance(bucket, dict) or key is None:
                 raise KeyError(f"{spec.label_zh} '{name}' 不存在")
             deleted_name = key
+            entry = bucket[key]
+            if isinstance(entry, dict):
+                deleted_entry.update(entry)
             del bucket[key]
 
         def _forget_claim(_project_file: Path) -> None:
@@ -2795,6 +2811,10 @@ class ProjectManager:
                 resource_type=spec.bucket_key,
                 resource_id=deleted_name,
             )
+            # 本体的资产图与历史留存（可被重建的同名资产接上），衍生的不留：删掉本体后
+            # 衍生已无任何入口，见 lib/asset_derivative_cleanup。
+            if spec.supports_derivatives:
+                purge_owner_derivative_sheets(project_dir, deleted_name, deleted_entry)
 
         return self.update_project(project_name, _mutate, on_commit=_forget_claim)
 
@@ -2829,6 +2849,16 @@ class ProjectManager:
         }
     )
 
+    @staticmethod
+    def _artifact_manifest_adapter(project_dir: Path):
+        """项目已有产物清单时给出它的适配器，没有则 ``None``（改名不凭空建清单）。"""
+        from lib.artifact_manifest import MANIFEST_FILENAME, ProjectArtifactManifestAdapter
+
+        manifest_path = project_dir / MANIFEST_FILENAME
+        if manifest_path.exists() or manifest_path.is_symlink():
+            return ProjectArtifactManifestAdapter(project_dir)
+        return None
+
     def rename_asset(
         self, project_name: str, table: str, old_name: str, new_name: str, *, dry_run: bool = False
     ) -> AssetRenameReport:
@@ -2851,6 +2881,11 @@ class ProjectManager:
             AssetRenameHistoryCollisionError: 新名下已有属于别的资产的版本历史。
         """
         # data_validator 在模块级 import 本模块，惰性 import 破环（与 upsert_assets 同理）。
+        from lib.asset_derivative_rename import (
+            owner_derivative_renames,
+            plan_derivative_sheet_relocation,
+            rewrite_derivative_sheet_paths,
+        )
         from lib.data_validator import DataValidator
         from lib.version_manager import VersionManager
 
@@ -2878,19 +2913,9 @@ class ProjectManager:
 
             project = self._read_project_raw_unlocked(project_name)
             bucket = project.get(spec.bucket_key)
-            from lib.artifact_manifest import (
-                MANIFEST_FILENAME,
-                ArtifactKey,
-                ArtifactManifest,
-                ProjectArtifactManifestAdapter,
-            )
+            from lib.artifact_manifest import ArtifactKey, ArtifactManifest
 
-            manifest_path = project_dir / MANIFEST_FILENAME
-            manifest_adapter = (
-                ProjectArtifactManifestAdapter(project_dir)
-                if manifest_path.exists() or manifest_path.is_symlink()
-                else None
-            )
+            manifest_adapter = self._artifact_manifest_adapter(project_dir)
 
             def _plan_manifest_rekey(
                 source_name: str,
@@ -2990,6 +3015,18 @@ class ProjectManager:
             moves = plan_asset_file_renames(project_dir, spec, old_key, new_clean)
             version_manager = VersionManager(project_dir)
             version_files = version_manager.rename_resource(spec.bucket_key, old_key, new_clean, dry_run=True)
+            # 名下衍生的图、版本快照与清单键都以本体名为第一段，随本体一起搬（见
+            # lib/asset_derivative_rename）；无衍生时规划为空，落盘期什么也不做。
+            derivative_renames = (
+                owner_derivative_renames(project[spec.bucket_key][old_key]) if spec.supports_derivatives else ()
+            )
+            derivatives = plan_derivative_sheet_relocation(
+                project_dir,
+                manifest_adapter=manifest_adapter,
+                old_owner=old_key,
+                new_owner=new_clean,
+                renames=derivative_renames,
+            )
 
             # project.json 变更先在副本上应用并做「不更坏」校验：校验失败整体拒绝、任何一处不落盘。
             mutated = copy.deepcopy(project)
@@ -2998,6 +3035,9 @@ class ProjectManager:
             entry = rekey_equivalent_entries(mutated[spec.bucket_key], old_key, new_clean)
             if isinstance(entry, dict):
                 rewrite_entry_paths(entry, spec, old_key, new_clean)
+                rewrite_derivative_sheet_paths(
+                    entry, old_owner=old_key, new_owner=new_clean, renames=derivative_renames
+                )
             if self._requires_unique_asset_namespace(mutated):
                 ensure_project_asset_namespace(mutated)
             after_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), old_key, new_clean)
@@ -3020,7 +3060,7 @@ class ProjectManager:
                 new_name=new_clean,
                 episodes=len(episode_ids),
                 references=references,
-                files=len(moves) + version_files,
+                files=len(moves) + version_files + derivatives.files,
                 dry_run=dry_run,
             )
             if dry_run:
@@ -3035,12 +3075,14 @@ class ProjectManager:
                 if src.exists():
                     os.replace(src, dst)
             version_manager.rename_resource(spec.bucket_key, old_key, new_clean)
+            derivatives.relocate()
             self._touch_metadata(mutated)
             project_file = self._get_project_file_path(project_name)
             with formal_write_transaction(project_file):
                 atomic_write_json(project_file, mutated)
                 if manifest_rekey_plan is not None:
                     manifest_rekey_plan.commit()
+                derivatives.commit_manifest()
 
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
         return report
@@ -3062,6 +3104,8 @@ class ProjectManager:
             AssetRenameConflictError: 新衍生名已被同一本体下的另一个衍生占用。
             ValueError: 新名非法（``validate_asset_name``）或条目结构不是对象。
         """
+        from lib.asset_derivative_rename import plan_derivative_sheet_relocation, rewrite_derivative_sheet_paths
+
         spec = ASSET_SPECS[asset_type]
         new_clean = validate_asset_name(new_name)
         if not self.project_exists(project_name):
@@ -3119,16 +3163,31 @@ class ProjectManager:
                 if rewrite_payload_references(payload, asset_type, old_reference, new_reference):
                     changed_drafts.append((path, payload))
 
+            # 衍生资产图的三样坐标（图、版本快照、清单键）都含衍生名，与条目键一起搬；
+            # 规划先于任何写入，冲突在此整体拒绝、零字节落盘。
+            relocation = plan_derivative_sheet_relocation(
+                project_dir,
+                manifest_adapter=self._artifact_manifest_adapter(project_dir),
+                old_owner=base_key,
+                new_owner=base_key,
+                renames=((old_key, new_clean),),
+            )
+
             rekey_equivalent_entries(table, old_key, new_clean)
+            rewrite_derivative_sheet_paths(
+                entry, old_owner=base_key, new_owner=base_key, renames=((old_key, new_clean),)
+            )
 
             for filename, script, before in changed_scripts:
                 self._write_script_unlocked(project_name, script, filename, sync_project=False, before=before)
             for path, payload in changed_drafts:
                 atomic_write_json(path, payload)
+            relocation.relocate()
             self._touch_metadata(project)
             project_file = self._get_project_file_path(project_name)
             with formal_write_transaction(project_file):
                 atomic_write_json(project_file, project)
+                relocation.commit_manifest()
             result = dict(entry)
 
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
