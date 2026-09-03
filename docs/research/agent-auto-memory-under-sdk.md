@@ -68,7 +68,7 @@ print / SDK 模式没有单独的禁用分支：`fn:eBe()`（`if(xn())return!0` 
 
 结论：SDK 模式下 auto memory **启用**，init 系统消息含 `memory_paths`（CLI 2.1.233 schema：`memory_paths:{auto?:string,team?:string}`，标注 `@internal`），空 `memory/` 目录在启动时即创建（`fn:jIe` ensureMemoryDirExists）。
 
-**为何本机没有 `-Users-pollochen-MyProjects-ArcReel-projects-*/memory`**：memory 目录用 `Lu(cwd) ?? cwd` 派生，`Lu` 是 git 仓库根解析（`fn:Lu → Zc → rootByPath`）。ArcReel 项目 cwd `<repo>/projects/<name>` 位于 ArcReel 仓库内（`projects/` 只是被 gitignore，不是独立 git 仓库），因此 SDK 会话的记忆落到 `~/.claude/projects/-Users-pollochen-MyProjects-ArcReel/memory/`，与开发者在仓库里跑交互式 Claude Code 的记忆**同一目录**。这不是禁用、也不是未触发，而是 v2.1.63 起 "auto memory shared across git worktrees of the same repository" 的派生规则把它归并到了仓库根。本机同样不存在 `-…-ArcReel-projects-<name>/` 的 transcript 目录，说明 30 天保留期内没有从该 data dir 启动过 SDK 会话（或 data dir 指向别处）；这与 memory 目录缺失无关。
+**为何本机没有 `-Users-<user>-MyProjects-ArcReel-projects-*/memory`**：memory 目录用 `Lu(cwd) ?? cwd` 派生，`Lu` 是 git 仓库根解析（`fn:Lu → Zc → rootByPath`）。ArcReel 项目 cwd `<repo>/projects/<name>` 位于 ArcReel 仓库内（`projects/` 只是被 gitignore，不是独立 git 仓库），因此 SDK 会话的记忆落到 `~/.claude/projects/-Users-<user>-MyProjects-ArcReel/memory/`，与开发者在仓库里跑交互式 Claude Code 的记忆**同一目录**。这不是禁用、也不是未触发，而是 v2.1.63 起 "auto memory shared across git worktrees of the same repository" 的派生规则把它归并到了仓库根。本机同样不存在 `-…-ArcReel-projects-<name>/` 的 transcript 目录，说明 30 天保留期内没有从该 data dir 启动过 SDK 会话（或 data dir 指向别处）；这与 memory 目录缺失无关。
 
 风险：创作 Agent 与开发者会话共享同一份 `MEMORY.md`，两者互相污染（创作 Agent 会读到"PR 里不要提白标 fork"之类的开发者反馈，开发者会话会读到创作 Agent 保存的项目记忆）。
 
