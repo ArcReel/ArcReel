@@ -104,6 +104,9 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
   const consume = async (body: ReadableStream<Uint8Array>, signal: AbortSignal) => {
     const parser = createParser({
       onEvent(message) {
+        // 收到事件才算这条连接真的可用，退避从此归零。只按 2xx 响应头归零的话，
+        // 「接受连接后立刻断流」的坏代理会让每次重连都停留在首个退避档，客户端按秒重连不止。
+        attempt = 0;
         if (message.id !== undefined) {
           lastEventId = message.id;
         }
@@ -142,12 +145,14 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
     }
     if (closed) return;
     if (!response.ok || !response.body) {
+      // 拒绝响应的响应体不会被读取，先取消释放连接：可重试状态会按退避反复重连，
+      // 每次留一条未消费的流会把连接占住直到 GC。
+      void response.body?.cancel().catch(() => {});
       const retryable = !NON_RETRYABLE_STATUSES.has(response.status);
       fail(new SseStreamError(`事件流被拒绝: HTTP ${response.status}`, { status: response.status, retryable }));
       return;
     }
 
-    attempt = 0;
     options.onOpen?.();
     try {
       await consume(response.body, signal);

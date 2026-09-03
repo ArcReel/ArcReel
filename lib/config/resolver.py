@@ -486,18 +486,29 @@ def _safe_dict(value: object, *, field: str) -> dict:
 def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> str | None:
     """project.model_settings（``provider/model`` 复合 key）> legacy video_model_settings > None。
 
-    逐层用 ``_safe_dict`` 防御非 dict 中间层（见 ``_safe_dict`` docstring）。
+    逐层用 ``_safe_dict`` 防御非 dict 中间层（见 ``_safe_dict`` docstring）；叶子值同样按
+    非空字符串收口并去空白——下游 ``constrain_durations`` 对它做 ``.strip().lower()``，手改
+    project.json 或历史脏数据留下的 int / list / dict 会在那里抛 ``AttributeError``。非字符串
+    与空白串一律按「未配置」继续回退，与写入侧的档位语义一致。
     """
     key = f"{provider_id}/{model_id}"
     model_settings = _safe_dict(project.get("model_settings"), field="model_settings")
     override = _safe_dict(model_settings.get(key), field=f"model_settings.{key}").get("resolution")
-    if override:
-        return override
+    if cleaned := _clean_resolution(override, field=f"model_settings.{key}.resolution"):
+        return cleaned
     video_model_settings = _safe_dict(project.get("video_model_settings"), field="video_model_settings")
     legacy = _safe_dict(video_model_settings.get(model_id), field=f"video_model_settings.{model_id}").get("resolution")
-    if legacy:
-        return legacy
-    return None
+    return _clean_resolution(legacy, field=f"video_model_settings.{model_id}.resolution")
+
+
+def _clean_resolution(value: object, *, field: str) -> str | None:
+    """非空字符串 → 去空白后的值；其余（含非字符串）→ None。"""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        logger.warning("project %s is %s, expected str; treating resolution as unset", field, type(value).__name__)
+        return None
+    return value.strip() or None
 
 
 # ---------------------------------------------------------------------------

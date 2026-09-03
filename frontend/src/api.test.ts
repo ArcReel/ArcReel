@@ -1315,10 +1315,11 @@ describe("API", () => {
       expect(fake.connections).toHaveLength(2);
       expect(fake.latest.headers.get("Last-Event-ID")).toBe("5");
 
-      // 凭证失效：与普通请求一致，清 token 并回登录页，不再重连
+      // 凭证失效：与普通请求一致，清 token 并回登录页，不再重连。
+      // 第二条连接没送到事件就断流，退避涨到 2s（只有收到事件才归零）。
       fake.latest.end();
       await flushStream();
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
       await flushStream();
       expect(fake.connections).toHaveLength(3);
       expect(handle.closed).toBe(true);

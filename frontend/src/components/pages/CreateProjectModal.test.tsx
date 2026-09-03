@@ -66,6 +66,37 @@ const mockProviders = {
   ],
 };
 
+/**
+ * 无项目端点的替身：向导里项目尚不存在，按候选模型回时长（服务端算好的收窄结果）。
+ *
+ * 每个 describe 的 beforeEach 都要装一次：`restoreMocks` 会在每个用例后还原 spy，
+ * 漏装的分组一旦走到第二步就会调真实 API。
+ */
+function stubModelVideoCapabilities() {
+  vi.spyOn(API, "getModelVideoCapabilities").mockImplementation((backend) => {
+    const durations = backend === "ark/seedance" ? [5, 10] : [4, 6, 8];
+    const [provider_id, model] = backend.split("/");
+    return Promise.resolve({
+      provider_id,
+      model,
+      supported_durations: durations,
+      max_duration: Math.max(...durations),
+      max_reference_images: 3,
+      first_frame: true,
+      last_frame: true,
+      source: "registry",
+      voice_consistency: "soft",
+      duration_constraints: {
+        resolution: null,
+        uses_reference_images: false,
+        allowed: durations,
+        allowed_without_reference_images: durations,
+        excluded: {},
+      },
+    });
+  });
+}
+
 describe("CreateProjectModal", () => {
   beforeEach(() => {
     navigateMock.mockClear();
@@ -75,29 +106,7 @@ describe("CreateProjectModal", () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    // 无项目端点的替身：向导里项目尚不存在，按候选模型回时长（服务端算好的收窄结果）
-    vi.spyOn(API, "getModelVideoCapabilities").mockImplementation((backend) => {
-      const durations = backend === "ark/seedance" ? [5, 10] : [4, 6, 8];
-      const [provider_id, model] = backend.split("/");
-      return Promise.resolve({
-        provider_id,
-        model,
-        supported_durations: durations,
-        max_duration: Math.max(...durations),
-        max_reference_images: 3,
-        first_frame: true,
-        last_frame: true,
-        source: "registry",
-        voice_consistency: "soft",
-        duration_constraints: {
-          resolution: null,
-          uses_reference_images: false,
-          allowed: durations,
-          allowed_without_reference_images: durations,
-          excluded: {},
-        },
-      });
-    });
+    stubModelVideoCapabilities();
     vi.spyOn(API, "createProject").mockResolvedValue({
       success: true,
       name: "demo-proj",
@@ -381,6 +390,7 @@ describe("CreateProjectModal ad mode", () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    stubModelVideoCapabilities();
     vi.spyOn(API, "createProject").mockResolvedValue({
       success: true,
       name: "ad-proj",
@@ -500,6 +510,7 @@ describe("CreateProjectModal language switch", () => {
     );
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    stubModelVideoCapabilities();
   });
 
   afterEach(async () => {

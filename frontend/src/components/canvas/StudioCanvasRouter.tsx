@@ -11,9 +11,6 @@ import {
   WORKSPACE_ROUTE_PRODUCTS,
   WORKSPACE_ROUTE_EPISODES,
 } from "@/app-routes";
-
-/** 集级路由 path，与渲染该集的 `<Route>` 共用一份。 */
-const EPISODE_ROUTE_PATH = `/${WORKSPACE_ROUTE_EPISODES}/:episodeId`;
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
@@ -59,6 +56,9 @@ import type {
   ReferenceGenerationRequestOptions,
 } from "@/types";
 import type { EpisodeScript } from "@/types/script";
+
+/** 集级路由 path，与渲染该集的 `<Route>` 共用一份。 */
+const EPISODE_ROUTE_PATH = `/${WORKSPACE_ROUTE_EPISODES}/:episodeId`;
 
 // ---------------------------------------------------------------------------
 // resolveSegmentPrompt -- shared segment lookup for generate storyboard/video

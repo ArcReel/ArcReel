@@ -929,6 +929,48 @@ describe("ModelConfigSection", () => {
     );
   });
 
+  it("stops accepting duration选择 while the new context's constraints are still in flight", async () => {
+    // 约束上下文变了但模型没变：旧收窄结果继续挂着（不闪加载态），但那是上一个档位的选项。
+    // 这段窗口内控件只展示不接受选择，否则用户能从 720p 的列表里给 4K 挑一个 4 秒。
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    // 闸口放在对象里：直接用 let + 闭包赋值时 TS 的控制流分析在使用点仍把它收窄成 null。
+    const gate: { release?: () => void } = {};
+    const original = fakeVideoCapabilities;
+    vi.spyOn(API, "getModelVideoCapabilities").mockImplementation((backend, query = {}) => {
+      if (query.resolution !== "4k") return original(backend, query);
+      return new Promise<VideoCapabilities>((resolve) => {
+        gate.release = () => resolve(original(backend, query));
+      });
+    });
+
+    const { rerender } = renderVeo({ videoResolution: "720p", onChange });
+    await screen.findByRole("radio", { name: "4 秒" });
+
+    rerender(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, videoBackend: "gemini-aistudio/veo", videoResolution: "4k", defaultDuration: null }}
+        onChange={onChange}
+        providers={VEO_PROVIDERS}
+        options={VEO_OPTIONS}
+        globalDefaults={NO_GLOBAL_DEFAULTS}
+      />,
+    );
+
+    // 旧选项还在（布局不跳），但整组已标记为不可操作，点击不产生任何写入。
+    const group = await screen.findByRole("radiogroup", { name: "默认时长" });
+    await waitFor(() => expect(group).toHaveAttribute("aria-disabled", "true"));
+    await user.click(screen.getByRole("radio", { name: "4 秒" }));
+    expect(onChange).not.toHaveBeenCalled();
+
+    gate.release?.();
+    // 新上下文落地后恢复可选，且只剩 4K 允许的档位。
+    expect(await screen.findByRole("radio", { name: "8 秒" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument());
+    await user.click(screen.getByRole("radio", { name: "8 秒" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: 8 }));
+  });
+
   it("offers only 8s on the reference-video path even at 720p", async () => {
     renderVeo({ videoResolution: "720p", usesReferenceImages: true });
     expect(await screen.findByRole("radio", { name: "8 秒" })).toBeInTheDocument();

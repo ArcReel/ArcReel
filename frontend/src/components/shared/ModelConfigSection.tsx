@@ -263,6 +263,10 @@ export function ModelConfigSection({
     usesReferenceImages,
   });
   const { rawDurations, supportedDurations, voiceConsistency } = capabilities;
+  // 约束上下文（分辨率 / 参考图路径）变了但模型没变时，旧的收窄结果会一直挂到新结果落地：
+  // 这样切档位不闪加载态，但这段窗口里的选项属于上一个上下文。期间只展示、不接受选择，
+  // 用户就不会从过期列表里挑一个新上下文并不允许的时长。
+  const durationStale = capabilities.loading;
 
   // 声音一致性档位：有项目上下文时服务端按「候选模型 × 本项目 generation_mode」派生（能力查询
   // 已带上 videoBackend，故编辑中未保存的选择也对得上）；无项目上下文时读目录端点的同名字段，
@@ -322,6 +326,9 @@ export function ModelConfigSection({
   // 提示文案按越界成因分开：模型全集就不含该值才是「模型不支持」，被联动约束收窄掉时说清
   // 是分辨率还是参考图路径——用户据此改对应设置，而不是被引去换模型。
   const durationNoticeKey = useMemo(() => {
+    // 过期上下文算不出成因：此时不给提示，也不报“无问题”——两者都会误导，
+    // 控件在同一窗口内不接受选择，新结果落地后提示按新上下文重算。
+    if (durationStale) return null;
     const reason = durationOutOfRangeReason(value.defaultDuration, capabilities);
     if (reason === null) return null;
     return {
@@ -329,7 +336,7 @@ export function ModelConfigSection({
       reference: "duration_unsupported_reference_notice",
       resolution: "duration_unsupported_resolution_notice",
     }[reason];
-  }, [value.defaultDuration, capabilities]);
+  }, [value.defaultDuration, capabilities, durationStale]);
 
   const renderResolutionField = (
     backend: string,
@@ -403,6 +410,7 @@ export function ModelConfigSection({
                   onChange={handleDurationClick}
                   ariaLabel={t("duration_label")}
                   autoLabel={t("duration_auto")}
+                  disabled={durationStale}
                 />
               ) : (
                 <DurationButtonGroup
@@ -411,6 +419,7 @@ export function ModelConfigSection({
                   onChange={handleDurationClick}
                   ariaLabel={t("duration_label")}
                   autoLabel={t("duration_auto")}
+                  disabled={durationStale}
                 />
               )}
               {durationNoticeKey && (
@@ -569,12 +578,15 @@ function DurationButtonGroup({
   onChange,
   ariaLabel,
   autoLabel,
+  disabled = false,
 }: {
   options: readonly number[];
   value: number | null;
   onChange: (next: number | null) => void;
   ariaLabel: string;
   autoLabel: string;
+  /** 选项属于已过期的约束上下文：仍可聚焦（不打断键盘走位），但不接受选择。 */
+  disabled?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const isAutoActive = value === null;
@@ -582,15 +594,23 @@ function DurationButtonGroup({
   // 兜底为可聚焦入口，否则整个 radiogroup 无 tabIndex=0 元素，键盘 Tab 无法触达、用户无从重选。
   const hasActiveOption = value !== null && options.includes(value);
   const isAutoTabbable = isAutoActive || !hasActiveOption;
+  const select = (next: number | null) => {
+    if (!disabled) onChange(next);
+  };
   return (
-    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={ariaLabel}>
+    <div
+      className={`flex flex-wrap gap-2${disabled ? " opacity-60" : ""}`}
+      role="radiogroup"
+      aria-label={ariaLabel}
+      aria-disabled={disabled || undefined}
+    >
       <button
         type="button"
         role="radio"
         aria-checked={isAutoActive}
         aria-label={autoLabel}
         tabIndex={isAutoTabbable ? 0 : -1}
-        onClick={() => onChange(null)}
+        onClick={() => select(null)}
         className={`${DURATION_PILL_BASE} ${isAutoActive ? durationActiveCls : durationInactiveCls}`}
         style={isAutoActive ? durationActiveStyle : undefined}
       >
@@ -606,7 +626,7 @@ function DurationButtonGroup({
             aria-checked={active}
             aria-label={t("duration_seconds_value_text", { value: d })}
             tabIndex={active ? 0 : -1}
-            onClick={() => onChange(d)}
+            onClick={() => select(d)}
             className={`${DURATION_PILL_BASE} ${active ? durationActiveCls : durationInactiveCls}`}
             style={active ? durationActiveStyle : undefined}
           >
@@ -624,12 +644,15 @@ function DurationSlider({
   onChange,
   ariaLabel,
   autoLabel,
+  disabled = false,
 }: {
   options: readonly number[];
   value: number | null;
   onChange: (next: number | null) => void;
   ariaLabel: string;
   autoLabel: string;
+  /** 同 {@link DurationButtonGroup}：过期上下文下只展示、不接受选择。 */
+  disabled?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const min = options[0];
@@ -643,13 +666,16 @@ function DurationSlider({
   const isAutoActive = value === null;
   const valueText = value === null ? autoLabel : t("duration_seconds_value_text", { value });
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className={`flex flex-wrap items-center gap-3${disabled ? " opacity-60" : ""}`}>
       <button
         type="button"
         role="radio"
         aria-checked={isAutoActive}
         aria-label={autoLabel}
-        onClick={() => onChange(null)}
+        aria-disabled={disabled || undefined}
+        onClick={() => {
+          if (!disabled) onChange(null);
+        }}
         className={`${DURATION_PILL_BASE} ${isAutoActive ? durationActiveCls : durationInactiveCls}`}
         style={isAutoActive ? durationActiveStyle : undefined}
       >
@@ -663,6 +689,7 @@ function DurationSlider({
         max={max}
         step={1}
         value={sliderValue}
+        disabled={disabled}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
         className="min-w-[120px] flex-1 accent-[var(--color-accent)]"
       />
