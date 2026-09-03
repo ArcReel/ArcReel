@@ -309,6 +309,8 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       panelGenerationRef.current += 1;
       // providerId 变化或手动重试时重置草稿/详情/错误；语言切换只换详情，保留未保存草稿。
       setDraft({});
+      // 保存的进行态属于上一次面板停留：不复位的话，在途的旧 PATCH 会让新面板的保存按钮一直禁用。
+      setSaving(false);
       applyDetail(null);
       setLoadError(null);
       setSaveError(null);
@@ -368,7 +370,8 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
         // 目录刷新与面板停在谁身上无关：入库的确实是这个供应商。
         onSaved?.();
       }
-      setSaving(false);
+      // 面板已经翻篇的话，进行态由新的那一次停留自己管，这里回写只会把它推回保存中。
+      if (stillOnThisProvider()) setSaving(false);
     }
   }, [draft, providerId, onSaved, applyDetail, startDetailRequest]);
 

@@ -202,6 +202,82 @@ describe("ProviderDetail", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
+  it("re-enables the save button on the new provider while an old save is still in flight", async () => {
+    const patch = createDeferred<void>();
+    vi.spyOn(API, "patchProviderConfig").mockReturnValue(patch.promise);
+    vi.spyOn(API, "getProviderConfig").mockImplementation((id) =>
+      Promise.resolve({ ...detailFor(i18n.language), id }),
+    );
+
+    const { rerender } = render(<ProviderDetail providerId="gemini-aistudio" />);
+    await screen.findByText("Gemini AI Studio（中文）");
+    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
+      target: { value: "7" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(screen.getByRole("button", { name: /保存中/ })).toBeDisabled();
+
+    // 切到别的供应商就是新的一次面板停留：上一次保存的进行态属于上一次停留，
+    // 不能让新面板的保存按钮跟着一起禁用。
+    rerender(<ProviderDetail providerId="openai-compatible" />);
+    const workers = await screen.findByRole("spinbutton", { name: "Max Workers" });
+    fireEvent.change(workers, { target: { value: "9" } });
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+
+    // 旧保存随后结算：收尾按代次判定，不把新面板重新推回保存中
+    await act(async () => {
+      patch.resolve();
+      await patch.promise;
+    });
+
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+    expect(workers).toHaveValue(9);
+  });
+
+  it("keeps the new provider's own save in progress when an older save settles first", async () => {
+    const first = createDeferred<void>();
+    const second = createDeferred<void>();
+    vi.spyOn(API, "patchProviderConfig")
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    vi.spyOn(API, "getProviderConfig").mockImplementation((id) =>
+      Promise.resolve({ ...detailFor(i18n.language), id }),
+    );
+
+    const { rerender } = render(<ProviderDetail providerId="gemini-aistudio" />);
+    await screen.findByText("Gemini AI Studio（中文）");
+    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
+      target: { value: "7" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    rerender(<ProviderDetail providerId="openai-compatible" />);
+    fireEvent.change(await screen.findByRole("spinbutton", { name: "Max Workers" }), {
+      target: { value: "9" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(screen.getByRole("button", { name: /保存中/ })).toBeDisabled();
+
+    // 旧供应商的 PATCH 后到：它的收尾不能把新面板从自己的保存中态里放出来，
+    // 否则同一份草稿会被重复提交。
+    await act(async () => {
+      first.resolve();
+      await first.promise;
+    });
+    expect(screen.getByRole("button", { name: /保存中/ })).toBeDisabled();
+
+    // 新面板自己的 PATCH 结算后才收尾：草稿清空，保存按钮随之收起。
+    await act(async () => {
+      second.resolve();
+      await second.promise;
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /保存/ })).not.toBeInTheDocument(),
+    );
+  });
+
   it("does not clear the draft when a save from an earlier visit to the same provider settles", async () => {
     const patch = createDeferred<void>();
     vi.spyOn(API, "patchProviderConfig").mockReturnValue(patch.promise);
