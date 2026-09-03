@@ -5,20 +5,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
-import {
-  AlertTriangle,
-  Check,
-  Copy,
-  KeyRound,
-  Loader2,
-  Plus,
-  Trash2,
-  X,
-} from "lucide-react";
+import { AlertTriangle, KeyRound, Loader2, Plus, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { copyText } from "@/utils/clipboard";
+import { CopyButton } from "@/components/ui/CopyButton";
 import { errMsg } from "@/utils/async";
 import { formatDate } from "@/utils/date-format";
 import {
@@ -82,18 +73,9 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
   const [expiresDays, setExpiresDays] = useState<number | "">(30);
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreateApiKeyResponse | null>(null);
-  const [copied, setCopied] = useState(false);
-  const copyTimerRef = useRef<number | null>(null);
 
   const canCreate = useMemo(() => name.trim().length > 0, [name]);
   const nameInputRef = useAutoFocus<HTMLInputElement>();
-
-  useEffect(
-    () => () => {
-      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
-    },
-    [],
-  );
 
   const handleCreate = useCallback(async () => {
     if (!canCreate || creating) return;
@@ -116,14 +98,6 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
       setCreating(false);
     }
   }, [canCreate, creating, expiresDays, name, onCreated, t]);
-
-  const handleCopy = useCallback(async () => {
-    if (!created?.key) return;
-    await copyText(created.key);
-    setCopied(true);
-    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
-    copyTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-  }, [created]);
 
   useEscapeClose(onClose);
 
@@ -271,21 +245,15 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 readOnly
                 type="text"
                 value={created.key}
-                aria-label={t("api_key")}
+                aria-label={t("api_key_label")}
                 className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/65 px-3 py-3 pr-12 font-mono text-[12.5px] tracking-[0.04em] text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
-              <button
-                type="button"
-                onClick={() => void handleCopy()}
-                className={`absolute right-2 top-1/2 -translate-y-1/2 ${ICON_BTN_FILLED_CLS}`}
-                title={t("common:copy")}
-              >
-                {copied ? (
-                  <Check className="h-3.5 w-3.5 text-good" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </button>
+              <CopyButton
+                text={created.key}
+                label={t("common:copy")}
+                copiedLabel={t("common:copied")}
+                className="absolute right-2 top-1/2 -translate-y-1/2"
+              />
             </div>
 
             <div className="flex justify-end pt-1">

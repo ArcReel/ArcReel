@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -63,10 +63,34 @@ describe("ApiKeysTab", () => {
 
     await createKey("ak_new_full_secret");
 
-    expect(screen.getByDisplayValue("ak_new_full_secret")).toBeInTheDocument();
+    // 只读输入框靠 aria-label 命名，密钥值本身不构成可访问名
+    expect(screen.getByRole("textbox", { name: "API Key" })).toHaveValue("ak_new_full_secret");
     fireEvent.click(screen.getByRole("button", { name: "复制" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("ak_new_full_secret"));
+  });
+
+  it("announces the copied state on the copy button and resets it", async () => {
+    stubClipboard();
+    render(<ApiKeysTab />);
+    await screen.findByText("ak_live****");
+    await createKey("ak_new_full_secret");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "复制" }));
+      await act(async () => {});
+
+      // 复制成功只换图标不换可访问名的话，读屏用户拿不到任何反馈
+      expect(screen.getByRole("button", { name: "已复制" })).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1500));
+
+      // 复位后第二次复制才能再次给出「已复制」反馈
+      expect(screen.getByRole("button", { name: "复制" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hides the full key again once the creation dialog is closed", async () => {
