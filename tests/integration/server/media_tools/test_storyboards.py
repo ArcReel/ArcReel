@@ -182,6 +182,49 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
     assert [s.resource_id for s in captured] == ["E1S01"]
 
 
+async def test_generate_storyboards_blocks_an_unregistered_reference(fake_ctx: ToolContext, monkeypatch) -> None:
+    """agent 入口与 Web 提交同判：未登记的引用阻断这条分镜，不建任务、不计费。"""
+    from server.media_tools import storyboards as mod
+
+    async def unreachable_batch(**_batch_kwargs):
+        raise AssertionError("引用有缺口时不该走到入队")
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", unreachable_batch)
+    fake_ctx.pm.script_payload["segments"][0]["characters_in_segment"] = ["无名氏"]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}
+
+    out = await call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+
+    result = read_generation_result(out)
+    assert result.blocked == ["E1S01"]
+    problem = next(item for item in result.items if item.unit_id == "E1S01").problem
+    assert problem is not None
+    assert (problem.code, problem.action) == ("reference_asset_unregistered", "generate_dependency")
+    assert problem.params["missing_text"] == "无名氏"
+
+
+async def test_generate_storyboards_blocks_a_character_without_an_asset_sheet(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from server.media_tools import storyboards as mod
+
+    async def unreachable_batch(**_batch_kwargs):
+        raise AssertionError("引用有缺口时不该走到入队")
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", unreachable_batch)
+    fake_ctx.pm.script_payload["segments"][0]["characters_in_segment"] = ["张三"]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}
+
+    out = await call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+
+    result = read_generation_result(out)
+    assert result.blocked == ["E1S01"]
+    problem = next(item for item in result.items if item.unit_id == "E1S01").problem
+    assert problem is not None
+    assert (problem.code, problem.action) == ("reference_asset_missing", "generate_dependency")
+    assert problem.params["missing_text"] == "character: 张三"
+
+
 async def test_generate_storyboards_rejects_mismatched_unit_script(fake_ctx: ToolContext) -> None:
     """失配剧本不能落进"✨ 所有分镜的分镜图都已生成"的假成功——报结构错误并指引重拆。"""
     fake_ctx.pm.script_payload = {

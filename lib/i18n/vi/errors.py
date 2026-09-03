@@ -77,6 +77,7 @@ MESSAGES = {
     "invalid_end_frame_image_path": "Đoạn '{segment_id}' có tham chiếu ảnh khung hình cuối không hợp lệ, vui lòng chụp lại khung hình cuối",
     "video_audio_switch_not_supported": "{provider}/{model} luôn tạo ra âm thanh và không thể tắt tiếng; hãy bật lại công tắc âm thanh trong cài đặt rồi thử lại",
     "reference_asset_missing": "Tài nguyên tham chiếu bị thiếu hoặc không khả dụng: {missing_text}",
+    "reference_asset_unregistered": "Tham chiếu đến tài nguyên chưa được đăng ký: {missing_text}; hãy đăng ký chúng hoặc sửa lại tên trong tham chiếu",
     "reference_capability_changed": "Khả năng đã khai báo là {declared}, nhưng tài nguyên thực tế yêu cầu {hydrated}; hãy sửa tài nguyên rồi thử lại",
     "reference_images_clamped": "Số lượng {count} ảnh tham chiếu vượt giới hạn {max_count} của {provider}/{model}; yêu cầu sẽ dùng {max_count} ảnh đầu tiên",
     "reference_capability_unavailable": "Không thể phân giải khả năng video {capability}; hãy kiểm tra cấu hình nhà cung cấp và mô hình",

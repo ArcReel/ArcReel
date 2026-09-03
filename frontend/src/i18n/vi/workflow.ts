@@ -155,5 +155,7 @@ export default {
   'problem_generation_task_cancelled': 'Lần thử gần nhất đã bị hủy.',
   'problem_generation_task_interrupted': 'Lần thử gần nhất đã bị gián đoạn.',
   'problem_generation_post_processing_failed': 'Video đã tạo xong nhưng xử lý hậu kỳ thất bại.',
+  'problem_reference_asset_unregistered': 'Đơn vị này tham chiếu đến tài nguyên chưa được đăng ký.',
+  'problem_reference_asset_missing': 'Tài nguyên được tham chiếu chưa có ảnh tài nguyên.',
   'problem_tts_not_configured': 'Chưa cấu hình mô hình giọng đọc tổng hợp.',
 } satisfies Record<keyof typeof enWorkflow, string>;

@@ -28,6 +28,8 @@ from lib.generation_result import (
     select_generation_targets,
 )
 from lib.prompt_builders import build_storyboard_prompt
+from lib.reference_admission import admit_storyboard_item
+from lib.reference_catalog import build_reference_catalog
 from lib.resource_paths import resource_relative_path
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
@@ -44,6 +46,7 @@ from server.media_tools.context import (
     validate_script_filename,
 )
 from server.media_tools.definition import tool
+from server.services.reference_admission import reference_admission_problems
 from server.tool_runtime import ToolOutcome, submit_media_generation
 
 _OPERATION = "generate_storyboards"
@@ -147,10 +150,29 @@ async def handle_generate_storyboards(ctx: ToolContext, args: dict[str, Any]) ->
 
         style = project_data.get("style", "")
         style_description = project_data.get("style_description", "")
+        # 引用准入与 Web 提交入口同源（``lib.reference_admission``）：未登记的引用与没有
+        # 资产图的角色 / 场景 / 道具此前被静默丢弃，agent 会拿到一张少了主体的付费分镜图。
+        catalog = build_reference_catalog(project_data)
         targets = []
         for state in selection.targets:
+            item = items_by_id[state.unit_id]
+            # 结果集一个分镜只记一条问题：取首条（未登记排在无资产图之前——名字都没登记时
+            # 「去生成资产图」指不出该对谁做），另一条在这条修完后的下一次调用里报出。
+            reference_problem = next(
+                iter(reference_admission_problems(admit_storyboard_item(catalog, item), unit_id=state.unit_id)),
+                None,
+            )
+            if reference_problem is not None:
+                builder.block(
+                    state.unit_id,
+                    problem=reference_problem,
+                    artifact_key=state.artifact_key,
+                    artifact_path=state.artifact_path,
+                    artifact_status=state.status,
+                )
+                continue
             try:
-                _build_prompt(items_by_id[state.unit_id], style, style_description, id_field)
+                _build_prompt(item, style, style_description, id_field)
             except (KeyError, TypeError, ValueError) as exc:
                 builder.block(
                     state.unit_id,

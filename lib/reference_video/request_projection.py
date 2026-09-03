@@ -39,6 +39,12 @@ from lib.narration_delivery import (
     NarrationDelivery as NarrationDelivery,
 )
 from lib.path_safety import PathTraversalError, safe_join
+from lib.reference_admission import (
+    SHEET_REQUIRED_ASSET_TYPES,
+    UNREGISTERED_REFERENCE_CODE,
+    ReferenceAdmission,
+    admit_references,
+)
 from lib.reference_catalog import build_reference_catalog
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.text_parser import derive_references_from_text
@@ -419,13 +425,30 @@ def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceRes
     return tuple(references)
 
 
+def unit_reference_admission(project: dict, unit: dict) -> ReferenceAdmission:
+    """本单元正文的引用准入结论——与分镜路线共用 :mod:`lib.reference_admission` 的判定。
+
+    单条生成与整批准入都经本投影器，两者因此不会对同一份正文给出相反的答复。
+    """
+
+    raw_text = unit.get("text")
+    text = raw_text if isinstance(raw_text, str) else ""
+    references, unregistered = derive_references_from_text(text, project)
+    return admit_references(
+        build_reference_catalog(project),
+        references=[(reference.type, reference.name) for reference in references],
+        unregistered=unregistered,
+    )
+
+
 def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> tuple[ResolvedReferenceAsset, ...]:
     """把正文派生的逻辑引用展开为图片候选，不把「路径已登记」误当成「文件存在」。
 
-    每件资产同一条规则：有资产图就用资产图，没有才退到该资产的全部原图。商品与其它资产
-    共用这条规则，不按类型排序、也不在有资产图时额外注入原图（见 ADR 0064 与 ADR 0034）。
-    缺字段、未登记或越界路径不制造候选，由 projector 对照派生引用统一产出
-    ``reference_asset_missing``。
+    有资产图就用资产图。没有资产图时只有商品退到它的全部原图——原图是商品的保真验收锚点
+    （见 ADR 0034）；角色、场景、道具的原图只是生成资产图的输入，不进视频请求（见 ADR 0073），
+    没有资产图就不产生候选、由 projector 报成阻断。有资产图时任何类型都不额外注入原图，
+    也不按类型排序（见 ADR 0064）。缺字段、未登记或越界路径不制造候选，由 projector 对照
+    派生引用统一产出 ``reference_asset_missing``。
     """
 
     catalog = build_reference_catalog(project)
@@ -441,6 +464,8 @@ def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> t
         sheet = _candidate_path(project_path, entry.get(spec.sheet_field))
         if sheet is not None:
             result.append(ResolvedReferenceAsset(path=sheet, reference=reference, kind="sheet"))
+            continue
+        if catalog_entry.asset_type in SHEET_REQUIRED_ASSET_TYPES:
             continue
         for raw_path in _original_image_paths(entry, spec):
             original = _candidate_path(project_path, raw_path)
@@ -565,6 +590,7 @@ def clamp_reference_assets(
 
 _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] = {
     "reference_asset_missing": ("repair_reference_assets", (("text",),)),
+    UNREGISTERED_REFERENCE_CODE: ("repair_reference_assets", (("text",),)),
     "reference_capability_changed": ("repair_reference_assets", (("text",),)),
     "reference_images_clamped": ("review_reference_selection", (("text",),)),
     "video_audio_switch_not_supported": (
@@ -642,6 +668,19 @@ class ReferenceUnitRequestProjector:
                     locations=tuple(location.path for location in delivery_problem.locations),
                 )
                 for delivery_problem in options.narration_preparation.problems
+            )
+        # 未登记引用不产生派生引用，因而不会出现在 ``hydration.missing`` 里：它此前被静默丢弃、
+        # 照常发出一次不带这张图的付费请求，现在在生成入口阻断并列名。无资产图的角色 / 场景 /
+        # 道具不需要在此另报——它们不再退回原图，展开时就不产生候选，一律落进 ``hydration.missing``。
+        admission = unit_reference_admission(project, unit)
+        if admission.unregistered:
+            problems.append(
+                _problem(
+                    UNREGISTERED_REFERENCE_CODE,
+                    blocking=True,
+                    unregistered=admission.unregistered,
+                    missing_text=admission.unregistered_text(),
+                )
             )
         if hydration.missing:
             missing = tuple((ref.type, ref.name) for ref in hydration.missing)

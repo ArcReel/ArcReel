@@ -155,5 +155,7 @@ export default {
   'problem_generation_task_cancelled': '上一次尝试被取消了。',
   'problem_generation_task_interrupted': '上一次尝试被中断了。',
   'problem_generation_post_processing_failed': '视频生成完成，但后期处理失败。',
+  'problem_reference_asset_unregistered': '这个单元引用了未登记的资产名。',
+  'problem_reference_asset_missing': '引用的资产还没有资产图。',
   'problem_tts_not_configured': '还没有配置语音合成模型。',
 } satisfies Record<keyof typeof enWorkflow, string>;

@@ -456,6 +456,58 @@ def test_generate_grid_success(monkeypatch, tmp_path):
     assert saved["scene_ids"] == ["E1S01", "E1S02", "E1S03", "E1S04"]
 
 
+class _FakePMBlockedReference(_FakePMGenerate):
+    """一条分镜引用了未登记的场景——宫格是最贵的一次批量出图，缺口须在提交前拦住。"""
+
+    def load_script(self, name, script_file):
+        script = _narration_script()
+        script["segments"][2]["scenes"] = ["未登记的场景"]
+        return script
+
+
+class _FakePMSheetlessReference(_FakePMGenerate):
+    def load_project(self, name):
+        return {**super().load_project(name), "characters": {"Alice": {"reference_image": "characters/a.png"}}}
+
+    def load_script(self, name, script_file):
+        script = _narration_script()
+        script["segments"][1]["characters_in_segment"] = ["Alice"]
+        return script
+
+
+def test_generate_grid_blocks_the_whole_batch_on_an_unregistered_reference(monkeypatch, tmp_path):
+    """整批准入：一条分镜有缺口就整批拒绝，不让同批健康的分组独自计费。"""
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMBlockedReference(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+
+    with client:
+        resp = client.post("/api/v1/projects/demo/generate/grid/1", json={"script_file": "episode_1.json"})
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message("reference_asset_unregistered", missing_text="未登记的场景")
+    assert fake_queue.calls == []
+
+
+def test_generate_grid_blocks_a_character_without_an_asset_sheet(monkeypatch, tmp_path):
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMSheetlessReference(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+
+    with client:
+        resp = client.post("/api/v1/projects/demo/generate/grid/1", json={"script_file": "episode_1.json"})
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message("reference_asset_missing", missing_text="character: Alice")
+    assert fake_queue.calls == []
+
+
 def test_generate_grid_success_message_localized_en(monkeypatch, tmp_path):
     # Accept-Language=en 时 message 按英文渲染，验证成功文案已接入 Translator
     fake_queue = _FakeQueue()
@@ -733,6 +785,45 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
     assert saved.status == "pending"
     assert saved.error_message is None
     assert saved.provider == ""
+
+
+class _FakePMRegenerateBlockedReference(_FakePMRegenerate):
+    def load_script(self, name, script_file):
+        script = _narration_script()
+        script["segments"][0]["props"] = ["未登记的道具"]
+        return script
+
+
+def test_regenerate_grid_blocks_on_a_reference_gap_without_mutating_the_record(monkeypatch, tmp_path):
+    """重生成是又一次付费出图：准入与首次生成同判，拒绝时记录状态不动。"""
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S01", "E1S02", "E1S03", "E1S04"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="stale-provider",
+        model="stale-model",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "failed"
+    grid.error_message = "boom"
+    GridManager(tmp_path).save(grid)
+
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerateBlockedReference(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate")
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message("reference_asset_unregistered", missing_text="未登记的道具")
+    assert fake_queue.calls == []
+    assert GridManager(tmp_path).get(grid.id) == grid
 
 
 def _regenerate_with_frozen_ratio(monkeypatch, tmp_path, frozen: str | None) -> tuple[GridGeneration, dict]:

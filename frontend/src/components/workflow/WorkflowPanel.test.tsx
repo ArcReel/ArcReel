@@ -350,6 +350,50 @@ describe("WorkflowPanel 整批准入判定", () => {
     }
   });
 
+  it("引用准入缺口没有服务端文案时按 code 回退到译文，不把技术串显给用户", async () => {
+    await renderExpanded(
+      makePlan({
+        steps: [
+          makeStep({
+            id: "video",
+            state: "blocked",
+            admission: {
+              decision: "blocked",
+              operation: "generate_videos",
+              selection: "missing_only",
+              narration_delivery: "post_production",
+              units: [
+                {
+                  unit_id: "E1U1",
+                  admitted: false,
+                  problems: [
+                    {
+                      code: "reference_asset_unregistered",
+                      action: "generate_dependency",
+                      params: { missing_text: "无名氏" },
+                    },
+                  ],
+                },
+                {
+                  unit_id: "E1U2",
+                  admitted: false,
+                  problems: [
+                    { code: "reference_asset_missing", action: "generate_dependency", params: {} },
+                  ],
+                },
+              ],
+              confirmation: null,
+            },
+          }),
+        ],
+      }),
+    );
+    const row = screen.getByTestId("workflow-step-video");
+    expect(within(row).getByText("这个单元引用了未登记的资产名。")).toBeInTheDocument();
+    expect(within(row).getByText("引用的资产还没有资产图。")).toBeInTheDocument();
+    expect(within(row).getAllByText(/下一步：补上或更换缺失的参考素材/)).toHaveLength(2);
+  });
+
   it("需确认档位时确认动作只带回档位并重新求解，不直接入队", async () => {
     const spy = mockPlan(
       makePlan({

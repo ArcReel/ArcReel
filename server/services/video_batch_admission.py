@@ -62,6 +62,8 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     render_storyboard_video_prompt,
 )
+from lib.reference_admission import admit_storyboard_item
+from lib.reference_catalog import build_reference_catalog
 from lib.reference_video.request_projection import (
     ProjectionProblem,
     ReferenceRequestOptions,
@@ -78,6 +80,7 @@ from server.services.narration_delivery_tasks import (
     prepare_current_reference_video_request_options,
     prepare_current_storyboard_narrated_video_duration,
 )
+from server.services.reference_admission import reference_admission_problems
 from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
 
 
@@ -695,6 +698,7 @@ async def admit_storyboard_video_batch(
         else frozenset()
     )
     capability = video_bucket_for_generation_mode(project.get("generation_mode"))
+    catalog = build_reference_catalog(project)
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
     for resource_id, item, visual_prompt in items:
@@ -702,6 +706,10 @@ async def admit_storyboard_video_batch(
             tickets.append(
                 UnitAdmissionTicket(unit_id=resource_id, problems=(active_task_problem(conflicts[resource_id]),))
             )
+            continue
+        reference_problems = reference_admission_problems(admit_storyboard_item(catalog, item), unit_id=resource_id)
+        if reference_problems:
+            tickets.append(UnitAdmissionTicket(unit_id=resource_id, problems=reference_problems))
             continue
         if request_options.narration_delivery != USE_TTS:
             tickets.append(UnitAdmissionTicket(unit_id=resource_id))

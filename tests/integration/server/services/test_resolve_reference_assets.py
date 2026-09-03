@@ -85,6 +85,23 @@ def test_product_reference_with_original_only_is_executable(tmp_path: Path):
     assert entries[0].kind == "original"
 
 
+def test_character_with_original_only_resolves_to_nothing(tmp_path: Path):
+    """角色原图只是生成资产图的输入，不顶替资产图进视频请求（ADR 0073）。"""
+    proj_dir = write_project(tmp_path)
+    project, _ = load_project_and_unit(proj_dir, "E1U1")
+    refs_dir = proj_dir / "characters" / "refs"
+    refs_dir.mkdir(parents=True)
+    (refs_dir / "李四.png").write_bytes((proj_dir / "characters" / "张三.png").read_bytes())
+    project["characters"]["李四"] = {
+        "description": "x",
+        "character_sheet": "",
+        "reference_image": "characters/refs/李四.png",
+    }
+    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    assert _resolved_names(project, proj_dir, "@[李四] 推门") == []
+
+
 def test_resolve_reference_assets_ignores_an_unregistered_mention(tmp_path: Path):
     proj_dir = write_project(tmp_path)
     project, _ = load_project_and_unit(proj_dir, "E1U1")
