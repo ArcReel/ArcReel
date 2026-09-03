@@ -8,6 +8,9 @@
 工厂内部从 spec 解析 URL 路径段、bucket key、sheet 字段、PATCH 字段白名单
 （description + sheet_field + extra_string_fields + extra_list_fields）。i18n key
 命名差异（scene 用历史前缀 "project_scene_*"）通过 _I18N_KEYS 表维护。
+
+``spec.supports_derivatives`` 开启的类型（当前只有 character）额外挂上衍生子资源路由，
+见 server/routers/_asset_derivatives.py。
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from lib.asset_rename import (
 )
 from lib.asset_types import (
     ASSET_SPECS,
+    DERIVATIVES_FIELD,
     ProjectAssetNameConflictError,
     localize_asset_type,
     validate_asset_name,
@@ -37,6 +41,7 @@ from lib.asset_types import (
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
+from server.routers._asset_derivatives import register_derivative_routes
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +194,9 @@ def build_asset_router(
                     entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                 for field in spec.extra_list_fields:
                     entry[field] = list(extras.get(field) or [])
+                # 衍生只经衍生子资源登记：创建请求体里的同名字段一律不落盘，新条目一律空表。
+                if spec.supports_derivatives:
+                    entry[DERIVATIVES_FIELD] = {}
                 with project_change_source("webui"):
                     ok = manager._add_asset(asset_type, project_name, name, entry)
                 if not ok:
@@ -349,5 +357,8 @@ def build_asset_router(
         except Exception as exc:
             logger.exception("请求处理失败")
             raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+    if spec.supports_derivatives:
+        register_derivative_routes(router, spec=spec, not_found_key=keys["not_found"], pm_getter=pm_getter)
 
     return router

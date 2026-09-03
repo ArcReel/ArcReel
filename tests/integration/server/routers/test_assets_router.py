@@ -564,6 +564,61 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert data["characters"]["王"]["description"] == "library desc"
 
+    def test_overwrite_policy_keeps_the_target_character_derivatives(self, assets_env):
+        """衍生登记在角色条目内、不随全局库进出；覆盖导入不得连带抹掉已登记的衍生。"""
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_character("target", "王", "old desc", "")
+        table = {"战斗装": {"description": "黑甲", "character_sheet": ""}}
+
+        def _register(entry: dict) -> None:
+            entry["derivatives"] = table
+
+        pm.update_asset_entry("character", "target", "王", _register)
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "character", "name": "王", "description": "library desc"},
+        )
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+        )
+
+        assert response.status_code == 200
+        entry = pm.load_project("target")["characters"]["王"]
+        assert entry["description"] == "library desc"
+        assert entry["derivatives"] == table
+
+    def test_imported_character_carries_an_empty_derivative_table(self, assets_env):
+        """新建条目一律带空衍生表，与创建路径和迁移同一不变量。"""
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "character", "name": "李", "description": "library desc"},
+        )
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+
+        assert response.status_code == 200
+        assert pm.load_project("target")["characters"]["李"]["derivatives"] == {}
+
     def test_overwrite_policy_registers_the_imported_formal_sheet_claim(self, assets_env):
         client = assets_env["client"]
         pm = assets_env["pm"]

@@ -39,6 +39,7 @@ from lib.asset_rename import (
 )
 from lib.asset_types import (
     ASSET_SPECS,
+    DERIVATIVES_FIELD,
     ProjectAssetNameConflictError,
     asset_name_comparison_key,
     ensure_project_asset_name_available,
@@ -3445,6 +3446,9 @@ class ProjectManager:
         source 为 None 时（add_character 等单条新增），仅写入 spec 中声明的 extra 字段
         默认值（字符串字段空串、列表字段空列表）；source 提供时（batch 新增），同时允许
         覆盖 sheet 字段。source 中的非法类型不在此处修正，由落盘前的结构校验 fail-loud。
+
+        开启 ``supports_derivatives`` 的类型一律初始化为空衍生表：衍生只经角色路由下的
+        衍生子资源登记，批量新增与 agent 写入路径都不携带它。
         """
         spec = ASSET_SPECS[asset_type]
         data = source or {}
@@ -3459,6 +3463,8 @@ class ProjectManager:
                 entry[field] = []
             else:
                 entry[field] = value  # 非法类型透传，由落盘前结构校验 fail-loud
+        if spec.supports_derivatives:
+            entry[DERIVATIVES_FIELD] = {}
         return entry
 
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:

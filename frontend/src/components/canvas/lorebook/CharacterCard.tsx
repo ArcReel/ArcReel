@@ -13,6 +13,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { CharacterDerivativesButton } from "./CharacterDerivativesButton";
 import { EditableAssetName } from "./EditableAssetName";
 import { VoiceSampleButton } from "./VoiceSampleButton";
 import type { Character, CharacterVoiceBinding } from "@/types";
@@ -396,6 +397,13 @@ export function CharacterCard({
             aria-label={t("assets:upload_sheet")}
             className="hidden"
             onChange={(e) => void handleSheetUpload(e)}
+          />
+          <CharacterDerivativesButton
+            projectName={projectName}
+            characterName={name}
+            derivatives={character.derivatives ?? {}}
+            busy={generating || uploadingSheet || saving || deletingAudio}
+            onReload={onReload}
           />
           <ImageEditButton
             projectName={projectName}
