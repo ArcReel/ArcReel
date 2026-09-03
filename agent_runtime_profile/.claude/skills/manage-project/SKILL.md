@@ -38,8 +38,8 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 **三种调用形态三选一**：传 `{"table", "entries"}` 走资产 upsert，传 `{"settings"}` 走顶层字段写入，
 传 `{"overview"}` 走项目概述编辑；同时给出多个或都不给会被拒。`settings` 白名单字段：
 
-- `episode_target_units`：`int >= 1` 设置 / `null` 清除。每集目标体量（按 `source_language` 解读为阅读单位），分集规划工具按它把握每集切分体量
-- `episode_target_duration`：`10`–`600` 的整数秒设置 / `null` 清除。单集成片目标时长，脚本规划据它决定本集拆多少个分镜 / 视频单元；软目标（可被内容需要覆盖，超出只提示不阻断），仅非广告/短片项目可写，ad 项目写入会被拒（整集体量已由 `target_duration` 预算表达）
+- `episode_target_units`：`int >= 1` 设置 / `null` 清除。每集目标体量（按 `source_language` 解读为阅读单位），分集规划工具按它把握每集切分体量；未设置时工具按 `episode_target_duration` 经口播语速折算出等效体量，不必为了控体量而先问用户字数
+- `episode_target_duration`：`10`–`600` 的整数秒设置 / `null` 清除。单集成片目标时长，脚本规划据它决定本集拆多少个分镜 / 视频单元；未设 `episode_target_units` 时分集规划也按它折算每集塞多少原文（`episode_target_units` 显式设置时以后者为准）。软目标（可被内容需要覆盖，超出只提示不阻断），仅非广告/短片项目可写，ad 项目写入会被拒（整集体量已由 `target_duration` 预算表达）
 - `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。优先级：**用户显式配置 > 自动推断**——用户明确指定语言时即可写入（不限于 overview 跳过或失败的场景）；无用户显式确认时不要自行猜测写入，正常路径由 overview 生成自动落盘。发现显式配置与自动推断 / 源文实际语言不一致时，提醒用户（WARN）并按显式配置继续，不阻塞流程
 - `brief`：字符串设置 / `null` 清除。创作诉求短文本，仅广告/短片项目（`content_mode=ad`）可写，其他项目类型写入会被拒
 - `planning_window_chars`：`int >= 1` 设置 / `null` 清除回内部默认。分集规划单批读取的源文窗口字符数

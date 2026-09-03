@@ -43,6 +43,7 @@ from lib.episode_ledger import (
     register_orphan_episode_entries,
 )
 from lib.episode_paths import episode_script_relpath
+from lib.episode_target_volume import EpisodeTargetVolume, resolve_episode_target_volume
 from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, resolve_source_kind
@@ -106,7 +107,7 @@ class LedgerStats:
     total_episodes: int
     smallest: list[tuple[int, int]]  # (集号, 体量) 体量最小的最多 5 集，按体量升序
     median_units: int | None
-    target_units: int | None
+    target_volume: EpisodeTargetVolume | None
 
 
 @dataclass
@@ -1007,12 +1008,11 @@ class EpisodePlanner:
 
         ordered = sorted(units_by_episode.items(), key=lambda pair: (pair[1], pair[0]))
         values = sorted(units_by_episode.values())
-        target = project.get("episode_target_units")
         return LedgerStats(
             total_episodes=_count_planned_episodes(project),
             smallest=ordered[:5],
             median_units=round(statistics.median(values)) if values else None,
-            target_units=target if isinstance(target, int) and not isinstance(target, bool) and target >= 1 else None,
+            target_volume=resolve_episode_target_volume(project, language=language),
         )
 
 
@@ -1049,6 +1049,23 @@ def _context_entries(project: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [e for _, e in anchored[-_CONTEXT_EPISODES_LIMIT:]]
 
 
+def _target_volume_line(volume: EpisodeTargetVolume | None) -> str:
+    """规划 prompt 的「每集目标体量」行，按来源分三种措辞。
+
+    折算来源的措辞写明目标时长与换算语速：模型据此知道这个数是估出来的、可为剧情完整性
+    浮动，而不是用户逐字给定的体量。
+    """
+    if volume is None:
+        return "- 每集目标体量：未设置，请按短视频节奏自行把握（以剧情弧完整优先）"
+    if volume.source == "duration":
+        return (
+            f"- 每集目标体量：约 {volume.units} {volume.unit_noun}"
+            f"（按单集目标时长 {volume.seconds} 秒、口播语速约 {volume.units_per_second:g} "
+            f"{volume.unit_noun}/秒粗略折算，允许为剧情完整性上下浮动）"
+        )
+    return f"- 每集目标体量：约 {volume.units} {volume.unit_noun}（允许为剧情完整性上下浮动）"
+
+
 def _build_planning_prompt(
     *,
     project: Mapping[str, Any],
@@ -1068,8 +1085,9 @@ def _build_planning_prompt(
     注入「全局进度」分节（调用方只在 instructions 非空时传入）。
     """
     overview = project.get("overview") or {}
-    unit_name = reading_unit_noun(_language_of(project))
-    target_units = project.get("episode_target_units")
+    language = _language_of(project)
+    unit_name = reading_unit_noun(language)
+    target_volume = resolve_episode_target_volume(project, language=language)
     is_screenplay = resolve_source_kind(project) == "screenplay"
 
     lines: list[str] = [
@@ -1084,10 +1102,7 @@ def _build_planning_prompt(
     genre = overview.get("genre") if isinstance(overview, Mapping) else None
     if genre:
         lines.append(f"- 题材：{genre}")
-    if isinstance(target_units, int) and not isinstance(target_units, bool) and target_units >= 1:
-        lines.append(f"- 每集目标体量：约 {target_units} {unit_name}（允许为剧情完整性上下浮动）")
-    else:
-        lines.append("- 每集目标体量：未设置，请按短视频节奏自行把握（以剧情弧完整优先）")
+    lines.append(_target_volume_line(target_volume))
     if max_episodes is not None:
         lines.append(f"- 本批最多规划 {max_episodes} 集")
 

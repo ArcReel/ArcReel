@@ -58,6 +58,7 @@ from lib.episode_target_duration import (
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
+from lib.episode_target_volume import EPISODE_TARGET_UNITS_FIELD
 from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.generation_batch import (
     GenerationBatchReadModel,
@@ -1532,7 +1533,7 @@ async def patch_episode_script(
 MAX_INSTRUCTIONS_LEN = 4000
 ASSET_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 PROJECT_SETTINGS = (
-    "episode_target_units",
+    EPISODE_TARGET_UNITS_FIELD,
     EPISODE_TARGET_DURATION_FIELD,
     "source_language",
     "brief",
@@ -1546,7 +1547,7 @@ PROJECT_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
 EPISODE_META_FIELDS = ("title",)
 
 _SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
-_POSITIVE_INT_SETTINGS = ("episode_target_units", "planning_window_chars", "planning_max_episodes")
+_POSITIVE_INT_SETTINGS = (EPISODE_TARGET_UNITS_FIELD, "planning_window_chars", "planning_max_episodes")
 
 
 class ToolMessage(BaseModel):
@@ -1730,11 +1731,14 @@ async def migration_gate(scope: ProjectScope, services: Services) -> ToolProblem
 def _ledger_stats_payload(stats: LedgerStats | None) -> dict[str, Any] | None:
     if stats is None:
         return None
+    volume = stats.target_volume
     return {
         "total_episodes": stats.total_episodes,
         "smallest": stats.smallest,
         "median_units": stats.median_units,
-        "target_units": stats.target_units,
+        "target_units": volume.units if volume is not None else None,
+        "target_units_source": volume.source if volume is not None else None,
+        "target_seconds": volume.seconds if volume is not None else None,
     }
 
 
@@ -1745,8 +1749,11 @@ def _render_ledger_stats(stats: LedgerStats) -> list[str]:
         lines.append(f"体量最小的几集：{smallest}")
     if stats.median_units is not None:
         lines.append(f"全账本体量中位数：约 {stats.median_units}")
-    if stats.target_units is not None:
-        lines.append(f"每集目标体量设置：约 {stats.target_units}")
+    if (volume := stats.target_volume) is not None:
+        # 折算来源须与显式设置区分：主 Agent 核对体量偏差时，折算值叠了一层语速估算，
+        # 不能当成用户给定的硬指标。
+        derived = f"（按单集目标时长 {volume.seconds} 秒折算）" if volume.source == "duration" else ""
+        lines.append(f"每集目标体量设置：约 {volume.units}{derived}")
     lines.append("若用户给过总集数、按章节对齐等结构性偏好，请对照以上分布核实，有偏差须向用户明确说明。")
     return lines
 

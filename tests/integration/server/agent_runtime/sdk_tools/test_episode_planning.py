@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 
+from lib.episode_target_volume import EpisodeTargetVolume
 from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     call,
@@ -178,7 +180,8 @@ async def test_plan_episodes_source_exhausted_includes_ledger_stats(fake_ctx: To
     from lib.episode_planner import LedgerStats, PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
-    stats = LedgerStats(total_episodes=30, smallest=[(30, 57), (12, 640)], median_units=812, target_units=800)
+    volume = EpisodeTargetVolume(units=800, unit_noun="字", source="units")
+    stats = LedgerStats(total_episodes=30, smallest=[(30, 57), (12, 640)], median_units=812, target_volume=volume)
     result = PlanResult(episodes=[], cursor=None, source_exhausted=True, ledger_stats=stats)
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
     out = await call(mod.plan_episodes_tool(fake_ctx), {})
@@ -190,7 +193,34 @@ async def test_plan_episodes_source_exhausted_includes_ledger_stats(fake_ctx: To
     assert "第 12 集（约 640）" in text
     assert "中位数：约 812" in text
     assert "目标体量设置：约 800" in text
+    assert "折算" not in text  # 显式设置不带来源说明
     assert "有偏差须向用户明确说明" in text
+    payload = json.loads(text)["episode_plan"]["ledger_stats"]
+    assert payload["target_units"] == 800
+    assert payload["target_units_source"] == "units"
+    assert payload["target_seconds"] is None
+
+
+async def test_plan_episodes_ledger_stats_marks_target_volume_derived_from_duration(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """折算而来的目标体量在核对材料里标明来源：主 Agent 不能把估算值当成用户给的硬指标。"""
+    from lib.episode_planner import LedgerStats, PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    volume = EpisodeTargetVolume(units=450, unit_noun="字", source="duration", seconds=90, units_per_second=5.0)
+    stats = LedgerStats(total_episodes=30, smallest=[], median_units=812, target_volume=volume)
+    result = PlanResult(episodes=[], cursor=None, source_exhausted=True, ledger_stats=stats)
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
+    out = await call(mod.plan_episodes_tool(fake_ctx), {})
+
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert "目标体量设置：约 450（按单集目标时长 90 秒折算）" in text
+    payload = json.loads(text)["episode_plan"]["ledger_stats"]
+    assert payload["target_units"] == 450
+    assert payload["target_units_source"] == "duration"
+    assert payload["target_seconds"] == 90
 
 
 async def test_plan_episodes_normal_batch_reports_total_planned_line_only(fake_ctx: ToolContext, monkeypatch) -> None:

@@ -1,7 +1,7 @@
 """分集规划服务的行为测试（mock 文本后端，不触真实 LLM）。
 
-只断言外部行为：账本内容、派生文件、planning_cursor、报错与返回摘要；
-不断言 prompt 文本细节或内部调用次数（重试语义除外——重试是对外契约）。
+只断言外部行为：账本内容、派生文件、planning_cursor、报错与返回摘要；prompt 仅在明确的
+逐字兼容契约下锁定，内部调用次数仅在重试语义下断言。
 """
 
 from __future__ import annotations
@@ -44,6 +44,51 @@ SOURCE = (
 
 ANCHOR_EP1 = "玉中藏着剑诀。"
 ANCHOR_EP2 = "被追杀的少女。"
+ANCHOR_EP3 = "卷入漩涡之中。"
+
+#: 一次吃完整篇源文的三集草稿，多条「源文耗尽」路径的用例共用。
+_THREE_EPISODE_DRAFT = [
+    {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
+    {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
+    {"title": "丙", "hook": "丙", "end_anchor": ANCHOR_EP3},
+]
+
+#: 目标体量两个来源都未设置时的 prompt 行，逐字锁住「自行把握」这条现状措辞。
+_TARGET_VOLUME_UNSET_LINE = "- 每集目标体量：未设置，请按短视频节奏自行把握（以剧情弧完整优先）"
+
+
+def _expected_planning_prompt(target_volume_line: str, *, content_mode: str = "narration") -> str:
+    """完整锁住目标体量三种来源之外的既有 planning prompt。"""
+    lines = [
+        "你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，",
+        "并在集尾留下让观众想看下一集的钩子。",
+        "",
+        "# 项目信息",
+        f"- 创作类型：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
+        target_volume_line,
+        "- 本批最多规划 20 集",
+        "",
+        "# 切分规则",
+        "- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：这一刀为什么切在这、给观众留了什么悬念）、",
+        "  end_anchor（本集结尾处的原文片段，10~30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；",
+        "  本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。",
+    ]
+    if content_mode == "drama":
+        lines.append(
+            "- 每一集另给出 story_beats（本集故事节点列表，按顺序）"
+            "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）。"
+        )
+    lines += [
+        "- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。",
+        "- 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。",
+        "- 只输出符合 schema 的 JSON，不要输出其他内容。",
+        "",
+        "# 小说原文片段",
+        "---",
+        SOURCE,
+        "---",
+    ]
+    return "\n".join(lines)
 
 
 def _end_of(anchor: str, text: str = SOURCE) -> int:
@@ -1186,6 +1231,61 @@ class TestPlan:
         assert f"未规划余量约 {remaining_units} 字" in prompt
         assert f"本窗口为其中前 {window_units} 字" in prompt
 
+    async def test_plan_prompt_target_volume_line_reads_explicit_units(self, tmp_path: Path):
+        """两者都设时显式体量优先：prompt 与只设 episode_target_units 时逐字一致，折算不介入。"""
+        both = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+        units_only = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+        both_dir = _write_project(tmp_path / "b", extra={"episode_target_units": 800, "episode_target_duration": 90})
+        units_dir = _write_project(tmp_path / "u", extra={"episode_target_units": 800})
+
+        await EpisodePlanner(both_dir, generator=both).plan()
+        await EpisodePlanner(units_dir, generator=units_only).plan()
+
+        expected = _expected_planning_prompt("- 每集目标体量：约 800 字（允许为剧情完整性上下浮动）")
+        assert both.requests[0].prompt == expected
+        assert units_only.requests[0].prompt == expected
+
+    async def test_plan_prompt_target_volume_line_derived_from_target_duration(self, tmp_path: Path):
+        """只设单集目标时长时，prompt 给出折算体量并写明目标时长与语速，模型才知道这是估算值。"""
+        project_dir = _write_project(tmp_path, content_mode="drama", extra={"episode_target_duration": 90})
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {
+                            "title": "古玉藏诀",
+                            "hook": "剑诀来历成谜",
+                            "end_anchor": ANCHOR_EP1,
+                            "story_beats": ["李恒获得古玉"],
+                            "next_episode_teaser": "剑诀来历成谜",
+                        }
+                    ]
+                )
+            ]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert fake.requests[0].prompt == _expected_planning_prompt(
+            "- 每集目标体量：约 450 字（按单集目标时长 90 秒、口播语速约 5 字/秒粗略折算，允许为剧情完整性上下浮动）",
+            content_mode="drama",
+        )
+
+    async def test_plan_prompt_target_volume_line_absent_when_neither_setting_is_present(self, tmp_path: Path):
+        """两者都未设时维持现状措辞，无设置路径仍由模型按内容自行把握。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert fake.requests[0].prompt == _expected_planning_prompt(_TARGET_VOLUME_UNSET_LINE)
+
     async def test_plan_normal_batch_omits_ledger_stats(self, tmp_path: Path):
         """常规（非耗尽）批次不附全局核对材料，只报累计已规划集数。"""
         window_chars = _end_of(ANCHOR_EP1) + 4
@@ -1221,28 +1321,31 @@ class TestPlan:
         assert stats.total_episodes == 3
         assert [num for num, _units in stats.smallest] == [3, 2, 1]  # 体量升序：丙 < 乙 < 甲
         assert stats.median_units == 37
-        assert stats.target_units is None  # 未配置 episode_target_units 时不报
+        assert stats.target_volume is None  # 目标体量两个来源都未配置时不报
 
     async def test_plan_exhausted_batch_reports_target_units_when_configured(self, tmp_path: Path):
         """episode_target_units 项目设置存在时，核对材料里带出该目标体量。"""
-        last_anchor = "卷入漩涡之中。"
         project_dir = _write_project(tmp_path, extra={"episode_target_units": 800})
-        fake = _FakeTextGenerator(
-            [
-                _plan_response(
-                    [
-                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
-                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
-                        {"title": "丙", "hook": "丙", "end_anchor": last_anchor},
-                    ]
-                )
-            ]
-        )
+        fake = _FakeTextGenerator([_plan_response(_THREE_EPISODE_DRAFT)])
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
         assert result.ledger_stats is not None
-        assert result.ledger_stats.target_units == 800
+        volume = result.ledger_stats.target_volume
+        assert volume is not None
+        assert (volume.units, volume.source) == (800, "units")
+
+    async def test_plan_exhausted_batch_reports_target_volume_derived_from_duration(self, tmp_path: Path):
+        """只设了单集目标时长时，核对材料回显折算体量并标明来源，主 Agent 才知道这不是用户给的数。"""
+        project_dir = _write_project(tmp_path, extra={"episode_target_duration": 90})
+        fake = _FakeTextGenerator([_plan_response(_THREE_EPISODE_DRAFT)])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.ledger_stats is not None
+        volume = result.ledger_stats.target_volume
+        assert volume is not None
+        assert (volume.units, volume.source, volume.seconds) == (450, "duration", 90)
 
     async def test_plan_no_new_content_early_exit_includes_ledger_stats(self, tmp_path: Path):
         """再次调用无新内容（早退路径）：不调模型，仍附全局核对材料供复核。"""

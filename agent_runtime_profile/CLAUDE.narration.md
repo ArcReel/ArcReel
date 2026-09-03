@@ -13,7 +13,7 @@
   - 分镜图生视频（含 `grid_storyboard=true`）：取值必须在所选视频模型的 `supported_durations` 内，项目 `default_duration` 非 null 时作默认偏好
   - 参考生视频：视频单元时长必须取该视频单元**引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
   - 两者的真值均由子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 script_plan 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
-- **单集目标时长**：项目 `episode_target_duration` 非 null 时，脚本规划据它决定本集拆多少个分镜 / 视频单元；软目标，内容不足宁少拆、内容确实需要可超出，超出只提示不阻断。真值同经 `mcp__arcreel__get_video_capabilities` 自查
+- **单集目标时长**：项目 `episode_target_duration` 非 null 时，脚本规划据它决定本集拆多少个分镜 / 视频单元；未显式设 `episode_target_units` 时，分集规划也按它折算每集塞多少原文。两处均为软目标，内容不足宁少拆、内容确实需要可超出，超出只提示不阻断。真值同经 `mcp__arcreel__get_video_capabilities` 自查
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
 - **生成方式**：按 `generation_mode` 分两路——分镜图生视频每个分镜独立生成、以分镜图作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；参考生视频按 video_unit 直出、以资产图作 `reference_images`，无分镜图
