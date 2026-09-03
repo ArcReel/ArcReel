@@ -17,7 +17,7 @@ import os
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from lib.artifact_currency import (
     ArtifactComparer,
@@ -184,17 +184,26 @@ def ensure_imported_artifact_target_state(
                 raise ValueError(f"archive Artifact Manifest contains unprovable formal claims: {sorted(invalid)}")
             _assert_preflight_unchanged(project_dir, plan)
             adapter = ProjectArtifactManifestAdapter(project_dir)
-            replaced = [
-                key.encode()
-                for key, entry in preserved_entries.items()
-                if not _archived_content_digest_matches(adapter, entry.artifact_path, preserved_content_digests[key])
-            ]
+            restored: dict[ArtifactKey, ArtifactManifestEntry] = {}
+            replaced: list[str] = []
+            for key, entry in preserved_entries.items():
+                evidence = _archived_content_evidence(adapter, entry.artifact_path, preserved_content_digests[key])
+                if evidence == "complete":
+                    restored[key] = entry
+                elif evidence == "prefix_only":
+                    # 只证明到首个 0x1A 之前的字节，绑不住整份产物：这条 claim 按无信封归档的口径，
+                    # 用当前投影自证补录；投影不出条目的目标不登记。
+                    projected = plan.entries.get(key)
+                    if projected is not None:
+                        restored[key] = projected
+                else:
+                    replaced.append(key.encode())
             if replaced:
                 raise ValueError(
                     f"archive Artifact Manifest formal artifact content does not match its claims: {sorted(replaced)}"
                 )
             _assert_preflight_unchanged(project_dir, plan)
-            return adapter.replace_entries_atomically(preserved_entries)
+            return adapter.replace_entries_atomically(restored)
     return activate_artifact_target_state(project_dir, bump_schema=False)
 
 
@@ -216,27 +225,26 @@ def snapshot_preserved_artifact_manifest(
     return ArtifactManifestArchiveSnapshot(entries=rebased, content_digests=content_digests)
 
 
-def _archived_content_digest_matches(
+def _archived_content_evidence(
     adapter: ProjectArtifactManifestAdapter,
     artifact_path: str,
     archived_digest: str,
-) -> bool:
-    """Accept archived formal-byte evidence hashed from the raw bytes or from a text-mode descriptor view.
+) -> Literal["complete", "prefix_only", "mismatch"]:
+    """Classify how far the archived content digest binds a claim to the imported bytes.
 
-    Windows archives can carry digests taken through a text-mode descriptor: CRLF folded to LF
-    and the read stopped at the first ``0x1A`` byte.  Such evidence still proves the same formal bytes.
+    Archives exported through a text-mode descriptor hashed CRLF folded to LF and stopped at the
+    first ``0x1A``.  The fold alone still covers every byte, so the claim stays bound; a read cut
+    short at ``0x1A`` proves only the prefix (every PNG signature carries that byte) and cannot
+    bind the frozen basis to the whole artifact.
     """
 
     if read_artifact_content_digest(adapter, artifact_path) == archived_digest:
-        return True
+        return "complete"
     content, _digest = read_artifact_content_snapshot(adapter, artifact_path)
-    return hashlib.sha256(_text_mode_descriptor_view(content)).hexdigest() == archived_digest
-
-
-def _text_mode_descriptor_view(content: bytes) -> bytes:
-    """Bytes a Windows C-runtime text-mode read yields for ``content``."""
-
-    return content.split(b"\x1a", 1)[0].replace(b"\r\n", b"\n")
+    prefix, delimiter, _rest = content.partition(b"\x1a")
+    if hashlib.sha256(prefix.replace(b"\r\n", b"\n")).hexdigest() != archived_digest:
+        return "mismatch"
+    return "prefix_only" if delimiter else "complete"
 
 
 def _plan_preserved_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:
