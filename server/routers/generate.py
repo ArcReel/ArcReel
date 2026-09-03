@@ -65,6 +65,7 @@ from server.services.narration_delivery_tasks import (
     prepare_current_storyboard_narrated_video_duration,
     tts_task_in_progress,
 )
+from server.services.reference_admission import require_admitted_storyboard_references
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,7 @@ async def generate_storyboard(
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
+        require_admitted_storyboard_references(project, [resolved[0]])
 
     await asyncio.to_thread(_sync)
 
@@ -278,6 +280,7 @@ async def generate_video(
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
+        require_admitted_storyboard_references(project, [resolved[0]])
         script_kind = resolve_script_kind(script)
         admission = admit_script_unit(script_kind, resolved[0])
         if admission.allowed and script_kind in {"segments", "shots"}:

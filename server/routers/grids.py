@@ -37,6 +37,7 @@ from server.auth import CurrentUser
 from server.services.grid_access import ensure_grid_writable
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import GridImageNotReadyError, apply_grid_split
+from server.services.reference_admission import require_admitted_storyboard_references
 from server.services.upload_finalize import (
     UPLOAD_VERSION_SOURCE,
     UploadTooLargeError,
@@ -128,6 +129,10 @@ async def generate_grid(
     if req.scene_ids:
         sid_set = set(req.scene_ids)
         groups = [g for g in groups if any(item[id_field] in sid_set for item in g)]
+
+    # 一次请求整批准入：宫格图按分段成图，任一分镜的引用有缺口即整批拒绝、一次报全缺口。
+    # 放行部分分组会让同批健康的分组独自计费，用户改完再提交时又要重付一次。
+    require_admitted_storyboard_references(project, [item for group in groups for item in group])
 
     grid_ids: list[str] = []
     task_ids: list[str] = []
@@ -304,7 +309,14 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     project_path = get_project_manager().get_project_path(project_name)
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)
-    _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
+    script = _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
+    items, id_field, _, _, _ = get_storyboard_items(script)
+    # 重生成是又一次付费出图：准入与首次生成同一份判定，按记录冻结的分镜集合求值。
+    # 剧本在两次生成之间被改过时，缺口以当前剧本为准——worker 也是按当前剧本重建请求的。
+    scene_ids = set(grid.scene_ids)
+    require_admitted_storyboard_references(
+        project, [item for item in items if str(item.get(id_field, "")) in scene_ids]
+    )
 
     # 重生成沿用记录上冻结的 rows/cols 与比例。Worker 在执行时从同一份当前剧本、
     # 风格和冻结布局重建 provider prompt 与 provenance basis，队列里的 prompt 仅作

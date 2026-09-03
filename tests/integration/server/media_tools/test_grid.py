@@ -353,6 +353,35 @@ async def test_generate_grid_reports_each_scene_of_a_shared_grid(
     assert dropped.task_state.value == "succeeded"
 
 
+async def test_generate_grid_blocks_every_scene_of_a_chunk_with_a_reference_gap(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """一张联合图覆盖整个 chunk：任一分镜的引用有缺口，chunk 内每个缺口分镜都被记名阻断。"""
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
+    ]
+    fake_ctx.pm.script_payload["segments"][2]["scenes"] = ["未登记的场景"]
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    async def unreachable_waiter(**_kwargs: Any):
+        raise AssertionError("引用有缺口时不该走到入队")
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=unreachable_waiter), {"script": "episode_1.json"})
+
+    result = read_generation_result(out)
+    assert result.blocked == ["E1S01", "E1S02", "E1S03", "E1S04"]
+    problem = next(item for item in result.items if item.unit_id == "E1S01").problem
+    assert problem is not None
+    assert (problem.code, problem.action) == ("reference_asset_unregistered", "generate_dependency")
+    assert problem.params["missing_text"] == "未登记的场景"
+
+
 async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unreadable(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

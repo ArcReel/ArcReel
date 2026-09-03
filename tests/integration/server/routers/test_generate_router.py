@@ -1464,6 +1464,83 @@ class TestVideoRouteGate:
         assert fake_queue.calls[0]["task_type"] == "video"
 
 
+class TestReferenceAdmissionAtGenerationEntries:
+    """分镜图与图生视频的提交入口：引用有缺口即拒绝并列名，不建任务、不计费。"""
+
+    @pytest.mark.parametrize("endpoint", ["storyboard", "video"], ids=["分镜图", "图生视频"])
+    def test_unregistered_reference_blocks_and_names_it(self, tmp_path, monkeypatch, endpoint: str):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][1]["characters_in_segment"] = ["Alice", "李四"]
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                f"/api/v1/projects/demo/generate/{endpoint}/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("reference_asset_unregistered", missing_text="李四")
+        assert fake_queue.calls == []
+
+    @pytest.mark.parametrize("endpoint", ["storyboard", "video"], ids=["分镜图", "图生视频"])
+    def test_deleted_asset_leaves_a_blocking_reference(self, tmp_path, monkeypatch, endpoint: str):
+        """删除资产后残留的引用与从未登记的名字同一出路，不再被静默丢弃。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        del fake_pm.project["scenes"]["祠堂"]
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                f"/api/v1/projects/demo/generate/{endpoint}/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("reference_asset_unregistered", missing_text="祠堂")
+        assert fake_queue.calls == []
+
+    @pytest.mark.parametrize("endpoint", ["storyboard", "video"], ids=["分镜图", "图生视频"])
+    def test_character_without_sheet_blocks_even_with_an_original(self, tmp_path, monkeypatch, endpoint: str):
+        """原图只是生成资产图的输入，不顶替资产图放行这次生成。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["Alice"]["character_sheet"] = ""
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                f"/api/v1/projects/demo/generate/{endpoint}/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("reference_asset_missing", missing_text="character: Alice")
+        assert fake_queue.calls == []
+
+    def test_product_without_sheet_still_enqueues(self, tmp_path, monkeypatch):
+        """商品原图是保真验收锚点，没有资产图不阻断（ADR 0034）。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["products_in_shot"] = ["保温杯"]
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+
+        assert resp.status_code == 200
+        assert fake_queue.calls[0]["resource_id"] == "E1S01"
+
+
 class TestAdStoryboardRegeneration:
     """ad 剧本（平铺 shots[]）沿用既有分镜生成/重生成端点——人工审核后重生成同一入口。"""
 

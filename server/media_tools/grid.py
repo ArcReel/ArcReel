@@ -44,6 +44,8 @@ from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_manager import grid_storyboard_enabled
+from lib.reference_admission import admit_storyboard_items
+from lib.reference_catalog import build_reference_catalog
 from lib.resource_paths import resource_relative_path
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
@@ -60,6 +62,7 @@ from server.media_tools.context import (
 from server.media_tools.definition import tool
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import apply_grid_split
+from server.services.reference_admission import reference_admission_problems
 from server.tool_runtime import ToolOutcome, submit_media_generation
 
 logger = logging.getLogger(__name__)
@@ -297,6 +300,7 @@ async def handle_generate_grid(
                     builder.skip(state)
                 selected_groups.append((group, frozenset(selection.target_ids)))
 
+        catalog = build_reference_catalog(project)
         gm = GridManager(project_path)
         specs: list[TaskSpec] = []
         report_ids_by_grid: dict[str, list[str]] = {}
@@ -306,6 +310,26 @@ async def handle_generate_grid(
                 chunk_ids = [item[id_field] for item in chunk]
                 report_ids = [scene_id for scene_id in chunk_ids if scene_id in target_ids]
                 if not report_ids:
+                    continue
+                # 一张联合图覆盖整个 chunk：任一分镜的引用有缺口就出不了这张图，缺口按整个
+                # chunk 合并求值、落到它覆盖的每个缺口分镜（同 ``_fail_scenes`` 的口径）。
+                chunk_admission = admit_storyboard_items(catalog, chunk)
+                if not chunk_admission.admitted:
+                    for scene_id in report_ids:
+                        artifact_path = scene_artifact_paths.get(scene_id)
+                        artifact_key = _scene_artifact_key(episode, scene_id)
+                        artifact_status, _blocker = observe_artifact_status(
+                            resolver=resolver, key=artifact_key, artifact_path=artifact_path
+                        )
+                        # 结果集一个分镜只记一条问题，故取首条（未登记排在无资产图之前——
+                        # 名字都没登记时「去生成资产图」指不出该对谁做）。
+                        builder.block(
+                            scene_id,
+                            problem=reference_admission_problems(chunk_admission, unit_id=scene_id)[0],
+                            artifact_key=artifact_key,
+                            artifact_path=artifact_path,
+                            artifact_status=artifact_status,
+                        )
                     continue
                 prompt = build_grid_prompt(
                     scenes=chunk,

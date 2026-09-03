@@ -290,12 +290,6 @@ _BODY_CASES = [
         id="speaker-slot-binds-voice-only",
     ),
     pytest.param(
-        "@[无名氏] 从巷口走过，@[阿离] 回头",
-        [("character", "阿离")],
-        ["阿离.png"],
-        id="unresolved-mention-warns-only",
-    ),
-    pytest.param(
         "雨落在石板上，远处传来打更声",
         [],
         [],
@@ -321,8 +315,10 @@ async def test_body_shape_drives_the_reference_images_of_the_real_request(
     assert [problem.code for problem in projection.problems if problem.blocking] == []
 
 
-async def test_unresolved_mention_only_warns_and_still_generates(acceptance: _Acceptance) -> None:
-    """未登记的 ``@[名称]`` 不产生参考图、不阻断，其余提及照常解析。"""
+async def test_unresolved_mention_warns_in_the_editor_but_blocks_the_generation(
+    acceptance: _Acceptance,
+) -> None:
+    """未登记的 ``@[名称]`` 在编辑器仍只警告，到生成入口阻断并列出名称。"""
     body = "@[无名氏] 从巷口走过，@[阿离] 回头"
     acceptance.patch_body_over_rest(body)
 
@@ -330,5 +326,8 @@ async def test_unresolved_mention_only_warns_and_still_generates(acceptance: _Ac
     assert [w["key"] for w in warnings] == [WARN_UNREGISTERED_MENTION]
 
     projection = await acceptance.project_request()
-    assert projection.problems == ()
+    blockers = [problem for problem in projection.problems if problem.blocking]
+    assert [problem.code for problem in blockers] == ["reference_asset_unregistered"]
+    assert blockers[0].parameters()["missing_text"] == "无名氏"
+    # 其余提及照常解析：阻断的是这次请求，不是把已登记的引用一并丢掉。
     assert [asset.path.name for asset in projection.request_assets] == ["阿离.png"]

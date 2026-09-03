@@ -289,6 +289,41 @@ async def test_generate_videos_all_scope_creates_zero_tasks_when_one_artifact_st
     assert codes["E1S01"] == ["generation_batch_admission_withheld"]
 
 
+async def test_generate_videos_all_scope_blocks_a_reference_gap_and_withholds_the_batch(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """图生视频的整批准入与单条提交同判：引用有缺口的场景阻断，整批一个都不入队。"""
+    from server.media_tools import videos as mod
+
+    fake_ctx.pm.script_payload["segments"].append(
+        {
+            "segment_id": "E1S02",
+            "image_prompt": "山道清晨",
+            "novel_text": "清晨的山道上落着薄雾。",
+            "video_prompt": {"action": "镜头推近", "camera_motion": "Push", "ambiance_audio": "鸟鸣"},
+            "duration_seconds": 4,
+            "characters_in_segment": ["无名氏"],
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S02.png"},
+        }
+    )
+    (fake_ctx.project_path / "storyboards").mkdir(parents=True, exist_ok=True)
+    (fake_ctx.project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"\x89PNG")
+
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await call(_all_scope(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("batch_admission") is not None, out
+    assert out["batch_admission"]["decision"] == "blocked"
+    enqueue.assert_not_awaited()
+    units = {unit["unit_id"]: unit for unit in out["batch_admission"]["units"]}
+    assert [problem["code"] for problem in units["E1S02"]["problems"]] == ["reference_asset_unregistered"]
+    assert units["E1S02"]["problems"][0]["action"] == "generate_dependency"
+    assert units["E1S02"]["problems"][0]["params"]["missing_text"] == "无名氏"
+    assert [problem["code"] for problem in units["E1S01"]["problems"]] == ["generation_batch_admission_withheld"]
+
+
 async def test_generate_videos_all_scope_admits_legacy_narration_stored_under_scenes(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

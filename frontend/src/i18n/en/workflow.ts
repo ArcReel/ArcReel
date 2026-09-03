@@ -153,5 +153,7 @@ export default {
   'problem_generation_task_cancelled': 'The last attempt was cancelled.',
   'problem_generation_task_interrupted': 'The last attempt was interrupted.',
   'problem_generation_post_processing_failed': 'The video was generated but post-processing failed.',
+  'problem_reference_asset_unregistered': 'This unit references assets that are not registered.',
+  'problem_reference_asset_missing': 'A referenced asset has no asset sheet yet.',
   'problem_tts_not_configured': 'No text-to-speech model is configured.',
 };
