@@ -22,6 +22,7 @@ import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageStatsSection } from "./settings/UsageStatsSection";
+import { UsageRecordsPrototype } from "./settings/prototype/UsageRecordsPrototype";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
 import {
   SUPPORTED_LANGUAGES,
@@ -43,7 +44,8 @@ type SettingsSection =
   | "media"
   | "usage"
   | "api-keys"
-  | "about";
+  | "about"
+  | "usage-prototype";
 
 /** 引导第 5/6 步指向的侧栏入口——只有这两项挂锚点，其余小节不在当前引导覆盖范围内。 */
 const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
@@ -80,6 +82,10 @@ const SECTION_GROUPS: SectionGroup[] = [
     kicker: "Access",
     items: [
       { id: "usage", labelKey: "dashboard:usage", Icon: BarChart3 },
+      // PROTOTYPE — wayfinder #2290，仅开发构建可见；t() 缺 key 时原样回显该字符串。
+      ...(import.meta.env.DEV
+        ? [{ id: "usage-prototype" as const, labelKey: "使用记录 · 原型", Icon: BarChart3 }]
+        : []),
       { id: "api-keys", labelKey: "dashboard:api_keys", Icon: KeyRound },
     ],
   },
@@ -104,6 +110,7 @@ export function SystemConfigPage() {
     if (section === "endpoints") return "endpoints";
     if (section === "media") return "media";
     if (section === "usage") return "usage";
+    if (section === "usage-prototype" && import.meta.env.DEV) return "usage-prototype";
     if (section === "api-keys") return "api-keys";
     if (section === "about") return "about";
     return "providers";
@@ -282,6 +289,8 @@ export function SystemConfigPage() {
             <ProviderSection />
           ) : activeSection === "endpoints" ? (
             <EndpointsSection />
+          ) : activeSection === "usage-prototype" ? (
+            <UsageRecordsPrototype />
           ) : (
             <div className="mx-auto max-w-4xl px-8 py-8">
               {/* Quick alert for config issues */}
