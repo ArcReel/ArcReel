@@ -105,9 +105,10 @@ class TestGenerate:
         assert result.input_tokens == 15
         assert result.output_tokens == 8
         assert result.model == backend.model
-        call_kwargs = backend._test_client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["model"] == backend.model
-        assert call_kwargs["messages"] == [{"role": "user", "content": "hello"}]
+        backend._test_client.chat.completions.create.assert_called_once_with(
+            model=backend.model,
+            messages=[{"role": "user", "content": "hello"}],
+        )
 
 
 class TestVision:
@@ -224,13 +225,14 @@ class TestCapabilityAwareStructured:
         result = await backend_with_structured.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert result.text == '{"key": "value"}'
-        call_args = backend_with_structured._test_client.chat.completions.create.call_args
-        assert call_args.kwargs["model"] == "mock-model-with-structured"
-        assert call_args.kwargs["messages"] == [{"role": "user", "content": "gen"}]
-        assert call_args.kwargs["response_format"] == {
-            "type": "json_schema",
-            "json_schema": {"name": "response", "schema": schema},
-        }
+        backend_with_structured._test_client.chat.completions.create.assert_called_once_with(
+            model="mock-model-with-structured",
+            messages=[{"role": "user", "content": "gen"}],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "response", "schema": schema},
+            },
+        )
 
     async def test_unknown_model_falls_back_to_instructor(self, mock_ark):
         """未注册模型保守降级为 Instructor。"""
