@@ -8,6 +8,7 @@ export default {
   "label.asset_image_scene": "场景「{{id}}」资产图",
   "label.asset_image_prop": "道具「{{id}}」资产图",
   "label.asset_image_product": "商品「{{id}}」资产图",
+  "label.asset_image_character_derivative": "角色衍生「{{id}}」资产图",
   "label.skeleton_segments": "分镜「{{id}}」",
   "label.skeleton_scenes": "分镜「{{id}}」",
   "label.skeleton_shots": "分镜「{{id}}」",

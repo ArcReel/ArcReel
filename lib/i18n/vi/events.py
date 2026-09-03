@@ -8,6 +8,7 @@ MESSAGES = {
     "event_label_asset_image_scene": 'Ảnh tài sản của cảnh "{id}"',
     "event_label_asset_image_prop": 'Ảnh tài sản của đạo cụ "{id}"',
     "event_label_asset_image_product": 'Ảnh tài sản của sản phẩm "{id}"',
+    "event_label_asset_image_character_derivative": 'Ảnh tài sản của biến thể nhân vật "{id}"',
     "event_label_skeleton_segments": 'Phân cảnh "{id}"',
     "event_label_skeleton_scenes": 'Cảnh "{id}"',
     "event_label_skeleton_shots": 'Cú máy "{id}"',

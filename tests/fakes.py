@@ -47,6 +47,9 @@ class FakeProjectAssetMutationMixin:
     def update_project(self, project_name: str, mutate_fn: Callable[[dict], None]) -> Any:
         raise NotImplementedError
 
+    def get_project_path(self, project_name: str) -> Path:
+        raise NotImplementedError
+
     def update_asset_entry(
         self,
         asset_type: str,
@@ -72,7 +75,9 @@ class FakeProjectAssetMutationMixin:
 
         self.update_project(project_name, _mutate)
         if on_commit is not None:
-            on_commit(Path(project_name))
+            # 生产契约给的是 project.json 的路径，不是项目名：替身给同一形状，
+            # 否则用到该入参的 on_commit 在用例里拿到的是一段相对名字。
+            on_commit(self.get_project_path(project_name) / "project.json")
         return result
 
     def rename_asset_derivative(

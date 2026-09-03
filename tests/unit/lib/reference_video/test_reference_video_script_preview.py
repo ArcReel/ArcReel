@@ -280,6 +280,13 @@ class TestDerivativeWarnings:
         assert keys(preview) == [WARN_UNREGISTERED_MENTION]
         assert preview.warnings[0]["params"] == {"name": "张三/夜行衣"}
 
+    def test_same_unregistered_derivative_written_in_both_slots_warns_once(self):
+        """记号之外与说话人位是两处独立去重的来源，同一个名字只该报一条。"""
+        preview = build_script_preview("@[张三/夜行衣] 推门。@[张三/夜行衣]{我来了}", PROJECT_WITH_DERIVATIVE, _SOFT)
+
+        assert keys(preview) == [WARN_UNREGISTERED_MENTION]
+        assert preview.warnings[0]["params"] == {"name": "张三/夜行衣"}
+
     def test_unregistered_base_reports_only_the_speaker_warning(self):
         preview = build_script_preview("开场。\n@[无名氏/夜行衣]{我来了}", PROJECT_WITH_DERIVATIVE, _SOFT)
 

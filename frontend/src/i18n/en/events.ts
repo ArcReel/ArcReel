@@ -10,6 +10,7 @@ export default {
   "label.asset_image_scene": 'Asset image for scene "{{id}}"',
   "label.asset_image_prop": 'Asset image for prop "{{id}}"',
   "label.asset_image_product": 'Asset image for product "{{id}}"',
+  "label.asset_image_character_derivative": 'Asset image for character derivative "{{id}}"',
   "label.skeleton_segments": 'Segment "{{id}}"',
   "label.skeleton_scenes": 'Scene "{{id}}"',
   "label.skeleton_shots": 'Shot "{{id}}"',

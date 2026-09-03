@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CharacterDerivativeSheet } from "./CharacterDerivativeSheet";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import type { CharacterDerivativeStatus } from "@/types";
@@ -32,6 +33,7 @@ describe("CharacterDerivativeSheet", () => {
 
   afterEach(() => {
     useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    useProjectsStore.setState({ assetFingerprints: {} });
     vi.restoreAllMocks();
   });
 
@@ -68,6 +70,21 @@ describe("CharacterDerivativeSheet", () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith("demo", "阿岚", "战斗装"));
     expect(useTasksStore.getState().optimisticActive.size).toBeGreaterThan(0);
+  });
+
+  it("retries the image once the sheet is replaced", async () => {
+    // 加载失败是那一张图的事实：重生成换掉图（指纹变化）之后要重新试，
+    // 否则占位内容会一直顶到组件卸载。
+    renderSheet({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false });
+
+    fireEvent.error(screen.getByAltText("阿岚/战斗装"));
+    await waitFor(() => expect(screen.getByText("还没有衍生图")).toBeInTheDocument());
+
+    act(() => useProjectsStore.getState().updateAssetFingerprints({ [SHEET_PATH]: 99 }));
+
+    await waitFor(() =>
+      expect(screen.getByAltText("阿岚/战斗装")).toHaveAttribute("src", expect.stringContaining("v=99")),
+    );
   });
 
   it("rechecks the busy slot at submit time and drops the click", async () => {

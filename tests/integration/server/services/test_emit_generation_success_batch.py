@@ -2,6 +2,7 @@
 
 import pytest
 
+from lib.asset_derivatives import DERIVATIVE_TASK_TYPE
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
     _FakePM,
@@ -40,6 +41,34 @@ class TestGenerationTasks:
         assert "storyboards/scene_E1S01.png" in change["asset_fingerprints"]
         assert isinstance(change["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
+    def test_emit_success_batch_includes_derivative_sheet_fingerprint(self, monkeypatch, tmp_path):
+        """衍生资产图的完成事件带上那张图的指纹：前端据此 cache-bust，浮层不停在旧图上。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        sheet = project_path / "characters" / "derivatives" / "阿岚" / "战斗装.png"
+        sheet.parent.mkdir(parents=True)
+        sheet.write_bytes(b"img")
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: _FakePM(project_path))
+
+        generation_tasks.emit_generation_success_batch(
+            task_type=DERIVATIVE_TASK_TYPE,
+            project_name="demo",
+            resource_id="阿岚/战斗装",
+            payload={},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_id"] == "阿岚/战斗装"
+        fingerprints = change["asset_fingerprints"]
+        assert isinstance(fingerprints["characters/derivatives/阿岚/战斗装.png"], int)
+
     @pytest.mark.parametrize(
         ("task_type", "expected_label_key", "expected_label"),
         [
@@ -48,6 +77,12 @@ class TestGenerationTasks:
             pytest.param("voice_sample", "voice_sample", "「E1G01」试听样本", id="voice-sample"),
             pytest.param("character", "asset_image_character", "角色「E1G01」资产图", id="character-sheet"),
             pytest.param("prop", "asset_image_prop", "道具「E1G01」资产图", id="prop-sheet"),
+            pytest.param(
+                DERIVATIVE_TASK_TYPE,
+                "asset_image_character_derivative",
+                "角色衍生「E1G01」资产图",
+                id="character-derivative-sheet",
+            ),
         ],
     )
     def test_emit_success_batch_carries_label_key_and_params(

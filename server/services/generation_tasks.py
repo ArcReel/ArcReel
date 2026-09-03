@@ -39,7 +39,7 @@ from lib.artifact_manifest import (
     compose_video_artifact_basis,
 )
 from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
-from lib.asset_derivatives import DERIVATIVE_TASK_TYPE
+from lib.asset_derivatives import DERIVATIVE_ASSET_TYPE, DERIVATIVE_TASK_TYPE
 from lib.asset_types import (
     ASSET_SPECS,
     AssetSpec,
@@ -1450,6 +1450,10 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
     elif task_type == "tts":
         audio_rel = resource_relative_path("audio", resource_id)
         paths.append((audio_rel, project_path / audio_rel))
+    elif task_type == DERIVATIVE_TASK_TYPE:
+        # 衍生的 resource_id 本身是 `本体名/衍生名`，两段原样成为路径层级。
+        sheet_rel = resource_relative_path(CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_id)
+        paths.append((sheet_rel, project_path / sheet_rel))
 
     result: dict[str, int] = {}
     for rel, abs_path in paths:
@@ -1471,6 +1475,9 @@ _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "grid_split": ("grid", "grid_split_done", "grid_split", True),
     "voice_sample": ("character", "voice_sample_ready", "voice_sample", False),
     **{atype: (atype, "updated", f"asset_image_{atype}", False) for atype in ASSET_SPECS},
+    # 衍生资产图落在本体的 entity 下（entity_id 是 `本体名/衍生名`），但条目名词另立一条：
+    # 复用 asset_image_character 会把复合 id 当成角色名读出来。
+    DERIVATIVE_TASK_TYPE: (DERIVATIVE_ASSET_TYPE, "updated", "asset_image_character_derivative", False),
 }
 
 # 骨架驱动的任务类型 → 完成事件 action。entity_type/条目名词按项目剧本当前骨架种类
