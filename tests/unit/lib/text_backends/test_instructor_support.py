@@ -300,7 +300,7 @@ class TestGenerateStructuredViaInstructorAsync:
             mock_instructor.from_openai.return_value = mock_patched
             mock_patched.chat.completions.create_with_completion = AsyncMock(return_value=(sample, mock_completion))
 
-            await generate_structured_via_instructor_async(
+            _json_text, input_tokens, output_tokens = await generate_structured_via_instructor_async(
                 client=AsyncMock(),
                 model="test-model",
                 messages=[{"role": "user", "content": "test"}],
@@ -312,6 +312,8 @@ class TestGenerateStructuredViaInstructorAsync:
             call_kwargs = mock_patched.chat.completions.create_with_completion.call_args[1]
             assert call_kwargs["max_completion_tokens"] == 2345
             assert "max_tokens" not in call_kwargs
+        assert input_tokens is None
+        assert output_tokens is None
 
     async def test_incomplete_output_maps_to_truncated_error(self):
         """异步版 IncompleteOutputException 同样归一为 TextOutputTruncatedError。"""
@@ -379,17 +381,24 @@ class TestInstructorFallbackSync:
         assert result.provider == "test-provider"
         assert result.input_tokens == 30
         assert result.output_tokens == 15
+        assert result.model == "test-model"
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["response_format"] == {"type": "json_object"}
+        assert call_kwargs["model"] == "test-model"
+        assert call_kwargs["messages"] == [
+            {"role": "system", "content": "Respond in JSON format."},
+            {"role": "user", "content": "test"},
+        ]
 
     def test_pydantic_branch_forwards_token_param(self):
         """Pydantic 分支的 token_param 一路传到导线：值以 max_completion_tokens 为参数名上线。"""
         sample = SampleModel(name="Alice", age=30)
         completion = SimpleNamespace(usage=None)
 
-        with _recorded_instructor((sample, completion)) as (_patched_with, calls):
+        client = MagicMock()
+        with _recorded_instructor((sample, completion)) as (patched_with, calls):
             instructor_fallback_sync(
-                client=MagicMock(),
+                client=client,
                 model="test-model",
                 messages=[{"role": "user", "content": "test"}],
                 response_schema=SampleModel,
@@ -407,6 +416,7 @@ class TestInstructorFallbackSync:
                 "max_completion_tokens": 500,
             }
         ]
+        assert patched_with == [{"client": client, "mode": Mode.TOOLS}]
 
     def test_dict_branch_default_token_param(self):
         """dict 分支默认以 max_tokens 为参数名上线。"""
@@ -475,6 +485,7 @@ class TestInstructorFallbackSync:
 
         assert exc_info.value.provider == "test-provider"
         assert exc_info.value.model == "test-model"
+        assert exc_info.value.output_tokens == 999
 
 
 class TestInstructorExceptionShape:
@@ -596,6 +607,7 @@ class TestStructuredModeChainSync:
             result = self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
+        assert [call.kwargs["provider"] for call in mock_gen.call_args_list] == ["test-provider"]
         assert result.text == sample.model_dump_json()
 
     def test_tools_param_rejected_falls_back_to_md_json(self):
@@ -637,6 +649,7 @@ class TestStructuredModeChainSync:
         assert self._modes(mock_gen) == [Mode.TOOLS]
         assert exc_info.value.__cause__ is exhausted
         assert exc_info.value.provider == "test-provider"
+        assert exc_info.value.model == "test-model"
 
     def test_md_json_exhaustion_raises_structured_output_exhausted(self):
         """末档耗尽同样收敛为终局异常，不把 InstructorRetryException 原文透出去。"""
@@ -645,11 +658,12 @@ class TestStructuredModeChainSync:
                 "lib.text_backends.instructor_support.generate_structured_via_instructor",
                 side_effect=[_tools_rejected_error(), _retry_exhausted(_validation_error())],
             ) as mock_gen,
-            pytest.raises(StructuredOutputExhaustedError, match="结构化输出能力不足"),
+            pytest.raises(StructuredOutputExhaustedError, match="结构化输出能力不足") as exc_info,
         ):
             self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+        assert "最后一次 ValidationError" in exc_info.value.reason
 
     def test_transient_error_propagates_unchanged(self):
         """瞬态错误既不降档也不收敛为终局异常，原样冒泡交调用方的重试装饰器判定。"""
@@ -837,6 +851,7 @@ class TestStructuredModeChainAsync:
             result = await self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+        assert [call.kwargs["provider"] for call in mock_gen.call_args_list] == ["async-provider", "async-provider"]
         assert result.text == sample.model_dump_json()
 
     async def test_validation_exhaustion_is_terminal(self):
@@ -845,11 +860,13 @@ class TestStructuredModeChainAsync:
                 "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
                 side_effect=[_retry_exhausted(_validation_error())],
             ) as mock_gen,
-            pytest.raises(StructuredOutputExhaustedError),
+            pytest.raises(StructuredOutputExhaustedError) as exc_info,
         ):
             await self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
+        assert exc_info.value.provider == "async-provider"
+        assert exc_info.value.model == "async-model"
 
     async def test_transient_error_propagates_unchanged(self):
         with (
@@ -922,15 +939,23 @@ class TestInstructorFallbackAsync:
         assert result.provider == "async-provider"
         assert result.input_tokens == 25
         assert result.output_tokens == 12
+        assert result.model == "async-model"
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["model"] == "async-model"
+        assert call_kwargs["messages"] == [
+            {"role": "system", "content": "Respond in JSON format."},
+            {"role": "user", "content": "test"},
+        ]
 
     async def test_pydantic_branch_forwards_token_param_async(self):
         """异步 Pydantic 分支的 token_param 一路传到导线：值以 max_completion_tokens 为参数名上线。"""
         sample = SampleModel(name="Bob", age=25)
         completion = SimpleNamespace(usage=None)
 
-        with _recorded_instructor((sample, completion), is_async=True) as (_patched_with, calls):
-            await instructor_fallback_async(
-                client=AsyncMock(),
+        client = AsyncMock()
+        with _recorded_instructor((sample, completion), is_async=True) as (patched_with, calls):
+            result = await instructor_fallback_async(
+                client=client,
                 model="async-model",
                 messages=[{"role": "user", "content": "test"}],
                 response_schema=SampleModel,
@@ -948,6 +973,9 @@ class TestInstructorFallbackAsync:
                 "max_completion_tokens": 600,
             }
         ]
+        assert patched_with == [{"client": client, "mode": Mode.TOOLS}]
+        assert result.input_tokens is None
+        assert result.output_tokens is None
 
     async def test_dict_branch_default_token_param_async(self):
         """异步 dict 分支默认以 max_tokens 为参数名上线。"""
@@ -1016,3 +1044,4 @@ class TestInstructorFallbackAsync:
 
         assert exc_info.value.provider == "async-provider"
         assert exc_info.value.model == "async-model"
+        assert exc_info.value.output_tokens == 999
