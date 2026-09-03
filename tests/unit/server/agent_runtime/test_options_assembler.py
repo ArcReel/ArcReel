@@ -8,16 +8,20 @@ project_cwd 解析器 / 凭证 loader 直接构造装配器，断言凭证注入
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from lib.agent_memory_paths import project_memory_dir, user_memory_dir
+from lib.db.base import DEFAULT_USER_ID
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.options_assembler import (
     CLI_STDOUT_MAX_BUFFER_BYTES,
     OptionsAssembler,
     load_provider_env_overrides,
+    truncate_memory_index,
 )
 from server.auth import verify_token
 from tests.fakes import blocking_file_read_gate
@@ -43,6 +47,7 @@ def _make_assembler(
     policy: AgentAccessPolicy | None = None,
     max_turns: int | None = None,
     provider_env_loader=None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> OptionsAssembler:
     projects_root = (tmp_path / "projects").resolve()
     projects_root.mkdir(parents=True, exist_ok=True)
@@ -56,6 +61,7 @@ def _make_assembler(
         max_turns_provider=lambda: max_turns,
         resolve_project_cwd=lambda name: projects_root / name,
         provider_env_loader=provider_env_loader,
+        user_id_provider=lambda: user_id,
     )
 
 
@@ -169,7 +175,7 @@ async def test_build_adds_keep_alive_hook_with_can_use_tool(tmp_path: Path) -> N
 async def test_build_append_prompt_carries_locale_language(tmp_path: Path) -> None:
     """prompt 装配按 locale 渲染语言规范段。"""
     assembler = _make_assembler(tmp_path)
-    prompt = assembler._build_append_prompt("demo", locale="vi")
+    prompt = await assembler._build_append_prompt("demo", locale="vi")
     assert "Tiếng Việt" in prompt or "vi" in prompt.lower()
     # persona 恒在
     assert "ArcReel Agent" in prompt
@@ -240,3 +246,129 @@ async def test_json_post_validation_hook_keeps_event_loop_running(
         gate.assert_read_was_offloaded()
 
     assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_build_settings_redirects_auto_memory_to_project_memory_dir(tmp_path: Path) -> None:
+    """settings JSON 把原生 auto memory 重定向到项目记忆目录；sandbox 仍是独立字段，
+    由 SDK 在拼命令行时并进同一份 JSON。"""
+
+    async def fake_loader():
+        return {}
+
+    options = await _make_assembler(tmp_path, provider_env_loader=fake_loader).build("demo")
+
+    project_cwd = (tmp_path / "projects").resolve() / "demo"
+    assert json.loads(options.settings) == {"autoMemoryDirectory": str(project_memory_dir(project_cwd))}
+    # 显式设 autoMemoryEnabled 会覆盖原生默认，装配不碰它
+    assert "autoMemoryEnabled" not in options.settings
+    assert options.sandbox.get("enabled") is True
+
+
+@pytest.mark.asyncio
+async def test_append_prompt_carries_user_memory_dir_and_index(tmp_path: Path) -> None:
+    """用户记忆段给出目录绝对路径、两级分流规则与索引全文。"""
+    assembler = _make_assembler(tmp_path)
+    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir.mkdir(parents=True)
+    (memory_dir / "MEMORY.md").write_text("- [配音偏好](voice.md) — 固定用女声\n", encoding="utf-8")
+
+    prompt = await assembler._build_append_prompt("demo")
+
+    assert "## 用户记忆" in prompt
+    assert memory_dir.as_posix() in prompt
+    assert "拿不准留项目记忆" in prompt
+    # Bash 侧对数据根整棵 denyRead，记忆读写只能走内置文件工具
+    assert "Bash 读不到记忆目录" in prompt
+    assert "- [配音偏好](voice.md) — 固定用女声" in prompt
+
+
+@pytest.mark.asyncio
+async def test_append_prompt_omits_index_when_user_memory_absent(tmp_path: Path) -> None:
+    """目录不存在：段落照给（Agent 要知道该往哪写），索引要点省略，且不建目录。"""
+    assembler = _make_assembler(tmp_path)
+    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+
+    prompt = await assembler._build_append_prompt("demo")
+
+    assert "## 用户记忆" in prompt
+    assert "**索引**" not in prompt
+    assert not memory_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_append_prompt_omits_index_when_user_memory_index_blank(tmp_path: Path) -> None:
+    """索引存在但只有空白：省略索引要点，不注入一段空索引。"""
+    assembler = _make_assembler(tmp_path)
+    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir.mkdir(parents=True)
+    (memory_dir / "MEMORY.md").write_text("\n   \n", encoding="utf-8")
+
+    prompt = await assembler._build_append_prompt("demo")
+
+    assert "## 用户记忆" in prompt
+    assert "**索引**" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_append_prompt_truncates_user_memory_index_over_line_limit(tmp_path: Path) -> None:
+    """索引超 200 行：只注入前 200 行并附超限提示。"""
+    assembler = _make_assembler(tmp_path)
+    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir.mkdir(parents=True)
+    (memory_dir / "MEMORY.md").write_text("\n".join(f"- 第 {i} 条" for i in range(300)), encoding="utf-8")
+
+    prompt = await assembler._build_append_prompt("demo")
+
+    assert "- 第 199 条" in prompt
+    assert "- 第 200 条" not in prompt
+    assert "共 300 行" in prompt
+
+
+@pytest.mark.asyncio
+async def test_append_prompt_truncates_user_memory_index_over_byte_limit(tmp_path: Path) -> None:
+    """索引行数不超但字节超 25 000：按最后一个换行截断并附超限提示。"""
+    assembler = _make_assembler(tmp_path)
+    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir.mkdir(parents=True)
+    # 10 行 × 每行 3 000 余字节（中文 3 字节/字）≈ 30 KB，行数远在 200 以内
+    index = "\n".join(f"- 第 {i} 条：" + "记" * 1000 for i in range(10))
+    (memory_dir / "MEMORY.md").write_text(index, encoding="utf-8")
+
+    prompt = await assembler._build_append_prompt("demo")
+
+    # 25 000 字节落在第 9 行内，回退到上一个换行 → 前 8 行完整保留
+    assert "- 第 7 条：" in prompt
+    assert "- 第 8 条：" not in prompt
+    assert f"共 10 行 / {len(index.encode('utf-8'))} 字节" in prompt
+
+
+@pytest.mark.asyncio
+async def test_append_prompt_omits_index_when_user_memory_index_not_utf8(tmp_path: Path) -> None:
+    """索引不是 UTF-8（用户用别的编码存回）：省略索引要点，会话照常装配。"""
+    assembler = _make_assembler(tmp_path)
+    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir.mkdir(parents=True)
+    (memory_dir / "MEMORY.md").write_bytes("- [配音偏好](voice.md) — 固定用女声\n".encode("gbk"))
+
+    prompt = await assembler._build_append_prompt("demo")
+
+    assert "## 用户记忆" in prompt
+    assert "**索引**" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_append_prompt_omits_user_memory_for_invalid_user_id(tmp_path: Path) -> None:
+    """user_id 不是单个路径段：整段省略，与围栏的 fail-closed 同向。"""
+    assembler = _make_assembler(tmp_path, user_id="../escape")
+
+    prompt = await assembler._build_append_prompt("demo")
+
+    assert "## 用户记忆" not in prompt
+    assert "ArcReel Agent" in prompt
+
+
+def test_truncate_memory_index_passes_through_within_limits() -> None:
+    """未超限：原样返回（首尾空白剪掉），不带提示。"""
+    assert truncate_memory_index("\n- 一条\n- 两条\n\n") == "- 一条\n- 两条"
+    assert truncate_memory_index("   ") == ""
