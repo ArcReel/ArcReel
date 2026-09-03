@@ -47,6 +47,14 @@ const FAKE_CANDIDATES = {
   provider_names: {},
 };
 
+function mockEmptyAgentMemory() {
+  vi.spyOn(API, "getAgentMemory").mockResolvedValue({
+    path: "/projects/demo/.arcreel/memory",
+    index: { exists: false, line_count: 0, byte_size: 0, over_limit: false },
+    files: [],
+  });
+}
+
 function mockBuiltinAgentProfile() {
   vi.spyOn(API, "getAgentProfileStatus").mockResolvedValue({
     customized: false,
@@ -77,6 +85,7 @@ describe("ProjectSettingsPage – style picker", () => {
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
     mockBuiltinAgentProfile();
+    mockEmptyAgentMemory();
   });
 
   it("shows customized Agent Profile files and resets only after destructive confirmation", async () => {
@@ -564,6 +573,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
     mockBuiltinAgentProfile();
+    mockEmptyAgentMemory();
   });
 
   it("loads existing model_settings resolution into video/image pickers", async () => {
@@ -747,6 +757,7 @@ describe("ProjectSettingsPage – 按用途指定模型", () => {
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
     mockBuiltinAgentProfile();
+    mockEmptyAgentMemory();
   });
 
   it("loads project sub-field overrides and writes each back to its own key", async () => {
@@ -835,5 +846,36 @@ describe("ProjectSettingsPage – 按用途指定模型", () => {
     fireEvent.change(input, { target: { value: "25" } });
 
     expect(screen.getByRole("button", { name: /^(保存|Save)$/i })).toBeDisabled();
+  });
+});
+
+describe("ProjectSettingsPage — 项目记忆", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.restoreAllMocks();
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(FAKE_CONFIG as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(API, "getModelCandidates").mockResolvedValue(
+      FAKE_CANDIDATES as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>,
+    );
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
+    vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+    mockBuiltinAgentProfile();
+    mockEmptyAgentMemory();
+  });
+
+  it("挂出项目记忆文件柜，并按当前项目的路径拉取", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", episodes: [], characters: {}, clues: {} },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+
+    renderAt("/app/projects/demo/settings");
+
+    expect(await screen.findByText(/项目记忆|Project memory/)).toBeInTheDocument();
+    expect(await screen.findByText("/projects/demo/.arcreel/memory")).toBeInTheDocument();
+    expect(API.getAgentMemory).toHaveBeenCalledWith(
+      { level: "project", projectName: "demo" },
+      expect.anything(),
+    );
   });
 });

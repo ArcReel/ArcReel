@@ -89,6 +89,11 @@ function setupBaseMocks(opts?: { credentials?: AgentCredential[] }) {
     providers: [makePreset()],
     custom_sentinel_id: "__custom__",
   });
+  vi.spyOn(API, "getAgentMemory").mockResolvedValue({
+    path: "/data/.arcreel/users/default/memory",
+    index: { exists: false, line_count: 0, byte_size: 0, over_limit: false },
+    files: [],
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -161,5 +166,22 @@ describe("AgentConfigTab — credentials directory", () => {
         name: /edit[_ ]credential|编辑凭证|Chỉnh sửa xác thực/i,
       }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("AgentConfigTab — 用户记忆", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
+    vi.restoreAllMocks();
+  });
+
+  it("Agent 分区挂出用户记忆文件柜，并按用户级路径拉取", async () => {
+    setupBaseMocks();
+    render(<AgentConfigTab visible />);
+
+    expect(await screen.findByText(/用户记忆|User memory/)).toBeInTheDocument();
+    expect(await screen.findByText("/data/.arcreel/users/default/memory")).toBeInTheDocument();
+    expect(API.getAgentMemory).toHaveBeenCalledWith({ level: "user" }, expect.anything());
   });
 });
