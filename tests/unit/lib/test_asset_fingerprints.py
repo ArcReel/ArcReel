@@ -1,6 +1,10 @@
 import os
 
+import pytest
+
+from lib.asset_derivatives import derivative_sheet_relative_path
 from lib.asset_fingerprints import compute_asset_fingerprints
+from lib.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, version_snapshot_relative_path
 
 #: 指纹用例里写死的两个 mtime，只要求「不同」，取值本身无意义。
 _MTIME_BEFORE = 1_700_000_000
@@ -83,10 +87,43 @@ class TestComputeAssetFingerprints:
         assert "characters/refs/Hero.png" in result
         assert isinstance(result["characters/refs/Hero.png"], int)
 
-    def test_ignores_versions_subdirectory(self, tmp_path):
-        versions_dir = tmp_path / "storyboards" / "versions"
-        versions_dir.mkdir(parents=True)
-        (versions_dir / "v1.png").write_bytes(b"old")
+    def test_scans_character_derivative_sheets(self, tmp_path):
+        """衍生资产图落在第三级，与本体资产图同为项目加载时下发的指纹。"""
+        sheet_path = tmp_path / derivative_sheet_relative_path("Hero", "重甲")
+        sheet_path.parent.mkdir(parents=True)
+        sheet_path.write_bytes(b"derivative")
 
         result = compute_asset_fingerprints(tmp_path)
-        assert not any("versions" in k for k in result)
+        assert "characters/derivatives/Hero/重甲.png" in result
+        assert isinstance(result["characters/derivatives/Hero/重甲.png"], int)
+
+    @pytest.mark.parametrize(
+        "snapshot_rel",
+        [
+            # 快照桶的真实位置：项目根 versions/{subdir}/，由 _MEDIA_SUBDIRS 白名单挡在扫描外。
+            version_snapshot_relative_path(
+                CHARACTER_DERIVATIVE_RESOURCE_TYPE, "Hero/重甲", version=1, timestamp="20260101_000000"
+            ),
+            # 媒体子目录内的同名目录：由 versions 跳过挡下，二级与四级同样有效。
+            "storyboards/versions/scene_E1S01_v1_20260101_000000.png",
+            "characters/derivatives/Hero/versions/重甲_v1_20260101_000000.png",
+        ],
+    )
+    def test_ignores_version_snapshots(self, tmp_path, snapshot_rel):
+        """快照按版本号定址、由文件路由按路径设 immutable，不参与 cache-bust。"""
+        snapshot = tmp_path / snapshot_rel
+        snapshot.parent.mkdir(parents=True)
+        snapshot.write_bytes(b"old")
+
+        assert compute_asset_fingerprints(tmp_path) == {}
+
+    def test_ignores_symlinked_media_directories(self, tmp_path):
+        """目录软链不下探：链接目标不是项目自己的媒体。"""
+        derivatives = tmp_path / "characters" / "derivatives"
+        derivatives.mkdir(parents=True)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "Hero.png").write_bytes(b"elsewhere")
+        (derivatives / "Hero").symlink_to(outside, target_is_directory=True)
+
+        assert compute_asset_fingerprints(tmp_path) == {}
