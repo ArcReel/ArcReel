@@ -250,12 +250,18 @@ def build_script_preview(
     references, missing = derive_references_from_text(text, project)
 
     character_references = build_reference_catalog(project).reference_names("character")
+    # 同一个名字可能同时写在记号之外与说话人位，两处各自去重、彼此不排除；不减去 missing
+    # 会让同一个未登记衍生在预览面板上出现两条一模一样的提示。
+    already_reported = set(missing)
     unknown_derivatives = [
         reference
         for reference, (base, derivative) in (
             (reference, split_derivative_reference(reference)) for reference in speech_speaker_references(text)
         )
-        if derivative and base in character_references and reference not in character_references
+        if derivative
+        and base in character_references
+        and reference not in character_references
+        and reference not in already_reported
     ]
     warnings = [_warning(WARN_UNREGISTERED_MENTION, name=name) for name in [*missing, *unknown_derivatives]]
     if unit_lacks_scene_reference(text, project):

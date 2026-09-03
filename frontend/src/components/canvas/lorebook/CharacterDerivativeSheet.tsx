@@ -46,10 +46,14 @@ export function CharacterDerivativeSheet({
   onRestore,
 }: CharacterDerivativeSheetProps) {
   const { t } = useTranslation("assets");
-  const [imgError, setImgError] = useState(false);
+  // 加载失败按「哪一张图失败了」记，不是这一格失败了（同 RefThumbnail）：重生成 / 编辑 /
+  // 回退换掉图之后 key 变了，自然重新试一次，否则占位内容会一直顶到组件卸载。
+  const [errorKey, setErrorKey] = useState<string | null>(null);
   const resourceId = derivativeResourceId(characterName, derivativeName);
   const sheetPath = status?.character_sheet ?? "";
   const sheetFp = useProjectsStore((s) => (sheetPath ? s.getAssetFingerprint(sheetPath) : null));
+  const sheetKey = sheetPath ? `${sheetPath}#${sheetFp ?? ""}` : null;
+  const imgError = errorKey !== null && errorKey === sheetKey;
   const activeIds = useActiveResourceIds("character_derivative", projectName);
   const generating = activeIds.has(resourceId);
   const sheetUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, sheetFp) : null;
@@ -81,7 +85,7 @@ export function CharacterDerivativeSheet({
               src={sheetUrl && !imgError ? sheetUrl : null}
               alt={alt}
               className="h-full w-full object-contain"
-              onError={() => setImgError(true)}
+              onError={() => setErrorKey(sheetKey)}
               fallback={
                 <div
                   className="flex h-full w-full flex-col items-center justify-center gap-1.5"

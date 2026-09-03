@@ -8,6 +8,7 @@ MESSAGES = {
     "event_label_asset_image_scene": 'Asset image for scene "{id}"',
     "event_label_asset_image_prop": 'Asset image for prop "{id}"',
     "event_label_asset_image_product": 'Asset image for product "{id}"',
+    "event_label_asset_image_character_derivative": 'Asset image for character derivative "{id}"',
     "event_label_skeleton_segments": 'Segment "{id}"',
     "event_label_skeleton_scenes": 'Scene "{id}"',
     "event_label_skeleton_shots": 'Shot "{id}"',

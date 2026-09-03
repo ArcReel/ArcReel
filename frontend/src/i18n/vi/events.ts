@@ -8,6 +8,7 @@ export default {
   "label.asset_image_scene": 'Ảnh tài sản của cảnh "{{id}}"',
   "label.asset_image_prop": 'Ảnh tài sản của đạo cụ "{{id}}"',
   "label.asset_image_product": 'Ảnh tài sản của sản phẩm "{{id}}"',
+  "label.asset_image_character_derivative": 'Ảnh tài sản của biến thể nhân vật "{{id}}"',
   "label.skeleton_segments": 'Phân cảnh "{{id}}"',
   "label.skeleton_scenes": 'Cảnh "{{id}}"',
   "label.skeleton_shots": 'Cú máy "{{id}}"',
