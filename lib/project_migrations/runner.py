@@ -38,6 +38,7 @@ from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from lib.project_migrations.v9_to_v10_script_plan_naming import DRAFT_FILE_RENAMES, migrate_v9_to_v10
 from lib.project_migrations.v10_to_v11_character_voice_binding import migrate_v10_to_v11
+from lib.project_migrations.v11_to_v12_character_derivatives import migrate_v11_to_v12
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -339,3 +340,4 @@ MIGRATORS[7] = migrate_v7_to_v8
 MIGRATORS[8] = migrate_v8_to_v9
 MIGRATORS[9] = migrate_v9_to_v10
 MIGRATORS[10] = migrate_v10_to_v11
+MIGRATORS[11] = migrate_v11_to_v12

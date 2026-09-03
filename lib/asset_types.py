@@ -37,6 +37,11 @@ class AssetSpec:
     ``in_global_library`` 控制该类型是否进入跨项目全局资产库（assets 表）：库的
     单图列模型只兼容「一资产一图」的类型，多图列表型资产（product）暂不进入。
 
+    ``supports_derivatives`` 是可选能力维度：开启后该类型的每个条目在 ``DERIVATIVES_FIELD``
+    下持有一张衍生表（衍生名 → ``{description, <sheet_field>}``），衍生共享本体的名字与
+    身份，只在所属条目内唯一，引用写作 ``本体名/衍生名``。机制按资产类型通用建模，当前
+    只有 character 开启（见 ``docs/adr/0072``）；未开启的类型条目里不出现该字段。
+
     ``label_zh`` 服务 logger 与 agent 侧字符串（两者按 i18n 规范豁免翻译）；
     面向用户的资产类型显示名走 ``lib/i18n`` 的 ``asset_type_*`` key，不复用此字段。
     """
@@ -53,6 +58,7 @@ class AssetSpec:
     extra_list_fields: tuple[str, ...] = ()
     agent_editable_extra_fields: tuple[str, ...] = ()
     in_global_library: bool = True
+    supports_derivatives: bool = False
 
 
 ASSET_SPECS: dict[str, AssetSpec] = {
@@ -75,6 +81,7 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         # （update_character_reference_audio 与全局资产库导入），不开放任意 PATCH 覆写
         # （否则该比较可被客户端绕过）。
         agent_editable_extra_fields=("voice_style",),
+        supports_derivatives=True,
     ),
     "scene": AssetSpec(
         asset_type="scene",
@@ -128,6 +135,9 @@ BUCKET_KEY: dict[str, str] = {t: s.bucket_key for t, s in ASSET_SPECS.items()}
 SHEET_KEY: dict[str, str] = {t: s.sheet_field for t, s in ASSET_SPECS.items()}
 
 GLOBAL_LIBRARY_ASSET_TYPES: frozenset[str] = frozenset(t for t, s in ASSET_SPECS.items() if s.in_global_library)
+
+#: 衍生表在资产条目内的字段名，供开启 ``supports_derivatives`` 的类型共用。
+DERIVATIVES_FIELD = "derivatives"
 
 
 @dataclass(frozen=True)

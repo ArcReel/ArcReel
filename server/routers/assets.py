@@ -18,7 +18,9 @@ from lib.api_errors import NotFoundError
 from lib.artifact_activation import register_artifact_entries_atomically, resolve_current_artifact_target
 from lib.artifact_manifest import ArtifactKey
 from lib.asset_types import (
+    ASSET_SPECS,
     BUCKET_KEY,
+    DERIVATIVES_FIELD,
     GLOBAL_LIBRARY_ASSET_TYPES,
     SHEET_KEY,
     ProjectAssetNameConflictError,
@@ -637,6 +639,12 @@ async def apply_to_project(
                 data[bk] = {}
             # overwrite 策略要落在存量真实 key 上（可能是 NFD），否则会并存两条视觉同名条目
             key = existing.name if existing is not None and existing.asset_type == a_.type else name_
+            # 衍生登记在条目内、不随全局库进出：整条替换前把存量条目的衍生表接过来，
+            # 覆盖导入才不会连带抹掉用户已登记的衍生；新条目补空表，与创建路径和迁移同口径。
+            if ASSET_SPECS[a_.type].supports_derivatives:
+                previous = data[bk].get(key)
+                inherited = previous.get(DERIVATIVES_FIELD) if isinstance(previous, dict) else None
+                payload[DERIVATIVES_FIELD] = inherited if isinstance(inherited, dict) else {}
             data[bk][key] = payload
             applied_plans.append(plan)
 

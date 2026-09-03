@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from lib.asset_types import (
     ASSET_SPECS,
+    DERIVATIVES_FIELD,
     asset_name_comparison_key,
     project_asset_name_conflicts,
 )
@@ -489,7 +490,8 @@ class DataValidator:
 
         characters = project.get("characters", {})
         if isinstance(characters, dict):
-            char_extra_fields = ASSET_SPECS["character"].extra_string_fields
+            char_spec = ASSET_SPECS["character"]
+            char_extra_fields = char_spec.extra_string_fields
             for char_name, char_data in characters.items():
                 if not isinstance(char_data, dict):
                     errors.append(_m("val_asset_format_object", asset_type=_asset("character"), name=char_name))
@@ -549,6 +551,8 @@ class DataValidator:
                             value=repr(voice_updated_at),
                         )
                     )
+                if char_spec.supports_derivatives:
+                    self._validate_derivatives(char_data, "character", char_name, errors)
 
         if project.get("clues") is not None:
             errors.append(_m("val_deprecated_clues"))
@@ -556,6 +560,45 @@ class DataValidator:
         self._validate_project_catalog(project.get("scenes") or {}, errors, field_label="scenes")
         self._validate_project_catalog(project.get("props") or {}, errors, field_label="props")
         self._validate_project_catalog(project.get("products") or {}, errors, field_label="products")
+
+    @staticmethod
+    def _validate_derivatives(
+        entry: dict[str, Any],
+        asset_type: str,
+        entry_name: str,
+        errors: list[ValidationMessage],
+    ) -> None:
+        """校验开启衍生能力的资产条目里的衍生表结构。
+
+        衍生表是「衍生名 → {description, <sheet_field>}」的嵌套 dict：两个字段都被下游当
+        文本消费（description 进图像编辑指令、sheet 字段被拼成路径），非字符串会在消费点
+        才崩。缺失视为未设置放行——迁移会为存量条目补空表，新登记走衍生子资源。
+        """
+        spec = ASSET_SPECS[asset_type]
+        kind = _asset(asset_type)
+        table = entry.get(DERIVATIVES_FIELD)
+        if table is None:
+            return
+        if not isinstance(table, dict):
+            errors.append(_m("val_field_must_be_object", field=f"{entry_name}.{DERIVATIVES_FIELD}"))
+            return
+        for derivative_name, derivative in table.items():
+            qualified = f"{entry_name}/{derivative_name}"
+            if not isinstance(derivative, dict):
+                errors.append(_m("val_asset_format_object", asset_type=kind, name=qualified))
+                continue
+            for field_name in ("description", spec.sheet_field):
+                value = derivative.get(field_name)
+                if value is not None and not isinstance(value, str):
+                    errors.append(
+                        _m(
+                            "val_asset_field_must_be_string",
+                            asset_type=kind,
+                            name=qualified,
+                            field=field_name,
+                            actual=type(value).__name__,
+                        )
+                    )
 
     def _validate_project_catalog(
         self,

@@ -18,6 +18,17 @@ export interface ProjectOverview {
   generated_at?: string;
 }
 
+/**
+ * 角色的一个衍生：本体之外的另一套持续外观（换装、变身、易容等）。与本体共享名字、声音
+ * 与身份，只持有相对本体的变化描述与由本体资产图编辑生成的资产图，没有原图。
+ */
+export interface CharacterDerivative {
+  /** 相对本体的外观变化，采用图像编辑指令的口吻。 */
+  description: string;
+  /** 衍生资产图相对路径；尚未生成时为空。 */
+  character_sheet?: string;
+}
+
 export interface Character {
   description: string;
   character_sheet?: string;
@@ -29,6 +40,8 @@ export interface Character {
   /** 已确认到的声音版本（ISO8601，取关闭时的 voice_updated_at 原值）；
    *  voice_updated_at 晚于此值即视为新版本。 */
   voice_notice_dismissed_at?: string;
+  /** 衍生表：衍生名 → 条目。衍生名只在本角色内唯一，脚本中写作 `@[角色/衍生]`。 */
+  derivatives?: Record<string, CharacterDerivative>;
 }
 
 export interface Scene {

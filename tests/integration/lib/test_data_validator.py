@@ -1796,3 +1796,42 @@ class TestDataValidatorSkeletonExhaustiveness:
         validator._validate_episode_payload(tmp_path, project, episode, [], [])
 
         assert called == ["_validate_scenes"]
+
+
+class TestCharacterDerivativesStructure:
+    """衍生表的结构校验：两个字段都被下游当文本消费，非字符串须在落盘前拒绝。"""
+
+    @staticmethod
+    def _keys(derivatives: object) -> list[str]:
+        project = _project_payload()
+        project["characters"]["姜月茴"]["derivatives"] = derivatives
+        result = DataValidator("/tmp").validate_project_payload(project)
+        return [message.key for message in result.error_messages]
+
+    def test_well_formed_table_passes(self):
+        assert self._keys({"战斗装": {"description": "换上黑色重甲", "character_sheet": ""}}) == []
+
+    def test_empty_and_missing_tables_pass(self):
+        assert self._keys({}) == []
+        assert DataValidator("/tmp").validate_project_payload(_project_payload()).error_messages == []
+
+    def test_non_object_table_rejected(self):
+        assert self._keys("dirty") == ["val_field_must_be_object"]
+
+    def test_non_object_derivative_rejected(self):
+        assert self._keys({"战斗装": "dirty"}) == ["val_asset_format_object"]
+
+    @pytest.mark.parametrize("derivative", [{"description": 3}, {"character_sheet": ["a.png"]}])
+    def test_non_string_derivative_fields_rejected(self, derivative):
+        assert self._keys({"战斗装": derivative}) == ["val_asset_field_must_be_string"]
+
+    def test_derivative_error_names_the_reference_form(self):
+        project = _project_payload()
+        project["characters"]["姜月茴"]["derivatives"] = {"战斗装": {"description": 3}}
+        errors = DataValidator("/tmp").validate_project_payload(project).errors
+        assert "姜月茴/战斗装" in errors[0]
+
+    def test_types_without_the_capability_ignore_the_field(self):
+        project = _project_payload()
+        project["scenes"]["古宅"]["derivatives"] = "dirty"
+        assert DataValidator("/tmp").validate_project_payload(project).error_messages == []

@@ -112,6 +112,11 @@ const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
   product: "products",
 };
 
+/** 角色衍生子资源的路径前缀；衍生挂在角色条目下，两段名字各自编码。 */
+function derivativesPath(projectName: string, charName: string): string {
+  return `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}/derivatives`;
+}
+
 function referenceRequestQuery(
   options: ReferenceRequestOptions,
   initial?: Record<string, string>,
@@ -1206,6 +1211,70 @@ class API {
   ): Promise<SuccessResponse> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}`,
+      {
+        method: "DELETE",
+      }
+    );
+  }
+
+  // ==================== 角色衍生管理 ====================
+
+  /**
+   * 衍生是挂在角色下的子身份（换装、变身、易容），名字只在该角色内唯一，脚本中写作
+   * `@[角色/衍生]`。以下四个方法只做登记；衍生资产图的生成与版本不在此。
+   */
+  static async addCharacterDerivative(
+    projectName: string,
+    charName: string,
+    name: string,
+    description: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      derivativesPath(projectName, charName),
+      {
+        method: "POST",
+        body: JSON.stringify({ name, description }),
+      }
+    );
+  }
+
+  static async updateCharacterDerivative(
+    projectName: string,
+    charName: string,
+    derivativeName: string,
+    description: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `${derivativesPath(projectName, charName)}/${encodeURIComponent(derivativeName)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ description }),
+      }
+    );
+  }
+
+  static async renameCharacterDerivative(
+    projectName: string,
+    charName: string,
+    derivativeName: string,
+    newName: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `${derivativesPath(projectName, charName)}/${encodeURIComponent(derivativeName)}/rename`,
+      {
+        method: "POST",
+        body: JSON.stringify({ new_name: newName }),
+      }
+    );
+  }
+
+  static async deleteCharacterDerivative(
+    projectName: string,
+    charName: string,
+    derivativeName: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `${derivativesPath(projectName, charName)}/${encodeURIComponent(derivativeName)}`,
       {
         method: "DELETE",
       }
