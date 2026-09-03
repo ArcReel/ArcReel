@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
@@ -50,6 +50,12 @@ _SIGNED_QUERY_RE = re.compile(
 )
 _URL_PASSWORD_RE = re.compile(r"(?i)([a-z][a-z0-9+.-]*://[^/@\s:]*:)([^@/\s]+)(@)")
 _API_KEY_VALUE_RE = re.compile(r"(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]{8,}")
+# 散文里的凭证：上游 4xx 常把密钥连同一句话回显（"Incorrect API key provided: <key>"），
+# 标签与值之间隔着普通词，键值型规则匹配不到。标签后最多跨两个词再遇到 : / = 即遮蔽其后的值。
+_PROSE_CREDENTIAL_RE = re.compile(
+    r"(?i)(\b(?:api|access|secret|auth|private|signing)[ _-]?(?:key|token)s?\b(?:[ \t]+[A-Za-z]+){0,2}[ \t]*[:=]\s*)"
+    r"([\'\"]?)[^\s,;&\'\"]+\2"
+)
 _PEM_PRIVATE_KEY_RE = re.compile(
     r"-----BEGIN (?P<label>(?:[A-Z0-9]+ )*PRIVATE KEY)-----.*?-----END (?P=label)-----",
     re.DOTALL,
@@ -59,6 +65,29 @@ _MASKED = "••••"
 
 def _is_sensitive_key(key: str | None) -> bool:
     return bool(key and (_SENSITIVE_KEY_RE.fullmatch(key) or _CAMEL_SENSITIVE_KEY_RE.fullmatch(key)))
+
+
+#: 用量计数的键形：``prompt_tokens`` / ``total_tokens`` 之类以 token(s) 收尾的名字同时落在
+#: 敏感键形里，而它们带的是数字。
+_TOKEN_COUNT_KEY_RE = re.compile(r"(?i)(?:[A-Za-z0-9]+[_-])*tokens?")
+#: 直接限定 token 的凭证词：``access_token`` 一类无论值是什么都按凭证处理。
+_CREDENTIAL_TOKEN_QUALIFIERS = frozenset(
+    {"access", "auth", "bearer", "refresh", "id", "api", "secret", "private", "signing", "session", "csrf"}
+)
+
+
+def _is_token_count(key: str | None, value: object) -> bool:
+    """键形像 token 计数、值又是数字时，它是用量计数而不是凭证。
+
+    凭证是字符串；``prompt_tokens: 128`` 这类计数被当成凭证遮蔽，会让读侧的用量与计费信息
+    静默消失。数字之外、以及被凭证词直接限定的 token 一律仍按凭证处理。
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    if not key or not _TOKEN_COUNT_KEY_RE.fullmatch(key):
+        return False
+    segments = re.split(r"[_-]", key)
+    return len(segments) < 2 or segments[-2].lower() not in _CREDENTIAL_TOKEN_QUALIFIERS
 
 
 def redact_diagnostic_text(value: object) -> str:
@@ -75,26 +104,40 @@ def redact_diagnostic_text(value: object) -> str:
     rendered = _DOUBLE_QUOTED_SECRET_RE.sub(lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered)
     rendered = _SINGLE_QUOTED_SECRET_RE.sub(lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered)
     rendered = _INLINE_SECRET_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
+    rendered = _PROSE_CREDENTIAL_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}{_MASKED}{match.group(2)}", rendered
+    )
     rendered = _SIGNED_QUERY_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _URL_PASSWORD_RE.sub(lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered)
     return _API_KEY_VALUE_RE.sub(_MASKED, rendered)
 
 
-def sanitize_diagnostic_payload(value: Any, *, _key: str | None = None) -> Any:
-    """清洗 JSON 兼容诊断载荷：不截断未知字段，只完整遮蔽秘密值。"""
-    if _is_sensitive_key(_key):
+def sanitize_diagnostic_payload(
+    value: Any, *, redact_text: Callable[[object], str] = redact_diagnostic_text, _key: str | None = None
+) -> Any:
+    """清洗 JSON 兼容诊断载荷：不截断未知字段，只完整遮蔽秘密值。
+
+    ``redact_text`` 是逐个字符串的脱敏口径。默认只遮蔽认得出的凭证；载荷会落库或经 API
+    回读时传更严的口径（如连 URL 查询串一起剥掉），不必各调用点自己重走一遍递归。
+
+    敏感键形上的数字型 token 计数照原样保留，见 :func:`_is_token_count`。
+    """
+    if _is_sensitive_key(_key) and not _is_token_count(_key, value):
         return None if value is None else _MASKED
     if value is None or isinstance(value, bool | int):
         return value
     if isinstance(value, float):
         return value if math.isfinite(value) else repr(value)
     if isinstance(value, str):
-        return redact_diagnostic_text(value)
+        return redact_text(value)
     if isinstance(value, Mapping):
-        return {str(key): sanitize_diagnostic_payload(item, _key=str(key)) for key, item in value.items()}
+        return {
+            str(key): sanitize_diagnostic_payload(item, redact_text=redact_text, _key=str(key))
+            for key, item in value.items()
+        }
     if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
-        return [sanitize_diagnostic_payload(item) for item in value]
-    return redact_diagnostic_text(value)
+        return [sanitize_diagnostic_payload(item, redact_text=redact_text) for item in value]
+    return redact_text(value)
 
 
 def _redact_value(value: str) -> str:

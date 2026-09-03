@@ -19,9 +19,9 @@ from sqlalchemy.exc import InterfaceError, OperationalError
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.data_uri import file_to_data_uri
 from lib.http_status_errors import ProviderRejectedError as ProviderRejectedError
+from lib.http_status_errors import provider_rejected_error, redacted_status_error
 from lib.http_status_errors import raise_for_status_redacted as raise_for_status_redacted
-from lib.http_status_errors import redacted_status_error
-from lib.logging_utils import redact_diagnostic_text
+from lib.logging_utils import redact_diagnostic_text, sanitize_diagnostic_payload
 from lib.retry import BASE_RETRYABLE_ERRORS, AsyncClock, SystemClock, _should_retry, with_retry_async
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
@@ -371,12 +371,13 @@ async def submit_post(
     if request is not None:
         await notify_provider_response(request, "submit", _response_body_or_text(resp))
     if resp.status_code >= 400:
-        logger.warning("%s create 返回 %s: %s", provider, resp.status_code, resp.text[:500])
+        logger.warning("%s create 返回 %s: %s", provider, resp.status_code, redact_provider_text(resp.text)[:500])
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            reason = provider_reason_summary(resp) if include_provider_reason else None
-            raise redacted_status_error(exc, provider_reason=reason) from None
+            if include_provider_reason and is_provider_rejection(resp.status_code):
+                raise provider_rejected_error(exc, provider_reason=provider_reason_summary(resp)) from None
+            raise redacted_status_error(exc) from None
     return resp
 
 
@@ -622,8 +623,9 @@ def _rewrites_to_get(status_code: int, method: str) -> bool:
 
 
 def _without_query(url: str) -> str:
-    """去掉查询串的 URL：按 query 传的凭证与签名都在那里，不该进错误消息与日志。"""
-    return str(httpx.URL(url).copy_with(query=None))
+    """去掉查询串与 userinfo 的 URL：按 query 传的凭证、签名与 Basic 认证的口令都在那里，
+    不该进错误消息与日志。"""
+    return str(httpx.URL(url).copy_with(query=None, userinfo=b""))
 
 
 #: 拒因摘要的字符上限。上游错误体可以长达数千字符，而摘要要落进任务失败信封、随任务列表
@@ -640,6 +642,9 @@ _REASON_NESTED_KEYS = ("error", "output", "data", "detail", "result")
 
 #: 与拒因同层的机器码。它比自然语言更能指向被触发的那条拒绝规则，取到就前置进摘要。
 _REASON_CODE_KEYS = ("code", "error_code", "type")
+
+#: 认证类状态码：401 未认证、407 代理未认证。这类响应体不产出拒因摘要。
+_CREDENTIAL_STATUS_CODES = frozenset({401, 407})
 
 #: 容器下钻深度上限，防畸形错误体上的深递归。
 _REASON_MAX_DEPTH = 3
@@ -689,18 +694,40 @@ def _reason_text(payload: object, depth: int = 0) -> str | None:
 
 
 def _strip_url_queries(text: str) -> str:
-    """去掉文本里每个绝对 URL 的查询串与片段：预签名参数与按 query 传的凭证都在那里。"""
+    """去掉文本里每个绝对 URL 的查询串、片段与 userinfo：预签名参数与按 query 传的凭证都在
+    查询串里，而 ``https://TOKEN@host`` 这种把令牌塞进权限段的写法只有整段清掉才拦得住——
+    随后的通用脱敏只认得出 ``user:password@`` 形态，遮不住没有冒号的裸令牌。"""
 
     def _replace(match: re.Match[str]) -> str:
         raw = match.group(0).rstrip(".,;:!?)]}\"'")
         trailing = match.group(0)[len(raw) :]
         try:
-            stripped = str(httpx.URL(raw).copy_with(query=None, fragment=None))
+            stripped = str(httpx.URL(raw).copy_with(query=None, fragment=None, userinfo=b""))
         except (httpx.InvalidURL, ValueError, UnicodeError):
             stripped = "<url>"
         return stripped + trailing
 
     return _REASON_URL_RE.sub(_replace, text)
+
+
+def redact_provider_text(value: object) -> str:
+    """供应商原文的脱敏形态：先剥掉每个 URL 的查询串，再遮蔽凭证。
+
+    两层缺一不可：``redact_diagnostic_text`` 只认得出常见的凭证参数名，预签名 URL 上
+    的厂商私有参数要靠查询串整体剥离兜住；而查询串之外的凭证回显只有前者认得出。
+    """
+    if not isinstance(value, str):
+        # 非字符串只出现在留痕的兜底分支：没有 URL 文本可剥，交通用遮蔽器统一 str 化
+        return redact_diagnostic_text(value)
+    return redact_diagnostic_text(_strip_url_queries(value))
+
+
+def is_provider_rejection(status_code: int) -> bool:
+    """该状态码是否算「提交被上游拒绝」：确定性 4xx，不含瞬态可重试的那几个。
+
+    与摘要有无无关——拒绝这件事本身决定读侧的文案与后续动作（修改输入而非重试）。
+    """
+    return 400 <= status_code < 500 and not is_retryable_http_status(status_code, retry_not_found=False)
 
 
 def provider_reason_summary(response: httpx.Response) -> str | None:
@@ -713,7 +740,11 @@ def provider_reason_summary(response: httpx.Response) -> str | None:
     ``_without_query`` 同口径），再交 ``redact_diagnostic_text`` 遮蔽 Authorization / Bearer /
     引号包裹的 secret 等值，与日志侧共用一套规则。
     """
-    if not 400 <= response.status_code < 500 or is_retryable_http_status(response.status_code, retry_not_found=False):
+    if not is_provider_rejection(response.status_code):
+        return None
+    if response.status_code in _CREDENTIAL_STATUS_CODES:
+        # 认证失败的响应体讲的就是凭证本身，上游常把整把密钥回显在句子里；这类拒因除了
+        # 「凭证没被接受」没有别的可行动信息，而那一层已由本地化文案的状态码给出。
         return None
     try:
         body_text = response.text
@@ -728,7 +759,7 @@ def provider_reason_summary(response: httpx.Response) -> str | None:
         reason = _reason_text(payload)
     if not reason:
         return None
-    summary = " ".join(redact_diagnostic_text(_strip_url_queries(reason)).split())
+    summary = " ".join(redact_provider_text(reason).split())
     if not summary:
         return None
     if len(summary) <= PROVIDER_REASON_MAX_CHARS:
@@ -1222,11 +1253,16 @@ async def notify_provider_response(request: VideoGenerationRequest, stage: Provi
 
     留痕是诊断数据，不参与业务解析：写入失败只记日志，不让一笔已被供应商受理（多半已计费）
     的生成因为诊断列写不进去而失败。
+
+    响应原文在这里脱敏一次：留痕会落库并经 API 回读，而上游响应体可能带回签名 URL 或把
+    凭证回显在字段里。收口在本函数而非各调用点，新增的留痕点不必各自记得脱敏。逐字符串
+    的口径与拒因摘要、失败日志同为 ``redact_provider_text``：通用遮蔽器只认得出常见的凭证
+    参数名，厂商私有的查询参数要靠查询串整体剥离兜住。
     """
     if request.on_provider_response is None:
         return
     try:
-        await request.on_provider_response(stage, body)
+        await request.on_provider_response(stage, sanitize_diagnostic_payload(body, redact_text=redact_provider_text))
     except Exception:
         logger.warning("供应商响应留痕写入失败 task_id=%s", request.task_id, exc_info=True)
 

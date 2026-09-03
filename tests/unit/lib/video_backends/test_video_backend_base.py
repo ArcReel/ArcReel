@@ -676,6 +676,46 @@ class TestSubmitPost:
         assert await submit_post(_post, provider="v2", request=request) is resp
         assert recorded == [("submit", {"id": "ok"})]
 
+    async def test_recorded_response_is_sanitized_before_it_is_persisted(self):
+        # 留痕会落库并经 API 回读：上游把凭证回显在字段里时不能原样存下来。
+        request_obj = httpx.Request("POST", "https://x/v2")
+        resp = httpx.Response(
+            200,
+            request=request_obj,
+            json={
+                "id": "ok",
+                "api_key": "vda_live_SECRET",
+                "note": "callback https://cb.test/x?auth=SUPERSECRET",
+                "upload": "PUT https://BARETOKEN@cb.test/put",
+            },
+        )
+
+        async def _post() -> httpx.Response:
+            return resp
+
+        recorded: list[tuple[ProviderResponseStage, object]] = []
+
+        async def _record(stage: ProviderResponseStage, body: object) -> None:
+            recorded.append((stage, body))
+
+        request = VideoGenerationRequest(prompt="p", output_path=Path("out.mp4"), on_provider_response=_record)
+
+        await submit_post(_post, provider="v2", request=request)
+
+        # 厂商私有的查询参数名不在通用遮蔽器的清单里，只有整体剥离查询串才拦得住；
+        # 没有冒号的裸令牌权限段（https://TOKEN@host）同理，通用遮蔽器只认 user:password@
+        assert recorded == [
+            (
+                "submit",
+                {
+                    "id": "ok",
+                    "api_key": "••••",
+                    "note": "callback https://cb.test/x",
+                    "upload": "PUT https://cb.test/put",
+                },
+            )
+        ]
+
     async def test_not_sent_error_propagates_for_retry(self):
         # 连接建立失败 / 代理握手失败原样抛出，交 should_retry_submit 重试（不包成终态）。
         for exc in (httpx.ConnectError("refused"), httpx.ProxyError("proxy handshake failed")):
@@ -757,6 +797,68 @@ class TestSubmitPost:
 
         assert type(excinfo.value) is httpx.HTTPStatusError
         assert str(excinfo.value) == "502 response for https://x/v2"
+
+    async def test_error_message_drops_url_userinfo(self):
+        # base_url 允许用户自填：写成 https://user:pw@host 时口令落在权限段里，剥查询串剥不掉它，
+        # 而这条消息会进 task.error_message 并随任务列表回传。
+        request = httpx.Request("POST", "https://user:SECRETPW@x/v2?api_key=SECRETKEY")
+        resp = httpx.Response(502, request=request, json={"message": "bad gateway"})
+
+        async def _post() -> httpx.Response:
+            return resp
+
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+            await submit_post(_post, provider="v2")
+
+        assert str(excinfo.value) == "502 response for https://x/v2"
+
+    @pytest.mark.parametrize(
+        ("status", "body"),
+        [(401, {"message": "Incorrect API key provided: vda_live_SECRET"}), (400, {}), (403, {"unknown": "shape"})],
+    )
+    async def test_deterministic_4xx_is_structured_even_without_a_reason(self, status: int, body: dict[str, str]):
+        # 摘要缺席（认证类不透传、空响应体、字段全不认得）时拒绝本身仍要结构化，
+        # 否则读侧拿不到本地化文案与「修改输入」的后续动作，只剩一行裸状态。
+        request = httpx.Request("POST", "https://x/v2")
+        resp = httpx.Response(status, request=request, json=body)
+
+        async def _post() -> httpx.Response:
+            return resp
+
+        with pytest.raises(ProviderRejectedError) as excinfo:
+            await submit_post(_post, provider="v2")
+
+        assert excinfo.value.provider_reason is None
+        assert excinfo.value.response.status_code == status
+
+    async def test_failure_body_is_redacted_before_it_reaches_the_log(self, caplog):
+        # 失败响应体照样落日志保留可诊断性，但凭证不随它进日志文件。
+        request = httpx.Request("POST", "https://x/v2")
+        resp = httpx.Response(
+            401,
+            request=request,
+            json={
+                "message": (
+                    "Incorrect API key provided: vda_live_SECRET; "
+                    "see https://oss.test/o.png?X-Vendor-Credential=AKIASECRET"
+                )
+            },
+        )
+
+        async def _post() -> httpx.Response:
+            return resp
+
+        with (
+            caplog.at_level(logging.WARNING, logger="lib.video_backends.base"),
+            pytest.raises(httpx.HTTPStatusError),
+        ):
+            await submit_post(_post, provider="v2")
+
+        logged = " ".join(record.getMessage() for record in caplog.records)
+        assert "Incorrect API key provided" in logged
+        assert "https://oss.test/o.png" in logged
+        assert "vda_live_SECRET" not in logged
+        assert "AKIASECRET" not in logged
 
     @pytest.mark.parametrize("status", [408, 425, 429])
     async def test_retryable_client_error_stays_a_plain_status_error(self, status: int):
@@ -845,6 +947,24 @@ class TestProviderReasonSummary:
     def test_returns_none_for_server_errors_and_empty_bodies(self):
         assert provider_reason_summary(self._response(500, json={"message": "boom"})) is None
         assert provider_reason_summary(self._response(400, text="   ")) is None
+
+    @pytest.mark.parametrize("status", [401, 407])
+    def test_returns_none_for_credential_errors(self, status: int):
+        # 认证失败的响应体讲的就是凭证，上游常把整把密钥回显在句子里；这类拒因不透传。
+        assert (
+            provider_reason_summary(
+                self._response(status, json={"message": "Incorrect API key provided: vda_live_SECRET"})
+            )
+            is None
+        )
+
+    def test_masks_a_credential_echoed_in_prose(self):
+        # 密钥不一定以键值形式出现：上游也会把它嵌在一句话里回显。
+        summary = provider_reason_summary(
+            self._response(400, json={"message": "Incorrect API key provided: vda_live_SECRET"})
+        )
+        assert summary is not None
+        assert "vda_live_SECRET" not in summary
 
 
 def _make_operational_error(msg: str) -> OperationalError:

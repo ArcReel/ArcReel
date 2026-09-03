@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { errMsg, voidCall, voidPromise } from "@/utils/async";
+import { errMsg, voidCall } from "@/utils/async";
 import { ChevronRight, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -260,15 +260,39 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const loadedContextRef = useRef<{ providerId: string; reloadKey: number } | null>(null);
+  // 面板重置的代次：只在换供应商或手动重试时递增，语言重取不动它。在途的保存拿它认自己
+  // 那一次面板停留，A→B→A 回到同一个 providerId 时旧保存不会被认成当前的。
+  const panelGenerationRef = useRef(0);
+  const detailRef = useRef<ProviderConfigDetail | null>(null);
+  const detailAbortRef = useRef<AbortController | null>(null);
+
+  const applyDetail = useCallback((next: ProviderConfigDetail | null) => {
+    detailRef.current = next;
+    setDetail(next);
+  }, []);
+
+  /** 详情有三个发起方（effect、保存后重取、凭证变更后重取）。新一轮先作废在途的那次，
+   *  否则先发出的语言重取后返回时会把刚保存的结果覆盖回旧值。 */
+  const startDetailRequest = useCallback(() => {
+    detailAbortRef.current?.abort();
+    const controller = new AbortController();
+    detailAbortRef.current = controller;
+    return controller;
+  }, []);
 
   const hasDraft = Object.keys(draft).length > 0;
   useWarnUnsaved(hasDraft);
 
-  const handleCredentialChanged = useCallback(async () => {
-    const updated = await API.getProviderConfig(providerId);
-    setDetail(updated);
+  const handleCredentialChanged = useCallback(() => {
+    // 凭证已经改完了：目录刷新与这次详情重取是否落地无关，与保存路径同一口径。
     onSaved?.();
-  }, [providerId, onSaved]);
+    const controller = startDetailRequest();
+    voidCall(
+      API.getProviderConfig(providerId, { signal: controller.signal }).then((updated) => {
+        if (!controller.signal.aborted) applyDetail(updated);
+      }),
+    );
+  }, [providerId, onSaved, applyDetail, startDetailRequest]);
 
   // 用户编辑草稿时同步清掉上一次保存失败的错误，避免旧文案滞留误导
   const handleDraftEdit = useCallback<React.Dispatch<React.SetStateAction<Record<string, string>>>>((action) => {
@@ -281,49 +305,72 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     const shouldReset =
       previous === null || previous.providerId !== providerId || previous.reloadKey !== reloadKey;
     loadedContextRef.current = { providerId, reloadKey };
-    let disposed = false;
     if (shouldReset) {
+      panelGenerationRef.current += 1;
       // providerId 变化或手动重试时重置草稿/详情/错误；语言切换只换详情，保留未保存草稿。
       setDraft({});
-      setDetail(null);
+      applyDetail(null);
       setLoadError(null);
       setSaveError(null);
     }
+    const controller = startDetailRequest();
     voidCall(
-      API.getProviderConfig(providerId)
+      API.getProviderConfig(providerId, { signal: controller.signal })
         .then((res) => {
-          if (!disposed) setDetail(res);
+          if (controller.signal.aborted) return;
+          applyDetail(res);
+          setLoadError(null);
         })
         .catch((err: unknown) => {
-          if (!disposed && shouldReset) setLoadError(errMsg(err));
+          // 语言重取失败时旧详情仍可读，静默即可；手上没有详情可展示就必须报错，
+          // 否则页面停在加载态且没有重试入口。
+          if (!controller.signal.aborted && detailRef.current === null) setLoadError(errMsg(err));
         }),
     );
     return () => {
-      disposed = true;
+      controller.abort();
     };
-  }, [i18n.language, providerId, reloadKey]);
+  }, [i18n.language, providerId, reloadKey, applyDetail, startDetailRequest]);
 
   const handleSave = useCallback(async () => {
     if (Object.keys(draft).length === 0) return;
     setSaving(true);
     setSaveError(null);
+    // 面板可能在 PATCH 途中切到别的供应商。这次保存之后的每一次面板状态写入都要先确认
+    // 面板还停在发起保存的那一次停留上，否则会清掉别人的草稿、把本次的错误显示在别人的
+    // 表单上；只比 providerId 的话，离开又切回来的面板会把旧保存重新认成当前的。
+    const savedGeneration = panelGenerationRef.current;
+    const stillOnThisProvider = () => panelGenerationRef.current === savedGeneration;
+    let saved = false;
     try {
       const patch: Record<string, string | null> = {};
       for (const [key, value] of Object.entries(draft)) {
         patch[key] = value || null;
       }
       await API.patchProviderConfig(providerId, patch);
-      const updated = await API.getProviderConfig(providerId);
-      setDetail(updated);
-      setDraft({});
-      onSaved?.();
+      saved = true;
+      // 已经离场就不重取：那份详情由新供应商自己的 effect 负责，这里再取一次只会把旧
+      // 供应商的字段画进新面板，还会把它的加载作废掉。
+      if (stillOnThisProvider()) {
+        const controller = startDetailRequest();
+        const updated = await API.getProviderConfig(providerId, { signal: controller.signal });
+        if (!controller.signal.aborted) applyDetail(updated);
+      }
     } catch (err) {
+      // 保存已成功、只是重取没落地：不是保存失败，详情停在旧值即可
       // 后端校验失败（如 Max Workers 非法值）返回已本地化的 detail，直接展示
-      setSaveError(errMsg(err));
+      if (!saved && stillOnThisProvider()) setSaveError(errMsg(err));
     } finally {
+      // 保存成功的收尾与重取是否落地无关：草稿必须清掉，目录必须刷新，
+      // 否则已入库的值仍标着未保存、还能被重复提交。
+      if (saved) {
+        if (stillOnThisProvider()) setDraft({});
+        // 目录刷新与面板停在谁身上无关：入库的确实是这个供应商。
+        onSaved?.();
+      }
       setSaving(false);
     }
-  }, [draft, providerId, onSaved]);
+  }, [draft, providerId, onSaved, applyDetail, startDetailRequest]);
 
   if (loadError) {
     return (
@@ -400,7 +447,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
         supportsBaseUrl={detail.supports_base_url}
         secretFields={detail.secret_fields}
         secretFieldGroups={detail.secret_field_groups}
-        onChanged={voidPromise(handleCredentialChanged)}
+        onChanged={handleCredentialChanged}
       />
 
       {/* Advanced */}

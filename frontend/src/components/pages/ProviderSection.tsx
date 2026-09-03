@@ -229,17 +229,11 @@ export function ProviderSection() {
           <CustomProviderForm
             initialBaseUrl={prefill.baseUrl}
             initialEndpoint={prefill.endpoint}
-            onSaved={() => {
-              void refresh().then((result) => {
-                if (result.status !== "ok") {
-                  notifyRefreshFailure(result);
-                  return;
-                }
-                const list = result.customProviders;
-                if (list.length > 0) {
-                  setSelection({ kind: "custom", id: list[list.length - 1].id });
-                }
-              });
+            onSaved={(created) => {
+              // 选中用新建响应带回的 id，不等目录重取的结局：重取被后续请求接管时，
+              // 用户会留在填满的新建表单上，再保存一次就多出一个重复供应商。
+              if (created) setSelection({ kind: "custom", id: created.id });
+              refreshAfterSave();
             }}
             onCancel={() => {
               if (providers.length > 0) {

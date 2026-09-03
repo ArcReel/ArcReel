@@ -317,9 +317,33 @@ describe("ProviderSection", () => {
 
     saveNewCustomProvider();
 
-    // 保存后须切到重取回来的最新一项，否则用户停在空表单、看不到刚建好的供应商
+    // 保存后须切到刚建好的那一项，否则用户停在填满的表单上，再保存一次就多出一个重复供应商
     await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?custom=2"));
     await waitFor(() => expect(API.getCustomProvider).toHaveBeenCalledWith(2));
   });
 
+  it("still selects the created provider when the catalog refresh fails", async () => {
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT] });
+    vi.spyOn(API, "getCustomProvider").mockResolvedValue(customProvider(2, "我的中转站"));
+    vi.spyOn(API, "createCustomProvider").mockResolvedValue(customProvider(2, "我的中转站"));
+    vi.mocked(API.listCustomProviders)
+      .mockReset()
+      .mockResolvedValueOnce({ providers: [customProvider(1, "旧端点")] })
+      .mockRejectedValue(new Error("network down"));
+
+    const { location } = renderAt("/app/settings?custom=new");
+    await screen.findByRole("button", { name: "保存" });
+
+    saveNewCustomProvider();
+
+    // 选中来自新建响应，与目录重取的结局无关；刷新失败另行告警。
+    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?custom=2"));
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "已保存，但供应商列表刷新失败，请重新加载页面",
+        tone: "warning",
+      }),
+    );
+  });
 });

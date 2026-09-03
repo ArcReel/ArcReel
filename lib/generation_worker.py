@@ -114,10 +114,11 @@ def _encode_task_failure_message(exc: Exception) -> str:
     if isinstance(exc, ProviderRejectedError):
         # 上游确定性 4xx：状态码与脱敏摘要各占一个参数。摘要是上游原文，不进译文模板——
         # 读侧按 error_params 里的独立字段原样展示，只有外层措辞随 Accept-Language 变。
-        return _try_encode_failure(
-            "provider_rejected",
-            {"status": exc.response.status_code, "provider_reason": exc.provider_reason},
-        ) or str(exc)
+        # 摘要缺席时只落状态码：拒绝本身仍要结构化，读侧才有本地化文案与 FIX_INPUT。
+        params: dict[str, Any] = {"status": exc.response.status_code}
+        if exc.provider_reason:
+            params["provider_reason"] = exc.provider_reason
+        return _try_encode_failure("provider_rejected", params) or str(exc)
     if isinstance(
         exc,
         ArtifactDownloadError

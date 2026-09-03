@@ -36,6 +36,22 @@ def test_diagnostic_payload_redacts_credentials_embedded_in_text():
     }
 
 
+def test_diagnostic_payload_redacts_credentials_echoed_in_prose():
+    # 上游 4xx 常把密钥连同一句话回显，标签与值之间隔着普通词，键值型规则匹配不到。
+    sanitized = sanitize_diagnostic_payload(
+        {
+            "detail": "Incorrect API key provided: vda_live_SECRET123",
+            "quoted": "Incorrect API key provided: 'vda_live_SECRET123'",
+            "hint": "your API key has expired",
+        }
+    )
+    assert sanitized == {
+        "detail": "Incorrect API key provided: ••••",
+        "quoted": "Incorrect API key provided: '••••'",
+        "hint": "your API key has expired",
+    }
+
+
 def test_diagnostic_payload_redacts_camel_case_credentials():
     sanitized = sanitize_diagnostic_payload(
         {
@@ -292,3 +308,21 @@ def test_pydantic_class_not_called_as_instance():
     parsed = json.loads(out)
     assert isinstance(parsed["cls"], str)
     assert "Req" in parsed["cls"]
+
+
+def test_diagnostic_payload_keeps_numeric_token_counters():
+    # *_tokens 同时落在敏感键形里，但带的是用量计数：遮蔽它会让读侧的计费与诊断信息消失。
+    # 被凭证词直接限定的 auth_token 不在此列，值是数字也照遮。
+    assert sanitize_diagnostic_payload(
+        {
+            "usage": {"prompt_tokens": 128, "completion_tokens": 64, "total_tokens": 192, "cost": 0.5},
+            "tokens": 7,
+            "access_token": "atk-secret",
+            "auth_token": 12345,
+        }
+    ) == {
+        "usage": {"prompt_tokens": 128, "completion_tokens": 64, "total_tokens": 192, "cost": 0.5},
+        "tokens": 7,
+        "access_token": "••••",
+        "auth_token": "••••",
+    }

@@ -2627,8 +2627,11 @@ class API {
   }
 
   /** 获取指定 provider 的配置详情（含字段列表）。 */
-  static async getProviderConfig(id: string): Promise<ProviderConfigDetail> {
-    return this.request(`/providers/${encodeURIComponent(id)}/config`);
+  static async getProviderConfig(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderConfigDetail> {
+    return this.request(`/providers/${encodeURIComponent(id)}/config`, { signal: options.signal });
   }
 
   /** 更新指定 provider 的配置字段。 */
