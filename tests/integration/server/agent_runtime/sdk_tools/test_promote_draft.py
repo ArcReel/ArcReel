@@ -1438,22 +1438,22 @@ async def test_promote_narration_script_plan_revalidates_against_current_source(
 
 
 async def test_promote_narration_script_plan_names_source_scope_on_coverage_violation(fake_ctx: ToolContext) -> None:
-    """取回时未指定 source、而 source/ 下不止一集：一字未改的草稿也判不过，报告须指名范围与出路。
+    """取回时指定了别集的 source：一字未改的草稿也判不过，报告须指名范围与出路。
 
     草稿在场时不能重新取回，报告须指引 Agent 通过 patch_draft 更新源文范围。
     """
     nr_source(fake_ctx)
     (fake_ctx.project_path / "source" / "episode_2.txt").write_text("李四走进院子", encoding="utf-8")
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
-    await open_nr_for_edit(fake_ctx)
-    assert read_nr_quarantine(fake_ctx)["meta"]["source"] is None
+    await open_nr_for_edit(fake_ctx, source="source/episode_2.txt")
+    assert read_nr_quarantine(fake_ctx)["meta"]["source"] == "source/episode_2.txt"
 
     out = await promote_nr(fake_ctx)
 
     text = out["content"][0]["text"]
     assert out.get("is_error") is True
     assert "[novel_text_coverage]" in text
-    assert "整个 source/ 目录" in text
+    assert "源文件 source/episode_2.txt" in text
     assert "patch_draft" in text
 
     refreshed = json.loads((await open_nr_for_edit(fake_ctx))["content"][0]["text"])["draft"]
@@ -1470,6 +1470,22 @@ async def test_promote_narration_script_plan_names_source_scope_on_coverage_viol
     assert patched.get("is_error") is not True, patched
     promoted = await promote_nr(fake_ctx)
     assert promoted.get("is_error") is not True, promoted
+
+
+async def test_promote_narration_script_plan_revalidates_a_default_source_draft_against_the_episode_file(
+    fake_ctx: ToolContext,
+) -> None:
+    """取回时未指定 source（meta.source 为 null）时按本集派生源文重判，不受 source/ 下其他文件影响。"""
+    nr_source(fake_ctx)
+    (fake_ctx.project_path / "source" / "novel.txt").write_text("整本小说原文", encoding="utf-8")
+    (fake_ctx.project_path / "source" / "episode_2.txt").write_text("李四走进院子", encoding="utf-8")
+    write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
+    await open_nr_for_edit(fake_ctx)
+    assert read_nr_quarantine(fake_ctx)["meta"]["source"] is None
+
+    out = await promote_nr(fake_ctx)
+
+    assert out.get("is_error") is not True, out
 
 
 async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(fake_ctx: ToolContext) -> None:

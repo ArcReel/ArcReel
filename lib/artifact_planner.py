@@ -27,6 +27,7 @@ from lib.artifact_manifest import (
 from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_script_plan_basis
 from lib.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
 from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
+from lib.episode_paths import episode_source_relpath
 from lib.grid.layout import grid_aspect_ratio_for
 from lib.grid.models import GridGeneration
 from lib.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
@@ -482,7 +483,7 @@ class TargetStatePlanner:
         script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
         script_plan_content = self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
         script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
-        source_rel = f"source/episode_{binding.episode}.txt"
+        source_rel = episode_source_relpath(binding.episode)
         source_observation = self.adapter.inspect_artifact(source_rel)
         if source_observation.blocker is None and source_observation.present:
             source_raw = self._read_dependency(source_rel, "episode source")

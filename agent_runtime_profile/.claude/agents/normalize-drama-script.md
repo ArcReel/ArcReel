@@ -100,7 +100,7 @@ mcp__arcreel__open_draft({"episode": N, "doc_type": "drama_script_plan", "source
 ```
 
 正式文件保持原样；工具会将内容取回至可编辑草稿 `drafts/episode_{N}/script_plan_normalized_script.invalid.json`
-的 `content`。`source` 传本集源文路径——晋升时按它重取产物依据，不传则按整个 `source/` 目录解析。
+的 `content`。`source` 传本集源文路径——晋升时按它重取产物依据；不传即按本集派生源文 `source/episode_N.txt` 解析。
 
 若工具报告已有 script_plan 草稿在场，说明上一轮的修改还没晋升：直接改那份可编辑草稿，不要重跑本工具
 （重跑不会覆盖它，也不该覆盖——那里可能有你还没晋升的修改）。

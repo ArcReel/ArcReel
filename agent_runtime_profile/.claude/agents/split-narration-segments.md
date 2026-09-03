@@ -96,8 +96,8 @@ mcp__arcreel__open_draft({"episode": N, "doc_type": "narration_script_plan", "so
 ```
 
 正式文件保持原样，内容被取回到待修复草稿 `drafts/episode_{N}/script_plan_segments.invalid.json`
-的 `content`。`source` 传本集源文路径——晋升时按它重判原文覆盖、重取产物依据，不传则按整个
-`source/` 目录解析（判定更松）。
+的 `content`。`source` 传本集源文路径——晋升时按它重判原文覆盖、重取产物依据；不传即按本集
+派生源文 `source/episode_N.txt` 解析。
 
 若工具回「已有 script_plan 草稿在场」，说明上一轮的修改还没晋升：直接改那份草稿，不要重跑本工具
 （重跑不会覆盖它，也不该覆盖——那里可能有你还没晋升的修改）。

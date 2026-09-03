@@ -95,7 +95,7 @@ _DRAFT_LOCATOR_SCHEMA["properties"]["episode"]["description"] = "剧集编号"
 _OPEN_DRAFT_SCHEMA = DraftLocator.model_json_schema()
 _OPEN_DRAFT_SCHEMA["properties"]["episode"]["description"] = "剧集编号"
 _OPEN_DRAFT_SCHEMA["properties"]["source"]["description"] = (
-    "可选小说源文件路径；仅在首次从正式 script_plan 创建草稿时用作重判来源"
+    "可选小说源文件路径；仅在首次从正式 script_plan 创建草稿时用作重判来源，缺省为本集派生源文 source/episode_N.txt"
 )
 
 
@@ -267,7 +267,10 @@ def generate_script_plan_tool(
             "type": "object",
             "properties": {
                 "episode": {"type": "integer", "minimum": 1, "description": "剧集编号"},
-                "source": {"type": "string", "description": "可选的项目内源文件相对路径"},
+                "source": {
+                    "type": "string",
+                    "description": "可选的项目内源文件相对路径；缺省读取本集派生源文 source/episode_N.txt",
+                },
                 "instructions": _INSTRUCTIONS_SCHEMA,
                 "dry_run": {"type": "boolean", "description": "仅显示 prompt，不调用模型"},
             },

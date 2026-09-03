@@ -35,6 +35,7 @@ from lib.episode_ledger import (
     normalize_source_text,
     parse_positive_episode_num,
 )
+from lib.episode_paths import episode_source_relpath
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -1377,7 +1378,7 @@ class WorkflowStateService:
                     episode=number,
                     script=script_path,
                     script_filename=script_filename,
-                    source=f"source/episode_{number}.txt",
+                    source=episode_source_relpath(number),
                 )
 
         state: WorkflowStateName
