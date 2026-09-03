@@ -27,6 +27,8 @@ uv sync --group mutation
 
 `only_mutate` 跑完记得还原成注释，`mutants/` 已在 `.gitignore`。
 
+**凡读源码文本而不是 import 模块的测试，都要在 `pytest_add_cli_args` 里 `--ignore`。** `mutants/` 里的源文件同时含所有 mutant 变体（每个字符串字面量都多出 `XXfooXX` / `FOO` 两份），任何用正则扫 `lib/` `server/` 源码字面量再比对登记表的用例都会在 stats 阶段报「未登记」，整轮起不来。已排除的是 `tests/integration/lib/test_task_failure_capability.py`；新加排除时在 `[tool.mutmut]` 注释里写明它独家能杀什么、为何排除不漏杀（判据同 `test_skill_script_path_guards.py`：排除只多出假存活，不藏假杀死）。
+
 ## 3. 读结果
 
 **从 `.meta` 文件算，不读终端汇总。** 每个源模块在 `mutants/` 里有一份 `<模块>.py.meta`，其中 `exit_code_by_key` 是「mutant 名 → pytest exit code」。mutmut 的终端汇总只枚举它认识的几个 exit code，段错误（−11）之类一个计数器都不落，#2257 就漏过两个。
@@ -83,6 +85,15 @@ uv run python scripts/mutmut_compare.py \
 **四路分诊**（改造后目标 mutant 仍存活时，一次性判定，补的断言不撤）：断言没写到位、断言没被执行 → 继续修；实际要换输入才能杀死 → 停手，依据是「不做覆盖补偿」；实际是等价变异体 → 停手。
 
 只跑部分模块查不到第二层，复跑取整批模块。
+
+### 5.1 一批模块拆成多张改造票
+
+一批模块的存活 mutant 常拆成几张改造票跨会话合入，它们共用第 2 节保存的同一份基线，各票分别验收：
+
+- `--reworked` 只填本票的清单；`--equivalent` 填整批的等价变异体清单（每票都要查它零被杀）。
+- 先合入的票已杀死的目标，在后面的票里落在第三层「基线存活且本次未改造」，被杀只登记，不算异常。
+- 每票切分支前 `git fetch` 并核对基线的模块在 `origin/main` 上自基线提交以来零变动：`git diff --stat <基线提交> origin/main -- <模块列表>` 为空。改造 PR 自身不会动这些模块（硬门），但 `main` 上别的提交会。
+- 模块被别的提交改了时，脚本会以「同名函数源码哈希不同」拒绝比对，此时旧基线与判定表对该模块都作废：mutant 名按函数内的序号编号，源码一变序号整体错位，判定行对不上任何 mutant。处置是**对该模块重跑一轮基线并重新判定它的存活 mutant**（其余未变动的模块继续用旧基线；`only_mutate` 换了模块集要连 stats 一起删），不要 rebase 研究分支——研究分支存的是结果快照，rebase 改不了快照里的 mutant 名。改动只落在个别函数时也一样：mutmut 不保证其他函数的编号不变，不做局部续用。
 
 ## 6. 已知陷阱
 

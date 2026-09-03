@@ -240,6 +240,7 @@ class TestCustomVideoBackend:
         result = backend.video_capabilities_for_tier("pro", resolution="1080p")
 
         assert result is pro_caps
+        assert backend.name == "vid-provider"
         delegate.video_capabilities_for_tier.assert_called_once_with("pro", resolution="1080p")
 
     def test_video_capabilities_for_tier_merges_sparse_override_onto_delegate_base(self):
