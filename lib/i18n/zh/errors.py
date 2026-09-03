@@ -46,6 +46,7 @@ MESSAGES = {
     "task_retry_download_unavailable": "任务 '{id}' 当前不可重试下载",
     # 任务失败原因（GenerationWorker 写入错误码 + 参数，tasks API 读取时按语言渲染）
     "task_fail_provider_unsupported_media": "供应商 {provider_id} 不支持 {media_type} 生成",
+    "task_fail_provider_rejected": "供应商拒绝了这次生成请求（HTTP {status}）",
     "task_fail_dispatch_provider_requeue_failed": "任务供应商从 {claimed_provider_id} 变为 {actual_provider_id}，但无法回队重新认领，请重试",
     "task_fail_restart_lost_image": "图片任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
     "task_fail_restart_lost_audio": "配音任务在服务重启时中断且无法接续，请手动重试以避免重复计费",

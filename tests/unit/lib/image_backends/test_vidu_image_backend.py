@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
 
 from lib.image_backends.base import (
@@ -21,6 +22,8 @@ from lib.image_backends.vidu import (
     ViduImageBackend,
 )
 from lib.providers import PROVIDER_VIDU
+from lib.video_backends.base import ProviderRejectedError
+from tests.http_capture import capture_http
 
 
 @pytest.fixture
@@ -106,8 +109,8 @@ class TestCapabilityMismatchRaises:
             await backend.generate(request)
 
 
-class TestViduImageCreateTask413:
-    """413 规整：_create_task 透出保留状态码的 httpx.HTTPStatusError（咽喉层据此降档）。"""
+class TestViduImageCreateTaskHttpErrors:
+    """_create_task 的 >=400 收口：保留状态码（咽喉层据此降档），4xx 另带脱敏拒因摘要。"""
 
     async def test_create_task_413_surfaces_httpstatuserror_no_retry(self):
         from unittest.mock import AsyncMock, MagicMock
@@ -131,3 +134,16 @@ class TestViduImageCreateTask413:
         assert ei.value.response.status_code == 413
         # 413 非 retryable → fail-fast 单次
         assert client.post.call_count == 1
+
+    async def test_rejection_body_becomes_a_redacted_provider_reason(self, image_output_path: Path):
+        """4xx 与视频侧同路：消息去掉查询串，拒因摘要单独挂在异常上。"""
+        with capture_http() as router:
+            router.post("https://api.vidu.com/ent/v2/reference2image").mock(
+                return_value=httpx.Response(400, json={"code": 1013, "message": "reference image is not readable"})
+            )
+            backend = ViduImageBackend(api_key="k", model="viduq2", base_url="https://api.vidu.com/ent/v2")
+            with pytest.raises(ProviderRejectedError) as ei:
+                await backend.generate(ImageGenerationRequest(prompt="x", output_path=image_output_path))
+
+        assert ei.value.response.status_code == 400
+        assert ei.value.provider_reason == "1013: reference image is not readable"

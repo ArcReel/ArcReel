@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 from typing import ClassVar
 
@@ -15,9 +16,11 @@ from lib.custom_provider.declarative_backend import (
 )
 from lib.custom_provider.endpoint_definition import validate_definition
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
+from lib.generation_worker import _encode_task_failure_message
 from lib.video_backends.base import (
     VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
     ProviderJobStatus,
+    ProviderRejectedError,
     ProviderResponseStage,
     ResumeExpiredError,
     VideoGenerationRequest,
@@ -591,6 +594,30 @@ class TestDeclarativeVideoBackend:
                 ).generate(_request(tmp_path, on_provider_response=record))
 
         assert recorded == [("submit", {"error": "bad prompt"})]
+
+    async def test_rejected_submit_carries_the_provider_reason(self, tmp_path: Path):
+        """声明式后端复用 submit_post，上游 4xx 的拒因摘要同样挂在异常上。"""
+        with capture_http() as router:
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(
+                    400, json={"error": {"code": "PromptRejected", "message": "prompt violates the policy"}}
+                )
+            )
+            with pytest.raises(ProviderRejectedError) as excinfo:
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=_definition(),
+                    provider="custom-1",
+                ).generate(_request(tmp_path))
+
+        assert excinfo.value.provider_reason == "PromptRejected: prompt violates the policy"
+        stored = _encode_task_failure_message(excinfo.value)
+        assert json.loads(stored.split("] ", 1)[1]) == {
+            "provider_reason": "PromptRejected: prompt violates the policy",
+            "status": 400,
+        }
 
     async def test_download_exhausts_shared_ten_failure_budget(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock():

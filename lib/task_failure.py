@@ -101,6 +101,9 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
     **{code: code for code in NARRATION_DELIVERY_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
+    # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进
+    # 译文模板：它不该被翻译，读侧按独立字段原样展示。
+    "provider_rejected": "task_fail_provider_rejected",
     "dispatch_provider_requeue_failed": "task_fail_dispatch_provider_requeue_failed",
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",

@@ -460,6 +460,7 @@ export default {
   'task_filter_failed': 'Failed',
   'task_filter_done': 'Done',
   'task_warnings_hint': 'Generation was adjusted — expand for details',
+  'task_provider_reason_label': 'Provider reason',
   'task_warnings_count': '{{count}} generation warnings',
   'queued_label': 'Queued',
   'running_label': 'Running',

@@ -178,10 +178,12 @@ class TestDashScopeAudioBackend:
 
         with _dashscope_audio_routes(synth=httpx.Response(400, text="bad request")) as routes:
             b = DashScopeAudioBackend(api_key="sk")
-            with pytest.raises(httpx.HTTPStatusError):
+            with pytest.raises(httpx.HTTPStatusError) as excinfo:
                 await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
 
         # 4xx 按 status_code fail-fast：计费的合成 POST 只发一次、不连带触发下载
+        assert type(excinfo.value) is httpx.HTTPStatusError
+        assert "bad request" not in str(excinfo.value)
         assert routes.synthesize.call_count == 1
         assert routes.download.call_count == 0
 

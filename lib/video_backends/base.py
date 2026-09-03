@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -17,6 +18,7 @@ from sqlalchemy.exc import InterfaceError, OperationalError
 
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.data_uri import file_to_data_uri
+from lib.logging_utils import redact_diagnostic_text
 from lib.retry import BASE_RETRYABLE_ERRORS, AsyncClock, SystemClock, _should_retry, with_retry_async
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
@@ -336,6 +338,7 @@ async def submit_post(
     *,
     provider: str,
     request: VideoGenerationRequest | None = None,
+    include_provider_reason: bool = True,
 ) -> httpx.Response:
     """create/提交阶段（非幂等 POST）统一包装：按「请求是否确定送达」给失败分流。
 
@@ -369,7 +372,8 @@ async def submit_post(
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise redacted_status_error(exc) from None
+            reason = provider_reason_summary(resp) if include_provider_reason else None
+            raise redacted_status_error(exc, provider_reason=reason) from None
     return resp
 
 
@@ -619,15 +623,145 @@ def _without_query(url: str) -> str:
     return str(httpx.URL(url).copy_with(query=None))
 
 
-def redacted_status_error(exc: httpx.HTTPStatusError) -> httpx.HTTPStatusError:
+#: 拒因摘要的字符上限。上游错误体可以长达数千字符，而摘要要落进任务失败信封、随任务列表
+#: 回传给用户，必须有界；超限部分以 :data:`_PROVIDER_REASON_ELLIPSIS` 收尾标记截断。
+PROVIDER_REASON_MAX_CHARS = 300
+
+_PROVIDER_REASON_ELLIPSIS = "…"
+
+#: 错误体里承载「为什么被拒」的字段名，按顺序取第一个非空字符串。
+_REASON_MESSAGE_KEYS = ("message", "msg", "error_msg", "detail", "description", "reason")
+
+#: 错误对象常见的外层容器：拒因往往裹在这些键下面。
+_REASON_NESTED_KEYS = ("error", "output", "data", "detail", "result")
+
+#: 与拒因同层的机器码。它比自然语言更能指向被触发的那条拒绝规则，取到就前置进摘要。
+_REASON_CODE_KEYS = ("code", "error_code", "type")
+
+#: 容器下钻深度上限，防畸形错误体上的深递归。
+_REASON_MAX_DEPTH = 3
+
+#: URL 或任何带查询串的 URL-like token。供应商偶尔省略 scheme；query 仍可能是凭证或签名参数。
+_REASON_URL_RE = re.compile(r"https?://[^\s\"'<>]+|[^\s\"'<>?]+\?[^\s\"'<>]+", re.IGNORECASE)
+
+
+def _reason_code(body: Mapping[str, object]) -> str | None:
+    """取与拒因同层的机器码；``bool`` 不算码（JSON 里 ``True`` 是标志位而非错误号）。"""
+    for key in _REASON_CODE_KEYS:
+        value = body.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+    return None
+
+
+def _reason_text(payload: object, depth: int = 0) -> str | None:
+    """从解析后的错误体里取「为什么被拒」那句话，取不到返回 ``None``。
+
+    只认消息字段与少数外层容器，不整体序列化：错误体常把请求原样回显回来（含 prompt 全文），
+    整体序列化会把它一并带进用户可见的摘要。
+    """
+    if isinstance(payload, str):
+        return payload.strip() or None
+    if not isinstance(payload, dict) or depth >= _REASON_MAX_DEPTH:
+        return None
+    body = cast(dict[str, object], payload)
+    text: str | None = None
+    for key in _REASON_MESSAGE_KEYS:
+        value = body.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            break
+    if text is None:
+        for key in _REASON_NESTED_KEYS:
+            if key in body:
+                text = _reason_text(body[key], depth + 1)
+                if text:
+                    break
+    if not text:
+        return None
+    code = _reason_code(body)
+    return f"{code}: {text}" if code and code not in text else text
+
+
+def _strip_url_queries(text: str) -> str:
+    """去掉文本里每个绝对 URL 的查询串与片段：预签名参数与按 query 传的凭证都在那里。"""
+
+    def _replace(match: re.Match[str]) -> str:
+        raw = match.group(0).rstrip(".,;:!?)]}\"'")
+        trailing = match.group(0)[len(raw) :]
+        try:
+            stripped = str(httpx.URL(raw).copy_with(query=None, fragment=None))
+        except (httpx.InvalidURL, ValueError, UnicodeError):
+            stripped = "<url>"
+        return stripped + trailing
+
+    return _REASON_URL_RE.sub(_replace, text)
+
+
+def provider_reason_summary(response: httpx.Response) -> str | None:
+    """把上游确定性 4xx 的响应体提炼成脱敏、截断后的拒因摘要；无可用内容返回 ``None``。
+
+    只对 4xx 产出：5xx 与传输错误说的是「上游此刻不可用」，其响应体对用户没有可行动的信息，
+    并入错误信息只会把一次瞬态故障写成看似确定的拒绝。
+
+    脱敏分两层：先去掉每个 URL 的查询串（预签名参数与按 query 传的凭证都在那里，与
+    ``_without_query`` 同口径），再交 ``redact_diagnostic_text`` 遮蔽 Authorization / Bearer /
+    引号包裹的 secret 等值，与日志侧共用一套规则。
+    """
+    if not 400 <= response.status_code < 500 or is_retryable_http_status(response.status_code, retry_not_found=False):
+        return None
+    try:
+        body_text = response.text
+    except httpx.ResponseNotRead:
+        # 流式响应尚未 aread：错误路径上没有可读的体，不为此再发一次请求。
+        return None
+    try:
+        payload: object = response.json()
+    except ValueError:
+        reason = body_text
+    else:
+        reason = _reason_text(payload)
+    if not reason:
+        return None
+    summary = " ".join(redact_diagnostic_text(_strip_url_queries(reason)).split())
+    if not summary:
+        return None
+    if len(summary) <= PROVIDER_REASON_MAX_CHARS:
+        return summary
+    return summary[: PROVIDER_REASON_MAX_CHARS - len(_PROVIDER_REASON_ELLIPSIS)] + _PROVIDER_REASON_ELLIPSIS
+
+
+class ProviderRejectedError(httpx.HTTPStatusError):
+    """上游确定性 4xx 拒绝，额外携带脱敏截断后的拒因摘要。
+
+    仍是 ``httpx.HTTPStatusError``：重试谓词与既有 ``except httpx.HTTPStatusError`` 分支
+    照常按 status_code 判定，只是多出一个 ``provider_reason`` 供落库侧单独取用——摘要是
+    上游原文，与本地化文案分开存放，读侧才能把它按原文展示而不塞进译文模板。
+    """
+
+    def __init__(self, message: str, *, request: httpx.Request, response: httpx.Response, provider_reason: str) -> None:
+        super().__init__(message, request=request, response=response)
+        self.provider_reason = provider_reason
+
+
+def redacted_status_error(exc: httpx.HTTPStatusError, *, provider_reason: str | None = None) -> httpx.HTTPStatusError:
     """同一个响应，换一条不含查询串的消息。
 
     ``raise_for_status`` 把整条请求 URL 写进异常消息，而按 query 传凭证的通道会把 api_key
     渲染在那条 URL 里；该消息经 ``str(exc)`` 落进 ``task.error_message``、日志与 API 响应。
     类型与 ``response`` 原样保留，重试谓词照常按 status_code 判定。
+
+    给了非空 ``provider_reason`` 就换成 :class:`ProviderRejectedError`，把上游拒因摘要挂在
+    异常上一并带出去。
     """
     url = exc.request.url.copy_with(query=None)
     message = f"{exc.response.status_code} response for {url}"
+    if provider_reason:
+        return ProviderRejectedError(
+            message, request=exc.request, response=exc.response, provider_reason=provider_reason
+        )
     return httpx.HTTPStatusError(message, request=exc.request, response=exc.response)
 
 

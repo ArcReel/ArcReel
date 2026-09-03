@@ -10,10 +10,12 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from lib.video_backends.base import (
+    PROVIDER_REASON_MAX_CHARS,
     TERMINAL_PROVIDER_STATUSES,
     AmbiguousSubmitError,
     ProviderJobIdPersistenceMixin,
     ProviderJobStatus,
+    ProviderRejectedError,
     ProviderResponseStage,
     ResumeExpiredError,
     VideoGenerationRequest,
@@ -28,6 +30,7 @@ from lib.video_backends.base import (
     persist_api_call_id,
     persist_provider_job_id,
     poll_with_retry,
+    provider_reason_summary,
     recording_poll,
     should_retry_download,
     should_retry_poll,
@@ -680,8 +683,9 @@ class TestSubmitPost:
             async def _post(_exc: httpx.RequestError = exc) -> httpx.Response:
                 raise _exc
 
-            with pytest.raises(type(exc)):
+            with pytest.raises(type(exc)) as excinfo:
                 await submit_post(_post, provider="v2")
+            assert excinfo.value is exc
 
     async def test_local_protocol_error_propagates_raw_not_ambiguous(self):
         # 本地/协议错误请求发出前就失败、无计费风险 → 原样抛出，不包成 AmbiguousSubmitError
@@ -719,6 +723,128 @@ class TestSubmitPost:
 
         with pytest.raises(httpx.HTTPStatusError):
             await submit_post(_post, provider="v2")
+
+    async def test_deterministic_4xx_carries_the_redacted_provider_reason(self):
+        # 确定性 4xx 抛 ProviderRejectedError：消息仍不含查询串里的 api_key，拒因另挂在
+        # provider_reason 上，供落库侧作为独立字段编码。
+        request = httpx.Request("POST", "https://x/v2?api_key=SECRETKEY")
+        resp = httpx.Response(
+            400,
+            request=request,
+            json={"code": "InvalidParameter", "message": "prompt violates the content policy"},
+        )
+
+        async def _post() -> httpx.Response:
+            return resp
+
+        with pytest.raises(ProviderRejectedError) as excinfo:
+            await submit_post(_post, provider="v2")
+
+        assert excinfo.value.provider_reason == "InvalidParameter: prompt violates the content policy"
+        assert "SECRETKEY" not in str(excinfo.value)
+        assert should_retry_submit(excinfo.value) is False
+
+    async def test_server_error_stays_a_plain_status_error(self):
+        # 5xx 说的是「上游此刻不可用」，响应体不并入错误信息——异常类型也保持原样。
+        request = httpx.Request("POST", "https://x/v2")
+        resp = httpx.Response(502, request=request, json={"message": "bad gateway"})
+
+        async def _post() -> httpx.Response:
+            return resp
+
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+            await submit_post(_post, provider="v2")
+
+        assert type(excinfo.value) is httpx.HTTPStatusError
+        assert str(excinfo.value) == "502 response for https://x/v2"
+
+    @pytest.mark.parametrize("status", [408, 425, 429])
+    async def test_retryable_client_error_stays_a_plain_status_error(self, status: int):
+        request = httpx.Request("POST", "https://x/v2")
+        resp = httpx.Response(status, request=request, json={"message": "retry later"})
+
+        async def _post() -> httpx.Response:
+            return resp
+
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+            await submit_post(_post, provider="v2")
+
+        assert type(excinfo.value) is httpx.HTTPStatusError
+
+
+class TestProviderReasonSummary:
+    """provider_reason_summary：4xx 响应体 → 脱敏、截断后的拒因摘要。"""
+
+    @staticmethod
+    def _response(status: int, **kwargs: object) -> httpx.Response:
+        return httpx.Response(status, request=httpx.Request("POST", "https://x/v2"), **kwargs)
+
+    def test_prefers_the_message_field_over_the_whole_body(self):
+        # 错误体常把请求原样回显回来；只取消息字段，prompt 全文不会进摘要。
+        summary = provider_reason_summary(
+            self._response(
+                400,
+                json={
+                    "message": "duration 12 is not supported",
+                    "input": {"prompt": "一段很长的分镜提示词" * 30},
+                },
+            )
+        )
+        assert summary == "duration 12 is not supported"
+
+    def test_digs_into_the_nested_error_object(self):
+        summary = provider_reason_summary(
+            self._response(422, json={"error": {"code": 1013, "message": "reference image unreadable"}})
+        )
+        assert summary == "1013: reference image unreadable"
+
+    def test_does_not_fall_back_to_json_that_only_echoes_the_prompt(self):
+        summary = provider_reason_summary(
+            self._response(400, json={"error": {"code": "Rejected", "input": {"prompt": "FULL_PROMPT"}}})
+        )
+        assert summary is None
+
+    def test_falls_back_to_the_raw_body_when_no_message_field(self):
+        summary = provider_reason_summary(self._response(403, text="  Forbidden\n by  policy  "))
+        assert summary == "Forbidden by policy"
+
+    def test_strips_signed_urls_and_masks_credentials(self):
+        summary = provider_reason_summary(
+            self._response(
+                400,
+                json={
+                    "message": (
+                        "cannot fetch https://oss.test/o.png?X-Amz-Signature=deadbeef&X-Amz-Date=1 "
+                        'with api_key="sk-proj-abcdefgh12345678"'
+                    )
+                },
+            )
+        )
+        assert summary is not None
+        assert "https://oss.test/o.png" in summary
+        assert "X-Amz-Signature" not in summary
+        assert "deadbeef" not in summary
+        assert "sk-proj-abcdefgh12345678" not in summary
+
+    @pytest.mark.parametrize("url", ["//oss.test/o.png", "oss.test/o.png"])
+    def test_strips_query_from_signed_urls_without_a_scheme(self, url: str):
+        summary = provider_reason_summary(
+            self._response(
+                400,
+                json={"message": f"cannot fetch {url}?X-Amz-Credential=AKIASECRET&X-Amz-Signature=deadbeef"},
+            )
+        )
+        assert summary == f"cannot fetch {url}"
+
+    def test_truncates_at_the_summary_budget_with_a_marker(self):
+        summary = provider_reason_summary(self._response(400, json={"message": "x" * 900}))
+        assert summary is not None
+        assert len(summary) == PROVIDER_REASON_MAX_CHARS
+        assert summary.endswith("…")
+
+    def test_returns_none_for_server_errors_and_empty_bodies(self):
+        assert provider_reason_summary(self._response(500, json={"message": "boom"})) is None
+        assert provider_reason_summary(self._response(400, text="   ")) is None
 
 
 def _make_operational_error(msg: str) -> OperationalError:
