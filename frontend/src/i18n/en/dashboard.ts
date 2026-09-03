@@ -903,6 +903,7 @@ export default {
   'provider_list': 'Provider list',
   'preset_providers': 'Preset Providers',
   'select_provider': 'Please select a provider',
+  'provider_saved_refresh_failed': 'Saved, but the provider list failed to refresh. Please reload the page.',
 
   // ProviderDetail
   'status_connected': 'Connected',

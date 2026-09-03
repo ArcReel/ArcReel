@@ -3,6 +3,8 @@ import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useProviderCatalog } from "@/hooks/useProviderCatalog";
+import type { CatalogRefreshResult } from "@/hooks/useProviderCatalog";
+import { useAppStore } from "@/stores/app-store";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
 import { ProviderDetail } from "./ProviderDetail";
 import { CustomProviderSection } from "./settings/CustomProviderSection";
@@ -75,6 +77,19 @@ export function ProviderSection() {
     return null;
   }, [search]);
   const modelId = new URLSearchParams(search).get("model") ?? undefined;
+
+  // 保存本身已成功，只是目录重取失败：与「保存失败」区分开，否则用户看到表单无错、列表无新项，
+  // 分不清是哪一步没成。被后续请求作废（aborted）是正常并发路径，接管方会写下更新的目录。
+  const pushToast = useAppStore((s) => s.pushToast);
+  const notifyRefreshFailure = useCallback(
+    (result: CatalogRefreshResult) => {
+      if (result.status === "failed") pushToast(t("provider_saved_refresh_failed"), "warning");
+    },
+    [pushToast, t],
+  );
+  const refreshAfterSave = useCallback(() => {
+    void refresh().then(notifyRefreshFailure);
+  }, [refresh, notifyRefreshFailure]);
 
   const setSelection = useCallback(
     (sel: Selection) => {
@@ -192,7 +207,7 @@ export function ProviderSection() {
       <div className="min-w-0 flex-1">
         {selection?.kind === "preset" && (
           <div className="p-6">
-            <ProviderDetail providerId={selection.id} onSaved={() => void refresh()} />
+            <ProviderDetail providerId={selection.id} onSaved={refreshAfterSave} />
           </div>
         )}
         {selection?.kind === "custom" && (
@@ -207,7 +222,7 @@ export function ProviderSection() {
                 setSelection(null);
               }
             }}
-            onSaved={() => void refresh()}
+            onSaved={refreshAfterSave}
           />
         )}
         {selection?.kind === "new-custom" && (
@@ -215,7 +230,12 @@ export function ProviderSection() {
             initialBaseUrl={prefill.baseUrl}
             initialEndpoint={prefill.endpoint}
             onSaved={() => {
-              void refresh().then((list) => {
+              void refresh().then((result) => {
+                if (result.status !== "ok") {
+                  notifyRefreshFailure(result);
+                  return;
+                }
+                const list = result.customProviders;
                 if (list.length > 0) {
                   setSelection({ kind: "custom", id: list[list.length - 1].id });
                 }
