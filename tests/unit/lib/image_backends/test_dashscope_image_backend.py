@@ -299,6 +299,7 @@ class TestCapabilityGating:
         with pytest.raises(ImageCapabilityError) as ei:
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size="4K"))
         assert ei.value.code == "image_dashscope_4k_t2i_only"
+        assert ei.value.params["model"] == "wan2.7-image"
 
     async def test_all_refs_missing_raises(self, tmp_path: Path):
         from lib.image_backends.dashscope import DashScopeImageBackend
@@ -314,6 +315,7 @@ class TestCapabilityGating:
             )
         # 模型支持 i2i，只是参考图不可读 → 用准确码而非"模型不支持 i2i"
         assert ei.value.code == "image_reference_images_unreadable"
+        assert ei.value.params["model"] == "qwen-image-2.0"
 
     async def test_empty_ref_path_treated_as_missing(self, tmp_path: Path):
         from lib.image_backends.dashscope import DashScopeImageBackend
