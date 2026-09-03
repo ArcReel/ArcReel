@@ -333,6 +333,7 @@ class TestVideoEndpointRecorded:
         result, _built_record = _built(_make_provider(), "sora-2", "openai-video")
         assert isinstance(result, CustomVideoBackend)
         assert result.endpoint == "openai-video"
+        assert result.name == "custom-42"
 
     def test_endpoint_survives_capability_injection(self):
         """能力注入返回新实例，endpoint 不能在链式构造中丢失。"""

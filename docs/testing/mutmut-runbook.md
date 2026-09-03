@@ -27,6 +27,8 @@ uv sync --group mutation
 
 `only_mutate` 跑完记得还原成注释，`mutants/` 已在 `.gitignore`。
 
+**凡读源码文本而不是 import 模块的用例，都要在 `pytest_add_cli_args` 里按 nodeid `--deselect`，不要整文件 `--ignore`。** `mutants/` 里的源文件同时含所有 mutant 变体（每个字符串字面量都多出 `XXfooXX` / `FOO` 两份），任何扫 `lib/` `server/` 源码字面量再比对登记表的用例都会在 stats 阶段报「未登记」，整轮起不来。`--ignore` 的粒度是文件：同文件里的行为测试会一并消失，它们独家覆盖的 mutant 就记成存活（`test_task_failure_capability.py` 三个扫描用例之外的 100 余个用例就是这种情况）。已排除的是该文件的 `test_capability_codes_registered_no_drift` / `test_no_unscannable_capability_construction_sites` / `test_capability_construction_sites_supply_every_template_param`；新加排除时在 `[tool.mutmut]` 注释里写明它独家能杀什么、为何排除不漏杀（判据同 `test_skill_script_path_guards.py`：排除只多出假存活，不藏假杀死）。
+
 ## 3. 读结果
 
 **从 `.meta` 文件算，不读终端汇总。** 每个源模块在 `mutants/` 里有一份 `<模块>.py.meta`，其中 `exit_code_by_key` 是「mutant 名 → pytest exit code」。mutmut 的终端汇总只枚举它认识的几个 exit code，段错误（−11）之类一个计数器都不落，#2257 就漏过两个。
@@ -84,6 +86,15 @@ uv run python scripts/mutmut_compare.py \
 
 只跑部分模块查不到第二层，复跑取整批模块。
 
+### 5.1 一批模块拆成多张改造票
+
+一批模块的存活 mutant 常拆成几张改造票跨会话合入，它们共用第 2 节保存的同一份基线，各票分别验收：
+
+- `--reworked` 只填本票的清单；`--equivalent` 填整批的等价变异体清单（每票都要查它零被杀）。
+- 先合入的票已杀死的目标，在后面的票里落在第三层「基线存活且本次未改造」，被杀只登记，不算异常。
+- 每票切分支前 `git fetch` 并核对基线的模块在 `origin/main` 上自基线提交以来零变动：`git diff --stat <基线提交> origin/main -- <模块列表>` 为空。改造 PR 自身不会动这些模块（硬门），但 `main` 上别的提交会。
+- 模块被别的提交改了时，脚本会以「同名函数源码哈希不同」拒绝比对，此时旧基线与判定表对该模块都作废：mutant 名按函数内的序号编号，源码一变序号整体错位，判定行对不上任何 mutant。处置是**对该模块重跑一轮基线并重新判定它的存活 mutant**（其余未变动的模块继续用旧基线；`only_mutate` 换了模块集要连 stats 一起删），不要 rebase 研究分支——研究分支存的是结果快照，rebase 改不了快照里的 mutant 名。改动只落在个别函数时也一样：mutmut 不保证其他函数的编号不变，不做局部续用。
+
 ## 6. 已知陷阱
 
 - **新增的测试文件不触及任何被变异函数时，增量 stats 会中止。** mutmut 检测到新用例只对它们跑一次 stats，若这批用例没碰到任何 mutant，报 `Stopping early, because we could not find any test case for any mutant` 退出。删 `mutants/mutmut-stats.json` 走全量 stats。
@@ -91,6 +102,7 @@ uv run python scripts/mutmut_compare.py \
 - **`tests-for-mutant` 只在项目根可用。** 它读 `mutants/mutmut-stats.json`，在 `mutants/` 里跑找不到。
 - **`tests/unit/test_skill_script_path_guards.py` 被整体排除**，理由在 `[tool.mutmut]` 注释。排除只会多出假存活（多复核一个），不会造成假杀死。
 - **`timeout_multiplier` 不要调小。** 调小不省时间，只会让已证实的真存活被记成 killed，把无效测试藏起来。
+- **−11（段错误）成批出现即整轮作废，不要逐个复核。** 已知的一种成因在 macOS：环境里没有 `*_proxy` 变量时，`urllib.request.getproxies()` 经 `_scproxy` 调 SystemConfiguration 读系统代理，该框架在 fork 出的多线程子进程里直接段错误，凡构造 `openai.OpenAI` / `httpx.Client` 的用例都中招（第二批 2186 个里 577 个），而同一个 mutant 在新进程里复核却正常。`tests/mutmut_plugin.py` 已把这两个入口换成常量实现；再成批出现就用 `PYTHONFAULTHANDLER=1 uv run mutmut run <mutant>` 单跑一个看崩溃栈，别当成负载或偶发。判据：−11 只该零星出现（首批 616 个里 2 个）。
 - **测试选集走全量。** 只跑 `tests/unit` 快 5.5 倍，但约 45% 的存活是假的，每个都要复核一次全量套件，总账更贵。
 
 ## 7. 成本参考
