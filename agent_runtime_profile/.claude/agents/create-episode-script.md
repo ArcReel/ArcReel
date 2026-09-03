@@ -44,7 +44,7 @@ skills:
 ### Step 2: 调用工具生成 JSON 剧本
 
 ```text
-mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加说明原文，可选，无则省略>"})
+mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加指令原文，可选，无则省略>"})
 ```
 
 等待返回。返回 `is_error: true` 时查看错误信息并尝试修复或报告问题。

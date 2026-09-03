@@ -469,7 +469,7 @@ class ScriptGenerator:
             episode: 剧集编号
             output_filename: 输出文件名，默认 episode_{episode}.json。剧本一律经写盘统一入口写入
                 项目 scripts/ 目录，故此参数只决定文件名、不接受目录。
-            instructions: 用户输入的生成意见原文；非空时以中性「用户意见」分节追加到
+            instructions: 用户输入的附加指令原文；非空时以中性「附加指令」分节追加到
                 prompt 末尾（遵循强度由正文表达），所有 content_mode / 生成模式同口径。
             scope: 本次重写视觉层的条目范围。``None`` / ``"stale"``（默认）只重写内容失配与新增
                 的条目，其余条目连同视觉层与用户字段原样沿用；``"all"`` 整集重写；条目 id 列表
@@ -1041,7 +1041,7 @@ class ScriptGenerator:
         与 `generate()` 同样先 await `_fetch_video_capabilities()` 解析 caps；
         这样当 `project.json` 不显式声明 `video_backend`（用户依赖全局/系统默认时）也能
         正确派生 supported_durations。caps 失败仍 fallback 到 project.json 自身的 sync 链。
-        ``instructions`` 的注入口径与 `generate()` 一致（中性「用户意见」分节追加末尾）。
+        ``instructions`` 的注入口径与 `generate()` 一致（中性「附加指令」分节追加末尾）。
 
         ``scope`` 的口径与 `generate()` 同一份：dry-run 要回答的是「这次运行会发出什么」，
         渲染整份脚本规划而实际只重写失效条目，会把一次增量重写说成整集重写。没有条目要重写时

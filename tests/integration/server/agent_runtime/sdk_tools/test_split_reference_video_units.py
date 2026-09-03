@@ -428,7 +428,7 @@ async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolCo
     out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单 unit 出场人物尽量不超过两人"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
-    assert "# 用户意见" in prompt_text
+    assert "# 附加指令" in prompt_text
     assert "单 unit 出场人物尽量不超过两人" in prompt_text
 
 

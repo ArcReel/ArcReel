@@ -227,7 +227,7 @@ class TestScriptGenerator:
         assert "姜月茴" in prompt
 
     async def test_build_prompt_appends_user_instructions(self, tmp_path):
-        """instructions 以中性「用户意见」分节追加到 prompt 末尾；未传时无该分节。"""
+        """instructions 以中性「附加指令」分节追加到 prompt 末尾；未传时无该分节。"""
         project_path = tmp_path / "demo"
         _write_project_json(
             project_path,
@@ -246,10 +246,10 @@ class TestScriptGenerator:
         generator._fetch_video_capabilities = _fixed_caps_468
 
         plain = await generator.build_prompt(1)
-        assert "# 用户意见" not in plain
+        assert "# 附加指令" not in plain
 
         prompt = await generator.build_prompt(1, instructions="多给人物面部特写")
-        assert prompt.endswith("# 用户意见\n多给人物面部特写")
+        assert prompt.endswith("# 附加指令\n多给人物面部特写")
 
     async def test_narration_prompt_authoring_build_prompt_uses_project_source_language(self, tmp_path):
         """narration prompt_authoring（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
@@ -963,7 +963,7 @@ class TestScriptGenerator:
         assert "duration_seconds" not in props
 
     async def test_generate_drama_prompt_authoring_appends_user_instructions(self, tmp_path):
-        """generate 路径的 instructions 同样以中性「用户意见」分节追加到发给模型的 prompt 末尾。"""
+        """generate 路径的 instructions 同样以中性「附加指令」分节追加到发给模型的 prompt 末尾。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,
@@ -977,7 +977,7 @@ class TestScriptGenerator:
         generator._fetch_video_capabilities = _fixed_caps_468
         await generator.generate(1, instructions="打斗场面多给全景")
 
-        assert fake.backend.last_request.prompt.endswith("# 用户意见\n打斗场面多给全景")
+        assert fake.backend.last_request.prompt.endswith("# 附加指令\n打斗场面多给全景")
 
     async def test_generate_drama_prompt_authoring_rejects_marked_mixed_candidate_before_backend_call(self, tmp_path):
         project_path = tmp_path / "demo"

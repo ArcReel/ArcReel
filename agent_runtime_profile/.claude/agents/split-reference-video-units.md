@@ -67,7 +67,7 @@ mcp__arcreel__get_video_capabilities({})
 **Step 1**: 调用工具生成结构化拆分（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加说明原文，可选，无则省略>"})
+mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
 ```
 
 `source` 可继续显式传本集源文路径；省略时工具默认读取本集派生源文 `source/episode_N.txt`。
