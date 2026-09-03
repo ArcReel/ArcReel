@@ -85,6 +85,7 @@ import type {
   PresentationResourceType,
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
+import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { WorkflowPlan, WorkflowPlanRequest } from "@/types/workflow";
 import type {
   AgentCredential,
@@ -861,6 +862,13 @@ function videoCapabilitiesQuery(options: VideoCapabilitiesQuery): string {
   return params.size > 0 ? `?${params.toString()}` : "";
 }
 
+/** 记忆接口的路径前缀：用户记忆不带 user_id（服务端从当前登录用户派生）。 */
+function agentMemoryBase(scope: AgentMemoryScope): string {
+  return scope.level === "user"
+    ? "/agent/memory"
+    : `/projects/${encodeURIComponent(scope.projectName)}/agent-memory`;
+}
+
 class API {
   /**
    * 通用请求方法
@@ -1013,6 +1021,63 @@ class API {
     return this.request(`/projects/${encodeURIComponent(name)}/agent-profile/reset`, {
       method: "POST",
     });
+  }
+
+  // ==================== Agent 记忆 ====================
+
+  /**
+   * 用户记忆与项目记忆的接口形状完全一致，只有路径前缀不同；两级共用同一组方法，
+   * 调用点（同一个文件柜组件）因此只换 scope，不换调用。
+   */
+  static async getAgentMemory(
+    scope: AgentMemoryScope,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<AgentMemoryOverview> {
+    return this.request(agentMemoryBase(scope), { signal: options.signal });
+  }
+
+  /** 记忆正文是含 frontmatter 的 Markdown 原文，按 text/plain 收发，不做任何解析。 */
+  static async getAgentMemoryFile(
+    scope: AgentMemoryScope,
+    filename: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<string> {
+    const url = `${agentMemoryBase(scope)}/files/${encodeURIComponent(filename)}`;
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url, { signal: options.signal }));
+    await throwIfNotOk(response, "获取记忆文件失败");
+    return response.text();
+  }
+
+  /** 纯覆盖写入：新建与保存走同一个 PUT，服务端无冲突检测。 */
+  static async saveAgentMemoryFile(
+    scope: AgentMemoryScope,
+    filename: string,
+    content: string
+  ): Promise<{ name: string }> {
+    const url = `${agentMemoryBase(scope)}/files/${encodeURIComponent(filename)}`;
+    const response = await fetch(
+      `${API_BASE}${url}`,
+      withAuth(url, {
+        method: "PUT",
+        headers: { "Content-Type": "text/plain" },
+        body: content,
+      })
+    );
+    await throwIfNotOk(response, "保存记忆文件失败");
+    return response.json() as Promise<{ name: string }>;
+  }
+
+  static async deleteAgentMemoryFile(
+    scope: AgentMemoryScope,
+    filename: string
+  ): Promise<{ name: string }> {
+    return this.request(`${agentMemoryBase(scope)}/files/${encodeURIComponent(filename)}`, {
+      method: "DELETE",
+    });
+  }
+
+  static async clearAgentMemory(scope: AgentMemoryScope): Promise<{ cleared: boolean }> {
+    return this.request(`${agentMemoryBase(scope)}/clear`, { method: "POST" });
   }
 
   static async deleteProject(name: string): Promise<SuccessResponse> {

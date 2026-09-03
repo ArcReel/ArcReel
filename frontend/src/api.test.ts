@@ -1630,3 +1630,76 @@ describe("custom endpoint test multipart", () => {
     expect((options.headers as Headers).has("Content-Type")).toBe(false);
   });
 });
+
+describe("Agent 记忆的两级路径", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn();
+  });
+
+  function fetchMock() {
+    return globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  }
+
+  it("用户记忆挂在不带 user_id 的路径上", async () => {
+    fetchMock().mockResolvedValueOnce(
+      new Response(JSON.stringify({ path: "/m", index: {}, files: [] }), { status: 200 }),
+    );
+    await API.getAgentMemory({ level: "user" });
+    expect(fetchMock().mock.calls[0]![0]).toBe("/api/v1/agent/memory");
+  });
+
+  it("项目记忆把项目名转义进路径", async () => {
+    fetchMock().mockResolvedValueOnce(
+      new Response(JSON.stringify({ path: "/m", index: {}, files: [] }), { status: 200 }),
+    );
+    await API.getAgentMemory({ level: "project", projectName: "my project" });
+    expect(fetchMock().mock.calls[0]![0]).toBe("/api/v1/projects/my%20project/agent-memory");
+  });
+
+  it("读取正文按 text/plain 原样取回，不做 JSON 解析", async () => {
+    fetchMock().mockResolvedValueOnce(
+      new Response("---\nname: tone\n---\n正文", {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      }),
+    );
+    const content = await API.getAgentMemoryFile({ level: "user" }, "tone.md");
+    expect(content).toBe("---\nname: tone\n---\n正文");
+    expect(fetchMock().mock.calls[0]![0]).toBe("/api/v1/agent/memory/files/tone.md");
+  });
+
+  it("写入把正文整段作为请求体发出", async () => {
+    fetchMock().mockResolvedValueOnce(new Response(JSON.stringify({ name: "tone.md" }), { status: 200 }));
+    await API.saveAgentMemoryFile({ level: "project", projectName: "demo" }, "tone.md", "正文");
+    const [url, init] = fetchMock().mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe("/api/v1/projects/demo/agent-memory/files/tone.md");
+    expect(init.method).toBe("PUT");
+    expect(init.body).toBe("正文");
+    expect(new Headers(init.headers).get("Content-Type")).toBe("text/plain");
+  });
+
+  it("清空走两级各自的 clear 端点", async () => {
+    fetchMock()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ cleared: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ cleared: true }), { status: 200 }));
+    await API.clearAgentMemory({ level: "user" });
+    await API.clearAgentMemory({ level: "project", projectName: "demo" });
+    expect(fetchMock().mock.calls[0]![0]).toBe("/api/v1/agent/memory/clear");
+    expect(fetchMock().mock.calls[1]![0]).toBe("/api/v1/projects/demo/agent-memory/clear");
+  });
+
+  it("删除单个文件带上文件名与 DELETE 方法", async () => {
+    fetchMock().mockResolvedValueOnce(new Response(JSON.stringify({ name: "MEMORY.md" }), { status: 200 }));
+    await API.deleteAgentMemoryFile({ level: "user" }, "MEMORY.md");
+    const [url, init] = fetchMock().mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe("/api/v1/agent/memory/files/MEMORY.md");
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("读取失败时把后端说明带进异常", async () => {
+    fetchMock().mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "记忆文件不存在" }), { status: 404 }),
+    );
+    await expect(API.getAgentMemoryFile({ level: "user" }, "missing.md")).rejects.toThrow("记忆文件不存在");
+  });
+});

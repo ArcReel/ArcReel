@@ -24,6 +24,7 @@ import {
 } from "@/components/shared/EpisodeTargetDurationField";
 import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
+import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
@@ -705,6 +706,14 @@ export function ProjectSettingsPage() {
               )}
             </SectionCard>
           )}
+
+          <SectionCard
+            kicker="Agent Memory"
+            title={t("agent_memory_project_title")}
+            description={t("agent_memory_project_desc")}
+          >
+            <AgentMemoryCabinet scope={{ level: "project", projectName }} frame="card" />
+          </SectionCard>
 
           {/* Style picker (independent save flow, mutually exclusive template / custom) */}
           {styleValue && (

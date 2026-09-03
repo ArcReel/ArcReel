@@ -3,6 +3,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
 import { AgentPageIntro } from "@/components/agent/AgentPageIntro";
 import { CredentialsSection } from "@/components/agent/CredentialsSection";
 import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
@@ -208,6 +209,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             </div>
           </div>
         </SectionShell>
+        <AgentMemoryCabinet scope={{ level: "user" }} frame="section" />
       </div>
 
       <TabSaveFooter
