@@ -430,8 +430,8 @@ class TestProjectArchiveService:
             for member in source.infolist():
                 target.writestr(member, rewrite(member.filename, source.read(member)))
 
-    def test_import_restores_a_claim_whose_archived_digest_folded_line_endings(self, tmp_path):
-        """信封 content_digest 若来自文本模式读取（CRLF 折叠为 LF），且产物不含 0x1A，证据覆盖全部字节，冻结的 claim 原样恢复。"""
+    def test_import_reprojects_a_claim_whose_archived_digest_folded_line_endings(self, tmp_path):
+        """信封 content_digest 若来自文本模式读取（CRLF 折叠为 LF），折叠不可逆，绑不住冻结 claim，改按当前投影补录。"""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         project = pm.load_project("demo")
@@ -444,7 +444,7 @@ class TestProjectArchiveService:
         key = ArtifactKey.episode_script(1)
         before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
         assert before is not None
-        assert script_review.delete_script_plan_file(project_dir, 1, script_plan_path)
+        _write_json(script_plan_path, {"segments": [{"segment_id": "E1S01", "text": "改写后的原文"}]})
         assert (
             ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scripts/episode_1.json").status
             is ArtifactStatus.STALE
@@ -475,10 +475,12 @@ class TestProjectArchiveService:
 
         imported_dir = pm.get_project_path("demo")
         assert (imported_dir / "scripts" / "episode_1.json").read_bytes() == member
-        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == before
+        imported = ProjectArtifactManifestAdapter(imported_dir).get_entry(key)
+        assert imported is not None
+        assert imported != before
         assert (
             ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="scripts/episode_1.json").status
-            is ArtifactStatus.STALE
+            is ArtifactStatus.CURRENT
         )
 
     def test_import_reprojects_a_claim_whose_archived_digest_covers_only_the_bytes_before_0x1a(self, tmp_path):

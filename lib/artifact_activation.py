@@ -188,10 +188,10 @@ def ensure_imported_artifact_target_state(
             replaced: list[str] = []
             for key, entry in preserved_entries.items():
                 evidence = _archived_content_evidence(adapter, entry.artifact_path, preserved_content_digests[key])
-                if evidence == "complete":
+                if evidence == "exact":
                     restored[key] = entry
-                elif evidence == "prefix_only":
-                    # 只证明到首个 0x1A 之前的字节，绑不住整份产物：这条 claim 按无信封归档的口径，
+                elif evidence == "text_mode":
+                    # 文本模式摘要丢了字节，绑不住整份产物：这条 claim 按无信封归档的口径，
                     # 用当前投影自证补录；投影不出条目的目标不登记。
                     projected = plan.entries.get(key)
                     if projected is not None:
@@ -229,22 +229,19 @@ def _archived_content_evidence(
     adapter: ProjectArtifactManifestAdapter,
     artifact_path: str,
     archived_digest: str,
-) -> Literal["complete", "prefix_only", "mismatch"]:
-    """Classify how far the archived content digest binds a claim to the imported bytes.
+) -> Literal["exact", "text_mode", "mismatch"]:
+    """Classify whether the archived content digest binds a claim to the imported bytes.
 
-    Archives exported through a text-mode descriptor hashed CRLF folded to LF and stopped at the
-    first ``0x1A``.  The fold alone still covers every byte, so the claim stays bound; a read cut
-    short at ``0x1A`` proves only the prefix (every PNG signature carries that byte) and cannot
-    bind the frozen basis to the whole artifact.
+    Archives exported through a text-mode descriptor hashed CRLF folded to LF and stopped at
+    the first ``0x1A``.  Both translations drop bytes, so such a digest cannot prove the whole
+    artifact; it only shows the bytes came through that export path.
     """
 
     if read_artifact_content_digest(adapter, artifact_path) == archived_digest:
-        return "complete"
+        return "exact"
     content, _digest = read_artifact_content_snapshot(adapter, artifact_path)
-    prefix, delimiter, _rest = content.partition(b"\x1a")
-    if hashlib.sha256(prefix.replace(b"\r\n", b"\n")).hexdigest() != archived_digest:
-        return "mismatch"
-    return "prefix_only" if delimiter else "complete"
+    text_mode_view = content.split(b"\x1a", 1)[0].replace(b"\r\n", b"\n")
+    return "text_mode" if hashlib.sha256(text_mode_view).hexdigest() == archived_digest else "mismatch"
 
 
 def _plan_preserved_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:
