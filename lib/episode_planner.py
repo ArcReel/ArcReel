@@ -42,7 +42,7 @@ from lib.episode_ledger import (
     parse_episode_num,
     register_orphan_episode_entries,
 )
-from lib.episode_paths import episode_script_relpath
+from lib.episode_paths import episode_script_relpath, episode_source_path
 from lib.episode_target_volume import EpisodeTargetVolume, resolve_episode_target_volume
 from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.path_safety import PathTraversalError, safe_join
@@ -610,7 +610,7 @@ class EpisodePlanner:
         ledger_nums = {num for num in ledger_nums if num is not None and num > 0}
         next_num = max(ledger_nums, default=0) + 1
         formal_paths = existing_derived | {
-            self.project_path / "source" / f"episode_{num}.txt"
+            episode_source_path(self.project_path, num)
             for num in (*sorted(ledger_nums), *range(next_num, next_num + len(drafts)))
         }
         formal_paths.add(self.project_path / "source" / "_remaining.txt")
@@ -944,7 +944,7 @@ class EpisodePlanner:
                     f"第 {num} 集原文范围越界（start={seg_start}，end={seg_end}，源文长度 {len(text)}），"
                     "无法完成派生文件对账，提交已中止"
                 )
-            episode_path = source_dir / f"episode_{num}.txt"
+            episode_path = episode_source_path(self.project_path, num)
             # 文件级符号链接同样拒绝：write_text 会跟随链接把内容写到链接目标（可能在项目外）
             if episode_path.is_symlink():
                 raise EpisodePlanningError(f"第 {num} 集派生文件是符号链接，拒绝写入，提交已中止")

@@ -84,9 +84,18 @@ def episode_source_relpath(episode: int) -> str:
     """该集派生源文相对项目根的路径 ``source/episode_N.txt``。
 
     分集规划工具按账本 ``source_range`` 派生该文件；script_plan 生成侧缺省读它、
-    工作流状态与产物指纹按同一路径取源文，三处共享本函数以保持同一口径。
+    工作流状态与产物指纹按同一路径取源文，各侧共享本函数以保持同一口径。
     """
     return f"source/episode_{episode}.txt"
+
+
+def episode_source_path(project_path: Path, episode: int) -> Path:
+    """该集派生源文的绝对路径 ``{project}/source/episode_N.txt``。
+
+    生产侧（分集规划的派生文件写盘与对账）按本函数取路径，与消费侧共享
+    ``episode_source_relpath`` 的同一份路径形状。
+    """
+    return project_path / episode_source_relpath(episode)
 
 
 def episode_script_filename(episode: int) -> str:
