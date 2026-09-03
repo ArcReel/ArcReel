@@ -391,4 +391,8 @@ MESSAGES = {
     "project_config_invalid": "项目配置无效，请检查参数后重试",
     "invalid_discovery_format": "不支持的模型发现格式：{discovery_format}",
     "request_invalid": "请求无效，请检查后重试",
+    # Agent 记忆
+    "memory_invalid_filename": "记忆文件名 '{filename}' 非法：只允许目录顶层的 .md 文件",
+    "memory_file_not_found": "记忆文件 '{filename}' 不存在",
+    "memory_file_too_large": "记忆文件 '{filename}' 超出大小限制（最大 {limit_kib} KiB）",
 }
