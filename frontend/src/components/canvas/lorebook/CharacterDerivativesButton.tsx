@@ -282,6 +282,15 @@ export function CharacterDerivativesButton({
                   <CopyButton text={derivativeToken(characterName, name)} />
                 </div>
 
+                {derivative.referenced !== undefined && (
+                  <p
+                    className="mt-1 text-[10px]"
+                    style={{ color: derivative.referenced ? "var(--color-text-3)" : "var(--color-text-4)" }}
+                  >
+                    {t(derivative.referenced ? "assets:derivative_referenced" : "assets:derivative_unreferenced")}
+                  </p>
+                )}
+
                 <textarea
                   rows={2}
                   className={`${INPUT_CLS} mt-1.5 resize-none leading-[1.5]`}

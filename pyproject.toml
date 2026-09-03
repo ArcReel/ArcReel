@@ -163,6 +163,8 @@ ignore_imports = [
 # import lib.reference_video 都是把三条路线共用的机制绑在其中一条上。
 # lib.script_review 不在列：它另有一条 lib.reference_video.duration_migration 的依赖（参考
 # 生视频专属的时长收编），纳入就要加 baseline 掩盖，那等于让契约声明一件它此刻并不成立的事。
+# lib.script_references 同理不在列：它按设计依赖 lib.reference_video.text_parser——「引用名落在
+# 载荷哪些位置」里有一类是正文的 @[名称] 记号，识别它的解析器只此一份。
 [[tool.importlinter.contracts]]
 name = "路线中立层不依赖参考生视频子包"
 type = "forbidden"

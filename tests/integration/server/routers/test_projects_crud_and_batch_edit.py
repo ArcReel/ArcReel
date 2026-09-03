@@ -133,6 +133,25 @@ class TestProjectsRouter:
             # 「不接受该字段」的实质保证：请求体里的值不得落进项目数据
             assert "source_kind" not in fake_pm.project_data["ready"]
 
+    def test_project_details_report_whether_each_derivative_is_referenced(self, tmp_path, monkeypatch):
+        """读取项目时衍生附 ``referenced``：读时计算、不落盘（docs/adr/0072）。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["characters"] = {
+            "阿岚": {"description": "少女", "derivatives": {"战斗装": {"description": "重甲"}, "便装": {}}}
+        }
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [{"scene_id": "001", "duration_seconds": 8, "characters_in_scene": ["阿岚/战斗装"]}],
+        }
+        client = build_projects_client(monkeypatch, fake_pm)
+
+        with client:
+            derivatives = client.get("/api/v1/projects/ready").json()["project"]["characters"]["阿岚"]["derivatives"]
+
+        assert derivatives["战斗装"]["referenced"] is True
+        assert derivatives["便装"]["referenced"] is False
+        assert "referenced" not in fake_pm.project_data["ready"]["characters"]["阿岚"]["derivatives"]["战斗装"]
+
     def test_project_details_and_updates(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)

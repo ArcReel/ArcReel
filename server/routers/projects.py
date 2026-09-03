@@ -55,6 +55,7 @@ from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
 from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, script_revision
+from lib.script_references import annotate_derivative_references
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.style_templates import is_known_template, resolve_template_prompt
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
@@ -848,6 +849,10 @@ async def get_project(
                         scripts[key] = script
                     except FileNotFoundError:
                         logger.debug("剧本文件不存在，跳过: %s/%s", name, script_file)
+
+            # 衍生的「被引用」状态随读取返回、不落盘（见 docs/adr/0072）：脚本已在上面读齐，
+            # 判定只是在同一份数据上多扫一遍。
+            project = annotate_derivative_references(project, scripts.values())
 
             # 计算媒体文件指纹（用于前端内容寻址缓存）
             project_path = manager.get_project_path(name)

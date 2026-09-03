@@ -252,6 +252,51 @@ def test_warn_unregistered_speaker():
     assert preview.warnings[0]["params"] == {"name": "王五"}
 
 
+#: 张三带一个已登记衍生的项目载荷（无场景，避免叠上「未引用场景」warning）。
+PROJECT_WITH_DERIVATIVE = {
+    **PROJECT_WITHOUT_SCENES,
+    "characters": {**PROJECT["characters"], "张三": {"derivatives": {"劲装": {}}}},
+}
+
+
+class TestDerivativeWarnings:
+    """``@[角色/衍生]`` 在编辑器只警告、不阻断（docs/adr/0064 / 0072）。"""
+
+    def test_registered_derivative_is_silent(self):
+        preview = build_script_preview("@[张三/劲装] 推门。@[张三/劲装]{我来了}", PROJECT_WITH_DERIVATIVE, _SOFT)
+
+        assert keys(preview) == []
+
+    def test_unregistered_derivative_in_a_mention_warns(self):
+        preview = build_script_preview("@[张三/夜行衣] 推门。", PROJECT_WITH_DERIVATIVE, _SOFT)
+
+        assert keys(preview) == [WARN_UNREGISTERED_MENTION]
+        assert preview.warnings[0]["params"] == {"name": "张三/夜行衣"}
+
+    def test_unregistered_derivative_in_the_speaker_slot_warns(self):
+        """说话人位不进参考图派生，未登记的事实要在这里单独报出来。"""
+        preview = build_script_preview("开场。\n@[张三/夜行衣]{我来了}", PROJECT_WITH_DERIVATIVE, _SOFT)
+
+        assert keys(preview) == [WARN_UNREGISTERED_MENTION]
+        assert preview.warnings[0]["params"] == {"name": "张三/夜行衣"}
+
+    def test_unregistered_base_reports_only_the_speaker_warning(self):
+        preview = build_script_preview("开场。\n@[无名氏/夜行衣]{我来了}", PROJECT_WITH_DERIVATIVE, _SOFT)
+
+        assert keys(preview) == [WARN_UNREGISTERED_SPEAKER]
+        assert preview.warnings[0]["params"] == {"name": "无名氏"}
+
+    def test_derivative_speaker_binds_the_base_voice(self):
+        preview = build_script_preview(
+            "开场。\n@[张三/劲装]{我来了}",
+            PROJECT_WITH_DERIVATIVE,
+            VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
+        )
+
+        assert [u.speaker for u in preview.utterances] == ["张三"]
+        assert keys(preview) == [WARN_SPEAKER_WITHOUT_AUDIO]
+
+
 def test_warn_speaker_without_reference_audio_only_on_native():
     text = "开场。\n@[李四]：{你迟到了}"
     native = build_script_preview(

@@ -78,6 +78,8 @@ export default {
   "derivative_rename_confirm": "Xác nhận đổi tên",
   "derivative_delete": "Xóa phái sinh \"{{name}}\"",
   "derivative_delete_confirm": "Xóa phái sinh này? Mô tả thay đổi ngoại hình của nó không thể khôi phục.",
+  "derivative_referenced": "Đã được tham chiếu trong kịch bản",
+  "derivative_unreferenced": "Chưa được tham chiếu trong kịch bản",
   "derivative_added": "Đã thêm phái sinh \"{{name}}\"",
   "derivative_saved": "Đã lưu phái sinh \"{{name}}\"",
   "derivative_renamed": "Đã đổi tên thành \"{{name}}\"",

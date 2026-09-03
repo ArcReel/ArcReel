@@ -27,6 +27,8 @@ export interface CharacterDerivative {
   description: string;
   /** 衍生资产图相对路径；尚未生成时为空。 */
   character_sheet?: string;
+  /** 脚本里有没有写 `@[角色/衍生]` 或 `角色/衍生`。读时计算、不落盘，读取项目时随条目返回。 */
+  referenced?: boolean;
 }
 
 export interface Character {

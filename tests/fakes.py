@@ -71,6 +71,40 @@ class FakeProjectAssetMutationMixin:
         self.update_project(project_name, _mutate)
         return result
 
+    def rename_asset_derivative(
+        self,
+        asset_type: str,
+        project_name: str,
+        entry_name: str,
+        old_name: str,
+        new_name: str,
+    ) -> dict[str, Any]:
+        """衍生改名的项目侧结果；剧本引用的级联改写由 ProjectManager 的用例覆盖。"""
+        from lib.asset_rename import AssetRenameConflictError, AssetRenameNotFoundError
+        from lib.asset_types import (
+            DERIVATIVES_FIELD,
+            normalize_asset_name,
+            rekey_equivalent_entries,
+            resolve_asset_key,
+            validate_asset_name,
+        )
+
+        clean = validate_asset_name(new_name)
+
+        def _mutate(entry: dict) -> None:
+            table = entry.get(DERIVATIVES_FIELD)
+            if not isinstance(table, dict):
+                raise AssetRenameNotFoundError(old_name)
+            key = resolve_asset_key(table, old_name)
+            if key is None:
+                raise AssetRenameNotFoundError(old_name)
+            taken = resolve_asset_key(table, clean)
+            if taken is not None and normalize_asset_name(taken) != normalize_asset_name(key):
+                raise AssetRenameConflictError(taken)
+            rekey_equivalent_entries(table, key, clean)
+
+        return self.update_asset_entry(asset_type, project_name, entry_name, _mutate)
+
     def delete_asset(self, project_name: str, table: str, name: str) -> dict[str, Any]:
         from lib.asset_types import resolve_asset_key
 

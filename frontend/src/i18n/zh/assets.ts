@@ -78,6 +78,8 @@ export default {
   "derivative_rename_confirm": "确认重命名",
   "derivative_delete": "删除衍生「{{name}}」",
   "derivative_delete_confirm": "确定删除这个衍生吗？删除后它的外观变化描述无法恢复。",
+  "derivative_referenced": "脚本中已引用",
+  "derivative_unreferenced": "脚本中尚未引用",
   "derivative_added": "已新增衍生「{{name}}」",
   "derivative_saved": "已保存衍生「{{name}}」",
   "derivative_renamed": "已重命名为「{{name}}」",

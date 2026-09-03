@@ -47,6 +47,27 @@ describe("CharacterDerivativesButton", () => {
     expect(screen.getByLabelText("「战斗装」的外观变化")).toHaveValue("换上黑色重甲");
   });
 
+  it("shows whether each derivative is referenced by the script", () => {
+    renderButton({
+      derivatives: {
+        战斗装: { description: "换上黑色重甲", character_sheet: "", referenced: true },
+        便装: { description: "布衣", character_sheet: "", referenced: false },
+      },
+    });
+    openPanel();
+
+    expect(screen.getByText("脚本中已引用")).toBeInTheDocument();
+    expect(screen.getByText("脚本中尚未引用")).toBeInTheDocument();
+  });
+
+  it("stays silent about the reference state when the API did not report it", () => {
+    renderButton();
+    openPanel();
+
+    expect(screen.queryByText("脚本中已引用")).not.toBeInTheDocument();
+    expect(screen.queryByText("脚本中尚未引用")).not.toBeInTheDocument();
+  });
+
   it("registers a new derivative and refreshes the project", async () => {
     const addSpy = vi.spyOn(API, "addCharacterDerivative").mockResolvedValue({ success: true });
     const { onReload } = renderButton();

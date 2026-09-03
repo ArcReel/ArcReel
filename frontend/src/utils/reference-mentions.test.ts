@@ -5,6 +5,7 @@ import {
   lineSpeechMarks,
   normalizeAssetName,
   splitScriptLines,
+  splitDerivativeReference,
   splitSpeechLine,
   stripSpeechMarks,
 } from "./reference-mentions";
@@ -307,5 +308,43 @@ describe("splitScriptLines", () => {
     ["中景 ", ["中景"]],
   ])("splits %j the way splitlines() does", (input, expected) => {
     expect(splitScriptLines(input)).toEqual(expected);
+  });
+});
+
+describe("@[角色/衍生]", () => {
+  const project = {
+    characters: { 阿岚: { derivatives: { 战斗装: {}, 便装: {} } }, 青禾: {} },
+    scenes: { 茶楼: {} },
+    props: {},
+    products: {},
+  } as never;
+
+  it("splits a reference name into base and derivative", () => {
+    expect(splitDerivativeReference("阿岚")).toEqual(["阿岚", ""]);
+    expect(splitDerivativeReference("阿岚/战斗装")).toEqual(["阿岚", "战斗装"]);
+  });
+
+  it("registers every derivative under the character namespace", () => {
+    const lookup = buildMentionLookup(project);
+
+    expect(lookup["阿岚/战斗装"]).toBe("character");
+    expect(lookup["阿岚"]).toBe("character");
+    expect(Object.hasOwn(lookup, "阿岚/夜行衣")).toBe(false);
+    expect(Object.hasOwn(lookup, "青禾/战斗装")).toBe(false);
+  });
+
+  it("binds the speaker slot to the base character and keeps the derivative", () => {
+    expect(lineSpeechMarks("@[阿岚/战斗装]{我来了}")).toEqual([
+      { speaker: "阿岚", derivative: "战斗装", text: "我来了", raw: "@[阿岚/战斗装]{我来了}" },
+    ]);
+  });
+
+  it("does not treat a speaker slot without a base name as a mark", () => {
+    expect(marks("@[/战斗装]{我来了}")).toEqual([]);
+  });
+
+  it("keeps the derivative mention out of the reference images when it only speaks", () => {
+    expect(extractMentions("@[阿岚/战斗装]{我来了}")).toEqual([]);
+    expect(extractMentions("@[阿岚/战斗装] 推门")).toEqual(["阿岚/战斗装"]);
   });
 });

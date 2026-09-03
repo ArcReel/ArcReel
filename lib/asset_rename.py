@@ -23,7 +23,9 @@ from lib.asset_types import (
     normalize_asset_name,
     rekey_equivalent_entries,
 )
+from lib.reference_catalog import renamed_reference, split_derivative_reference
 from lib.reference_video.text_parser import rewrite_mentions
+from lib.script_references import iter_reference_sites
 
 
 class AssetRenameNotFoundError(KeyError):
@@ -86,58 +88,23 @@ _LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
 def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, new_name: str) -> int:
     """就地把剧本/草稿 payload 中指向 *old_name* 的名称引用改写为 *new_name*，返回改写数。
 
-    覆盖面（与 :mod:`lib.data_validator` 的引用扫描 + 引用语法派生口径对齐）：
+    落点集合由 :func:`lib.script_references.iter_reference_sites` 定义（引用数组、
+    ``speaker`` 字段、单元正文的 ``@[名称]`` 记号）；``character`` 另有旧式剧本内嵌的顶层
+    ``characters`` 镜像 dict 要 re-key + 同步路径字段。
 
-    - 各骨架的引用数组（``_LIST_FIELDS_BY_TYPE``，仅 str 元素）；
-    - drama ``utterances[].speaker`` 与 ad ``video_prompt.dialogue[].speaker``（仅 character）；
-    - 单元正文与 ad 分镜文本内的 ``@[旧名]`` mention（经 :func:`rewrite_mentions`）；
-    - 旧式剧本内嵌的顶层 ``characters`` 镜像 dict（仅 character：re-key + 路径字段同步）。
+    *old_name* 可以是 ``角色/衍生`` 形态（衍生改名）：命中判定由
+    :func:`lib.reference_catalog.renamed_reference` 统一给出——本体改名连带改写其下全部
+    衍生引用，衍生改名只动该角色的那一套。``speaker`` 只承载本体名，故衍生改名扫到它时
+    自然不命中。
 
     只识别骨架结构、不校验语义：结构校验由写盘统一入口的「不更坏」守卫兜底。
     """
-    target = asset_name_comparison_key(old_name)
     list_fields = _LIST_FIELDS_BY_TYPE[asset_type]
     count = 0
 
-    def _matches(value: object) -> bool:
-        return isinstance(value, str) and asset_name_comparison_key(value) == target and value != new_name
-
-    def _walk(node: object) -> None:
-        nonlocal count
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if key in list_fields and isinstance(value, list):
-                    for i, item in enumerate(value):
-                        if _matches(item):
-                            value[i] = new_name
-                            count += 1
-                        else:
-                            _walk(item)
-                    continue
-                if key == "speaker" and asset_type == "character" and _matches(value):
-                    node[key] = new_name
-                    count += 1
-                    continue
-                if key in ("shots", "units", "video_units") and isinstance(value, list):
-                    # 参考生视频的 mention 落在 unit 正文（``video_units[].text``，草稿里是
-                    # ``units[].text``）；ad 分镜的 shot 还带引用数组与 video_prompt.dialogue，
-                    # 继续下钻由通用规则处理。
-                    for item in value:
-                        if isinstance(item, dict) and isinstance(item.get("text"), str):
-                            new_text, n = rewrite_mentions(item["text"], old_name, new_name)
-                            if n:
-                                item["text"] = new_text
-                                count += n
-                        _walk(item)
-                    continue
-                _walk(value)
-        elif isinstance(node, list):
-            for item in node:
-                _walk(item)
-
-    if asset_type == "character":
+    if asset_type == "character" and not split_derivative_reference(asset_name_comparison_key(old_name))[1]:
         # 旧式剧本把角色表镜像内嵌在顶层 characters dict（update_character_sheet 写入路径），
-        # re-key 并同步其中的 sheet 路径字段，避免旧名以镜像形式残留。
+        # re-key 并同步其中的 sheet 路径字段，避免旧名以镜像形式残留。衍生改名不动本体的 key。
         embedded = payload.get("characters")
         if isinstance(embedded, dict):
             # 无条件收编：胜出 key 恰好已是新名（纯改编码形式的改名）时，另一条等价 key
@@ -150,7 +117,17 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
                 if isinstance(entry, dict):
                     count += rewrite_entry_paths(entry, ASSET_SPECS[asset_type], old_name, new_name)
 
-    _walk(payload)
+    for kind, value, write in iter_reference_sites(payload, list_fields, with_speaker=asset_type == "character"):
+        if kind == "text":
+            rewritten, changes = rewrite_mentions(value, old_name, new_name)
+            if changes:
+                write(rewritten)
+                count += changes
+            continue
+        renamed = renamed_reference(value, old_name, new_name)
+        if renamed is not None and renamed != value:
+            write(renamed)
+            count += 1
     return count
 
 

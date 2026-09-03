@@ -76,6 +76,8 @@ export default {
   "derivative_rename_confirm": "Confirm rename",
   "derivative_delete": "Delete derivative \"{{name}}\"",
   "derivative_delete_confirm": "Delete this derivative? Its appearance-change description cannot be recovered.",
+  "derivative_referenced": "Referenced in the script",
+  "derivative_unreferenced": "Not referenced in the script yet",
   "derivative_added": "Derivative \"{{name}}\" added",
   "derivative_saved": "Derivative \"{{name}}\" saved",
   "derivative_renamed": "Renamed to \"{{name}}\"",

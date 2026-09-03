@@ -38,6 +38,7 @@ from lib.reference_video.text_parser import (
     leading_mention_before_colon,
     line_speech_marks,
     speech_line_description,
+    speech_speaker_references,
     split_speech_line,
     strip_speech_marks,
 )
@@ -159,6 +160,9 @@ def dialogue_speakers(text: str) -> list[str]:
     说话人取自 ``split_speech_line``，已在解析器入口归一到资产名比对坐标系
     （``lib.reference_video.text_parser`` 的 ``_normalize_source``），与资产表归一后的 key
     同形，本函数直接使用该结果，不再额外归一。
+
+    说话人位写 ``@[角色/衍生]`` 时给出的是本体名：声音属于身份，衍生共享本体的参考音频与
+    音色（见 ``docs/adr/0072``）。写下的那套外观见 ``speech_speaker_references``。
     """
     seen: set[str] = set()
     speakers: list[str] = []
@@ -199,8 +203,8 @@ def validate_unit_text(
     """校验一个 unit 的正文并机械派生参考图引用。
 
     覆盖四类阻断违约：正文为空或只有发声记号、引用语法误用（花括号、写坏的引用、缺花
-    括号的台词）、``@[名称]`` 未登记（含台词记号的说话人位）、参考图数超模型上限。正文是
-    唯一落盘物，派生结果只服务本次校验与能力判定，不写回。
+    括号的台词）、``@[名称]`` 未登记（含台词记号的说话人位与它写下的衍生）、参考图数超模型
+    上限。正文是唯一落盘物，派生结果只服务本次校验与能力判定，不写回。
     """
     if not text.strip():
         raise DraftViolation(f"{label} 的正文为空", code="empty_text", label=label)
@@ -235,6 +239,18 @@ def validate_unit_text(
         raise DraftViolation(
             f"{label} 的台词说话人未登记为角色资产: {bad_speakers}；说话人决定该句台词绑哪段参考音频，必须是登记角色",
             code="unregistered_speaker",
+            label=label,
+        )
+
+    # 本体已登记，说话人位仍不在引用名里，只可能是那个角色没有这个衍生。分成两条违约：一条
+    # 该去登记角色，一条该去登记衍生或改名，合成一句会指错修复方向。
+    character_references = catalog.reference_names("character")
+    bad_forms = sorted({name for name in speech_speaker_references(text) if name not in character_references})
+    if bad_forms:
+        raise DraftViolation(
+            f"{label} 的台词说话人写了该角色没有的衍生: {bad_forms}；"
+            "衍生须先登记在该角色下，或改写成本体名 `@[角色]{台词}`",
+            code="unregistered_speaker_derivative",
             label=label,
         )
 

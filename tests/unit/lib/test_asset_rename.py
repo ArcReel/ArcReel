@@ -919,3 +919,113 @@ def test_path_field_outside_migrated_dirs_is_left_alone() -> None:
         "products/商品A_1.png",
         "products/refs/新品甲_2.png",
     ]
+
+
+class TestDerivativeReferenceCascade:
+    """``角色/衍生`` 的级联改名（docs/adr/0072）：本体改名连带，衍生改名只动自己那一套。"""
+
+    @staticmethod
+    def _register(manager: ProjectManager, *derivatives: str) -> None:
+        def _add(project: dict) -> None:
+            project["characters"]["角色A"]["derivatives"] = {
+                name: {"description": f"{name}的变化", "character_sheet": ""} for name in derivatives
+            }
+
+        manager.update_project("demo", _add)
+
+    @staticmethod
+    def _script_with_derivative_references() -> dict[str, Any]:
+        script = _narration_script()
+        script["segments"][0]["characters_in_segment"] = ["角色A", "角色A/劲装"]
+        return script
+
+    def test_character_rename_rewrites_every_derivative_form(self, pm_with_assets: ProjectManager) -> None:
+        self._register(pm_with_assets, "劲装")
+        pm_with_assets.save_script("demo", self._script_with_derivative_references(), "episode_1.json")
+        reference_script = _reference_script(2)
+        reference_script["video_units"][0]["text"] = "@[角色A/劲装] 推门。@[角色A/劲装]{我来了}"
+        pm_with_assets.save_script("demo", reference_script, "episode_2.json")
+
+        pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == ["主角甲", "主角甲/劲装"]
+        unit = pm_with_assets.load_script("demo", "episode_2.json")["video_units"][0]
+        assert unit["text"] == "@[主角甲/劲装] 推门。@[主角甲/劲装]{我来了}"
+        assert list(pm_with_assets.load_project("demo")["characters"]["主角甲"]["derivatives"]) == ["劲装"]
+
+    def test_derivative_rename_rewrites_only_that_form(self, pm_with_assets: ProjectManager) -> None:
+        self._register(pm_with_assets, "劲装", "兽化")
+        script = self._script_with_derivative_references()
+        script["segments"][0]["characters_in_segment"] = ["角色A", "角色A/劲装", "角色A/兽化"]
+        pm_with_assets.save_script("demo", script, "episode_1.json")
+        reference_script = _reference_script(2)
+        reference_script["video_units"][0]["text"] = "@[角色A] @[角色A/劲装] @[角色A/兽化]"
+        pm_with_assets.save_script("demo", reference_script, "episode_2.json")
+
+        entry = pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "夜行衣")
+
+        assert list(entry["derivatives"]) == ["夜行衣", "兽化"]
+        assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == [
+            "角色A",
+            "角色A/夜行衣",
+            "角色A/兽化",
+        ]
+        unit = pm_with_assets.load_script("demo", "episode_2.json")["video_units"][0]
+        assert unit["text"] == "@[角色A] @[角色A/夜行衣] @[角色A/兽化]"
+
+    def test_derivative_rename_keeps_the_description(self, pm_with_assets: ProjectManager) -> None:
+        self._register(pm_with_assets, "劲装")
+
+        pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "夜行衣")
+
+        derivatives = pm_with_assets.load_project("demo")["characters"]["角色A"]["derivatives"]
+        assert derivatives["夜行衣"]["description"] == "劲装的变化"
+
+    def test_derivative_rename_rejects_a_name_taken_by_a_sibling(self, pm_with_assets: ProjectManager) -> None:
+        self._register(pm_with_assets, "劲装", "兽化")
+
+        with pytest.raises(AssetRenameConflictError):
+            pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "兽化")
+
+        assert list(pm_with_assets.load_project("demo")["characters"]["角色A"]["derivatives"]) == ["劲装", "兽化"]
+
+    def test_derivative_rename_reports_a_missing_derivative(self, pm_with_assets: ProjectManager) -> None:
+        self._register(pm_with_assets, "劲装")
+
+        with pytest.raises(AssetRenameNotFoundError):
+            pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "夜行衣", "便装")
+
+    def test_derivative_rename_reports_a_missing_character(self, pm_with_assets: ProjectManager) -> None:
+        with pytest.raises(KeyError):
+            pm_with_assets.rename_asset_derivative("character", "demo", "无此角色", "劲装", "夜行衣")
+
+    def test_derivative_rename_rejects_an_illegal_name_before_touching_anything(
+        self, pm_with_assets: ProjectManager
+    ) -> None:
+        self._register(pm_with_assets, "劲装")
+
+        with pytest.raises(ValueError, match="非法字符"):
+            pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "夜/行衣")
+
+        assert list(pm_with_assets.load_project("demo")["characters"]["角色A"]["derivatives"]) == ["劲装"]
+
+    def test_derivative_rename_leaves_the_speaker_field_alone(self, pm_with_assets: ProjectManager) -> None:
+        """``speaker`` 只承载本体名，衍生改名不该动它。"""
+        self._register(pm_with_assets, "劲装")
+        pm_with_assets.save_script("demo", _drama_script(), "episode_1.json")
+
+        pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "夜行衣")
+
+        assert _load_script(pm_with_assets)["scenes"][0]["utterances"][0]["speaker"] == "角色A"
+
+    def test_derivative_rename_rewrites_quarantined_drafts(self, pm_with_assets: ProjectManager) -> None:
+        self._register(pm_with_assets, "劲装")
+        draft_path = (
+            _project_dir(pm_with_assets) / "drafts" / "episode_1" / REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME
+        )
+        draft_path.parent.mkdir(parents=True)
+        atomic_write_json(draft_path, {"units": [{"unit_id": "E1U1", "text": "@[角色A/劲装] 推门"}]})
+
+        pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "夜行衣")
+
+        assert json.loads(draft_path.read_text())["units"][0]["text"] == "@[角色A/夜行衣] 推门"
