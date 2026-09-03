@@ -36,7 +36,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 1. **确认项目状态**：按计划确认 `content_mode=ad` 与项目级 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。生成模式创建后不可更改。
 2. **创作输入**：带货项目未登记商品或缺原图时，引导用户在 WebUI 上传；原图是保真锚点。用 `mcp__arcreel__patch_project` 写商品描述、品牌与 `brief`。通用短片不索要商品。
 3. **起草卖点**：商品的 `selling_points` 为空时，根据 brief、描述与原图起草，与用户确认后用 `patch_project` 写回。
-4. **资产定义与资产图**：定义角色、场景、道具后，对每个类型取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集，调用 `mcp__arcreel__generate_assets({"type": type, "names": [该类型 requested_ids]})`。商品 sheet 在商品资产页生成。
+4. **资产定义与资产图**：定义角色、场景、道具后，对每个类型取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集作为该类型的 `names`，调用 `mcp__arcreel__generate_assets({"type": type, "names": [该类型 names]})`。商品 sheet 在商品资产页生成。
 5. **一键生成剧本**：调用 `mcp__arcreel__generate_episode_script({"episode": 1})`。广告不走 script_plan；分镜图生视频直接产出 `shots[]`，参考生视频直接产出自包含 `video_units[]`。总时长偏离 `target_duration` 时提醒用户，不阻塞保存。
 6. **sheet 过目（软门禁）**：商品有 `product_sheet` 时，请用户在首次分镜或参考生视频生成前确认它与真品一致；只有原图时直接继续。
 7. **编排与生成**：
