@@ -91,6 +91,27 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
     }, delay);
   };
 
+  /**
+   * 后台标签页的长连接常被系统或代理断开，重连在后台反复失败会把退避推到上限。用户切回时
+   * 抢占剩余等待并把退避归零：切回前台是「网络条件已变」的强信号，等待剩下的几十秒只会让
+   * 页面继续停在旧数据上。连接中或已连接（`retryTimer` 为空）时不做任何事。
+   */
+  const handleVisibilityChange = () => {
+    if (closed || retryTimer === null) return;
+    if (document.visibilityState !== "visible") return;
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    attempt = 0;
+    void connect();
+  };
+
+  const visibilityHost = typeof document === "undefined" ? null : document;
+
+  /** 两条终态路径共用：`close()` 与不可重试的失败都必须摘掉监听，否则句柄已死仍挂在 `document` 上。 */
+  const stopWatchingVisibility = () => {
+    visibilityHost?.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
+
   const fail = (error: SseStreamError) => {
     if (closed) return;
     options.onError?.(error);
@@ -98,6 +119,7 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
       scheduleRetry();
     } else {
       closed = true;
+      stopWatchingVisibility();
     }
   };
 
@@ -166,12 +188,14 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
     fail(new SseStreamError("事件流已结束", { retryable: true }));
   };
 
+  visibilityHost?.addEventListener("visibilitychange", handleVisibilityChange);
   void connect();
 
   return {
     close() {
       if (closed) return;
       closed = true;
+      stopWatchingVisibility();
       if (retryTimer !== null) {
         clearTimeout(retryTimer);
         retryTimer = null;
