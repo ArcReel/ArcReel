@@ -1,8 +1,8 @@
 /* eslint-disable react-hooks/set-state-in-effect -- 原型代码，评审后整目录删除 */
 // PROTOTYPE — wayfinder #2310 变体 A「文件柜」：左侧文件列表（索引置顶 + 主题文件），右侧原文编辑器。
-// 记忆就是文件，frontmatter 原样可见；冲突在「保存」那一刻检测（mtime 不符），弹行内三选一。评审后整目录删除。
+// 记忆就是文件，frontmatter 原样可见；保存为纯覆盖，不做冲突检测。评审后整目录删除。
 import { useEffect, useState } from "react";
-import { AlertTriangle, FileText, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import { FileText, Plus, Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CARD_STYLE, INPUT_CLS } from "@/components/ui/darkroom-tokens";
@@ -20,7 +20,7 @@ import {
   type MemoryFile,
   type MemoryLevel,
 } from "./memory-prototype-store";
-import { AgentStatusLine, ClearMemoryDialog, GhostButton, Kicker, ProtoControls, TypeBadge, useTick } from "./memory-prototype-shared";
+import { ClearMemoryDialog, GhostButton, Kicker, ProtoControls, TypeBadge, useTick } from "./memory-prototype-shared";
 
 export function MemoryPrototypeA({ level }: { level: MemoryLevel }) {
   useTick();
@@ -43,7 +43,7 @@ export function MemoryPrototypeA({ level }: { level: MemoryLevel }) {
   const createNew = () => {
     const n = topics.length + 1;
     const name = `new-memory-${n}.md`;
-    memoryActions.create(level, name, buildTopic(`new-memory-${n}`, "一句话说明这条记忆是什么", level === "user" ? "user" : "project", "在这里写下要 Agent 记住的内容。"));
+    memoryActions.create(level, name, buildTopic(`new-memory-${n}`, "记忆说明", level === "user" ? "user" : "project", "记忆内容"));
     setSelected(name);
   };
 
@@ -56,25 +56,21 @@ export function MemoryPrototypeA({ level }: { level: MemoryLevel }) {
           <p className="mt-1 max-w-[560px] text-[12px] leading-[1.55] text-text-3">{copy.desc}</p>
           <p className="mt-1 font-mono text-[10.5px] text-text-4">{copy.path}</p>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <GhostButton danger disabled={st.files.length === 0} onClick={() => setClearOpen(true)}>
-            <Trash2 className="h-3.5 w-3.5" /> 清空记忆
-          </GhostButton>
-          <AgentStatusLine state={st} />
-        </div>
+        <GhostButton danger disabled={st.files.length === 0} onClick={() => setClearOpen(true)} className="shrink-0">
+          <Trash2 className="h-3.5 w-3.5" /> 清空
+        </GhostButton>
       </div>
 
       <div className="mb-3">
-        <ProtoControls level={level} currentFile={selected} />
+        <ProtoControls level={level} />
       </div>
 
       <div className="grid overflow-hidden rounded-[10px] border border-hairline" style={{ ...CARD_STYLE, gridTemplateColumns: "220px minmax(0,1fr)", minHeight: 380 }}>
-        {/* 文件列表 */}
         <aside className="flex min-h-0 flex-col border-r border-hairline-soft">
           {st.files.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
               <FileText className="h-5 w-5 text-text-4" />
-              <p className="text-[11.5px] leading-[1.55] text-text-4">目录是空的</p>
+              <p className="text-[11.5px] leading-[1.55] text-text-4">暂无文件</p>
             </div>
           ) : (
             <ul className="flex-1 overflow-y-auto py-1.5">
@@ -91,19 +87,18 @@ export function MemoryPrototypeA({ level }: { level: MemoryLevel }) {
           )}
           <div className="border-t border-hairline-soft p-2">
             <button type="button" onClick={createNew} className="flex w-full items-center gap-1.5 rounded-[6px] px-2 py-1.5 text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text">
-              <Plus className="h-3.5 w-3.5" /> 新建主题文件
+              <Plus className="h-3.5 w-3.5" /> 新建文件
             </button>
           </div>
         </aside>
 
-        {/* 编辑器 */}
         {file ? (
           <Editor key={file.name} level={level} file={file} onDelete={() => setDeleteName(file.name)} />
         ) : (
           <div className="flex flex-col items-center justify-center gap-3 px-10 py-12 text-center">
             <p className="max-w-[380px] text-[12.5px] leading-[1.65] text-text-3">{copy.empty}</p>
             <GhostButton onClick={createNew}>
-              <Plus className="h-3.5 w-3.5" /> 自己先写一条
+              <Plus className="h-3.5 w-3.5" /> 新建文件
             </GhostButton>
           </div>
         )}
@@ -114,8 +109,8 @@ export function MemoryPrototypeA({ level }: { level: MemoryLevel }) {
         open={deleteName !== null}
         tone="danger"
         title={`删除 ${deleteName ?? ""}？`}
-        description={deleteName === INDEX_FILE ? "删除索引后 Agent 在会话开始时将看不到任何记忆条目；主题文件仍保留但不会被主动查阅。" : "索引里指向它的那一行不会自动删除，Agent 下次查阅时会发现文件不存在。"}
-        confirmLabel="删除文件"
+        description={deleteName === INDEX_FILE ? "删除索引文件后，Agent 在会话开始时将无法加载记忆条目。此操作不可恢复。" : "此操作不可恢复。索引中引用该文件的条目不会自动移除。"}
+        confirmLabel="删除"
         onConfirm={() => {
           if (deleteName) memoryActions.remove(level, deleteName);
           setDeleteName(null);
@@ -146,11 +141,11 @@ function FileRow({ file, selected, onClick, pinned }: { file: MemoryFile; select
           {pinned && stats ? (
             <span className={stats.over ? "text-danger-2" : ""}>索引 · {stats.lines}/{INDEX_LINE_LIMIT} 行</span>
           ) : (
-            <span className="truncate">{parsed?.description || "（无说明）"}</span>
+            <span className="truncate">{parsed?.description || "无说明"}</span>
           )}
         </span>
         <span className="pl-5 text-[10px] text-text-4">
-          {file.modifiedBy === "agent" ? "Agent" : "你"} · {relTime(file.modifiedAt)}
+          {file.modifiedBy === "agent" ? "Agent" : "手动"} · {relTime(file.modifiedAt)}
         </span>
       </button>
     </li>
@@ -159,45 +154,22 @@ function FileRow({ file, selected, onClick, pinned }: { file: MemoryFile; select
 
 function Editor({ level, file, onDelete }: { level: MemoryLevel; file: MemoryFile; onDelete: () => void }) {
   const [draft, setDraft] = useState(file.content);
-  const [loadedAt, setLoadedAt] = useState(file.modifiedAt);
-  const [conflict, setConflict] = useState(false);
-  const [showTheirs, setShowTheirs] = useState(false);
-  const dirty = draft !== file.content && !(conflict && showTheirs);
-  const changedUnderneath = file.modifiedAt !== loadedAt;
+  const dirty = draft !== file.content;
   const stats = file.name === INDEX_FILE ? indexStats(draft) : null;
 
-  // 未改动时静默跟随外部更新；已改动则保留草稿，等保存时判冲突。
+  // 未改动时跟随外部更新（Agent 写入）。
   useEffect(() => {
-    if (!dirty && file.modifiedAt !== loadedAt) {
-      setDraft(file.content);
-      setLoadedAt(file.modifiedAt);
-      setConflict(false);
-    }
-  }, [file.content, file.modifiedAt, dirty, loadedAt]);
+    if (!dirty) setDraft(file.content);
+  }, [file.content, dirty]);
 
-  const save = (force = false) => {
-    const r = memoryActions.save(level, file.name, draft, loadedAt, force);
-    if (r === "conflict") {
-      setConflict(true);
-      return;
-    }
-    setConflict(false);
-    setShowTheirs(false);
-    setLoadedAt(Date.now());
-  };
-  const takeTheirs = () => {
-    setDraft(file.content);
-    setLoadedAt(file.modifiedAt);
-    setConflict(false);
-    setShowTheirs(false);
-  };
+  const save = () => memoryActions.save(level, file.name, draft, file.modifiedAt, true);
 
   return (
     <div className="flex min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-hairline-soft px-3 py-2">
         <span className="font-mono text-[12px] text-text">{file.name}</span>
         <span className="text-[10.5px] text-text-4">
-          {file.modifiedBy === "agent" ? "Agent" : "你"}写于 {relTime(file.modifiedAt)}
+          {file.modifiedBy === "agent" ? "Agent" : "手动"}更新于 {relTime(file.modifiedAt)}
         </span>
         {stats && (
           <span className={"ml-1 font-mono text-[10px] " + (stats.over ? "text-danger-2" : "text-text-4")}>
@@ -205,53 +177,29 @@ function Editor({ level, file, onDelete }: { level: MemoryLevel; file: MemoryFil
           </span>
         )}
         <span className="flex-1" />
-        <GhostButton onClick={() => setDraft(file.content)} disabled={!dirty}>
-          <RotateCcw className="h-3.5 w-3.5" /> 撤销
-        </GhostButton>
         <GhostButton danger onClick={onDelete}>
-          <Trash2 className="h-3.5 w-3.5" />
+          <Trash2 className="h-3.5 w-3.5" /> 删除
+        </GhostButton>
+        <GhostButton onClick={() => setDraft(file.content)} disabled={!dirty}>
+          放弃修改
         </GhostButton>
         <button
           type="button"
-          onClick={() => save()}
+          onClick={save}
           disabled={!dirty}
           className="inline-flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[12px] font-semibold disabled:opacity-40"
           style={{ color: "oklch(0.14 0 0)", background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))" }}
         >
-          <Save className="h-3.5 w-3.5" /> 保存
+          保存
         </button>
       </div>
 
-      {(conflict || (dirty && changedUnderneath)) && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-warm/40 bg-warm/10 px-3 py-2 text-[11.5px] text-warm">
-          <AlertTriangle className="h-3.5 w-3.5" />
-          <span>Agent 在你编辑期间改过这个文件（{relTime(file.modifiedAt)}）。{conflict ? "刚才没有保存。" : ""}</span>
-          <span className="flex-1" />
-          <button type="button" className="underline underline-offset-2" onClick={() => setShowTheirs((v) => !v)}>
-            {showTheirs ? "收起 Agent 版本" : "看 Agent 版本"}
-          </button>
-          <button type="button" className="underline underline-offset-2" onClick={() => save(true)}>
-            以我的为准覆盖
-          </button>
-          <button type="button" className="underline underline-offset-2" onClick={takeTheirs}>
-            丢弃我的，载入 Agent 版本
-          </button>
-        </div>
-      )}
-
-      <div className={"grid min-h-0 flex-1 " + (showTheirs ? "grid-cols-2" : "grid-cols-1")}>
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          spellCheck={false}
-          className={INPUT_CLS + " min-h-[320px] resize-none rounded-none border-0 bg-transparent font-mono text-[12px] leading-[1.6] focus:border-0"}
-        />
-        {showTheirs && (
-          <pre className="min-h-0 overflow-auto border-l border-hairline-soft bg-bg-grad-b/40 px-3 py-2 font-mono text-[12px] leading-[1.6] text-text-3">
-            {file.content}
-          </pre>
-        )}
-      </div>
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        spellCheck={false}
+        className={INPUT_CLS + " min-h-[320px] flex-1 resize-none rounded-none border-0 bg-transparent font-mono text-[12px] leading-[1.6] focus:border-0"}
+      />
     </div>
   );
 }

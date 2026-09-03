@@ -25,7 +25,7 @@ export const INDEX_LINE_LIMIT = 200;
 export const INDEX_BYTE_LIMIT = 25_000;
 
 export const TYPE_LABELS: Record<MemoryType, string> = {
-  user: "关于你",
+  user: "用户",
   feedback: "反馈",
   project: "项目",
   reference: "参考",
@@ -43,18 +43,18 @@ export const LEVEL_COPY: Record<
   { title: string; short: string; desc: string; path: string; empty: string }
 > = {
   user: {
-    title: "关于你的记忆",
-    short: "关于你",
-    desc: "Agent 跨项目记住的你的偏好与习惯：画幅、配音口味、风格禁忌。每次会话开始时索引会先被读一遍，主题文件按需查阅。",
+    title: "用户记忆",
+    short: "用户记忆",
+    desc: "跨项目生效的 Agent 记忆，记录你的偏好与习惯。会话开始时加载索引文件，主题文件按需读取。",
     path: "<数据根>/.arcreel/users/default/memory/",
-    empty: "Agent 还没有记下关于你的任何事。它会在创作过程中自动记录值得跨项目沿用的偏好；你也可以直接对它说「记住：以后都用竖屏」。",
+    empty: "暂无记忆。Agent 会在创作过程中自动记录，也可以手动新建文件。",
   },
   project: {
-    title: "本项目的记忆",
-    short: "本项目",
-    desc: "Agent 为这个项目记下的设定、反馈与约定。只在本项目的会话里生效，随项目目录走。",
+    title: "项目记忆",
+    short: "项目记忆",
+    desc: "仅在本项目会话中生效的 Agent 记忆，记录项目设定与修改要求，随项目目录保存。",
     path: "<项目目录>/.arcreel/memory/",
-    empty: "这个项目还没有记忆。开始创作后，Agent 会把角色视觉锚点、你反复提出的修改意见等记在这里。",
+    empty: "暂无记忆。Agent 会在创作过程中自动记录，也可以手动新建文件。",
   },
 };
 

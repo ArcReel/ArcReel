@@ -68,13 +68,13 @@ export function ClearMemoryDialog({ open, level, count, onCancel, onDone }: { op
     <ConfirmDialog
       open={open}
       tone="danger"
-      title={`清空${LEVEL_COPY[level].short}的记忆？`}
+      title={`清空${LEVEL_COPY[level].short}？`}
       description={
         <span>
-          将删除 <b className="text-text">{count}</b> 个文件（含索引）。Agent 会从零开始重新积累；正在进行的会话下次写入时会重建目录。此操作不可撤销。
+          将删除全部 <b className="text-text">{count}</b> 个记忆文件，此操作不可恢复。
         </span>
       }
-      confirmLabel="清空记忆"
+      confirmLabel="清空"
       onConfirm={() => {
         memoryActions.clear(level);
         onDone();
