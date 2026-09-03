@@ -55,6 +55,9 @@ ARCHIVE_SCRIPT_SCHEMA_VERSION = 2
 DEFAULT_IMPORT_FILENAME = "imported-project.zip"
 _ARTIFACT_ACTIVATION_ERRORS = (ArtifactManifestError, OSError, UnicodeError, ValueError)
 _EXPORT_SNAPSHOT_ATTEMPTS = 3
+#: 项目记忆随项目目录、不随归档内容：归档不携带 ``.arcreel/``（点目录过滤天然排除），
+#: 覆盖导入把旧目录的这份内容搬进新目录。
+_PROJECT_MEMORY_SUBPATH = Path(".arcreel") / "memory"
 
 
 def _resolve_existing_asset(name: str, candidates: set[str]) -> str:
@@ -1972,6 +1975,9 @@ class ProjectArchiveService:
             # rollback：删 target_dir + 恢复 backup_dir。否则失败时旧项目已经被删，
             # 用户会丢数据（overwrite 分支）或留半安装状态（new 分支）
             self.project_manager.sync_agent_profile(target_dir)
+            if backup_dir is not None:
+                # 拷贝而非移动：备份目录保持完整，异常时下面的 rollback 才能把记忆一并还原
+                self._restore_project_memory(backup_dir, target_dir)
         except Exception:
             if target_dir.exists():
                 shutil.rmtree(target_dir, ignore_errors=True)
@@ -1981,3 +1987,16 @@ class ProjectArchiveService:
 
         if backup_dir and backup_dir.exists():
             shutil.rmtree(backup_dir)
+
+    @staticmethod
+    def _restore_project_memory(backup_dir: Path, target_dir: Path) -> None:
+        source_dir = backup_dir / _PROJECT_MEMORY_SUBPATH
+        if not source_dir.is_dir():
+            return
+        # symlinks=True：软链原样复制，悬空软链不会让整次覆盖导入失败
+        shutil.copytree(
+            source_dir,
+            target_dir / _PROJECT_MEMORY_SUBPATH,
+            symlinks=True,
+            dirs_exist_ok=True,
+        )

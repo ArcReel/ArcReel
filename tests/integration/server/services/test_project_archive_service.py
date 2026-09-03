@@ -1372,6 +1372,106 @@ class TestProjectArchiveService:
         assert pm.load_project("demo")["style"] == "Fresh"
         assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
 
+    def test_import_overwrite_keeps_project_memory_from_the_old_directory(self, tmp_path):
+        """记忆随项目目录而非随归档内容：覆盖导入后旧 .arcreel/memory/ 全部搬回新目录。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        project_dir = pm.get_project_path("demo")
+        memory_dir = project_dir / ".arcreel" / "memory"
+        _write_text(memory_dir / "MEMORY.md", "index")
+        _write_text(memory_dir / "topics" / "style.md", "topic")
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="overwrite",
+        )
+
+        assert result.conflict_resolution == "overwritten"
+        restored = pm.get_project_path("demo") / ".arcreel" / "memory"
+        assert restored.joinpath("MEMORY.md").read_text(encoding="utf-8") == "index"
+        assert restored.joinpath("topics", "style.md").read_text(encoding="utf-8") == "topic"
+        assert not list(pm.projects_root.glob(".import-backup-*"))
+
+    def test_import_overwrite_keeps_a_symlink_inside_project_memory_as_a_symlink(self, tmp_path):
+        """记忆目录里的软链原样搬回：悬空软链也不该让整次覆盖导入失败。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        memory_dir = pm.get_project_path("demo") / ".arcreel" / "memory"
+        _write_text(memory_dir / "MEMORY.md", "index")
+        (memory_dir / "dangling.md").symlink_to("missing.md")
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="overwrite",
+        )
+
+        assert result.conflict_resolution == "overwritten"
+        restored = pm.get_project_path("demo") / ".arcreel" / "memory"
+        assert restored.joinpath("MEMORY.md").read_text(encoding="utf-8") == "index"
+        assert restored.joinpath("dangling.md").is_symlink()
+
+    def test_import_overwrite_without_project_memory_leaves_no_memory_dir(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="overwrite",
+        )
+
+        assert result.conflict_resolution == "overwritten"
+        assert pm.load_project("demo")["style"] == "Fresh"
+        assert not (pm.get_project_path("demo") / ".arcreel").exists()
+        assert not list(pm.projects_root.glob(".import-backup-*"))
+
+    def test_export_omits_project_memory(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _write_text(project_dir / ".arcreel" / "memory" / "MEMORY.md", "index")
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            assert not [name for name in archive.namelist() if ".arcreel/" in name]
+        assert (project_dir / ".arcreel" / "memory" / "MEMORY.md").read_text(encoding="utf-8") == "index"
+
+    def test_rename_import_drops_project_memory_carried_by_the_archive(self, tmp_path):
+        """导入侧的点目录过滤：归档里夹带的 .arcreel/memory/ 不落进新项目。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        smuggled_path = tmp_path / "smuggled.zip"
+        with (
+            zipfile.ZipFile(archive_path) as source,
+            zipfile.ZipFile(smuggled_path, "w", compression=zipfile.ZIP_DEFLATED) as target,
+        ):
+            for member in source.infolist():
+                target.writestr(member, source.read(member))
+            target.writestr("demo/.arcreel/memory/MEMORY.md", "index")
+
+        result = service.import_project_archive(
+            smuggled_path,
+            uploaded_filename="smuggled.zip",
+            conflict_policy="rename",
+        )
+
+        assert result.project_name != "demo"
+        assert not (pm.get_project_path(result.project_name) / ".arcreel").exists()
+
     def test_import_materializes_claude_with_manifest(self, tmp_path, monkeypatch):
         """导入项目应物化 .claude 为真目录 + 写 manifest（非 symlink）。
 
