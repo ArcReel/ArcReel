@@ -444,4 +444,8 @@ MESSAGES = {
     "project_config_invalid": "Cấu hình dự án không hợp lệ; hãy kiểm tra tham số và thử lại",
     "invalid_discovery_format": "Định dạng khám phá mô hình không được hỗ trợ: {discovery_format}",
     "request_invalid": "Yêu cầu không hợp lệ, vui lòng kiểm tra và thử lại",
+    # Ký ức Agent
+    "memory_invalid_filename": "Tên tệp ký ức '{filename}' không hợp lệ: chỉ cho phép tệp .md ở thư mục gốc",
+    "memory_file_not_found": "Tệp ký ức '{filename}' không tồn tại",
+    "memory_file_too_large": "Tệp ký ức '{filename}' vượt quá giới hạn kích thước (tối đa {limit_kib} KiB)",
 }

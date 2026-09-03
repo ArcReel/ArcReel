@@ -444,4 +444,8 @@ MESSAGES = {
     "project_config_invalid": "Invalid project configuration; check the parameters and retry",
     "invalid_discovery_format": "Unsupported model discovery format: {discovery_format}",
     "request_invalid": "Invalid request, please check and retry",
+    # Agent memory
+    "memory_invalid_filename": "Invalid memory file name '{filename}': only top-level .md files are allowed",
+    "memory_file_not_found": "Memory file '{filename}' does not exist",
+    "memory_file_too_large": "Memory file '{filename}' exceeds the size limit (max {limit_kib} KiB)",
 }
