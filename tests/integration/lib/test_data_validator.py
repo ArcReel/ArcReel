@@ -833,6 +833,48 @@ class TestDataValidator:
         assert result.valid, f"导出预检查不应被 scene_type 阻断,errors={result.errors}"
 
 
+class TestDerivativeReferences:
+    """``characters_in_*`` 接受 ``角色/衍生``：有效引用集合与正文引用同一份（docs/adr/0072）。"""
+
+    @staticmethod
+    def _episode(character_reference: str) -> dict:
+        return {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 8,
+                    "novel_text": "原文",
+                    "characters_in_segment": [character_reference],
+                    "scenes": ["古宅"],
+                    "props": ["玉佩"],
+                    "image_prompt": "img",
+                    "video_prompt": "vid",
+                }
+            ],
+        }
+
+    def _validate(self, tmp_path, character_reference: str):
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["derivatives"] = {"劲装": {"description": "换上劲装", "character_sheet": ""}}
+        _write_json(project_dir / "project.json", payload)
+        _write_json(project_dir / "scripts" / "episode_1.json", self._episode(character_reference))
+
+        return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+    def test_registered_derivative_accepted(self, tmp_path):
+        assert self._validate(tmp_path, "姜月茴/劲装").valid
+
+    def test_unregistered_derivative_rejected(self, tmp_path):
+        result = self._validate(tmp_path, "姜月茴/夜行衣")
+
+        assert not result.valid
+        assert any("不存在于 project.json 的角色" in error for error in result.errors)
+
+
 class TestEpisodeLedgerFields:
     """分集账本字段：全部可缺失（该集无位置记录），存在时按 lib.episode_ledger 模型校验形状。"""
 

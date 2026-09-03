@@ -2,12 +2,16 @@ import unicodedata
 
 import pytest
 
+from lib.asset_types import DERIVATIVES_FIELD
 from lib.reference_video.text_parser import (
     extract_mentions,
     leading_mention_before_colon,
     line_speech_marks,
+    mention_names,
     render_mentions_as_subjects,
     resolve_references,
+    rewrite_mentions,
+    speech_speaker_references,
     split_speech_line,
     strip_speech_marks,
 )
@@ -340,3 +344,91 @@ def test_legacy_bare_mention_can_be_a_speaker():
 def test_email_like_prefix_is_not_a_speaker():
     """左侧是 ASCII 词字符时按邮箱 / id 片段跳过，与 mention 扫描同口径。"""
     assert _marks("a@b{我来了}") == [("", "我来了")]
+
+
+# ── @[角色/衍生]（docs/adr/0072）────────────────────────────
+
+
+def _proj_with_derivatives(**by_character: list[str]) -> dict:
+    return _proj(
+        characters={
+            name: {DERIVATIVES_FIELD: {derivative: {} for derivative in derivatives}}
+            for name, derivatives in by_character.items()
+        }
+    )
+
+
+class TestDerivativeReferenceParsing:
+    def test_registered_derivative_resolves_to_a_character_reference(self):
+        refs, missing = resolve_references(["张三/劲装"], _proj_with_derivatives(张三=["劲装"]))
+
+        assert [(ref.type, ref.name) for ref in refs] == [("character", "张三/劲装")]
+        assert missing == []
+
+    def test_unregistered_derivative_is_reported_missing(self):
+        refs, missing = resolve_references(["张三/夜行衣"], _proj_with_derivatives(张三=["劲装"]))
+
+        assert refs == []
+        assert missing == ["张三/夜行衣"]
+
+    def test_base_and_derivative_are_two_references(self):
+        """同一镜头里本体与衍生同现时各注入一张图，故它们是两条不同的引用。"""
+        refs, missing = resolve_references(["张三", "张三/劲装"], _proj_with_derivatives(张三=["劲装"]))
+
+        assert [ref.name for ref in refs] == ["张三", "张三/劲装"]
+        assert missing == []
+
+    def test_derivative_mention_in_the_body_is_extracted(self):
+        assert extract_mentions("@[张三/劲装] 推开门") == ["张三/劲装"]
+
+
+class TestDerivativeSpeakerSlot:
+    def test_speaker_binds_the_base_while_the_written_form_keeps_the_derivative(self):
+        """声音属于身份：衍生说话仍绑本体的参考音频，写下的那套外观另行保留。"""
+        marks = line_speech_marks("@[张三/劲装]{我来了}")
+
+        assert [(mark.speaker, mark.derivative, mark.speaker_reference) for mark in marks] == [
+            ("张三", "劲装", "张三/劲装")
+        ]
+
+    def test_bare_mention_keeps_an_empty_derivative(self):
+        marks = line_speech_marks("@[张三]{我来了}")
+
+        assert [(mark.speaker, mark.derivative, mark.speaker_reference) for mark in marks] == [("张三", "", "张三")]
+
+    def test_speaker_slot_without_a_base_name_is_not_a_mark(self):
+        """``@[/劲装]`` 没有可绑声音的身份，不静默降级成画外音。"""
+        assert _marks("@[/劲装]{我来了}") == []
+
+    def test_speaker_slot_is_still_excluded_from_reference_images(self):
+        assert extract_mentions("@[张三/劲装]{我来了}") == []
+
+    def test_speech_speaker_references_report_the_written_forms_in_order(self):
+        text = "@[张三/劲装]{我来了}\n@[李四]{你好}\n{旁白}\n@[张三/劲装]{再来}"
+
+        assert speech_speaker_references(text) == ["张三/劲装", "李四"]
+
+
+class TestMentionNames:
+    def test_mention_names_include_the_speaker_slot(self):
+        """级联改名与「被引用」判定问的是「写下了哪些名字」，说话人位同样算。"""
+        assert mention_names("@[张三/劲装]{我来了}@[酒馆]") == ["张三/劲装", "酒馆"]
+
+    def test_mention_names_deduplicate_in_first_appearance_order(self):
+        assert mention_names("@[乙] @[甲]\n@[甲]") == ["乙", "甲"]
+
+
+class TestRewriteDerivativeMentions:
+    def test_character_rename_rewrites_the_derivative_form(self):
+        assert rewrite_mentions("@[张三] 与 @[张三/劲装]", "张三", "李四") == ("@[李四] 与 @[李四/劲装]", 2)
+
+    def test_derivative_rename_only_touches_that_form(self):
+        text = "@[张三] @[张三/劲装] @[张三/兽化]"
+
+        assert rewrite_mentions(text, "张三/劲装", "张三/夜行衣") == ("@[张三] @[张三/夜行衣] @[张三/兽化]", 1)
+
+    def test_speaker_slot_mention_is_rewritten_too(self):
+        assert rewrite_mentions("@[张三/劲装]{我来了}", "张三", "李四") == ("@[李四/劲装]{我来了}", 1)
+
+    def test_other_characters_derivatives_are_untouched(self):
+        assert rewrite_mentions("@[王五/劲装]", "张三", "李四") == ("@[王五/劲装]", 0)

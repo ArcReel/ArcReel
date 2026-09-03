@@ -10,7 +10,7 @@ from collections.abc import Collection, Iterable, Iterator
 from dataclasses import dataclass
 
 from lib.asset_types import asset_name_comparison_key
-from lib.reference_catalog import build_reference_catalog
+from lib.reference_catalog import build_reference_catalog, renamed_reference, split_derivative_reference
 from lib.script_models import ReferenceResource
 
 #: BOM / ZWNBSP。前端按 JS 的 ``\s`` 判行首空白，U+FEFF 属之；Python 的 ``str.strip()``
@@ -112,11 +112,22 @@ class SpeechMark:
 
     ``raw`` 是该记号在归一后原行里占据的整段原文（含说话人 mention 与其后的空白 / 冒号）：
     「从不删字」的渲染路径（未登记说话人）据此原样回填，无须再回原行按偏移取。
+
+    说话人位写 ``@[角色/衍生]`` 时 ``speaker`` 仍是本体名、``derivative`` 记下那个衍生名
+    （见 ``docs/adr/0072``）：声音属于身份，衍生共享本体的参考音频与音色；写下的那套外观
+    由 :attr:`speaker_reference` 承载，供登记判定与级联改名使用。
     """
 
     speaker: str
     text: str
     raw: str
+    #: 说话人位写下的衍生名；裸本体名与画外音为空串。
+    derivative: str = ""
+
+    @property
+    def speaker_reference(self) -> str:
+        """说话人位写下的引用名：裸本体名，或 ``本体名/衍生名``；画外音为空串。"""
+        return f"{self.speaker}/{self.derivative}" if self.derivative else self.speaker
 
 
 def split_speech_line(line: str) -> list[str | SpeechMark]:
@@ -131,7 +142,8 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
     留在描述片段里，由调用侧按各自严格度出 warning 或判违约：
 
     - 空台词（``{}`` / ``{   }``）：``Utterance`` 要求 text 非空，放行会派生出没有内容的发声。
-    - 说话人位为空白（``@[ ]{台词}``）：dialogue 要求非空 speaker。
+    - 说话人位为空白（``@[ ]{台词}``）或只写了衍生（``@[/劲装]{台词}``）：dialogue 要求非空
+      speaker，而声音绑的是本体，本体名缺席时没有可绑的身份。
     - 说话人位写坏（``@[]{台词}``、``@[李明{台词}``、``@[张三]：：{台词}``）：花括号前是 ``]``
       或又一个分隔冒号、却没有可用 mention 时不降级成画外音——作者写的是「某人说」，静默改成
       画外音比不识别更难发现。
@@ -171,10 +183,11 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
                 head -= 1
 
         speaker = ""
+        derivative = ""
         start = open_index
         mention = next((m for m in mentions if m[1] == head and m[0] >= cursor), None)
         if mention is not None:
-            speaker = asset_name_comparison_key(mention[2])
+            speaker, derivative = split_derivative_reference(asset_name_comparison_key(mention[2]))
             if not speaker:
                 scan = close_index + 1
                 continue
@@ -185,7 +198,7 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
 
         if start > cursor:
             parts.append(text[cursor:start])
-        parts.append(SpeechMark(speaker=speaker, text=inner, raw=text[start : close_index + 1]))
+        parts.append(SpeechMark(speaker=speaker, text=inner, raw=text[start : close_index + 1], derivative=derivative))
         cursor = close_index + 1
         scan = cursor
 
@@ -284,21 +297,63 @@ def extract_mentions(text: str) -> list[str]:
     return result
 
 
+def mention_names(text: str) -> list[str]:
+    """正文里出现的全部 ``@`` 引用名（保持首次出现顺序、去重），**含发声记号的说话人位**。
+
+    与 :func:`extract_mentions` 问的是两个问题：那个函数问「哪些名字要进参考图」，故排除
+    说话人位；本函数问「这份正文里写下了哪些引用名」，级联改名（:func:`rewrite_mentions`
+    改的正是这一集合）与「这条资产/衍生被脚本引用了吗」的判定据此成立。
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for line in text.splitlines():
+        for _start, _end, raw_name in _iter_mentions(_normalize_source(line)):
+            name = asset_name_comparison_key(raw_name)
+            if name and name not in seen:
+                seen.add(name)
+                result.append(name)
+    return result
+
+
+def speech_speaker_references(text: str) -> list[str]:
+    """台词记号的说话人位写下的引用名（保持首现顺序、去重），可能是 ``本体名/衍生名``。
+
+    与 ``dialogue_speakers`` 的本体名列表互补：那一份回答「这句台词绑谁的声音」，本函数
+    回答「作者在说话人位写下的是哪套外观」，衍生是否登记据此判定。
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for line in text.splitlines():
+        for mark in line_speech_marks(line):
+            reference = mark.speaker_reference
+            if reference and reference not in seen:
+                seen.add(reference)
+                result.append(reference)
+    return result
+
+
 def rewrite_mentions(text: str, old_name: str, new_name: str) -> tuple[str, int]:
     """把文本中指向 *old_name* 的 @ 引用改写为 ``@[new_name]``，返回 ``(新文本, 改写数)``。
 
     资产重命名的正文改写原语：与 ``_iter_mentions`` 同口径识别 mention（含旧式裸 ``@名字``，
-    改写时一并升格为包裹形式），名字判等走比对坐标系（NFC）——正文以 NFD 落盘的同名 mention
-    也会被命中改写。不做其他归一（不去 BOM、不整体 NFC），未命中的字符原样保留：重命名只
-    该改名字本身，不该顺带改写正文的编码形式。已经是目标形式的 mention 不计入改写数。
+    改写时一并升格为包裹形式），命中与改写后的名字都由
+    :func:`lib.reference_catalog.renamed_reference` 判定——角色改名连带改写 ``@[旧角色/衍生]``，
+    衍生改名（*old_name* 传 ``角色/旧衍生``）只动该角色下的那一套。名字判等走比对坐标系
+    （NFC），正文以 NFD 落盘的同名 mention 也会被命中改写。不做其他归一（不去 BOM、不整体
+    NFC），未命中的字符原样保留：重命名只该改名字本身，不该顺带改写正文的编码形式。已经是
+    目标形式的 mention 不计入改写数。
+
+    说话人位的 mention 一并改写：``@[旧角色/衍生]{台词}`` 里的旧名同样是这次改名的引用。
     """
-    target = asset_name_comparison_key(old_name)
-    replacement = f"@[{new_name}]"
     pieces: list[str] = []
     last = 0
     count = 0
     for start, end, name in _iter_mentions(text):
-        if asset_name_comparison_key(name) != target or text[start:end] == replacement:
+        renamed = renamed_reference(name, old_name, new_name)
+        if renamed is None:
+            continue
+        replacement = f"@[{renamed}]"
+        if text[start:end] == replacement:
             continue
         pieces.append(text[last:start])
         pieces.append(replacement)

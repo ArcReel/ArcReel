@@ -83,6 +83,7 @@ from lib.profile_manifest import (
 )
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_schema import parse_project_schema_version
+from lib.reference_catalog import derivative_reference
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.schema_guards import is_int, is_shape, is_str
 from lib.script_editor import ScriptEditError, resolve_items
@@ -3043,6 +3044,95 @@ class ProjectManager:
 
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
         return report
+
+    def rename_asset_derivative(
+        self, asset_type: str, project_name: str, entry_name: str, old_name: str, new_name: str
+    ) -> dict:
+        """衍生改名的级联事务：本体条目内的衍生表 key，加上全部剧本 / 草稿里的 ``本体名/旧衍生名``。
+
+        与 :meth:`rename_asset` 同一把锁序（剧本 → 草稿 → 项目）与同一套引用改写
+        （``rewrite_payload_references``，旧名传 ``本体名/旧衍生名``）：衍生共享本体的名字与
+        身份，引用形态只多一段（见 ``docs/adr/0072``），没有理由让它走另一条改写口径。
+        返回改名后的本体条目。
+
+        Raises:
+            FileNotFoundError: 项目不存在。
+            KeyError: 本体条目不存在。
+            AssetRenameNotFoundError: 该本体下没有这个衍生。
+            AssetRenameConflictError: 新衍生名已被同一本体下的另一个衍生占用。
+            ValueError: 新名非法（``validate_asset_name``）或条目结构不是对象。
+        """
+        spec = ASSET_SPECS[asset_type]
+        new_clean = validate_asset_name(new_name)
+        if not self.project_exists(project_name):
+            raise FileNotFoundError(f"项目不存在: {project_name}")
+        project_dir = self.get_project_path(project_name)
+
+        script_files = sorted(self.list_scripts(project_name))
+        drafts_root = project_dir / "drafts"
+        draft_files = (
+            sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
+            if drafts_root.is_dir()
+            else []
+        )
+
+        with ExitStack() as stack:
+            for filename in script_files:
+                stack.enter_context(self._script_lock(project_name, filename))
+            for path in draft_files:
+                stack.enter_context(self.file_lock(path))
+            stack.enter_context(self._project_lock(project_name))
+
+            project = self._read_project_raw_unlocked(project_name)
+            bucket = project.get(spec.bucket_key)
+            base_key = resolve_asset_key(bucket, entry_name)
+            if not isinstance(bucket, dict) or base_key is None:
+                raise KeyError(entry_name)
+            entry = bucket[base_key]
+            if not isinstance(entry, dict):
+                raise ValueError(f"project asset {spec.bucket_key}/{base_key} must be an object")
+            table = entry.get(DERIVATIVES_FIELD)
+            if not isinstance(table, dict):
+                raise AssetRenameNotFoundError(f"{base_key} 没有登记任何衍生")
+            old_key = resolve_asset_key(table, old_name)
+            if old_key is None:
+                raise AssetRenameNotFoundError(f"{base_key} 下不存在名为 {old_name!r} 的衍生")
+            taken = resolve_asset_key(table, new_clean)
+            if taken is not None and normalize_asset_name(taken) != normalize_asset_name(old_key):
+                raise AssetRenameConflictError(taken)
+
+            old_reference = derivative_reference(base_key, old_key)
+            new_reference = derivative_reference(base_key, new_clean)
+
+            # —— 扫描（与 rename_asset 同形：先在内存改齐，再按 剧本 → 草稿 → project.json 落盘）——
+            changed_scripts: list[tuple[str, dict, dict]] = []
+            for filename in script_files:
+                script, _migrated = self._read_script_unlocked(project_name, filename)
+                before = copy.deepcopy(script)
+                if rewrite_payload_references(script, asset_type, old_reference, new_reference):
+                    changed_scripts.append((filename, script, before))
+            changed_drafts: list[tuple[Path, dict]] = []
+            for path in draft_files:
+                payload = load_json_or_none(path)
+                if not isinstance(payload, dict):
+                    continue
+                if rewrite_payload_references(payload, asset_type, old_reference, new_reference):
+                    changed_drafts.append((path, payload))
+
+            rekey_equivalent_entries(table, old_key, new_clean)
+
+            for filename, script, before in changed_scripts:
+                self._write_script_unlocked(project_name, script, filename, sync_project=False, before=before)
+            for path, payload in changed_drafts:
+                atomic_write_json(path, payload)
+            self._touch_metadata(project)
+            project_file = self._get_project_file_path(project_name)
+            with formal_write_transaction(project_file):
+                atomic_write_json(project_file, project)
+            result = dict(entry)
+
+        emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
+        return result
 
     def _update_asset_sheet(
         self,

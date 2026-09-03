@@ -21,9 +21,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
+from lib.reference_catalog import build_reference_catalog, split_derivative_reference
 from lib.reference_video.text_parser import (
     derive_references_from_text,
     speech_line_description,
+    speech_speaker_references,
     split_speech_line,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
@@ -241,10 +243,21 @@ def build_script_preview(
     投影在能力不可解析时不裁参考图的口径一致）。
 
     未登记的 ``@[名称]`` 只发 warning、不阻断：正文是作者写的，预览没有可保护的机器契约。
+    说话人位写了该角色没有的衍生时同判——那个 ``@[角色/衍生]`` 不进参考图派生（说话人位一律
+    不进），未登记的事实要另行报出来，否则编辑器对它完全沉默。本体本身未登记时不在此重复：
+    那条由 ``derive_voice_bindings`` 的未登记说话人 warning 报出。
     """
     references, missing = derive_references_from_text(text, project)
 
-    warnings = [_warning(WARN_UNREGISTERED_MENTION, name=name) for name in missing]
+    character_references = build_reference_catalog(project).reference_names("character")
+    unknown_derivatives = [
+        reference
+        for reference, (base, derivative) in (
+            (reference, split_derivative_reference(reference)) for reference in speech_speaker_references(text)
+        )
+        if derivative and base in character_references and reference not in character_references
+    ]
+    warnings = [_warning(WARN_UNREGISTERED_MENTION, name=name) for name in [*missing, *unknown_derivatives]]
     if unit_lacks_scene_reference(text, project):
         warnings.append(_warning(WARN_UNIT_WITHOUT_SCENE))
     utterances, syntax_warnings = derive_utterances(text)

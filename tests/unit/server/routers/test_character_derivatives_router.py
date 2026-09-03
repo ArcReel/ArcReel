@@ -270,3 +270,34 @@ class TestCharacterDerivativesPersistence:
 
         after = json.loads((pm.get_project_path("demo") / "project.json").read_text(encoding="utf-8"))
         assert after["characters"] == {}
+
+    def test_rename_cascades_into_the_script(self, tmp_path, monkeypatch):
+        """改名是一次级联事务：脚本里的 ``@[角色/旧衍生名]`` 随之改写（docs/adr/0072）。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "阿岚", "少女")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "video_units": [{"unit_id": "E1U1", "text": "@[阿岚/战斗装] 推门", "duration_seconds": 8}],
+            },
+            "episode_1.json",
+        )
+
+        with _client(monkeypatch, pm) as client:
+            client.post(
+                "/api/v1/projects/demo/characters/阿岚/derivatives",
+                json={"name": "战斗装", "description": "换上黑色重甲"},
+            )
+            renamed = client.post(
+                "/api/v1/projects/demo/characters/阿岚/derivatives/战斗装/rename",
+                json={"new_name": "夜行衣"},
+            )
+
+        assert renamed.status_code == 200, renamed.text
+        assert list(renamed.json()["character"]["derivatives"]) == ["夜行衣"]
+        assert pm.load_script("demo", "episode_1.json")["video_units"][0]["text"] == "@[阿岚/夜行衣] 推门"

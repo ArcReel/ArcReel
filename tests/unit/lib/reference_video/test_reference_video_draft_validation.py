@@ -22,6 +22,13 @@ PROJECT = {
     "props": {"长剑": {}},
 }
 
+#: 角色带衍生的项目载荷：``@[角色/衍生]`` 的登记判定用例（docs/adr/0072）。
+DERIVATIVE_PROJECT = {
+    "characters": {"李明": {"derivatives": {"劲装": {}}}, "王五": {}},
+    "scenes": {"酒馆": {}},
+    "props": {"长剑": {}},
+}
+
 #: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
@@ -136,6 +143,29 @@ class TestUnitText:
     def test_unregistered_speaker_rejected(self):
         with pytest.raises(DraftViolation, match="说话人未登记"):
             validate_unit_text("unit E1U01", "镜头1：门开了\n@[无名氏]：{我来了。}", PROJECT, max_refs=None)
+
+    def test_registered_derivative_accepted_in_a_mention_and_in_the_speaker_slot(self):
+        """``@[角色/衍生]`` 与 ``@[角色/衍生]{台词}``：登记过的衍生两处都放行。"""
+        refs = validate_unit_text(
+            "unit E1U01", "镜头1：@[李明/劲装] 推门。@[李明/劲装]{我来了}", DERIVATIVE_PROJECT, max_refs=None
+        )
+
+        assert [(r.type, r.name) for r in refs] == [("character", "李明/劲装")]
+
+    def test_unregistered_derivative_in_a_mention_rejected(self):
+        with pytest.raises(DraftViolation, match="未登记的资产名"):
+            validate_unit_text("unit E1U01", "镜头1：@[李明/夜行衣] 推门", DERIVATIVE_PROJECT, max_refs=None)
+
+    def test_unregistered_derivative_in_the_speaker_slot_rejected(self):
+        """说话人位不进参考图派生，未登记的事实要在这里单独抓住。"""
+        with pytest.raises(DraftViolation, match="写了该角色没有的衍生") as excinfo:
+            validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明/夜行衣]{我来了}", DERIVATIVE_PROJECT, max_refs=None)
+
+        assert excinfo.value.code == "unregistered_speaker_derivative"
+
+    def test_derivative_speaker_is_the_base_character(self):
+        """衍生说话仍绑本体的声音，故 speaker 位不因写了衍生而被判未登记角色。"""
+        assert dialogue_speakers("@[李明/劲装]{我来了}") == ["李明"]
 
     @pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
     @pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])

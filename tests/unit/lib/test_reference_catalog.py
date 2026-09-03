@@ -2,8 +2,13 @@ import unicodedata
 
 import pytest
 
-from lib.asset_types import ASSET_SPECS
-from lib.reference_catalog import REFERENCE_ATTRIBUTION_ORDER, build_reference_catalog
+from lib.asset_types import ASSET_SPECS, DERIVATIVES_FIELD
+from lib.reference_catalog import (
+    REFERENCE_ATTRIBUTION_ORDER,
+    build_reference_catalog,
+    renamed_reference,
+    split_derivative_reference,
+)
 
 #: 带组合附加符的资产名（越南语），两种编码屏幕显示相同、字节不同——资产名比对坐标系的用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
@@ -160,3 +165,118 @@ def test_entry_carries_the_asset_payload_for_downstream_path_resolution():
     assert zhang.asset == {"character_sheet": "characters/张三.png"}
     assert li is not None
     assert li.asset == 3
+
+
+class TestDerivativeReferences:
+    """``本体名/衍生名``：引用命名空间在角色一类上多出的那一层（``docs/adr/0072``）。"""
+
+    def test_registered_derivative_resolves_to_the_character_namespace(self):
+        catalog = build_reference_catalog(
+            _project(character={"张三": {DERIVATIVES_FIELD: {"劲装": {"character_sheet": "characters/x.png"}}}})
+        )
+
+        entry = catalog.resolve("张三/劲装")
+
+        assert entry is not None
+        assert (entry.asset_type, entry.name, entry.asset_name) == ("character", "张三/劲装", "张三")
+
+    def test_derivative_entry_carries_its_own_sheet_not_the_base_one(self):
+        """准入与投影按引用取资产图：衍生条目的图与本体的图不能混为一张。"""
+        catalog = build_reference_catalog(
+            _project(
+                character={
+                    "张三": {
+                        "character_sheet": "characters/张三.png",
+                        DERIVATIVES_FIELD: {"劲装": {"character_sheet": "characters/derivatives/张三/劲装.png"}},
+                    }
+                }
+            )
+        )
+
+        derivative = catalog.lookup("character", "张三/劲装")
+        base = catalog.lookup("character", "张三")
+
+        assert derivative is not None
+        assert base is not None
+        assert derivative.asset == {"character_sheet": "characters/derivatives/张三/劲装.png"}
+        assert base.asset["character_sheet"] == "characters/张三.png"  # type: ignore[index]
+
+    def test_unregistered_derivative_of_a_registered_character_is_not_a_reference(self):
+        catalog = build_reference_catalog(_project(character={"张三": {DERIVATIVES_FIELD: {"劲装": {}}}}))
+
+        assert catalog.resolve("张三/夜行衣") is None
+        assert catalog.lookup("character", "张三/夜行衣") is None
+
+    def test_reference_names_include_derivatives_while_asset_names_do_not(self):
+        """说话人位要绑参考音频，须落在本体这条资产上；引用位可以指到衍生这套外观。"""
+        catalog = build_reference_catalog(_project(character={"张三": {DERIVATIVES_FIELD: {"劲装": {}, "兽化": {}}}}))
+
+        assert catalog.reference_names("character") == frozenset({"张三", "张三/劲装", "张三/兽化"})
+        assert catalog.asset_names("character") == frozenset({"张三"})
+
+    @pytest.mark.parametrize("asset_type", sorted(t for t, s in ASSET_SPECS.items() if not s.supports_derivatives))
+    def test_types_without_the_capability_do_not_expand_derivatives(self, asset_type: str):
+        """未开启该能力的类型即使被写进 derivatives 字段也不产生 ``名/子名`` 引用。"""
+        catalog = build_reference_catalog(_project(**{asset_type: {"甲": {DERIVATIVES_FIELD: {"乙": {}}}}}))
+
+        assert catalog.reference_names(asset_type) == frozenset({"甲"})
+
+    @pytest.mark.parametrize(
+        "table", [None, [], "劲装", {"劲装": "not-a-dict"}], ids=["缺失", "列表", "字符串", "值非对象"]
+    )
+    def test_malformed_derivative_table_does_not_break_the_catalog(self, table: object):
+        """畸形载荷的结构错误由 DataValidator 报告；目录构造不抛也不多报。"""
+        catalog = build_reference_catalog(_project(character={"张三": {DERIVATIVES_FIELD: table}}))
+
+        assert catalog.resolve("张三") is not None
+
+    @pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
+    @pytest.mark.parametrize("queried", [_NAME_NFC, _NAME_NFD], ids=["查询NFC", "查询NFD"])
+    def test_derivative_name_matches_across_encoding_forms(self, registered: str, queried: str):
+        catalog = build_reference_catalog(_project(character={"张三": {DERIVATIVES_FIELD: {registered: {}}}}))
+
+        entry = catalog.resolve(f"张三/{queried}")
+
+        assert entry is not None
+        assert entry.name == f"张三/{_NAME_NFC}"
+
+
+class TestRenamedReference:
+    """一次改名怎么映射一个引用名——正文 mention 与引用数组共用的判定。"""
+
+    @pytest.mark.parametrize(
+        ("name", "old", "new", "expected"),
+        [
+            ("张三", "张三", "李四", "李四"),
+            ("张三/劲装", "张三", "李四", "李四/劲装"),
+            ("张三/劲装", "张三/劲装", "张三/夜行衣", "张三/夜行衣"),
+            ("张三/兽化", "张三/劲装", "张三/夜行衣", None),
+            ("张三", "张三/劲装", "张三/夜行衣", None),
+            ("王五", "张三", "李四", None),
+            ("王五/劲装", "张三", "李四", None),
+        ],
+        ids=[
+            "本体改名",
+            "本体改名连带衍生",
+            "衍生改名",
+            "衍生改名不动同角色的其它衍生",
+            "衍生改名不动本体",
+            "无关名字",
+            "无关角色的同名衍生",
+        ],
+    )
+    def test_rename_mapping(self, name: str, old: str, new: str, expected: str | None):
+        assert renamed_reference(name, old, new) == expected
+
+    def test_comparison_key_coordinates_apply_to_both_sides(self):
+        assert renamed_reference(f" {_NAME_NFD}/劲装 ", _NAME_NFC, "Hero") == "Hero/劲装"
+
+
+class TestSplitDerivativeReference:
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [("张三", ("张三", "")), ("张三/劲装", ("张三", "劲装")), ("/劲装", ("", "劲装")), ("张三/", ("张三", ""))],
+        ids=["本体", "衍生", "缺本体", "缺衍生"],
+    )
+    def test_split(self, name: str, expected: tuple[str, str]):
+        assert split_derivative_reference(name) == expected

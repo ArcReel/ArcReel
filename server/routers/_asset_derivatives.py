@@ -1,8 +1,9 @@
 """资产条目下的衍生子资源路由（``AssetSpec.supports_derivatives`` 开启的类型才注册）。
 
 衍生挂在本体条目内的 ``DERIVATIVES_FIELD`` 表下，共享本体的名字与身份，只在所属条目内
-唯一，引用写作 ``本体名/衍生名``。写入统一经 ``ProjectManager.update_asset_entry``，
-与本体字段的 PATCH 共用同一条项目锁 / 正式产物边界。
+唯一，引用写作 ``本体名/衍生名``。新增 / 改描述 / 删除经 ``ProjectManager.update_asset_entry``，
+与本体字段的 PATCH 共用同一条项目锁 / 正式产物边界；改名要连带改写剧本里的
+``本体名/旧衍生名`` 引用，走 ``ProjectManager.rename_asset_derivative`` 的级联事务。
 
 本模块只做登记（新增、改描述、改名、删除）；衍生资产图的生成、版本与过期判定不在此处。
 """
@@ -18,11 +19,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib.api_errors import NotFoundError, UnprocessableError
+from lib.asset_rename import AssetRenameConflictError, AssetRenameNotFoundError
 from lib.asset_types import (
     DERIVATIVES_FIELD,
     AssetSpec,
-    normalize_asset_name,
-    rekey_equivalent_entries,
     resolve_asset_key,
     validate_asset_name,
 )
@@ -95,19 +95,23 @@ def register_derivative_routes(
     base = f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}/{DERIVATIVES_FIELD}"
     asset_type = spec.asset_type
 
-    async def _apply(
+    async def _run(
         project_name: str,
         entry_name: str,
-        mutate: Callable[[dict[str, Any]], None],
+        write: Callable[[ProjectManager], dict[str, Any]],
         _t: Translator,
     ) -> dict[str, Any]:
-        """在本体条目上跑一次衍生表变更，把领域异常映射为面向用户的响应。"""
+        """跑一次衍生写入，把领域异常映射为面向用户的响应。
+
+        改名走 ``rename_asset_derivative`` 的级联事务，其余三个端点走
+        ``update_asset_entry``；两条写入路径的异常映射同一份，端点不各自兜一遍。
+        """
         try:
 
             def _sync():
                 manager = pm_getter()
                 with project_change_source("webui"):
-                    return manager.update_asset_entry(asset_type, project_name, entry_name, mutate)
+                    return write(manager)
 
             return await asyncio.to_thread(_sync)
         except _DerivativeExists as exc:
@@ -141,7 +145,12 @@ def register_derivative_routes(
                 raise _DerivativeExists(name)
             table[name] = {"description": req.description, spec.sheet_field: ""}
 
-        result = await _apply(project_name, entry_name, _mutate, _t)
+        result = await _run(
+            project_name,
+            entry_name,
+            lambda manager: manager.update_asset_entry(asset_type, project_name, entry_name, _mutate),
+            _t,
+        )
         return {"success": True, asset_type: result}
 
     @router.patch(f"{base}/{{derivative_name}}")
@@ -162,7 +171,12 @@ def register_derivative_routes(
                 raise ValueError(f"derivative {key!r} must be an object")
             derivative["description"] = req.description
 
-        result = await _apply(project_name, entry_name, _mutate, _t)
+        result = await _run(
+            project_name,
+            entry_name,
+            lambda manager: manager.update_asset_entry(asset_type, project_name, entry_name, _mutate),
+            _t,
+        )
         return {"success": True, asset_type: result}
 
     @router.post(f"{base}/{{derivative_name}}/rename")
@@ -173,20 +187,18 @@ def register_derivative_routes(
         req: _DerivativeRenameRequest,
         _t: Translator,
     ):
-        """改名只改本体条目内的键。脚本正文里 ``本体名/旧衍生名`` 的级联改写不在此处。"""
+        """改名是一次级联事务：本体条目内的键，与全部剧本 / 草稿里的 ``本体名/旧衍生名`` 引用。"""
         new_name = _validated_name(req.new_name)
 
-        def _mutate(entry: dict[str, Any]) -> None:
-            table = _derivative_table(entry)
-            key = resolve_asset_key(table, derivative_name)
-            if key is None:
-                raise _DerivativeMissing(derivative_name)
-            taken = resolve_asset_key(table, new_name)
-            if taken is not None and normalize_asset_name(taken) != normalize_asset_name(key):
-                raise _DerivativeExists(new_name)
-            rekey_equivalent_entries(table, key, new_name)
+        def _write(manager: ProjectManager) -> dict[str, Any]:
+            try:
+                return manager.rename_asset_derivative(asset_type, project_name, entry_name, derivative_name, new_name)
+            except AssetRenameNotFoundError as exc:
+                raise _DerivativeMissing(derivative_name) from exc
+            except AssetRenameConflictError as exc:
+                raise _DerivativeExists(exc.conflict_name) from exc
 
-        result = await _apply(project_name, entry_name, _mutate, _t)
+        result = await _run(project_name, entry_name, _write, _t)
         return {"success": True, asset_type: result}
 
     @router.delete(f"{base}/{{derivative_name}}")
@@ -203,5 +215,10 @@ def register_derivative_routes(
                 raise _DerivativeMissing(derivative_name)
             del table[key]
 
-        await _apply(project_name, entry_name, _mutate, _t)
+        await _run(
+            project_name,
+            entry_name,
+            lambda manager: manager.update_asset_entry(asset_type, project_name, entry_name, _mutate),
+            _t,
+        )
         return {"success": True, "message": _t("asset_derivative_deleted", name=derivative_name)}

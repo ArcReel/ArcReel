@@ -56,11 +56,32 @@ function hasSpokenText(text: string): boolean {
   return text.trim().length > 0;
 }
 
-/** 行内一段发声记号；`speaker` 为空串即画外音。`raw` 是它在原行里占据的整段原文。 */
+/**
+ * 引用名里分隔本体与衍生的字符。镜像后端 `lib/reference_catalog.py::DERIVATIVE_SEPARATOR`——
+ * 它在资产名与衍生名里都非法，故 `本体名/衍生名` 的切分无歧义。
+ */
+const DERIVATIVE_SEPARATOR = "/";
+
+/**
+ * 把一个引用名拆成 `[本体名, 衍生名]`；不是衍生形态时衍生名为空串。镜像后端
+ * `lib/reference_catalog.py::split_derivative_reference`。
+ */
+export function splitDerivativeReference(name: string): [string, string] {
+  const at = name.indexOf(DERIVATIVE_SEPARATOR);
+  return at < 0 ? [name, ""] : [name.slice(0, at), name.slice(at + 1)];
+}
+
+/**
+ * 行内一段发声记号；`speaker` 为空串即画外音。`raw` 是它在原行里占据的整段原文。
+ *
+ * 说话人位写 `@[角色/衍生]` 时 `speaker` 仍是本体名、`derivative` 记下那个衍生名：声音属于
+ * 身份，衍生共享本体的参考音频与音色（镜像后端 `text_parser.SpeechMark`）。
+ */
 export interface SpeechMark {
   speaker: string;
   text: string;
   raw: string;
+  derivative: string;
 }
 
 /**
@@ -132,14 +153,15 @@ export function splitSpeechLine(line: string): SpeechPart[] {
     }
 
     let speaker = "";
+    let derivative = "";
     let start = open;
     const mention = mentions.find((m) => m.end === head && m.start >= cursor);
     if (mention) {
-      if (!mention.name) {
+      [speaker, derivative] = splitDerivativeReference(mention.name);
+      if (!speaker) {
         scan = close + 1;
         continue;
       }
-      speaker = mention.name;
       start = mention.start;
     } else if (
       head > cursor &&
@@ -151,7 +173,7 @@ export function splitSpeechLine(line: string): SpeechPart[] {
     }
 
     if (start > cursor) parts.push(line.slice(cursor, start));
-    parts.push({ speaker, text: inner, raw: line.slice(start, close + 1) });
+    parts.push({ speaker, text: inner, raw: line.slice(start, close + 1), derivative });
     cursor = close + 1;
     scan = cursor;
   }
@@ -263,7 +285,9 @@ export function normalizeAssetName(name: string): string {
 }
 
 /**
- * 为编辑器高亮构造项目资产名到类型的唯一映射。
+ * 为编辑器高亮构造项目引用名到类型的唯一映射。镜像后端
+ * `lib/reference_catalog.py::build_reference_catalog` 的名字集合：资产名，加上角色的
+ * `本体名/衍生名`（衍生共享本体的类型，见 `docs/adr/0072`）。
  *
  * 无原型字典保证 `__proto__` 等合法资产名可作为普通 key。损坏项目若有同名资产，
  * 按 product → character → scene → prop 的稳定优先级解析。
@@ -275,7 +299,12 @@ export function buildMentionLookup(project: ProjectBuckets | null | undefined): 
     if (!Object.hasOwn(lookup, key)) lookup[key] = kind;
   };
   for (const name of Object.keys(project?.products ?? {})) claim(name, "product");
-  for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
+  for (const [name, character] of Object.entries(project?.characters ?? {})) {
+    claim(name, "character");
+    for (const derivative of Object.keys(character?.derivatives ?? {})) {
+      claim(`${name}${DERIVATIVE_SEPARATOR}${derivative}`, "character");
+    }
+  }
   for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
   for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
   return lookup;
