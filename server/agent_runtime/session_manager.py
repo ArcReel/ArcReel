@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Optional
 from uuid import uuid4
 
+from lib.agent_memory_paths import project_memory_dir
 from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.logging_config import resolve_log_dir
@@ -1122,6 +1123,42 @@ class SessionManager:
                 msg_dict,
                 interrupt_requested=managed.interrupt_requested,
             )
+        elif msg_dict.get("type") == "system" and msg_dict.get("subtype") == "init":
+            self._check_auto_memory_path(managed, msg_dict)
+
+    def _check_auto_memory_path(self, managed: ManagedSession, init_msg: dict[str, Any]) -> None:
+        """核对 init 上报的 auto memory 目录与装配时重定向的项目记忆目录是否一致。
+
+        不符只记 error、会话照开：重定向没生效的后果是笔记落回原生派生目录，
+        创作照常进行，把会话拦下来的代价远大于记错地方。围栏也不追随上报路径——
+        放行范围按预期路径编译，跟着实际值走等于让子进程的自述扩大可写范围。
+
+        ``memory_paths`` 是 CLI init 消息的 @internal 字段，缺失（旧 CLI、
+        auto memory 被关）时不判定，只有明确上报了一个不同的目录才算不符。
+        """
+        raw = init_msg.get("data")
+        data = raw if isinstance(raw, dict) else init_msg
+        memory_paths = data.get("memory_paths")
+        if not isinstance(memory_paths, dict):
+            return
+        reported = memory_paths.get("auto")
+        if not reported:
+            return
+        try:
+            expected = project_memory_dir(self._resolve_project_cwd(managed.project_name))
+        except (ValueError, FileNotFoundError):
+            return
+        if Path(str(reported)).resolve(strict=False) == expected.resolve(strict=False):
+            return
+        logger.error(
+            "auto memory 目录与装配预期不符，项目记忆笔记将落到别处",
+            extra={
+                "session_id": managed.session_id,
+                "project_name": managed.project_name,
+                "expected_auto_memory_dir": str(expected),
+                "reported_auto_memory_dir": str(reported),
+            },
+        )
 
     def _drain_pending_user_echoes(self, managed: ManagedSession, reason: str) -> None:
         """清空回显登记队列；轮次终结时仍有残留即认领失败，记一条告警。

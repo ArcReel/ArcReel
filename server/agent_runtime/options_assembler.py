@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from lib.agent_memory_paths import is_valid_memory_user_id, project_memory_dir, user_memory_dir
 from lib.agent_session_store import (
     is_known_session_store_mode,
     session_store_flush_mode,
@@ -44,6 +45,45 @@ _EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS = 15 * 60
 # 原样回显，Read 读图的 tool_result 也走同一条 stdout。按自身负载定额——5 张 ×
 # 1.5 MB 源 × 4/3 base64 ≈ 10 MB，取 32 MiB 留余量。官方无推荐值。
 CLI_STDOUT_MAX_BUFFER_BYTES = 32 * 1024 * 1024
+
+# 用户记忆索引文件名与加载上限，取自原生 auto memory（CLI 2.1.259：``MEMORY.md``、
+# 200 行、25 000）。项目记忆由原生自己按这套规则加载，用户记忆由本模块注入，
+# 两级索引因此在上下文里占同一个额度，Agent 的整理判断不必分两套。
+MEMORY_INDEX_FILENAME = "MEMORY.md"
+MEMORY_INDEX_MAX_LINES = 200
+MEMORY_INDEX_MAX_BYTES = 25_000
+
+
+def truncate_memory_index(text: str) -> str:
+    """按原生 auto memory 的规则截断记忆索引，超限时追加一行提示。
+
+    先按行截到 200 行，再按 UTF-8 字节截到 25 000 以内的最后一个换行——两道都做，
+    因为单行可以很长，只截行数护不住上下文。原生同一处用 JS 字符串 ``.length``
+    （UTF-16 码元）当字节数；这里按 UTF-8 实际字节算，中文索引下更保守，与
+    「25 000 字节」的字面一致。截断后不静默：Agent 看不到被丢掉的部分，
+    只有提示能让它去整理索引而不是以为索引就这么长。
+    """
+    trimmed = text.strip()
+    if not trimmed:
+        return ""
+    line_count = trimmed.count("\n") + 1
+    byte_count = len(trimmed.encode("utf-8"))
+    if line_count <= MEMORY_INDEX_MAX_LINES and byte_count <= MEMORY_INDEX_MAX_BYTES:
+        return trimmed
+
+    kept = "\n".join(trimmed.split("\n")[:MEMORY_INDEX_MAX_LINES])
+    encoded = kept.encode("utf-8")
+    if len(encoded) > MEMORY_INDEX_MAX_BYTES:
+        head = encoded[:MEMORY_INDEX_MAX_BYTES]
+        newline_at = head.rfind(b"\n")
+        head = head[:newline_at] if newline_at > 0 else head
+        kept = head.decode("utf-8", errors="ignore")
+    return (
+        f"{kept}\n"
+        f"> 提示：`{MEMORY_INDEX_FILENAME}` 共 {line_count} 行 / {byte_count} 字节，"
+        f"超出 {MEMORY_INDEX_MAX_LINES} 行 / {MEMORY_INDEX_MAX_BYTES} 字节的加载上限，"
+        f"以上只是被加载的部分。每条索引保持一行、约 200 字符以内，细节写进主题文件。"
+    )
 
 
 async def load_provider_env_overrides() -> dict[str, str]:
@@ -129,11 +169,12 @@ class OptionsAssembler:
         loader = self._provider_env_loader or load_provider_env_overrides
         return await loader()
 
-    def _build_append_prompt(self, project_name: str, locale: str = DEFAULT_LOCALE) -> str:
+    async def _build_append_prompt(self, project_name: str, locale: str = DEFAULT_LOCALE) -> str:
         """Build the append portion for SystemPromptPreset.
 
-        Combines the ArcReel persona, the locale language regulation, and the
-        session-invariant project context (identity, cwd, operating rules).
+        Combines the ArcReel persona, the locale language regulation, the
+        session-invariant project context (identity, cwd, operating rules) and
+        the user-memory segment.
         Mutable project metadata is not included here — it lives in project.json
         and is read on demand. The project's CLAUDE.md (mode variant projected
         into the cwd) is auto-loaded by the SDK via setting_sources=["project"].
@@ -153,7 +194,66 @@ class OptionsAssembler:
         if project_context:
             parts.append(project_context)
 
+        user_memory = await self._build_user_memory_section()
+        if user_memory:
+            parts.append(user_memory)
+
         return "\n".join(parts)
+
+    async def _build_user_memory_section(self) -> str:
+        """用户记忆段：目录位置、两级分流规则、读写方式，外加截断后的索引。
+
+        原生 auto memory 只知道项目记忆一个目录，用户记忆的存在与两级分流规则是
+        它无从得知的两件事，故只补这两件；类别、格式、写入判据全由原生系统提示承载。
+        索引缺失或为空时省略索引要点——注入一段空索引会让 Agent
+        以为「以往没记过」，与「目录还没建出来」不是同一件事。
+
+        装配阶段不建目录：首次写入由 Agent 或记忆 REST API 完成，读不到就当没有。
+        ``user_id`` 非法时整段省略，与 ``AgentAccessPolicy`` 的 fail-closed 同向——
+        围栏没放行的目录，写入指引也不该给出去。
+        """
+        user_id = self._user_id_provider()
+        if not is_valid_memory_user_id(user_id):
+            logger.error("user_id 不是单个路径段，用户记忆段省略: %r", user_id)
+            return ""
+
+        memory_dir = user_memory_dir(self.projects_root, user_id)
+        index = truncate_memory_index(await self._read_user_memory_index(memory_dir))
+
+        lines = [
+            "\n## 用户记忆",
+            "",
+            "除项目记忆（auto memory，随本项目）外，你还有一份**用户记忆**：属于当前用户本人，"
+            f"对 ta 的所有项目生效，目录 `{memory_dir.as_posix()}`。文件结构与维护方式同项目记忆。",
+            "",
+            "- **分级**：对用户所有项目都成立的偏好写入用户记忆；只对本项目成立的留在项目记忆；拿不准留项目记忆",
+            "- **读写**：用 Read / Write / Edit / Glob / Grep 直接读写该目录下的文件；Bash 读不到记忆目录",
+        ]
+        if index:
+            lines.append(f"- **索引**：以下是用户记忆的 `{MEMORY_INDEX_FILENAME}`，你以往会话留下的笔记")
+            lines.append("")
+            lines.append(index)
+        return "\n".join(lines)
+
+    @staticmethod
+    async def _read_user_memory_index(memory_dir: Path) -> str:
+        """读用户记忆索引；目录/文件不存在、读不动或不是 UTF-8 都当空索引。
+
+        读卸到线程：装配跑在事件循环上，索引虽小但落在数据根，可能是网络盘。
+
+        编码错误与 I/O 错误同样吞掉：索引文件用户可直接编辑，非 UTF-8 存回来会让
+        ``read_text`` 抛 ``UnicodeDecodeError``——放它冒泡等于一份记事本存错编码的
+        笔记就开不了任何会话。不改用 ``errors="replace"``：GBK 之类整体错位的内容
+        换不回可读文本，注入一段乱码比省略索引更糟。
+        """
+        index_path = memory_dir / MEMORY_INDEX_FILENAME
+        try:
+            return await asyncio.to_thread(index_path.read_text, encoding="utf-8")
+        except FileNotFoundError:
+            return ""
+        except (OSError, UnicodeDecodeError):
+            logger.exception("用户记忆索引读取失败，当前会话按空索引装配: %s", index_path)
+            return ""
 
     def _build_project_context(self, project_name: str) -> str:
         """Build session-invariant project context for the system prompt.
@@ -299,12 +399,19 @@ class OptionsAssembler:
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
             setting_sources=self._setting_sources,  # type: ignore[arg-type]
+            # 项目记忆：把原生 auto memory 的目录从「按 git 仓库根派生」重定向到项目目录内，
+            # 否则同一台机器上所有 ArcReel 项目与开发者的交互会话共用一份 MEMORY.md。
+            # 走 JSON 串而非物化 settings 文件：路径按会话变化，落盘会与 profile manifest 的
+            # 「未改内置文件」判定打架（ADR 0074）。settings 落 flag settings 层，优先级高于
+            # 项目 .claude/settings.json；SDK 随后把 ``sandbox`` 并进同一份 JSON。
+            # 不显式设 autoMemoryEnabled：原生默认即开启。
+            settings=json.dumps({"autoMemoryDirectory": str(project_memory_dir(project_cwd))}),
             allowed_tools=allowed_tools,
             max_turns=self._max_turns_provider(),
             system_prompt=SystemPromptPreset(
                 type="preset",
                 preset="claude_code",
-                append=self._build_append_prompt(project_name, locale=locale),
+                append=await self._build_append_prompt(project_name, locale=locale),
             ),
             include_partial_messages=True,
             max_buffer_size=CLI_STDOUT_MAX_BUFFER_BYTES,

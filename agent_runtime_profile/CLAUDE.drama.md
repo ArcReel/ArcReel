@@ -142,8 +142,9 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 生成模式（storyboard ↔ reference_video）创建后不可更改，无绕过方式；宫格装配（`grid_storyboard`）
   由用户在设置页开关，Agent 无写入权限。该开关只影响后续生成，已生成的分镜图不会自动失效，
   须显式重新生成对应分镜才会按新装配方式出图
-- 分集规划的附加指令（如按章节对齐切分）不持久化，须经 `plan_episodes` 的 `instructions` 在**每一批
-  调用上重复带上**；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
+- 分集规划的附加指令（如按章节对齐切分）**只对本批生效**；用户反复提出的同一要求记入项目记忆，
+  之后每批由你自行经 `plan_episodes` 的 `instructions` 带上；每集目标体量等全局性偏好经
+  `patch_project` 显式写入 `episode_target_units`
 - 脚本规划中间文件被修改 / 重拆后必须重新生成剧本 JSON，剧本不会自动跟随中间文件更新
 - `reference_video` **只跳过分镜图**，不跳过 audio：旁白交付选择在两种生成模式下都要逐次做
 - 批量旁白配音由用户显式要求触发，不由 `next_action` 驱动

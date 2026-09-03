@@ -6,12 +6,14 @@ tests/agent_runtime/test_agent_access_policy.py；本文件只测 SDK 封皮侧�
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 
+from lib.agent_memory_paths import project_memory_dir
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
-from server.agent_runtime.session_manager import SessionManager
+from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
 #: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
@@ -285,3 +287,57 @@ async def test_windows_bash_management_tools_allowed(tmp_path: Path) -> None:
     for tool in ("BashOutput", "KillBash"):
         result = await callback(tool, {}, None)
         assert type(result).__name__ == "PermissionResultAllow"
+
+
+def _init_message(auto_dir: str | None) -> dict[str, object]:
+    """CLI init 系统消息的最小形状；``memory_paths`` 落在 SystemMessage.data 里。"""
+    data: dict[str, object] = {"subtype": "init", "session_id": "sdk-1"}
+    if auto_dir is not None:
+        data["memory_paths"] = {"auto": auto_dir}
+    return {"type": "system", "subtype": "init", "data": data}
+
+
+def _managed_for(project_name: str) -> ManagedSession:
+    return ManagedSession(session_id="sess-1", actor=None, status="running", project_name=project_name)
+
+
+def test_init_auto_memory_mismatch_logs_error_and_keeps_session(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """init 上报的 auto memory 目录与预期不符：记 error，消息不被改写、会话照开。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=True)
+    proj_dir = sm.projects_root / "demo"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    managed = _managed_for("demo")
+    msg = _init_message(str(tmp_path / "elsewhere" / "memory"))
+
+    with caplog.at_level(logging.ERROR, logger="server.agent_runtime.session_manager"):
+        sm._handle_special_message(managed, msg)
+
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert [getattr(r, "expected_auto_memory_dir", None) for r in errors] == [str(project_memory_dir(proj_dir))]
+    assert managed.status == "running"
+    assert msg == _init_message(str(tmp_path / "elsewhere" / "memory"))
+
+
+@pytest.mark.parametrize(
+    "auto_dir_factory",
+    [
+        pytest.param(lambda proj_dir: str(project_memory_dir(proj_dir)), id="exact"),
+        # CLI 2.1.259 上报带尾斜杠；比较按 resolve 后的路径做，不按字符串
+        pytest.param(lambda proj_dir: f"{project_memory_dir(proj_dir)}/", id="trailing-slash"),
+        pytest.param(lambda _proj_dir: None, id="field-absent"),
+    ],
+)
+def test_init_auto_memory_match_logs_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, auto_dir_factory
+) -> None:
+    """路径一致或 CLI 未上报 memory_paths（旧版本 / auto memory 关闭）时不告警。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=True)
+    proj_dir = sm.projects_root / "demo"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+
+    with caplog.at_level(logging.ERROR, logger="server.agent_runtime.session_manager"):
+        sm._handle_special_message(_managed_for("demo"), _init_message(auto_dir_factory(proj_dir)))
+
+    assert [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR] == []
