@@ -270,7 +270,10 @@ def _render_segment_one(
 
 
 #: 旁白记号被丢弃后，用于判定其两侧是否需要合并的分隔标点与空白（中英两形）。
-_MARK_SEPARATORS = "，,、；;：:。.！!？?"
+#: 终止标点单列：它在行尾是合法收句，行中的连接标点在行尾则是悬空的。
+_MARK_JOINERS = "，,、；;：:"
+_MARK_TERMINATORS = "。.！!？?"
+_MARK_SEPARATORS = _MARK_JOINERS + _MARK_TERMINATORS
 _MARK_SPACES = " \t\u3000"
 
 
@@ -312,6 +315,10 @@ def _join_line_pieces(pieces: list[str | None]) -> str:
 
     作者把旁白写在两段描述之间时（``推门，{夜风灌进来}，他按住剑``），记号左右各有一个分隔
     标点，直接拼接会留下「，，」。左侧已有分隔时丢掉右侧的，两侧都只是空白时并成一个。
+
+    记号写在行首或行尾时只有一侧有描述，留下的分隔标点没有另一头可接：行首（``{夜风灌进来}，
+    他按住剑``）丢掉记号右侧的分隔与空白，行尾（``推门，{夜风灌进来}``）丢掉左侧悬空的连接
+    标点；行尾的终止标点（``推门。{夜风灌进来}``）是合法收句，保留。
     """
     rendered = ""
     dropped = False
@@ -322,12 +329,18 @@ def _join_line_pieces(pieces: list[str | None]) -> str:
         if dropped:
             dropped = False
             head = rendered.rstrip()
-            if head and head[-1] in _MARK_SEPARATORS:
+            if not head or head[-1] in _MARK_SEPARATORS:
                 rendered = head
                 piece = piece.lstrip(_MARK_SEPARATORS + _MARK_SPACES)
             elif rendered[-1:].isspace():
+                # 两侧都只是空白：并成一个，多个空白不该因为记号消失而留在正文里。
+                rendered = head
                 piece = piece.lstrip()
+                if piece and piece[0] not in _MARK_SEPARATORS:
+                    rendered += " "
         rendered += piece
+    if dropped:
+        rendered = rendered.rstrip(_MARK_JOINERS + _MARK_SPACES)
     return rendered
 
 
