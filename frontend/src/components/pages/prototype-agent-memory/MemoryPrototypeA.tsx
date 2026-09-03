@@ -77,7 +77,7 @@ export function MemoryPrototypeA({ level }: { level: MemoryLevel }) {
               {index && <FileRow file={index} selected={selected === INDEX_FILE} onClick={() => setSelected(INDEX_FILE)} pinned />}
               {topics.length > 0 && (
                 <li className="px-3 pb-1 pt-2.5">
-                  <Kicker tone="muted">Topics · {topics.length}</Kicker>
+                  <span className="text-[10.5px] text-text-4">主题文件 · {topics.length}</span>
                 </li>
               )}
               {topics.map((f) => (
