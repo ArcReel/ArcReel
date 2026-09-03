@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TFunction } from "i18next";
+import i18n from "@/i18n";
 import type { ProjectData, TaskItem } from "@/types";
 import { buildTaskFailureTarget, describeTaskFailure } from "@/utils/task-target";
 
@@ -127,6 +128,23 @@ describe("buildTaskFailureTarget", () => {
       ),
     ).toBeNull();
   });
+
+  it("keeps the segment target for a task rejected upstream", () => {
+    // 拒因只进通知文案，不参与 target 解析。
+    const task = makeTask({
+      task_type: "storyboard",
+      resource_id: "E1S01",
+      script_file: "ep1.json",
+      error_code: "provider_rejected",
+      error_params: { provider_reason: "InvalidParameter" },
+    });
+    expect(buildTaskFailureTarget(task, projectData)).toEqual({
+      type: "segment",
+      id: "E1S01",
+      route: "/episodes/1",
+      highlight_style: "flash",
+    });
+  });
 });
 
 describe("describeTaskFailure", () => {
@@ -159,5 +177,106 @@ describe("describeTaskFailure", () => {
         makeTask({ task_type: "image_edit", resource_type: "prop", resource_id: "Sword" }),
       ),
     ).toBe("image_edit_task_failed|Sword|boom");
+  });
+
+  it("appends the provider reason when the task was rejected upstream", () => {
+    const text = describeTaskFailure(
+      t,
+      makeTask({
+        task_type: "storyboard",
+        resource_id: "E1S01",
+        error_code: "provider_rejected",
+        error_params: { provider_reason: "InvalidParameter: prompt violates the content policy" },
+      }),
+    );
+    expect(text).toBe(
+      "storyboard_task_failed|E1S01|boomtask_failed_provider_reason_suffix||"
+        + "InvalidParameter: prompt violates the content policy",
+    );
+  });
+
+  it("renders the provider reason after the per-type text with the real i18n bundle", async () => {
+    await i18n.loadNamespaces("dashboard");
+    const realT = i18n.getFixedT("zh", "dashboard");
+    // error_message 是上游原文，可能带 i18next 占位符字面量；它不参与插值，
+    // 拒因必须仍落在后缀里。
+    const text = describeTaskFailure(
+      realT,
+      makeTask({
+        task_type: "storyboard",
+        resource_id: "E1S01",
+        error_message: "上游返回 {{reason}}",
+        error_code: "provider_rejected",
+        error_params: { provider_reason: "InvalidParameter" },
+      }),
+    );
+    expect(text).toBe('分镜 "E1S01" 生成失败：上游返回 {{reason}}（供应商拒因：InvalidParameter）');
+  });
+
+  it("keeps the plain text when there is no provider reason", () => {
+    // 级联失败等非 provider_rejected 失败没有拒因字段，文案不变。
+    expect(
+      describeTaskFailure(
+        t,
+        makeTask({ task_type: "storyboard", resource_id: "E1S01", error_code: "cascade_blocked_dependency" }),
+      ),
+    ).toBe("storyboard_task_failed|E1S01|boom");
+    expect(
+      describeTaskFailure(
+        t,
+        makeTask({
+          task_type: "storyboard",
+          resource_id: "E1S01",
+          error_code: "provider_rejected",
+          error_params: {},
+        }),
+      ),
+    ).toBe("storyboard_task_failed|E1S01|boom");
+  });
+
+  it("ignores a blank or non-string provider reason", () => {
+    for (const provider_reason of ["   ", 42, null]) {
+      expect(
+        describeTaskFailure(
+          t,
+          makeTask({
+            task_type: "storyboard",
+            resource_id: "E1S01",
+            error_code: "provider_rejected",
+            error_params: { provider_reason },
+          }),
+        ),
+      ).toBe("storyboard_task_failed|E1S01|boom");
+    }
+  });
+
+  it("truncates an over-long provider reason", () => {
+    const text = describeTaskFailure(
+      t,
+      makeTask({
+        task_type: "storyboard",
+        resource_id: "E1S01",
+        error_code: "provider_rejected",
+        error_params: { provider_reason: "x".repeat(400) },
+      }),
+    );
+    expect(text).toBe(
+      `storyboard_task_failed|E1S01|boomtask_failed_provider_reason_suffix||${"x".repeat(120)}\u2026`,
+    );
+  });
+
+  it("truncates on code points so a surrogate pair is never split", () => {
+    const text = describeTaskFailure(
+      t,
+      makeTask({
+        task_type: "storyboard",
+        resource_id: "E1S01",
+        error_code: "provider_rejected",
+        error_params: { provider_reason: "\ud83d\ude80".repeat(200) },
+      }),
+    );
+    expect(text).toBe(
+      `storyboard_task_failed|E1S01|boomtask_failed_provider_reason_suffix||${"\ud83d\ude80".repeat(120)}\u2026`,
+    );
   });
 });

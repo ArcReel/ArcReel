@@ -820,6 +820,7 @@ export default {
   'prop_task_failed': 'Prop "{{id}}" generation failed: {{reason}}',
   'grid_task_failed': 'Multi-grid storyboard generation failed: {{reason}}',
   'image_edit_task_failed': 'Edit for "{{id}}" failed: {{reason}}',
+  'task_failed_provider_reason_suffix': ' (Provider reason: {{reason}})',
   // ========== reference-to-video editor ==========
   'reference_editor_view_aria': 'Editor view',
   'reference_editor_view_script': 'Script',
