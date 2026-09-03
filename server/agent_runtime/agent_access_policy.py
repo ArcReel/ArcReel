@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
+from lib.agent_memory_paths import ARCREEL_DIRNAME, is_valid_memory_user_id, user_memory_dir
 from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 from lib.episode_paths import (
     AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES,
@@ -237,6 +238,8 @@ class AgentAccessPolicy:
         file_path: str,
         tool_name: str,
         project_cwd: Path,
+        *,
+        user_id: str,
     ) -> tuple[bool, str | None]:
         """检查 file_path 是否允许给定工具访问，返回 ``(allowed, deny_reason)``。
 
@@ -244,6 +247,9 @@ class AgentAccessPolicy:
         - 规则 0：敏感文件（.env / vertex_keys / settings.json 等）一律拒
         - 写工具（Write/Edit）→ ``_check_write_access``
         - 读工具（Read/Glob/Grep）→ ``_check_read_access``
+
+        ``user_id`` 与 ``project_cwd`` 同级逐调用传入（用户记忆目录按它派生），
+        policy 本身仍是进程级零 I/O 单例、不持有当前用户。
         """
         try:
             p = Path(file_path)
@@ -261,10 +267,10 @@ class AgentAccessPolicy:
             return False, f"访问被拒绝：敏感文件不可访问 ({resolved})"
 
         if tool_name in self._WRITE_TOOLS:
-            return self._check_write_access(resolved, project_cwd, logical_norm=logical_norm)
-        return self._check_read_access(resolved, project_cwd)
+            return self._check_write_access(resolved, project_cwd, logical_norm=logical_norm, user_id=user_id)
+        return self._check_read_access(resolved, project_cwd, user_id=user_id)
 
-    def build_sandbox_settings(self, project_cwd: Path) -> dict[str, Any]:
+    def build_sandbox_settings(self, project_cwd: Path, *, user_id: str) -> dict[str, Any]:
         """构造 SandboxSettings dict（SDK Python TypedDict 未声明 filesystem
         子结构，但 CLI 运行时透传 JSON 接受）——内核沙箱层对同一份规则的编译投影。
 
@@ -278,6 +284,10 @@ class AgentAccessPolicy:
           不受 sandbox 约束），堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对
           sandbox 内所有子进程生效。sandbox 内已无合法 Bash 写这三类路径（compose 写视频输出、
           split 写 ``source/``，均不碰），故不误伤。
+        - ``filesystem.allowWrite``：用户记忆目录（``<数据根>/.arcreel/users/<user_id>/memory/``）
+          在 cwd 外，默认不可写；Agent 要用 Write/Edit 记跨项目笔记，须在内核层单独放行。
+          项目记忆在 cwd 内本已可写，不重复登记。``user_id`` 非法（不是单个路径段）时不
+          登记任何放行——fail-closed 优先于让记忆可写。
         - ``allowUnsandboxedCommands=False``：禁止 Agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
         - ``network``：``allowedDomains`` 是「预放行清单」而非「限制清单」——不写该键等于零
@@ -288,17 +298,48 @@ class AgentAccessPolicy:
         """
         if not self.sandbox_enabled:
             return {"enabled": False}
+        filesystem: dict[str, Any] = {
+            "denyRead": self._build_sensitive_abs_paths(),
+            "denyWrite": self._build_protected_write_abs_paths(project_cwd),
+        }
+        # 无路径可放行时整键不写：``allowWrite`` 是加法放行，空列表不表达任何意图。
+        memory_allow_write = self._build_memory_allow_write_abs_paths(user_id)
+        if memory_allow_write:
+            filesystem["allowWrite"] = memory_allow_write
         return {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
             "allowUnsandboxedCommands": False,
             "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
             "enableWeakerNestedSandbox": bool(self.in_docker),
-            "filesystem": {
-                "denyRead": self._build_sensitive_abs_paths(),
-                "denyWrite": self._build_protected_write_abs_paths(project_cwd),
-            },
+            "filesystem": filesystem,
         }
+
+    def _build_memory_allow_write_abs_paths(self, user_id: str) -> list[str]:
+        """内核沙箱层的记忆写放行清单：仅用户记忆目录（项目记忆在 cwd 内本已可写）。"""
+        user_dir = self._user_memory_dir_or_none(user_id)
+        return [] if user_dir is None else [str(user_dir)]
+
+    def _user_memory_dir_or_none(self, user_id: str) -> Path | None:
+        """当前用户的记忆目录；``user_id`` 不是单个路径段时返回 None。
+
+        围栏必须 fail-closed：非法 ``user_id`` 派生出的目录会逃出数据根，把放行
+        范围扩到任意路径，宁可不放行记忆目录。记 warning 保留诊断信号。
+        """
+        if not is_valid_memory_user_id(user_id):
+            logger.warning("user_id 不是合法路径段,记忆目录放行被跳过: %r", user_id)
+            return None
+        return user_memory_dir(self.projects_root, user_id)
+
+    def _is_user_memory_path(self, resolved: Path, *, user_id: str) -> bool:
+        """已 resolve 的路径是否落在当前用户的记忆目录（含目录本身）之内。
+
+        只判用户记忆这一级：项目记忆是 ``<cwd>/.arcreel/memory/``，落在 cwd 内，
+        读写两条路径的 cwd 围栏本就放行，再判一次要多做一次 ``project_cwd``
+        resolve（``_check_read_access`` 是 per-tool-use 钩子，刻意不做这次 lstat）。
+        """
+        user_dir = self._user_memory_dir_or_none(user_id)
+        return user_dir is not None and resolved.is_relative_to(user_dir)
 
     @classmethod
     def _build_protected_write_abs_paths(cls, project_cwd: Path) -> list[str]:
@@ -522,13 +563,21 @@ class AgentAccessPolicy:
         """
         return project_cwd.as_posix().replace("/", "-").replace(".", "-")
 
-    def _check_read_access(self, resolved: Path, project_cwd: Path) -> tuple[bool, str | None]:
+    def _check_read_access(self, resolved: Path, project_cwd: Path, *, user_id: str) -> tuple[bool, str | None]:
         """Read/Glob/Grep 的跨项目隔离 + host 文件系统封锁。
 
-        cwd 内放行；SDK tool-results / /tmp/claude-*/tasks 例外放行；
+        用户记忆目录放行；cwd 内放行（项目记忆在其中）；SDK tool-results / /tmp/claude-*/tasks 例外放行；
         projects_root 下其他项目子目录拒、根直放文件放行；仓库根内参考资料
         （lib/docs 等）放行；其余（host 文件系统：~/.ssh、/etc 等）默认拒。
         """
+        # 用户记忆放行须在 projects_root 分支之前：它落在 projects_root 下的
+        # ``.arcreel/`` 里，走到跨项目读隔离会被当成"别的项目"拒掉。
+        if self._is_user_memory_path(resolved, user_id=user_id):
+            return True, None
+        # 自己的记忆之外，数据根内部目录整棵拒：它装的是其他用户的记忆与 ArcReel 内部状态，
+        # 而跨项目读隔离只拦"存在的目录"，``.arcreel/`` 尚未建时会从根直放文件分支漏出去。
+        if resolved.is_relative_to(self.projects_root / ARCREEL_DIRNAME):
+            return False, (f"访问被拒绝：不允许读取其他用户的记忆或数据根内部目录 ({resolved})")
         if resolved.is_relative_to(project_cwd):
             return True, None
         # SDK tool-results 例外（已 resolve 的基准见 _claude_projects_dir_resolved）。
@@ -555,8 +604,10 @@ class AgentAccessPolicy:
         # 其余路径（host 文件系统：~/.ssh、/etc 等）默认拒
         return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
 
-    def _check_write_access(self, resolved: Path, project_cwd: Path, *, logical_norm: Path) -> tuple[bool, str | None]:
-        """Write/Edit 的写入约束：cwd 外一律拒，cwd 内先过 ``PROTECTED_WRITE_RULES`` 规则表
+    def _check_write_access(
+        self, resolved: Path, project_cwd: Path, *, logical_norm: Path, user_id: str
+    ) -> tuple[bool, str | None]:
+        """Write/Edit 的写入约束：cwd 外（用户记忆目录除外）一律拒，cwd 内先过 ``PROTECTED_WRITE_RULES`` 规则表
         （``scripts/*.json`` / ``project.json`` / 正式 script_plan——只能走收归后的 MCP
         工具），再拒代码扩展名（Agent 不写代码）。
 
@@ -570,7 +621,10 @@ class AgentAccessPolicy:
         # 给规则表各谓词,后者直接消费列表不再做第二次 resolve（消除冗余 lstat）。
         bases = self._enumerate_cwd_bases(project_cwd)
 
-        if not any(resolved.is_relative_to(base) for base in bases):
+        # 用户记忆目录在 cwd 外但属 Agent 可写区（项目记忆在 cwd 内，走下面的常规路径）；
+        # 代码扩展名拒仍然适用——记忆装的是笔记，放宽扩展名等于给 Bash 递可执行脚本。
+        in_user_memory = self._is_user_memory_path(resolved, user_id=user_id)
+        if not in_user_memory and not any(resolved.is_relative_to(base) for base in bases):
             return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
 
         for rule in self.PROTECTED_WRITE_RULES:

@@ -14,6 +14,9 @@ from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
+#: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
+_USER_ID = "default"
+
 
 @pytest.fixture
 def fs_session_manager(tmp_path: Path) -> SessionManager:
@@ -92,13 +95,13 @@ def test_configure_sandbox_runtime_swaps_policy(tmp_path: Path) -> None:
     后续 settings 编译 / hook 裁决立即消费新规则。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
     cwd = sm.project_root / "projects" / "demo"
-    assert sm.access_policy.build_sandbox_settings(cwd)["enabled"] is True
+    assert sm.access_policy.build_sandbox_settings(cwd, user_id=_USER_ID)["enabled"] is True
 
     sm.configure_sandbox_runtime(in_docker=True, sandbox_enabled=False)
 
     assert sm.access_policy.sandbox_enabled is False
     assert sm.access_policy.in_docker is True
-    assert sm.access_policy.build_sandbox_settings(cwd) == {"enabled": False}
+    assert sm.access_policy.build_sandbox_settings(cwd, user_id=_USER_ID) == {"enabled": False}
 
 
 @pytest.mark.asyncio
