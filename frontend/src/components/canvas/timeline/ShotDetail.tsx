@@ -458,9 +458,6 @@ export function ShotDetail({
   const narrationText = getNarrationText(segment, contentMode);
   const hasNarrationText = narrationText.trim().length > 0;
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
-  // 尾帧能力按项目级视频后端解析：后端换了，门控要跟着换。
-  const videoBackend = useProjectsStore((s) => s.currentProjectData?.video_backend ?? null);
-
   const ip = segment.image_prompt;
   const vp = segment.video_prompt;
   const note = segment.note ?? "";
@@ -1118,7 +1115,6 @@ export function ShotDetail({
             contentMode={contentMode}
             aspectRatio={aspectRatio}
             endFramePath={segment.end_frame_image ?? null}
-            videoBackend={videoBackend}
             readOnly={refsReadOnly}
             onSubmittingChange={setEndFrameSubmitting}
             videoUploadBusy={uploadingKind === "video"}

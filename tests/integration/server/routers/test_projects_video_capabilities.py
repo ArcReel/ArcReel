@@ -90,8 +90,39 @@ class TestGetVideoCapabilities:
         assert passed_project["title"] == "Ready"
         assert passed_project["generation_mode"] == "storyboard"
 
-    def test_stale_episode_query_param_is_ignored(self, tmp_path, monkeypatch):
-        """端点不声明 ``episode`` 查询参数：带上也被忽略，不改变解析口径、不报错。"""
+    def test_constraint_context_is_forwarded_to_resolver(self, tmp_path, monkeypatch):
+        """``resolution`` / ``uses_reference_images`` 原样交给 resolver：收窄规则只在后端一处，路由不解读。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        resolver_instance = MagicMock()
+        resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
+        resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"resolution": "1080p", "uses_reference_images": "true"},
+            )
+            assert resp.status_code == 200
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"video_backend": "openai/sora-2", "resolution": "", "uses_reference_images": "false"},
+            )
+            assert resp.status_code == 200
+        assert resolver_instance.video_capabilities.await_args.kwargs == {
+            "resolution": "1080p",
+            "uses_reference_images": True,
+        }
+        # 空串是表单里显式的「自动」档位，必须原样送达而不是被折叠成缺省（缺省会回退到已保存档位）
+        assert resolver_instance.video_capabilities_for_model.await_args.kwargs == {
+            "resolution": "",
+            "uses_reference_images": False,
+        }
+
+    def test_constraint_context_defaults_to_none(self, tmp_path, monkeypatch):
+        """不带约束参数时两项都是 None，由 resolver 按项目已保存档位与生成模式求值。"""
         from unittest.mock import AsyncMock, MagicMock
 
         resolver_instance = MagicMock()
@@ -100,9 +131,11 @@ class TestGetVideoCapabilities:
 
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
-            resp = client.get("/api/v1/projects/ready/video-capabilities", params={"episode": 3})
-        assert resp.status_code == 200
-        assert resolver_instance.video_capabilities.await_args.args == ("ready",)
+            assert client.get("/api/v1/projects/ready/video-capabilities").status_code == 200
+        assert resolver_instance.video_capabilities.await_args.kwargs == {
+            "resolution": None,
+            "uses_reference_images": None,
+        }
 
     def test_malformed_video_backend_returns_400(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, return_value={})

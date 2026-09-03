@@ -23,6 +23,13 @@ function caps(lastFrame: boolean): VideoCapabilities {
     last_frame: lastFrame,
     source: "registry",
     voice_consistency: "soft",
+    duration_constraints: {
+      resolution: null,
+      uses_reference_images: false,
+      allowed: [5, 8],
+      allowed_without_reference_images: [5, 8],
+      excluded: {},
+    },
   };
 }
 
@@ -59,7 +66,6 @@ function renderRow(props: Partial<Parameters<typeof EndFrameRow>[0]> = {}) {
       contentMode="narration"
       aspectRatio="9:16"
       endFramePath={null}
-      videoBackend="gemini"
       {...props}
     />,
   );
@@ -130,13 +136,15 @@ describe("EndFrameRow 摘要", () => {
 
 describe("EndFrameRow 能力警告", () => {
   it("模型不支持 + 已设尾帧：警告可见，清除可用且调用 clear 端点", async () => {
-    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
+    const capabilitiesSpy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
     const clear = vi.spyOn(API, "clearEndFrame").mockResolvedValue({ success: true });
     const { findByRole, getByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
 
     // 收起状态即可见：不必展开就知道这条尾帧会让生成被拒。
     const alert = await findByRole("alert");
     expect(alert).toHaveTextContent(/当前模型不支持尾帧/);
+    // 由项目端点按 generation_mode 解析实际 i2v/r2v 桶，不用默认层覆盖。
+    expect(capabilitiesSpy.mock.calls[0]?.[1]?.videoBackend).toBeUndefined();
     expect(getByRole("button", { name: /^尾帧/ })).toHaveAttribute("aria-expanded", "false");
 
     const clearBtn = within(alert).getByRole("button", { name: "清除尾帧" });
@@ -209,29 +217,6 @@ describe("EndFrameRow 能力警告", () => {
     await findByText("未设置");
     // 没有会被拒绝的东西，不打扰。
     expect(queryByRole("alert")).not.toBeInTheDocument();
-  });
-
-  it("换模型后警告随最新能力结果出现", async () => {
-    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(true));
-    const { rerender, findByText, findByRole, queryByRole } = renderRow({
-      endFramePath: "end_frames/scene_E1S01.png",
-    });
-    await findByText("已设置");
-    expect(queryByRole("alert")).not.toBeInTheDocument();
-
-    spy.mockResolvedValue(caps(false));
-    rerender(
-      <EndFrameRow
-        projectName={PROJECT}
-        segmentId={SHOT}
-        scriptFile={SCRIPT}
-        contentMode="narration"
-        aspectRatio="9:16"
-        endFramePath="end_frames/scene_E1S01.png"
-        videoBackend="ark"
-      />,
-    );
-    expect(await findByRole("alert")).toHaveTextContent(/当前模型不支持尾帧/);
   });
 
   it("改能力覆盖后收起态警告自动出现，无需展开面板", async () => {

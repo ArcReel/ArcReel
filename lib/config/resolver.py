@@ -517,12 +517,13 @@ def constrain_durations(
     *,
     resolution: str | None = None,
     uses_reference_images: bool = False,
+    fallback_on_empty: bool = True,
 ) -> list[int]:
     """按型号声明的「分辨率↔时长」「参考图↔时长」约束收窄候选。
 
     两条约束各自独立触发、可同时生效，取交集。无声明、型号不在注册表（自定义供应商不表达
-    这类约束）、或交集为空时返回原候选——空集说明声明之间自相矛盾，清空候选会让上游拿不到
-    任何可用时长，而执行期仍有 backend 校验兜底。
+    这类约束）时返回原候选。交集为空时缺省也回退原候选；严格执行边界可传
+    ``fallback_on_empty=False`` 取空集后 fail loud，但约束求交集仍只在此处。
     """
     if not durations:
         return durations
@@ -535,7 +536,7 @@ def constrain_durations(
     by_resolution = model_info.duration_resolution_constraints.get(resolution.strip().lower()) if resolution else None
     if by_resolution:
         allowed = [d for d in allowed if d in by_resolution]
-    if not allowed:
+    if not allowed and fallback_on_empty:
         logger.warning(
             "duration constraints for %s/%s have no overlap with candidate durations "
             "(resolution=%r, uses_reference_images=%r), falling back to unconstrained candidates %r",
@@ -573,9 +574,72 @@ def _resolution_for_constraints(
     if not provider_id or not model_id:
         return None
     saved = _resolution_from_project(project, provider_id, model_id)
-    if saved or generation_mode != "reference_video":
-        return saved
+    return _constraint_resolution(saved, provider_id, reference_path=generation_mode == "reference_video")
+
+
+def _constraint_resolution(saved: str | None, provider_id: str | None, *, reference_path: bool) -> str | None:
+    """``_resolution_for_constraints`` 的纯函数内核：已保存档位优先，参考生视频路径下补供应商兜底。
+
+    拆出来是给已知「用户填的档位」的调用方（能力查询带表单里未保存的分辨率）复用同一条兜底
+    规则，不必先把表单值伪装成 project dict。
+    """
+    if saved or not reference_path or not provider_id:
+        return saved or None
     return get_provider_fallback(provider_id)
+
+
+#: 时长被联动约束剔除的成因：``resolution`` = 当前分辨率下不可用，``reference`` = 参考图路径下不可用。
+#: 「型号全集就不含」不在此列——那不是收窄，消费方按不在 ``supported_durations`` 内判定。
+DurationExclusionReason = Literal["resolution", "reference"]
+
+
+def duration_constraints_report(
+    provider_id: str | None,
+    model_id: str | None,
+    durations: list[int],
+    *,
+    resolution: str | None,
+    uses_reference_images: bool,
+) -> dict:
+    """一次上下文下的收窄结果连同成因，供能力查询回给前端 / Agent。
+
+    返回::
+
+        {
+          "resolution": str | None,          # 求值用的生效分辨率（None = 不按分辨率收窄）
+          "uses_reference_images": bool,     # 是否按参考图路径收窄
+          "allowed": list[int],              # 收窄结果，升序
+          "allowed_without_reference_images": list[int],  # 同分辨率下不走参考图路径的收窄结果，升序
+          "excluded": dict[int, DurationExclusionReason], # 全集中被剔除的时长 → 成因
+        }
+
+    ``allowed_without_reference_images`` 供参考生视频画布使用：参考图约束按视频单元是否真的携带
+    参考图生效，而非按项目一刀切，画布据此为无参考图的单元换用另一档位表，不必再发一次查询。
+
+    成因判定与 :func:`constrain_durations` 的优先级一致：参考图约束先于分辨率约束——两条都
+    剔除同一时长时报 ``reference``，改分辨率也救不回该值，提示用户改分辨率是误导。
+    """
+    allowed = constrain_durations(
+        provider_id, model_id, durations, resolution=resolution, uses_reference_images=uses_reference_images
+    )
+    without_references = constrain_durations(
+        provider_id, model_id, durations, resolution=resolution, uses_reference_images=False
+    )
+    reference_allowed = (
+        constrain_durations(provider_id, model_id, durations, resolution=None, uses_reference_images=True)
+        if uses_reference_images
+        else durations
+    )
+    excluded: dict[int, DurationExclusionReason] = {
+        d: "reference" if d not in reference_allowed else "resolution" for d in durations if d not in allowed
+    }
+    return {
+        "resolution": resolution,
+        "uses_reference_images": uses_reference_images,
+        "allowed": sorted(allowed),
+        "allowed_without_reference_images": sorted(without_references),
+        "excluded": excluded,
+    }
 
 
 def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> list[int] | None:
@@ -912,12 +976,23 @@ class ConfigResolver:
                         return speed_from_str
             return await svc.get_narration_speed()
 
-    async def video_capabilities(self, project_name: str | None = None) -> dict:
+    async def video_capabilities(
+        self,
+        project_name: str | None = None,
+        *,
+        resolution: str | None = None,
+        uses_reference_images: bool | None = None,
+    ) -> dict:
         """解析当前项目视频 model 的综合能力 + 用户项目偏好。
 
         model 按项目 ``generation_mode`` 定桶（图生视频 / 宫格 → i2v，参考生视频 → r2v）后走与
         执行相同的解析入口，回答的始终是「当前配置真正会执行的那个模型」（``docs/adr/0054``）。
         生成模式创建即定、整个项目按同一种模式生成，解析因此不需要剧集上下文。
+
+        ``resolution`` / ``uses_reference_images`` 是时长联动约束的求值上下文，只影响返回值里的
+        ``duration_constraints``：缺省（None）按项目已保存的档位与生成模式求值；``resolution``
+        传空串表示「显式未选档位」（表单里的自动），不回退到已保存值。``supported_durations``
+        始终是型号声明全集，不随上下文变化——执行层与 Agent 侧按它做原始候选，再各自收窄。
 
         Returns:
             {
@@ -938,6 +1013,7 @@ class ConfigResolver:
               "content_mode": str | None,
               "generation_mode": str | None,       # 项目生成模式（无项目上下文时 None）
               "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode × 绑定方式
+              "duration_constraints": dict,        # 按上下文收窄后的时长与成因，见 duration_constraints_report
             }
 
         Raises:
@@ -946,13 +1022,17 @@ class ConfigResolver:
                 引用已不可用。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_capabilities(svc, session, project_name)
+            return await self._resolve_video_capabilities(
+                svc, session, project_name, resolution=resolution, uses_reference_images=uses_reference_images
+            )
 
     async def video_capabilities_for_project(
         self,
         project: dict,
         *,
         capability: VideoCapability | None = None,
+        resolution: str | None = None,
+        uses_reference_images: bool | None = None,
     ) -> dict:
         """同 `video_capabilities`，但使用调用方已加载的 project dict。
 
@@ -964,7 +1044,14 @@ class ConfigResolver:
         内按视频单元分流的读侧（无参考图的视频单元按 i2v 桶取档 / 计价）使用。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_capabilities_from_project(svc, session, project, capability=capability)
+            return await self._resolve_video_capabilities_from_project(
+                svc,
+                session,
+                project,
+                capability=capability,
+                resolution=resolution,
+                uses_reference_images=uses_reference_images,
+            )
 
     async def video_capabilities_for_model(
         self,
@@ -973,6 +1060,8 @@ class ConfigResolver:
         project: dict | None = None,
         *,
         capability: VideoCapability | None = None,
+        resolution: str | None = None,
+        uses_reference_images: bool | None = None,
     ) -> dict:
         """读取指定 provider/model 的视频能力，不再二次解析 provider。
 
@@ -990,7 +1079,14 @@ class ConfigResolver:
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_caps_for_model(
-                svc, session, provider_id, model_id, project, capability=capability
+                svc,
+                session,
+                provider_id,
+                model_id,
+                project,
+                capability=capability,
+                resolution=resolution,
+                uses_reference_images=uses_reference_images,
             )
 
     async def video_pricing_generate_audio(
@@ -1368,10 +1464,15 @@ class ConfigResolver:
         svc: ConfigService,
         session: AsyncSession,
         project_name: str | None,
+        *,
+        resolution: str | None = None,
+        uses_reference_images: bool | None = None,
     ) -> dict:
         """按两步解析：先选 model，再读 model 能力。"""
         project = get_project_manager().load_project(project_name) if project_name else None
-        return await self._resolve_video_capabilities_from_project(svc, session, project)
+        return await self._resolve_video_capabilities_from_project(
+            svc, session, project, resolution=resolution, uses_reference_images=uses_reference_images
+        )
 
     async def _resolve_video_capabilities_from_project(
         self,
@@ -1380,6 +1481,8 @@ class ConfigResolver:
         project: dict | None,
         *,
         capability: VideoCapability | None = None,
+        resolution: str | None = None,
+        uses_reference_images: bool | None = None,
     ) -> dict:
         """按任务类型桶（未显式给定时按项目 generation_mode 定桶）解析出会执行的那个模型，再读它的能力。
 
@@ -1394,7 +1497,14 @@ class ConfigResolver:
             capability = video_bucket_for_generation_mode(caps_generation_mode(project))
         selected = await self._resolve_video_provider_model(svc, session, project, None, capability)
         return await self._resolve_video_caps_for_model(
-            svc, session, selected.provider_id, selected.model_id, project, capability=capability
+            svc,
+            session,
+            selected.provider_id,
+            selected.model_id,
+            project,
+            capability=capability,
+            resolution=resolution,
+            uses_reference_images=uses_reference_images,
         )
 
     async def _resolve_video_caps_for_model(
@@ -1406,6 +1516,8 @@ class ConfigResolver:
         project: dict | None,
         *,
         capability: VideoCapability | None = None,
+        resolution: str | None = None,
+        uses_reference_images: bool | None = None,
     ) -> dict:
         # 音轨形态按执行子路径分叉（可灵 v3-omni 的多图主体子路径不带音轨开关），故能力解析需要
         # 知道落哪个桶；未显式给定时按项目路线定桶，与 `_resolve_video_capabilities_from_project`
@@ -1542,6 +1654,24 @@ class ConfigResolver:
                 content_mode = cm
         generation_mode = caps_generation_mode(project)
 
+        # 时长联动约束按调用方给的上下文求值，缺省按项目：参考图路径默认「生成模式即参考生视频」，
+        # 分辨率默认项目已保存档位（空串是调用方显式的「未选档位」，不回退到已保存值）。参考图
+        # 路径执行期必带档位，未选时同 ``_resolution_for_constraints`` 补供应商兜底。
+        reference_path = (
+            generation_mode == "reference_video" if uses_reference_images is None else uses_reference_images
+        )
+        if resolution is None:
+            saved_resolution = _resolution_from_project(project, provider_id, model_id) if project is not None else None
+        else:
+            saved_resolution = resolution or None
+        duration_constraints = duration_constraints_report(
+            provider_id,
+            model_id,
+            supported_durations,
+            resolution=_constraint_resolution(saved_resolution, provider_id, reference_path=reference_path),
+            uses_reference_images=reference_path,
+        )
+
         voice_consistency = derive_voice_consistency(
             reference_audio_mode=reference_audio_mode,
             generation_mode=generation_mode,
@@ -1568,6 +1698,7 @@ class ConfigResolver:
             "content_mode": content_mode,
             "generation_mode": generation_mode,
             "voice_consistency": voice_consistency,
+            "duration_constraints": duration_constraints,
         }
 
     async def _resolve_default_image_backend(

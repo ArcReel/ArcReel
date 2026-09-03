@@ -490,6 +490,66 @@ class TestVideoCapabilities:
         # max_reference_images 来源：backend 的 VideoCapabilities 声明（与执行层同源）
         assert caps["max_reference_images"] == 3
 
+    async def test_duration_constraints_follow_saved_resolution(self, db_factory):
+        """缺省上下文按项目已保存档位收窄；supported_durations 仍是全集。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+                    "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}},
+                }
+                caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        assert caps["supported_durations"] == [4, 6, 8]
+        assert caps["duration_constraints"] == {
+            "resolution": "1080p",
+            "uses_reference_images": False,
+            "allowed": [8],
+            "allowed_without_reference_images": [8],
+            "excluded": {4: "resolution", 6: "resolution"},
+        }
+
+    async def test_duration_constraints_reference_mode_uses_provider_fallback(self, db_factory):
+        """参考生视频项目未选档位：按执行期真正下发的供应商兜底档位求值，与 constrain_durations_for_project 同口径。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+                    "generation_mode": "reference_video",
+                }
+                caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        constraints = caps["duration_constraints"]
+        assert constraints["resolution"] == "1080p"
+        assert constraints["uses_reference_images"] is True
+        assert constraints["allowed"] == [8]
+        assert constraints["excluded"] == {4: "reference", 6: "reference"}
+
+    async def test_duration_constraints_explicit_context_overrides_project(self, db_factory):
+        """显式上下文（表单里未保存的值）覆盖项目已保存档位；空串分辨率表示「自动」而非回退。"""
+        resolver = ConfigResolver(db_factory)
+        project = {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}},
+        }
+        caps = await resolver.video_capabilities_for_model(
+            "gemini-aistudio", "veo-3.1-generate-preview", project, resolution="720p", uses_reference_images=False
+        )
+        assert caps["duration_constraints"]["allowed"] == [4, 6, 8]
+        caps = await resolver.video_capabilities_for_model(
+            "gemini-aistudio", "veo-3.1-generate-preview", project, resolution="", uses_reference_images=False
+        )
+        assert caps["duration_constraints"]["resolution"] is None
+        assert caps["duration_constraints"]["allowed"] == [4, 6, 8]
+        # 无项目（创建向导）：参考图路径同样补供应商兜底档位
+        caps = await resolver.video_capabilities_for_model(
+            "gemini-aistudio", "veo-3.1-generate-preview", None, uses_reference_images=True
+        )
+        assert caps["duration_constraints"]["resolution"] == "1080p"
+        assert caps["duration_constraints"]["allowed_without_reference_images"] == [8]
+
     async def test_reads_project_default_duration_and_modes(self, db_factory):
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})

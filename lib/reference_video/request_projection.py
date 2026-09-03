@@ -16,11 +16,11 @@ from typing import Protocol, cast
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.asset_types import ASSET_SPECS, AssetSpec, asset_name_comparison_key, normalize_asset_bucket
-from lib.config.registry import model_info_for
 from lib.config.resolver import (
     VideoBucketCapabilityError,
     VideoCapability,
     builtin_video_audio_track,
+    constrain_durations,
     get_provider_fallback,
     video_capability_satisfied,
 )
@@ -362,15 +362,14 @@ def strict_reference_durations(
     normalized = tuple(sorted(normalized_values))
     if not normalized:
         raise ProjectionResolutionError("reference_supported_durations_missing", provider=provider_id, model=model_id)
-    model_info = model_info_for(provider_id, model_id)
-    if model_info is None:
-        return normalized
-    allowed = list(normalized)
-    if capability == "r2v" and model_info.reference_image_durations:
-        allowed = [value for value in allowed if value in model_info.reference_image_durations]
-    by_resolution = model_info.duration_resolution_constraints.get(resolution.strip().lower()) if resolution else None
-    if by_resolution:
-        allowed = [value for value in allowed if value in by_resolution]
+    allowed = constrain_durations(
+        provider_id,
+        model_id,
+        list(normalized),
+        resolution=resolution,
+        uses_reference_images=capability == "r2v",
+        fallback_on_empty=False,
+    )
     if not allowed:
         raise ProjectionResolutionError(
             "reference_supported_durations_incompatible",

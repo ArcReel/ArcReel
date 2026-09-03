@@ -15,8 +15,7 @@ import { WizardStep1Basics, type WizardStep1Value } from "./create-project/Wizar
 import { WizardStep2Models, type WizardStep2Data } from "./create-project/WizardStep2Models";
 import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
-import { catalogDurations } from "@/hooks/useModelCapabilities";
-import { catalogDisplayNames } from "@/utils/provider-models";
+import { catalogDisplayNames, catalogDurations } from "@/utils/provider-models";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 
 // 新建项目对话框 · "Open Reel"
@@ -265,7 +264,8 @@ export function CreateProjectModal() {
   useFocusTrap(dialogRef, true);
 
   // 第二步选好时长与分辨率后还能退回第一步改生成模式。分辨率只由执行模型决定，模型没换就不动；
-  // 时长还受参考图路径影响——同一个模型走参考图时可选时长可能被收窄，故切换生成模式一律重算。
+  // 时长按新执行模型的声明全集校验，落在全集外的退回自动。参考图路径把该值收窄掉的情形由
+  // 第二步按服务端成因的提示引导重选——收窄结果只有服务端能给，这里是同步事件处理器。
   const handleBasicsChange = (next: WizardStep1Value) => {
     setBasics(next);
     if (next.generationRoute === basics.generationRoute) return;
@@ -274,10 +274,7 @@ export function CreateProjectModal() {
     const before = executingVideoModel(models, globals, basics.generationRoute === "reference_video");
     const after = executingVideoModel(models, globals, usesReferenceImages);
     const modelChanged = before !== after;
-    const nextDurations = catalogDurations(step2Data?.providers ?? [], step2Data?.customProviders ?? [], after, {
-      videoResolution: modelChanged ? null : models.videoResolution,
-      usesReferenceImages,
-    });
+    const nextDurations = catalogDurations(step2Data?.providers ?? [], step2Data?.customProviders ?? [], after);
     setModels((prev) => ({
       ...prev,
       videoResolution: modelChanged ? null : prev.videoResolution,

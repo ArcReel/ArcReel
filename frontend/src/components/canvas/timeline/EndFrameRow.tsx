@@ -5,7 +5,6 @@ import { API } from "@/api";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { InlineWarning } from "@/components/ui/InlineWarning";
 import { useModelCapabilities } from "@/hooks/useModelCapabilities";
-import { useCurrentEpisode } from "@/hooks/useCurrentEpisode";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -22,8 +21,6 @@ interface EndFrameRowProps {
   aspectRatio: "9:16" | "16:9";
   /** 当前已设置的尾帧快照路径（项目内相对路径），未设置为 null。 */
   endFramePath: string | null;
-  /** 项目级视频后端，变更后重新解析尾帧能力。 */
-  videoBackend?: string | null;
   /** 只读上下文（如剧本不可编辑时）：仅展示，不给写入入口。 */
   readOnly?: boolean;
   /** 提交在途状态回传：供父级同步禁用同卡片的视频生成 / 上传 / 恢复控件。 */
@@ -52,7 +49,6 @@ export function EndFrameRow({
   contentMode,
   aspectRatio,
   endFramePath,
-  videoBackend,
   readOnly = false,
   onSubmittingChange,
   videoUploadBusy = false,
@@ -64,13 +60,9 @@ export function EndFrameRow({
   const [submitting, setSubmitting] = useState(false);
   const viewOnly = useDemoWorkbench() || readOnly;
 
-  // 带上当前集号：生成模式可被单集覆盖，`lastFrame` 是随 caps 定桶而变的 model 粒度能力，
-  // 不传集号会拿项目级桶的模型去判尾帧支持，与执行层错位（也与工作台顶层的能力查询串成两份口径）。
-  const episode = useCurrentEpisode();
+  // 能力按项目生成模式定轴、全项目同一口径（生成模式创建即定），故不带集号。
   const { lastFrame, loading: capsLoading } = useModelCapabilities({
     projectName,
-    videoBackend,
-    episode,
   });
   // 未查到能力（加载中 / 失败）时不谎报不支持：仅明确的 false 才门控。
   const unsupported = lastFrame === false;

@@ -6,6 +6,7 @@ MESSAGES = {
     "overview_generation_failed": "Overview generation failed. Please retry later or switch to a different model/provider",
     "video_capabilities_unresolved": "Cannot resolve video model capabilities for project '{name}'; please check the provider configuration",
     "video_backend_malformed": "Video model identifier '{value}' is malformed; expected \"provider/model\"",
+    "video_model_capabilities_unresolved": "Cannot resolve capabilities for video model '{value}'; please check the provider configuration",
     "scope_invalid": "scope must be full or current",
     "download_expired": "Download link expired, please re-export",
     "download_token_mismatch": "Download token does not match the target project",

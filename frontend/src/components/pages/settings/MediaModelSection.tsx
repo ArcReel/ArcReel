@@ -24,11 +24,11 @@ import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import { catalogDurations } from "@/hooks/useModelCapabilities";
 import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { errMsg } from "@/utils/async";
 import {
+  catalogDurations,
   getCustomProviderModels,
   getProviderModels,
   lookupCatalogVideoAudio,

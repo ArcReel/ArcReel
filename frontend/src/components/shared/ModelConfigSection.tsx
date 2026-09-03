@@ -2,11 +2,15 @@ import { useEffect, useId, useMemo, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { InlineWarning } from "@/components/ui/InlineWarning";
 import {
-  catalogDurations,
   durationOutOfRangeReason,
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
-import { lookupCatalogVideoAudio, lookupResolutions, lookupVideoAudioControl } from "@/utils/provider-models";
+import {
+  catalogDurations,
+  lookupCatalogVideoAudio,
+  lookupResolutions,
+  lookupVideoAudioControl,
+} from "@/utils/provider-models";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import {
@@ -49,8 +53,8 @@ export interface ModelConfigSectionProps {
   value: ModelConfigValue;
   onChange: (next: ModelConfigValue) => void;
   /**
-   * 所属项目名。项目已存在时（设置页）传入，能力管线据此补上服务端解析出的生效能力；
-   * 创建向导的项目尚不存在，省略即只走静态目录。
+   * 所属项目名。项目已存在时（设置页）传入；创建向导的项目尚不存在，
+   * 省略时能力管线按候选模型走无项目端点。
    */
   projectName?: string | null;
   options: {
@@ -182,7 +186,9 @@ export function ModelConfigSection({
 
   // 时长与分辨率都按执行模型取值，故默认层与细分项的任何一次改动都先看执行模型变没变：
   // 没变（细分项已覆盖时改默认层就是这种）原样写入，变了才清掉不再适用的分辨率、并把落在
-  // 新模型支持集外的时长退回自动。两条路径共用一处，避免只有主下拉做校验、细分项漏做。
+  // 新模型声明全集之外的时长退回自动。两条路径共用一处，避免只有主下拉做校验、细分项漏做。
+  // 全集在目录里同步可得；新模型走参考图路径时若把该值收窄掉，由下方按成因的提示引导重选，
+  // 事件处理器里拿不到服务端的收窄结果。
   const applyVideoLayer = (patch: Partial<ModelConfigValue>) => {
     const next = { ...value, ...patch };
     const nextExecuting = executingVideoModel(next, globalDefaults, usesReferenceImages);
@@ -190,11 +196,7 @@ export function ModelConfigSection({
       onChange(next);
       return;
     }
-    // 分辨率随模型切换一并重置为 null，故按 null 分辨率算新模型的时长候选。
-    const nextDurations = catalogDurations(providers, customProviders, nextExecuting, {
-      videoResolution: null,
-      usesReferenceImages,
-    });
+    const nextDurations = catalogDurations(providers, customProviders, nextExecuting);
     const keepDuration = next.defaultDuration !== null && !!nextDurations?.includes(next.defaultDuration);
     onChange({
       ...next,
@@ -252,16 +254,15 @@ export function ModelConfigSection({
     : undefined;
 
   // 能力统一经 useModelCapabilities 取得（见该模块的真相源规则），本组件不自行查表。
-  const { rawDurations, supportedDurations, durationConstraints, voiceConsistency } = useModelCapabilities({
+  // 本组件是表单：候选模型与分辨率都是编辑中的未保存值，显式带给服务端按它们求值；分辨率为
+  // null 即「自动」，服务端不回退到已保存档位。无项目（创建向导）时走无项目端点。
+  const capabilities = useModelCapabilities({
     projectName,
     videoBackend: executingVideo,
-    // 本组件是表单：backend 是编辑中的未保存候选，服务端按已落盘配置解析出的能力对它不作数。
-    unsavedBackend: true,
-    providers,
-    customProviders,
     videoResolution: value.videoResolution,
     usesReferenceImages,
   });
+  const { rawDurations, supportedDurations, voiceConsistency } = capabilities;
 
   // 声音一致性档位：有项目上下文时服务端按「候选模型 × 本项目 generation_mode」派生（能力查询
   // 已带上 videoBackend，故编辑中未保存的选择也对得上）；无项目上下文时读目录端点的同名字段，
@@ -321,24 +322,14 @@ export function ModelConfigSection({
   // 提示文案按越界成因分开：模型全集就不含该值才是「模型不支持」，被联动约束收窄掉时说清
   // 是分辨率还是参考图路径——用户据此改对应设置，而不是被引去换模型。
   const durationNoticeKey = useMemo(() => {
-    const reason = durationOutOfRangeReason(
-      value.defaultDuration,
-      { rawDurations, supportedDurations, durationConstraints },
-      { usesReferenceImages },
-    );
+    const reason = durationOutOfRangeReason(value.defaultDuration, capabilities);
     if (reason === null) return null;
     return {
       model: "duration_unsupported_notice",
       reference: "duration_unsupported_reference_notice",
       resolution: "duration_unsupported_resolution_notice",
     }[reason];
-  }, [
-    value.defaultDuration,
-    rawDurations,
-    supportedDurations,
-    durationConstraints,
-    usesReferenceImages,
-  ]);
+  }, [value.defaultDuration, capabilities]);
 
   const renderResolutionField = (
     backend: string,

@@ -15,6 +15,7 @@ from lib.reference_video.request_projection import (
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
     resolve_reference_assets,
+    strict_reference_durations,
     unit_reference_declarations,
 )
 from lib.script_models import ReferenceResource
@@ -585,3 +586,22 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
     with pytest.raises(ProjectionResolutionError, match=r"reference_supported_durations_invalid") as invalid_values_exc:
         await ConfigReferenceCapabilityProjection(_InvalidValuesResolver()).resolve_candidate({}, "r2v")
     assert invalid_values_exc.value.code == "reference_supported_durations_invalid"
+
+
+def test_strict_reference_durations_uses_shared_constraints_and_rejects_empty_intersection() -> None:
+    assert strict_reference_durations(
+        provider_id="gemini-aistudio",
+        model_id="veo-3.1-generate-preview",
+        durations=[4, 6, 8],
+        resolution="1080p",
+        capability="r2v",
+    ) == (8,)
+    with pytest.raises(ProjectionResolutionError) as exc_info:
+        strict_reference_durations(
+            provider_id="gemini-aistudio",
+            model_id="veo-3.1-generate-preview",
+            durations=[4, 6],
+            resolution="1080p",
+            capability="r2v",
+        )
+    assert exc_info.value.code == "reference_supported_durations_incompatible"

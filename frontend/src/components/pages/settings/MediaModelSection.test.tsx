@@ -251,7 +251,6 @@ describe("MediaModelSection", () => {
             capabilities: [],
             default: true,
             supported_durations: [8],
-            duration_resolution_constraints: {},
             resolutions: [],
             reference_route_audio_track: audio.audio_track,
             ...audio,

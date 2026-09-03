@@ -247,13 +247,34 @@ export interface ImportProjectResponse {
   diagnostics: ImportSuccessDiagnostics;
 }
 
+/** 时长被联动约束剔除的成因；「型号全集就不含」不在此列，按不在 supported_durations 内判定。 */
+export type DurationExclusionReason = "resolution" | "reference";
+
+/**
+ * 一次约束上下文下的时长收窄结果与成因，服务端 `lib/config/resolver.py::duration_constraints_report`
+ * 算好回传；前端只查表，不持有收窄规则。
+ */
+export interface DurationConstraints {
+  /** 求值用的生效分辨率；null = 未按分辨率收窄。 */
+  resolution: string | null;
+  uses_reference_images: boolean;
+  /** 收窄结果，升序。 */
+  allowed: number[];
+  /** 同分辨率下不走参考图路径的收窄结果，升序；参考生视频画布为无参考图的单元换用它。 */
+  allowed_without_reference_images: number[];
+  /** 全集中被剔除的时长（键为秒数字符串）→ 成因。 */
+  excluded: Record<string, DurationExclusionReason>;
+}
+
 /**
  * 三级解析（项目 > 系统设置 > 系统默认）后的视频模型能力。
- * 后端：server/routers/projects.py 的 /projects/{name}/video-capabilities。
+ * 后端：server/routers/projects.py 的 /projects/{name}/video-capabilities，
+ * 无项目变体 server/routers/providers.py 的 /providers/video-capabilities。
  */
 export interface VideoCapabilities {
   provider_id: string;
   model: string;
+  /** 型号声明的时长全集，不随约束上下文变化；收窄结果见 duration_constraints。 */
   supported_durations: number[];
   max_duration: number;
   max_reference_images: number;
@@ -266,4 +287,5 @@ export interface VideoCapabilities {
   generation_mode?: string | null;
   /** 声音一致性三级标识（模型能力 × generation_mode 二维派生），服务端唯一派生点。 */
   voice_consistency: VoiceConsistencyTier;
+  duration_constraints: DurationConstraints;
 }

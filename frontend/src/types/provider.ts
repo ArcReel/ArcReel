@@ -22,10 +22,9 @@ export interface ModelInfoResponse {
   media_type: string;
   capabilities: string[];
   default: boolean;
+  // 型号声明的时长全集。分辨率 / 参考图联动约束不在目录里：收窄结果由 video-capabilities
+  // 端点按上下文算好回传（见 types/project.ts::DurationConstraints），前端不持有规则。
   supported_durations: number[];
-  duration_resolution_constraints: Record<string, number[]>;
-  // 使用参考图时允许的时长；空 = 参考图路径不额外约束时长。
-  reference_image_durations?: number[];
   resolutions: string[];
   // 成片音轨形态（可控 / 恒有声 / 恒无声），按执行路径各给一份：同一 model 在图生与参考生两条
   // 子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带音轨开关，成片必然无声）。
