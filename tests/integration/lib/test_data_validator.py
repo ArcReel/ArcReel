@@ -1816,7 +1816,15 @@ class TestCharacterDerivativesStructure:
         assert DataValidator("/tmp").validate_project_payload(_project_payload()).error_messages == []
 
     def test_non_object_table_rejected(self):
-        assert self._keys("dirty") == ["val_field_must_be_object"]
+        assert self._keys("dirty") == ["val_asset_field_must_be_object"]
+
+    def test_non_object_table_reaches_the_asset_definition_subset(self):
+        """衍生表的结构错误须带 ``val_asset_`` 前缀，否则资产子集校验会把脏形状判为合法。"""
+        project = _project_payload()
+        project["characters"]["姜月茴"]["derivatives"] = "dirty"
+        result = DataValidator("/tmp").validate_asset_definitions(project)
+        assert not result.valid
+        assert [message.key for message in result.error_messages] == ["val_asset_field_must_be_object"]
 
     def test_non_object_derivative_rejected(self):
         assert self._keys({"战斗装": "dirty"}) == ["val_asset_format_object"]

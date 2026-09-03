@@ -74,6 +74,7 @@ MESSAGES = {
     "val_asset_missing_description": (
         "{asset_type} '{name}' thiếu trường bắt buộc: description (phải là chuỗi không rỗng)"
     ),
+    "val_asset_field_must_be_object": "{asset_type} '{name}'.{field} phải là đối tượng",
     "val_asset_field_must_be_string": "{asset_type} '{name}'.{field} phải là chuỗi, hiện là {actual}",
     "val_asset_field_bad_timestamp": ("{asset_type} '{name}'.{field} không phải dấu thời gian ISO8601 hợp lệ: {value}"),
     "val_asset_field_must_be_string_list": ("{asset_type} '{name}'.{field} phải là danh sách chuỗi, hiện là {actual}"),

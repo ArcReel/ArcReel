@@ -3195,11 +3195,18 @@ class ProjectManager:
             if match is not None and match.asset_type != "character":
                 raise ProjectAssetNameConflictError(name, match, "character")
             key = match.name if match is not None else name
-            bucket[key] = {
-                "description": description,
-                "voice_style": voice_style or "",
-                "character_sheet": character_sheet or "",
-            }
+            entry = self._build_asset_entry(
+                "character",
+                description,
+                {"voice_style": voice_style or "", "character_sheet": character_sheet or ""},
+            )
+            # 覆盖写只换本体字段：衍生挂在本体条目内，整条替换会连同已登记的衍生一起抹掉。
+            previous = bucket.get(key)
+            if isinstance(previous, dict):
+                inherited = previous.get(DERIVATIVES_FIELD)
+                if isinstance(inherited, dict):
+                    entry[DERIVATIVES_FIELD] = inherited
+            bucket[key] = entry
 
         return self.update_project(project_name, _mutate)
 

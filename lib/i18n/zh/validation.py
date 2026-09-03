@@ -66,6 +66,7 @@ MESSAGES = {
     # ---- 资产目录 ----
     "val_asset_format_object": "{asset_type} '{name}' 数据格式错误，应为对象",
     "val_asset_missing_description": "{asset_type} '{name}' 缺少必填字段: description（须为非空字符串）",
+    "val_asset_field_must_be_object": "{asset_type} '{name}'.{field} 必须是对象",
     "val_asset_field_must_be_string": "{asset_type} '{name}'.{field} 必须是字符串，当前为 {actual}",
     "val_asset_field_bad_timestamp": "{asset_type} '{name}'.{field} 不是合法的 ISO8601 时间戳: {value}",
     "val_asset_field_must_be_string_list": "{asset_type} '{name}'.{field} 必须是字符串列表，当前为 {actual}",

@@ -656,6 +656,23 @@ class TestProjectManager:
         with pytest.raises(KeyError):
             pm.update_prop_sheet("demo", "none", "x")
 
+    def test_add_project_character_keeps_the_derivative_table(self, tmp_path):
+        """角色条目一律带衍生表，覆盖写不抹掉已登记的衍生。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+
+        pm.add_project_character("demo", "Alice", "hero", "soft")
+        assert pm.get_project_character("demo", "Alice")["derivatives"] == {}
+
+        table = {"战斗装": {"description": "黑色重甲", "character_sheet": ""}}
+        pm.update_project("demo", lambda project: project["characters"]["Alice"].update({"derivatives": table}))
+
+        pm.add_project_character("demo", "Alice", "hero rewritten", "soft")
+        alice = pm.get_project_character("demo", "Alice")
+        assert alice["description"] == "hero rewritten"
+        assert alice["derivatives"] == table
+
     def test_reference_audio_cleanup_cannot_delete_a_newer_concurrent_selection(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")

@@ -23,8 +23,9 @@ _TARGET_VERSION = 12
 def migrate_project_dict(project: dict[str, Any]) -> dict[str, Any]:
     """纯函数：把 v11 形态的 project dict 转为 v12 形态。幂等。
 
-    已带衍生表的条目原样保留；桶或条目被手编成非 dict 时跳过，其结构错误由 DataValidator
-    另行报告。不改 schema_version（由文件级 migrate 提交时写入）。
+    只补齐没有该字段的条目：已带衍生表的原样保留，桶、条目或衍生表被手编成非 dict 时同样
+    原样保留，其结构错误由 DataValidator 另行报告——迁移覆盖脏值会把用户手写的内容抹掉，
+    且让该报告永远看不到原始形状。不改 schema_version（由文件级 migrate 提交时写入）。
     """
     data = copy.deepcopy(project)
     for spec in ASSET_SPECS.values():
@@ -34,7 +35,7 @@ def migrate_project_dict(project: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(bucket, dict):
             continue
         for entry in bucket.values():
-            if isinstance(entry, dict) and not isinstance(entry.get(DERIVATIVES_FIELD), dict):
+            if isinstance(entry, dict) and DERIVATIVES_FIELD not in entry:
                 entry[DERIVATIVES_FIELD] = {}
     return data
 
