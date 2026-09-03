@@ -281,7 +281,7 @@ class OptionsAssembler:
                 ),
             }
         )
-        sandbox_typed = policy.build_sandbox_settings(project_cwd)
+        sandbox_typed = policy.build_sandbox_settings(project_cwd, user_id=self._user_id_provider())
 
         # Windows 回退：sandbox 关闭时 Bash 系列被剥离出 allowed_tools，
         # 让 _can_use_tool 接管 prefix 白名单匹配。
@@ -388,6 +388,8 @@ class OptionsAssembler:
                     file_path,
                     tool_name,
                     project_cwd,
+                    # 与 policy 同为现取：user_id 决定用户记忆目录，随会话所属用户变化。
+                    user_id=self._user_id_provider(),
                 )
                 if not allowed:
                     return {
