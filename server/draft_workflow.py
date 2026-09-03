@@ -39,6 +39,7 @@ from lib.draft_violation import DraftViolation
 from lib.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, ScriptWriteConflict
+from lib.reference_catalog import build_reference_catalog
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
     NarrationScriptPlanDraft,
@@ -754,7 +755,7 @@ async def revalidate_narration_script_plan_draft(
     # 源文可能达数百 KB，同步读盘直接放在这个 async 函数体里会占用事件
     # 循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）在请求
     # 协程里跑，卸到线程避免拖慢并发的其它请求。
-    novel_text, prompt_inputs, script_plan_basis = await asyncio.to_thread(
+    novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
         _load_script_plan_source_with_basis,
         project_path,
         draft.meta["source"],
@@ -795,9 +796,7 @@ async def revalidate_narration_script_plan_draft(
         content["segments"],
         episode=episode,
         supported_durations=supported_durations,
-        characters=cast(dict[str, Any], prompt_inputs["characters"]),
-        scenes=cast(dict[str, Any], prompt_inputs["scenes"]),
-        props=cast(dict[str, Any], prompt_inputs["props"]),
+        catalog=build_reference_catalog(project),
         novel_text=novel_text,
         # 重判用的源文范围来自草稿自己的 meta.source：取回时未指定 source
         # 的草稿记的是 null（本集派生源文），若本集正式 script_plan 当初是按别的源文件产出的，这里会把

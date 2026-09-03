@@ -8,9 +8,9 @@ from __future__ import annotations
 import unicodedata
 from collections.abc import Collection, Iterable, Iterator
 from dataclasses import dataclass
-from typing import Any
 
-from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
+from lib.asset_types import asset_name_comparison_key
+from lib.reference_catalog import build_reference_catalog
 from lib.script_models import ReferenceResource
 
 #: BOM / ZWNBSP。前端按 JS 的 ``\s`` 判行首空白，U+FEFF 属之；Python 的 ``str.strip()``
@@ -352,25 +352,21 @@ def resolve_references(
     names: list[str],
     project: dict,
 ) -> tuple[list[ReferenceResource], list[str]]:
-    """按 project.json 四类资产把 mention 名字分派成 ReferenceResource。
+    """按引用目录把 mention 名字分派成 ReferenceResource。
 
-    新项目资产共用名称空间；对历史重复名仍按商品→角色→场景→道具稳定决议。
+    已登记判定与归属决议（含新项目共享名称空间之前的存量重复名，按商品→角色→场景→道具）
+    都由 :func:`lib.reference_catalog.build_reference_catalog` 定义，本函数只做顺序与去重。
 
-    名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.asset_name_comparison_key`），
-    产出的 ``ReferenceResource.name`` 与 ``missing`` 因此一律是归一形式：下游拿它回查资产表、
+    产出的 ``ReferenceResource.name`` 与 ``missing`` 一律是比对坐标系
+    （:func:`lib.asset_types.asset_name_comparison_key`）下的形式：下游拿它回查资产表、
     与说话人判等、在正文里替换成主体记号 ``<X>``，三处都要与这里的判定同形，否则「这里判已
     登记、下游查不到」。入参 ``names`` 通常已出自本模块的解析器（已归一），归一是幂等的补齐，
     覆盖直接传外部名字的调用方。
 
     Returns:
-        (refs, missing): refs 保持入参顺序；missing 是没在任何 bucket 找到的名字
+        (refs, missing): refs 保持入参顺序；missing 是目录里没有的名字
     """
-    buckets: dict[str, dict[str, Any]] = {
-        "product": normalize_asset_bucket(project.get(BUCKET_KEY["product"])),
-        "character": normalize_asset_bucket(project.get(BUCKET_KEY["character"])),
-        "scene": normalize_asset_bucket(project.get(BUCKET_KEY["scene"])),
-        "prop": normalize_asset_bucket(project.get(BUCKET_KEY["prop"])),
-    }
+    catalog = build_reference_catalog(project)
     refs: list[ReferenceResource] = []
     missing: list[str] = []
     seen: set[str] = set()
@@ -379,9 +375,9 @@ def resolve_references(
         if name in seen:
             continue
         seen.add(name)
-        match = next((rtype for rtype, bucket in buckets.items() if name in bucket), None)
-        if match is not None:
-            refs.append(ReferenceResource(type=match, name=name))  # type: ignore[arg-type]
+        entry = catalog.resolve(name)
+        if entry is not None:
+            refs.append(ReferenceResource(type=entry.asset_type, name=name))  # type: ignore[arg-type]
         else:
             missing.append(name)
     return refs, missing

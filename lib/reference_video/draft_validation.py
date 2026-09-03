@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Container
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY, normalize_asset_bucket
 from lib.draft_violation import (
     DraftViolation,
     DraftViolations,
@@ -30,6 +30,7 @@ from lib.draft_violation import (
     render_violation_report,
     violation_items,
 )
+from lib.reference_catalog import build_reference_catalog
 from lib.reference_video.text_parser import (
     SpeechMark,
     derive_references_from_text,
@@ -91,7 +92,7 @@ def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -
 _FULLWIDTH_BRACES = "｛｝"
 
 
-def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> None:
+def _assert_line_syntax(label: str, text: str, character_references: Container[str]) -> None:
     """逐行判引用语法：花括号用法、写坏的 ``@[`` 引用、缺花括号的台词。
 
     三类共性是「解析器不报错、但派生结果与作者意图相反」：台词降级成画面描述、说话人反被
@@ -121,7 +122,7 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
         leads_with_speech = bool(parts) and isinstance(parts[0], SpeechMark) and bool(parts[0].speaker)
         # 只有登记角色 + 冒号才判成写坏的台词：场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
         # 是合法的画面描述写法，按同一形态一概判违约会把正常的 script_plan 产出拒掉。
-        if not leads_with_speech and (leading_mention_before_colon(line) or "") in characters:
+        if not leads_with_speech and (leading_mention_before_colon(line) or "") in character_references:
             raise DraftViolation(
                 f"{label} 的台词写法不合法：{line.strip()[:40]!r}；"
                 "台词须写成 `@[角色]{台词}`——说话人非空、台词由半角花括号成对包裹，"
@@ -204,9 +205,10 @@ def validate_unit_text(
     if not text.strip():
         raise DraftViolation(f"{label} 的正文为空", code="empty_text", label=label)
 
-    # 资产表的 key 归一到比对坐标系后再参与判定：正文一侧已由解析器入口归一，两侧同形才判得准。
-    characters = normalize_asset_bucket(project.get(BUCKET_KEY["character"]))
-    _assert_line_syntax(label, text, characters)
+    # 已登记名字一律取自引用目录：目录的名字已在比对坐标系中，正文一侧由解析器入口归一，
+    # 两侧同形才判得准。
+    catalog = build_reference_catalog(project)
+    _assert_line_syntax(label, text, catalog.reference_names("character"))
 
     # 只有台词与画外音的正文没有可生成的画面：整段非空时上面的空正文检查放不住它。
     if not _has_description_line(text):
@@ -226,7 +228,9 @@ def validate_unit_text(
             label=label,
         )
 
-    bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in characters})
+    # 说话人位问的不是「能不能引用」而是「是不是一条角色资产」：它决定该句台词绑哪段参考音频。
+    registered_speakers = catalog.asset_names("character")
+    bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in registered_speakers})
     if bad_speakers:
         raise DraftViolation(
             f"{label} 的台词说话人未登记为角色资产: {bad_speakers}；说话人决定该句台词绑哪段参考音频，必须是登记角色",
