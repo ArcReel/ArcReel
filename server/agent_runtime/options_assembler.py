@@ -38,6 +38,12 @@ from claude_agent_sdk.types import HookMatcher, SystemPromptPreset
 
 SDK_AVAILABLE = True
 _EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS = 15 * 60
+# CLI stdout 上单条 NDJSON 行的最大字节数（不约束 SDK 往 stdin 写入的方向）。
+# SDK 默认 1 MiB，超线即 CLIJSONDecodeError 打死 message reader、会话挂死。
+# 附图请求会两次撞上这条线：replay-user-messages 让 CLI 把带 base64 图的用户消息
+# 原样回显，Read 读图的 tool_result 也走同一条 stdout。按自身负载定额——5 张 ×
+# 1.5 MB 源 × 4/3 base64 ≈ 10 MB，取 32 MiB 留余量。官方无推荐值。
+CLI_STDOUT_MAX_BUFFER_BYTES = 32 * 1024 * 1024
 
 
 async def load_provider_env_overrides() -> dict[str, str]:
@@ -301,6 +307,7 @@ class OptionsAssembler:
                 append=self._build_append_prompt(project_name, locale=locale),
             ),
             include_partial_messages=True,
+            max_buffer_size=CLI_STDOUT_MAX_BUFFER_BYTES,
             # CLI 只在该开关下把 stdin 收到的用户消息带 uuid 回放到 stdout。
             # 不开则回放副本根本不出现：echo 去重与用户消息身份映射都不会触发。
             extra_args={"replay-user-messages": None},

@@ -192,7 +192,7 @@ export function AgentCopilot() {
     addFiles: addImages,
     removeImage,
     resetImages,
-    invalidatePendingReaders,
+    invalidatePendingTranscodes,
   } = useImageAttachments();
   const [isDragOver, setIsDragOver] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -244,7 +244,7 @@ export function AgentCopilot() {
 
   const handleSend = useCallback(() => {
     if (inputDisabled || isReadingImages || (!localInput.trim() && attachedImages.length === 0)) return;
-    invalidatePendingReaders();
+    invalidatePendingTranscodes();
     setShowSlashMenu(false);
     // 发送期间输入锁定（sending 置位）；受理成功才清空，失败保留内容供重试
     voidCall(
@@ -266,7 +266,7 @@ export function AgentCopilot() {
     localInput,
     attachedImages,
     sendMessage,
-    invalidatePendingReaders,
+    invalidatePendingTranscodes,
     resetImages,
   ]);
 

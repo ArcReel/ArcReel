@@ -26,21 +26,38 @@ def test_send_request_rejects_single_image_above_base64_character_limit():
     assert exc_info.value.errors()[0]["type"] == "assistant_image_too_large"
 
 
-def test_rewrite_request_accepts_five_images_at_total_base64_character_limit():
+def test_rewrite_request_accepts_five_resized_images_at_total_base64_character_limit():
     request = assistant.RewriteRequest(
         anchor_entry_uuid="entry-1",
-        images=[_image("A" * assistant.MAX_IMAGE_BASE64_CHARS) for _ in range(assistant.MAX_IMAGES_PER_REQUEST)],
+        images=[
+            _image("A" * assistant.MAX_RESIZED_IMAGE_BASE64_CHARS) for _ in range(assistant.MAX_IMAGES_PER_REQUEST)
+        ],
     )
 
-    assert sum(len(image.data) for image in request.images) == 34_952_540
+    assert sum(len(image.data) for image in request.images) == 10_485_760
 
 
 def test_rewrite_request_rejects_images_above_total_base64_character_limit():
-    images = [_image("A" * assistant.MAX_IMAGE_BASE64_CHARS) for _ in range(assistant.MAX_IMAGES_PER_REQUEST)]
+    images = [_image("A" * assistant.MAX_RESIZED_IMAGE_BASE64_CHARS) for _ in range(assistant.MAX_IMAGES_PER_REQUEST)]
     images[-1]["data"] += "A"
 
     with pytest.raises(ValidationError) as exc_info:
         assistant.RewriteRequest(anchor_entry_uuid="entry-1", images=images)
+
+    assert exc_info.value.errors()[0]["type"] == "assistant_images_total_too_large"
+
+
+def test_send_request_accepts_one_oversized_image_under_the_total_budget():
+    """单张 5 MB 是绕过前端缩放时的兜底：它自身合规，也仍在合计预算内。"""
+    request = assistant.SendRequest(images=[_image("A" * assistant.MAX_IMAGE_BASE64_CHARS)])
+
+    assert len(request.images[0].data) < assistant.MAX_IMAGES_TOTAL_BASE64_CHARS
+
+
+def test_send_request_rejects_two_unresized_images_on_the_total_budget():
+    """两张未经前端缩放的 5 MB 图各自合规，合计仍被新预算拦下。"""
+    with pytest.raises(ValidationError) as exc_info:
+        assistant.SendRequest(images=[_image("A" * assistant.MAX_IMAGE_BASE64_CHARS) for _ in range(2)])
 
     assert exc_info.value.errors()[0]["type"] == "assistant_images_total_too_large"
 
@@ -100,7 +117,7 @@ def test_send_and_rewrite_return_same_localized_422_for_oversized_image_total(
     body: dict[str, object],
     service_method: str,
 ):
-    images = [_image("A" * assistant.MAX_IMAGE_BASE64_CHARS) for _ in range(assistant.MAX_IMAGES_PER_REQUEST)]
+    images = [_image("A" * assistant.MAX_RESIZED_IMAGE_BASE64_CHARS) for _ in range(assistant.MAX_IMAGES_PER_REQUEST)]
     images[-1]["data"] += "A"
     body["images"] = images
 
@@ -111,5 +128,5 @@ def test_send_and_rewrite_return_same_localized_422_for_oversized_image_total(
         response = client.post(path, json=body, headers={"Accept-Language": "en"})
 
     assert response.status_code == 422
-    assert response.json() == {"detail": "The original images must be no larger than 25 MB in total"}
+    assert response.json() == {"detail": "The images must be no larger than 7.5 MB in total"}
     service_call.assert_not_awaited()

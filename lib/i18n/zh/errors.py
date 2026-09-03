@@ -183,7 +183,7 @@ MESSAGES = {
     "credential_group_ambiguous": "本次提交包含多组互斥凭证的字段，无法判断切换方向，请仅填写其中一组",
     # Assistant
     "assistant_image_too_large": "每张图片的原图大小不能超过 5 MB",
-    "assistant_images_total_too_large": "图片原图总大小不能超过 25 MB",
+    "assistant_images_total_too_large": "图片总大小不能超过 7.5 MB",
     "session_not_found": "会话 '{session_id}' 不存在",
     "session_or_project_not_found": "会话或项目不存在",
     "sdk_session_timeout": "SDK 会话创建超时",

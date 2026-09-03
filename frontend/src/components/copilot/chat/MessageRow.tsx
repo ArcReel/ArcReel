@@ -153,7 +153,7 @@ function MessageEditor({
     isReading: isReadingImages,
     addFiles,
     removeImage,
-    invalidatePendingReaders,
+    invalidatePendingTranscodes,
   } = useImageAttachments(() => initialImages.map(imagePayloadToAttachment));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -175,7 +175,7 @@ function MessageEditor({
 
   const submit = useCallback(() => {
     if (submitting || !canSubmit || !hasContent || isReadingImages) return;
-    invalidatePendingReaders();
+    invalidatePendingTranscodes();
     onSubmit(draft, images.map(attachmentToImagePayload));
   }, [
     draft,
@@ -185,7 +185,7 @@ function MessageEditor({
     submitting,
     canSubmit,
     onSubmit,
-    invalidatePendingReaders,
+    invalidatePendingTranscodes,
   ]);
 
   const handlePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
