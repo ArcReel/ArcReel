@@ -6,9 +6,10 @@ import i18n from "@/i18n";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { createDeferred } from "@/test/deferred";
 import { ProviderSection } from "./ProviderSection";
-import type { ProviderConfigDetail, ProviderInfo, CustomProviderInfo } from "@/types";
+import type { ProviderConfigDetail, ProviderInfo, CustomProviderInfo, EndpointDescriptor } from "@/types";
 
 function renderAt(path = "/app/settings?provider=gemini-aistudio") {
   const location = memoryLocation({ path, record: true });
@@ -94,6 +95,45 @@ async function savePresetProvider() {
   });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(API.patchProviderConfig).toHaveBeenCalledWith("gemini-aistudio", { max_workers: "7" }));
+}
+
+const CHAT_ENDPOINT: EndpointDescriptor = {
+  key: "openai-chat",
+  media_type: "text",
+  family: "openai",
+  kind: "python",
+  source: "builtin",
+  display_name_key: "endpoint_openai_chat",
+  display_name: null,
+  request_method: "POST",
+  request_path_template: "/v1/chat/completions",
+  image_capabilities: null,
+  end_image_capable: false,
+};
+
+function customProvider(id: number, displayName: string): CustomProviderInfo {
+  return {
+    id,
+    display_name: displayName,
+    discovery_format: "openai",
+    base_url: "https://example.invalid",
+    api_key_masked: "sk-***",
+    models: [],
+    created_at: "2026-01-01T00:00:00Z",
+    image_max_workers: null,
+    video_max_workers: null,
+    audio_max_workers: null,
+  };
+}
+
+/** 在「新建自定义供应商」表单里填满必填项并保存。 */
+function saveNewCustomProvider() {
+  fireEvent.change(screen.getByLabelText(/名称/), { target: { value: "我的中转站" } });
+  fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: "https://api.example.invalid" } });
+  fireEvent.change(screen.getByLabelText(/API Key/), { target: { value: "sk-live" } });
+  fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "gpt-4o" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
 }
 
 describe("ProviderSection", () => {
@@ -262,4 +302,24 @@ describe("ProviderSection", () => {
 
     expect(useAppStore.getState().toast).toBeNull();
   });
+  it("selects the newly created custom provider after the form saves", async () => {
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT] });
+    vi.spyOn(API, "getCustomProvider").mockResolvedValue(customProvider(2, "我的中转站"));
+    vi.spyOn(API, "createCustomProvider").mockResolvedValue(customProvider(2, "我的中转站"));
+    vi.mocked(API.listCustomProviders)
+      .mockReset()
+      .mockResolvedValueOnce({ providers: [customProvider(1, "旧端点")] })
+      .mockResolvedValue({ providers: [customProvider(1, "旧端点"), customProvider(2, "我的中转站")] });
+
+    const { location } = renderAt("/app/settings?custom=new");
+    await screen.findByRole("button", { name: "保存" });
+
+    saveNewCustomProvider();
+
+    // 保存后须切到重取回来的最新一项，否则用户停在空表单、看不到刚建好的供应商
+    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?custom=2"));
+    await waitFor(() => expect(API.getCustomProvider).toHaveBeenCalledWith(2));
+  });
+
 });
