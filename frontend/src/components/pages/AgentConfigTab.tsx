@@ -16,6 +16,8 @@ import { errMsg, voidCall } from "@/utils/async";
 
 import { TabSaveFooter } from "./TabSaveFooter";
 import { ExternalAgentModal } from "./ExternalAgentModal";
+// PROTOTYPE — wayfinder #2310，仅开发构建渲染；评审后删除。
+import { AgentMemoryPrototype } from "./prototype-agent-memory/AgentMemoryPrototype";
 
 interface AgentDraft {
   cleanupDelaySeconds: string;
@@ -208,6 +210,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             </div>
           </div>
         </SectionShell>
+        {import.meta.env.DEV && <AgentMemoryPrototype level="user" />}
       </div>
 
       <TabSaveFooter

@@ -28,6 +28,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
 import { getProjectDisplayName } from "@/utils/project-display";
+import { AgentMemoryPrototype } from "./prototype-agent-memory/AgentMemoryPrototype";
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
   const styleImage = project.style_image as string | undefined;
@@ -705,6 +706,9 @@ export function ProjectSettingsPage() {
               )}
             </SectionCard>
           )}
+
+          {/* PROTOTYPE — wayfinder #2310，仅开发构建渲染；评审后删除。 */}
+          {import.meta.env.DEV && <AgentMemoryPrototype level="project" />}
 
           {/* Style picker (independent save flow, mutually exclusive template / custom) */}
           {styleValue && (
