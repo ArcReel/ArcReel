@@ -410,7 +410,9 @@ async def list_providers(
         providers.append(
             ProviderSummary(
                 id=s.name,
-                display_name=_t(f"provider_name_{s.name}"),
+                # registry / DB 的 display_name 是数据源原名；有译名表的按请求语言成文，
+                # 没有的（纯品牌名、自定义供应商用户自填的名字）原样返回。
+                display_name=translate_or(f"provider_name_{s.name}", s.display_name, locale),
                 description=_t(f"provider_desc_{s.name}"),
                 status=s.status,
                 media_types=s.media_types,
@@ -461,6 +463,7 @@ async def get_model_video_capabilities(
 async def get_provider_config(
     provider_id: str,
     _t: Translator,
+    locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderConfigResponse:
     """返回单个供应商的配置字段（registry 元数据与 DB 值合并）。"""
@@ -506,7 +509,7 @@ async def get_provider_config(
 
     return ProviderConfigResponse(
         id=provider_id,
-        display_name=_t(f"provider_name_{provider_id}"),
+        display_name=translate_or(f"provider_name_{provider_id}", meta.display_name, locale),
         description=_t(f"provider_desc_{provider_id}"),
         status=status,
         media_types=list(meta.media_types),

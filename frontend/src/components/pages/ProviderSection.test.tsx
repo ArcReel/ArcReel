@@ -1,11 +1,14 @@
-import { render, screen, waitFor, within, act } from "@testing-library/react";
+import { render, screen, waitFor, within, act, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import i18n from "@/i18n";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
+import { createDeferred } from "@/test/deferred";
 import { ProviderSection } from "./ProviderSection";
-import type { ProviderInfo, CustomProviderInfo } from "@/types";
+import type { ProviderConfigDetail, ProviderInfo, CustomProviderInfo } from "@/types";
 
 function renderAt(path = "/app/settings?provider=gemini-aistudio") {
   const location = memoryLocation({ path, record: true });
@@ -59,8 +62,45 @@ function customFor(lang: string): { providers: CustomProviderInfo[] } {
   };
 }
 
+function providerDetailFor(lang: string): ProviderConfigDetail {
+  return {
+    id: "gemini-aistudio",
+    display_name: lang === "en" ? "Gemini AI Studio (EN)" : "Gemini AI Studio（中文）",
+    description: "",
+    status: "ready",
+    media_types: ["video"],
+    fields: [
+      {
+        key: "max_workers",
+        label: "Max Workers",
+        type: "number",
+        required: false,
+        is_set: true,
+        value: "2",
+      },
+    ],
+    supports_base_url: false,
+    secret_fields: [],
+    secret_field_groups: [],
+  };
+}
+
+async function savePresetProvider() {
+  renderAt();
+  await screen.findByText("Gemini AI Studio（中文）", { selector: "h3" });
+  fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
+    target: { value: "7" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(API.patchProviderConfig).toHaveBeenCalledWith("gemini-aistudio", { max_workers: "7" }));
+}
+
 describe("ProviderSection", () => {
   beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
+    vi.spyOn(useConfigStatusStore.getState(), "refresh").mockResolvedValue();
     vi.spyOn(API, "getProviders").mockImplementation(() =>
       Promise.resolve(providersFor(i18n.language)),
     );
@@ -68,12 +108,15 @@ describe("ProviderSection", () => {
       Promise.resolve(customFor(i18n.language)),
     );
     vi.spyOn(API, "getProviderConfig").mockRejectedValue(new Error("detail not under test"));
+    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
+    vi.spyOn(API, "patchProviderConfig").mockResolvedValue();
   });
 
   afterEach(async () => {
     await act(async () => {
       await i18n.changeLanguage("zh");
     });
+    vi.restoreAllMocks();
   });
 
   it("refetches the provider catalog when the interface language changes", async () => {
@@ -181,5 +224,42 @@ describe("ProviderSection", () => {
     );
     // replace 写回：历史里只剩替换后的一条，不追加
     expect(location.history).toEqual(["/app/settings?provider=gemini-aistudio"]);
+  });
+
+  it("warns when a successful save is followed by a failed catalog refresh", async () => {
+    vi.mocked(API.getProviders)
+      .mockReset()
+      .mockResolvedValueOnce(providersFor("zh"))
+      .mockRejectedValueOnce(new Error("network down"));
+    vi.mocked(API.getProviderConfig).mockImplementation(() => Promise.resolve(providerDetailFor(i18n.language)));
+
+    await savePresetProvider();
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "已保存，但供应商列表刷新失败，请重新加载页面",
+        tone: "warning",
+      }),
+    );
+  });
+
+  it("does not warn when a successful save refresh is superseded", async () => {
+    const superseded = createDeferred<{ providers: ProviderInfo[] }>();
+    vi.mocked(API.getProviders)
+      .mockReset()
+      .mockResolvedValueOnce(providersFor("zh"))
+      .mockReturnValueOnce(superseded.promise)
+      .mockImplementation(() => Promise.resolve(providersFor(i18n.language)));
+    vi.mocked(API.getProviderConfig).mockImplementation(() => Promise.resolve(providerDetailFor(i18n.language)));
+
+    await savePresetProvider();
+    await waitFor(() => expect(API.getProviders).toHaveBeenCalledTimes(2));
+
+    await act(async () => i18n.changeLanguage("en"));
+    superseded.resolve(providersFor("zh"));
+    await waitFor(() => expect(API.getProviders).toHaveBeenCalledTimes(3));
+    await act(async () => Promise.resolve());
+
+    expect(useAppStore.getState().toast).toBeNull();
   });
 });

@@ -883,6 +883,7 @@ export default {
   'provider_list': 'Danh sách nhà cung cấp',
   'preset_providers': 'Nhà cung cấp có sẵn',
   'select_provider': 'Vui lòng chọn nhà cung cấp',
+  'provider_saved_refresh_failed': 'Đã lưu, nhưng không làm mới được danh sách nhà cung cấp. Vui lòng tải lại trang.',
 
   // ProviderDetail
   'status_connected': 'Đã kết nối',

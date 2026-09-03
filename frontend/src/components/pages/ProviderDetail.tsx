@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { ChevronRight, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -251,7 +251,7 @@ interface Props {
 }
 
 export function ProviderDetail({ providerId, onSaved }: Props) {
-  const { t } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
   const [detail, setDetail] = useState<ProviderConfigDetail | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -259,6 +259,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const loadedContextRef = useRef<{ providerId: string; reloadKey: number } | null>(null);
 
   const hasDraft = Object.keys(draft).length > 0;
   useWarnUnsaved(hasDraft);
@@ -276,26 +277,31 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   }, []);
 
   useEffect(() => {
+    const previous = loadedContextRef.current;
+    const shouldReset =
+      previous === null || previous.providerId !== providerId || previous.reloadKey !== reloadKey;
+    loadedContextRef.current = { providerId, reloadKey };
     let disposed = false;
-    // providerId 变化时重置草稿/详情/错误后再异步拉取，属于动作驱动重置
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDraft({});
-    setDetail(null);
-    setLoadError(null);
-    setSaveError(null);
+    if (shouldReset) {
+      // providerId 变化或手动重试时重置草稿/详情/错误；语言切换只换详情，保留未保存草稿。
+      setDraft({});
+      setDetail(null);
+      setLoadError(null);
+      setSaveError(null);
+    }
     voidCall(
       API.getProviderConfig(providerId)
         .then((res) => {
           if (!disposed) setDetail(res);
         })
         .catch((err: unknown) => {
-          if (!disposed) setLoadError(errMsg(err));
+          if (!disposed && shouldReset) setLoadError(errMsg(err));
         }),
     );
     return () => {
       disposed = true;
     };
-  }, [providerId, reloadKey]);
+  }, [i18n.language, providerId, reloadKey]);
 
   const handleSave = useCallback(async () => {
     if (Object.keys(draft).length === 0) return;

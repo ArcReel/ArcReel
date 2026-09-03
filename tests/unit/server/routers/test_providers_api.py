@@ -108,6 +108,29 @@ class TestListProviders:
         assert "video" in first["media_types"]
         assert first["missing_keys"] == []
 
+    def test_provider_without_translation_keeps_source_name(self):
+        svc = MagicMock(spec=ConfigService)
+        svc.get_all_providers_status = AsyncMock(
+            return_value=[
+                ProviderStatus(
+                    name="untranslated-provider",
+                    display_name="Original Provider Name",
+                    description="",
+                    status="ready",
+                    media_types=[],
+                    capabilities=[],
+                    required_keys=[],
+                    configured_keys=[],
+                    missing_keys=[],
+                )
+            ]
+        )
+
+        with _make_client(svc) as client:
+            resp = client.get("/api/v1/providers", headers={"accept-language": "en"})
+
+        assert resp.json()["providers"][0]["display_name"] == "Original Provider Name"
+
     def test_unconfigured_provider(self):
         with _make_client(self._mock_svc()) as client:
             resp = client.get("/api/v1/providers")

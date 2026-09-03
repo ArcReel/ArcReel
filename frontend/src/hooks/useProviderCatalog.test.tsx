@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useProviderCatalog } from "@/hooks/useProviderCatalog";
+import type { CatalogRefreshResult } from "@/hooks/useProviderCatalog";
 import { createDeferred } from "@/test/deferred";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
 
@@ -50,12 +51,12 @@ describe("useProviderCatalog", () => {
     await waitFor(() => expect(result.current.customProviders.map((p) => p.id)).toEqual([1]));
     saved = true;
 
-    let returned: CustomProviderInfo[] = [];
+    let returned: CatalogRefreshResult = { status: "aborted" };
     await act(async () => {
       returned = await result.current.refresh();
     });
 
-    expect(returned.map((p) => p.id)).toEqual([1, 2]);
+    expect(returned).toEqual({ status: "ok", customProviders: [custom(1), custom(2)] });
     expect(result.current.customProviders.map((p) => p.id)).toEqual([1, 2]);
   });
 

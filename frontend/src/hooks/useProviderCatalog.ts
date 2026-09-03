@@ -4,6 +4,15 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 
+/**
+ * 一次静默重取的结局。调用方要区分「重取失败」与「被后续请求作废」：前者目录停在旧内容、
+ * 需要告诉用户，后者是接管方会写下更新目录的正常并发路径，不该报错。
+ */
+export type CatalogRefreshResult =
+  | { status: "ok"; customProviders: CustomProviderInfo[] }
+  | { status: "aborted" }
+  | { status: "failed" };
+
 export interface ProviderCatalog {
   providers: ProviderInfo[];
   customProviders: CustomProviderInfo[];
@@ -12,10 +21,10 @@ export interface ProviderCatalog {
   /** 全量重取并回到 loading / 错误面板口径——错误面板的重试入口。 */
   reload: () => void;
   /**
-   * 静默重取整份目录；resolve 出最新的自定义供应商列表，供调用方按它改选中项。
-   * 在途的那次被作废时 resolve 出空列表——此时接管方会写下更新的目录。
+   * 静默重取整份目录；成功时带出最新的自定义供应商列表，供调用方按它改选中项。
+   * 失败与「被后续请求作废」分别 resolve 成 failed / aborted。
    */
-  refresh: () => Promise<CustomProviderInfo[]>;
+  refresh: () => Promise<CatalogRefreshResult>;
 }
 
 /**
@@ -40,7 +49,7 @@ export function useProviderCatalog(language: string): ProviderCatalog {
   const abortRef = useRef<AbortController | null>(null);
   const hasLoadedRef = useRef(false);
 
-  const load = useCallback(async (silent: boolean): Promise<CustomProviderInfo[]> => {
+  const load = useCallback(async (silent: boolean): Promise<CatalogRefreshResult> => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -53,16 +62,17 @@ export function useProviderCatalog(language: string): ProviderCatalog {
         API.getProviders({ signal: controller.signal }),
         API.listCustomProviders({ signal: controller.signal }),
       ]);
-      if (controller.signal.aborted) return [];
+      if (controller.signal.aborted) return { status: "aborted" };
       setProviders(presetRes.providers);
       setCustomProviders(customRes.providers);
       hasLoadedRef.current = true;
       setError(null);
       void useConfigStatusStore.getState().refresh();
-      return customRes.providers;
+      return { status: "ok", customProviders: customRes.providers };
     } catch (err) {
-      if (!controller.signal.aborted && !silent) setError(errMsg(err));
-      return [];
+      if (controller.signal.aborted) return { status: "aborted" };
+      if (!silent) setError(errMsg(err));
+      return { status: "failed" };
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }

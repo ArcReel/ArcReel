@@ -902,6 +902,7 @@ export default {
   'provider_list': '供应商列表',
   'preset_providers': '预置供应商',
   'select_provider': '请选择供应商',
+  'provider_saved_refresh_failed': '已保存，但供应商列表刷新失败，请重新加载页面',
 
   // ProviderDetail
   'status_connected': '已连接',
