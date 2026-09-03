@@ -617,6 +617,25 @@ def test_provider_rejection_stores_status_and_reason_as_separate_params():
         assert "InvalidParameter" not in rendered
 
 
+def test_provider_rejection_without_a_reason_still_stores_the_status():
+    """摘要缺席（认证类不透传、空响应体）时仍走结构化信封，读侧照常拿到本地化文案。"""
+    request = httpx.Request("POST", "https://x/v2?api_key=SECRETKEY")
+    exc = ProviderRejectedError(
+        "401 response for https://x/v2",
+        request=request,
+        response=httpx.Response(401, request=request),
+    )
+
+    stored = _encode_task_failure_message(exc)
+
+    assert json.loads(stored.split("] ", 1)[1]) == {"status": 401}
+    assert "SECRETKEY" not in stored
+    for locale in ("zh", "en", "vi"):
+        assert render_failure(stored, _translator(locale)) == MESSAGES[locale]["task_fail_provider_rejected"].format(
+            status=401
+        )
+
+
 @pytest.mark.parametrize(
     "legacy",
     [

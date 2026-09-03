@@ -298,7 +298,8 @@ interface CustomProviderFormProps {
   /** 接线时预选的调用端点：新建表单据此起一行模型。 */
   initialEndpoint?: EndpointKey;
   focusModelId?: string;
-  onSaved: () => void;
+  /** 保存成功。新建时带回刚创建的供应商，调用方据此选中它，不必等目录重取。 */
+  onSaved: (created?: CustomProviderInfo) => void;
   onCancel: () => void;
 }
 
@@ -547,6 +548,7 @@ export function CustomProviderForm({
     }
     setSaving(true);
     try {
+      let created: CustomProviderInfo | undefined;
       if (isEdit && existing) {
         // 单个事务原子更新 provider + models
         await API.fullUpdateCustomProvider(existing.id, {
@@ -559,7 +561,7 @@ export function CustomProviderForm({
           audio_max_workers: audioMax,
         });
       } else {
-        await API.createCustomProvider({
+        created = await API.createCustomProvider({
           display_name: displayName,
           discovery_format: discoveryFormat,
           base_url: baseUrl,
@@ -573,7 +575,7 @@ export function CustomProviderForm({
       // 能力覆盖随本次保存落库，但它不落任何项目字段，在用的能力查询不会因 props 变化而重取；
       // 显式作废，让常驻的能力警告无需重新挂载组件即随新覆盖增减。
       useCapabilitiesStore.getState().invalidate();
-      onSaved();
+      onSaved(created);
     } catch (e) {
       showError(t("save_failed", { message: errMsg(e) }));
     } finally {

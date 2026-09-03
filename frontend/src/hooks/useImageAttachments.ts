@@ -10,6 +10,13 @@ import {
 
 export const MAX_ATTACHED_IMAGES = 5;
 
+/** 转码失败原因到提示文案的映射；`gif` 与文件类型闸门共用同一条 GIF 提示。 */
+const TRANSCODE_FAILURE_HINTS = {
+  oversized: "image_still_too_large_hint",
+  gif: "image_gif_unsupported_hint",
+  decode: "image_unreadable_hint",
+} as const;
+
 export interface AttachedImage {
   id: string;
   dataUrl: string;
@@ -48,7 +55,9 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
   const transcodingRef = useRef(false);
 
   useEffect(() => () => {
+    // 卸载后排队中的图片再解码也没人收：清空队列，别让关掉的面板继续占着解码与内存。
     generationRef.current += 1;
+    queueRef.current = [];
   }, []);
 
   const addFiles = useCallback((files: File[]) => {
@@ -95,10 +104,7 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
               ];
             });
           } else {
-            setError(t(
-              result.failure === "oversized" ? "image_still_too_large_hint" : "image_unreadable_hint",
-              { name: pending.file.name },
-            ));
+            setError(t(TRANSCODE_FAILURE_HINTS[result.failure], { name: pending.file.name }));
           }
           pendingSlotsRef.current = Math.max(0, pendingSlotsRef.current - 1);
           setPendingTranscodes((current) => Math.max(0, current - 1));
