@@ -447,8 +447,8 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
 
     prompt = captured["prompt"]
     # speaker 首现顺序 = 音频编号 = 请求字段顺序（李四先开口，尽管张三先入画）
-    assert "<李四>的台词音色参考 @音频1，声音特征：清亮少女音。" in prompt
-    assert "<张三>的台词音色参考 @音频2，声音特征：低沉沙哑的男声。" in prompt
+    assert "<李四>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。" in prompt
+    assert "<张三>的台词音色参考 @音频2，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。" in prompt
     assert [p.name for p in captured["reference_audio_files"]] == ["李四.mp3", "张三.wav"]
     # speaker 位不产生参考图：李四没有 @图片N 绑定
     assert "<张三>@图片1。" in prompt

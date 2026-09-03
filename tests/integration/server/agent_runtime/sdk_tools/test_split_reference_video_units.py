@@ -250,7 +250,7 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext) -> Non
     assert "张三" in prompt_text
     # 上限是两套逐 unit 档位并集的最大值，随能力解析派生
     assert "8 秒" in prompt_text
-    assert "分段前缀" in prompt_text
+    assert "紧跟它所对应的那句动作" in prompt_text
 
 
 async def test_split_reference_video_units_happy_derives_structure(fake_ctx: ToolContext, monkeypatch) -> None:

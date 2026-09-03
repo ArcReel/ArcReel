@@ -76,8 +76,13 @@ def test_native_tier_binds_audio_in_speaker_first_appearance_order():
     )
     # 音频顺序即请求字段顺序，也即 @音频N 编号
     assert rendered.audio_speakers == ["张三", "李四"]
-    assert "<张三>的台词音色参考 @音频1，声音特征：低沉沙哑的男声。" in rendered.prompt
-    assert "<李四>的台词音色参考 @音频2，声音特征：清亮少女音。" in rendered.prompt
+    assert (
+        "<张三>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。"
+        in rendered.prompt
+    )
+    assert (
+        "<李四>的台词音色参考 @音频2，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。" in rendered.prompt
+    )
 
 
 def test_silent_episode_sends_dialogue_without_any_audio_binding():
@@ -518,7 +523,10 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
     assert rendered.audio_speaker_reference_index == [0]
     assert rendered.warnings == []
     assert f"<{_NAME_NFC}>@图片1" in rendered.prompt
-    assert f"<{_NAME_NFC}>的台词音色参考 @音频1，声音特征：清亮少女音。" in rendered.prompt
+    assert (
+        f"<{_NAME_NFC}>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。"
+        in rendered.prompt
+    )
     assert f"<{_NAME_NFC}> 推门而入" in rendered.prompt
     assert f"<{_NAME_NFC}>说 {{Tôi đến rồi.}}" in rendered.prompt
     # 引用语法记号一个都不该漏进供应商请求

@@ -6,7 +6,7 @@
 三段分工：
 
 - **第一段**：``<X>@图片N`` 简式绑定（图片编号 = 随请求发出的参考图顺序）+ 声音声明集中
-  声明区（``<X>的台词音色参考 @音频N，声音特征：…``）。听得到声音的 A/B 类均注入声音特征，
+  声明区（``<X>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``）。听得到声音的 A/B 类均注入声音特征，
   两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入
 - **第二段**：单元正文 + 角色台词记号（``<X>说 {台词}``）；无归属旁白（裸 ``{台词}``）
   不下发视频模型，由 TTS / 后期配音承担
@@ -201,7 +201,7 @@ def _render_voice_declarations(
     characters: dict,
     settings: VoiceRenderSettings,
 ) -> list[str]:
-    """声音声明行：``<X>的台词音色参考 @音频N，声音特征：…``。剧集与 ad 路径共用——两者的
+    """声音声明行：``<X>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``。剧集与 ad 路径共用——两者的
     主体绑定行统一使用 mention 派生的 ``ReferenceResource``；声音声明只认「已登记的
     dialogue speaker」，与主体绑定行解耦，可整段复用。
 
@@ -218,7 +218,7 @@ def _render_voice_declarations(
     for name in speakers:
         parts: list[str] = []
         if name in audio_no:
-            parts.append(f"台词音色参考 @音频{audio_no[name]}")
+            parts.append(f"台词音色参考 @音频{audio_no[name]}，只取音色、语速与情绪，台词以正文为准")
         char_data = characters.get(name)
         voice_style = str((char_data.get("voice_style") if isinstance(char_data, dict) else None) or "").strip()
         if voice_style:
