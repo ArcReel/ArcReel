@@ -77,7 +77,13 @@ python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.j
 - [ ] 当前 cwd 是项目根（含 `project.json`）
 - [ ] 剧本 content_mode 为 drama（顶层有 `scenes[]`）
 - [ ] 每个分镜的 `generated_assets.video_clip` 都已生成
-- [ ] `ffmpeg` / `ffprobe` 都在 PATH（脚本会预检）
+- [ ] `ffmpeg` / `ffprobe` 可用（脚本会预检）。不在 PATH 时按平台自动探测常见安装位：
+  - macOS：`/opt/homebrew/bin`、`/usr/local/bin`、`/opt/local/bin`、`/sw/bin`
+  - Windows：winget Links 目录、`%LOCALAPPDATA%` 与 `%ProgramFiles%` 下的 `ffmpeg\bin`、
+    `C:\ffmpeg\bin`、MSYS2 (`C:\msys64\usr\bin`、`mingw64\bin`)、Git for Windows 的 `usr\bin`
+  - Linux / 其他：`/usr/local/bin`、`/usr/bin`、`/bin`、`/snap/bin`、`/var/lib/flatpak/exports/bin`
+
+  全部未命中时报错会列出已探测目录与各平台安装方式；脚本不会自动下载或安装 ffmpeg。
 - [ ] BGM 文件存在（如指定 `--music`）
 
 ## 限制 / 缺失能力

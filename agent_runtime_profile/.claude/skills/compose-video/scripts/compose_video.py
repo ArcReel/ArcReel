@@ -11,12 +11,18 @@ Example:
 """
 
 import argparse
+import functools
 import json
 import math
+import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from types import MappingProxyType
 
 
 def _find_repo_root(start: Path) -> Path:
@@ -38,7 +44,162 @@ if str(PROJECT_ROOT) not in sys.path:
 from lib.project_manager import ProjectManager
 from lib.script_models import get_generated_assets
 
-FFMPEG_TOOLS_HINT = "需要 ffmpeg 和 ffprobe 同时可用，并且都在 PATH 中"
+FFMPEG_TOOLS_HINT = "需要 ffmpeg 和 ffprobe 同时可用（在 PATH 中，或位于下列常见安装位之一）"
+
+FFMPEG_TOOL_NAMES: tuple[str, str] = ("ffmpeg", "ffprobe")
+
+FFMPEG_INSTALL_HINTS: tuple[str, ...] = (
+    "macOS: brew install ffmpeg",
+    "Windows: winget install Gyan.FFmpeg，或把解压后的 bin 目录放到 C:\\ffmpeg\\bin",
+    "Linux: apt install ffmpeg / dnf install ffmpeg",
+)
+
+# PATH 未命中时按平台探测的常见安装位。模板中的 %VAR% 由 candidate_ffmpeg_dirs 展开，
+# 任一变量缺失则整条模板作废。列表集中在此维护，不散落到函数体内。
+FFMPEG_FALLBACK_DIR_TEMPLATES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "win32": (
+            r"%LOCALAPPDATA%\Microsoft\WinGet\Links",
+            r"%LOCALAPPDATA%\Programs\ffmpeg\bin",
+            r"%LOCALAPPDATA%\ffmpeg\bin",
+            r"%ProgramFiles%\ffmpeg\bin",
+            r"C:\ffmpeg\bin",
+            r"C:\msys64\usr\bin",
+            r"C:\msys64\mingw64\bin",
+            r"%ProgramFiles%\Git\usr\bin",
+            r"%ProgramFiles(x86)%\Git\usr\bin",
+        ),
+        "darwin": ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/sw/bin"),
+    }
+)
+
+# win32 / darwin 之外（Linux、*BSD 等）共用的探测位。
+FFMPEG_DEFAULT_FALLBACK_DIRS: tuple[str, ...] = (
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/snap/bin",
+    "/var/lib/flatpak/exports/bin",
+)
+
+_ENV_TEMPLATE_PATTERN = re.compile(r"%([^%]+)%")
+
+
+def _expand_env_template(template: str, environ: Mapping[str, str]) -> str | None:
+    """展开模板中的 %VAR%；任一变量缺失时返回 None，表示整条候选作废。"""
+    missing = False
+
+    def _substitute(match: re.Match[str]) -> str:
+        nonlocal missing
+        value = environ.get(match.group(1))
+        if value is None:
+            missing = True
+            return ""
+        return value
+
+    expanded = _ENV_TEMPLATE_PATTERN.sub(_substitute, template)
+    return None if missing else expanded
+
+
+def candidate_ffmpeg_dirs(
+    platform: str = sys.platform,
+    environ: Mapping[str, str] | None = None,
+) -> tuple[Path, ...]:
+    """给出该平台 PATH 之外的探测目录，按优先级去重。"""
+    env = os.environ if environ is None else environ
+    templates = FFMPEG_FALLBACK_DIR_TEMPLATES.get(platform, FFMPEG_DEFAULT_FALLBACK_DIRS)
+    dirs: list[Path] = []
+    for template in templates:
+        expanded = _expand_env_template(template, env)
+        if expanded is None:
+            continue
+        candidate = Path(expanded)
+        if candidate not in dirs:
+            dirs.append(candidate)
+    return tuple(dirs)
+
+
+def _default_is_executable(path: Path) -> bool:
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def _executable_names(tool: str, platform: str) -> tuple[str, ...]:
+    """Windows 下可执行文件带 .exe；MSYS2 / Git for Windows 也可能是无后缀的。"""
+    return (f"{tool}.exe", tool) if platform == "win32" else (tool,)
+
+
+def _locate_tool(
+    tool: str,
+    *,
+    which: Callable[[str], str | None],
+    is_executable: Callable[[Path], bool],
+    dirs: tuple[Path, ...],
+    platform: str,
+) -> str | None:
+    for name in _executable_names(tool, platform):
+        found = which(name)
+        if found:
+            return found
+    for directory in dirs:
+        for name in _executable_names(tool, platform):
+            candidate = directory / name
+            if is_executable(candidate):
+                return str(candidate)
+    return None
+
+
+@functools.cache
+def resolve_ffmpeg_tools(
+    *,
+    which: Callable[[str], str | None] = shutil.which,
+    is_executable: Callable[[Path], bool] = _default_is_executable,
+    candidate_dirs: tuple[Path, ...] | None = None,
+    platform: str = sys.platform,
+) -> tuple[str, str]:
+    """定位 ffmpeg 与 ffprobe 可执行文件，返回 (ffmpeg, ffprobe) 路径。
+
+    先查 PATH（`which`），未命中再按平台探测 candidate_ffmpeg_dirs()；
+    仍未命中则抛出含各平台安装提示的 RuntimeError。
+    `which` / `is_executable` / `candidate_dirs` 是测试注入点，生产调用不传。
+    """
+    dirs = candidate_ffmpeg_dirs(platform) if candidate_dirs is None else candidate_dirs
+    resolved: list[str] = []
+    for tool in FFMPEG_TOOL_NAMES:
+        found = _locate_tool(tool, which=which, is_executable=is_executable, dirs=dirs, platform=platform)
+        if found is None:
+            searched = "、".join(str(directory) for directory in dirs) or "（无）"
+            raise RuntimeError(
+                f"未找到可执行的 {tool}。{FFMPEG_TOOLS_HINT}。"
+                f"已探测的安装位: {searched}。"
+                f"安装方式 —— {'；'.join(FFMPEG_INSTALL_HINTS)}"
+            )
+        resolved.append(found)
+    return resolved[0], resolved[1]
+
+
+def reset_ffmpeg_tools_for_tests() -> None:
+    """清除 ffmpeg / ffprobe 定位结果的进程级缓存。"""
+    resolve_ffmpeg_tools.cache_clear()
+
+
+def resolved_command(cmd: list[str]) -> list[str]:
+    """把命令首位的 ffmpeg / ffprobe 工具名替换为解析出的可执行文件路径。"""
+    if not cmd:
+        raise ValueError("命令不能为空")
+    if cmd[0] not in FFMPEG_TOOL_NAMES:
+        return list(cmd)
+    ffmpeg_path, ffprobe_path = resolve_ffmpeg_tools()
+    return [ffmpeg_path if cmd[0] == "ffmpeg" else ffprobe_path, *cmd[1:]]
+
+
+def run_capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """脚本内唯一的子进程入口。
+
+    - 首位工具名经 resolve_ffmpeg_tools() 解析为绝对路径，不依赖 PATH 命中
+    - 强制 UTF-8 解码：`text=True` 按系统 locale 解码（中文 Windows 为 GBK），
+      含非 GBK 字符的路径或媒体元数据会让 stderr 解码抛 UnicodeDecodeError
+    """
+    return subprocess.run(resolved_command(cmd), capture_output=True, encoding="utf-8", errors="replace")
 
 
 def _require_project_cwd() -> tuple[ProjectManager, str, Path]:
@@ -54,19 +215,19 @@ def _require_project_cwd() -> tuple[ProjectManager, str, Path]:
     return pm, cwd.name, cwd
 
 
-def check_ffmpeg():
-    """检查 ffmpeg / ffprobe 是否可用"""
+def check_ffmpeg() -> bool:
+    """检查 ffmpeg / ffprobe 是否可定位且可执行"""
     try:
-        ffmpeg = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-        ffprobe = subprocess.run(["ffprobe", "-version"], capture_output=True, text=True)
-        return ffmpeg.returncode == 0 and ffprobe.returncode == 0
-    except FileNotFoundError:
+        ffmpeg = run_capture(["ffmpeg", "-version"])
+        ffprobe = run_capture(["ffprobe", "-version"])
+    except (RuntimeError, OSError):
         return False
+    return ffmpeg.returncode == 0 and ffprobe.returncode == 0
 
 
 def run_ffmpeg(cmd: list[str], error_prefix: str) -> None:
     """执行 ffmpeg / ffprobe 命令并在失败时抛出完整错误。"""
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_capture(cmd)
     if result.returncode != 0:
         raise RuntimeError(f"{error_prefix}: {result.stderr}")
 
@@ -114,7 +275,7 @@ def _coerce_numeric_duration(raw: object) -> float | None:
 
 def get_video_duration(video_path: Path) -> float:
     """获取视频时长"""
-    result = subprocess.run(
+    result = run_capture(
         [
             "ffprobe",
             "-v",
@@ -124,9 +285,7 @@ def get_video_duration(video_path: Path) -> float:
             "-of",
             "default=noprint_wrappers=1:nokey=1",
             str(video_path),
-        ],
-        capture_output=True,
-        text=True,
+        ]
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -140,7 +299,7 @@ def get_video_duration(video_path: Path) -> float:
 
 def probe_media(video_path: Path) -> dict[str, object]:
     """读取片段的基础媒体信息，用于统一中间片规格。"""
-    result = subprocess.run(
+    result = run_capture(
         [
             "ffprobe",
             "-v",
@@ -150,9 +309,7 @@ def probe_media(video_path: Path) -> dict[str, object]:
             "-show_streams",
             "-show_format",
             str(video_path),
-        ],
-        capture_output=True,
-        text=True,
+        ]
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -549,7 +706,7 @@ def concatenate_with_transitions(
             str(output_path),
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = run_capture(cmd)
 
         if result.returncode != 0:
             print(f"⚠️  转场效果失败，尝试简单拼接: {result.stderr[:200]}")
@@ -586,7 +743,7 @@ def add_background_music(video_path: Path, music_path: Path, output_path: Path, 
         str(output_path),
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_capture(cmd)
 
     if result.returncode != 0:
         raise RuntimeError(f"添加背景音乐失败: {result.stderr}")
@@ -712,9 +869,15 @@ def main():
     args = parser.parse_args()
 
     # 检查 ffmpeg / ffprobe
+    try:
+        resolve_ffmpeg_tools()
+    except RuntimeError as exc:
+        print(f"❌ 错误: {exc}")
+        sys.exit(1)
     if not check_ffmpeg():
         print(f"❌ 错误: {FFMPEG_TOOLS_HINT}")
-        print("   macOS 可执行: brew install ffmpeg")
+        for hint in FFMPEG_INSTALL_HINTS:
+            print(f"   {hint}")
         print("   安装后请确认 ffmpeg -version 和 ffprobe -version 都能执行")
         sys.exit(1)
 
