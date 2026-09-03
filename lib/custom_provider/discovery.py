@@ -10,6 +10,7 @@ from openai import OpenAI
 
 from lib.config.anthropic_url import derive_anthropic_endpoints
 from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint
+from lib.http_status_errors import raise_for_status_redacted
 from lib.httpx_shared import get_http_client
 
 logger = logging.getLogger(__name__)
@@ -95,7 +96,7 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
         },
         timeout=15.0,
     )
-    resp.raise_for_status()
+    raise_for_status_redacted(resp)
     data = resp.json()
     entries = sorted(
         (m for m in data.get("data", []) if m.get("id")),

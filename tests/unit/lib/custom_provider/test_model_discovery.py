@@ -9,7 +9,10 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
+
+from tests.http_capture import capture_http
 
 
 @contextmanager
@@ -485,6 +488,28 @@ class TestDiscoverModelsAnthropic:
         result = await discover_models(discovery_format="anthropic", base_url=None, api_key="k")
         assert [m["model_id"] for m in result] == ["claude-x"]
         assert result[0]["display_name"] == "claude-x"
+
+    async def test_status_error_message_drops_query_and_userinfo_credentials(self):
+        """4xx 抛的是脱敏后的 HTTPStatusError：base_url 里的查询串与权限段凭证都不进异常消息。
+
+        base_url 由用户自填，整条带 api_key query 的 URL 或 https://user:pw@host 形态都会被 httpx
+        原样保留在请求 URL 上；发现失败的异常消息经 discovery_failed 回到自定义供应商表单。
+        """
+        base_url = "https://ant-user:sk-leaked-userinfo@relay.example.com/anthropic?api_key=sk-leaked-query"
+        with capture_http() as http:
+            http.get(host="relay.example.com").respond(status_code=401, text="unauthorized")
+            async with httpx.AsyncClient() as client:
+                with patch("lib.custom_provider.discovery.get_http_client", return_value=client):
+                    from lib.custom_provider.discovery import discover_models
+
+                    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                        await discover_models(discovery_format="anthropic", base_url=base_url, api_key="sk-ant")
+
+        # 泄漏面真实存在：异常保留的请求 URL 两个凭证都带着，消息里都没有
+        assert "sk-leaked-userinfo" in str(exc_info.value.request.url)
+        assert "sk-leaked-query" in str(exc_info.value.request.url)
+        assert str(exc_info.value) == "401 response for https://relay.example.com/anthropic"
+        assert exc_info.value.response.status_code == 401
 
     async def test_unknown_format_raises(self):
         """anthropic 仍是已知 format；未知 format 抛 ValueError 含 anthropic。"""

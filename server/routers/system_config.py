@@ -35,6 +35,7 @@ from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
 from lib.db import get_async_session
+from lib.http_status_errors import raise_for_status_redacted
 from lib.httpx_shared import get_http_client
 from lib.i18n import DEFAULT_LOCALE, Locale, Translator, translate_or
 from server.dependencies import get_config_service
@@ -149,7 +150,7 @@ async def _get_latest_release(
         headers={"Accept": "application/vnd.github+json", "User-Agent": _GITHUB_USER_AGENT},
         timeout=5.0,
     )
-    response.raise_for_status()
+    raise_for_status_redacted(response)
     payload = _build_latest_release_payload(response.json())
 
     _latest_release_cache["payload"] = payload
