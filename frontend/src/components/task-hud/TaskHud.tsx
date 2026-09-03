@@ -1,6 +1,7 @@
 import { useCallback, useState, type RefObject } from "react";
 import { activateOnEnterSpace } from "@/utils/a11y";
 import { voidPromise } from "@/utils/async";
+import { providerReasonOf } from "@/utils/task-target";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Image,
@@ -46,16 +47,6 @@ const FILTER_STATUSES: Record<Exclude<TaskFilter, "all">, readonly TaskItem["sta
   failed: ["failed"],
   done: ["succeeded", "cancelled"],
 };
-
-/**
- * 上游拒因摘要：后端在 `provider_rejected` 的 error_params 里单独回传的上游原文。
- * 它不参与翻译，与走 i18n 模板的 error_message 分开渲染。
- */
-function providerReasonOf(task: TaskItem): string | null {
-  if (task.error_code !== "provider_rejected") return null;
-  const reason = task.error_params?.provider_reason;
-  return typeof reason === "string" && reason.trim() ? reason : null;
-}
 
 function matchesFilter(task: TaskItem, filter: TaskFilter): boolean {
   return filter === "all" || FILTER_STATUSES[filter].includes(task.status);

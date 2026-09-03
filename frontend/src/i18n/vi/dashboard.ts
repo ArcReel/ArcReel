@@ -800,6 +800,7 @@ export default {
   'prop_task_failed': 'Tạo đạo cụ "{{id}}" thất bại: {{reason}}',
   'grid_task_failed': 'Tạo phân cảnh đa lưới thất bại: {{reason}}',
   'image_edit_task_failed': 'Chỉnh sửa "{{id}}" thất bại: {{reason}}',
+  'task_failed_provider_reason_suffix': ' (Lý do từ nhà cung cấp: {{reason}})',
   // ========== reference-to-video editor ==========
   'reference_editor_view_aria': 'Chế độ xem trình soạn thảo',
   'reference_editor_view_script': 'Kịch bản',

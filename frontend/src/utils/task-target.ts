@@ -114,11 +114,47 @@ export function buildTaskFailureTarget(
 }
 
 /**
+ * 通知文案里拒因摘要的最大字符数。通知是一行 toast，超出部分截断并省略号收尾，
+ * 完整摘要仍可在任务面板（TaskHud）读到。
+ */
+const PROVIDER_REASON_MAX_LENGTH = 120;
+
+/**
+ * 上游拒因摘要：后端在 `provider_rejected` 的 error_params 里单独回传的上游原文，
+ * 不参与翻译，与走 i18n 模板的 error_message 分开渲染。级联失败等其它失败码没有
+ * 这个字段，返回 null。
+ */
+export function providerReasonOf(task: TaskItem): string | null {
+  if (task.error_code !== "provider_rejected") return null;
+  const reason = task.error_params?.provider_reason;
+  if (typeof reason !== "string") return null;
+  const trimmed = reason.trim();
+  return trimmed || null;
+}
+
+function truncateProviderReason(reason: string): string {
+  // 按码点切分：直接对 UTF-16 code unit 切片会从代理对中间断开，产出孤立代理。
+  const codePoints = [...reason];
+  return codePoints.length > PROVIDER_REASON_MAX_LENGTH
+    ? `${codePoints.slice(0, PROVIDER_REASON_MAX_LENGTH).join("")}…`
+    : reason;
+}
+
+/**
  * 失败任务的通知文案。未知 task_type 返回 null（调用方据此跳过推送）。
+ * 有上游拒因摘要时追加在按 task_type 选出的文案之后。
  */
 export function describeTaskFailure(t: TFunction, task: TaskItem): string | null {
   const reason = task.error_message ?? t("reference_status_failed");
   const config = FAILURE_TEXT_KEYS[task.task_type];
   if (!config) return null;
-  return t(config.key, { [config.idParam]: task.resource_id, reason });
+  const message = t(config.key, { [config.idParam]: task.resource_id, reason });
+  const providerReason = providerReasonOf(task);
+  if (!providerReason) return message;
+  // 拒因后缀单独取模板再拼接，不把已渲染的 message 当插值变量传回 i18next：插值
+  // 对每个 match 走 String.replace，只命中首个同名占位符，message 里若含
+  // `{{reason}}` 这类字面占位符（error_message 是上游原文，可能包含），拒因会落到
+  // 错误位置。
+  const suffix = t("task_failed_provider_reason_suffix", { reason: truncateProviderReason(providerReason) });
+  return `${message}${suffix}`;
 }
