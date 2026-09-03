@@ -20,11 +20,12 @@ def mock_xai():
 
 class TestProperties:
     def test_name(self, mock_xai):
-        with patch("lib.text_backends.grok.create_grok_client"):
+        with patch("lib.text_backends.grok.create_grok_client") as create_client:
             from lib.text_backends.grok import GrokTextBackend
 
             b = GrokTextBackend(api_key="k")
         assert b.name == "grok"
+        create_client.assert_called_once_with(api_key="k")
 
     def test_default_model(self, mock_xai):
         with patch("lib.text_backends.grok.create_grok_client"):
@@ -87,6 +88,11 @@ class TestGenerate:
         result = await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert result.text == '{"name": "test"}'
+        dynamic_model = mock_chat.parse.call_args.args[0]
+        assert set(dynamic_model.model_fields) == {"name"}
+        name_field = dynamic_model.model_fields["name"]
+        assert name_field.annotation == (str | None)
+        assert name_field.is_required() is False
 
     async def test_max_output_tokens_passed_to_chat_create(self, backend):
         """max_output_tokens 透传为 xai_sdk chat.create(max_tokens=)。"""
