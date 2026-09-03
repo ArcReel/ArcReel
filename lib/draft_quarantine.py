@@ -18,12 +18,20 @@ script_plan 就先取回一份草稿、改完走同一条晋升通道写盘。�
 
 信封形状::
 
-    {"kind": ..., "episode": N, "meta": {...}, "violations": [{"code","label","message"}, ...], "content": {...}}
+    {"kind": ..., "episode": N, "meta": {..., "schema_version": V},
+     "violations": [{"code","label","message"}, ...], "content": {...}}
 
 ``violations`` 是上一轮判定的快照，只供 Agent 阅读定位——晋升时一律按 ``content`` 现值重判，
 不信任草稿里的这份记录。``meta`` 存重判所需、又无法从项目状态重新导出的上下文：script_plan 的源文
 路径（晋升时按整个 ``source/`` 目录重解析会让原文锚的子串判定比产出时更松），以及产出 / 取回
 时正式文件的内容指纹（``base_fingerprint``，晋升前的乐观并发基线）。
+
+``meta`` 另有一个不属于重判上下文的键 ``schema_version``：信封自身的版本位。它由
+``quarantine_envelope`` 统一写入、由 ``read_quarantine`` 解析成 ``QuarantinedDraft.schema_version``
+后从 ``meta`` 里摘掉——消费方读解析结果，不去 ``meta`` 里摸裸键，``meta`` 也就只剩重判上下文
+（``draft_revision`` 的取值范围随之不受版本位影响）。缺失即 v1，口径见
+``resolve_schema_version``。本模块不带迁移框架：版本位只是改 ``meta`` 键语义时可依据的判据，
+没有任何分支按它分流。
 """
 
 from __future__ import annotations
@@ -84,6 +92,12 @@ _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
     ),
 }
 
+#: 本代码写出的隔离草稿信封版本，落在 ``meta.schema_version``。改动任一现有 ``meta`` 键的语义
+#: 时递增它，届时读侧才有据可依地分辨新旧草稿；只加键、不改既有键语义则不必动。
+QUARANTINE_SCHEMA_VERSION = 1
+
+_SCHEMA_VERSION_KEY = "schema_version"
+
 #: 晋升工具名。报告里的处置指引要指名它，写死在这里而非各调用点各写一遍。
 PROMOTE_TOOL_NAME = "promote_draft"
 
@@ -109,18 +123,75 @@ QUARANTINE_KIND_TO_DOC_TYPE: dict[str, str] = {kind: doc_type for doc_type, kind
 
 @dataclass(frozen=True)
 class QuarantinedDraft:
-    """一份读回内存的草稿。``content`` 是待重判的扁平产物，``violations`` 是上一轮的报告快照。"""
+    """一份读回内存的草稿。``content`` 是待重判的扁平产物，``violations`` 是上一轮的报告快照。
+
+    ``schema_version`` 是解析后的信封版本（缺失即 ``1``，口径见 ``resolve_schema_version``），
+    ``meta`` 里不再带这个键：版本位归这一个字段，重判上下文归 ``meta``。
+    """
 
     kind: str
     episode: int
     content: dict[str, Any]
     violations: list[dict[str, Any]]
     meta: dict[str, Any]
+    schema_version: int
     path: Path
 
 
+def resolve_schema_version(meta: dict[str, Any]) -> int:
+    """从落盘信封的 ``meta`` 原值解析出 schema 版本。版本位缺失或不可信时按 ``1`` 读。
+
+    这是「哪一版信封」的唯一判据，读取信封的一方走它，其余消费方走
+    ``QuarantinedDraft.schema_version``；两者都不各自去读 ``meta["schema_version"]``——口径散开后
+    每个调用点都会自己发明一套降级规则。入参是盘上那份 ``meta``，不是 ``QuarantinedDraft.meta``：
+    后者已摘掉版本位，传进来恒得 ``1``。
+
+    口径：
+
+    * **缺失** —— 不带版本位的信封解析为 ``1``；这些草稿的语义就是 v1。
+    * **非整数**（``bool`` / 浮点 / 字符串数字等）与 **小于 1 的整数** —— 同样解析为 ``1``。
+      版本位不可信时唯一确定的事实是「它不是本代码写出来的」，而只存在 v1 一种语义；
+      为此拒读会把一份仍能被 Agent 改好再晋升的草稿变成「无草稿」，代价远大于按最早的语义读。
+    * **大于 ``QUARANTINE_SCHEMA_VERSION`` 的未来版本** —— 原值返回，既不夹取到当前版本也不拒读。
+      本模块不做迁移框架，没有任何分支按这个值分流；提前夹取只会把一份新版草稿伪装成当前版本，
+      而真正需要降级读时，该拒读还是该兼容由那一次语义变更决定，不由此处预判。
+    """
+    version = meta.get(_SCHEMA_VERSION_KEY)
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        return 1
+    return version
+
+
+def quarantine_envelope(
+    kind: str,
+    episode: int,
+    *,
+    content: dict[str, Any],
+    violations: list[dict[str, Any]],
+    meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """组装可落盘的整份信封，顺带盖上当前的 ``meta.schema_version``。
+
+    落盘信封只由这里构造：版本位写在哪一版、盖在哪个键上只此一处，写侧不必逐个记得补。
+    传入的 ``meta`` 若自带 ``schema_version``（例如从读回的草稿改一改再写回），一律被当前
+    版本覆盖——写出去的这份就是本代码这一版，沿用读到的旧值等于给旧版本贴新语义。
+    """
+    return {
+        "kind": kind,
+        "episode": episode,
+        "meta": {**(meta or {}), _SCHEMA_VERSION_KEY: QUARANTINE_SCHEMA_VERSION},
+        "violations": violations,
+        "content": content,
+    }
+
+
 def draft_revision(draft: QuarantinedDraft) -> str:
-    """Return the canonical optimistic-concurrency token for persisted draft state."""
+    """Return the canonical optimistic-concurrency token for persisted draft state.
+
+    摘要覆盖的字段是 ``quarantine_envelope`` 落盘形状去掉版本位后的那一份：``meta`` 取
+    ``QuarantinedDraft.meta``（不含 ``schema_version``），令牌的取值范围因此与版本位无关。
+    改动落盘形状时这里要一并跟上。
+    """
     return prefixed_canonical_json_digest(
         {
             "kind": draft.kind,
@@ -186,13 +257,13 @@ def write_quarantine(
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(
         path,
-        {
-            "kind": kind,
-            "episode": episode,
-            "meta": meta or {},
-            "violations": violation_entries(violations),
-            "content": content,
-        },
+        quarantine_envelope(
+            kind,
+            episode,
+            content=content,
+            violations=violation_entries(violations),
+            meta=meta,
+        ),
     )
     return path
 
@@ -225,12 +296,14 @@ def read_quarantine(project_path: Path, episode: int, kind: str) -> QuarantinedD
     raw_violations = data.get("violations")
     violations = [v for v in raw_violations if isinstance(v, dict)] if isinstance(raw_violations, list) else []
     raw_meta = data.get("meta")
+    meta = raw_meta if isinstance(raw_meta, dict) else {}
     return QuarantinedDraft(
         kind=kind,
         episode=episode,
         content=content,
         violations=violations,
-        meta=raw_meta if isinstance(raw_meta, dict) else {},
+        meta={key: value for key, value in meta.items() if key != _SCHEMA_VERSION_KEY},
+        schema_version=resolve_schema_version(meta),
         path=path,
     )
 
@@ -297,15 +370,18 @@ __all__ = [
     "QUARANTINE_KIND_NARRATION_SCRIPT_PLAN",
     "QUARANTINE_KIND_PROMPT_AUTHORING",
     "QUARANTINE_KIND_SCRIPT_PLAN",
+    "QUARANTINE_SCHEMA_VERSION",
     "QuarantinedDraft",
     "clear_quarantine",
     "draft_payload",
     "draft_revision",
     "quarantine_and_report",
+    "quarantine_envelope",
     "quarantine_exists",
     "quarantine_path",
     "read_quarantine",
     "render_report",
+    "resolve_schema_version",
     "violation_entries",
     "write_quarantine",
 ]

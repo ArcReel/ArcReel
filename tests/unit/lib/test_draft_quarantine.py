@@ -18,11 +18,14 @@ from lib.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
+    QUARANTINE_SCHEMA_VERSION,
     clear_quarantine,
+    draft_revision,
     quarantine_exists,
     quarantine_path,
     read_quarantine,
     render_report,
+    resolve_schema_version,
     violation_entries,
     write_quarantine,
 )
@@ -137,6 +140,133 @@ class TestEnvelope:
         clear_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         clear_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         assert not quarantine_exists(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+
+
+class TestSchemaVersion:
+    """信封的版本位：写侧固定盖章、读侧缺失即 v1，且不改变任何现有键的语义。"""
+
+    def _envelope_with_meta(self, tmp_path: Path, meta: dict) -> Path:
+        """按给定的 meta 原值写一份草稿信封，绕开写侧的盖章。"""
+        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "kind": QUARANTINE_KIND_SCRIPT_PLAN,
+                    "episode": 1,
+                    "meta": meta,
+                    "violations": [],
+                    "content": {"units": [{"text": "镜头1：门开了"}]},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_written_draft_carries_current_schema_version_on_disk(self, tmp_path: Path):
+        path = write_quarantine(
+            tmp_path,
+            1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
+            content={"units": []},
+            violations=[],
+            meta={"source": "source/episode_1.txt"},
+        )
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        assert envelope["meta"]["schema_version"] == QUARANTINE_SCHEMA_VERSION
+        assert envelope["meta"]["source"] == "source/episode_1.txt"
+
+    def test_write_stamps_current_version_over_a_stale_one_carried_in_meta(self, tmp_path: Path):
+        """从读回的草稿改一改再写回时，写出去的这份就是本代码这一版；沿用读到的旧值等于给旧版本贴新语义。"""
+        path = write_quarantine(
+            tmp_path,
+            1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
+            content={"units": []},
+            violations=[],
+            meta={"schema_version": 99},
+        )
+        assert json.loads(path.read_text(encoding="utf-8"))["meta"]["schema_version"] == QUARANTINE_SCHEMA_VERSION
+
+    def test_roundtrip_exposes_version_as_field_not_as_meta_key(self, tmp_path: Path):
+        """消费方读解析结果，不去 meta 里摸裸键——版本位不留在 meta 上，meta 只剩重判上下文。"""
+        write_quarantine(
+            tmp_path,
+            1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
+            content={"units": []},
+            violations=[],
+            meta={"source": "source/episode_1.txt"},
+        )
+        draft = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        assert draft is not None
+        assert draft.schema_version == QUARANTINE_SCHEMA_VERSION
+        assert draft.meta == {"source": "source/episode_1.txt"}
+
+    def test_legacy_envelope_without_version_reads_as_v1_unchanged(self, tmp_path: Path):
+        """不带版本位的信封解析为 v1，其余字段照常读出：它与盖过章的信封走同一条读路。"""
+        self._envelope_with_meta(tmp_path, {"source": "source/episode_1.txt"})
+        draft = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        assert draft is not None
+        assert draft.schema_version == 1
+        assert draft.meta == {"source": "source/episode_1.txt"}
+        assert draft.content == {"units": [{"text": "镜头1：门开了"}]}
+        assert draft.violations == []
+
+    def test_version_bit_does_not_shift_the_optimistic_concurrency_token(self, tmp_path: Path):
+        """同一份内容盖章前后 revision 相同：版本位若进入令牌，持有未盖章草稿 revision 的 Agent
+        会被判 revision_conflict。"""
+        self._envelope_with_meta(tmp_path, {"source": "source/episode_1.txt"})
+        legacy = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        write_quarantine(
+            tmp_path,
+            1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
+            content={"units": [{"text": "镜头1：门开了"}]},
+            violations=[],
+            meta={"source": "source/episode_1.txt"},
+        )
+        stamped = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        assert legacy is not None
+        assert stamped is not None
+        assert draft_revision(legacy) == draft_revision(stamped)
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["1", 1.0, True, None, [1], {"v": 1}, 0, -3],
+        ids=["str", "float", "bool", "null", "list", "dict", "zero", "negative"],
+    )
+    def test_unusable_version_reads_as_v1(self, tmp_path: Path, raw: object):
+        """版本位不可信时唯一确定的事实是「它不是本代码写出来的」，而只有 v1 一种语义：
+        为此拒读会把一份仍能被 Agent 改好再晋升的草稿变成「无草稿」。"""
+        self._envelope_with_meta(tmp_path, {"source": "source/episode_1.txt", "schema_version": raw})
+        draft = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        assert draft is not None
+        assert draft.schema_version == 1
+        assert resolve_schema_version({"schema_version": raw}) == 1
+
+    def test_future_version_is_returned_as_is_and_still_readable(self, tmp_path: Path):
+        """未来版本原值返回、不夹取也不拒读：本模块不做迁移框架，夹取会把新版草稿伪装成当前版本。"""
+        future = QUARANTINE_SCHEMA_VERSION + 7
+        self._envelope_with_meta(tmp_path, {"source": "source/episode_1.txt", "schema_version": future})
+        draft = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        assert draft is not None
+        assert draft.schema_version == future
+        assert draft.content == {"units": [{"text": "镜头1：门开了"}]}
+
+    def test_missing_meta_object_reads_as_v1_with_empty_context(self, tmp_path: Path):
+        """meta 整个缺失（或被改成非对象）与版本位缺失同口径，不抛错。"""
+        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"kind": QUARANTINE_KIND_SCRIPT_PLAN, "episode": 1, "meta": [], "content": {"units": []}}),
+            encoding="utf-8",
+        )
+        draft = read_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+        assert draft is not None
+        assert draft.schema_version == 1
+        assert draft.meta == {}
 
 
 class TestReport:
