@@ -7,6 +7,7 @@ from lib.artifact_provenance import (
     build_ad_episode_script_basis,
     build_episode_script_basis,
     build_script_plan_basis,
+    decode_script_plan_source,
 )
 
 
@@ -569,3 +570,28 @@ def test_script_plan_basis_tracks_a_set_episode_target_duration() -> None:
 
     assert targeted.digest != unset.digest
     assert retargeted.digest != targeted.digest
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (b"line one\r\nline two\r\n", "line one\nline two\n"),
+        (b"line one\rline two", "line one\nline two"),
+        (b"line one\nline two\n", "line one\nline two\n"),
+    ],
+)
+def test_decode_script_plan_source_matches_universal_newline_reads(raw: bytes, expected: str) -> None:
+    """Basis reconstruction decodes the source exactly as ``Path.read_text`` hands it to the tools."""
+    assert decode_script_plan_source(raw) == expected
+
+
+def test_script_plan_basis_is_stable_across_source_line_endings() -> None:
+    """A source persisted with CRLF yields the same basis as the LF text the split tool froze."""
+    project = {"content_mode": "narration", "generation_mode": "storyboard", "episodes": [{"episode": 1}]}
+    frozen = build_script_plan_basis("第一行\n第二行\n", episode=1, project=project)
+    reconstructed = build_script_plan_basis(
+        decode_script_plan_source("第一行\r\n第二行\r\n".encode()),
+        episode=1,
+        project=project,
+    )
+    assert reconstructed.digest == frozen.digest

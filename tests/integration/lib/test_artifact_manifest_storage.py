@@ -24,6 +24,7 @@ from lib.artifact_manifest import (
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
+from lib.visual_artifact_provenance import visual_file_digest
 
 _RUNTIME_FIFO_COMPARISON = """
 import json
@@ -1162,3 +1163,66 @@ def test_project_adapter_reports_excessive_manifest_nesting_as_blocked_without_r
     with pytest.raises(ArtifactManifestError):
         manifest.register(key, artifact_path="episode.json", basis=basis)
     assert manifest_path.read_bytes() == malformed
+
+
+def test_project_adapter_hashes_content_through_a_binary_descriptor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Content digests must come from the raw bytes: a CRLF / 0x1A payload hashes like ``sha256`` of the file.
+
+    Platforms whose C runtime defaults descriptors to text mode translate line endings and stop at
+    ``0x1A`` unless the open request carries ``O_BINARY``; the portable content path and the manifest
+    read path must both request it whenever the platform defines the flag, and the digest must equal
+    the byte-for-byte hash either way.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    payload = b'{"a":1}\r\n\x1a{"trailing":2}\r\n'
+    (project / "episode.json").write_bytes(payload)
+    fake_binary_flag = 0x8000
+    monkeypatch.setattr(os, "O_BINARY", fake_binary_flag, raising=False)
+    original_open = os.open
+    open_flags: dict[str, list[int]] = {"episode.json": [], MANIFEST_FILENAME: []}
+
+    def record_open(path: str | bytes | Path, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
+        name = os.path.basename(os.fsdecode(path))
+        if name in open_flags:
+            open_flags[name].append(flags)
+        # 假标志位只用于观察请求，真实 POSIX open 不认识它。
+        return original_open(path, flags & ~fake_binary_flag, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("lib.artifact_manifest.os.open", record_open)
+    adapter = ProjectArtifactManifestAdapter(project, nofollow_supported=False)
+
+    snapshot = adapter.inspect_artifact_content("episode.json")
+
+    assert snapshot.present
+    assert snapshot.content_digest == hashlib.sha256(payload).hexdigest()
+
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_script(1)
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"script_plan": "source"})
+    manifest.register(key, artifact_path="episode.json", basis=basis)
+    assert manifest.compare(key, artifact_path="episode.json", basis=basis).status is ArtifactStatus.CURRENT
+
+    for name, recorded in open_flags.items():
+        assert recorded, name
+        assert all(flags & fake_binary_flag for flags in recorded), (name, recorded)
+
+
+def test_project_adapter_content_digest_matches_visual_file_digest(tmp_path: Path) -> None:
+    """Asset bytes hash identically through the adapter and through ``visual_file_digest``.
+
+    The PNG signature already contains CRLF and ``0x1A``, so the two digests agree only when both
+    sides read the file byte for byte.
+    """
+    project = tmp_path / "project"
+    (project / "characters").mkdir(parents=True)
+    image = project / "characters" / "江照.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"IHDR\r\n" * 3)
+
+    snapshot = ProjectArtifactManifestAdapter(project).inspect_artifact_content("characters/江照.png")
+
+    assert snapshot.present
+    assert snapshot.content_digest == visual_file_digest(image) == hashlib.sha256(image.read_bytes()).hexdigest()

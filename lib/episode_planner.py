@@ -952,7 +952,8 @@ class EpisodePlanner:
         # 校验全部通过后统一落盘：校验类失败不会留下按新布局部分重写的派生文件
         source_dir.mkdir(exist_ok=True)
         for episode_path, content in writes:
-            episode_path.write_text(content, encoding="utf-8")
+            # 派生文件的字节与账本切片文本一致：不做平台换行翻译，Manifest 依据按字节重算才稳定。
+            episode_path.write_text(content, encoding="utf-8", newline="\n")
         for num, path in discover_episode_files(self.project_path).items():
             if num not in keep:
                 try:

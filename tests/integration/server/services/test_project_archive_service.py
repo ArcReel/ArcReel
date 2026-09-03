@@ -420,6 +420,42 @@ class TestProjectArchiveService:
         assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
         assert not (pm.projects_root / "demo").exists()
 
+    def test_import_accepts_official_manifest_claim_hashed_through_a_text_mode_descriptor(self, tmp_path):
+        """归档信封里的 content_digest 若是文本模式读取视角（CRLF 折叠、读到 0x1A 为止）的摘要，仍能证明同一份字节。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        formal_bytes = b"\x89PNG\r\n\x1a\nIHDR\r\n"
+        _write_bytes(project_dir / "characters" / "Hero.png", formal_bytes)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+        key = ArtifactKey.asset_sheet("character", "Hero")
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+        legacy_path = tmp_path / "legacy.zip"
+        with (
+            zipfile.ZipFile(archive_path) as source,
+            zipfile.ZipFile(legacy_path, "w", compression=zipfile.ZIP_DEFLATED) as target,
+        ):
+            for member in source.infolist():
+                content = source.read(member)
+                if member.filename == f"demo/{ARCHIVE_MANIFEST_NAME}":
+                    envelope = json.loads(content)
+                    entry = envelope["artifact_manifest"]["entries"][key.encode()]
+                    assert entry["content_digest"] == hashlib.sha256(formal_bytes).hexdigest()
+                    entry["content_digest"] = hashlib.sha256(b"\x89PNG\n").hexdigest()
+                    content = json.dumps(envelope, ensure_ascii=False).encode("utf-8")
+                target.writestr(member, content)
+        shutil.rmtree(project_dir)
+
+        service.import_project_archive(legacy_path, uploaded_filename="legacy.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert (imported_dir / "characters" / "Hero.png").read_bytes() == formal_bytes
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) is not None
+
     def test_official_round_trip_preserves_a_stale_asset_claim(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)

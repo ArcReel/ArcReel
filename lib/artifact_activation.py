@@ -11,6 +11,7 @@ state; ordinary readers never repair or infer entries on first access.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -25,6 +26,7 @@ from lib.artifact_currency import (
     active_artifact_currency_resolver,
     artifact_is_usable,
     read_artifact_content_digest,
+    read_artifact_content_snapshot,
     resolve_artifact_episode,
     resolve_current_artifact_basis,
     resolve_current_artifact_target,
@@ -185,7 +187,7 @@ def ensure_imported_artifact_target_state(
             replaced = [
                 key.encode()
                 for key, entry in preserved_entries.items()
-                if read_artifact_content_digest(adapter, entry.artifact_path) != preserved_content_digests[key]
+                if not _archived_content_digest_matches(adapter, entry.artifact_path, preserved_content_digests[key])
             ]
             if replaced:
                 raise ValueError(
@@ -212,6 +214,29 @@ def snapshot_preserved_artifact_manifest(
         }
         _assert_preflight_unchanged(project_dir, plan)
     return ArtifactManifestArchiveSnapshot(entries=rebased, content_digests=content_digests)
+
+
+def _archived_content_digest_matches(
+    adapter: ProjectArtifactManifestAdapter,
+    artifact_path: str,
+    archived_digest: str,
+) -> bool:
+    """Accept archived formal-byte evidence hashed from the raw bytes or from a text-mode descriptor view.
+
+    Windows archives can carry digests taken through a text-mode descriptor: CRLF folded to LF
+    and the read stopped at the first ``0x1A`` byte.  Such evidence still proves the same formal bytes.
+    """
+
+    if read_artifact_content_digest(adapter, artifact_path) == archived_digest:
+        return True
+    content, _digest = read_artifact_content_snapshot(adapter, artifact_path)
+    return hashlib.sha256(_text_mode_descriptor_view(content)).hexdigest() == archived_digest
+
+
+def _text_mode_descriptor_view(content: bytes) -> bytes:
+    """Bytes a Windows C-runtime text-mode read yields for ``content``."""
+
+    return content.split(b"\x1a", 1)[0].replace(b"\r\n", b"\n")
 
 
 def _plan_preserved_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:

@@ -2254,3 +2254,44 @@ def test_nested_ledger_script_path_is_blocked_before_dispatch(tmp_path: Path) ->
     assert status.target.script_filename == "archive/custom.json"
     assert status.blockers[0].code == "invalid_script_path"
     assert status.next_action.type == "none"
+
+
+def test_script_plan_registered_from_read_text_source_stays_current_with_crlf_bytes(tmp_path: Path) -> None:
+    """A derived source persisted with CRLF must not leave the registered script_plan stale.
+
+    The split tool freezes the basis over ``Path.read_text`` output; canonical reconstruction reads
+    the same file as bytes and must reach the identical digest, otherwise the workflow reports a
+    permanently stale script_plan that no rebuild can clear.
+    """
+    from lib.artifact_currency import ArtifactCurrencyResolver
+    from lib.artifact_manifest import ArtifactStatus
+    from lib.artifact_provenance import build_script_plan_request
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "第一行\n第二行\n"
+    _write_source_and_complete(pm, project_path, source_text)
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}]
+
+    pm.update_project("demo", _plan)
+    source_path = project_path / "source" / "episode_1.txt"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_bytes(source_text.replace("\n", "\r\n").encode("utf-8"))
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(draft_dir / "script_plan_segments.json", {"episode": 1, "segments": []})
+    project = pm.load_project("demo")
+    _prompt_inputs, basis = build_script_plan_request(
+        source_path.read_text(encoding="utf-8"),
+        episode=1,
+        project=project,
+        expected_variant="narration",
+    )
+    key = ArtifactKey.episode_script_plan(1)
+    artifact_path = "drafts/episode_1/script_plan_segments.json"
+    register_current_artifact(project_path, key, artifact_path=artifact_path, basis=basis)
+
+    comparison = ArtifactCurrencyResolver(project_path).compare(key, artifact_path=artifact_path)
+
+    assert comparison.status is ArtifactStatus.CURRENT
