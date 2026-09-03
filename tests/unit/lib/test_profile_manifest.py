@@ -769,6 +769,22 @@ def test_full_force_reset_discards_all_customized_files_and_restores_builtin(tmp
     }
 
 
+def test_profile_reset_preserves_project_private_area(tmp_path: Path) -> None:
+    from lib.profile_manifest import force_resync_profile
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    memory = project / ".arcreel" / "memory" / "MEMORY.md"
+    memory.parent.mkdir(parents=True)
+    memory.write_text("keep", encoding="utf-8")
+
+    assert ".arcreel/memory/MEMORY.md" not in enumerate_dest_files(project)
+
+    force_resync_profile(profile, project, content_mode="narration")
+
+    assert memory.read_text(encoding="utf-8") == "keep"
+
+
 def test_profile_status_reports_user_deletion_before_next_sync(tmp_path: Path) -> None:
     from lib.profile_manifest import get_profile_status, sync_profile_to_project
 

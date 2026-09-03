@@ -277,7 +277,7 @@ There is no fixed “price per minute” that applies to every project. Evaluate
 
 ### What is the difference between a project ZIP and a full-instance backup? {#project-zip-vs-full-backup}
 
-A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, or Agent sessions.
+A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, Agent sessions, or Agent memory.
 
 For disaster recovery, use the full-instance backup approach described above and save the project directory, database, and required credentials together.
 
