@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { assetColor } from "./asset-colors";
 import { Popover } from "@/components/ui/Popover";
 import { API } from "@/api";
-import { normalizeAssetName } from "@/utils/reference-mentions";
+import { formatReferenceName, normalizeAssetName, splitDerivativeReference } from "@/utils/reference-mentions";
 import type { AssetKind } from "@/types/reference-video";
 
 /** Default DOM id for the listbox; paired with combobox aria-controls in ReferenceVideoCard. */
@@ -307,7 +307,14 @@ export function MentionPicker({
                             <span className={`h-2 w-2 rounded-full ${palette.bgClass} ${palette.borderClass} border`} />
                           </span>
                         )}
-                        <span className="truncate" title={item.name}>{item.name}</span>
+                        <span className="truncate" title={formatReferenceName(item.name)}>
+                          {formatReferenceName(item.name)}
+                        </span>
+                        {splitDerivativeReference(item.name)[1] && (
+                          <span className="shrink-0 rounded bg-indigo-800/60 px-1 py-0.5 text-[10px] font-semibold text-indigo-300">
+                            {t("reference_picker_derivative_tag")}
+                          </span>
+                        )}
                       </button>
                     );
                   })}

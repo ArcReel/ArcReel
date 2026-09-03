@@ -13,25 +13,31 @@
 
 from __future__ import annotations
 
+from lib.prompt_rules.asset_appearance import asset_reference_names, iter_asset_appearances
 from lib.prompt_rules.episode_target_duration import render_episode_target_duration_rule
 from lib.reference_video.writing_syntax import writing_syntax_spec
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
 
 
-def _format_asset_names(assets: dict | None) -> str:
-    if not assets:
+def _format_asset_names(assets: dict | None, asset_type: str) -> str:
+    """资产块：引用名 + 外观描述。角色的 ``本体名/衍生名`` 与其合成外观由
+    :func:`lib.prompt_rules.asset_appearance.iter_asset_appearances` 一并展开。
+    """
+    lines = [
+        f"- {name}: " + appearance.replace("\n", "\n  ")
+        for name, appearance in iter_asset_appearances(asset_type, assets)
+    ]
+    if not lines:
         return "（暂无）"
-    return "\n".join(
-        f"- {name}: {meta.get('description', '') if isinstance(meta, dict) else ''}" for name, meta in assets.items()
-    )
+    return "\n".join(lines)
 
 
 def _candidate_block(characters: dict, scenes: dict, props: dict) -> str:
     return (
-        f"  - character: {', '.join(characters.keys()) or '（暂无）'}\n"
-        f"  - scene: {', '.join(scenes.keys()) or '（暂无）'}\n"
-        f"  - prop: {', '.join(props.keys()) or '（暂无）'}"
+        f"  - character: {', '.join(asset_reference_names('character', characters)) or '（暂无）'}\n"
+        f"  - scene: {', '.join(asset_reference_names('scene', scenes)) or '（暂无）'}\n"
+        f"  - prop: {', '.join(asset_reference_names('prop', props)) or '（暂无）'}"
     )
 
 
@@ -208,15 +214,15 @@ def build_reference_units_split_prompt(
 </overview>
 
 <characters>
-{_format_asset_names(characters)}
+{_format_asset_names(characters, "character")}
 </characters>
 
 <scenes>
-{_format_asset_names(scenes)}
+{_format_asset_names(scenes, "scene")}
 </scenes>
 
 <props>
-{_format_asset_names(props)}
+{_format_asset_names(props, "prop")}
 </props>
 
 ## 小说原文
@@ -342,15 +348,15 @@ def build_reference_video_prompt(
 </style>
 
 <characters>
-{_format_asset_names(characters)}
+{_format_asset_names(characters, "character")}
 </characters>
 
 <scenes>
-{_format_asset_names(scenes)}
+{_format_asset_names(scenes, "scene")}
 </scenes>
 
 <props>
-{_format_asset_names(props)}
+{_format_asset_names(props, "prop")}
 </props>
 
 <script_plan_units>

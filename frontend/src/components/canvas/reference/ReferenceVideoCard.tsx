@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useUnitPromptHighlight, type Token } from "@/hooks/useUnitPromptHighlight";
-import { buildMentionLookup, MENTION_RE } from "@/utils/reference-mentions";
+import { buildMentionLookup, characterReferenceForms, MENTION_RE } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   SHEET_FIELD,
@@ -155,26 +155,32 @@ export function ReferenceVideoCard({
   const [atStart, setAtStart] = useState<number | null>(null);
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
-    const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
+    const buckets: Record<Exclude<AssetKind, "character">, Record<string, unknown> | undefined> = {
       product: project?.products,
-      character: project?.characters,
       scene: project?.scenes,
       prop: project?.props,
     };
     const out = {} as Record<AssetKind, MentionCandidate[]>;
-    for (const kind of ["product", "character", "scene", "prop"] as const) {
+    for (const kind of ["product", "scene", "prop"] as const) {
       const bucket = buckets[kind];
       out[kind] = Object.entries(bucket ?? {}).map(([name, data]) => ({
         name,
         imagePath: (data as Partial<Record<(typeof SHEET_FIELD)[AssetKind], string>>)[SHEET_FIELD[kind]] ?? null,
       }));
     }
+    // 角色候选含衍生：`本体名/衍生名` 是独立的引用名，取的是该形态自己的资产图。
+    out.character = characterReferenceForms(project?.characters).map((form) => ({
+      name: form.name,
+      imagePath: form.asset.character_sheet ?? null,
+    }));
     return out;
   }, [project?.products, project?.characters, project?.scenes, project?.props]);
 
   const updatePickerFromCursor = useCallback((nextValue: string, cursor: number) => {
-    // 向左扫描寻找 @ 触发符。旧格式只允许 `\w` + CJK 作为正在输入的 query；
+    // 向左扫描寻找 @ 触发符。旧格式只允许 `\w` + CJK + `/` 作为正在输入的 query；
     // 包裹格式 `@[query` 则允许标点参与过滤，直到遇到空白或闭合括号。
+    // `/` 是衍生引用名的分隔符（`本体/衍生`）：不放行它，键入 `@阿岚/` 会当场关掉候选列表，
+    // 衍生就只能靠包裹形态或整段搜索才选得到。插入的仍是包裹形态 `@[本体/衍生]`。
     let i = cursor - 1;
     while (i >= 0) {
       const ch = nextValue[i];
@@ -184,7 +190,7 @@ export function ReferenceVideoCard({
         if (i === 0 || !/\w/.test(prev ?? "")) {
           const rawQuery = nextValue.slice(i + 1, cursor);
           const isWrapped = rawQuery.startsWith("[");
-          if (!isWrapped && !/^[\w一-鿿]*$/.test(rawQuery)) break;
+          if (!isWrapped && !/^[\w一-鿿/]*$/.test(rawQuery)) break;
           setAtStart(i);
           setPickerQuery(isWrapped ? rawQuery.slice(1) : rawQuery);
           setPickerOpen(true);

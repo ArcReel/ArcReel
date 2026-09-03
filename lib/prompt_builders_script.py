@@ -9,6 +9,7 @@
 - 节奏建议由 lib.prompt_rules.episode_pacing 注入，跨子智能体与 builder 共享。
 """
 
+from lib.prompt_rules.asset_appearance import asset_reference_names, iter_asset_appearances
 from lib.prompt_rules.episode_pacing import render_pacing_section
 from lib.prompt_rules.episode_target_duration import render_episode_target_duration_rule
 from lib.speech_rate import speech_rate_units_per_second
@@ -26,30 +27,33 @@ def append_user_instructions(prompt: str, instructions: str | None) -> str:
     return f"{prompt}\n\n{USER_INSTRUCTIONS_HEADER}\n{instructions}"
 
 
-def _format_names(items: dict) -> str:
-    if not items:
+def _format_names(items: dict, asset_type: str) -> str:
+    names = asset_reference_names(asset_type, items)
+    if not names:
         return "（暂无）"
-    return "\n".join(f"- {name}" for name in items)
+    return "\n".join(f"- {name}" for name in names)
 
 
-def _format_assets_with_desc(items: dict) -> str:
-    """渲染资产块：名称 + 外观描述，供 prompt_authoring 视觉层写细节时取材。
+def _format_assets_with_desc(items: dict, asset_type: str) -> str:
+    """渲染资产块：引用名 + 外观描述，供 prompt_authoring 视觉层写细节时取材。
+
+    角色的引用名含 ``本体名/衍生名``，其外观是本体描述加上这一段变化——两者的展开由
+    :func:`lib.prompt_rules.asset_appearance.iter_asset_appearances` 统一渲染。
 
     缺描述 / value 非 dict（存量脏数据）时退化为纯名字。名称与描述都是 project.json
     动态文本，过 ``_neutralize_tags`` 中和尖括号；多行描述续行缩进，避免 flush-left
     溢出标签块。
     """
-    if not items:
-        return "（暂无）"
     lines: list[str] = []
-    for name, data in items.items():
-        safe_name = _neutralize_tags(str(name))
-        desc = data.get("description") if isinstance(data, dict) else None
-        if isinstance(desc, str) and desc.strip():
-            desc_block = _neutralize_tags(desc.strip()).replace("\n", "\n  ")
+    for name, appearance in iter_asset_appearances(asset_type, items):
+        safe_name = _neutralize_tags(name)
+        if appearance:
+            desc_block = _neutralize_tags(appearance).replace("\n", "\n  ")
             lines.append(f"- {safe_name}：{desc_block}")
         else:
             lines.append(f"- {safe_name}")
+    if not lines:
+        return "（暂无）"
     return "\n".join(lines)
 
 
@@ -316,15 +320,15 @@ def build_narration_prompt(
 </style>
 
 <characters>
-{_format_assets_with_desc(characters)}
+{_format_assets_with_desc(characters, "character")}
 </characters>
 
 <scenes>
-{_format_assets_with_desc(scenes)}
+{_format_assets_with_desc(scenes, "scene")}
 </scenes>
 
 <props>
-{_format_assets_with_desc(props)}
+{_format_assets_with_desc(props, "prop")}
 </props>
 
 {_ASSET_APPEARANCE_NOTE}
@@ -446,15 +450,15 @@ def build_drama_prompt(
     assets_block = ""
     if characters is not None or scenes is not None or props is not None:
         assets_block = f"""<characters>
-{_format_assets_with_desc(characters or {})}
+{_format_assets_with_desc(characters or {}, "character")}
 </characters>
 
 <scenes>
-{_format_assets_with_desc(scenes or {})}
+{_format_assets_with_desc(scenes or {}, "scene")}
 </scenes>
 
 <props>
-{_format_assets_with_desc(props or {})}
+{_format_assets_with_desc(props or {}, "prop")}
 </props>
 
 {_ASSET_APPEARANCE_NOTE}
@@ -556,12 +560,12 @@ def build_normalize_prompt(
     ``project_episode_target_duration`` 解析），驱动模型决定本集拆多少个场景；``None`` 即未设目标、
     不注入该段。它与 ``default_duration`` 是两个尺度（整集体量 vs 单场默认秒数），同为软偏好。
     """
-    char_list = _format_names(characters)
-    scene_list = _format_names(scenes)
-    prop_list = _format_names(props)
-    character_names = list(characters.keys())
-    scene_names = list(scenes.keys())
-    prop_names = list(props.keys())
+    char_list = _format_names(characters, "character")
+    scene_list = _format_names(scenes, "scene")
+    prop_list = _format_names(props, "prop")
+    character_names = asset_reference_names("character", characters)
+    scene_names = asset_reference_names("scene", scenes)
+    prop_names = asset_reference_names("prop", props)
 
     is_screenplay = source_kind == "screenplay"
     task_line = _NORMALIZE_TASK_SCREENPLAY if is_screenplay else _NORMALIZE_TASK_NOVEL
@@ -745,9 +749,9 @@ def build_narration_split_prompt(
         duration_rule = f"{duration_rule}。{episode_target_rule}"
     pacing_block = render_pacing_section("narration") + "\n\n"
 
-    character_names = list(characters.keys())
-    scene_names = list(scenes.keys())
-    prop_names = list(props.keys())
+    character_names = asset_reference_names("character", characters)
+    scene_names = asset_reference_names("scene", scenes)
+    prop_names = asset_reference_names("prop", props)
 
     return f"""# 角色与任务
 
@@ -771,15 +775,15 @@ def build_narration_split_prompt(
 </overview>
 
 <characters>
-{_format_names(characters)}
+{_format_names(characters, "character")}
 </characters>
 
 <scenes>
-{_format_names(scenes)}
+{_format_names(scenes, "scene")}
 </scenes>
 
 <props>
-{_format_names(props)}
+{_format_names(props, "prop")}
 </props>
 
 ## 小说原文

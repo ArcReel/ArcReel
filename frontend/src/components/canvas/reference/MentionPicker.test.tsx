@@ -97,6 +97,21 @@ describe("MentionPicker", () => {
     expect(screen.getByText(/No matches|无匹配项/)).toBeInTheDocument();
   });
 
+  it("labels a derivative candidate as `本体 / 衍生` but selects the raw reference name", () => {
+    const onSelect = vi.fn();
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={{ character: [{ name: "主角/劲装", imagePath: null }], scene: [], prop: [] }}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("option", { name: /主角 \/ 劲装/ }));
+    expect(onSelect).toHaveBeenCalledWith({ type: "character", name: "主角/劲装" });
+  });
+
   it("invokes onSelect with {type,name} when an option is clicked", () => {
     const onSelect = vi.fn();
     render(

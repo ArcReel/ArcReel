@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   buildMentionLookup,
+  characterReferenceForms,
   extractMentions,
+  formatReferenceName,
   lineSpeechMarks,
   normalizeAssetName,
+  referenceInitial,
+  resolveCharacterForm,
   splitScriptLines,
   splitDerivativeReference,
   splitSpeechLine,
@@ -346,5 +350,46 @@ describe("@[角色/衍生]", () => {
   it("keeps the derivative mention out of the reference images when it only speaks", () => {
     expect(extractMentions("@[阿岚/战斗装]{我来了}")).toEqual([]);
     expect(extractMentions("@[阿岚/战斗装] 推门")).toEqual(["阿岚/战斗装"]);
+  });
+
+  it("lists every form with its ontology first", () => {
+    const characters = {
+      阿岚: { description: "", derivatives: { 战斗装: { description: "" }, 便装: { description: "" } } },
+      青禾: { description: "" },
+    };
+
+    expect(characterReferenceForms(characters).map((form) => form.name)).toEqual([
+      "阿岚",
+      "阿岚/战斗装",
+      "阿岚/便装",
+      "青禾",
+    ]);
+  });
+
+  it("resolves a form to its own entry, and an unregistered one to undefined", () => {
+    const characters = {
+      阿岚: {
+        description: "本体",
+        character_sheet: "characters/阿岚.png",
+        derivatives: { 战斗装: { description: "重甲", character_sheet: "characters/derivatives/阿岚/战斗装.png" } },
+      },
+    };
+
+    expect(resolveCharacterForm(characters, "阿岚/战斗装")?.asset).toEqual({
+      description: "重甲",
+      character_sheet: "characters/derivatives/阿岚/战斗装.png",
+    });
+    expect(resolveCharacterForm(characters, "阿岚")?.asset.character_sheet).toBe("characters/阿岚.png");
+    expect(resolveCharacterForm(characters, "阿岚/夜行衣")).toBeUndefined();
+  });
+
+  it("spaces out the separator for display only", () => {
+    expect(formatReferenceName("阿岚/战斗装")).toBe("阿岚 / 战斗装");
+    expect(formatReferenceName("阿岚")).toBe("阿岚");
+  });
+
+  it("takes the placeholder initial from the derivative so sibling forms differ", () => {
+    expect(referenceInitial("阿岚/战斗装")).toBe("战");
+    expect(referenceInitial("阿岚")).toBe("阿");
   });
 });

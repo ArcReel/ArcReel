@@ -141,3 +141,49 @@ def test_resolve_reference_assets_dedupes_a_repeated_mention(tmp_path: Path):
     register_asset_sheet(proj_dir, "character", name_nfc, "characters/hieu.png")
 
     assert _resolved_names(project, proj_dir, f"@[{name_nfc}] 推门，@[{name_nfd}] 回头") == ["hieu.png"]
+
+
+def _register_derivative(proj_dir: Path, owner: str, derivative: str) -> dict:
+    """给已登记角色加一个带资产图的衍生，落盘并登记进产物清单。"""
+    derivatives_dir = proj_dir / "characters" / "derivatives" / owner
+    derivatives_dir.mkdir(parents=True, exist_ok=True)
+    (derivatives_dir / f"{derivative}.png").write_bytes((proj_dir / "characters" / f"{owner}.png").read_bytes())
+    sheet = f"characters/derivatives/{owner}/{derivative}.png"
+    project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    entry = project["characters"][owner]
+    entry.setdefault("derivatives", {})[derivative] = {"description": "变化", "character_sheet": sheet}
+    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    register_asset_sheet(proj_dir, "character", f"{owner}/{derivative}", sheet)
+    return project
+
+
+def test_derivative_reference_injects_the_derivative_sheet(tmp_path: Path):
+    proj_dir = write_project(tmp_path)
+    project = _register_derivative(proj_dir, "张三", "劲装")
+
+    assert _resolved_names(project, proj_dir, "@[张三/劲装] 推门") == ["劲装.png"]
+
+
+def test_ontology_and_derivative_together_each_inject_one_sheet(tmp_path: Path):
+    """同现不设限：本体与衍生是两个引用名、两张图，按提及顺序各注入一张。"""
+    proj_dir = write_project(tmp_path)
+    project = _register_derivative(proj_dir, "张三", "劲装")
+
+    assert _resolved_names(project, proj_dir, "@[张三] 看着 @[张三/劲装]") == ["张三.png", "劲装.png"]
+
+
+def test_several_derivatives_of_one_character_each_inject_one_sheet(tmp_path: Path):
+    proj_dir = write_project(tmp_path)
+    _register_derivative(proj_dir, "张三", "劲装")
+    project = _register_derivative(proj_dir, "张三", "兽化")
+
+    assert _resolved_names(project, proj_dir, "@[张三/劲装] 与 @[张三/兽化] 对峙") == ["劲装.png", "兽化.png"]
+
+
+def test_a_derivative_without_a_sheet_produces_no_candidate(tmp_path: Path):
+    """衍生还没出图：不回退到本体图，由准入报出 `character: 张三/劲装`（ADR 0073）。"""
+    proj_dir = write_project(tmp_path)
+    project, _ = load_project_and_unit(proj_dir, "E1U1")
+    project["characters"]["张三"]["derivatives"] = {"劲装": {"description": "变化", "character_sheet": ""}}
+
+    assert _resolved_names(project, proj_dir, "@[张三/劲装] 推门") == []

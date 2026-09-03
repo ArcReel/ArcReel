@@ -1,4 +1,4 @@
-import type { ProjectData } from "@/types";
+import type { Character, CharacterDerivative, ProjectData } from "@/types";
 import type { AssetKind } from "@/types/reference-video";
 
 /**
@@ -299,13 +299,70 @@ export function buildMentionLookup(project: ProjectBuckets | null | undefined): 
     if (!Object.hasOwn(lookup, key)) lookup[key] = kind;
   };
   for (const name of Object.keys(project?.products ?? {})) claim(name, "product");
-  for (const [name, character] of Object.entries(project?.characters ?? {})) {
-    claim(name, "character");
-    for (const derivative of Object.keys(character?.derivatives ?? {})) {
-      claim(`${name}${DERIVATIVE_SEPARATOR}${derivative}`, "character");
-    }
-  }
+  for (const form of characterReferenceForms(project?.characters)) claim(form.name, "character");
   for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
   for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
   return lookup;
+}
+
+/** 一个角色形态：本体，或它名下的一个衍生。`asset` 是该形态自己的条目（资产图与描述都取自它）。 */
+export interface CharacterForm {
+  /** 引用名：本体名，或 `本体名/衍生名`。写进 `@[…]` 与 `characters_in_*` 的就是它。 */
+  name: string;
+  /** 承载该形态的角色条目名。衍生下与 `name` 分叉，本体下相等。 */
+  ownerName: string;
+  /** 衍生名；本体形态为空串。 */
+  derivativeName: string;
+  /** 该形态自己的登记条目：本体是角色条目，衍生是 `derivatives` 表里的那条。 */
+  asset: Character | CharacterDerivative;
+}
+
+/**
+ * 项目里全部可被引用的角色形态，本体在前、其衍生紧随其后。镜像后端
+ * `lib/reference_catalog.py::ReferenceCatalog` 对角色类的展开（见 `docs/adr/0072`）：
+ * 引用弹窗的候选、头像堆的取图与编辑器高亮都从这一处取名字，不各自遍历 `derivatives`。
+ */
+export function characterReferenceForms(
+  characters: Record<string, Character> | null | undefined,
+): CharacterForm[] {
+  const forms: CharacterForm[] = [];
+  for (const [name, character] of Object.entries(characters ?? {})) {
+    forms.push({ name, ownerName: name, derivativeName: "", asset: character });
+    for (const [derivativeName, derivative] of Object.entries(character?.derivatives ?? {})) {
+      forms.push({
+        name: `${name}${DERIVATIVE_SEPARATOR}${derivativeName}`,
+        ownerName: name,
+        derivativeName,
+        asset: derivative,
+      });
+    }
+  }
+  return forms;
+}
+
+/**
+ * 按引用名取角色形态；名字未登记（含「本体在、这个衍生不在」）时返回 undefined。
+ * 判等落在资产名比对坐标系上，与 {@link buildMentionLookup} 同口径。
+ */
+export function resolveCharacterForm(
+  characters: Record<string, Character> | null | undefined,
+  name: string,
+): CharacterForm | undefined {
+  const key = normalizeAssetName(name);
+  return characterReferenceForms(characters).find((form) => normalizeAssetName(form.name) === key);
+}
+
+/** 引用名的展示形态：衍生显示为 `本体 / 衍生`，本体原样。 */
+export function formatReferenceName(name: string): string {
+  const [owner, derivative] = splitDerivativeReference(name);
+  return derivative ? `${owner} / ${derivative}` : name;
+}
+
+/**
+ * 无图时占位方块里的首字母：衍生取衍生名。同一角色的多个形态否则是同一个字、同一种底色，
+ * 堆在一起分不开。
+ */
+export function referenceInitial(name: string): string {
+  const [owner, derivative] = splitDerivativeReference(name);
+  return (derivative || owner).charAt(0);
 }

@@ -174,6 +174,47 @@ describe("ReferenceVideoCard", () => {
     expect(lastCall[0]).toMatch(/@\[主角\]\s$/);
   });
 
+  it("offers each character form and inserts the derivative reference verbatim", async () => {
+    // 衍生是独立的引用名：候选里显示为「本体 / 衍生」，插进正文的仍是 `@[本体/衍生]`。
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...PROJECT,
+        characters: {
+          ...PROJECT.characters,
+          主角: { description: "", derivatives: { 劲装: { description: "换上黑色劲装" } } },
+        },
+      },
+    });
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<ControlledCard unit={mkUnit({ text: "" })} onChange={onChange} />);
+    const ta = screen.getByRole("combobox");
+    await user.clear(ta);
+    await user.type(ta, "@劲装");
+    fireEvent.click(await screen.findByRole("option", { name: /主角 \/ 劲装/ }));
+    expect(onChange.mock.calls.at(-1)![0]).toMatch(/@\[主角\/劲装\]\s$/);
+  });
+
+  it("keeps the picker open while typing the derivative separator in the bare form", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...PROJECT,
+        characters: {
+          ...PROJECT.characters,
+          主角: { description: "", derivatives: { 劲装: { description: "换上黑色劲装" } } },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    render(<ControlledCard unit={mkUnit({ text: "" })} />);
+    const ta = screen.getByRole("combobox");
+    await user.clear(ta);
+    await user.type(ta, "@主角/劲");
+    expect(await screen.findByRole("option", { name: /主角 \/ 劲装/ })).toBeInTheDocument();
+  });
+
   it("closes the picker synchronously on textarea blur", async () => {
     const user = userEvent.setup();
     render(<ControlledCard unit={mkUnit()} />);

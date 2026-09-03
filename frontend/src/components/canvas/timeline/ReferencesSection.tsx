@@ -8,6 +8,8 @@ import {
   type SegmentRefsChanges,
 } from "@/components/ui/SegmentRefsEditModal";
 import { useProjectsStore } from "@/stores/projects-store";
+import type { Character } from "@/types";
+import { resolveCharacterForm } from "@/utils/reference-mentions";
 import { charactersFieldFor, type EditorContentMode } from "@/utils/script-shape";
 import { WARM_TONE } from "@/utils/severity-tone";
 
@@ -27,6 +29,13 @@ const EMPTY_DICT = Object.freeze({});
 function countMissing(names: string[], dict: Record<string, unknown>): number {
   let n = 0;
   for (const name of names) if (!Object.hasOwn(dict, name)) n += 1;
+  return n;
+}
+
+/** 角色引用可以是 `本体/衍生`：这种名字不在角色表顶层，未登记须按形态判定。 */
+function countMissingCharacters(names: string[], characters: Record<string, Character>): number {
+  let n = 0;
+  for (const name of names) if (resolveCharacterForm(characters, name) === undefined) n += 1;
   return n;
 }
 
@@ -57,7 +66,7 @@ export function ReferencesSection({
     // project 未加载完时字典为空，会把所有已引用名都误判为 stale；此时跳过计算
     if (!project) return 0;
     return (
-      countMissing(characterNames, characters) +
+      countMissingCharacters(characterNames, characters) +
       countMissing(sceneNames, scenes) +
       countMissing(propNames, props)
     );

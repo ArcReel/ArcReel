@@ -11,7 +11,7 @@
 - **第二段**：单元正文 + 角色台词记号（``<X>说 {台词}``）；无归属旁白（裸 ``{台词}``）
   不下发视频模型，由 TTS / 后期配音承担
 - **第三段**：风格锚定 + 画质/稳定/字幕/水印约束包（本路径的反向约束全部由它承担，不另加
-  尾词）；两个及以上角色参考图时补双胞胎兜底
+  尾词）；画面里有两个及以上角色时补双胞胎兜底
 
 所有创作类型的输入均是 unit 正文这一段自由文本，正文只写第二段；主体绑定与参考图顺序都经
 ``@[X]`` mention 解析派生（:func:`render_unit_prompt`）。文本不含绝对秒数，时长走请求字段。
@@ -28,12 +28,14 @@ from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_ass
 from lib.audio_utils import resolve_audio_ref_path
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.prompt_utils import normalize_style
+from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
     derive_utterances,
     derive_voice_bindings,
 )
 from lib.reference_video.text_parser import (
+    SpeechMark,
     derive_references_from_text,
     extract_mentions,
     render_mentions_as_subjects,
@@ -140,6 +142,7 @@ def render_unit_prompt(
     character_image_no = {ref.name: i for i, ref in enumerate(references, start=1) if ref.type == "character"}
 
     characters = _character_bucket(project)
+    catalog = build_reference_catalog(project)
     bindings = derive_voice_bindings(
         utterances,
         characters,
@@ -150,10 +153,13 @@ def render_unit_prompt(
 
     audio_no, audio_speaker_reference_index = _number_audio_speakers(bindings.audio_speakers, character_image_no)
 
+    character_forms = _character_forms_by_entity(references, catalog)
     segments = [
-        _render_segment_one([ref.name for ref in references], bindings.speakers, audio_no, characters, settings),
-        _render_segment_two(text, subjects, characters),
-        _render_segment_three(sum(1 for ref in references if ref.type == "character"), style),
+        _render_segment_one(
+            [ref.name for ref in references], bindings.speakers, audio_no, characters, settings, character_forms
+        ),
+        _render_segment_two(text, subjects, characters, catalog),
+        _render_segment_three(len(character_forms), style),
     ]
     prompt = "\n\n".join(seg for seg in segments if seg)
     return RenderedUnitPrompt(
@@ -250,6 +256,7 @@ def _render_segment_one(
     audio_no: dict[str, int],
     characters: dict,
     settings: VoiceRenderSettings,
+    character_forms: dict[str, list[str]],
 ) -> str:
     """主体绑定 + 声音声明。
 
@@ -260,13 +267,52 @@ def _render_segment_one(
     ``labels`` 是 mention 派生的主体记号文本，逐项对应随请求发出的参考图。图号按位置
     直接编号（非名字查表）；空 label 占位不产出绑定行，编号照样前进，以免后续图号与请求
     顺序错位。
+
+    ``character_forms`` 是 :func:`_character_forms_by_entity` 的分组，用来声明同一角色的
+    多个形态；它按资产条目分组，与按位置编号的 ``labels`` 不同源。
     """
     lines: list[str] = []
     bindings = "、".join(f"<{label}>@图片{i}" for i, label in enumerate(labels, start=1) if label)
     if bindings:
         lines.append(bindings + "。")
+    lines.extend(_render_form_declarations(character_forms))
     lines.extend(_render_voice_declarations(speakers, audio_no, characters, settings))
     return "\n".join(lines)
+
+
+def _character_forms_by_entity(references: list[ReferenceResource], catalog: ReferenceCatalog) -> dict[str, list[str]]:
+    """角色参考图按承载它的资产条目分组：``本体名 → [该条目出现的形态记号]``，顺序随参考图顺序。
+
+    衍生与本体是两个引用名、两张参考图，指的却是同一个人（见 ``docs/adr/0072``）。第一段据此
+    声明形态归属，第三段的双胞胎兜底据此数「画面里有几个人」——两处问的是同一个问题，故只分组
+    一次。未登记的名字自成一条：它指不到任何条目，与别的名字不该合并。
+
+    只看 ``character`` 类型的引用：跨类型重名的存量项目里，同名场景按名字查角色表会查出条目，
+    把两张毫无关系的图说成同一角色的两套外观。
+    """
+    grouped: dict[str, list[str]] = {}
+    for reference in references:
+        if reference.type != "character" or not reference.name:
+            continue
+        entry = catalog.lookup("character", reference.name)
+        grouped.setdefault(entry.asset_name if entry else reference.name, []).append(reference.name)
+    return grouped
+
+
+def _render_form_declarations(character_forms: dict[str, list[str]]) -> list[str]:
+    """同一角色的多个形态同现时，声明它们是同一个人的不同外观。
+
+    角色的本体与衍生是各自独立的引用名、各带一张资产图（见 ``docs/adr/0072``），同现不设限。
+    不声明时模型只看到两张长相相近的角色参考图，会当成两个人物同框，故在参考来源声明区就把
+    归属讲清楚。只出现一个形态的角色不产出声明。
+    """
+    lines: list[str] = []
+    for forms in character_forms.values():
+        if len(forms) < 2:
+            continue
+        marks = [f"<{form}>" for form in forms]
+        lines.append("、".join(marks[:-1]) + f"与{marks[-1]}是同一角色的不同形态，各自按对应参考图呈现。")
+    return lines
 
 
 #: 旁白记号被丢弃后，用于判定其两侧是否需要合并的分隔标点与空白（中英两形）。
@@ -277,7 +323,7 @@ _MARK_SEPARATORS = _MARK_JOINERS + _MARK_TERMINATORS
 _MARK_SPACES = " \t\u3000"
 
 
-def _render_segment_two(text: str, subjects: Collection[str], characters: dict) -> str:
+def _render_segment_two(text: str, subjects: Collection[str], characters: dict, catalog: ReferenceCatalog) -> str:
     """单元正文段：画面描述做 mention 替换，发声记号就地重组为官方句式。
 
     ``subjects`` 是已登记的 mention 名（未经能力上限裁剪）——主体记号 ``<X>`` 表达「画面里的
@@ -289,6 +335,11 @@ def _render_segment_two(text: str, subjects: Collection[str], characters: dict) 
     而非参考图列表：纯画外角色无参考图，台词照常重组。未登记的说话人按原文发送（warning 已由
     :func:`derive_voice_bindings` 发出），未被识别成记号的花括号同样原样发送——不做剥除，
     作者能在成片里看见自己写坏的那一段。
+
+    说话人位写下的形态与描述位同形：``@[张三/劲装]{台词}`` 渲染成 ``<张三/劲装>说 {台词}``，
+    同一角色在一条 prompt 里只有一种主体记号（见 ``docs/adr/0072``）。声音仍绑本体——那是
+    ``SpeechMark.speaker`` 的职责，与画面上呈现哪套外观无关。写下的衍生没登记时退回本体记号，
+    与描述位「未登记的 mention 留原文」不同：说话人位的记号是渲染期重组出来的，没有原文可留。
 
     无归属旁白（裸 ``{台词}``）整段丢弃、不进 prompt：叙述旁白只经 TTS 与后期配音交付
     （ADR 0040 / 0061），会产音的视频模型拿到这段文本会连提示语一起念出、或让画面人物对着
@@ -303,11 +354,19 @@ def _render_segment_two(text: str, subjects: Collection[str], characters: dict) 
             elif not part.speaker:
                 pieces.append(None)
             elif part.speaker in characters:
-                pieces.append(f"<{part.speaker}>说 {{{part.text}}}")
+                pieces.append(f"<{_speaker_subject(part, catalog)}>说 {{{part.text}}}")
             else:
                 pieces.append(render_mentions_as_subjects(part.raw, subjects))
         lines.append(_join_line_pieces(pieces))
     return "\n".join(line for line in lines if line.strip())
+
+
+def _speaker_subject(mark: SpeechMark, catalog: ReferenceCatalog) -> str:
+    """说话人位的主体记号：写下且已登记的衍生取 ``本体/衍生``，否则取本体名。"""
+    reference = mark.speaker_reference
+    if mark.derivative and catalog.lookup("character", reference) is not None:
+        return reference
+    return mark.speaker
 
 
 def _join_line_pieces(pieces: list[str | None]) -> str:
@@ -344,15 +403,20 @@ def _join_line_pieces(pieces: list[str | None]) -> str:
     return rendered
 
 
-def _render_segment_three(character_reference_count: int, style: str | None) -> str:
-    """风格锚定 + 画质/稳定/字幕/水印约束包；两个及以上角色参考图时补双胞胎兜底。"""
+def _render_segment_three(character_count: int, style: str | None) -> str:
+    """风格锚定 + 画质/稳定/字幕/水印约束包；画面里有两个及以上角色时补双胞胎兜底。
+
+    ``character_count`` 数的是不同角色，不是角色参考图张数：同一角色的本体与衍生同现时是两张
+    参考图、一个人（见 ``docs/adr/0072``），此时注入「同一画面中仅保留单个对应人物」会与第一段
+    「这是同一个人的两套外观、都要出现」直接对立。
+    """
     lines: list[str] = []
     normalized = normalize_style(style)
     if normalized:
         lines.append(f"整体视觉风格：{normalized}。")
     lines.append(_QUALITY_PACK + _STABILITY_PACK)
     lines.append(_SUBTITLE_PACK + _WATERMARK_PACK + _NO_BGM_PACK)
-    if character_reference_count >= 2:
+    if character_count >= 2:
         lines.append(_TWIN_PACK)
     return "\n".join(lines)
 
