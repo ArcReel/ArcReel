@@ -71,6 +71,34 @@ describe("useAgentMemory", () => {
     expect(spy.mock.calls[1][0]).toEqual({ level: "project", projectName: "b" });
   });
 
+  it("换项目后新目录响应到达前不露出旧目录的内容", async () => {
+    const other: AgentMemoryOverview = { ...OVERVIEW, path: "/projects/b/.arcreel/memory", files: [] };
+    let resolveB: ((value: AgentMemoryOverview) => void) | null = null;
+    vi.spyOn(API, "getAgentMemory")
+      .mockResolvedValueOnce(OVERVIEW)
+      .mockImplementationOnce(
+        () =>
+          new Promise<AgentMemoryOverview>((resolve) => {
+            resolveB = resolve;
+          }),
+      );
+    const { result, rerender } = renderHook(
+      ({ project }: { project: string }) => useAgentMemory({ level: "project", projectName: project }),
+      { initialProps: { project: "a" } },
+    );
+
+    await waitFor(() => expect(result.current.overview).toEqual(OVERVIEW));
+    rerender({ project: "b" });
+
+    expect(result.current.overview).toBeNull();
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => {
+      resolveB?.(other);
+    });
+    expect(result.current.overview).toEqual(other);
+  });
+
   it("拉取失败时给出可读说明，重试成功后清空错误", async () => {
     vi.spyOn(API, "getAgentMemory")
       .mockRejectedValueOnce(new Error("boom"))

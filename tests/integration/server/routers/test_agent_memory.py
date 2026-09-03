@@ -87,7 +87,7 @@ class TestListing:
         assert payload["index"] == {
             "exists": True,
             "line_count": 1,
-            "byte_size": len("- tone.md\n"),
+            "byte_size": len("- tone.md"),
             "over_limit": False,
         }
         assert [(entry["name"], entry["frontmatter"]) for entry in payload["files"]] == [

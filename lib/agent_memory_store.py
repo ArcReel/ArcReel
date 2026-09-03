@@ -2,6 +2,8 @@
 
 按目录参数化，项目记忆与用户记忆共用同一个类——两级记忆的文件名规则、大小上限、
 索引超限口径与 frontmatter 解析完全相同，各写一份会让两根 REST 路由的行为随时间分叉。
+索引的行数 / 字节数与超限判定取自 ``lib.agent_memory_index``，与会话装配注入用户记忆
+索引时的截断口径同源。
 
 目录不存在一律视同空目录：记忆是 Agent 按需创建的，创作者在 Agent 写下第一条记忆
 之前打开记忆页不应看到错误。
@@ -12,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -21,20 +24,13 @@ from typing import Any
 
 import yaml
 
+from lib.agent_memory_index import INDEX_FILENAME, memory_index_stats
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.json_io import atomic_write_bytes
 from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 
-#: 保留的索引文件名：它是记忆的目录页，列表接口单列其统计而不混进普通记忆条目。
-#: 允许删除——索引失真时重建比修补便宜。
-INDEX_FILENAME = "MEMORY.md"
-
 #: 单个记忆文件的正文上限。超限拒绝写入，让创作者拆分而不是让 Agent 每轮都读进一个大文件。
 MAX_FILE_BYTES = 256 * 1024
-
-#: 索引的软上限：只在列表响应里标 ``over_limit``，不拦截写入。
-INDEX_MAX_LINES = 200
-INDEX_MAX_BYTES = 25_000
 
 #: frontmatter ``type`` 的合法取值。取值之外的一律当作没有标签，不报错。
 MEMORY_TYPES = frozenset({"user", "feedback", "project", "reference"})
@@ -109,13 +105,18 @@ class AgentMemoryStore:
 
         ``path`` 是服务端绝对路径，供创作者在文件管理器里直接打开记忆目录；它是路径
         而不是提示文案，因此不进 i18n。
+
+        枚举与逐项读取之间条目可能已被删除（另一个标签页的删除或清空），该条目跳过，
+        其余照常列出——单个文件的消失不该让整个记忆页报错。
         """
         index = {"exists": False, "line_count": 0, "byte_size": 0, "over_limit": False}
         files: list[dict[str, Any]] = []
         for path in self._visible_paths():
-            stat = path.stat()
             if path.name == INDEX_FILENAME:
-                index = _index_stats(path, stat.st_size)
+                index = _index_stats(path)
+                continue
+            stat = _stat_or_none(path)
+            if stat is None:
                 continue
             files.append(
                 {
@@ -211,15 +212,27 @@ class AgentMemoryStore:
             raise BadRequestError("memory_invalid_filename", filename=filename) from exc
 
 
-def _index_stats(path: Path, byte_size: int) -> dict[str, Any]:
-    """索引的行数 / 字节数与超限判定。超限只是提示，写入与读取都不受影响。"""
-    line_count = len(_read_bytes_or_empty(path).splitlines())
+def _index_stats(path: Path) -> dict[str, Any]:
+    """索引的行数 / 字节数与超限判定，口径同会话装配的截断。
+
+    读不出来或不是 UTF-8 时统计为零：装配也读不进这样的索引，报出它在磁盘上的
+    规模会让文件柜显示一份 Agent 其实拿不到的索引。超限只是提示，写入与读取都不受影响。
+    """
+    stats = memory_index_stats(_read_text_or_empty(path))
     return {
         "exists": True,
-        "line_count": line_count,
-        "byte_size": byte_size,
-        "over_limit": line_count > INDEX_MAX_LINES or byte_size > INDEX_MAX_BYTES,
+        "line_count": stats.line_count,
+        "byte_size": stats.byte_size,
+        "over_limit": stats.over_limit,
     }
+
+
+def _stat_or_none(path: Path) -> os.stat_result | None:
+    """取条目的 stat；枚举之后已消失或读不到的返回 ``None``。"""
+    try:
+        return path.stat()
+    except OSError:
+        return None
 
 
 def _read_bytes_or_empty(path: Path) -> bytes:
@@ -228,3 +241,11 @@ def _read_bytes_or_empty(path: Path) -> bytes:
         return path.read_bytes()
     except OSError:
         return b""
+
+
+def _read_text_or_empty(path: Path) -> str:
+    """按 UTF-8 读文本；读不出来或解码失败一律按空内容处理。"""
+    try:
+        return _read_bytes_or_empty(path).decode("utf-8")
+    except UnicodeDecodeError:
+        return ""

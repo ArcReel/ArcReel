@@ -5,15 +5,22 @@ import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory
 import { errMsg } from "@/utils/async";
 
 export interface AgentMemoryState {
-  /** 未加载完成或加载失败时为 null。 */
+  /** 当前 scope 的目录内容；未加载完成或加载失败时为 null，切换 scope 后立即回到 null。 */
   overview: AgentMemoryOverview | null;
   loading: boolean;
-  /** 列表拉取失败的可读说明；成功后清空。 */
+  /** 当前 scope 的拉取失败说明；成功后清空。 */
   error: string | null;
   /** 记忆目录标识，调用点把它原样传给写类 API，两级因此共用同一批调用。 */
   scope: AgentMemoryScope;
   /** 重新拉取列表；在途请求作废，卸载时一并取消。 */
   reload: () => Promise<void>;
+}
+
+/** 一次加载的结果与产出它的 scope；`target` 由 `useMemo` 保持引用稳定，故按引用比对。 */
+interface LoadedMemory {
+  target: AgentMemoryScope;
+  data: AgentMemoryOverview | null;
+  error: string | null;
 }
 
 /**
@@ -24,6 +31,9 @@ export interface AgentMemoryState {
  *
  * 入参按 `level` 与项目名解构后再重建 scope：调用点惯常在 JSX 里传字面量对象，直接把它列进
  * 依赖会让每次渲染都重新拉取。
+ *
+ * 结果与产出它的 scope 成对存放，只在两者匹配时对外可见：切换项目后新目录的请求尚未返回的
+ * 窗口里，旧目录的路径与文件列表会挂在新项目的标题下，点开还会把旧文件名发往新目录。
  */
 export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
   const level = scope.level;
@@ -33,9 +43,8 @@ export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
     [level, projectName],
   );
 
-  const [overview, setOverview] = useState<AgentMemoryOverview | null>(null);
+  const [loaded, setLoaded] = useState<LoadedMemory | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
@@ -48,12 +57,10 @@ export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
       const next = await API.getAgentMemory(target, { signal: controller.signal });
       // 网络 await 之后的写 state 断点：abort 可能发生在响应已 resolve 之后。
       if (controller.signal.aborted) return;
-      setOverview(next);
-      setError(null);
+      setLoaded({ target, data: next, error: null });
     } catch (err) {
       if (controller.signal.aborted) return;
-      setOverview(null);
-      setError(errMsg(err));
+      setLoaded({ target, data: null, error: errMsg(err) });
     } finally {
       // 被接管方让位：作废后不复位共享状态，否则会灭掉接管方刚点亮的加载态。
       if (!controller.signal.aborted) setLoading(false);
@@ -67,5 +74,13 @@ export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
     return () => abortRef.current?.abort();
   }, [reload]);
 
-  return { overview, loading, error, scope: target, reload };
+  // 结果属于上一个 scope 时视同尚未加载：加载态一直持续到当前 scope 的响应落地。
+  const current = loaded !== null && loaded.target === target ? loaded : null;
+  return {
+    overview: current?.data ?? null,
+    loading: current === null || loading,
+    error: current?.error ?? null,
+    scope: target,
+    reload,
+  };
 }
