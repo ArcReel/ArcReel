@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
-import { Edit2, Trash2, User as UserIcon, Landmark, Package } from "lucide-react";
+import { Edit2, Layers, Trash2, User as UserIcon, Landmark, Package } from "lucide-react";
 import { API } from "@/api";
 import { formatDate } from "@/utils/date-format";
 import type { Asset } from "@/types/asset";
@@ -25,6 +25,7 @@ function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
   const formattedDate = asset.updated_at
     ? formatDate(asset.updated_at, i18n.language, SHORT_DATE_OPTS, "")
     : "";
+  const derivativeCount = asset.derivatives.length;
 
   return (
     <div className="group relative overflow-hidden rounded-[10px] border border-hairline-soft bg-bg-grad-a/55 transition-[transform,border-color] motion-safe:hover:-translate-y-0.5 hover:border-hairline">
@@ -48,9 +49,21 @@ function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
                 {asset.description}
               </div>
             )}
-            {formattedDate ? (
+            {formattedDate || derivativeCount > 0 ? (
               <div className="mt-2 flex items-center gap-2 font-mono text-[10.5px] text-text-4">
-                <span className="tabular-nums">{t("meta_updated_at", { date: formattedDate })}</span>
+                {formattedDate ? (
+                  <span className="tabular-nums">{t("meta_updated_at", { date: formattedDate })}</span>
+                ) : null}
+                {derivativeCount > 0 ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-bg-grad-b/70 px-1.5 py-0.5 text-accent-2"
+                    title={t("derivatives_with_count", { n: derivativeCount })}
+                  >
+                    <Layers aria-hidden className="h-3 w-3" />
+                    <span className="sr-only">{t("derivatives")}</span>
+                    <span className="tabular-nums font-semibold">{derivativeCount}</span>
+                  </span>
+                ) : null}
               </div>
             ) : null}
           </div>
