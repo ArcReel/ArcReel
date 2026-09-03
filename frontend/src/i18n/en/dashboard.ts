@@ -331,7 +331,7 @@ export default {
   'speech_rate_out_of_range': 'Enter a value between {{min}} and {{max}}',
   'episode_target_duration_label': 'Episode target length (optional)',
   'episode_target_duration_unit': 'sec',
-  'episode_target_duration_hint': 'The intended length of the finished episode. The AI uses it to decide how many shots or video units to split the episode into. It is a soft target: fewer units when there is not enough material, and it may run over when the content calls for it. Leave empty to let the AI judge from the content.',
+  'episode_target_duration_hint': 'The intended length of the finished episode. The AI uses it to decide how much source text each episode covers and how many shots or video units to split the episode into. It is a soft target: fewer units when there is not enough material, and it may run over when the content calls for it. Leave empty to let the AI judge from the content.',
   'episode_target_duration_out_of_range': 'Enter a whole number of seconds between {{min}} and {{max}}',
   'episode_duration_vs_target': 'Episode total {{total}}s / target {{target}}s',
   'episode_duration_over_target': 'Episode total {{total}}s, {{over}}s over the {{target}}s target (informational only, confirmation is not blocked)',

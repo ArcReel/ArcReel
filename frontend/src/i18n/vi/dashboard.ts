@@ -334,7 +334,7 @@ export default {
   'speech_rate_out_of_range': 'Vui lòng nhập giá trị từ {{min}} đến {{max}}',
   'episode_target_duration_label': 'Thời lượng mục tiêu mỗi tập (tùy chọn)',
   'episode_target_duration_unit': 'giây',
-  'episode_target_duration_hint': 'Độ dài mong muốn của tập hoàn chỉnh. AI dựa vào đó để quyết định chia tập thành bao nhiêu cảnh quay hoặc đơn vị video. Đây là mục tiêu mềm: chia ít hơn khi nội dung không đủ, và có thể vượt khi nội dung cần. Để trống để AI tự cân nhắc theo nội dung.',
+  'episode_target_duration_hint': 'Độ dài mong muốn của tập hoàn chỉnh. AI dựa vào đó để quyết định mỗi tập bao gồm bao nhiêu nội dung gốc và chia tập thành bao nhiêu cảnh quay hoặc đơn vị video. Đây là mục tiêu mềm: chia ít hơn khi nội dung không đủ, và có thể vượt khi nội dung cần. Để trống để AI tự cân nhắc theo nội dung.',
   'episode_target_duration_out_of_range': 'Vui lòng nhập số giây nguyên từ {{min}} đến {{max}}',
   'episode_duration_vs_target': 'Tổng tập {{total}} giây / mục tiêu {{target}} giây',
   'episode_duration_over_target': 'Tổng tập {{total}} giây, vượt {{over}} giây so với mục tiêu {{target}} giây (chỉ là thông báo, không chặn xác nhận)',
