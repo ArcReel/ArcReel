@@ -353,3 +353,26 @@ def test_constrain_durations_for_project_legacy_resolution_key():
     assert constrain_durations_for_project(
         project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
     ) == [4, 6, 8]
+
+
+@pytest.mark.parametrize("bad_resolution", [1080, ["1080p"], {"value": "1080p"}, True, "   "])
+def test_constrain_durations_for_project_ignores_non_string_resolution(bad_resolution: object):
+    """脏 resolution 按「未配置」处理，不带着非字符串进 ``constrain_durations`` 的 ``.strip()``。
+
+    project.json 可被手工编辑，也留有历史脏数据；这里落回未收窄的全集，与该模型未设档位同解。
+    """
+    project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": bad_resolution}}}
+    assert constrain_durations_for_project(
+        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
+    ) == [4, 6, 8]
+
+
+def test_constrain_durations_for_project_falls_back_past_dirty_override_to_legacy():
+    """新键脏值不吞掉 legacy 键：脏值等同未配置，继续按 legacy 档位求值。"""
+    project = {
+        "model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": 1080}},
+        "video_model_settings": {_VEO[1]: {"resolution": " 1080P "}},
+    }
+    assert constrain_durations_for_project(
+        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
+    ) == [8]

@@ -1,5 +1,9 @@
 """projects 路由的 video-capabilities 查询。"""
 
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
 from lib.i18n.zh import errors as zh_errors
 from server.routers import projects
 from tests.integration.server.routers.projects_router_support import (
@@ -210,3 +214,60 @@ class TestGetVideoCapabilities:
             assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_missing_r2v"].format(
                 provider="kling", model="kling-v3"
             )
+
+
+class TestRealResolverResponse:
+    """成功路径走真实 ConfigResolver + registry + 内存 DB，覆盖响应体经 JSON 序列化后的实际形状。"""
+
+    #: registry 里声明了「1080p 只剩 8 秒」「参考图路径只剩 8 秒」的型号。
+    VEO = "gemini-aistudio/veo-3.1-generate-preview"
+
+    @pytest.fixture
+    def client(self, tmp_path, db_engine, monkeypatch) -> TestClient:
+        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
+        pm = _FakePM(tmp_path)
+        pm.project_data["ready"]["video_backend"] = self.VEO
+        pm.project_data["ready"]["model_settings"] = {self.VEO: {"resolution": "1080p"}}
+        # resolver 走自己 import 的 get_project_manager，与路由那份是两个绑定。
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
+        return build_projects_client(monkeypatch, pm)
+
+    def test_saved_resolution_narrows_durations_with_reasons(self, client):
+        """缺省上下文按项目已保存档位收窄；supported_durations 仍是型号声明全集。"""
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["model"] == "veo-3.1-generate-preview"
+        assert body["supported_durations"] == [4, 6, 8]
+        # excluded 在 Python 侧是 int 键；经 JSON 后只能是字符串键，前端按 String(duration) 查表。
+        assert body["duration_constraints"] == {
+            "resolution": "1080p",
+            "uses_reference_images": False,
+            "allowed": [8],
+            "allowed_without_reference_images": [8],
+            "excluded": {"4": "resolution", "6": "resolution"},
+        }
+
+    def test_explicit_auto_resolution_does_not_fall_back_to_saved(self, client):
+        """``resolution`` 传空串是表单里的「自动」：不回退到已保存的 1080p，全集都可选。"""
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities", params={"resolution": ""})
+        assert resp.status_code == 200
+        constraints = resp.json()["duration_constraints"]
+        assert constraints["resolution"] is None
+        assert constraints["allowed"] == [4, 6, 8]
+        assert constraints["excluded"] == {}
+
+    def test_reference_context_overrides_project_generation_mode(self, client):
+        """显式 ``uses_reference_images`` 压过项目生成模式，成因报 reference。"""
+        with client:
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"resolution": "720p", "uses_reference_images": "true"},
+            )
+        assert resp.status_code == 200
+        constraints = resp.json()["duration_constraints"]
+        assert constraints["allowed"] == [8]
+        assert constraints["allowed_without_reference_images"] == [4, 6, 8]
+        assert constraints["excluded"] == {"4": "reference", "6": "reference"}

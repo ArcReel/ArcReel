@@ -76,9 +76,10 @@ describe("openSseStream", () => {
     handle.close();
   });
 
-  it("backs off exponentially across consecutive failures and resets after a successful connection", async () => {
+  it("backs off exponentially across consecutive failures and resets only after an event arrives", async () => {
     const fake = stubSseFetch((index) => (index < 3 ? 503 : 200));
-    const handle = openSseStream({ url: "/api/v1/stream", onMessage: () => {} });
+    const messages: SseMessage[] = [];
+    const handle = openSseStream({ url: "/api/v1/stream", onMessage: (message) => messages.push(message) });
     await flushStream();
     expect(fake.connections).toHaveLength(1);
 
@@ -97,12 +98,26 @@ describe("openSseStream", () => {
     await flushStream();
     expect(fake.connections).toHaveLength(4);
 
-    // 第四次连接成功后退避归零：再断线只等首个延迟。
+    // 建连成功但一个事件都没送到就断流：这条连接没证明自己可用，退避继续增长到 8s，
+    // 不回落到首个延迟——否则「接受连接后立刻断流」的坏代理会被按秒重连。
+    fake.latest.end();
+    await flushStream();
+    await vi.advanceTimersByTimeAsync(7999);
+    await flushStream();
+    expect(fake.connections).toHaveLength(4);
+    await vi.advanceTimersByTimeAsync(1);
+    await flushStream();
+    expect(fake.connections).toHaveLength(5);
+
+    // 收到事件才算连接可用，退避归零：再断线只等首个延迟。
+    fake.latest.emit("entry", { seq: 1 }, "1");
+    await flushStream();
+    expect(messages).toHaveLength(1);
     fake.latest.end();
     await flushStream();
     await vi.advanceTimersByTimeAsync(1000);
     await flushStream();
-    expect(fake.connections).toHaveLength(5);
+    expect(fake.connections).toHaveLength(6);
     handle.close();
   });
 
