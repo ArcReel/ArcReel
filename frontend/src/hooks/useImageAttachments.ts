@@ -2,9 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ImagePayload } from "@/types";
 import { uid } from "@/utils/id";
+import {
+  MAX_IMAGE_FILE_BYTES,
+  TRANSCODED_IMAGE_MIME_TYPE,
+  transcodeImageToJpeg,
+} from "@/utils/image-transcode";
 
 export const MAX_ATTACHED_IMAGES = 5;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export interface AttachedImage {
   id: string;
@@ -12,7 +16,7 @@ export interface AttachedImage {
   mimeType: string;
 }
 
-interface PendingImageRead {
+interface PendingTranscode {
   file: File;
   generation: number;
 }
@@ -37,11 +41,11 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
   const { t } = useTranslation("dashboard");
   const [images, setImages] = useState<AttachedImage[]>(initialImages);
   const [error, setError] = useState<string | null>(null);
-  const [pendingReads, setPendingReads] = useState(0);
+  const [pendingTranscodes, setPendingTranscodes] = useState(0);
   const generationRef = useRef(0);
   const pendingSlotsRef = useRef(0);
-  const readQueueRef = useRef<PendingImageRead[]>([]);
-  const readingRef = useRef(false);
+  const queueRef = useRef<PendingTranscode[]>([]);
+  const transcodingRef = useRef(false);
 
   useEffect(() => () => {
     generationRef.current += 1;
@@ -52,7 +56,13 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     const generation = generationRef.current;
     const imageFiles = files.filter((file) => {
       if (!file.type.startsWith("image/")) return false;
-      if (file.size <= MAX_IMAGE_BYTES) return true;
+      // GIF 不进 canvas：重编码只会留下首帧，动画内容被静默丢弃；原样上传又会让它
+      // 成为唯一绕开单张预算的格式。明确拒绝，让用户自己转成 PNG / JPEG。
+      if (file.type === "image/gif") {
+        setError(t("image_gif_unsupported_hint", { name: file.name }));
+        return false;
+      }
+      if (file.size <= MAX_IMAGE_FILE_BYTES) return true;
       setError(t("image_too_large_hint", { name: file.name }));
       return false;
     });
@@ -63,42 +73,39 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     if (imageFiles.length > remainingCapacity) {
       setError(t("max_images_hint", { count: MAX_ATTACHED_IMAGES }));
     }
-    const filesToRead = imageFiles.slice(0, remainingCapacity);
-    pendingSlotsRef.current += filesToRead.length;
-    setPendingReads((current) => current + filesToRead.length);
-    readQueueRef.current.push(...filesToRead.map((file) => ({ file, generation })));
+    const filesToTranscode = imageFiles.slice(0, remainingCapacity);
+    pendingSlotsRef.current += filesToTranscode.length;
+    setPendingTranscodes((current) => current + filesToTranscode.length);
+    queueRef.current.push(...filesToTranscode.map((file) => ({ file, generation })));
 
+    // 逐张串行：同时解码多张大图会在移动端撑爆内存。
     const processNext = () => {
-      if (readingRef.current) return;
-      const pending = readQueueRef.current.shift();
+      if (transcodingRef.current) return;
+      const pending = queueRef.current.shift();
       if (!pending) return;
-      readingRef.current = true;
-      const reader = new FileReader();
-      const finishRead = () => {
+      transcodingRef.current = true;
+      void transcodeImageToJpeg(pending.file).then((result) => {
         if (generationRef.current === pending.generation) {
+          if ("dataUrl" in result) {
+            setImages((current) => {
+              if (current.length >= MAX_ATTACHED_IMAGES) return current;
+              return [
+                ...current,
+                { id: uid(), dataUrl: result.dataUrl, mimeType: TRANSCODED_IMAGE_MIME_TYPE },
+              ];
+            });
+          } else {
+            setError(t(
+              result.failure === "oversized" ? "image_still_too_large_hint" : "image_unreadable_hint",
+              { name: pending.file.name },
+            ));
+          }
           pendingSlotsRef.current = Math.max(0, pendingSlotsRef.current - 1);
-          setPendingReads((current) => Math.max(0, current - 1));
+          setPendingTranscodes((current) => Math.max(0, current - 1));
         }
-        readingRef.current = false;
+        transcodingRef.current = false;
         processNext();
-      };
-      reader.onload = (event) => {
-        if (generationRef.current !== pending.generation) {
-          finishRead();
-          return;
-        }
-        const dataUrl = event.target?.result;
-        if (typeof dataUrl === "string") {
-          setImages((current) => {
-            if (current.length >= MAX_ATTACHED_IMAGES) return current;
-            return [...current, { id: uid(), dataUrl, mimeType: pending.file.type }];
-          });
-        }
-        finishRead();
-      };
-      reader.onerror = finishRead;
-      reader.onabort = finishRead;
-      reader.readAsDataURL(pending.file);
+      });
     };
     processNext();
   }, [images.length, t]);
@@ -112,25 +119,25 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     generationRef.current += 1;
     setImages([]);
     setError(null);
-    setPendingReads(0);
+    setPendingTranscodes(0);
     pendingSlotsRef.current = 0;
-    readQueueRef.current = [];
+    queueRef.current = [];
   }, []);
 
-  const invalidatePendingReaders = useCallback(() => {
+  const invalidatePendingTranscodes = useCallback(() => {
     generationRef.current += 1;
-    setPendingReads(0);
+    setPendingTranscodes(0);
     pendingSlotsRef.current = 0;
-    readQueueRef.current = [];
+    queueRef.current = [];
   }, []);
 
   return {
     images,
     error,
-    isReading: pendingReads > 0,
+    isReading: pendingTranscodes > 0,
     addFiles,
     removeImage,
     resetImages,
-    invalidatePendingReaders,
+    invalidatePendingTranscodes,
   };
 }

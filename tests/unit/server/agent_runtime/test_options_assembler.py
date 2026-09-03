@@ -15,6 +15,7 @@ import pytest
 
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.options_assembler import (
+    CLI_STDOUT_MAX_BUFFER_BYTES,
     OptionsAssembler,
     load_provider_env_overrides,
 )
@@ -117,6 +118,8 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     assert options.sandbox.get("enabled") is True
     # 用户消息回放开关：缺失则 SDK 不回放副本，身份映射无从建立
     assert options.extra_args == {"replay-user-messages": None}
+    # CLI stdout 单条 NDJSON 行的缓冲上限：默认 1 MiB 会被附图请求的回放副本撞穿
+    assert options.max_buffer_size == CLI_STDOUT_MAX_BUFFER_BYTES == 32 * 1024 * 1024
 
 
 @pytest.mark.asyncio

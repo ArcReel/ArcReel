@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { stubFileReader } from "@/test/fileReader";
+import { stubImageCanvas } from "@/test/imageCanvas";
 import type { Turn } from "@/types";
 import { MessageRow } from "./MessageRow";
 
@@ -126,27 +126,29 @@ describe("MessageRow", () => {
     ]);
   });
 
-  it("adds an image in the editor and includes it in the rewrite payload", () => {
+  it("adds an image in the editor and includes it in the rewrite payload", async () => {
     const onSubmitEdit = vi.fn();
-    const readers = stubFileReader();
+    const canvas = stubImageCanvas();
     render(<MessageRow turn={imageTurn} editable editing onSubmitEdit={onSubmitEdit} />);
 
     const added = new File(["new-image"], "new.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("上传附件图片"), { target: { files: [added] } });
-    act(() => readers[0].finish("data:image/png;base64,bmV3LWltYWdl"));
+    await act(async () => {
+      await canvas.decodes[0].finish({ width: 800, height: 600 });
+    });
 
     expect(screen.getByRole("img", { name: "编辑中的附件 2/2" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重新发送" }));
 
     expect(onSubmitEdit).toHaveBeenCalledWith("u-2", "按这张图改人设", [
       { data: "AAAA", media_type: "image/png" },
-      { data: "bmV3LWltYWdl", media_type: "image/png" },
+      { data: "anBlZw==", media_type: "image/jpeg" },
     ]);
   });
 
-  it("adds a pasted image and includes it in the rewrite payload", () => {
+  it("adds a pasted image and includes it in the rewrite payload", async () => {
     const onSubmitEdit = vi.fn();
-    const readers = stubFileReader();
+    const canvas = stubImageCanvas();
     render(<MessageRow turn={userTurn} editable editing onSubmitEdit={onSubmitEdit} />);
 
     const pasted = new File(["pasted-image"], "paste.png", { type: "image/png" });
@@ -157,13 +159,15 @@ describe("MessageRow", () => {
     });
 
     expect(defaultWasPrevented).toBe(false);
-    act(() => readers[0].finish("data:image/png;base64,cGFzdGVkLWltYWdl"));
+    await act(async () => {
+      await canvas.decodes[0].finish({ width: 800, height: 600 });
+    });
 
     expect(screen.getByRole("img", { name: "编辑中的附件 1/1" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重新发送" }));
 
     expect(onSubmitEdit).toHaveBeenCalledWith("u-1", "只改第 3 集", [
-      { data: "cGFzdGVkLWltYWdl", media_type: "image/png" },
+      { data: "anBlZw==", media_type: "image/jpeg" },
     ]);
   });
 
@@ -207,7 +211,7 @@ describe("MessageRow", () => {
   });
 
   it("does not intercept image paste while another image is being read", () => {
-    stubFileReader();
+    stubImageCanvas();
     render(<MessageRow turn={userTurn} editable editing />);
     fireEvent.change(screen.getByLabelText("上传附件图片"), {
       target: { files: [new File(["reading"], "reading.png", { type: "image/png" })] },
@@ -236,8 +240,8 @@ describe("MessageRow", () => {
     expect(screen.getAllByRole("img")).toHaveLength(5);
   });
 
-  it("keeps resend disabled until a newly selected image finishes loading", () => {
-    const readers = stubFileReader();
+  it("keeps resend disabled until a newly selected image finishes loading", async () => {
+    const canvas = stubImageCanvas();
     const onSubmitEdit = vi.fn();
     render(<MessageRow turn={imageTurn} editable editing onSubmitEdit={onSubmitEdit} />);
 
@@ -248,7 +252,9 @@ describe("MessageRow", () => {
     fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Enter", metaKey: true });
     expect(onSubmitEdit).not.toHaveBeenCalled();
 
-    act(() => readers[0].finish("data:image/png;base64,bmV3LWltYWdl"));
+    await act(async () => {
+      await canvas.decodes[0].finish({ width: 800, height: 600 });
+    });
     expect(screen.getByRole("button", { name: "重新发送" })).toBeEnabled();
   });
 

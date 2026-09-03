@@ -36,10 +36,15 @@ router = APIRouter()
 assistant_service = AssistantService(project_root=PROJECT_ROOT)
 
 MAX_IMAGE_SOURCE_BYTES = 5 * 1024 * 1024
+# 前端把附图缩放重编码到这个预算之内；服务端合计上限按它折算，单张上限仍留 5 MB 作为
+# 绕过前端时的兜底。合计按 5 × 1.5 MB 计，base64 约 10 MB，稳在 Messages API 的
+# 32 MB 单请求上限（Bedrock 20 MB / Vertex 30 MB）之内。
+MAX_RESIZED_IMAGE_SOURCE_BYTES = 3 * 1024 * 1024 // 2
 # Base64 needs four characters for every three source bytes, rounded up to a full quartet.
 MAX_IMAGE_BASE64_CHARS = 4 * ((MAX_IMAGE_SOURCE_BYTES + 2) // 3)
+MAX_RESIZED_IMAGE_BASE64_CHARS = 4 * ((MAX_RESIZED_IMAGE_SOURCE_BYTES + 2) // 3)
 MAX_IMAGES_PER_REQUEST = 5
-MAX_IMAGES_TOTAL_BASE64_CHARS = MAX_IMAGES_PER_REQUEST * MAX_IMAGE_BASE64_CHARS
+MAX_IMAGES_TOTAL_BASE64_CHARS = MAX_IMAGES_PER_REQUEST * MAX_RESIZED_IMAGE_BASE64_CHARS
 
 
 def get_assistant_service() -> AssistantService:
