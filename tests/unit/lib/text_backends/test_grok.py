@@ -25,7 +25,7 @@ class TestProperties:
 
             b = GrokTextBackend(api_key="k")
         assert b.name == "grok"
-        assert create_client.call_args.kwargs == {"api_key": "k"}
+        create_client.assert_called_once_with(api_key="k")
 
     def test_default_model(self, mock_xai):
         with patch("lib.text_backends.grok.create_grok_client"):
