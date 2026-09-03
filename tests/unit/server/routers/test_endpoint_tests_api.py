@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Generator
 from typing import Any
@@ -86,6 +87,22 @@ def _mock_successful_run(router) -> None:
 
 def _post(client: TestClient, path: str, payload: dict[str, Any]):
     return client.post(f"/api/v1/custom-endpoints/{path}", json=payload)
+
+
+def _hold_submit(router) -> None:
+    """让提交请求停在一道只由取消解除的闸口上，run 在测试说停之前一定还在进行。
+
+    「仍在进行」若靠 ``status: processing`` 的轮询维持，就成了一场竞速：假表下的一轮轮询几乎
+    不耗真实时间，后台任务能在两次断言之间跑满 ``poll_timeout`` 撞进终态、把名额让出去。闸口
+    把这段生命周期交给测试，机器负载再高结论也不变。
+    """
+    gate = asyncio.Event()  # 永不置位：这次 run 只可能被 cancel 停下
+
+    async def _never_responds(_request: httpx.Request) -> httpx.Response:
+        await gate.wait()
+        raise AssertionError("闸口只由取消解除，不该走到这里")
+
+    router.post("https://relay.test/v1/video/create").mock(side_effect=_never_responds)
 
 
 class TestPreviewRequest:
@@ -333,13 +350,8 @@ class TestTrialRuns:
         )
 
     def test_a_second_concurrent_run_is_refused(self, client: TestClient, trial_runs: TrialRunManager):
-        with capture_http() as router, bounded_poll_clock():
-            router.post("https://relay.test/v1/video/create").mock(
-                return_value=httpx.Response(200, json={"task_id": "job-42"})
-            )
-            router.get("https://relay.test/v1/video/fetch/job-42").mock(
-                return_value=httpx.Response(200, json={"status": "processing"})
-            )
+        with capture_http() as router:
+            _hold_submit(router)
             payload = {
                 "definition": custom_endpoint_definition(),
                 "parameters": PARAMETERS,
@@ -357,18 +369,13 @@ class TestTrialRuns:
             # 取消后名额让出，同一份定义可以再发一次。
             third = _post(client, "trial-runs", payload)
             assert third.status_code == 201
-            # 这一笔也要在离开 http 替身与时钟替身之前停掉，否则它会带着真实网络继续轮询。
+            # 这一笔也要在离开 http 替身之前停掉，否则它会挂在闸口上直到事件循环消亡。
             third_id = third.json()["id"]
             assert client.post(f"/api/v1/custom-endpoints/trial-runs/{third_id}/cancel").status_code == 204
 
     def test_a_cancelled_run_leaves_nothing_to_read(self, client: TestClient, trial_runs: TrialRunManager):
-        with capture_http() as router, bounded_poll_clock():
-            router.post("https://relay.test/v1/video/create").mock(
-                return_value=httpx.Response(200, json={"task_id": "job-42"})
-            )
-            router.get("https://relay.test/v1/video/fetch/job-42").mock(
-                return_value=httpx.Response(200, json={"status": "processing"})
-            )
+        with capture_http() as router:
+            _hold_submit(router)
             created = _post(
                 client,
                 "trial-runs",
@@ -379,7 +386,8 @@ class TestTrialRuns:
                 },
             )
             run_id = created.json()["id"]
-            client.post(f"/api/v1/custom-endpoints/trial-runs/{run_id}/cancel")
+            # 204 本身是判据：取消停下的是一笔仍在进行的 run，不是一笔已经自己跑完的。
+            assert client.post(f"/api/v1/custom-endpoints/trial-runs/{run_id}/cancel").status_code == 204
 
         assert client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").status_code == 404
 
