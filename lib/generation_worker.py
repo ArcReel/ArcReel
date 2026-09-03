@@ -64,7 +64,7 @@ from lib.reference_video.execution_checkpoint import (
 from lib.reference_video.request_projection import ReferenceProjectionBlockedError
 from lib.script_editor import ScriptEditError
 from lib.task_failure import encode_failure
-from lib.video_backends.base import ArtifactDownloadError, VideoCapabilityError
+from lib.video_backends.base import ArtifactDownloadError, ProviderRejectedError, VideoCapabilityError
 
 # Default provider used when a task payload does not specify one.
 DEFAULT_PROVIDER = "gemini-aistudio"
@@ -98,8 +98,8 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
 
 
 def _encode_task_failure_message(exc: Exception) -> str:
-    """把任务执行异常编码为落库的 error_message：ScriptEditError 与结构化执行拒绝走
-    code/params 结构化，其余异常沿用 str(exc)。normal（_process_task）与 resume
+    """把任务执行异常编码为落库的 error_message：ScriptEditError、上游确定性 4xx 拒绝与
+    结构化执行拒绝走 code/params 结构化，其余异常沿用 str(exc)。normal（_process_task）与 resume
     （_process_resume_task）两条独立的任务执行路径都会捕获这些异常（前者经常规 finalize，
     后者经 resume_executor 复用同一批 finalize helper），共用这份编码逻辑避免同一处理漂移成两份。
 
@@ -111,6 +111,13 @@ def _encode_task_failure_message(exc: Exception) -> str:
         return _try_encode_failure(exc.key, exc.params) or encode_failure("script_edit_error")
     if isinstance(exc, ApiError):
         return _try_encode_failure(exc.key, exc.params) or str(exc)
+    if isinstance(exc, ProviderRejectedError):
+        # 上游确定性 4xx：状态码与脱敏摘要各占一个参数。摘要是上游原文，不进译文模板——
+        # 读侧按 error_params 里的独立字段原样展示，只有外层措辞随 Accept-Language 变。
+        return _try_encode_failure(
+            "provider_rejected",
+            {"status": exc.response.status_code, "provider_reason": exc.provider_reason},
+        ) or str(exc)
     if isinstance(
         exc,
         ArtifactDownloadError

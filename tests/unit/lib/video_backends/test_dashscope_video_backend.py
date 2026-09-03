@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -25,6 +26,9 @@ def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
     resp.json.return_value = json_body
+    # 与 httpx 一致：text 是响应体原文。>=400 的日志与拒因摘要都读它，留成 MagicMock 会
+    # 让替身在真实代码路径上的行为与真响应分叉。
+    resp.text = json.dumps(json_body, ensure_ascii=False)
     resp.raise_for_status = MagicMock()
     return resp
 

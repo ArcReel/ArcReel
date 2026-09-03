@@ -18,6 +18,7 @@ from lib.image_backends.base import (
     ReferenceImage,
 )
 from lib.providers import PROVIDER_DASHSCOPE
+from lib.video_backends.base import ProviderRejectedError
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -452,4 +453,20 @@ class TestErrorResponse:
         # 保留 status_code 让咽喉层识别 413 走降档；413 不在 retryable 模式中 → fail-fast 单次
         assert ei.value.response.status_code == 413
         assert route.call_count == 1
+        download.assert_not_called()
+
+    async def test_rejection_body_becomes_a_redacted_provider_reason(self, tmp_path: Path):
+        """图像后端 4xx 与视频侧同路：拒因摘要脱敏截断后挂在异常上。"""
+        download = AsyncMock()
+        rejection = httpx.Response(
+            400, json={"code": "DataInspectionFailed", "message": "input data may contain inappropriate content"}
+        )
+        with _generate_route(rejection, download):
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
+            with pytest.raises(ProviderRejectedError) as ei:
+                await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
+
+        assert ei.value.provider_reason == "DataInspectionFailed: input data may contain inappropriate content"
         download.assert_not_called()

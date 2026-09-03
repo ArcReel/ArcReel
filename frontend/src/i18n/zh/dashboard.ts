@@ -460,6 +460,7 @@ export default {
   'task_filter_failed': '失败',
   'task_filter_done': '完成',
   'task_warnings_hint': '生成时有调整，展开查看',
+  'task_provider_reason_label': '供应商拒因',
   'task_warnings_count': '{{count}} 条生成警示',
   'queued_label': '排队',
   'running_label': '运行',

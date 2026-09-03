@@ -165,6 +165,7 @@ class DashScopeAudioBackend:
                     headers=dashscope_headers(self._api_key),
                 ),
                 provider=PROVIDER_DASHSCOPE,
+                include_provider_reason=False,
             )
             return extract_audio_url(resp.json())
 

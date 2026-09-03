@@ -46,6 +46,7 @@ MESSAGES = {
     "task_retry_download_unavailable": "Tác vụ '{id}' hiện không thể thử tải lại",
     # Lý do tác vụ thất bại (GenerationWorker lưu mã lỗi + tham số; tasks API kết xuất theo ngôn ngữ khi đọc)
     "task_fail_provider_unsupported_media": "Nhà cung cấp {provider_id} không hỗ trợ tạo {media_type}",
+    "task_fail_provider_rejected": "Nhà cung cấp đã từ chối yêu cầu tạo này (HTTP {status})",
     "task_fail_dispatch_provider_requeue_failed": "Nhà cung cấp tác vụ đã đổi từ {claimed_provider_id} sang {actual_provider_id}, nhưng không thể đưa tác vụ trở lại hàng đợi để nhận khe mới; vui lòng thử lại",
     "task_fail_restart_lost_image": "Tác vụ ảnh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
     "task_fail_restart_lost_audio": "Tác vụ âm thanh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",

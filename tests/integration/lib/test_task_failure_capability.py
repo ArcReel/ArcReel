@@ -13,6 +13,7 @@ import string
 from collections import Counter
 from pathlib import Path
 
+import httpx
 import pytest
 
 from lib import task_failure
@@ -42,7 +43,7 @@ from lib.task_failure import (
     encode_failure,
     render_failure,
 )
-from lib.video_backends.base import ArtifactDownloadError, VideoCapabilityError
+from lib.video_backends.base import ArtifactDownloadError, ProviderRejectedError, VideoCapabilityError
 
 # AST 守卫扫的是真实源码树、渲染断言用的是真实 i18n 目录，不 mock 任何被测入口。
 
@@ -590,6 +591,30 @@ def test_non_capability_exception_still_passes_through():
     stored = _encode_task_failure_message(RuntimeError("provider socket closed"))
     assert stored == "provider socket closed"
     assert render_failure(stored, _translator("en")) == stored
+
+
+def test_provider_rejection_stores_status_and_reason_as_separate_params():
+    """上游确定性 4xx：状态码进译文，拒因摘要以独立参数原样留在信封里。"""
+    request = httpx.Request("POST", "https://x/v2?api_key=SECRETKEY")
+    exc = ProviderRejectedError(
+        "400 response for https://x/v2",
+        request=request,
+        response=httpx.Response(400, request=request),
+        provider_reason="InvalidParameter: prompt violates the content policy",
+    )
+
+    stored = _encode_task_failure_message(exc)
+
+    assert json.loads(stored.split("] ", 1)[1]) == {
+        "provider_reason": "InvalidParameter: prompt violates the content policy",
+        "status": 400,
+    }
+    assert "SECRETKEY" not in stored
+    for locale in ("zh", "en", "vi"):
+        rendered = render_failure(stored, _translator(locale))
+        assert rendered == MESSAGES[locale]["task_fail_provider_rejected"].format(status=400)
+        # 摘要是上游原文，不进译文——读侧按独立字段展示。
+        assert "InvalidParameter" not in rendered
 
 
 @pytest.mark.parametrize(

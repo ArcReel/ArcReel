@@ -12,7 +12,7 @@ from typing import Protocol
 import httpx
 
 from lib.data_uri import image_to_data_uri as _image_to_data_uri
-from lib.video_backends.base import IMAGE_MIME_TYPES
+from lib.video_backends.base import IMAGE_MIME_TYPES, redacted_status_error
 
 
 def image_to_base64_data_uri(image_path: Path) -> str:
@@ -24,7 +24,11 @@ async def download_image_to_path(url: str, output_path: Path, *, timeout: int = 
     """从 URL 异步下载图片到本地文件。"""
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, timeout=timeout)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # 产物地址的查询串可能是签名，也可能是按 query 传的凭证——都不该进日志与任务记录。
+            raise redacted_status_error(exc) from None
         content = resp.content
 
     def _save() -> None:

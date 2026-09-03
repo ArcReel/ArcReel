@@ -453,6 +453,7 @@ export default {
   'task_filter_failed': 'Thất bại',
   'task_filter_done': 'Hoàn tất',
   'task_warnings_hint': 'Quá trình tạo đã được điều chỉnh — mở rộng để xem',
+  'task_provider_reason_label': 'Lý do từ nhà cung cấp',
   'task_warnings_count': '{{count}} cảnh báo khi tạo',
   'queued_label': 'Đang chờ',
   'running_label': 'Đang chạy',

@@ -47,6 +47,16 @@ const FILTER_STATUSES: Record<Exclude<TaskFilter, "all">, readonly TaskItem["sta
   done: ["succeeded", "cancelled"],
 };
 
+/**
+ * 上游拒因摘要：后端在 `provider_rejected` 的 error_params 里单独回传的上游原文。
+ * 它不参与翻译，与走 i18n 模板的 error_message 分开渲染。
+ */
+function providerReasonOf(task: TaskItem): string | null {
+  if (task.error_code !== "provider_rejected") return null;
+  const reason = task.error_params?.provider_reason;
+  return typeof reason === "string" && reason.trim() ? reason : null;
+}
+
 function matchesFilter(task: TaskItem, filter: TaskFilter): boolean {
   return filter === "all" || FILTER_STATUSES[filter].includes(task.status);
 }
@@ -162,6 +172,7 @@ function TaskRow({
   const warnings = task.status === "succeeded" ? taskWarnings(task) : [];
   const hasWarnings = warnings.length > 0;
   const hasError = Boolean(task.status === "failed" && task.error_message);
+  const providerReason = task.status === "failed" ? providerReasonOf(task) : null;
   // 失败原因与生成警示走同一套展开交互：一行最多只有其中一种详情。
   const isExpandable = hasError || hasWarnings;
   const isExpanded = expandedTaskId === task.task_id;
@@ -365,6 +376,12 @@ function TaskRow({
                 }}
               >
                 {task.error_message}
+                {providerReason && (
+                  <div className="mt-1 border-t pt-1" style={{ borderColor: "oklch(0.45 0.18 25 / 0.30)" }}>
+                    <span className="mr-1 opacity-70">{t("task_provider_reason_label")}</span>
+                    <span className="break-words">{providerReason}</span>
+                  </div>
+                )}
               </div>
             ) : (
               <ul

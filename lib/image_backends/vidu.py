@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import httpx
+
 from lib.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -20,7 +22,7 @@ from lib.image_backends.base import (
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_VIDU
 from lib.retry import with_retry_async
-from lib.video_backends.base import poll_with_retry
+from lib.video_backends.base import poll_with_retry, provider_reason_summary, redacted_status_error
 from lib.vidu_shared import (
     VIDU_RETRYABLE_ERRORS,
     assert_vidu_body_size,
@@ -177,10 +179,14 @@ class ViduImageBackend:
         logger.info("调用 Vidu 图片 API kwargs=%s", format_kwargs_for_log(safe_body_for_log(body)))
         resp = await client.post("/reference2image", json=body)
         if resp.status_code >= 400:
-            # raise_for_status 透出 httpx.HTTPStatusError，保留 .response.status_code，
-            # 让咽喉层能识别 413 走降档重试；body 先落日志保留可诊断性。
+            # redacted_status_error 透出 httpx.HTTPStatusError，保留 .response.status_code，
+            # 让咽喉层能识别 413 走降档重试；4xx 另带脱敏截断后的拒因摘要，供任务失败信封取用。
+            # body 先落日志保留可诊断性。
             logger.warning("Vidu 图片接口 /reference2image 返回 %s: %s", resp.status_code, resp.text[:500])
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise redacted_status_error(exc, provider_reason=provider_reason_summary(resp)) from None
         data = resp.json()
         if not data.get("task_id"):
             raise RuntimeError(f"Vidu 图片任务创建响应缺少 task_id: {data}")
