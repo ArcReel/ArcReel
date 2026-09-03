@@ -14,6 +14,7 @@ from lib.config.resolver import (
     ConfigResolver,
     constrain_durations,
     constrain_durations_for_project,
+    duration_constraints_report,
     get_provider_fallback,
 )
 from lib.custom_provider import make_provider_id
@@ -255,6 +256,48 @@ def test_constrain_durations_falls_back():
     assert constrain_durations(None, None, [4, 6, 8], resolution="4k") == [4, 6, 8]
     # 空候选原样返回
     assert constrain_durations(*_VEO, [], resolution="4k") == []
+
+
+def test_constrain_durations_strict_empty_intersection():
+    """严格执行边界取空交集，交由调用方 fail loud；约束公式仍与宽松读侧共用。"""
+    assert constrain_durations(*_VEO, [4, 6], resolution="4k", fallback_on_empty=False) == []
+
+
+def test_duration_constraints_report_classifies_exclusions():
+    """收窄结果连同成因：被分辨率剔除的报 resolution，被参考图剔除的报 reference。"""
+    report = duration_constraints_report(*_VEO, [8, 4, 6], resolution="1080p", uses_reference_images=False)
+    assert report == {
+        "resolution": "1080p",
+        "uses_reference_images": False,
+        "allowed": [8],
+        "allowed_without_reference_images": [8],
+        "excluded": {4: "resolution", 6: "resolution"},
+    }
+    report = duration_constraints_report(*_VEO, [4, 6, 8], resolution=None, uses_reference_images=True)
+    assert report["allowed"] == [8]
+    assert report["allowed_without_reference_images"] == [4, 6, 8]
+    assert report["excluded"] == {4: "reference", 6: "reference"}
+
+
+def test_duration_constraints_report_reference_wins_over_resolution():
+    """两条约束都剔除同一时长时报 reference：改分辨率救不回该值，提示改分辨率是误导。"""
+    report = duration_constraints_report(*_VEO, [4, 6, 8], resolution="1080p", uses_reference_images=True)
+    assert report["excluded"] == {4: "reference", 6: "reference"}
+    assert report["allowed_without_reference_images"] == [8]
+
+
+def test_duration_constraints_report_without_constraints_excludes_nothing():
+    """无声明 / 未登记型号 / 交集为空回退全集时，excluded 为空且 allowed 即全集。"""
+    report = duration_constraints_report(*_VEO, [4, 6, 8], resolution="720p", uses_reference_images=False)
+    assert report["allowed"] == [4, 6, 8]
+    assert report["excluded"] == {}
+    report = duration_constraints_report("custom-3", "relay", [5, 10], resolution="4k", uses_reference_images=True)
+    assert report["allowed"] == [5, 10]
+    assert report["excluded"] == {}
+    # 交集为空回退全集：没有被剔除的时长
+    report = duration_constraints_report(*_VEO, [4, 6], resolution="4k", uses_reference_images=False)
+    assert report["allowed"] == [4, 6]
+    assert report["excluded"] == {}
 
 
 def test_constrain_durations_for_project_uses_project_resolution():

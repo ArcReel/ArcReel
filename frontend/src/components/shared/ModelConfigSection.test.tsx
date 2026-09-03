@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { ComponentProps } from "react";
 import userEvent from "@testing-library/user-event";
+import { API, type VideoCapabilitiesQuery } from "@/api";
 import { ModelConfigSection } from "./ModelConfigSection";
-import type { ProviderInfo } from "@/types";
+import type { DurationConstraints, ProviderInfo, VideoCapabilities } from "@/types";
+import { lookupSupportedDurations } from "@/utils/provider-models";
 
 const PROVIDERS: ProviderInfo[] = [
   {
@@ -22,7 +24,6 @@ const PROVIDERS: ProviderInfo[] = [
         capabilities: [],
         default: false,
         supported_durations: [4, 6, 8],
-        duration_resolution_constraints: {},
         resolutions: [],
         audio_track: "controllable",
         reference_route_audio_track: "controllable",
@@ -46,7 +47,6 @@ const PROVIDERS: ProviderInfo[] = [
         capabilities: [],
         default: false,
         supported_durations: [5, 8, 10],
-        duration_resolution_constraints: {},
         resolutions: [],
         audio_track: "controllable",
         reference_route_audio_track: "controllable",
@@ -83,6 +83,67 @@ const EMPTY_GLOBALS = {
   image: "", imageT2I: "", imageI2I: "",
   textDefault: "", textSimple: "", textComplex: "",
 } as const;
+
+// 服务端 video-capabilities 端点的替身：时长全集查当前测试的目录，Veo 的联动约束按上下文给出
+// 预设答案（收窄规则本体只在后端 lib/config/resolver.py，这里是固定应答而非复算）。
+let fakeCatalog: ProviderInfo[] = PROVIDERS;
+
+function veoConstraints(query: VideoCapabilitiesQuery): DurationConstraints {
+  const resolution = query.resolution ?? null;
+  const usesReferenceImages = query.usesReferenceImages ?? false;
+  const base = { resolution, uses_reference_images: usesReferenceImages };
+  if (usesReferenceImages) {
+    return {
+      ...base,
+      allowed: [8],
+      allowed_without_reference_images: resolution === "1080p" || resolution === "4k" ? [8] : [4, 6, 8],
+      excluded: { "4": "reference", "6": "reference" },
+    };
+  }
+  if (resolution === "1080p" || resolution === "4k") {
+    return { ...base, allowed: [8], allowed_without_reference_images: [8], excluded: { "4": "resolution", "6": "resolution" } };
+  }
+  return { ...base, allowed: [4, 6, 8], allowed_without_reference_images: [4, 6, 8], excluded: {} };
+}
+
+function fakeVideoCapabilities(videoBackend: string, query: VideoCapabilitiesQuery): Promise<VideoCapabilities> {
+  const durations = lookupSupportedDurations(fakeCatalog, videoBackend);
+  if (!durations) return Promise.reject(new Error(`unknown model ${videoBackend}`));
+  const [provider_id, model] = videoBackend.split("/");
+  const sorted = [...durations].sort((a, b) => a - b);
+  const duration_constraints: DurationConstraints =
+    videoBackend === "gemini-aistudio/veo"
+      ? veoConstraints(query)
+      : {
+          resolution: query.resolution ?? null,
+          uses_reference_images: query.usesReferenceImages ?? false,
+          allowed: sorted,
+          allowed_without_reference_images: sorted,
+          excluded: {},
+        };
+  return Promise.resolve({
+    provider_id,
+    model,
+    supported_durations: durations,
+    max_duration: Math.max(...durations),
+    max_reference_images: 3,
+    first_frame: true,
+    last_frame: true,
+    source: "registry",
+    voice_consistency: "soft",
+    duration_constraints,
+  });
+}
+
+beforeEach(() => {
+  fakeCatalog = PROVIDERS;
+  vi.spyOn(API, "getModelVideoCapabilities").mockImplementation((backend, query = {}) =>
+    fakeVideoCapabilities(backend, query),
+  );
+  vi.spyOn(API, "getVideoCapabilities").mockImplementation((_name, query = {}) =>
+    fakeVideoCapabilities(query.videoBackend ?? "", query),
+  );
+});
 
 describe("ModelConfigSection", () => {
   it("renders only the three default-layer selectors when no candidates are supplied", async () => {
@@ -363,7 +424,7 @@ describe("ModelConfigSection", () => {
     });
   });
 
-  it("renders duration buttons based on supported_durations of current video backend", () => {
+  it("renders duration buttons based on supported_durations of current video backend", async () => {
     const { rerender } = render(
       <ModelConfigSection
         value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3" }}
@@ -373,7 +434,7 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    expect(screen.getByRole("radio", { name: "4 秒" })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: "4 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "6 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "5 秒" })).not.toBeInTheDocument();
@@ -387,13 +448,13 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    expect(screen.getByRole("radio", { name: "5 秒" })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: "5 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "10 秒" })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
   });
 
-  it("derives duration options from the bucket that the project actually executes", () => {
+  it("derives duration options from the bucket that the project actually executes", async () => {
     // 默认层 veo-3（4/6/8），但图生视频桶覆盖成 seedance（5/8/10）——执行的是后者，
     // 按默认层列时长会让用户存下执行时被拒的取值
     const { rerender } = render(
@@ -405,7 +466,7 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    expect(screen.getByRole("radio", { name: "10 秒" })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: "10 秒" })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
 
     // 参考生视频项目改走 r2v 桶，i2v 的覆盖对它不作数
@@ -419,7 +480,7 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    expect(screen.getByRole("radio", { name: "4 秒" })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: "4 秒" })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "10 秒" })).not.toBeInTheDocument();
   });
 
@@ -548,7 +609,7 @@ describe("ModelConfigSection", () => {
     expect(screen.getByRole("combobox", { name: /^默认图片模型$/ })).toBeInTheDocument();
   });
 
-  it("falls back to globalDefaults.video supported_durations when videoBackend is empty (bug repro)", () => {
+  it("falls back to globalDefaults.video supported_durations when videoBackend is empty (bug repro)", async () => {
     render(
       <ModelConfigSection
         value={EMPTY_VALUE}
@@ -559,7 +620,7 @@ describe("ModelConfigSection", () => {
       />,
     );
     // Should reflect ark/seedance's supported_durations [5, 8, 10]
-    expect(screen.getByRole("radio", { name: "5 秒" })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: "5 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "10 秒" })).toBeInTheDocument();
     // Should NOT show DEFAULT_DURATIONS buttons that ark/seedance doesn't support
@@ -577,13 +638,14 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // 不再 fallback 到 [4,6,8] —— 整个时长卡片不渲染
+    // 不再 fallback 到 [4,6,8] —— 整个时长卡片不渲染；没有候选模型也就没有可查的能力，不发请求
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "6 秒" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "8 秒" })).not.toBeInTheDocument();
+    expect(API.getModelVideoCapabilities).not.toHaveBeenCalled();
   });
 
-  it("renders slider when supported_durations is continuous integer range ≥ 5", () => {
+  it("renders slider when supported_durations is continuous integer range ≥ 5", async () => {
     const continuousProviders: ProviderInfo[] = [
       {
         id: "ark",
@@ -601,7 +663,6 @@ describe("ModelConfigSection", () => {
             capabilities: [],
             default: false,
             supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-            duration_resolution_constraints: {},
             resolutions: [],
             audio_track: "controllable",
             reference_route_audio_track: "controllable",
@@ -610,6 +671,7 @@ describe("ModelConfigSection", () => {
         },
       },
     ];
+    fakeCatalog = continuousProviders;
     render(
       <ModelConfigSection
         value={{ ...EMPTY_VALUE, videoBackend: "ark/seedance" }}
@@ -620,11 +682,11 @@ describe("ModelConfigSection", () => {
       />,
     );
     // 连续区间 → slider，不再有按钮组（除 auto + slider 自身的 radio）
-    expect(screen.getByRole("slider")).toBeInTheDocument();
+    expect(await screen.findByRole("slider")).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "3 秒" })).not.toBeInTheDocument();
   });
 
-  it("hides duration picker when effective backend has no supported_durations", () => {
+  it("hides duration picker when effective backend has no supported_durations", async () => {
     render(
       <ModelConfigSection
         value={{ ...EMPTY_VALUE, videoBackend: "unknown/no-such" }}
@@ -634,11 +696,12 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
+    await waitFor(() => expect(API.getModelVideoCapabilities).toHaveBeenCalled());
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: /^\d+s$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /^\d+ 秒$/ })).not.toBeInTheDocument();
   });
 
-  it("marks 'auto' radio as checked when defaultDuration is null", () => {
+  it("marks 'auto' radio as checked when defaultDuration is null", async () => {
     render(
       <ModelConfigSection
         value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", defaultDuration: null }}
@@ -648,10 +711,10 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    expect(screen.getByRole("radio", { name: "auto" })).toBeChecked();
+    expect(await screen.findByRole("radio", { name: "auto" })).toBeChecked();
   });
 
-  it("marks the selected duration radio as checked", () => {
+  it("marks the selected duration radio as checked", async () => {
     render(
       <ModelConfigSection
         value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", defaultDuration: 6 }}
@@ -661,7 +724,7 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    expect(screen.getByRole("radio", { name: "6 秒" })).toBeChecked();
+    expect(await screen.findByRole("radio", { name: "6 秒" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "4 秒" })).not.toBeChecked();
   });
 
@@ -677,11 +740,11 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    await user.click(screen.getByRole("radio", { name: "6 秒" }));
+    await user.click(await screen.findByRole("radio", { name: "6 秒" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: 6 }));
   });
 
-  it("shows an out-of-range notice with no duration radio checked when saved duration is unsupported", () => {
+  it("shows an out-of-range notice with no duration radio checked when saved duration is unsupported", async () => {
     render(
       <ModelConfigSection
         value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", defaultDuration: 10 }}
@@ -692,8 +755,8 @@ describe("ModelConfigSection", () => {
       />,
     );
     // 越界提示含失效秒数（10 不在 gemini/veo-3 的 [4,6,8] 内）
+    expect(await screen.findByText(/不再受当前模型支持/)).toBeInTheDocument();
     expect(screen.getByText(/10/)).toBeInTheDocument();
-    expect(screen.getByText(/不再受当前模型支持/)).toBeInTheDocument();
     // 无任何时长钮处于激活态：auto 与所有数字钮 aria-checked 均为 false
     expect(screen.getByRole("radio", { name: "auto" })).not.toBeChecked();
     for (const sec of ["4 秒", "6 秒", "8 秒"]) {
@@ -715,11 +778,11 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "回退到 auto" }));
+    await user.click(await screen.findByRole("button", { name: "回退到 auto" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: null }));
   });
 
-  it("does not show the out-of-range notice when saved duration is supported", () => {
+  it("does not show the out-of-range notice when saved duration is supported", async () => {
     render(
       <ModelConfigSection
         value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", defaultDuration: 6 }}
@@ -729,6 +792,7 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
+    await screen.findByRole("radio", { name: "6 秒" });
     expect(screen.queryByText(/不再受当前模型支持/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "回退到 auto" })).not.toBeInTheDocument();
   });
@@ -751,7 +815,6 @@ describe("ModelConfigSection", () => {
             capabilities: [],
             default: false,
             supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-            duration_resolution_constraints: {},
             resolutions: [],
             audio_track: "controllable",
             reference_route_audio_track: "controllable",
@@ -762,6 +825,7 @@ describe("ModelConfigSection", () => {
     ];
     const user = userEvent.setup();
     const onChange = vi.fn();
+    fakeCatalog = continuousProviders;
     render(
       <ModelConfigSection
         value={{ ...EMPTY_VALUE, videoBackend: "ark/seedance", defaultDuration: 20 }}
@@ -772,7 +836,7 @@ describe("ModelConfigSection", () => {
       />,
     );
     // slider 分支：20 不在 [3..15] 内
-    const slider = screen.getByRole("slider");
+    const slider = await screen.findByRole("slider");
     expect(slider).toBeInTheDocument();
     expect(screen.getByText(/不再受当前模型支持/)).toBeInTheDocument();
     // 越界值的读数/aria-valuetext 忠实显示原值，而非误报为 auto——与未激活的 auto 钮及
@@ -802,8 +866,6 @@ describe("ModelConfigSection", () => {
           capabilities: [],
           default: false,
           supported_durations: [4, 6, 8],
-          duration_resolution_constraints: { "1080p": [8], "4k": [8] },
-          reference_image_durations: [8],
           resolutions: ["720p", "1080p", "4k"],
           audio_track: "controllable",
           reference_route_audio_track: "controllable",
@@ -829,6 +891,7 @@ describe("ModelConfigSection", () => {
     } = {},
   ) {
     const { videoResolution = null, defaultDuration = null, ...props } = overrides;
+    fakeCatalog = VEO_PROVIDERS;
     return render(
       <ModelConfigSection
         value={{
@@ -846,41 +909,62 @@ describe("ModelConfigSection", () => {
     );
   }
 
-  it("offers every supported duration at an unconstrained resolution", () => {
+  it("offers every supported duration at an unconstrained resolution", async () => {
     renderVeo({ videoResolution: "720p" });
+    await screen.findByRole("radio", { name: "4 秒" });
     for (const sec of ["4 秒", "6 秒", "8 秒"]) {
       expect(screen.getByRole("radio", { name: sec })).toBeInTheDocument();
     }
   });
 
-  it.each(["1080p", "4k"])("offers only 8s at %s", (resolution) => {
+  it.each(["1080p", "4k"])("offers only 8s at %s", async (resolution) => {
     renderVeo({ videoResolution: resolution });
-    expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "6 秒" })).not.toBeInTheDocument();
+    // 表单里未保存的分辨率显式交给服务端求值，而不是等保存后再算
+    expect(API.getModelVideoCapabilities).toHaveBeenLastCalledWith(
+      "gemini-aistudio/veo",
+      expect.objectContaining({ resolution }),
+    );
   });
 
-  it("offers only 8s on the reference-video path even at 720p", () => {
+  it("offers only 8s on the reference-video path even at 720p", async () => {
     renderVeo({ videoResolution: "720p", usesReferenceImages: true });
-    expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
+    expect(API.getModelVideoCapabilities).toHaveBeenLastCalledWith(
+      "gemini-aistudio/veo",
+      expect.objectContaining({ resolution: "720p", usesReferenceImages: true }),
+    );
+  });
+
+  it("sends the project name and an explicit auto resolution when editing a saved project", async () => {
+    renderVeo({ projectName: "saved-project", videoResolution: null });
+    await screen.findByRole("radio", { name: "4 秒" });
+    // 表单里的「自动」显式传 null：服务端不得回退到该项目已保存的档位来收窄
+    expect(API.getVideoCapabilities).toHaveBeenLastCalledWith(
+      "saved-project",
+      expect.objectContaining({ videoBackend: "gemini-aistudio/veo", resolution: null }),
+    );
+    expect(API.getModelVideoCapabilities).not.toHaveBeenCalled();
   });
 
   // 警告文案按越界成因分开：模型本身仍支持 4 秒，指向「模型不支持」会把用户引去换模型。
   it.each([
     ["1080p 分辨率", { videoResolution: "1080p" }, /当前分辨率下不可用/],
     ["参考生视频", { videoResolution: "720p", usesReferenceImages: true }, /参考生视频下不可用/],
-  ])("warns about a saved 4s duration under %s", (_label, overrides, expected) => {
+  ])("warns about a saved 4s duration under %s", async (_label, overrides, expected) => {
     renderVeo({ ...overrides, defaultDuration: 4 });
-    expect(screen.getByRole("alert")).toHaveTextContent(expected);
+    expect(await screen.findByRole("alert")).toHaveTextContent(expected);
     expect(screen.getByRole("alert")).not.toHaveTextContent(/不再受当前模型支持/);
     expect(screen.getByRole("radio", { name: "8 秒" })).not.toBeChecked();
   });
 
-  it("keeps a saved 4s duration valid when neither constraint applies", () => {
+  it("keeps a saved 4s duration valid when neither constraint applies", async () => {
     renderVeo({ videoResolution: "720p", defaultDuration: 4 });
+    expect(await screen.findByRole("radio", { name: "4 秒" })).toBeChecked();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "4 秒" })).toBeChecked();
   });
 });
 
@@ -902,7 +986,6 @@ describe("音频开关的模型可控性", () => {
           capabilities: [],
           default: false,
           supported_durations: [5],
-          duration_resolution_constraints: {},
           resolutions: [],
           audio_track: "controllable",
           reference_route_audio_track: "controllable",
@@ -927,7 +1010,6 @@ describe("音频开关的模型可控性", () => {
           capabilities: [],
           default: false,
           supported_durations: [5],
-          duration_resolution_constraints: {},
           resolutions: [],
           audio_track: "controllable",
           reference_route_audio_track: "always_off",
@@ -951,7 +1033,6 @@ describe("音频开关的模型可控性", () => {
           capabilities: [],
           default: false,
           supported_durations: [5],
-          duration_resolution_constraints: {},
           resolutions: [],
           audio_track: "always_on",
           reference_route_audio_track: "always_on",
@@ -975,7 +1056,6 @@ describe("音频开关的模型可控性", () => {
           capabilities: [],
           default: false,
           supported_durations: [6],
-          duration_resolution_constraints: {},
           resolutions: [],
           audio_track: "always_off",
           reference_route_audio_track: "always_off",

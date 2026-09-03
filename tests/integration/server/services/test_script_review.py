@@ -129,7 +129,14 @@ class _I2vUnresolvableResolver(ConfigResolver):
     def __init__(self) -> None:
         super().__init__(async_session_factory)
 
-    async def video_capabilities_for_project(self, project: dict, *, capability=None) -> dict:
+    async def video_capabilities_for_project(
+        self,
+        project: dict,
+        *,
+        capability=None,
+        resolution: str | None = None,
+        uses_reference_images: bool | None = None,
+    ) -> dict:
         raise ValueError(f"{capability} bucket unresolvable in this test")
 
 

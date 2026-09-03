@@ -2,8 +2,8 @@ import { Mic, Quote, VolumeX } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { formatDurationsLabel } from "@/utils/duration_format";
-import { catalogDurations } from "@/hooks/useModelCapabilities";
 import {
+  catalogDurations,
   lookupCatalogVideoAudio,
   lookupResolutions,
   lookupVideoAudioControl,

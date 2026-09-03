@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
 import { Route, Switch, Redirect } from "wouter";
 import {
@@ -9,7 +9,11 @@ import {
   WORKSPACE_ROUTE_SCENES,
   WORKSPACE_ROUTE_PROPS,
   WORKSPACE_ROUTE_PRODUCTS,
+  WORKSPACE_ROUTE_EPISODES,
 } from "@/app-routes";
+
+/** 集级路由 path，与渲染该集的 `<Route>` 共用一份。 */
+const EPISODE_ROUTE_PATH = `/${WORKSPACE_ROUTE_EPISODES}/:episodeId`;
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
@@ -17,9 +21,7 @@ import { isDemoProject } from "@/onboarding/demo-project";
 import { DemoEpisodePlaceholder } from "@/onboarding/DemoEpisodePlaceholder";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
-import { useCurrentEpisode, EPISODE_ROUTE_PATH } from "@/hooks/useCurrentEpisode";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { SourceFileViewer } from "./SourceFileViewer";
@@ -46,13 +48,7 @@ import {
 } from "@/actions/generation";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import {
-  getProviderModels,
-  getCustomProviderModels,
-  lookupProjectVideoResolution,
-} from "@/utils/provider-models";
-import {
   durationOutOfRangeReason,
-  narrowDurations,
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
 import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
@@ -60,8 +56,6 @@ import type {
   Scene,
   Prop,
   Product,
-  CustomProviderInfo,
-  ProviderInfo,
   ReferenceGenerationRequestOptions,
 } from "@/types";
 import type { EpisodeScript } from "@/types/script";
@@ -112,65 +106,19 @@ export function StudioCanvasRouter() {
   // useDemoWorkbench() 已把路由参数与 store 的判定滞后收口在单一来源，此处直接消费。
   const demoMode = useDemoWorkbench();
 
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
-  const [globalVideoBackend, setGlobalVideoBackend] = useState("");
-
-  // 目录侧与服务端侧听同一个失效信号：本组件跨路由原地复用，改完全局默认后端 / 自定义供应商
-  // 回到工作台不会重挂载，只重取服务端能力而留着旧目录的话，时长仍按旧配置解析。
-  const capabilitiesRevision = useCapabilitiesStore((s) => s.revision);
-
-  useEffect(() => {
-    // 这三份数据只服务视频时长选项。演示态的时长是虚构的静态展示，唯一还会用到选项的
-    // 是「时长与后端不兼容」的橙色标记——对虚构数据那是伪告警，不值得为它发三个全局请求。
-    if (demoMode) return;
-    let disposed = false;
-    Promise.all([getProviderModels(), getCustomProviderModels(), API.getSystemConfig()]).then(
-      ([provList, customList, configRes]) => {
-        if (disposed) return;
-        setProviders(provList);
-        setCustomProviders(customList);
-        setGlobalVideoBackend(configRes.settings?.default_video_backend ?? "");
-      },
-    ).catch(() => {});
-    return () => { disposed = true; };
-  }, [demoMode, capabilitiesRevision]);
-
-  // 演示态即便 state 里还留着上一个真实项目的 providers/backend（同一组件实例原地切入演示
-  // 路由，effect 提前 return 不会清掉旧值），也不参与解析——否则真实后端的时长限制会继续套用
-  // 到演示的虚构时长上，触发「不兼容」误报。demoMode 演示→真实切换时先于 store 变为 false，
+  // 演示态不发真实能力请求。demoMode 演示→真实切换时先于 store 变为 false，
   // currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
   const capabilitiesEnabled = !demoMode && !isDemoProject(currentProjectName);
 
   // 逐个分镜的时长编辑器候选取经联动约束收窄后的集合，用户就选不到入队后必然被拒的组合；
   // 已保存的越界值不改写，由 ShotDetail 按成因给警告并引导重选。
-  // 后端未配置时能力管线退回服务端解析出的 model（与生成路径同一套规则，避免 FE/BE 漂移）。
-  //
-  // 收窄放在下方按集的 Route 渲染里：那里才有本集的分辨率与剧本上下文，而能力查询只在组件
-  // 顶层做一次。此处只取不随上下文变化的两项。
-  //
-  // 服务端侧把当前集号一并带上，让 voiceConsistency / firstFrame 等派生值与执行层同口径。
-  // 集号在顶层从路由取（`useCurrentEpisode` 与下方 Route 共用同一份 path），能力查询因此
-  // 仍只发生一次、随切集重取。
-  const currentEpisode = useCurrentEpisode();
-  const effectiveVideoBackend = currentProjectData?.video_backend || globalVideoBackend;
-  const { rawDurations, durationConstraints, resolvedVideoBackend } = useModelCapabilities({
+  // 不传候选模型、分辨率与参考图路径：服务端按项目生成模式解析实际执行的
+  // i2v/r2v 桶模型及其已保存档位。传项目默认 `video_backend` 会覆盖细分桶、与执行期错位。
+  // 能力按项目生成模式定轴、全项目同一口径，故不带集号。
+  const capabilities = useModelCapabilities({
     projectName: currentProjectName,
-    videoBackend: effectiveVideoBackend,
-    episode: currentEpisode,
-    providers,
-    customProviders,
     enabled: capabilitiesEnabled,
   });
-  // 分辨率按能力管线解析出的 `provider/model` 查，而非传入的原始值：后者可能是裸 provider
-  // （服务端补全默认视频模型）或留空跟随全局默认，直接拿去查 `model_settings` 会把 provider ID
-  // 当成 model ID、读不到用户实际保存的档位，于是该收窄的候选照旧呈现。
-  // 用户未选分辨率时为 null → 不收窄：执行期省略 resolution 参数、供应商按自己的默认档位处理，
-  // 该档位下全集本就合法。与后端约束求值、项目设置页的时长选择器同口径。
-  const videoResolution = lookupProjectVideoResolution(
-    currentProjectData,
-    resolvedVideoBackend || effectiveVideoBackend,
-  );
 
   // 从任务队列派生 loading 状态（替代本地 state）：活跃 + 最新行胜出两条不变量下沉到 store selector
   const generatingCharacterNames = useActiveResourceIds("character", currentProjectName);
@@ -737,26 +685,16 @@ export function StudioCanvasRouter() {
           const scriptFile = episode?.script_file?.replace(/^scripts\//, "");
           const script = scriptFile ? (currentScripts[scriptFile] ?? null) : null;
           const route = normalizeRoute(currentProjectData?.generation_mode);
-          // 生成模式决定是否走参考图路径，时长候选据此收窄。
-          const durationCtx = {
-            videoResolution,
-            usesReferenceImages: route === "reference_video",
-          };
-          const durationOptions =
-            narrowDurations({ rawDurations, durationConstraints }, durationCtx) ?? undefined;
+          // 服务端已按项目生成模式（是否走参考图路径）与已保存分辨率收窄。
+          const durationOptions = capabilities.supportedDurations ?? undefined;
           // reference_video 的参考图约束是按 unit 而非按集生效（同集内不带 references 的
           // unit 不受此约束，见 lib.reference_video.request_projection 的
-          // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：多备一份不叠加
-          // 参考图收窄的档位，供画布按每个 unit 自己的引用状态选用。
+          // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：服务端多备一份
+          // 不叠加参考图收窄的档位，供画布按每个 unit 自己的引用状态选用。
           const durationOptionsNoReference =
-            narrowDurations({ rawDurations, durationConstraints }, { videoResolution }) ??
-            undefined;
+            capabilities.supportedDurationsWithoutReference ?? undefined;
           const durationWarningReason = (seconds: number) =>
-            durationOutOfRangeReason(
-              seconds,
-              { rawDurations, supportedDurations: durationOptions ?? null, durationConstraints },
-              durationCtx,
-            );
+            durationOutOfRangeReason(seconds, capabilities);
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
           const isAd = currentProjectData?.content_mode === "ad";

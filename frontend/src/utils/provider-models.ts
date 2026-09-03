@@ -102,6 +102,23 @@ export function lookupSupportedDurations(
     : undefined;
 }
 
+/**
+ * 目录里该模型的时长全集，升序；目录查不到为 null。
+ *
+ * 这是型号声明、不经任何联动约束收窄的集合，供「展示模型规格」与「切换模型时判断已选时长
+ * 是否仍属于新模型」这类同步场景使用。按当前分辨率 / 参考图路径收窄后的可选集只由服务端
+ * video-capabilities 端点回答（`useModelCapabilities`），前端不复算收窄规则。
+ */
+export function catalogDurations(
+  providers: ProviderInfo[],
+  customProviders: CustomProviderInfo[],
+  videoBackend: string,
+): number[] | null {
+  if (!videoBackend) return null;
+  const raw = lookupSupportedDurations(providers, videoBackend, customProviders);
+  return raw?.length ? [...raw].sort((a, b) => a - b) : null;
+}
+
 /** 目录（非自定义供应商）里的视频音轨能力：音轨是否存在 + 服务端派生的声音一致性档位。 */
 export interface CatalogVideoAudio {
   hasAudioTrack: boolean;
@@ -162,105 +179,11 @@ export function lookupVideoAudioControl(
 }
 
 // ---------------------------------------------------------------------------
-// Duration constraints
-//
-// 时长并非只由 supported_durations 决定：部分模型（当前是 Veo 全系）在高分辨率或参考图
-// 路径下把时长收窄到单一取值。约束声明在后端 registry 的 ModelInfo 上，这里只做消费——
-// UI 据此收窄可选项，用户就不会选到入队后必然被拒的组合。
-// ---------------------------------------------------------------------------
-
-export interface DurationConstraints {
-  /** 分辨率（小写）→ 该分辨率下允许的时长 */
-  byResolution: Record<string, number[]>;
-  /** 使用参考图时允许的时长；空数组 = 无额外约束 */
-  withReferenceImages: number[];
-}
-
-const EMPTY_CONSTRAINTS: DurationConstraints = { byResolution: {}, withReferenceImages: [] };
-
-/** 读取该 (provider, model) 的时长联动约束。自定义供应商不表达这类约束，返回空。 */
-export function lookupDurationConstraints(
-  providers: ProviderInfo[],
-  videoBackend: string,
-): DurationConstraints {
-  const slashIdx = videoBackend.indexOf("/");
-  if (slashIdx === -1) return EMPTY_CONSTRAINTS;
-  const providerId = videoBackend.slice(0, slashIdx);
-  if (providerId.startsWith(CUSTOM_PREFIX)) return EMPTY_CONSTRAINTS;
-
-  const provider = providers.find((p) => p.id === providerId);
-  const model = provider?.models?.[videoBackend.slice(slashIdx + 1)];
-  if (!model) return EMPTY_CONSTRAINTS;
-
-  const byResolution: Record<string, number[]> = {};
-  for (const [resolution, durations] of Object.entries(
-    model.duration_resolution_constraints ?? {},
-  )) {
-    byResolution[resolution.toLowerCase()] = durations;
-  }
-  return { byResolution, withReferenceImages: model.reference_image_durations ?? [] };
-}
-
-/**
- * 按当前分辨率与是否走参考图路径收窄时长候选。
- *
- * 两条约束各自独立触发、可同时生效，取交集。交集为空说明声明之间自相矛盾（不该发生），
- * 此时保留原候选而非清空——留一个空的时长选择器会让用户无从操作，且后端仍有执行期拦截。
- */
-export function constrainDurations(
-  durations: readonly number[],
-  constraints: DurationConstraints,
-  ctx: { resolution?: string | null; usesReferenceImages?: boolean },
-): number[] {
-  let allowed = [...durations];
-  if (ctx.usesReferenceImages && constraints.withReferenceImages.length > 0) {
-    allowed = allowed.filter((d) => constraints.withReferenceImages.includes(d));
-  }
-  const byResolution = ctx.resolution
-    ? constraints.byResolution[ctx.resolution.toLowerCase()]
-    : undefined;
-  if (byResolution?.length) {
-    allowed = allowed.filter((d) => byResolution.includes(d));
-  }
-  return allowed.length > 0 ? allowed : [...durations];
-}
-
-// ---------------------------------------------------------------------------
 // Resolution lookup
 // ---------------------------------------------------------------------------
 
 export const IMAGE_STANDARD_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
 export const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
-
-/** 项目里存了分辨率的两种形状：`model_settings` 以 `provider/model` 复合键，legacy 以裸 model_id。 */
-export interface ProjectResolutionSettings {
-  model_settings?: Record<string, { resolution?: string | null }> | null;
-  video_model_settings?: Record<string, { resolution?: string | null }> | null;
-}
-
-/**
- * 读项目为该视频后端保存的分辨率：`model_settings` → legacy `video_model_settings` → null。
- *
- * `backend` 须是**已解析**的 `provider/model`（裸 provider 会被当成 model ID、读不到实际档位），
- * 与写入侧同一口径。null 表示用户未选档位：执行期省略 resolution 参数、供应商按自己的默认档位
- * 处理，故这里不替用户假定档位，与后端约束求值同口径。
- */
-export function lookupProjectVideoResolution(
-  project: ProjectResolutionSettings | null | undefined,
-  backend: string,
-): string | null {
-  if (!project || !backend) return null;
-  // 空值（null / 空串）按「未配置」处理并继续回退 legacy，与后端 `_resolution_from_project`
-  // 及保存期的 legacy 迁移同口径——这三处必须描述同一套语义，否则同一份 project.json 会让
-  // 工作台呈现执行期实际不接受的时长。
-  const fromModelSettings = project.model_settings?.[backend]?.resolution;
-  if (fromModelSettings) return fromModelSettings;
-  const slashIdx = backend.indexOf("/");
-  const modelId = slashIdx === -1 ? backend : backend.slice(slashIdx + 1);
-  // legacy 侧同样把空串归一为 null：后端 `_resolution_from_project` 对两层都用真值判断，
-  // 只归一新键会让「空值按未配置处理」在 legacy 上失效。
-  return project.video_model_settings?.[modelId]?.resolution || null;
-}
 
 /** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。
  *  自定义供应商路径需要从 endpoint 推 media_type 选标准分辨率集；该 map 由调用方

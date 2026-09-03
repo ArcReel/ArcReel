@@ -367,6 +367,33 @@ describe("API", () => {
     });
   });
 
+  describe("video capabilities wrappers", () => {
+    it("encodes the constraint context and never sends an episode", async () => {
+      const requestSpy = vi.spyOn(API, "request").mockResolvedValue({} as never);
+
+      await API.getVideoCapabilities("a b");
+      await API.getVideoCapabilities("demo", {
+        videoBackend: "gemini/veo-3",
+        resolution: "1080p",
+        usesReferenceImages: true,
+      });
+      // null 分辨率 = 表单里显式选了「自动」，发空串让服务端不回退到已保存档位
+      await API.getVideoCapabilities("demo", { resolution: null, usesReferenceImages: false });
+      await API.getModelVideoCapabilities("ark/seedance");
+      await API.getModelVideoCapabilities("ark/seedance", { resolution: "720p" });
+
+      const paths = requestSpy.mock.calls.map(([path]) => path);
+      expect(paths).toEqual([
+        "/projects/a%20b/video-capabilities",
+        "/projects/demo/video-capabilities?video_backend=gemini%2Fveo-3&resolution=1080p&uses_reference_images=true",
+        "/projects/demo/video-capabilities?resolution=&uses_reference_images=false",
+        "/providers/video-capabilities?video_backend=ark%2Fseedance",
+        "/providers/video-capabilities?video_backend=ark%2Fseedance&resolution=720p",
+      ]);
+      for (const path of paths) expect(path).not.toContain("episode");
+    });
+  });
+
   describe("request-based wrappers", () => {
     it("covers project, character, scene, prop, product, script and generation endpoints", async () => {
       const requestSpy = vi

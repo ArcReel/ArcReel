@@ -168,6 +168,14 @@ class TestListProviders:
             assert "resolutions" in minfo
             assert isinstance(minfo["resolutions"], list)
 
+    def test_models_do_not_expose_duration_constraints(self):
+        """目录不透出时长联动约束：收窄结果与成因只经 video-capabilities 端点回给前端。"""
+        with _make_client(self._mock_svc_with_models()) as client:
+            resp = client.get("/api/v1/providers")
+        for minfo in resp.json()["providers"][0]["models"].values():
+            assert "duration_resolution_constraints" not in minfo
+            assert "reference_image_durations" not in minfo
+
     def test_models_resolutions_values_passthrough(self):
         """resolutions 的具体值应按原样透传到 response。"""
         with _make_client(self._mock_svc_with_models()) as client:

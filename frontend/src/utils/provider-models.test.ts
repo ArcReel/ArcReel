@@ -2,12 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import type { ProviderInfo } from "@/types";
 import {
-  constrainDurations,
+  catalogDurations,
   getCustomProviderModels,
   getProviderModels,
   lookupCatalogVideoAudio,
-  lookupDurationConstraints,
-  lookupProjectVideoResolution,
   lookupVideoAudioControl,
 } from "./provider-models";
 
@@ -54,9 +52,7 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         media_type: "video",
         capabilities: [],
         default: false,
-        supported_durations: [4, 6, 8],
-        duration_resolution_constraints: { "1080p": [8], "4k": [8] },
-        reference_image_durations: [8],
+        supported_durations: [8, 4, 6],
         resolutions: ["720p", "1080p", "4k"],
         audio_track: "controllable",
         reference_route_audio_track: "controllable",
@@ -68,7 +64,6 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         capabilities: [],
         default: false,
         supported_durations: [5, 8, 10],
-        duration_resolution_constraints: {},
         resolutions: ["720p", "1080p"],
         audio_track: "controllable",
         reference_route_audio_track: "controllable",
@@ -77,34 +72,6 @@ const VEO_PROVIDERS: ProviderInfo[] = [
     },
   },
 ];
-
-describe("lookupDurationConstraints", () => {
-  it("reads both constraint kinds off the model declaration", () => {
-    const c = lookupDurationConstraints(VEO_PROVIDERS, "gemini-aistudio/veo-3.1-generate-preview");
-
-    expect(c.byResolution).toEqual({ "1080p": [8], "4k": [8] });
-    expect(c.withReferenceImages).toEqual([8]);
-  });
-
-  it("returns empty constraints for models, providers and custom backends without declarations", () => {
-    expect(lookupDurationConstraints(VEO_PROVIDERS, "gemini-aistudio/seedance-like")).toEqual({
-      byResolution: {},
-      withReferenceImages: [],
-    });
-    expect(lookupDurationConstraints(VEO_PROVIDERS, "gemini-aistudio/unknown")).toEqual({
-      byResolution: {},
-      withReferenceImages: [],
-    });
-    expect(lookupDurationConstraints(VEO_PROVIDERS, "custom-3/my-model")).toEqual({
-      byResolution: {},
-      withReferenceImages: [],
-    });
-    expect(lookupDurationConstraints(VEO_PROVIDERS, "no-slash")).toEqual({
-      byResolution: {},
-      withReferenceImages: [],
-    });
-  });
-});
 
 describe("lookupCatalogVideoAudio", () => {
   it("derives hasAudioTrack / voiceConsistency off the model declaration", () => {
@@ -188,103 +155,25 @@ describe("lookupVideoAudioControl", () => {
   });
 });
 
-describe("constrainDurations", () => {
-  const constraints = lookupDurationConstraints(
-    VEO_PROVIDERS,
-    "gemini-aistudio/veo-3.1-generate-preview",
-  );
-
-  it("keeps every duration at an unconstrained resolution without reference images", () => {
-    expect(constrainDurations([4, 6, 8], constraints, { resolution: "720p" })).toEqual([4, 6, 8]);
-    expect(constrainDurations([4, 6, 8], constraints, { resolution: null })).toEqual([4, 6, 8]);
+describe("catalogDurations", () => {
+  it("returns the declared full set in ascending order, untouched by any linkage constraint", () => {
+    expect(catalogDurations(VEO_PROVIDERS, [], "gemini-aistudio/veo-3.1-generate-preview")).toEqual([4, 6, 8]);
   });
 
-  it.each(["1080p", "4k", "4K"])("narrows to 8s at %s", (resolution) => {
-    expect(constrainDurations([4, 6, 8], constraints, { resolution })).toEqual([8]);
+  it("returns null for unknown model / provider, empty backend and models without durations", () => {
+    expect(catalogDurations(VEO_PROVIDERS, [], "gemini-aistudio/unknown")).toBeNull();
+    expect(catalogDurations(VEO_PROVIDERS, [], "bogus/whatever")).toBeNull();
+    expect(catalogDurations(VEO_PROVIDERS, [], "")).toBeNull();
   });
 
-  it("narrows to 8s on the reference-image path at any resolution", () => {
-    expect(
-      constrainDurations([4, 6, 8], constraints, { resolution: "720p", usesReferenceImages: true }),
-    ).toEqual([8]);
-  });
-
-  it("keeps the original options when constraints would leave nothing selectable", () => {
-    const contradictory = { byResolution: { "720p": [16] }, withReferenceImages: [] };
-    expect(constrainDurations([4, 6, 8], contradictory, { resolution: "720p" })).toEqual([4, 6, 8]);
-  });
-});
-
-describe("lookupProjectVideoResolution", () => {
-  const BACKEND = "gemini-aistudio/veo-3.1-generate-preview";
-
-  it("读 model_settings 的 provider/model 复合键", () => {
-    expect(
-      lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: "4K" } } }, BACKEND),
-    ).toBe("4K");
-  });
-
-  // 旧项目的分辨率存在 video_model_settings 下、键是裸 model_id；不回退会让老项目的
-  // 时长候选按「未设分辨率」处理，选到该分辨率下必然被拒的时长。
-  it("回退 legacy video_model_settings 的裸 model_id 键", () => {
-    expect(
-      lookupProjectVideoResolution(
-        { video_model_settings: { "veo-3.1-generate-preview": { resolution: "1080p" } } },
-        BACKEND,
-      ),
-    ).toBe("1080p");
-  });
-
-  it("新键优先于 legacy", () => {
-    expect(
-      lookupProjectVideoResolution(
-        {
-          model_settings: { [BACKEND]: { resolution: "720p" } },
-          video_model_settings: { "veo-3.1-generate-preview": { resolution: "1080p" } },
-        },
-        BACKEND,
-      ),
-    ).toBe("720p");
-  });
-
-  // null 表示用户未选档位：执行期省略 resolution 参数、供应商按自己的默认档位处理，
-  // 该档位下全集本就合法，故不替用户假定档位（返回 null → 不收窄）。
-  it("未配置 / 缺项目 / 空后端一律 null", () => {
-    expect(lookupProjectVideoResolution({}, BACKEND)).toBeNull();
-    expect(lookupProjectVideoResolution({ model_settings: {} }, BACKEND)).toBeNull();
-    expect(lookupProjectVideoResolution(null, BACKEND)).toBeNull();
-    expect(lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: "4K" } } }, "")).toBeNull();
-    expect(
-      lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: null } } }, BACKEND),
-    ).toBeNull();
-  });
-
-  // 新键为空值按「未配置」处理并继续回退 legacy，与后端 `_resolution_from_project` 及保存期的
-  // legacy 迁移（`_migrate_legacy_resolution_on_save` 只在 resolution 有值时清理）同口径。
-  // 三处必须描述同一套语义，否则同一份 project.json 会让工作台呈现执行期实际不接受的时长。
-  it("新键为空值时回退 legacy，与后端读取口径一致", () => {
-    expect(
-      lookupProjectVideoResolution(
-        {
-          model_settings: { [BACKEND]: { resolution: null } },
-          video_model_settings: { "veo-3.1-generate-preview": { resolution: "1080p" } },
-        },
-        BACKEND,
-      ),
-    ).toBe("1080p");
-  });
-
-  // 后端 `_resolution_from_project` 对新键与 legacy 两层都用真值判断，只归一新键会让
-  // 「空值按未配置处理」在 legacy 上失效。
-  it("legacy 侧的空串同样归一为 null", () => {
-    expect(
-      lookupProjectVideoResolution(
-        {
-          model_settings: { [BACKEND]: { resolution: null } },
-          video_model_settings: { "veo-3.1-generate-preview": { resolution: "" } },
-        },
-        BACKEND,
-      ),
-    ).toBeNull();
+  it("reads custom backends off the custom provider catalog", () => {
+    const custom = [
+      {
+        id: 3,
+        display_name: "Relay",
+        models: [{ model_id: "relay-video", display_name: "Relay video", supported_durations: [10, 5] }],
+      },
+    ] as unknown as Parameters<typeof catalogDurations>[1];
+    expect(catalogDurations(VEO_PROVIDERS, custom, "custom-3/relay-video")).toEqual([5, 10]);
   });
 });

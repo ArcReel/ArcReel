@@ -60,7 +60,6 @@ const mockProviders = {
           capabilities: [],
           default: false,
           supported_durations: [4, 6, 8],
-          duration_resolution_constraints: {},
         },
       },
     },
@@ -76,6 +75,29 @@ describe("CreateProjectModal", () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    // 无项目端点的替身：向导里项目尚不存在，按候选模型回时长（服务端算好的收窄结果）
+    vi.spyOn(API, "getModelVideoCapabilities").mockImplementation((backend) => {
+      const durations = backend === "ark/seedance" ? [5, 10] : [4, 6, 8];
+      const [provider_id, model] = backend.split("/");
+      return Promise.resolve({
+        provider_id,
+        model,
+        supported_durations: durations,
+        max_duration: Math.max(...durations),
+        max_reference_images: 3,
+        first_frame: true,
+        last_frame: true,
+        source: "registry",
+        voice_consistency: "soft",
+        duration_constraints: {
+          resolution: null,
+          uses_reference_images: false,
+          allowed: durations,
+          allowed_without_reference_images: durations,
+          excluded: {},
+        },
+      });
+    });
     vi.spyOn(API, "createProject").mockResolvedValue({
       success: true,
       name: "demo-proj",
@@ -235,7 +257,7 @@ describe("CreateProjectModal", () => {
           models: {
             "veo-3": {
               display_name: "veo-3", media_type: "video", capabilities: [], default: false,
-              supported_durations: [4, 6, 8], duration_resolution_constraints: {},
+              supported_durations: [4, 6, 8],
               resolutions: ["720p", "1080p"],
             },
           },
@@ -246,7 +268,7 @@ describe("CreateProjectModal", () => {
           models: {
             seedance: {
               display_name: "seedance", media_type: "video", capabilities: [], default: false,
-              supported_durations: [5, 10], duration_resolution_constraints: {},
+              supported_durations: [5, 10],
               resolutions: ["720p"],
             },
           },

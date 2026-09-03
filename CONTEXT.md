@@ -184,8 +184,8 @@ _Avoid_: 把 size 当比例或清晰度的同义词。
 _Avoid_: 全局时长白名单。
 
 **时长联动约束（duration_resolution_constraints / reference_image_durations）**：
-在 `supported_durations` 全集之上，按分辨率或参考图上下文进一步收窄可选时长的两条逐模型声明。
-_Avoid_: 全局时长约束表。
+在 `supported_durations` 全集之上，按分辨率或参考图上下文进一步收窄可选时长的两条逐模型声明。收窄规则只在后端 `lib/config/resolver.py` 求值，收窄结果与成因经 video-capabilities 端点的 `duration_constraints` 回传，前端只查表。
+_Avoid_: 全局时长约束表；在前端复算收窄。
 
 **偏好时长（default_duration）**：
 项目级偏好时长（int）；为 null 或缺失时是有语义的「auto」档——由 AI 按内容节奏在 supported_durations 内自行决定。

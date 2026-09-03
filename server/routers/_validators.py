@@ -3,8 +3,23 @@
 from __future__ import annotations
 
 from lib.api_errors import BadRequestError
-from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoCapability
+
+
+def split_video_backend_query(video_backend: str) -> tuple[str, str]:
+    """把能力查询的 ``video_backend`` 查询参数拆成 ``(provider_id, model_id)``。
+
+    裸 provider（无 "/"）按其 registry 默认视频 model 补全，与 project.json 存量裸 provider
+    覆盖同口径（见 ``_parse_project_provider``）；拆不出两段时抛 ``BadRequestError``
+    （``video_backend_malformed``）。
+    """
+    provider_id, sep, model_id = video_backend.partition("/")
+    if not sep:
+        provider_id, model_id = video_backend, default_model_for_provider(video_backend, "video") or ""
+    if not provider_id or not model_id:
+        raise BadRequestError("video_backend_malformed", value=video_backend)
+    return provider_id, model_id
 
 
 async def require_video_bucket_capability(project: dict, capability: VideoCapability) -> None:

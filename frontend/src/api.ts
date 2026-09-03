@@ -843,6 +843,24 @@ function endpointTestRequest(
   return { method: "POST", headers: {}, body: form, signal };
 }
 
+export interface VideoCapabilitiesQuery {
+  signal?: AbortSignal;
+  videoBackend?: string;
+  /** undefined = 服务端按项目已保存档位；null = 显式「自动」（发空串）；字符串 = 按该档位。 */
+  resolution?: string | null;
+  usesReferenceImages?: boolean;
+}
+
+function videoCapabilitiesQuery(options: VideoCapabilitiesQuery): string {
+  const params = new URLSearchParams();
+  if (options.videoBackend) params.set("video_backend", options.videoBackend);
+  if (options.resolution !== undefined) params.set("resolution", options.resolution ?? "");
+  if (options.usesReferenceImages !== undefined) {
+    params.set("uses_reference_images", String(options.usesReferenceImages));
+  }
+  return params.size > 0 ? `?${params.toString()}` : "";
+}
+
 class API {
   /**
    * 通用请求方法
@@ -1004,23 +1022,27 @@ class API {
   }
 
   /**
-   * 三级解析（项目 > 系统设置 > 系统默认）后的视频模型能力。
-   *
-   * `videoBackend`（"provider/model"）用于设置表单里尚未保存的候选模型：不传按已落盘配置
-   * 解析，传了则按该候选模型 × 本项目生效 generation_mode 解析。
-   *
-   * `episode` 用于按集查看的界面：生成模式可被单集覆盖，传集号则能力按该集生效模式解析，
-   * 与执行层同口径；不传只解析到项目级（设置页等无集号上下文的调用）。
+   * 项目上下文的视频模型能力。`videoBackend` 为表单里未保存的候选模型（缺省按已落盘配置解析）；
+   * `resolution` / `usesReferenceImages` 是时长联动约束的求值上下文：缺省（undefined）由服务端
+   * 按项目已保存档位与生成模式求值，`resolution: null` 表示表单里显式选了「自动」（发空串，
+   * 服务端不回退到已保存档位）。收窄规则只在服务端，响应的 `duration_constraints` 已算好。
    */
   static async getVideoCapabilities(
     name: string,
-    options: { signal?: AbortSignal; videoBackend?: string; episode?: number } = {}
+    options: VideoCapabilitiesQuery = {}
   ): Promise<VideoCapabilities> {
-    const params = new URLSearchParams();
-    if (options.videoBackend) params.set("video_backend", options.videoBackend);
-    if (options.episode !== undefined) params.set("episode", String(options.episode));
-    const qs = params.size > 0 ? `?${params.toString()}` : "";
-    return this.request(`/projects/${encodeURIComponent(name)}/video-capabilities${qs}`, {
+    return this.request(
+      `/projects/${encodeURIComponent(name)}/video-capabilities${videoCapabilitiesQuery(options)}`,
+      { signal: options.signal },
+    );
+  }
+
+  /** 无项目上下文（创建向导）的视频模型能力，按候选模型解析；参数语义同 getVideoCapabilities。 */
+  static async getModelVideoCapabilities(
+    videoBackend: string,
+    options: Omit<VideoCapabilitiesQuery, "videoBackend"> = {}
+  ): Promise<VideoCapabilities> {
+    return this.request(`/providers/video-capabilities${videoCapabilitiesQuery({ ...options, videoBackend })}`, {
       signal: options.signal,
     });
   }

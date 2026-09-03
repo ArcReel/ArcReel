@@ -14,24 +14,32 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import AfterValidator, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.api_errors import BadRequestError
 from lib.app_data_dir import app_data_dir
 from lib.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
-from lib.config.resolver import VoiceConsistency, builtin_video_audio_track, derive_voice_consistency
+from lib.config.resolver import (
+    ConfigResolver,
+    VideoBucketCapabilityError,
+    VoiceConsistency,
+    builtin_video_audio_track,
+    derive_voice_consistency,
+)
 from lib.config.service import ConfigService, ProviderConfigValueError
 from lib.config.url_utils import normalize_base_url
-from lib.db import get_async_session
+from lib.db import async_session_factory, get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
 from lib.i18n import Locale, Translator, translate_or
 from lib.video_backends.base import VideoAudioMode
 from server.dependencies import get_config_service
+from server.routers._validators import split_video_backend_query
 
 if TYPE_CHECKING:
     from lib.db.models.credential import ProviderCredential
@@ -75,9 +83,10 @@ class ModelInfoResponse(BaseModel):
     media_type: str
     capabilities: list[str]
     default: bool
+    # 时长联动约束（分辨率↔时长、参考图↔时长）不在目录里透出：收窄结果由
+    # /providers/video-capabilities 与 /projects/{name}/video-capabilities 按上下文算好回给
+    # 前端，规则只在 lib.config.resolver 一处。
     supported_durations: list[int] = []
-    duration_resolution_constraints: dict[str, list[int]] = {}
-    reference_image_durations: list[int] = []
     resolutions: list[str] = []
     # 成片音轨形态（``VideoAudioMode``：可控 / 恒有声 / 恒无声），按执行路径各给一份——同一
     # model 在图生与参考生两条子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带
@@ -412,6 +421,40 @@ async def list_providers(
             )
         )
     return ProvidersListResponse(providers=providers)
+
+
+@router.get("/video-capabilities")
+async def get_model_video_capabilities(
+    _t: Translator,
+    video_backend: Annotated[str, Query()],
+    resolution: Annotated[str | None, Query()] = None,
+    uses_reference_images: Annotated[bool, Query()] = False,
+):
+    """无项目上下文的视频模型能力：创建向导里项目尚不存在，按候选模型直接解析。
+
+    与 `/projects/{name}/video-capabilities` 同一条解析链路（`ConfigResolver.video_capabilities_for_model`），
+    只是没有项目可读：`default_duration` / `generation_mode` 等项目偏好为 None，时长联动约束按
+    传入的 `resolution` / `uses_reference_images` 求值（缺省不按分辨率收窄、不走参考图路径）。
+    裸 provider 的补全与格式校验同项目端点。
+    """
+    provider_id, model_id = split_video_backend_query(video_backend)
+    resolver = ConfigResolver(async_session_factory)
+    try:
+        return await resolver.video_capabilities_for_model(
+            provider_id,
+            model_id,
+            None,
+            resolution=resolution,
+            uses_reference_images=uses_reference_images,
+        )
+    except VideoBucketCapabilityError as exc:
+        raise BadRequestError(exc.code, **exc.params) from exc
+    except ValueError as exc:
+        # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
+        logger.warning("视频模型 '%s' 能力解析失败: %s", video_backend, exc)
+        raise HTTPException(
+            status_code=422, detail=_t("video_model_capabilities_unresolved", value=video_backend)
+        ) from exc
 
 
 @router.get("/{provider_id}/config", response_model=ProviderConfigResponse)

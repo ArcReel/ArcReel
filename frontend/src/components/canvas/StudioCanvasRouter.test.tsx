@@ -286,6 +286,28 @@ vi.mock("./lorebook/ProductsPage", () => ({
   ),
 }));
 
+/** 服务端 video-capabilities 应答：时长收窄结果由服务端按项目分辨率与生成模式算好回传。 */
+function fakeVideoCapabilities(allowed: number[], raw: number[] = allowed) {
+  return {
+    provider_id: "gemini-aistudio",
+    model: "veo-3.1",
+    supported_durations: raw,
+    max_duration: Math.max(...raw),
+    max_reference_images: 3,
+    first_frame: true,
+    last_frame: true,
+    source: "registry",
+    voice_consistency: "soft",
+    duration_constraints: {
+      resolution: null,
+      uses_reference_images: false,
+      allowed,
+      allowed_without_reference_images: allowed,
+      excluded: {},
+    },
+  } as Awaited<ReturnType<typeof API.getVideoCapabilities>>;
+}
+
 function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
   return {
     title: "Demo",
@@ -455,113 +477,11 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("skips the provider/system-config lookups in the demo workbench", async () => {
-    const providersSpy = vi.spyOn(API, "getProviders");
-    const customProvidersSpy = vi.spyOn(API, "listCustomProviders");
-    const systemConfigSpy = vi.spyOn(API, "getSystemConfig");
-
-    useProjectsStore.setState({
-      currentProjectName: DEMO_PROJECT_NAME,
-      currentProjectData: makeProjectData(),
-      currentScripts: { "episode_1.json": makeScript() },
-    });
-
-    renderAt("/episodes/1");
-
-    await waitFor(() => {
-      expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
-    });
-    expect(providersSpy).not.toHaveBeenCalled();
-    expect(customProvidersSpy).not.toHaveBeenCalled();
-    expect(systemConfigSpy).not.toHaveBeenCalled();
-  });
-
-  // 上一条的正向对照：没有它，门控写成无条件 return 或整个 effect 被删都照样全绿
-  it("still performs the provider/system-config lookups outside the demo workbench", async () => {
-    const providersSpy = vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
-    const customProvidersSpy = vi
-      .spyOn(API, "listCustomProviders")
-      .mockResolvedValue({ providers: [] });
-    const systemConfigSpy = vi
-      .spyOn(API, "getSystemConfig")
-      .mockResolvedValue({ settings: {} } as Awaited<ReturnType<typeof API.getSystemConfig>>);
-
-    useProjectsStore.setState({
-      currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
-      currentScripts: { "episode_1.json": makeScript() },
-    });
-
-    renderAt("/episodes/1");
-
-    await waitFor(() => {
-      expect(providersSpy).toHaveBeenCalled();
-    });
-    expect(customProvidersSpy).toHaveBeenCalled();
-    expect(systemConfigSpy).toHaveBeenCalled();
-  });
-
-  // 复刻真实入口时序：StudioWorkspace 要到自己的 effect 才把演示项目名写入 store，
-  // 子组件的首轮渲染此时读到的 currentProjectName 仍是旧值/空值。只靠 store 判定
-  // 会在首轮放行三个真实 GET；路由参数在渲染期即可用，必须兜底覆盖这段时间差。
-  it("skips the provider/system-config lookups on first render before the store's currentProjectName catches up with the demo route", async () => {
-    const providersSpy = vi.spyOn(API, "getProviders");
-    const customProvidersSpy = vi.spyOn(API, "listCustomProviders");
-    const systemConfigSpy = vi.spyOn(API, "getSystemConfig");
-
-    useProjectsStore.setState({
-      currentProjectName: null,
-      currentProjectData: null,
-      currentScripts: {},
-    });
-
-    renderAtProjectRoute(DEMO_PROJECT_NAME, "/episodes/1");
-
-    await waitFor(() => {
-      expect(screen.getByText("加载中...")).toBeInTheDocument();
-    });
-    expect(providersSpy).not.toHaveBeenCalled();
-    expect(customProvidersSpy).not.toHaveBeenCalled();
-    expect(systemConfigSpy).not.toHaveBeenCalled();
-  });
-
   // 同一 StudioCanvasRouter 实例从真实项目切到演示项目（路由 nest 下 projectName 参数
   // 变化，组件不会重新挂载）时，上一个真实项目遗留的时长能力缓存必须清空，否则真实后端的
   // 时长限制会继续套用到演示的虚构时长上，重新触发「不兼容」误报。
   it("clears cached provider/backend duration capabilities when switching from a real project into the demo route", async () => {
-    const providersSpy = vi.spyOn(API, "getProviders").mockResolvedValue({
-      providers: [
-        {
-          id: "real-backend",
-          display_name: "Real",
-          description: "",
-          status: "ready",
-          media_types: ["video"],
-          capabilities: [],
-          configured_keys: [],
-          missing_keys: [],
-          models: {
-            "model-1": {
-              display_name: "Model 1",
-              media_type: "video",
-              capabilities: [],
-              default: true,
-              supported_durations: [5, 10],
-              duration_resolution_constraints: {},
-              resolutions: [],
-              audio_track: "controllable",
-              reference_route_audio_track: "controllable",
-              voice_consistency: "none",
-            },
-          },
-        },
-      ],
-    });
-    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
-      settings: { default_video_backend: "real-backend/model-1" },
-    } as Awaited<ReturnType<typeof API.getSystemConfig>>);
-
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(fakeVideoCapabilities([5, 10]));
     useProjectsStore.setState({
       currentProjectName: "real-project",
       currentProjectData: makeProjectData(),
@@ -573,8 +493,6 @@ describe("StudioCanvasRouter", () => {
       expect(screen.getByTestId("timeline-duration-options")).toHaveTextContent("5,10");
     });
 
-    providersSpy.mockClear();
-
     // 原地切换到演示项目：不卸载组件，复刻同一实例从真实项目切入演示态的时序，
     // 与 StudioWorkspace 的 effect 同步写入 store 一致。
     useProjectsStore.setState({
@@ -585,53 +503,21 @@ describe("StudioCanvasRouter", () => {
     view.navigate(`/${DEMO_PROJECT_NAME}/episodes/1`);
 
     await waitFor(() => {
-      // 缓存已清空：真实项目遗留的 providers/backend 不再参与时长兼容性比对
+      // 缓存已清空：真实项目遗留的后端能力不再参与时长兼容性比对
       expect(screen.getByTestId("timeline-duration-options")).toHaveTextContent("");
     });
-    expect(providersSpy).not.toHaveBeenCalled();
   });
 
-  // 逐个分镜的时长候选须按项目分辨率与生效 generation_mode 收窄：受约束的分辨率只呈现匹配档位，
-  // 没有匹配约束的分辨率保留完整时长集合。
+  // 逐个分镜的时长候选取服务端按项目分辨率与生效 generation_mode 收窄后的结果：前端不再持有
+  // 收窄规则，也不把分辨率或集号带上——服务端按项目为实际执行模型保存的档位求值。
   it.each([
-    ["1080p", "8"],
-    ["720p", "4,6,8"],
-  ])("narrows the per-shot duration options at %s", async (resolution, expected) => {
+    ["1080p", [8]],
+    ["720p", [4, 6, 8]],
+  ])("takes the per-shot duration options from the server-side narrowing at %s", async (resolution, allowed) => {
     const VEO = "gemini-aistudio/veo-3.1";
-    vi.spyOn(API, "getProviders").mockResolvedValue({
-      providers: [
-        {
-          id: "gemini-aistudio",
-          display_name: "Gemini",
-          description: "",
-          status: "ready",
-          media_types: ["video"],
-          capabilities: [],
-          configured_keys: [],
-          missing_keys: [],
-          models: {
-            "veo-3.1": {
-              display_name: "Veo 3.1",
-              media_type: "video",
-              capabilities: [],
-              default: true,
-              supported_durations: [4, 6, 8],
-              duration_resolution_constraints: { "1080p": [8] },
-              reference_image_durations: [8],
-              resolutions: ["720p", "1080p"],
-              audio_track: "controllable",
-              reference_route_audio_track: "controllable",
-              voice_consistency: "soft",
-            },
-          },
-        },
-      ],
-    });
-    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
-      settings: { default_video_backend: VEO },
-    } as Awaited<ReturnType<typeof API.getSystemConfig>>);
-
+    const capabilitiesSpy = vi
+      .spyOn(API, "getVideoCapabilities")
+      .mockResolvedValue(fakeVideoCapabilities(allowed, [4, 6, 8]));
     useProjectsStore.setState({
       currentProjectName: "real-project",
       currentProjectData: makeProjectData({
@@ -645,44 +531,15 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       // 精确比对而非包含：全集 "4,6,8" 也含子串 "8"
       expect(screen.getByTestId("timeline-duration-options")).toHaveTextContent(
-        new RegExp(`^${expected}$`),
+        new RegExp(`^${allowed.join(",")}$`),
       );
     });
-  });
-
-  // 反方向：同一实例从演示项目切到真实项目时，store 的 currentProjectName 仍滞留上一轮的
-  // 演示项目名（StudioWorkspace 的 effect 还没写入新值）。demoMode 若仍以 store 值兜底会误判
-  // 为演示态，延迟真实项目的三个 GET；路由参数存在时须直接采信它。
-  it("performs the provider/system-config lookups immediately after navigating from the demo route to a real project, before the store catches up", async () => {
-    const providersSpy = vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
-    const customProvidersSpy = vi
-      .spyOn(API, "listCustomProviders")
-      .mockResolvedValue({ providers: [] });
-    const systemConfigSpy = vi
-      .spyOn(API, "getSystemConfig")
-      .mockResolvedValue({ settings: {} } as Awaited<ReturnType<typeof API.getSystemConfig>>);
-
-    useProjectsStore.setState({
-      currentProjectName: DEMO_PROJECT_NAME,
-      currentProjectData: makeProjectData(),
-      currentScripts: { "episode_1.json": makeScript() },
-    });
-
-    const view = renderAtProjectRoute(DEMO_PROJECT_NAME, "/episodes/1");
-    await waitFor(() => {
-      expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
-    });
-    expect(providersSpy).not.toHaveBeenCalled();
-
-    // 原地切换到真实项目：只挪路由，store 的 currentProjectName 刻意留在演示项目名，
-    // 复刻 StudioWorkspace 的 effect 尚未执行完成的时间窗。
-    view.navigate("/real-project/episodes/1");
-
-    await waitFor(() => {
-      expect(providersSpy).toHaveBeenCalled();
-    });
-    expect(customProvidersSpy).toHaveBeenCalled();
-    expect(systemConfigSpy).toHaveBeenCalled();
+    expect(capabilitiesSpy).toHaveBeenCalledWith("real-project", expect.anything());
+    const query = capabilitiesSpy.mock.calls[0]?.[1];
+    // 工作台由服务端按 generation_mode 解析真实 i2v/r2v 桶，不用默认层覆盖。
+    expect(query?.videoBackend).toBeUndefined();
+    expect(query?.resolution).toBeUndefined();
+    expect(query?.usesReferenceImages).toBeUndefined();
   });
 
   // demo→真实项目切换后路由已让 demoMode 变为 false，但 store 的 currentProjectName 还滞留
@@ -693,12 +550,6 @@ describe("StudioCanvasRouter", () => {
       .mockResolvedValue({ supported_durations: [5, 10] } as Awaited<
         ReturnType<typeof API.getVideoCapabilities>
       >);
-    vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
-      settings: {},
-    } as Awaited<ReturnType<typeof API.getSystemConfig>>);
-
     useProjectsStore.setState({
       currentProjectName: DEMO_PROJECT_NAME,
       currentProjectData: makeProjectData(),
@@ -714,10 +565,7 @@ describe("StudioCanvasRouter", () => {
     // 复刻 StudioWorkspace 的 effect 尚未执行完成的时间窗。
     view.navigate("/real-project/episodes/1");
 
-    await waitFor(() => {
-      expect(API.getProviders).toHaveBeenCalled();
-    });
-    expect(capabilitiesSpy).not.toHaveBeenCalledWith(DEMO_PROJECT_NAME);
+    expect(capabilitiesSpy).not.toHaveBeenCalledWith(DEMO_PROJECT_NAME, expect.anything());
   });
 
   // script_status 的三个取值来自项目摘要（由 script_plan 与正式脚本的产物态派生），

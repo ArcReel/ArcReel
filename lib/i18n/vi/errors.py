@@ -6,6 +6,7 @@ MESSAGES = {
     "overview_generation_failed": "Tạo tổng quan thất bại, vui lòng thử lại sau hoặc đổi mô hình/nhà cung cấp",
     "video_capabilities_unresolved": "Không xác định được khả năng mô hình video cho dự án '{name}'; vui lòng kiểm tra cấu hình nhà cung cấp",
     "video_backend_malformed": "Định danh mô hình video '{value}' không hợp lệ; cần dạng \"nhà cung cấp/mô hình\"",
+    "video_model_capabilities_unresolved": "Không xác định được khả năng của mô hình video '{value}'; vui lòng kiểm tra cấu hình nhà cung cấp",
     "scope_invalid": "scope phải là full hoặc current",
     "download_expired": "Liên kết tải xuống đã hết hạn, vui lòng xuất lại",
     "download_token_mismatch": "Token tải xuống không khớp với dự án mục tiêu",

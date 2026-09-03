@@ -41,7 +41,6 @@ from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.asset_types import asset_name_comparison_key
 from lib.character_voice import PROJECT_FIELD as CHARACTER_VOICE_BINDING_FIELD
 from lib.character_voice import VALID_CHARACTER_VOICE_BINDINGS
-from lib.config.registry import default_model_for_provider
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.db import async_session_factory
 from lib.episode_target_duration import (
@@ -68,7 +67,7 @@ from server.routers._script_edits import (
     require_script_edit_result,
     script_batch_status,
 )
-from server.routers._validators import validate_backend_value
+from server.routers._validators import split_video_backend_query, validate_backend_value
 from server.services import workflow_planner as workflow_plan_service
 from server.services.project_archive import (
     ProjectArchiveService,
@@ -732,6 +731,8 @@ async def get_video_capabilities(
     name: str,
     _t: Translator,
     video_backend: Annotated[str | None, Query()] = None,
+    resolution: Annotated[str | None, Query()] = None,
+    uses_reference_images: Annotated[bool | None, Query()] = None,
 ):
     """解析当前项目视频模型能力 + 用户项目偏好。
 
@@ -744,19 +745,28 @@ async def get_video_capabilities(
     对应用户当前选中的模型而非上一次保存的模型。裸 provider（无 "/"）按其 registry
     默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
 
+    `resolution` / `uses_reference_images` 是时长联动约束的求值上下文，决定响应里
+    `duration_constraints` 的收窄结果与成因：缺省按项目已保存档位与生成模式求值（工作台），
+    表单里编辑中的未保存值显式带上（设置页）；`resolution` 传空串表示表单里选了「自动」，
+    不回退到已保存档位。收窄规则只在 `lib.config.resolver`，前端不复算。
+
     能力按项目生成模式定轴、全项目同一口径，故无需集号：生成模式创建即定、之后不可更改。
     """
     resolver = ConfigResolver(async_session_factory)
     try:
         if video_backend:
-            provider_id, sep, model_id = video_backend.partition("/")
-            if not sep:
-                provider_id, model_id = video_backend, default_model_for_provider(video_backend, "video") or ""
-            if not provider_id or not model_id:
-                raise BadRequestError("video_backend_malformed", value=video_backend)
+            provider_id, model_id = split_video_backend_query(video_backend)
             project = get_project_manager().load_project(name)
-            return await resolver.video_capabilities_for_model(provider_id, model_id, project)
-        return await resolver.video_capabilities(name)
+            return await resolver.video_capabilities_for_model(
+                provider_id,
+                model_id,
+                project,
+                resolution=resolution,
+                uses_reference_images=uses_reference_images,
+            )
+        return await resolver.video_capabilities(
+            name, resolution=resolution, uses_reference_images=uses_reference_images
+        )
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except VideoBucketCapabilityError as exc:
