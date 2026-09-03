@@ -1,7 +1,9 @@
 import { useEffect, useId, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ImagePlus, Landmark, Package, User } from "lucide-react";
-import type { Asset, AssetType } from "@/types/asset";
+import { AssetThumb } from "./AssetThumb";
+import { API } from "@/api";
+import type { Asset, AssetDerivative, AssetType } from "@/types/asset";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
@@ -16,6 +18,10 @@ interface Props {
   mode: Mode;
   initialData?: Partial<Asset>;
   previewImageUrl?: string;
+  /** 资产库里挂在这条角色下的衍生；只读展示，衍生的编辑入口在项目的角色卡上。 */
+  derivatives?: AssetDerivative[];
+  /** 用于给衍生缩略图 URL 加指纹，与本体资产图同口径。 */
+  imageFingerprint?: string | null;
   conflictWith?: Asset;
   onClose: () => void;
   onSubmit: (payload: {
@@ -34,7 +40,7 @@ const TYPE_ICON: Record<AssetType, React.ComponentType<{ className?: string }>> 
 };
 
 export function AssetFormModal({
-  type, mode, initialData, previewImageUrl, conflictWith, onClose, onSubmit,
+  type, mode, initialData, previewImageUrl, derivatives, imageFingerprint, conflictWith, onClose, onSubmit,
 }: Props) {
   const { t } = useTranslation("assets");
   const [name, setName] = useState(initialData?.name ?? "");
@@ -277,6 +283,52 @@ export function AssetFormModal({
             )}
           </div>
         </div>
+
+        {isCharacter && derivatives && derivatives.length > 0 && (
+          <div className="px-6 pb-6">
+            <div
+              className="num text-[10px] uppercase"
+              style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
+            >
+              {t("derivatives_with_count", { n: derivatives.length })}
+            </div>
+            <p className="mt-1.5 text-[11.5px] leading-[1.55]" style={{ color: "var(--color-text-4)" }}>
+              {t("library_derivatives_note")}
+            </p>
+            <ul className="mt-3 grid grid-cols-3 gap-3">
+              {derivatives.map((derivative) => (
+                <li key={derivative.name} className="min-w-0">
+                  <div
+                    className="overflow-hidden rounded-lg"
+                    style={{ border: "1px solid var(--color-hairline-soft)" }}
+                  >
+                    <AssetThumb
+                      imageUrl={API.getGlobalAssetUrl(derivative.image_path, imageFingerprint)}
+                      alt={t("library_derivative_thumb", { name: derivative.name })}
+                      fallback={<span className="px-2 text-center text-[10.5px]">{t("derivative_no_sheet")}</span>}
+                      variant="picker"
+                    />
+                  </div>
+                  <div
+                    className="mt-1.5 truncate text-[12px] font-medium"
+                    style={{ color: "var(--color-text-2)" }}
+                    title={derivative.name}
+                  >
+                    {derivative.name}
+                  </div>
+                  {derivative.description ? (
+                    <div
+                      className="mt-0.5 line-clamp-2 text-[11px] leading-[1.5]"
+                      style={{ color: "var(--color-text-4)" }}
+                    >
+                      {derivative.description}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Footer */}
         <div

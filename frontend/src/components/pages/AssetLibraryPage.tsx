@@ -329,6 +329,8 @@ export function AssetLibraryPage() {
               ? API.getGlobalAssetUrl(formModal.asset.image_path, formModal.asset.updated_at) ?? undefined
               : undefined
           }
+          derivatives={formModal.asset?.derivatives}
+          imageFingerprint={formModal.asset?.updated_at}
           onClose={() => setFormModal(null)}
           onSubmit={handleSubmit}
         />

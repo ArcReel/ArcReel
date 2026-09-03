@@ -89,4 +89,6 @@ export default {
   "derivative_stale": "Outdated",
   "derivative_stale_hint": "This derivative no longer matches the current base sheet or its change description. Regenerate to bring it back in line.",
   "derivative_busy_hint": "Generation or editing in progress — cannot change derivatives",
+  "library_derivatives_note": "Derivatives travel with this character: applying it to a project brings their change descriptions and sheets along.",
+  "library_derivative_thumb": "Sheet for derivative \"{{name}}\"",
 };

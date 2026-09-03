@@ -91,4 +91,6 @@ export default {
   "derivative_stale": "Đã lỗi thời",
   "derivative_stale_hint": "Hình phái sinh này không còn khớp với hình gốc hiện tại hoặc mô tả thay đổi của nó. Hãy tạo lại để đồng bộ.",
   "derivative_busy_hint": "Đang tạo hoặc chỉnh sửa, chưa thể thay đổi phái sinh",
+  "library_derivatives_note": "Phái sinh đi cùng nhân vật này khi ra vào thư viện tài sản; khi áp dụng vào dự án, mô tả thay đổi và hình phái sinh cũng được ghi theo.",
+  "library_derivative_thumb": "Hình của phái sinh \"{{name}}\"",
 } satisfies Record<keyof typeof enAssets, string>;

@@ -91,4 +91,6 @@ export default {
   "derivative_stale": "已过期",
   "derivative_stale_hint": "这张衍生图与当前的本体资产图或外观变化描述已经对不上；重新生成即可对齐。",
   "derivative_busy_hint": "生成或编辑进行中，暂无法修改衍生",
+  "library_derivatives_note": "衍生随这个角色一起进出资产库；应用到项目时会连同外观变化描述与衍生图一并写入。",
+  "library_derivative_thumb": "衍生「{{name}}」的资产图",
 } satisfies Record<keyof typeof enAssets, string>;

@@ -148,6 +148,7 @@ describe("AssetLibraryPage 删除确认文案", () => {
       audio_path: null,
       source_project: null,
       updated_at: null,
+      derivatives: [],
       ...overrides,
     };
   }

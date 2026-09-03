@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,6 +18,11 @@ from sqlalchemy.exc import IntegrityError
 from lib.api_errors import NotFoundError
 from lib.artifact_activation import register_artifact_entries_atomically, resolve_current_artifact_target
 from lib.artifact_manifest import ArtifactKey
+from lib.asset_derivatives import (
+    derivative_artifact_key,
+    derivative_sheet_relative_path,
+    derivative_table,
+)
 from lib.asset_types import (
     ASSET_SPECS,
     BUCKET_KEY,
@@ -32,6 +38,7 @@ from lib.asset_types import (
     validate_asset_name,
 )
 from lib.db import async_session_factory
+from lib.db.models.asset import AssetDerivative
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
 from lib.project_manager import ProjectManager, get_project_manager
@@ -53,7 +60,12 @@ def _validate_asset_name(name: str, _t: Translator) -> str:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name)) from exc
 
 
-def _serialize(asset) -> dict:
+def _serialize(asset, derivatives: Sequence[AssetDerivative] = ()) -> dict:
+    """把一条资产（连同它的衍生子表）序列化成 API 形状。
+
+    衍生随本体整套进出，消费方只需要落到项目角色条目里的三样：名、变化描述、图片路径。
+    未开启衍生能力的类型、以及刚建出来还没有衍生的资产，走缺省的空序列。
+    """
     return {
         "id": asset.id,
         "type": asset.type,
@@ -64,7 +76,36 @@ def _serialize(asset) -> dict:
         "audio_path": asset.audio_path,
         "source_project": asset.source_project,
         "updated_at": asset.updated_at.isoformat() if asset.updated_at else None,
+        "derivatives": [
+            {"name": d.name, "description": d.description, "image_path": d.image_path} for d in derivatives
+        ],
     }
+
+
+async def _serialize_one(repo: AssetRepository, asset) -> dict:
+    """读出一条资产的衍生并连同本体序列化。"""
+    return _serialize(asset, await repo.list_derivatives(asset.id))
+
+
+async def _copy_into_global_pool(source: Path, asset_type: str, default_ext: str) -> str:
+    """把一个文件拷进 ``_global_assets/{type}/``，返回相对 projects_root 的登记路径。"""
+    ext = source.suffix.lower() or default_ext
+    root = get_project_manager().get_global_assets_root() / asset_type
+    uid = uuid.uuid4().hex
+    await asyncio.to_thread(shutil.copyfile, source, root / f"{uid}{ext}")
+    return f"_global_assets/{asset_type}/{uid}{ext}"
+
+
+def _project_file_if_present(project_dir: Path, rel_path: str) -> Path | None:
+    """把项目内相对路径解析成存在的文件；越界、缺失或不是文件一律按「没有」处理。"""
+    if not rel_path:
+        return None
+    try:
+        ProjectManager._safe_subpath(project_dir, rel_path)
+    except (ValueError, FileNotFoundError):
+        return None
+    candidate = project_dir / rel_path
+    return candidate if candidate.exists() and candidate.is_file() else None
 
 
 async def _save_upload(file: UploadFile, asset_type: str, _t: Translator) -> str:
@@ -104,17 +145,20 @@ async def list_assets(
     offset: int = 0,
 ):
     async with async_session_factory() as s:
-        items = await AssetRepository(s).list(type=type, q=q, limit=limit, offset=offset)
-        return {"items": [_serialize(a) for a in items]}
+        repo = AssetRepository(s)
+        items = await repo.list(type=type, q=q, limit=limit, offset=offset)
+        by_asset = await repo.list_derivatives_by_asset_ids([a.id for a in items])
+        return {"items": [_serialize(a, by_asset.get(a.id, ())) for a in items]}
 
 
 @router.get("/{asset_id}")
 async def get_asset(asset_id: str, _t: Translator):
     async with async_session_factory() as s:
-        a = await AssetRepository(s).get_by_id(asset_id)
+        repo = AssetRepository(s)
+        a = await repo.get_by_id(asset_id)
         if not a:
             raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
-        return {"asset": _serialize(a)}
+        return {"asset": await _serialize_one(repo, a)}
 
 
 @router.post("")
@@ -196,7 +240,8 @@ async def update_asset(
         except IntegrityError as exc:
             await s.rollback()
             raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=patch.get("name", ""))) from exc
-    return {"asset": _serialize(a)}
+        payload = await _serialize_one(repo, a)
+    return {"asset": payload}
 
 
 @router.delete("/{asset_id}", status_code=204)
@@ -205,10 +250,15 @@ async def delete_asset(asset_id: str, _t: Translator):
         repo = AssetRepository(s)
         a = await repo.get_by_id(asset_id)
         if a:
+            # 衍生行由 repo.delete 一并删掉，但它们各自的图片文件只有这里知道路径；
+            # 删本体前先取出来，否则那些文件再无入口、永久留在库存储里。
+            derivative_images = [d.image_path for d in await repo.list_derivatives(asset_id) if d.image_path]
             if a.image_path:
                 _delete_global_asset_file(a.image_path)
             if a.audio_path:
                 _delete_global_asset_file(a.audio_path)
+            for image_path in derivative_images:
+                _delete_global_asset_file(image_path)
             await repo.delete(asset_id)
             await s.commit()
     return
@@ -239,6 +289,7 @@ async def replace_image(
             a = await repo.update(asset_id, image_path=new_path)
             await s.commit()
             await s.refresh(a)
+            payload = await _serialize_one(repo, a)
     except Exception:
         _delete_global_asset_file(new_path)
         raise
@@ -247,7 +298,7 @@ async def replace_image(
     if old_path and old_path != new_path:
         _delete_global_asset_file(old_path)
 
-    return {"asset": _serialize(a)}
+    return {"asset": payload}
 
 
 class FromProjectRequest(BaseModel):
@@ -297,18 +348,42 @@ async def from_project(
     description = resource.get("description") or ""
     voice_style = resource.get("voice_style", "") if req.resource_type == "character" else ""
 
-    sheet_rel = resource.get(SHEET_KEY[req.resource_type]) or ""
-    source_sheet_path: Path | None = None
-    if sheet_rel:
-        try:
-            project_dir = get_project_manager().get_project_path(req.project_name)
-            ProjectManager._safe_subpath(project_dir, sheet_rel)
-            candidate = project_dir / sheet_rel
-            if candidate.exists() and candidate.is_file():
-                source_sheet_path = candidate
-        except (ValueError, FileNotFoundError):
-            # 非法路径或项目丢失：视作无源图继续流程
-            source_sheet_path = None
+    try:
+        source_project_dir: Path | None = get_project_manager().get_project_path(req.project_name)
+    except FileNotFoundError:
+        source_project_dir = None
+
+    sheet_key = SHEET_KEY[req.resource_type]
+    # 非法路径、项目丢失或文件缺失：视作无源图继续流程
+    source_sheet_path = (
+        _project_file_if_present(source_project_dir, resource.get(sheet_key) or "")
+        if source_project_dir is not None
+        else None
+    )
+
+    # 衍生随本体整套入库：每条带上变化描述与自己那张资产图；图缺失的衍生仍然入库（名与
+    # 描述才是它的身份，图可在目标项目里重新生成），与本体资产图缺失时的降级同口径。
+    derivative_sources: list[tuple[str, str, Path | None]] = []
+    if ASSET_SPECS[req.resource_type].supports_derivatives:
+        for raw_name, raw_derivative in derivative_table(resource).items():
+            if not isinstance(raw_derivative, dict):
+                continue
+            try:
+                derivative_name = validate_asset_name(raw_name)
+            except ValueError:
+                logger.warning("from_project: skip derivative with unsafe name: %r", raw_name)
+                continue
+            raw_description = raw_derivative.get("description")
+            derivative_sheet = raw_derivative.get(sheet_key)
+            derivative_sources.append(
+                (
+                    derivative_name,
+                    raw_description if isinstance(raw_description, str) else "",
+                    _project_file_if_present(source_project_dir, derivative_sheet)
+                    if source_project_dir is not None and isinstance(derivative_sheet, str)
+                    else None,
+                )
+            )
 
     # 音频只有 character 类型有意义（reference_audio，不是 sheet 概念）；缺失/路径非法同图片一样
     # 静默降级为「无源音频」，不中断入库流程。
@@ -337,13 +412,20 @@ async def from_project(
     async with async_session_factory() as s:
         repo = AssetRepository(s)
         existing = await repo.get_by_type_name(req.resource_type, asset_name)
+        # overwrite 会整表换掉衍生行；旧行的图片文件在 commit 成功后才删，故先取出路径。
+        stale_derivative_images = (
+            [d.image_path for d in await repo.list_derivatives(existing.id) if d.image_path]
+            if existing is not None
+            else []
+        )
+        conflict_payload = await _serialize_one(repo, existing) if existing is not None else None
 
-    if existing is not None and not req.overwrite:
+    if conflict_payload is not None and not req.overwrite:
         raise HTTPException(
             status_code=409,
             detail={
                 "message": _t("asset_already_exists", name=asset_name),
-                "existing": _serialize(existing),
+                "existing": conflict_payload,
             },
         )
 
@@ -353,24 +435,23 @@ async def from_project(
     new_audio_path: str | None = None
     # 已落盘的拷贝按发生顺序登记，失败路径统一按这张清单回删，不重复逐个变量判空。
     copied_paths: list[str] = []
+    # 衍生的图与本体图共用同一个库存储池，落盘形状与清理入口因此完全一致。
+    derivative_rows: list[tuple[str, str, str | None]] = []
     try:
         if source_sheet_path is not None:
-            ext = source_sheet_path.suffix.lower() or ".png"
-            root = get_project_manager().get_global_assets_root() / req.resource_type
-            uid = uuid.uuid4().hex
-            target = root / f"{uid}{ext}"
-            await asyncio.to_thread(shutil.copyfile, source_sheet_path, target)
-            new_image_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+            new_image_path = await _copy_into_global_pool(source_sheet_path, req.resource_type, ".png")
             copied_paths.append(new_image_path)
 
         if source_audio_path is not None:
-            ext = source_audio_path.suffix.lower() or ".wav"
-            root = get_project_manager().get_global_assets_root() / req.resource_type
-            uid = uuid.uuid4().hex
-            target = root / f"{uid}{ext}"
-            await asyncio.to_thread(shutil.copyfile, source_audio_path, target)
-            new_audio_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+            new_audio_path = await _copy_into_global_pool(source_audio_path, req.resource_type, ".wav")
             copied_paths.append(new_audio_path)
+
+        for derivative_name, derivative_description, derivative_source in derivative_sources:
+            derivative_image: str | None = None
+            if derivative_source is not None:
+                derivative_image = await _copy_into_global_pool(derivative_source, req.resource_type, ".png")
+                copied_paths.append(derivative_image)
+            derivative_rows.append((derivative_name, derivative_description, derivative_image))
     except Exception:
         for copied in copied_paths:
             _delete_global_asset_file(copied)
@@ -396,12 +477,16 @@ async def from_project(
                     audio_path=new_audio_path,
                     source_project=req.project_name,
                 )
+                await repo.replace_derivatives(a.id, derivative_rows)
                 await s.commit()
                 await s.refresh(a)
+                payload = await _serialize_one(repo, a)
                 if old_image:
                     _delete_global_asset_file(old_image)
                 if old_audio:
                     _delete_global_asset_file(old_audio)
+                for stale_image in stale_derivative_images:
+                    _delete_global_asset_file(stale_image)
             else:
                 try:
                     a = await repo.create(
@@ -413,8 +498,10 @@ async def from_project(
                         audio_path=new_audio_path,
                         source_project=req.project_name,
                     )
+                    await repo.replace_derivatives(a.id, derivative_rows)
                     await s.commit()
                     await s.refresh(a)
+                    payload = await _serialize_one(repo, a)
                 except IntegrityError as exc:
                     await s.rollback()
                     for copied in copied_paths:
@@ -430,7 +517,7 @@ async def from_project(
             _delete_global_asset_file(copied)
         raise
 
-    return {"asset": _serialize(a)}
+    return {"asset": payload}
 
 
 class ApplyToProjectRequest(BaseModel):
@@ -464,7 +551,9 @@ async def apply_to_project(
 
     # 3) 批量读取所有请求的 asset，缺失的直接归入 failed
     async with async_session_factory() as s:
-        assets = await AssetRepository(s).get_by_ids(asset_ids)
+        repo = AssetRepository(s)
+        assets = await repo.get_by_ids(asset_ids)
+        derivatives_by_asset = await repo.list_derivatives_by_asset_ids([a.id for a in assets])
     assets_by_id = {a.id: a for a in assets}
     failed.extend({"id": asset_id, "reason": "not_found"} for asset_id in asset_ids if asset_id not in assets_by_id)
 
@@ -562,6 +651,27 @@ async def apply_to_project(
                 failed.append({"id": a.id, "reason": "audio_missing"})
                 continue
 
+        # 衍生随本体整套落地：名与描述一定写进条目，图只在库里那张文件还在时才拷。
+        # 衍生名不进项目命名空间（只在本体条目内唯一），故不参与 occupied 对账。
+        derivative_plans: list[dict] = []
+        if ASSET_SPECS[a.type].supports_derivatives:
+            for derivative in derivatives_by_asset.get(a.id, ()):
+                derivative_src: Path | None = None
+                if derivative.image_path:
+                    candidate = project_manager.projects_root / derivative.image_path
+                    if candidate.exists() and candidate.is_file():
+                        derivative_src = candidate
+                    else:
+                        logger.warning(
+                            "apply_to_project: asset %s derivative %r image file missing on disk: %s",
+                            a.id,
+                            derivative.name,
+                            derivative.image_path,
+                        )
+                derivative_plans.append(
+                    {"name": derivative.name, "description": derivative.description, "copy_src": derivative_src}
+                )
+
         occupied[asset_name_comparison_key(desired_name)] = (a.type, desired_name)
         plans.append(
             {
@@ -576,6 +686,8 @@ async def apply_to_project(
                 "target_audio": target_audio,
                 "copy_audio_src": copy_audio_src,
                 "copy_audio_dst": copy_audio_dst,
+                "derivatives": derivative_plans,
+                "derivative_sheet_names": [],
             }
         )
 
@@ -606,6 +718,7 @@ async def apply_to_project(
                     raise ProjectAssetNameConflictError(name_, existing, a_.type)
 
             plan["desired_name"] = name_
+            plan["derivative_sheet_names"] = []
             if plan["copy_src"] is not None:
                 extension = plan["copy_src"].suffix.lower() or ".png"
                 plan["target_sheet"] = f"{bk}/{name_}{extension}"
@@ -639,12 +752,39 @@ async def apply_to_project(
                 data[bk] = {}
             # overwrite 策略要落在存量真实 key 上（可能是 NFD），否则会并存两条视觉同名条目
             key = existing.name if existing is not None and existing.asset_type == a_.type else name_
-            # 衍生登记在条目内、不随全局库进出：整条替换前把存量条目的衍生表接过来，
-            # 覆盖导入才不会连带抹掉用户已登记的衍生；新条目补空表，与创建路径和迁移同口径。
+            # 整条替换前先把存量条目的衍生表接过来，再让库里带来的衍生按名覆盖上去：
+            # 库里没有的存量衍生因此得以保留（覆盖导入不抹用户已登记的衍生），库里带来的
+            # 同名衍生以库版本为准。新条目从空表起步，与创建路径和迁移同口径。
             if ASSET_SPECS[a_.type].supports_derivatives:
                 previous = data[bk].get(key)
                 inherited = previous.get(DERIVATIVES_FIELD) if isinstance(previous, dict) else None
-                payload[DERIVATIVES_FIELD] = inherited if isinstance(inherited, dict) else {}
+                table = dict(inherited) if isinstance(inherited, dict) else {}
+                for derivative in plan["derivatives"]:
+                    derivative_name = derivative["name"]
+                    derivative_sheet = ""
+                    if derivative["copy_src"] is not None:
+                        relative = derivative_sheet_relative_path(name_, derivative_name)
+                        try:
+                            ProjectManager._safe_subpath(project_dir, relative)
+                        except ValueError:
+                            # 两段名都已过 validate_asset_name，走到这里说明拼出的路径仍
+                            # 越界：放弃这张图而不是整批失败，衍生的名与描述照常落地。
+                            logger.warning(
+                                "apply_to_project: unsafe derivative sheet path %r, importing without image",
+                                relative,
+                            )
+                        else:
+                            derivative_sheet = relative
+                            file_copies.append((derivative["copy_src"], project_dir / relative))
+                            plan["derivative_sheet_names"].append(derivative_name)
+                    # 存量键可能是 NFD 等价形态；命中就写回同一个键，避免并存两条视觉同名衍生。
+                    derivative_key = resolve_asset_key(table, derivative_name) or derivative_name
+                    existing_derivative = table.get(derivative_key)
+                    merged = dict(existing_derivative) if isinstance(existing_derivative, dict) else {}
+                    merged["description"] = derivative["description"]
+                    merged[sk] = derivative_sheet
+                    table[derivative_key] = merged
+                payload[DERIVATIVES_FIELD] = table
             data[bk][key] = payload
             applied_plans.append(plan)
 
@@ -654,6 +794,11 @@ async def apply_to_project(
 
         def _register_imported_sheet_claims(_project_file: Path) -> None:
             keys = {ArtifactKey.asset_sheet(plan["asset"].type, plan["desired_name"]) for plan in plans}
+            keys |= {
+                derivative_artifact_key(plan["desired_name"], derivative_name)
+                for plan in plans
+                for derivative_name in plan["derivative_sheet_names"]
+            }
             register_artifact_entries_atomically(
                 project_dir,
                 {key: resolve_current_artifact_target(project_dir, key) for key in keys},

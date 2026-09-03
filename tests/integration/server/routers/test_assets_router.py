@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ArtifactStatus, ProjectArtifactManifestAdapter
+from lib.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
+from lib.asset_types import DERIVATIVES_FIELD
 from lib.i18n import _ as translate_message
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
@@ -565,7 +567,7 @@ class TestApplyToProject:
         assert data["characters"]["王"]["description"] == "library desc"
 
     def test_overwrite_policy_keeps_the_target_character_derivatives(self, assets_env):
-        """衍生登记在角色条目内、不随全局库进出；覆盖导入不得连带抹掉已登记的衍生。"""
+        """库里那条角色没有衍生时，覆盖导入不得抹掉目标项目里已登记的衍生。"""
         client = assets_env["client"]
         pm = assets_env["pm"]
         pm.create_project("target")
@@ -1233,3 +1235,250 @@ class TestApplyToProject:
         assert target_image.read_bytes() == b"old-image"
         assert not list(target_image.parent.glob(".*.tmp"))
         assert not list(target_image.parent.glob(".*.bak"))
+
+
+class TestDerivativesThroughTheLibrary:
+    """角色的衍生随本体整套进出全局资产库（见 ``docs/adr/0072``）。"""
+
+    @staticmethod
+    def _seed_character_with_derivatives(pm, project: str, owner: str, derivatives: dict[str, tuple[str, bytes]]):
+        """在项目里造一个带资产图的角色，并给它登记若干带图的衍生。"""
+        pm.create_project(project)
+        pm.create_project_metadata(project, project)
+        pm.add_project_character(project, owner, "白衣少年", "清朗")
+        pm.install_asset_sheet_bytes("character", project, owner, f"characters/{owner}.png", b"owner-sheet")
+
+        project_dir = pm.get_project_path(project)
+        table: dict[str, dict] = {}
+        for derivative_name, (description, sheet_bytes) in derivatives.items():
+            relative = derivative_sheet_relative_path(owner, derivative_name)
+            sheet_file = project_dir / relative
+            sheet_file.parent.mkdir(parents=True, exist_ok=True)
+            sheet_file.write_bytes(sheet_bytes)
+            table[derivative_name] = {"description": description, "character_sheet": relative}
+
+        pm.update_asset_entry(
+            "character",
+            project,
+            owner,
+            lambda entry: entry.__setitem__(DERIVATIVES_FIELD, table),
+        )
+        return project_dir
+
+    def test_from_project_stores_every_derivative_with_its_sheet(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        self._seed_character_with_derivatives(
+            pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet"), "便装": ("布衣", b"casual-sheet")}
+        )
+
+        response = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        )
+
+        assert response.status_code == 200, response.text
+        stored = response.json()["asset"]["derivatives"]
+        assert [(d["name"], d["description"]) for d in stored] == [("便装", "布衣"), ("战斗装", "黑甲")]
+        by_name = {d["name"]: d for d in stored}
+        assert (pm.projects_root / by_name["战斗装"]["image_path"]).read_bytes() == b"battle-sheet"
+        assert (pm.projects_root / by_name["便装"]["image_path"]).read_bytes() == b"casual-sheet"
+
+    def test_from_project_keeps_a_derivative_whose_sheet_file_is_gone(self, assets_env):
+        """图缺失只丢那张图：名与描述才是衍生的身份，图可在目标项目里重新生成。"""
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        project_dir = self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
+        (project_dir / derivative_sheet_relative_path("王", "战斗装")).unlink()
+
+        response = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["asset"]["derivatives"] == [
+            {"name": "战斗装", "description": "黑甲", "image_path": None}
+        ]
+
+    def test_from_project_overwrite_replaces_the_derivative_set_and_deletes_stale_files(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        self._seed_character_with_derivatives(
+            pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet"), "便装": ("布衣", b"casual-sheet")}
+        )
+        first = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        )
+        stale_paths = [d["image_path"] for d in first.json()["asset"]["derivatives"]]
+
+        pm.update_asset_entry(
+            "character",
+            "source",
+            "王",
+            lambda entry: entry.__setitem__(
+                DERIVATIVES_FIELD,
+                {
+                    "战斗装": {
+                        "description": "改写后的黑甲",
+                        "character_sheet": entry[DERIVATIVES_FIELD]["战斗装"]["character_sheet"],
+                    }
+                },
+            ),
+        )
+        response = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王", "overwrite": True},
+        )
+
+        assert response.status_code == 200, response.text
+        derivatives = response.json()["asset"]["derivatives"]
+        assert [(d["name"], d["description"]) for d in derivatives] == [("战斗装", "改写后的黑甲")]
+        for stale in stale_paths:
+            assert not (pm.projects_root / stale).exists()
+
+    def test_delete_removes_the_derivative_rows_and_their_image_files(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
+        created = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        ).json()["asset"]
+        derivative_image = pm.projects_root / created["derivatives"][0]["image_path"]
+        assert derivative_image.exists()
+
+        assert client.delete(f"/api/v1/assets/{created['id']}").status_code == 204
+
+        assert not derivative_image.exists()
+        assert not (pm.projects_root / created["image_path"]).exists()
+        assert client.get("/api/v1/assets?type=character").json()["items"] == []
+
+    def test_round_trip_restores_name_description_and_sheet_in_a_new_project(self, assets_env):
+        """验收主线：带衍生的角色存入库后应用到新项目，三样完整还原且产物清单键正确。"""
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        self._seed_character_with_derivatives(
+            pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet"), "便装": ("布衣", b"casual-sheet")}
+        )
+        created = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        ).json()["asset"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={"asset_ids": [created["id"]], "target_project": "target", "conflict_policy": "skip"},
+        )
+
+        assert response.status_code == 200, response.text
+        entry = pm.load_project("target")["characters"]["王"]
+        assert entry[DERIVATIVES_FIELD] == {
+            "便装": {"description": "布衣", "character_sheet": "characters/derivatives/王/便装.png"},
+            "战斗装": {"description": "黑甲", "character_sheet": "characters/derivatives/王/战斗装.png"},
+        }
+        target_dir = pm.get_project_path("target")
+        assert (target_dir / "characters/derivatives/王/战斗装.png").read_bytes() == b"battle-sheet"
+        assert (target_dir / "characters/derivatives/王/便装.png").read_bytes() == b"casual-sheet"
+        for derivative_name in ("战斗装", "便装"):
+            key = derivative_artifact_key("王", derivative_name)
+            assert ProjectArtifactManifestAdapter(target_dir).get_entry(key) is not None
+            assert (
+                ArtifactCurrencyResolver(target_dir)
+                .compare(key, artifact_path=derivative_sheet_relative_path("王", derivative_name))
+                .status
+                is ArtifactStatus.CURRENT
+            )
+
+    def test_rename_policy_puts_the_derivative_sheets_under_the_renamed_owner(self, assets_env):
+        """冲突策略 rename 只改角色名；衍生名不变，图跟着搬到新本体名下的目录。"""
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
+        created = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        ).json()["asset"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_character("target", "王", "已有的王", "")
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={"asset_ids": [created["id"]], "target_project": "target", "conflict_policy": "rename"},
+        )
+
+        assert response.json()["succeeded"] == [{"id": created["id"], "name": "王 (2)"}]
+        entry = pm.load_project("target")["characters"]["王 (2)"]
+        assert entry[DERIVATIVES_FIELD]["战斗装"]["character_sheet"] == "characters/derivatives/王 (2)/战斗装.png"
+        target_dir = pm.get_project_path("target")
+        assert (target_dir / "characters/derivatives/王 (2)/战斗装.png").read_bytes() == b"battle-sheet"
+
+    def test_overwrite_merges_library_derivatives_over_the_ones_already_in_the_project(self, assets_env):
+        """库里带来的衍生按名覆盖，库里没有的存量衍生保留——覆盖导入不抹用户已登记的衍生。"""
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
+        created = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        ).json()["asset"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_character("target", "王", "已有的王", "")
+        pm.update_asset_entry(
+            "character",
+            "target",
+            "王",
+            lambda entry: entry.__setitem__(
+                DERIVATIVES_FIELD,
+                {
+                    "战斗装": {"description": "项目里的旧描述", "character_sheet": ""},
+                    "夜行衣": {"description": "只在项目里有", "character_sheet": ""},
+                },
+            ),
+        )
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={"asset_ids": [created["id"]], "target_project": "target", "conflict_policy": "overwrite"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert pm.load_project("target")["characters"]["王"][DERIVATIVES_FIELD] == {
+            "战斗装": {"description": "黑甲", "character_sheet": "characters/derivatives/王/战斗装.png"},
+            "夜行衣": {"description": "只在项目里有", "character_sheet": ""},
+        }
+
+    def test_apply_writes_a_derivative_whose_library_image_file_is_gone(self, assets_env):
+        """库里的图文件消失只丢那张图：整批不失败，衍生的名与描述照常落地。"""
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
+        created = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        ).json()["asset"]
+        (pm.projects_root / created["derivatives"][0]["image_path"]).unlink()
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={"asset_ids": [created["id"]], "target_project": "target", "conflict_policy": "skip"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["succeeded"] == [{"id": created["id"], "name": "王"}]
+        entry = pm.load_project("target")["characters"]["王"]
+        assert entry[DERIVATIVES_FIELD] == {"战斗装": {"description": "黑甲", "character_sheet": ""}}
+
+    def test_scene_assets_never_carry_derivatives(self, assets_env):
+        """只有 character 开启衍生能力；其它类型序列化恒为空列表。"""
+        client = assets_env["client"]
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "庙宇"})
+
+        assert created.json()["asset"]["derivatives"] == []
