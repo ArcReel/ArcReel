@@ -952,9 +952,10 @@ class TestInstructorFallbackAsync:
         sample = SampleModel(name="Bob", age=25)
         completion = SimpleNamespace(usage=None)
 
-        with _recorded_instructor((sample, completion), is_async=True) as (_patched_with, calls):
+        client = AsyncMock()
+        with _recorded_instructor((sample, completion), is_async=True) as (patched_with, calls):
             result = await instructor_fallback_async(
-                client=AsyncMock(),
+                client=client,
                 model="async-model",
                 messages=[{"role": "user", "content": "test"}],
                 response_schema=SampleModel,
@@ -972,6 +973,7 @@ class TestInstructorFallbackAsync:
                 "max_completion_tokens": 600,
             }
         ]
+        assert patched_with == [{"client": client, "mode": Mode.TOOLS}]
         assert result.input_tokens is None
         assert result.output_tokens is None
 
