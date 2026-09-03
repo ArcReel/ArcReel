@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from lib.api_errors import NotFoundError, UnprocessableError
 from lib.asset_derivative_cleanup import purge_derivative_sheets
+from lib.asset_derivatives import ensure_derivative_table
 from lib.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
@@ -89,15 +90,6 @@ def _resolve_owner_key(manager: ProjectManager, asset_type: str, project_name: s
     """取本体条目的落盘真名；缺失时返回 ``None``，由随后的写入统一报 404。"""
     bucket = manager.load_project(project_name).get(ASSET_SPECS[asset_type].bucket_key)
     return resolve_asset_key(bucket, entry_name)
-
-
-def _derivative_table(entry: dict[str, Any]) -> dict[str, Any]:
-    """取本体条目里的衍生表；缺失或畸形时就地补空表，让写入落在可预期的形状上。"""
-    table = entry.get(DERIVATIVES_FIELD)
-    if not isinstance(table, dict):
-        table = {}
-        entry[DERIVATIVES_FIELD] = table
-    return table
 
 
 def register_derivative_routes(
@@ -176,7 +168,7 @@ def register_derivative_routes(
         name = _validated_name(req.name)
 
         def _mutate(entry: dict[str, Any]) -> None:
-            table = _derivative_table(entry)
+            table = ensure_derivative_table(entry)
             if resolve_asset_key(table, name) is not None:
                 raise _DerivativeExists(name)
             table[name] = {"description": req.description, spec.sheet_field: ""}
@@ -200,7 +192,7 @@ def register_derivative_routes(
         _t: Translator,
     ):
         def _mutate(entry: dict[str, Any]) -> None:
-            table = _derivative_table(entry)
+            table = ensure_derivative_table(entry)
             key = resolve_asset_key(table, derivative_name)
             if key is None:
                 raise _DerivativeMissing(derivative_name)
@@ -251,7 +243,7 @@ def register_derivative_routes(
         deleted: list[str] = []
 
         def _mutate(entry: dict[str, Any]) -> None:
-            table = _derivative_table(entry)
+            table = ensure_derivative_table(entry)
             key = resolve_asset_key(table, derivative_name)
             if key is None:
                 raise _DerivativeMissing(derivative_name)

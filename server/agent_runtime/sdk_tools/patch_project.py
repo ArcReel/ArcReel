@@ -61,7 +61,11 @@ def patch_project_tool(ctx: ToolContext):
                 },
                 "entries": {
                     "type": "object",
-                    "description": "(资产 upsert 分支){ 名称: { description, voice_style 等字段 } } 映射;至少一条",
+                    "description": (
+                        "(资产 upsert 分支){ 名称: { description, voice_style 等字段 } } 映射;至少一条。"
+                        "角色条目可带 derivatives: { 衍生名: { description } },登记本体之外的另一套外观;"
+                        "按衍生名合并(同名改描述、新名加入、未提及的保留),description 写相对本体的变化"
+                    ),
                 },
                 "settings": {
                     "type": "object",

@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
+from lib.asset_derivatives import normalize_agent_derivatives
+from lib.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, resolve_asset_key, validate_asset_name
 from lib.content_digest import PREFIXED_DIGEST_RE
 from lib.project_manager import ProjectManager
 from lib.source_revision import SourceRevisionBlocker, SourceScope, compute_source_revision
@@ -143,7 +144,7 @@ def _prepare_entries(entries: object) -> dict[str, dict[str, dict[str, Any]]]:
         if not isinstance(bucket_name, str) or not isinstance(raw_entries, Mapping):
             raise AssetInventoryInvalidRequest(f"entries[{bucket_name!r}] must be an object")
         spec = allowed_buckets[bucket_name]
-        allowed_fields = {"description", *spec.agent_editable_extra_fields}
+        allowed_fields = spec.agent_writable_fields
         normalized: dict[str, dict[str, Any]] = {}
         for raw_name, raw_attrs in raw_entries.items():
             try:
@@ -169,6 +170,14 @@ def _prepare_entries(entries: object) -> dict[str, dict[str, dict[str, Any]]]:
                 entry[field] = attrs.get(field, "")
             for field in spec.extra_list_fields:
                 entry[field] = []
+            if spec.supports_derivatives:
+                # 抽取当场登记的衍生：本体与衍生同属一次原子提交，条目是新建的，整表赋值即可。
+                try:
+                    entry[DERIVATIVES_FIELD] = normalize_agent_derivatives(
+                        attrs.get(DERIVATIVES_FIELD, {}), spec=spec, field_path=f"{bucket_name}[{name!r}]"
+                    )
+                except ValueError as exc:
+                    raise AssetInventoryInvalidRequest(str(exc)) from exc
             normalized[name] = entry
         prepared[bucket_name] = normalized
     return prepared

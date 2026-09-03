@@ -37,7 +37,10 @@ def complete_asset_inventory_tool(ctx: ToolContext):
                 "expected_source_revision": {"type": "string"},
                 "entries": {
                     "type": "object",
-                    "description": "本次新增资产：{characters/scenes/props: {名称: {description, voice_style?}}}",
+                    "description": (
+                        "本次新增资产：{characters/scenes/props: {名称: {description, voice_style?}}}；"
+                        "角色可带 derivatives: {衍生名: {description}} 登记本体之外的另一套外观"
+                    ),
                 },
             },
             "required": ["scope", "expected_source_revision"],

@@ -110,6 +110,7 @@ mcp__arcreel__open_draft({"episode": N, "doc_type": "narration_script_plan", "so
 - `duration_seconds` 必须取 Step 0 查得的 `supported_durations` 中的值
 - `segment_id` 保持 `E{集数}S{两位序号}` 格式（如 `E1S01`）、全集唯一，前缀须为当前集号
 - `characters_in_segment` / `scenes` / `props` 只引用 `project.json` 已登记名称（不确定就 Read `project.json` 确认），无对应资产时显式写空数组 `[]`
+- 角色有衍生（同一角色的另一套外观，见 `project.json` 角色条目的 `derivatives` 表）时，`characters_in_segment` 按该分镜的剧情状态写：此刻处于该形态写 `本体/衍生`，回到本体描述的常态写本体名
 - `segment_break` 只在真正的场景切换点（时间跳跃 / 空间转换 / 情节转折）标 `true`
 
 增删分镜即增删数组元素。

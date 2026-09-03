@@ -1234,6 +1234,127 @@ class TestPatchProject:
         assert "importance" in text
         assert "历史字段" in text or "已废弃" in text
 
+    async def test_new_character_registers_derivatives(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {
+                        "description": "白衣剑客",
+                        "derivatives": {"战袍": {"description": "换上玄色战袍，其余外观保持不变"}},
+                    }
+                },
+            },
+        )
+        assert out.get("is_error") is not True
+        entry = ctx.pm.load_project("demo")["characters"]["李白"]
+        assert entry["derivatives"] == {
+            "战袍": {"description": "换上玄色战袍，其余外观保持不变", "character_sheet": ""}
+        }
+
+    async def test_derivative_upsert_merges_by_name_and_keeps_the_generated_sheet(self, ctx: ToolContext) -> None:
+        """按衍生名合并：同名只改描述、保留流水线写入的资产图，未提及的衍生原样留下。"""
+        await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {"李白": {"description": "白衣剑客", "derivatives": {"战袍": {"description": "玄色战袍"}}}},
+            },
+        )
+        ctx.pm.update_project(
+            "demo",
+            lambda p: p["characters"]["李白"]["derivatives"]["战袍"].update(
+                {"character_sheet": "characters/derivatives/李白/战袍.png"}
+            ),
+        )
+
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {
+                        "derivatives": {"战袍": {"description": "改后变化"}, "夜行衣": {"description": "玄黑夜行衣"}}
+                    }
+                },
+            },
+        )
+        assert out.get("is_error") is not True
+        derivatives = ctx.pm.load_project("demo")["characters"]["李白"]["derivatives"]
+        assert derivatives["战袍"] == {
+            "description": "改后变化",
+            "character_sheet": "characters/derivatives/李白/战袍.png",
+        }
+        assert derivatives["夜行衣"] == {"description": "玄黑夜行衣", "character_sheet": ""}
+
+    async def test_derivative_upsert_leaves_unmentioned_derivatives_untouched(self, ctx: ToolContext) -> None:
+        await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {
+                        "description": "白衣剑客",
+                        "derivatives": {"战袍": {"description": "玄色战袍"}, "夜行衣": {"description": "玄黑夜行衣"}},
+                    }
+                },
+            },
+        )
+
+        await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"derivatives": {"战袍": {"description": "改后变化"}}}}},
+        )
+        derivatives = ctx.pm.load_project("demo")["characters"]["李白"]["derivatives"]
+        assert sorted(derivatives) == ["夜行衣", "战袍"]
+        assert derivatives["夜行衣"]["description"] == "玄黑夜行衣"
+
+    async def test_empty_derivative_table_reports_noop(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}})
+
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"derivatives": {}}}},
+        )
+        assert out.get("is_error") is not True
+        text = _text(out)
+        assert "合并改字段" not in text
+        assert "无可写字段已跳过" in text or "无变更" in text
+
+    @pytest.mark.parametrize(
+        "derivatives",
+        [
+            {"战/袍": {"description": "变化"}},
+            {"战袍": {"description": 1}},
+            {"战袍": {"description": "变化", "character_sheet": "characters/x.png"}},
+            {"战袍": "变化"},
+            "不是表",
+        ],
+        ids=["illegal-name", "non-string-description", "system-field", "non-object-entry", "non-object-table"],
+    )
+    async def test_malformed_derivatives_rejected_and_not_written(self, ctx: ToolContext, derivatives: object) -> None:
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "derivatives": derivatives}}},
+        )
+        assert out.get("is_error") is True
+        assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
+
+    async def test_derivatives_dropped_for_a_type_without_the_capability(self, ctx: ToolContext) -> None:
+        """scene 没开启衍生能力：该字段落在白名单外，与其它 spec 外字段同样被丢弃并报出。"""
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "scenes",
+                "entries": {"竹林": {"description": "雨后竹林", "derivatives": {"雪夜": {"description": "覆雪"}}}},
+            },
+        )
+        assert out.get("is_error") is not True
+        scene = ctx.pm.load_project("demo")["scenes"]["竹林"]
+        assert "derivatives" not in scene
+        assert "derivatives" in _text(out)
+
 
 class TestPatchProjectSettings:
     """patch_project 顶层 settings 分支:首期支持 episode_target_units 写入/清除/校验."""
