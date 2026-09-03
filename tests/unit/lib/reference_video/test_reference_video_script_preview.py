@@ -383,14 +383,24 @@ def test_warn_silent_model_notice():
     assert preview.warnings[0]["params"] == {"model": "minimax-01"}
 
 
-def test_warn_silent_model_notice_covers_voiceover_only_script():
-    """画外音同样要渲染，纯画外文稿在无声模型上也该知会。"""
+def test_silent_model_notice_skips_a_voiceover_only_script():
+    """无归属旁白整段不进 prompt，「台词仅用于提示词参考」对纯旁白文稿会指错排查方向。"""
     preview = build_script_preview(
         "开场。\n{那年冬天格外冷}",
         PROJECT_WITHOUT_SCENES,
         VoiceRenderSettings(voice_consistency="none", model_id="minimax-01"),
     )
-    assert keys(preview) == [WARN_SILENT_MODEL]
+    assert preview.warnings == []
+
+
+def test_silent_model_notice_covers_an_unregistered_speaker():
+    """未登记说话人的台词按原文照常渲染，仍要知会它只当提示词参考。"""
+    preview = build_script_preview(
+        "开场。\n@[路人]：{我也在}",
+        PROJECT_WITHOUT_SCENES,
+        VoiceRenderSettings(voice_consistency="none", model_id="minimax-01"),
+    )
+    assert WARN_SILENT_MODEL in keys(preview)
 
 
 def test_silent_model_notice_not_emitted_without_any_utterance():

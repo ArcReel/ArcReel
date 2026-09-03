@@ -334,6 +334,39 @@ def test_inline_unattributed_narration_is_dropped_without_losing_the_line():
     assert "他按住 <长剑>。" in rendered.prompt
 
 
+def test_whitespace_around_a_dropped_narration_collapses_to_one_space():
+    """记号两侧只有空白时并成一个空格——空白不该因为记号消失而在正文里堆起来。"""
+    rendered = render_unit_prompt(
+        "镜头1：@[张三] 推门   {夜风灌进来}   他按住剑。",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    assert "<张三> 推门 他按住剑。" in rendered.prompt
+
+
+def test_line_leading_narration_does_not_leave_a_dangling_separator():
+    """记号写在行首时，它右侧的分隔标点没有左侧可接——整行不以「，」开头。"""
+    rendered = render_unit_prompt(
+        "{夜风灌进来}，@[张三] 推门。",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    assert "<张三> 推门。" in rendered.prompt
+    assert "，<张三>" not in rendered.prompt
+
+
+def test_line_trailing_narration_drops_the_dangling_joiner_but_keeps_a_terminator():
+    """记号写在行尾时，左侧悬空的连接标点丢掉；收句的终止标点是作者写完的一句，保留。"""
+    joined = render_unit_prompt("@[张三] 推门，{夜风灌进来}", _project(), _refs(("character", "张三")), _SOFT)
+    assert "<张三> 推门" in joined.prompt
+    assert "推门，" not in joined.prompt
+
+    terminated = render_unit_prompt("@[张三] 推门。{夜风灌进来}", _project(), _refs(("character", "张三")), _SOFT)
+    assert "<张三> 推门。" in terminated.prompt
+
+
 def test_unregistered_speaker_line_is_sent_verbatim_with_warning():
     rendered = render_unit_prompt("镜头1：黑场。\n@[路人]：{你好。}", _project(), [], _SOFT)
     assert "@[路人]：{你好。}" in rendered.prompt

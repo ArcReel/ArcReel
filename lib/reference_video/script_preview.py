@@ -162,9 +162,12 @@ def derive_voice_bindings(
 
     audio_speakers: list[str] = []
     if settings.is_silent:
-        # 只要有台词就知会：画外音同样要渲染，纯画外的文稿在无声路径上也听不到声音。
-        # 本集关闭音频的提示优先于模型不产音——前者是用户当下可改的开关。
-        if utterances:
+        # 只对带归属的台词知会：无归属旁白整段不进 prompt（见
+        # :func:`lib.reference_video.prompt_render._render_segment_two`），两条文案都说
+        # 「台词仅用于提示词参考」，对一份只有旁白的文稿会指错排查方向。未登记的说话人算带
+        # 归属——它的台词按原文照常渲染。本集关闭音频的提示优先于模型不产音——前者是用户
+        # 当下可改的开关。
+        if any(entry.speaker for entry in utterances):
             if not settings.requested_generate_audio:
                 warnings.append(_warning(WARN_SILENT_EPISODE))
             else:
