@@ -16,6 +16,7 @@ const TASKS_PAGE_SIZE = 200;
  */
 export type ResourceKind =
   | "character"
+  | "character_derivative"
   | "scene"
   | "prop"
   | "product"
@@ -28,7 +29,7 @@ export type ResourceKind =
 /** 可做指令式编辑的资源种类；`image_edit` 任务按此归入对应资源槽。 */
 export type ImageEditResourceKind = Extract<
   ResourceKind,
-  "character" | "scene" | "prop" | "product" | "storyboard"
+  "character" | "character_derivative" | "scene" | "prop" | "product" | "storyboard"
 >;
 
 /**

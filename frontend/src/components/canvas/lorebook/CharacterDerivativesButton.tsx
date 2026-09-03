@@ -8,12 +8,16 @@ import { GlassPopover } from "@/components/ui/GlassPopover";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { CharacterDerivativeSheet } from "./CharacterDerivativeSheet";
+import { useCharacterDerivativeSheets } from "./useCharacterDerivativeSheets";
 import type { CharacterDerivative } from "@/types";
 
 interface CharacterDerivativesButtonProps {
   projectName: string;
   characterName: string;
   derivatives: Record<string, CharacterDerivative>;
+  /** 本体是否已有资产图：衍生图是对它的一次编辑，没有本体图就不放行生成。 */
+  ownerHasSheet?: boolean;
   /** 与卡片兄弟控件共享的禁用态（生成中 / 上传中 / 保存中）。 */
   busy?: boolean;
   /** 单一漏斗刷新：每次写入结算后重新拉取项目数据。 */
@@ -39,15 +43,18 @@ function derivativeToken(characterName: string, derivativeName: string): string 
 
 /**
  * 角色卡上的「衍生」入口：带数量的图标按钮 + 浮层，浮层内登记与管理该角色的衍生
- * （新增、改描述、改名、删除），并展示可复制的 `@[角色/衍生]` 记号。
+ * （新增、改描述、改名、删除），并展示可复制的 `@[角色/衍生]` 记号；每条衍生下由
+ * {@link CharacterDerivativeSheet} 接上它的资产图与图上的各项操作。
  *
- * 衍生写入随角色一起占用，属占用感知型操作：按钮随兄弟控件的 `busy` 禁用，每次提交前再经
- * `rejectIfAssetBusy` 与本组件自己的在途标志复核。衍生没有原图，浮层内不提供上传入口。
+ * 衍生登记的写入随角色一起占用，属占用感知型操作：按钮随兄弟控件的 `busy` 禁用，每次提交
+ * 前再经 `rejectIfAssetBusy` 与本组件自己的在途标志复核。衍生图只能由本体图编辑而来，
+ * 浮层内不提供上传入口。
  */
 export function CharacterDerivativesButton({
   projectName,
   characterName,
   derivatives,
+  ownerHasSheet = false,
   busy = false,
   onReload,
 }: CharacterDerivativesButtonProps) {
@@ -67,6 +74,11 @@ export function CharacterDerivativesButton({
   const count = entries.length;
   // 兄弟控件在写时面板一律收起：占用态由渲染派生，不靠 effect 追平。
   const expanded = open && !busy;
+  const { statuses, refresh: refreshSheets } = useCharacterDerivativeSheets(
+    projectName,
+    characterName,
+    expanded,
+  );
 
   useEffect(() => {
     if (renaming) renameInputRef.current?.select();
@@ -88,6 +100,7 @@ export function CharacterDerivativesButton({
     try {
       await action();
       await onReload?.();
+      refreshSheets();
       useAppStore.getState().pushToast(successMessage, "success");
       return true;
     } catch (err) {
@@ -313,6 +326,19 @@ export function CharacterDerivativesButton({
                     {t("assets:save")}
                   </button>
                 )}
+
+                <CharacterDerivativeSheet
+                  projectName={projectName}
+                  characterName={characterName}
+                  derivativeName={name}
+                  status={statuses[name]}
+                  ownerHasSheet={ownerHasSheet}
+                  busy={busy || pending}
+                  onRestore={async () => {
+                    await onReload?.();
+                    refreshSheets();
+                  }}
+                />
               </li>
             );
           })}

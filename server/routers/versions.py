@@ -22,13 +22,14 @@ from lib.artifact_activation import (
     register_current_resource_artifact,
 )
 from lib.artifact_version_provenance import parse_image_version_basis
+from lib.asset_derivatives import DerivativeSheetTarget, derivative_artifact_id, split_derivative_artifact_id
 from lib.async_thread import run_noninterruptible_sync
 from lib.formal_write import project_metadata_lock
 from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
-from lib.resource_paths import resource_relative_path
+from lib.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 from lib.version_manager import VersionManager
 from server.services.artifact_version_restore import (
     TypedMediaRestoreTarget,
@@ -37,6 +38,7 @@ from server.services.artifact_version_restore import (
     is_typed_media_version_restorable,
     restore_typed_media_version,
 )
+from server.services.derivative_sheet_tasks import point_derivative_at_sheet
 from server.services.grid_access import ensure_grid_writable
 from server.services.narration_delivery_tasks import active_narrated_video_resource_ids, active_tts_resource_ids
 from server.services.presentation_read_model import is_presentation_version_available
@@ -47,7 +49,18 @@ router = APIRouter()
 # 仅放行有还原后元数据同步分支的这几类。grids 的还原只换回联合图文件并复位宫格记录的
 # 切分态，不触发切分、不碰任何分镜图——落格由宫格切分端点显式执行。
 _RESTORABLE_RESOURCE_TYPES = frozenset(
-    {"storyboards", "videos", "audio", "characters", "scenes", "props", "products", "reference_videos", "grids"}
+    {
+        "storyboards",
+        "videos",
+        "audio",
+        "characters",
+        "scenes",
+        "props",
+        "products",
+        "reference_videos",
+        "grids",
+        CHARACTER_DERIVATIVE_RESOURCE_TYPE,
+    }
 )
 
 
@@ -209,6 +222,19 @@ def _restore_non_typed_version(
                 on_commit=lambda: _restore(owner_present=True),
                 on_miss=lambda: _restore(owner_present=False),
             )
+    elif resource_type == CHARACTER_DERIVATIVE_RESOURCE_TYPE:
+        owner_key, derivative_key = split_derivative_artifact_id(resource_id)
+        try:
+            with project_change_source("webui"):
+                point_derivative_at_sheet(
+                    project_name=project_name,
+                    target=DerivativeSheetTarget(owner_key=owner_key, derivative_key=derivative_key),
+                    on_commit=lambda _project_file: _restore(owner_present=True),
+                    project_manager=get_project_manager(),
+                )
+        except KeyError:
+            with project_metadata_lock(project_path):
+                _restore(owner_present=False)
     elif (asset_type := _RESOURCE_TO_ASSET_TYPE.get(resource_type)) is not None:
         try:
             with project_change_source("webui"):
@@ -255,6 +281,44 @@ async def get_versions(
         resource_type: 资源类型 (storyboards, videos, characters, scenes, props)
         resource_id: 资源 ID
     """
+    return await read_resource_versions(project_name, resource_type, resource_id)
+
+
+@router.get("/projects/{project_name}/versions/character-derivative/{owner_name}/{derivative_name}")
+async def get_derivative_versions(
+    project_name: str,
+    owner_name: str,
+    derivative_name: str,
+):
+    """获取一个角色衍生资产图的版本列表。
+
+    衍生的资源 id 是 ``本体名/衍生名``，塞不进通用版本路由的单段路径参数，故单列两段路径。
+    """
+    return await read_resource_versions(
+        project_name,
+        CHARACTER_DERIVATIVE_RESOURCE_TYPE,
+        derivative_artifact_id(owner_name, derivative_name),
+    )
+
+
+@router.post("/projects/{project_name}/versions/character-derivative/{owner_name}/{derivative_name}/restore/{version}")
+async def restore_derivative_version(
+    project_name: str,
+    owner_name: str,
+    derivative_name: str,
+    version: int,
+):
+    """把一个角色衍生资产图切回指定历史版本。"""
+    return await restore_resource_version(
+        project_name,
+        CHARACTER_DERIVATIVE_RESOURCE_TYPE,
+        derivative_artifact_id(owner_name, derivative_name),
+        version,
+    )
+
+
+async def read_resource_versions(project_name: str, resource_type: str, resource_id: str) -> dict[str, Any]:
+    """版本列表的读取实现。资源 id 带层级（角色衍生）的路由不能走单段路径参数，共用此函数。"""
     try:
 
         def _sync():
@@ -295,6 +359,16 @@ async def restore_version(
         resource_id: 资源 ID
         version: 要还原的版本号
     """
+    return await restore_resource_version(project_name, resource_type, resource_id, version)
+
+
+async def restore_resource_version(
+    project_name: str,
+    resource_type: str,
+    resource_id: str,
+    version: int,
+) -> dict[str, Any]:
+    """版本还原的实现。资源 id 带层级（角色衍生）的路由不能走单段路径参数，共用此函数。"""
     try:
         target: TypedMediaRestoreTarget | None = None
         if is_typed_media_restore_resource(resource_type):

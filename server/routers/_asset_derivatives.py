@@ -5,7 +5,10 @@
 与本体字段的 PATCH 共用同一条项目锁 / 正式产物边界；改名要连带改写剧本里的
 ``本体名/旧衍生名`` 引用，走 ``ProjectManager.rename_asset_derivative`` 的级联事务。
 
-本模块只做登记（新增、改描述、改名、删除）；衍生资产图的生成、版本与过期判定不在此处。
+本模块只做登记（新增、改描述、删除）与改名；衍生资产图的生成、版本与过期判定不在此处。
+改名与删除是例外：那张图的落盘坐标含衍生名，改名要连带搬图、版本历史与清单键
+（``lib.asset_derivative_rename``），删除要连带清掉三者（``lib.asset_derivative_cleanup``），
+两者都与登记写入同属一次提交。
 """
 
 from __future__ import annotations
@@ -13,14 +16,22 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib.api_errors import NotFoundError, UnprocessableError
-from lib.asset_rename import AssetRenameConflictError, AssetRenameNotFoundError
+from lib.asset_derivative_cleanup import purge_derivative_sheets
+from lib.asset_rename import (
+    AssetRenameConflictError,
+    AssetRenameFileCollisionError,
+    AssetRenameHistoryCollisionError,
+    AssetRenameNotFoundError,
+)
 from lib.asset_types import (
+    ASSET_SPECS,
     DERIVATIVES_FIELD,
     AssetSpec,
     resolve_asset_key,
@@ -74,6 +85,12 @@ def _validated_name(raw: str) -> str:
         raise UnprocessableError("asset_derivative_invalid_name", name=raw) from exc
 
 
+def _resolve_owner_key(manager: ProjectManager, asset_type: str, project_name: str, entry_name: str) -> str | None:
+    """取本体条目的落盘真名；缺失时返回 ``None``，由随后的写入统一报 404。"""
+    bucket = manager.load_project(project_name).get(ASSET_SPECS[asset_type].bucket_key)
+    return resolve_asset_key(bucket, entry_name)
+
+
 def _derivative_table(entry: dict[str, Any]) -> dict[str, Any]:
     """取本体条目里的衍生表；缺失或畸形时就地补空表，让写入落在可预期的形状上。"""
     table = entry.get(DERIVATIVES_FIELD)
@@ -98,26 +115,45 @@ def register_derivative_routes(
     async def _run(
         project_name: str,
         entry_name: str,
-        write: Callable[[ProjectManager], dict[str, Any]],
+        write: Callable[[ProjectManager, Callable[[Path], None]], dict[str, Any]],
         _t: Translator,
+        on_commit: Callable[[ProjectManager, str], None] | None = None,
     ) -> dict[str, Any]:
         """跑一次衍生写入，把领域异常映射为面向用户的响应。
 
         改名走 ``rename_asset_derivative`` 的级联事务，其余三个端点走
         ``update_asset_entry``；两条写入路径的异常映射同一份，端点不各自兜一遍。
+        ``on_commit`` 与该写入同属一次提交，收到本体的落盘真名——删除路径据此清理那张图。
         """
         try:
 
             def _sync():
                 manager = pm_getter()
                 with project_change_source("webui"):
-                    return write(manager)
+                    # 本体的落盘真名在写入前解析一次：级联清理要用它拼衍生图的目录，而
+                    # 请求里的名字可能是另一种等价编码形式。
+                    owner_key = _resolve_owner_key(manager, asset_type, project_name, entry_name)
+
+                    def _commit(_project_file: Path) -> None:
+                        if on_commit is not None and owner_key is not None:
+                            on_commit(manager, owner_key)
+
+                    return write(manager, _commit)
 
             return await asyncio.to_thread(_sync)
         except _DerivativeExists as exc:
             raise UnprocessableError("asset_derivative_already_exists", name=exc.name) from exc
         except _DerivativeMissing as exc:
             raise NotFoundError("asset_derivative_not_found", name=exc.name) from exc
+        except AssetRenameFileCollisionError as exc:
+            # 衍生图与本体资产图共用这两条冲突文案：拒绝的形状与用户要做的事完全一样。
+            raise HTTPException(
+                status_code=409, detail=_t("asset_rename_file_conflict", filename=exc.destination.name)
+            ) from exc
+        except AssetRenameHistoryCollisionError as exc:
+            raise HTTPException(
+                status_code=409, detail=_t("asset_rename_history_conflict", name=exc.resource_id)
+            ) from exc
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_t(not_found_key, name=entry_name)) from exc
         except FileNotFoundError as exc:
@@ -148,7 +184,9 @@ def register_derivative_routes(
         result = await _run(
             project_name,
             entry_name,
-            lambda manager: manager.update_asset_entry(asset_type, project_name, entry_name, _mutate),
+            lambda manager, commit: manager.update_asset_entry(
+                asset_type, project_name, entry_name, _mutate, on_commit=commit
+            ),
             _t,
         )
         return {"success": True, asset_type: result}
@@ -174,7 +212,9 @@ def register_derivative_routes(
         result = await _run(
             project_name,
             entry_name,
-            lambda manager: manager.update_asset_entry(asset_type, project_name, entry_name, _mutate),
+            lambda manager, commit: manager.update_asset_entry(
+                asset_type, project_name, entry_name, _mutate, on_commit=commit
+            ),
             _t,
         )
         return {"success": True, asset_type: result}
@@ -190,7 +230,7 @@ def register_derivative_routes(
         """改名是一次级联事务：本体条目内的键，与全部剧本 / 草稿里的 ``本体名/旧衍生名`` 引用。"""
         new_name = _validated_name(req.new_name)
 
-        def _write(manager: ProjectManager) -> dict[str, Any]:
+        def _write(manager: ProjectManager, _commit: Callable[[Path], None]) -> dict[str, Any]:
             try:
                 return manager.rename_asset_derivative(asset_type, project_name, entry_name, derivative_name, new_name)
             except AssetRenameNotFoundError as exc:
@@ -208,17 +248,26 @@ def register_derivative_routes(
         derivative_name: str,
         _t: Translator,
     ):
+        deleted: list[str] = []
+
         def _mutate(entry: dict[str, Any]) -> None:
             table = _derivative_table(entry)
             key = resolve_asset_key(table, derivative_name)
             if key is None:
                 raise _DerivativeMissing(derivative_name)
             del table[key]
+            deleted.append(key)
+
+        def _purge(manager: ProjectManager, owner_key: str) -> None:
+            purge_derivative_sheets(manager.get_project_path(project_name), owner_key, deleted)
 
         await _run(
             project_name,
             entry_name,
-            lambda manager: manager.update_asset_entry(asset_type, project_name, entry_name, _mutate),
+            lambda manager, commit: manager.update_asset_entry(
+                asset_type, project_name, entry_name, _mutate, on_commit=commit
+            ),
             _t,
+            _purge,
         )
         return {"success": True, "message": _t("asset_derivative_deleted", name=derivative_name)}

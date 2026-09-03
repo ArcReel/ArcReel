@@ -41,6 +41,7 @@ from lib.asset_types import (
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
+from server.routers._asset_derivative_status import register_derivative_status_routes
 from server.routers._asset_derivatives import register_derivative_routes
 
 logger = logging.getLogger(__name__)
@@ -360,5 +361,6 @@ def build_asset_router(
 
     if spec.supports_derivatives:
         register_derivative_routes(router, spec=spec, not_found_key=keys["not_found"], pm_getter=pm_getter)
+        register_derivative_status_routes(router, spec=spec, not_found_key=keys["not_found"], pm_getter=pm_getter)
 
     return router

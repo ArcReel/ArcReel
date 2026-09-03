@@ -14,6 +14,7 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from lib.asset_derivatives import DERIVATIVE_TASK_TYPE
 from lib.async_thread import run_noninterruptible_async
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -299,9 +300,9 @@ async def _derive_execution_model_for_enqueue(
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
-            # image_edit 必然 i2i 且入队即知（唯一例外，见 docs/adr/0001），按 i2i 槽解析；
-            # 其余 image 任务 capability 执行时才定，取 t2i 作代表性 provider。
-            capability = "i2i" if task_type == "image_edit" else "t2i"
+            # image_edit / 衍生资产图必然 i2i 且入队即知（唯一例外，见 docs/adr/0001），按 i2i
+            # 槽解析；其余 image 任务 capability 执行时才定，取 t2i 作代表性 provider。
+            capability = "i2i" if task_type in I2I_ONLY_TASK_TYPES else "t2i"
             resolved = await resolver.resolve_image_backend(project, payload or {}, capability=capability)
     except Exception:
         logger.debug("入队时派生执行身份失败，留 NULL 由 worker 兜底", exc_info=True)
@@ -310,6 +311,11 @@ async def _derive_execution_model_for_enqueue(
         return None
     return resolved, video_capability
 
+
+#: 必然走 i2i 且入队即知的图片任务类型（见 ``docs/adr/0001`` 的唯一例外）：图片编辑以当前图
+#: 为唯一输入，衍生资产图以本体资产图为唯一输入。入队派生与 worker 的限流路由据此按 i2i 槽
+#: 精确解析，其余图片任务取 t2i 作代表性 provider。
+I2I_ONLY_TASK_TYPES: frozenset[str] = frozenset({"image_edit", DERIVATIVE_TASK_TYPE})
 
 ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
 TASK_WORKER_LEASE_TTL_SEC = 10.0

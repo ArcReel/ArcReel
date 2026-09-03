@@ -82,5 +82,11 @@ export default {
   "derivative_saved": "Derivative \"{{name}}\" saved",
   "derivative_renamed": "Renamed to \"{{name}}\"",
   "derivative_deleted": "Derivative \"{{name}}\" deleted",
+  "derivative_generate": "Generate sheet",
+  "derivative_regenerate": "Regenerate",
+  "derivative_no_sheet": "No derivative sheet yet",
+  "derivative_owner_sheet_required": "Generate the base sheet first",
+  "derivative_stale": "Outdated",
+  "derivative_stale_hint": "This derivative no longer matches the current base sheet or its change description. Regenerate to bring it back in line.",
   "derivative_busy_hint": "Generation or editing in progress — cannot change derivatives",
 };

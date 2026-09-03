@@ -10,10 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from lib.asset_derivatives import DERIVATIVE_TASK_TYPE
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_batch import (
     GenerationBatchBlockedItem,
@@ -32,6 +33,7 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     require_storyboard_scene,
 )
+from lib.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_id_segments
 
 logger = logging.getLogger(__name__)
 
@@ -391,6 +393,24 @@ class TaskSpecValidationError(ValueError):
         self.params = params
 
 
+#: 产物 id 天然带层级的资源 → 段数。段数取自落盘形状的真相源：衍生资产图的 id 是
+#: ``本体名/衍生名``，落盘为 ``characters/derivatives/{本体}/{衍生}.png``，两段各自是
+#: 一段合法资产名。
+_HIERARCHICAL_RESOURCE_ID_SEGMENTS: dict[str, int] = {
+    DERIVATIVE_TASK_TYPE: resource_id_segments(CHARACTER_DERIVATIVE_RESOURCE_TYPE)
+}
+
+
+def _expected_resource_id_segments(task_type: str, extra_payload: Mapping[str, Any] | None) -> int:
+    """该请求的 resource_id 应有几段。
+
+    ``image_edit`` 跨多类资源共用一个 task_type，寻址的资源由 ``payload.resource_type``
+    指明；其余任务类型自身即资源类型。
+    """
+    resource = str((extra_payload or {}).get("resource_type") or "") if task_type == "image_edit" else task_type
+    return _HIERARCHICAL_RESOURCE_ID_SEGMENTS.get(resource, 1)
+
+
 @dataclass
 class TaskSpec:
     """Specification for a single enqueue request (single-task or batch member).
@@ -443,8 +463,14 @@ class TaskSpec:
             raise TaskSpecValidationError("resource_id_required")
         # resource_id 在执行期是产物路径的一段：带路径分隔符或 .. 的值要到 worker 拼路径时
         # 才被 safe_join 拒绝，那时同批健康的任务已经在跑并计费。结构守卫在这里就拒，让它
-        # 与其它结构问题一样折成该 unit 的准入问题码。
-        if any(sep in resource_id for sep in ("/", "\\", "\x00")) or resource_id.strip(".") == "":
+        # 与其它结构问题一样折成该 unit 的准入问题码。带层级 id 的任务类型按段逐一守同一条
+        # 规则（段数固定，段内不含分隔符），不放宽单段本身的约束。
+        expected_segments = _expected_resource_id_segments(task_type, extra_payload)
+        segments = resource_id.split("/") if expected_segments > 1 else [resource_id]
+        if len(segments) != expected_segments or any(
+            not segment.strip() or any(sep in segment for sep in ("/", "\\", "\x00")) or segment.strip(".") == ""
+            for segment in segments
+        ):
             raise TaskSpecValidationError("invalid_resource_id", resource_id=resource_id)
         _validate_prompt(task_type, prompt)
 

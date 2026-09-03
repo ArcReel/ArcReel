@@ -14,8 +14,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.asset_derivatives import DERIVATIVE_ASSET_TYPE
 from lib.asset_types import ASSET_SPECS, normalize_asset_name
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
+from lib.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
 
 
@@ -35,7 +37,12 @@ _VIDEO_VISUAL_KINDS = {
 }
 
 IMAGE_ARTIFACT_BASIS_FIELD = "artifact_image_basis"
-_IMAGE_ASSET_TYPES = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
+# 版本记录里的图像产物 → 资产类型。衍生资产图与本体共用 asset-sheet 依据种类，
+# 只是 resource_id 写作 ``本体名/衍生名``。
+_IMAGE_ASSET_TYPES = {
+    **{spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()},
+    CHARACTER_DERIVATIVE_RESOURCE_TYPE: DERIVATIVE_ASSET_TYPE,
+}
 _IMAGE_VISUAL_KINDS: dict[str, frozenset[str]] = {
     **{resource_type: frozenset({"artifact-visual/asset-sheet"}) for resource_type in _IMAGE_ASSET_TYPES},
     "storyboards": frozenset(

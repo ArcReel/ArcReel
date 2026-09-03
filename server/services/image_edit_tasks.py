@@ -4,7 +4,7 @@
 参考图、用户编辑指令为唯一 prompt 调用 i2i，产出新图覆盖 current 并自动进版本历史；
 原 image_prompt 不回写——编辑是对**图**的分叉而非对 prompt 的分叉。
 
-支持的资源：character / scene / prop / product 四类资产图 + storyboard 分镜图。
+支持的资源：character / scene / prop / product 四类资产图 + 角色衍生资产图 + storyboard 分镜图。
 「当前图路径解析」与「按资源类型写回」复用生成链路的既有口径（资产 sheet 字段 /
 剧本 generated_assets），由 :func:`resolve_current_image_rel` 统一提供给路由
 （入队前校验）与 executor（执行时读取），两侧口径不分叉。
@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.api_errors import NotFoundError
 from lib.artifact_activation import (
     ArtifactCurrencyResolver,
     ArtifactInputClaim,
@@ -26,17 +27,29 @@ from lib.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifact_manifest import ArtifactBasis, ArtifactKey
+from lib.asset_derivatives import (
+    DERIVATIVE_ASSET_TYPE,
+    DERIVATIVE_TASK_TYPE,
+    DerivativeSheetTarget,
+    derivative_table,
+    resolve_derivative_target,
+    split_derivative_artifact_id,
+)
 from lib.asset_types import ASSET_SPECS, resolve_asset_key
 from lib.async_thread import run_noninterruptible_sync
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_reference_snapshot import freeze_image_references
-from lib.resource_paths import resource_relative_path
+from lib.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from lib.visual_artifact_provenance import (
     VisualReference,
     build_asset_sheet_visual_basis,
     build_storyboard_image_visual_basis,
+)
+from server.services.derivative_sheet_tasks import (
+    derivative_sheet_commit_callback,
+    finalize_derivative_sheet_task,
 )
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
@@ -53,8 +66,18 @@ from server.services.generation_tasks import (
 # 版本记录里标记「指令式编辑」的 source 值；前端据此展示编辑标记（与 manual_upload 同机制）
 IMAGE_EDIT_VERSION_SOURCE = "image_edit"
 
-# 可编辑的资源类型白名单（API 契约用的单数形态；storyboard 之外与 ASSET_SPECS 同源）
-EDITABLE_RESOURCE_TYPES: tuple[str, ...] = (*ASSET_SPECS.keys(), "storyboard")
+
+def _derivative_target(artifact_id: str) -> DerivativeSheetTarget:
+    """把已解析成落盘真名的 ``本体/衍生`` id 还原为写回坐标。"""
+    owner_key, derivative_key = split_derivative_artifact_id(artifact_id)
+    return DerivativeSheetTarget(owner_key=owner_key, derivative_key=derivative_key)
+
+
+#: 角色衍生资产图在编辑 API 契约里的资源类型名（单数形态，与 ASSET_SPECS 的键并列）。
+#: 它的 resource_id 是 ``本体名/衍生名``，寻址的是本体条目衍生表内的那张图。
+
+# 可编辑的资源类型白名单（API 契约用的单数形态；storyboard 与衍生之外与 ASSET_SPECS 同源）
+EDITABLE_RESOURCE_TYPES: tuple[str, ...] = (*ASSET_SPECS.keys(), "storyboard", DERIVATIVE_TASK_TYPE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +109,8 @@ def _build_image_edit_basis(
             references=(source,),
         )
     return build_asset_sheet_visual_basis(
-        asset_type=resource_type,
+        # 衍生与本体共用 asset-sheet 依据种类，只是 asset id 写作「本体/衍生」。
+        asset_type=DERIVATIVE_ASSET_TYPE if resource_type == DERIVATIVE_TASK_TYPE else resource_type,
         asset_id=resource_id,
         description=instruction,
         # Asset editing likewise omits the normal generation style expansion.
@@ -101,6 +125,8 @@ def edit_version_resource_type(resource_type: str) -> str:
     """API 契约的单数 resource_type → VersionManager / 事件层的复数资源类型。"""
     if resource_type == "storyboard":
         return "storyboards"
+    if resource_type == DERIVATIVE_TASK_TYPE:
+        return CHARACTER_DERIVATIVE_RESOURCE_TYPE
     return ASSET_SPECS[resource_type].bucket_key
 
 
@@ -114,6 +140,8 @@ def resolve_current_image_rel(
 
     - 资产（character / scene / prop / product）：读 project.json 对应 bucket 的 sheet
       字段；资产不存在抛 ``KeyError``，sheet 未设置返回 ``None``。
+    - 角色衍生：``resource_id`` 是 ``本体名/衍生名``，读本体条目衍生表内那一行的 sheet
+      字段；本体或衍生不存在抛 ``KeyError``，尚未生成时返回 ``None``。
     - storyboard：读剧本条目的 ``generated_assets.storyboard_image``（宫格项目可能
       指向 ``scene_{id}_first.png``）；没有登记指针即没有产物，不按同名文件推断
       current；条目不存在抛 ``KeyError``。
@@ -141,6 +169,18 @@ def _resolve_current_image_pointer(
             return resolved_id, pointer
         # 没有登记指针就是没有产物：同名文件不构成这个分镜的归属证据。
         return resolved_id, None
+
+    if resource_type == DERIVATIVE_TASK_TYPE:
+        owner_name, derivative_name = split_derivative_artifact_id(resource_id)
+        try:
+            target = resolve_derivative_target(project, owner_name, derivative_name)
+        except NotFoundError as exc:
+            raise KeyError(f"derivative not found: {resource_id}") from exc
+        derivative = derivative_table(project[ASSET_SPECS[DERIVATIVE_ASSET_TYPE].bucket_key][target.owner_key])[
+            target.derivative_key
+        ]
+        sheet = derivative.get(ASSET_SPECS[DERIVATIVE_ASSET_TYPE].sheet_field)
+        return target.artifact_id, sheet if isinstance(sheet, str) and sheet else None
 
     spec = ASSET_SPECS[resource_type]
     bucket = project.get(spec.bucket_key)
@@ -178,6 +218,8 @@ def resolve_usable_image_edit_source(
         if type(artifact_episode) is not int or artifact_episode < 1:
             raise ValueError("artifact_episode is required for an active storyboard edit source")
         key = ArtifactKey.episode_storyboard(artifact_episode, resolved_id)
+    elif resource_type == DERIVATIVE_TASK_TYPE:
+        key = ArtifactKey.asset_sheet(DERIVATIVE_ASSET_TYPE, resolved_id)
     else:
         key = ArtifactKey.asset_sheet(resource_type, resolved_id)
     claims: list[ArtifactInputClaim] = []
@@ -381,7 +423,18 @@ async def execute_image_edit_task(
             formal_claims,
         )
 
-        if resource_type == "storyboard":
+        if resource_type == DERIVATIVE_TASK_TYPE:
+            commit_formal_output = derivative_sheet_commit_callback(
+                project_name=project_name,
+                target=_derivative_target(resource_key),
+                prompt=instruction,
+                versions=generator.versions,
+                task_id=task_id,
+                basis=edit_basis,
+                outcome_box=formal_outcomes,
+                project_manager=get_project_manager(),
+            )
+        elif resource_type == "storyboard":
             commit_formal_output = _storyboard_formal_image_callback(
                 project_name=project_name,
                 script_file=str(script_file),
@@ -440,6 +493,16 @@ async def execute_image_edit_task(
     if formal_outcomes:
         outcome = formal_outcomes[0]
         version, created_at, receipt = outcome.version, outcome.created_at, outcome.receipt
+    elif resource_type == DERIVATIVE_TASK_TYPE:
+        created_at, receipt = await finalize_derivative_sheet_task(
+            project_name=project_name,
+            target=_derivative_target(resource_key),
+            generator=generator,
+            version=version,
+            task_id=task_id,
+            basis=edit_basis,
+            project_manager=get_project_manager(),
+        )
     elif resource_type == "storyboard":
         created_at, receipt = await _finalize_storyboard_image_task(
             project_name=project_name,

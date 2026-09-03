@@ -26,7 +26,13 @@ from lib.artifact_manifest import (
 )
 from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_script_plan_basis
 from lib.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
-from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
+from lib.asset_derivatives import (
+    DERIVATIVE_SOURCE_KIND,
+    DERIVATIVE_SOURCE_ROLE,
+    build_derivative_sheet_basis,
+    derivative_artifact_key,
+)
+from lib.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, AssetSpec, asset_name_comparison_key
 from lib.episode_paths import episode_source_relpath
 from lib.grid.layout import grid_aspect_ratio_for
 from lib.grid.models import GridGeneration
@@ -372,6 +378,8 @@ class TargetStatePlanner:
                 if not name or name in normalized_names:
                     raise ValueError("project asset identities must be unique after normalization")
                 normalized_names.add(name)
+                if spec.supports_derivatives:
+                    self._plan_asset_derivatives(spec, name, raw_entry)
                 artifact_path = raw_entry.get(spec.sheet_field)
                 if not isinstance(artifact_path, str) or not artifact_path:
                     continue
@@ -395,6 +403,51 @@ class TargetStatePlanner:
                     continue
                 self._add_if_present(ArtifactKey.asset_sheet(asset_type, name), artifact_path, basis)
         self._planned.add("assets")
+
+    def _plan_asset_derivatives(self, spec: AssetSpec, owner_name: str, entry: Mapping[str, Any]) -> None:
+        """规划一个本体条目下全部衍生资产图的规范依据。
+
+        衍生图是对本体资产图的一次编辑，规范依据因此由「本体资产图的内容 + 变化描述」
+        决定，不含项目画风。本体资产图重生成后其内容指纹改变，该本体下每一张衍生图的
+        登记依据随之与规范状态不符，即判过期。
+        """
+        owner_sheet = entry.get(spec.sheet_field)
+        if not isinstance(owner_sheet, str) or not owner_sheet:
+            return
+        source_path = self._safe_present_path(owner_sheet)
+        if source_path is None:
+            return
+        table = entry.get(DERIVATIVES_FIELD)
+        if not isinstance(table, Mapping):
+            return
+        source = self._visual_reference(
+            path=source_path,
+            role=DERIVATIVE_SOURCE_ROLE,
+            logical_type=spec.asset_type,
+            logical_id=owner_name,
+            kind=DERIVATIVE_SOURCE_KIND,
+        )
+        for raw_name, raw_derivative in table.items():
+            if not isinstance(raw_name, str) or not isinstance(raw_derivative, Mapping):
+                continue
+            derivative_name = asset_name_comparison_key(raw_name)
+            artifact_path = raw_derivative.get(spec.sheet_field)
+            description = raw_derivative.get("description")
+            if not derivative_name or not isinstance(artifact_path, str) or not artifact_path:
+                continue
+            if not isinstance(description, str) or not description.strip():
+                continue
+            try:
+                basis = build_derivative_sheet_basis(
+                    owner_name=owner_name,
+                    derivative_name=derivative_name,
+                    description=description.strip(),
+                    aspect_ratio="16:9",
+                    source=source,
+                )
+            except (OSError, TypeError, ValueError):
+                continue
+            self._add_if_present(derivative_artifact_key(owner_name, derivative_name), artifact_path, basis)
 
     def _asset_sheet_references(
         self,

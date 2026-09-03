@@ -25,10 +25,11 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifact_planner import TargetStatePlanner, normalize_script_binding
+from lib.asset_derivatives import DERIVATIVE_ASSET_TYPE
 from lib.asset_types import ASSET_SPECS
 from lib.project_migration_failure import ProjectMigrationError
 from lib.project_schema import project_schema_is_current
-from lib.resource_paths import resource_relative_path
+from lib.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +103,9 @@ def artifact_key_for_resource(
 ) -> ArtifactKey:
     """Map a formal write target to its typed manifest identity."""
 
+    # 衍生资产图与本体共用 asset_sheet 这一产物种类，只是 id 写作 ``本体名/衍生名``。
+    if resource_type == CHARACTER_DERIVATIVE_RESOURCE_TYPE:
+        return ArtifactKey.asset_sheet(DERIVATIVE_ASSET_TYPE, resource_id)
     for asset_type, spec in ASSET_SPECS.items():
         if resource_type == spec.bucket_key:
             return ArtifactKey.asset_sheet(asset_type, resource_id)

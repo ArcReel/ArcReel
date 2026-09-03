@@ -84,5 +84,11 @@ export default {
   "derivative_saved": "Đã lưu phái sinh \"{{name}}\"",
   "derivative_renamed": "Đã đổi tên thành \"{{name}}\"",
   "derivative_deleted": "Đã xóa phái sinh \"{{name}}\"",
+  "derivative_generate": "Tạo hình phái sinh",
+  "derivative_regenerate": "Tạo lại",
+  "derivative_no_sheet": "Chưa có hình phái sinh",
+  "derivative_owner_sheet_required": "Hãy tạo hình gốc trước",
+  "derivative_stale": "Đã lỗi thời",
+  "derivative_stale_hint": "Hình phái sinh này không còn khớp với hình gốc hiện tại hoặc mô tả thay đổi của nó. Hãy tạo lại để đồng bộ.",
   "derivative_busy_hint": "Đang tạo hoặc chỉnh sửa, chưa thể thay đổi phái sinh",
 } satisfies Record<keyof typeof enAssets, string>;

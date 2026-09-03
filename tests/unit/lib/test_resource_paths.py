@@ -87,4 +87,5 @@ class TestResourceTypes:
             "products",
             "grids",
             "reference_videos",
+            "character_derivatives",
         }

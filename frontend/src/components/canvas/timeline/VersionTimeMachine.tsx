@@ -10,7 +10,7 @@ import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 
 interface VersionTimeMachineProps {
   projectName: string;
-  resourceType: "storyboards" | "videos" | "audio" | "characters" | "scenes" | "props" | "products" | "reference_videos" | "grids";
+  resourceType: "storyboards" | "videos" | "audio" | "characters" | "character_derivatives" | "scenes" | "props" | "products" | "reference_videos" | "grids";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<void>;
   /** Icon-only trigger button: hides label and chevron for narrow card headers. */
@@ -40,7 +40,7 @@ interface VersionTimeMachineProps {
 function getImagePreviewHeightClass(
   resourceType: VersionTimeMachineProps["resourceType"],
 ): string {
-  if (resourceType === "characters") return "h-80";
+  if (resourceType === "characters" || resourceType === "character_derivatives") return "h-80";
   if (resourceType === "scenes" || resourceType === "props" || resourceType === "products") return "h-56";
   return "h-64";
 }
@@ -75,6 +75,8 @@ export function VersionTimeMachine({
     resourceType === "reference_videos" ? `reference_videos/${resourceId}.mp4` :
     resourceType === "audio" ? `audio/segment_${resourceId}.wav` :
     resourceType === "characters" ? `characters/${resourceId}.png` :
+    // 衍生的 resource id 本身是 `本体/衍生`，两段原样成为路径层级。
+    resourceType === "character_derivatives" ? `characters/derivatives/${resourceId}.png` :
     resourceType === "scenes" ? `scenes/${resourceId}.png` :
     resourceType === "grids" ? `grids/${resourceId}.png` :
     `props/${resourceId}.png`;

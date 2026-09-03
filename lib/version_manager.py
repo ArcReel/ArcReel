@@ -21,10 +21,17 @@ from typing import Any, ClassVar, assert_never
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.artifact_manifest import ArtifactManifestError, ProjectArtifactManifestAdapter
+from lib.asset_types import resolve_asset_key
 from lib.formal_write import formal_write_transaction
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
-from lib.resource_paths import resource_extension, resource_relative_path
+from lib.resource_paths import (
+    resource_extension,
+    resource_id_segments,
+    resource_relative_path,
+    version_snapshot_dir,
+    version_snapshot_relative_path,
+)
 from lib.schema_guards import is_bool
 
 _LOCKS_GUARD = threading.Lock()
@@ -136,7 +143,13 @@ class VersionManager:
         """
         self.versions_dir.mkdir(parents=True, exist_ok=True)
         for resource_type in self.RESOURCE_TYPES:
-            (self.versions_dir / resource_type).mkdir(exist_ok=True)
+            # 快照桶目录取自路径真相源：多段 id 的类型（角色衍生）落在嵌套子目录下。
+            (self.project_path / version_snapshot_dir(resource_type)).mkdir(parents=True, exist_ok=True)
+
+    def _ensure_snapshot_dir(self, snapshot_abs_path: Path) -> None:
+        """确保版本目录树与该快照自身的父目录存在（多段 id 每个 id 前置段一层目录）。"""
+        self._ensure_dirs()
+        snapshot_abs_path.parent.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def is_managed_snapshot_path(cls, resource_type: str, relative_path: object) -> bool:
@@ -145,12 +158,13 @@ class VersionManager:
         if resource_type not in cls.RESOURCE_TYPES or not isinstance(relative_path, str) or "\\" in relative_path:
             return False
         path = PurePosixPath(relative_path)
+        bucket = PurePosixPath(version_snapshot_dir(resource_type)).parts
         return (
             relative_path == path.as_posix()
             and not path.is_absolute()
-            and len(path.parts) == 3
-            and path.parts[:2] == ("versions", resource_type)
-            and path.name not in {"", ".", ".."}
+            and len(path.parts) == len(bucket) + resource_id_segments(resource_type)
+            and path.parts[: len(bucket)] == bucket
+            and all(part not in {"", ".", ".."} for part in path.parts[len(bucket) :])
             and path.suffix == cls.EXTENSIONS[resource_type]
         )
 
@@ -390,14 +404,14 @@ class VersionManager:
 
             # 生成版本文件名和路径
             timestamp = self._generate_timestamp()
-            ext = self.EXTENSIONS.get(resource_type, ".png")
-            version_filename = f"{resource_id}_v{new_version}_{timestamp}{ext}"
-            version_rel_path = f"versions/{resource_type}/{version_filename}"
+            version_rel_path = version_snapshot_relative_path(
+                resource_type, resource_id, version=new_version, timestamp=timestamp
+            )
             version_abs_path = self.project_path / version_rel_path
 
             # 如果有源文件，复制到版本目录
             if source_file and Path(source_file).exists():
-                self._ensure_dirs()
+                self._ensure_snapshot_dir(version_abs_path)
                 shutil.copy2(source_file, version_abs_path)
 
             # 创建版本记录
@@ -461,11 +475,11 @@ class VersionManager:
                     previous_current_version = 0
                 new_version = max((item.get("version", 0) for item in records), default=0) + 1
                 timestamp = self._generate_timestamp()
-                ext = self.EXTENSIONS.get(resource_type, ".png")
-                filename = f"{resource_id}_v{new_version}_{timestamp}{ext}"
-                rel_path = f"versions/{resource_type}/{filename}"
+                rel_path = version_snapshot_relative_path(
+                    resource_type, resource_id, version=new_version, timestamp=timestamp
+                )
                 abs_path = self.project_path / rel_path
-                self._ensure_dirs()
+                self._ensure_snapshot_dir(abs_path)
                 shutil.copy2(source, abs_path)
                 created_snapshots.append(abs_path)
                 records.append(
@@ -584,11 +598,11 @@ class VersionManager:
                     previous = 0
                 version = max((item.get("version", 0) for item in records), default=0) + 1
                 timestamp = self._generate_timestamp()
-                ext = self.EXTENSIONS.get(commit.resource_type, ".png")
-                filename = f"{commit.resource_id}_v{version}_{timestamp}{ext}"
-                rel_path = f"versions/{commit.resource_type}/{filename}"
+                rel_path = version_snapshot_relative_path(
+                    commit.resource_type, commit.resource_id, version=version, timestamp=timestamp
+                )
                 abs_path = self.project_path / rel_path
-                self._ensure_dirs()
+                self._ensure_snapshot_dir(abs_path)
                 shutil.copy2(source, abs_path)
                 created_snapshots.append(abs_path)
                 records.append(
@@ -728,10 +742,11 @@ class VersionManager:
                     previous = 0
                 version = max((item.get("version", 0) for item in records), default=0) + 1
                 timestamp = self._generate_timestamp()
-                ext = self.EXTENSIONS.get(resource_type, ".png")
-                rel_path = f"versions/{resource_type}/{resource_id}_v{version}_{timestamp}{ext}"
+                rel_path = version_snapshot_relative_path(
+                    resource_type, resource_id, version=version, timestamp=timestamp
+                )
                 abs_path = self.project_path / rel_path
-                self._ensure_dirs()
+                self._ensure_snapshot_dir(abs_path)
                 shutil.copy2(source, abs_path)
                 created_snapshots.append(abs_path)
                 records.append(
@@ -1047,17 +1062,23 @@ class VersionManager:
                 return len(versions)
 
             self._ensure_dirs()
-            prefix = f"{normalize_asset_name(old_id)}_v"
+            # 快照文件名只带 id 的末段（多段 id 的前置段是目录层级），故前缀与新名都取末段。
+            old_stem = normalize_asset_name(old_id).rpartition("/")[2]
+            new_parent, _, new_stem = new_id.rpartition("/")
+            bucket_dir = self.project_path / version_snapshot_dir(resource_type)
+            new_dir = bucket_dir / new_parent if new_parent else bucket_dir
+            prefix = f"{old_stem}_v"
             for version in versions:
                 basename = normalize_asset_name(PurePosixPath(version["file"].replace("\\", "/")).name)
                 if not basename.startswith(prefix):
                     continue
-                new_basename = f"{new_id}_v{basename[len(prefix) :]}"
+                new_basename = f"{new_stem}_v{basename[len(prefix) :]}"
                 src = self.project_path / version["file"]
-                dst = self.versions_dir / resource_type / new_basename
+                dst = new_dir / new_basename
                 if src.exists():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
                     src.replace(dst)
-                version["file"] = f"versions/{resource_type}/{new_basename}"
+                version["file"] = dst.relative_to(self.project_path).as_posix()
             # 视觉同名的等价 key（NFC / NFD 并存）一并收编到新 id 下，留一条会顶着旧名残留、
             # 之后被重建的同名资产接上。被合并掉的那条记录，其快照文件会留在盘上成为孤儿——
             # 与资产删除只删桶 key、快照留存是同一口径，宁可留下也不静默删除用户的历史。
@@ -1127,6 +1148,35 @@ class VersionManager:
                 source_file=current_file,
                 **metadata,
             )
+
+    def purge_resource(self, resource_type: str, resource_id: str) -> int:
+        """删除一个资源的全部版本记录与快照文件，返回删除的快照数。
+
+        只服务「资源本身随之消失」的删除路径（当前是角色衍生）：留着记录会让重建的同名
+        资源接上一段不属于它的历史。资产删除保留历史是另一条既有口径，不经此。
+        快照文件删不掉时记录并继续——记录已经删了，留在盘上的文件不再被任何版本引用。
+        """
+        if resource_type not in self.RESOURCE_TYPES:
+            raise ValueError(f"不支持的资源类型: {resource_type}")
+
+        with self._lock:
+            data = self._load_versions()
+            bucket = data.get(resource_type)
+            if not isinstance(bucket, dict):
+                return 0
+            key = resolve_asset_key(bucket, resource_id)
+            record = bucket.get(key) if key is not None else None
+            if key is None or not isinstance(record, dict):
+                return 0
+            snapshots = [
+                self.project_path / version["file"]
+                for version in record.get("versions", [])
+                if isinstance(version, dict) and isinstance(version.get("file"), str)
+            ]
+            del bucket[key]
+            self._save_versions(data)
+            _report_cleanup_failures(_unlink_paths(*snapshots), active_failure=sys.exception())
+            return len(snapshots)
 
     def restore_version(
         self,
