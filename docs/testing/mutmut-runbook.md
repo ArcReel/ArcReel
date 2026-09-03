@@ -102,6 +102,7 @@ uv run python scripts/mutmut_compare.py \
 - **`tests-for-mutant` 只在项目根可用。** 它读 `mutants/mutmut-stats.json`，在 `mutants/` 里跑找不到。
 - **`tests/unit/test_skill_script_path_guards.py` 被整体排除**，理由在 `[tool.mutmut]` 注释。排除只会多出假存活（多复核一个），不会造成假杀死。
 - **`timeout_multiplier` 不要调小。** 调小不省时间，只会让已证实的真存活被记成 killed，把无效测试藏起来。
+- **−11（段错误）成批出现即整轮作废，不要逐个复核。** 已知的一种成因在 macOS：环境里没有 `*_proxy` 变量时，`urllib.request.getproxies()` 经 `_scproxy` 调 SystemConfiguration 读系统代理，该框架在 fork 出的多线程子进程里直接段错误，凡构造 `openai.OpenAI` / `httpx.Client` 的用例都中招（第二批 2186 个里 577 个），而同一个 mutant 在新进程里复核却正常。`tests/mutmut_plugin.py` 已把这两个入口换成常量实现；再成批出现就用 `PYTHONFAULTHANDLER=1 uv run mutmut run <mutant>` 单跑一个看崩溃栈，别当成负载或偶发。判据：−11 只该零星出现（首批 616 个里 2 个）。
 - **测试选集走全量。** 只跑 `tests/unit` 快 5.5 倍，但约 45% 的存活是假的，每个都要复核一次全量套件，总账更贵。
 
 ## 7. 成本参考
