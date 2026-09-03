@@ -25,7 +25,7 @@ from lib.artifact_manifest import (
 )
 from lib.artifact_provenance import ScriptPlanPromptVariant, build_script_plan_request
 from lib.artifact_registration import ArtifactRegistrationReceipt
-from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
+from lib.asset_types import BUCKET_KEY, asset_name_comparison_key
 from lib.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.config.resolver import ConfigResolver
 from lib.content_digest import prefixed_sha256_file
@@ -58,6 +58,7 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, is_reference_video_project
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import append_user_instructions, build_narration_split_prompt, build_normalize_prompt
+from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.reference_video.draft_validation import (
     validate_dialogue_load,
     validate_source_text_anchor,
@@ -1326,9 +1327,7 @@ def _collect_narration_violations(
     *,
     episode: int,
     supported_durations: list[int],
-    characters: dict[str, Any],
-    scenes: dict[str, Any],
-    props: dict[str, Any],
+    catalog: ReferenceCatalog,
     novel_text: str,
     source_scope: str,
 ) -> list[DraftViolation]:
@@ -1372,12 +1371,12 @@ def _collect_narration_violations(
         )
 
     allowed = {int(d) for d in supported_durations}
-    # 资产表的 key 先归一到比对坐标系（与 rv 侧 ``validate_unit_text`` 同一处理）：``project.json``
-    # 里的名字与模型写回的名字可能是同一名称的不同 Unicode 形式，两侧不同形会把一个已登记的资产
-    # 判成未登记。归一在循环外做一次，逐分镜只查表。
+    # 已登记名字取自引用目录（与 rv 侧 ``validate_unit_text`` 同一入口）：``project.json`` 里的
+    # 名字与模型写回的名字可能是同一名称的不同 Unicode 形式，目录已把两侧收敛到同一比对坐标系，
+    # 不同形不会把一个已登记的资产判成未登记。目录在循环外取一次，逐分镜只查表。
     registered = {
-        field: normalize_asset_bucket(bucket)
-        for field, bucket in (("characters_in_segment", characters), ("scenes", scenes), ("props", props))
+        field: catalog.reference_names(asset_type)
+        for field, asset_type in (("characters_in_segment", "character"), ("scenes", "scene"), ("props", "prop"))
     }
     for index, segment in enumerate(segments):
         label = _narration_segment_label(segment, index)
@@ -1412,9 +1411,9 @@ def _collect_narration_violations(
         # 与 rv 侧 ``validate_unit_text`` 对 ``@[名称]`` 的登记校验同口径：只信登记过的资产名，
         # 不允许模型发明或拼错的名称被当真值写盘、被 prompt_authoring 视觉层只读消费。报告里回显模型写的
         # 原名而非归一形式——它要在自己的草稿里找到这个字符串才改得动。
-        for field, bucket in registered.items():
+        for field, names_of_type in registered.items():
             names = segment.get(field) or []
-            bad = sorted({str(name) for name in names if asset_name_comparison_key(str(name)) not in bucket})
+            bad = sorted({str(name) for name in names if asset_name_comparison_key(str(name)) not in names_of_type})
             if bad:
                 violations.append(
                     DraftViolation(
@@ -1683,9 +1682,7 @@ async def generate_narration_script_plan(
             raw_segments,
             episode=episode,
             supported_durations=supported_durations,
-            characters=characters,
-            scenes=scenes,
-            props=props,
+            catalog=build_reference_catalog(project),
             novel_text=novel_text,
             source_scope=_coverage_source_scope(request.source, episode=episode),
         )

@@ -15,7 +15,7 @@ from typing import Protocol, cast
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.asset_types import ASSET_SPECS, AssetSpec, asset_name_comparison_key, normalize_asset_bucket
+from lib.asset_types import AssetSpec, asset_name_comparison_key
 from lib.config.resolver import (
     VideoBucketCapabilityError,
     VideoCapability,
@@ -39,6 +39,7 @@ from lib.narration_delivery import (
     NarrationDelivery as NarrationDelivery,
 )
 from lib.path_safety import PathTraversalError, safe_join
+from lib.reference_catalog import build_reference_catalog
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.text_parser import derive_references_from_text
 from lib.schema_guards import is_int
@@ -427,13 +428,16 @@ def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> t
     ``reference_asset_missing``。
     """
 
+    catalog = build_reference_catalog(project)
     result: list[ResolvedReferenceAsset] = []
     for reference in unit_reference_declarations(project, unit):
-        spec = ASSET_SPECS[reference.type]
-        bucket = normalize_asset_bucket(project.get(spec.bucket_key))
-        entry = bucket.get(asset_name_comparison_key(reference.name))
+        catalog_entry = catalog.lookup(reference.type, reference.name)
+        if catalog_entry is None:
+            continue
+        entry = catalog_entry.asset
         if not isinstance(entry, dict):
             continue
+        spec = catalog_entry.spec
         sheet = _candidate_path(project_path, entry.get(spec.sheet_field))
         if sheet is not None:
             result.append(ResolvedReferenceAsset(path=sheet, reference=reference, kind="sheet"))

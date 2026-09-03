@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Container, Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
@@ -21,7 +21,6 @@ from pydantic import ValidationError
 from lib.asset_types import (
     ASSET_SPECS,
     asset_name_comparison_key,
-    normalize_asset_name,
     project_asset_name_conflicts,
 )
 from lib.episode_ledger import (
@@ -42,6 +41,7 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
 from lib.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
 from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
+from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     REFERENCE_UNIT_DURATION_RANGE,
@@ -625,21 +625,21 @@ class DataValidator:
                             )
                         )
 
-    def _unregistered_refs(self, refs: list[Any], valid_set: set[str]) -> list[Any]:
+    def _unregistered_refs(self, refs: list[Any], registered: Container[str]) -> list[Any]:
         """按 ``lib.asset_types`` 的比对坐标系（NFC）挑出未登记的资产引用。
 
         剧本里的名字与 project.json 的资产 key 可以是 NFC/NFD 中的任一形态（登记闸口落
         NFC，存量剧本与桶均不迁移），两侧归一后才判得准；下游各收集器同样归一后索引，
-        校验层与收集层因此对同一份数据给出一致结论。资产引用的判等一律经此，不在各字段
-        处按裸字符串做集合差。"""
-        normalized_valid = {normalize_asset_name(v) for v in valid_set}
-        return [r for r in refs if not isinstance(r, str) or asset_name_comparison_key(r) not in normalized_valid]
+        校验层与收集层因此对同一份数据给出一致结论。``registered`` 一律取自
+        :class:`lib.reference_catalog.ReferenceCatalog`，其名字已在该坐标系中，本函数只
+        归一剧本一侧。资产引用的判等一律经此，不在各字段处按裸字符串做集合差。"""
+        return [r for r in refs if not isinstance(r, str) or asset_name_comparison_key(r) not in registered]
 
     def _validate_segment_refs(
         self,
         prefix: str,
         refs: Any,
-        valid_set: set[str],
+        catalog: ReferenceCatalog,
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
         *,
@@ -653,7 +653,7 @@ class DataValidator:
         if not isinstance(refs, list):
             errors.append(_m("val_field_must_be_array", field=f"{prefix}: {field_label}"))
             return
-        invalid = self._unregistered_refs(refs, valid_set)
+        invalid = self._unregistered_refs(refs, catalog.reference_names(asset_type))
         if invalid:
             errors.append(
                 _m(
@@ -789,9 +789,7 @@ class DataValidator:
     def _validate_segments(
         self,
         segments: Any,
-        project_characters: set[str],
-        project_scenes: set[str],
-        project_props: set[str],
+        catalog: ReferenceCatalog,
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
         *,
@@ -832,7 +830,7 @@ class DataValidator:
             elif not isinstance(chars_in_segment, list):
                 errors.append(_m("val_field_must_be_array", field=f"{prefix}: characters_in_segment"))
             else:
-                invalid = self._unregistered_refs(chars_in_segment, project_characters)
+                invalid = self._unregistered_refs(chars_in_segment, catalog.reference_names("character"))
                 if invalid:
                     errors.append(
                         _m(
@@ -847,7 +845,7 @@ class DataValidator:
             self._validate_segment_refs(
                 prefix,
                 segment.get("scenes"),
-                project_scenes,
+                catalog,
                 errors,
                 warnings,
                 field_label="scenes",
@@ -856,7 +854,7 @@ class DataValidator:
             self._validate_segment_refs(
                 prefix,
                 segment.get("props"),
-                project_props,
+                catalog,
                 errors,
                 warnings,
                 field_label="props",
@@ -880,9 +878,7 @@ class DataValidator:
     def _validate_scenes(
         self,
         scenes: Any,
-        project_characters: set[str],
-        project_scenes: set[str],
-        project_props: set[str],
+        catalog: ReferenceCatalog,
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
         *,
@@ -926,7 +922,7 @@ class DataValidator:
             elif not isinstance(chars_in_scene, list):
                 errors.append(_m("val_field_must_be_array", field=f"{prefix}: characters_in_scene"))
             else:
-                invalid = self._unregistered_refs(chars_in_scene, project_characters)
+                invalid = self._unregistered_refs(chars_in_scene, catalog.reference_names("character"))
                 if invalid:
                     errors.append(
                         _m(
@@ -941,7 +937,7 @@ class DataValidator:
             self._validate_segment_refs(
                 prefix,
                 scene.get("scenes"),
-                project_scenes,
+                catalog,
                 errors,
                 warnings,
                 field_label="scenes",
@@ -950,7 +946,7 @@ class DataValidator:
             self._validate_segment_refs(
                 prefix,
                 scene.get("props"),
-                project_props,
+                catalog,
                 errors,
                 warnings,
                 field_label="props",
@@ -1068,10 +1064,7 @@ class DataValidator:
     def _validate_shots(
         self,
         shots: Any,
-        project_characters: set[str],
-        project_scenes: set[str],
-        project_props: set[str],
-        project_products: set[str],
+        catalog: ReferenceCatalog,
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
         *,
@@ -1119,7 +1112,7 @@ class DataValidator:
             self._validate_segment_refs(
                 prefix,
                 shot.get("characters_in_shot"),
-                project_characters,
+                catalog,
                 errors,
                 warnings,
                 field_label="characters_in_shot",
@@ -1128,7 +1121,7 @@ class DataValidator:
             self._validate_segment_refs(
                 prefix,
                 shot.get("scenes"),
-                project_scenes,
+                catalog,
                 errors,
                 warnings,
                 field_label="scenes",
@@ -1137,7 +1130,7 @@ class DataValidator:
             self._validate_segment_refs(
                 prefix,
                 shot.get("props"),
-                project_props,
+                catalog,
                 errors,
                 warnings,
                 field_label="props",
@@ -1146,7 +1139,7 @@ class DataValidator:
             self._validate_segment_refs(
                 prefix,
                 shot.get("products_in_shot"),
-                project_products,
+                catalog,
                 errors,
                 warnings,
                 field_label="products_in_shot",
@@ -1281,9 +1274,7 @@ class DataValidator:
         validate_artifacts: bool = True,
         validate_route: bool = True,
     ) -> None:
-        project_characters = set(project.get("characters", {}).keys())
-        project_scenes = set(project.get("scenes", {}).keys())
-        project_props = set(project.get("props", {}).keys())
+        catalog = build_reference_catalog(project)
 
         if not isinstance(episode.get("episode"), int):
             errors.append(_m("val_episode_missing_num"))
@@ -1349,22 +1340,16 @@ class DataValidator:
         elif kind == "segments":
             self._validate_segments(
                 episode.get("segments", []),
-                project_characters,
-                project_scenes,
-                project_props,
+                catalog,
                 errors,
                 warnings,
                 project_dir=artifact_root,
             )
         elif kind == "shots":
             shots = episode.get("shots", [])
-            raw_products = project.get("products")
             self._validate_shots(
                 shots,
-                project_characters,
-                project_scenes,
-                project_props,
-                set(raw_products.keys()) if isinstance(raw_products, dict) else set(),
+                catalog,
                 errors,
                 warnings,
                 project_dir=artifact_root,
@@ -1373,9 +1358,7 @@ class DataValidator:
         elif kind == "scenes":
             self._validate_scenes(
                 episode.get("scenes", []),
-                project_characters,
-                project_scenes,
-                project_props,
+                catalog,
                 errors,
                 warnings,
                 project_dir=artifact_root,
