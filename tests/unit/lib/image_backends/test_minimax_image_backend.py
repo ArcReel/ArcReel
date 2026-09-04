@@ -120,7 +120,9 @@ class TestTextToImage:
         assert result.provider == PROVIDER_MINIMAX
         assert result.model == "image-01"
         assert result.image_uri == "https://x/out.png"
-        download.assert_called_once()
+        assert result.image_path == tmp_path / "o.png"
+        # 响应里的 URL 与请求的 output_path 原样交给下载器
+        download.assert_called_once_with("https://x/out.png", tmp_path / "o.png")
 
     async def test_default_endpoint_is_domestic(self, tmp_path: Path):
         download = AsyncMock()
@@ -246,6 +248,7 @@ class TestSubjectReference:
                 )
             )
         assert ei.value.code == "image_reference_images_unreadable"
+        assert ei.value.params["model"] == "image-01"
         assert ei.value.params["names"] == "nope.png"
 
     async def test_empty_ref_path_treated_as_missing(self, tmp_path: Path):
@@ -273,6 +276,8 @@ class TestSubjectReference:
         ):
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[ref]))
         assert ei.value.code == "image_reference_images_unreadable"
+        assert ei.value.params["model"] == "image-01"
+        assert ei.value.params["names"] == "face.png"
 
 
 class TestResponseHandling:
@@ -325,7 +330,7 @@ class TestResponseHandling:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
-            with pytest.raises(RuntimeError):
+            with pytest.raises(RuntimeError, match="缺少 image_urls/image_base64"):
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
         download.assert_not_called()
 
