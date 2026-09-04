@@ -14,6 +14,23 @@ uv sync --group mutation
 
 ## 2. 跑一批
 
+### 2.1 选模块
+
+每批 8 个左右没跑过的模块，从第 8 节「已走查模块」表之外挑；每批开一张 issue 登记模块清单、判定结果与研究分支，合入后把模块补进该表。
+
+- **准入**：`server/routers` 整目录不选；其他目录按文件看，被装饰器跳过的行超过一半的文件不选。mutmut 3.7.0 对带装饰器的函数整棵子树不生成 mutant（仅单个 `@staticmethod` / `@classmethod` 豁免，带装饰器的类整体跳过，不可配置），路由函数与 `@tool` 闭包这类形态跑了也几乎不产出 mutant。跑一次普查列出不合准入的文件：
+
+  ```bash
+  uv run python scripts/decorator_census.py --per-file --min-skip 50
+  ```
+
+  不带参数则按目录汇总跳过行占比，用来看哪些目录整体值得挑。
+
+- **优先级**：按「没跑过、测试多、代码量大」挑，`server/services`、`lib/video_backends`、`lib/custom_provider`、`lib/reference_video` 优先。不找预测候选率或可处置率的规则：替身密度、弱断言用例占比都试过，对结果没有预测力。测试快慢也不是准入条件，超时与并行子进程的问题已在 `tests/conftest.py` 与 `tests/mutmut_plugin.py` 里消除，DB 档集成用例同样跑得干净。
+- **终点**：不设。每批跑完算可处置率（判为 ③ 值得保护的存活 mutant 数 / 存活 mutant 数），连续两批明显下降就停。
+
+### 2.2 跑一轮
+
 1. `git fetch` 后从 `origin/main` 切分支，并核对树里已含上一批合入的 PR。基线若从过期的本地 `main` 切出，上一批改造针对的 mutant 会在本批「复活」，白花一轮复核。
 2. 在 `[tool.mutmut]` 的 `only_mutate` 填本批模块。留空会变异 `source_paths` 全域，一轮数小时。
 3. 跑：
@@ -30,6 +47,8 @@ uv sync --group mutation
 **凡读源码文本而不是 import 模块的用例，都要在 `pytest_add_cli_args` 里按 nodeid `--deselect`，不要整文件 `--ignore`。** `mutants/` 里的源文件同时含所有 mutant 变体（每个字符串字面量都多出 `XXfooXX` / `FOO` 两份），任何扫 `lib/` `server/` 源码字面量再比对登记表的用例都会在 stats 阶段报「未登记」，整轮起不来。`--ignore` 的粒度是文件：同文件里的行为测试会一并消失，它们独家覆盖的 mutant 就记成存活（`test_task_failure_capability.py` 三个扫描用例之外的 100 余个用例就是这种情况）。已排除的是该文件的 `test_capability_codes_registered_no_drift` / `test_no_unscannable_capability_construction_sites` / `test_capability_construction_sites_supply_every_template_param`；新加排除时在 `[tool.mutmut]` 注释里写明它独家能杀什么、为何排除不漏杀（判据同 `test_skill_script_path_guards.py`：排除只多出假存活，不藏假杀死）。
 
 ## 3. 读结果
+
+**先核对每个模块的 mutant 数量级。** 每千行源码约 1000 个 mutant，明显偏少（比如不到十分之一）的模块不是测得好，而是它的函数没被任何用例关联：mutmut 会把这种模块静默归零，终端不报。把它从本批剔掉，不判定；`only_mutate` 里的模块名写错时同样是 0 个 mutant，先核对拼写。
 
 **从 `.meta` 文件算，不读终端汇总。** 每个源模块在 `mutants/` 里有一份 `<模块>.py.meta`，其中 `exit_code_by_key` 是「mutant 名 → pytest exit code」。mutmut 的终端汇总只枚举它认识的几个 exit code，段错误（−11）之类一个计数器都不落，#2257 就漏过两个。
 
@@ -90,6 +109,7 @@ uv run python scripts/mutmut_compare.py \
 
 一批模块的存活 mutant 常拆成几张改造票跨会话合入，它们共用第 2 节保存的同一份基线，各票分别验收：
 
+- **先走曳光弹**：每批改造先挑 2 条，单独走完「改断言 → 全套闸门 → 全量复跑 → 三层验收 → PR 合入」，通过后再批量改其余。曳光弹的两条与后面的批量票共用同一基线，批量票验收时它们落在第三层「基线存活且本次未改造」，被杀只登记。
 - `--reworked` 只填本票的清单；`--equivalent` 填整批的等价变异体清单（每票都要查它零被杀）。
 - 先合入的票已杀死的目标，在后面的票里落在第三层「基线存活且本次未改造」，被杀只登记，不算异常。
 - 每票切分支前 `git fetch` 并核对基线的模块在 `origin/main` 上自基线提交以来零变动：`git diff --stat <基线提交> origin/main -- <模块列表>` 为空。改造 PR 自身不会动这些模块（硬门），但 `main` 上别的提交会。
@@ -115,3 +135,39 @@ uv run python scripts/mutmut_compare.py \
 | 一轮墙钟（8 路并行） | 8 模块 616 个 mutant 约 10 分钟（不含全量 stats 约 5 分钟）；超时归零前是 17:47，墙钟随超时数走 |
 | 超时新进程复核 | 3 到 11 秒 / 个 |
 | 逐条判定 | 约 3 秒 / 个 |
+
+## 8. 已走查模块
+
+选下一批时从表外挑；已跑过的模块不重跑，第二遍没有增量（无覆盖与等价变异体会原样再报一遍）。判定表与基线快照都在各批的研究分支上，不进 `main`。
+
+| 模块 | 批次 | 票号 | 研究分支 |
+| --- | --- | --- | --- |
+| `lib/capability_buckets.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/content_digest.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/episode_paths.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/grid/splitter.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/speech_rate.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/text_metrics.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/custom_provider/discovery.py` | 首批 B 组 | #2257 | `research/mutmut-batch-1`（`baseline/B/`） |
+| `lib/text_backends/openai.py` | 首批 B 组 | #2257 | `research/mutmut-batch-1`（`baseline/B/`） |
+| `lib/text_backends/instructor_support.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/text_backends/ark.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/text_backends/gemini.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/text_backends/grok.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/video_backends/gemini.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/image_backends/dashscope.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/image_backends/minimax.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/custom_provider/backends.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `server/agent_runtime/sdk_tools/asset_inventory.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/enqueue_assets.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/entry.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/episode_planning.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/generation_batches.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/patch_episode_meta.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/patch_project.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/rename_asset.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/retry_project_migration.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/workflow_plan.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+| `server/agent_runtime/sdk_tools/workflow_status.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
+
+第二批池 2 的 11 个模块里 9 个产出 0 个 mutant（`@tool` 闭包整体被跳过）；这类文件按第 2.1 节的准入规则本就不该选，列在表里是为了不再重跑。
