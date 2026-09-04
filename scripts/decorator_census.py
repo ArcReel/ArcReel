@@ -5,7 +5,7 @@ mutmut 3.7.0 对带装饰器的 `FunctionDef` / `AsyncFunctionDef` 整棵子树�
 `@staticmethod` / `@classmethod` 豁免），带装饰器的 `ClassDef` 整体跳过，嵌套在被跳过节点里的函数一并跳过。
 这是 mutmut 的设计决定，不可配置；跳过行占比过半的文件在 mutmut 下几乎不产出 mutant，不值得进批次。
 
-函数行数按「装饰器首行到函数末行」计；嵌套函数只在外层未被跳过时单独计，外层跳过则整体已计入外层。
+函数行数按「装饰器首行到函数末行」的唯一行号计，嵌套函数的行只算一次；嵌套函数只在外层未被跳过时单独计数，外层跳过则整体已计入外层。
 按目录汇总时以 `<根>/<一级子目录>` 为键，直接放在根目录下的文件归 `<根>`。
 
 零第三方依赖。用法见 `--help`，选模块规则见 `docs/testing/mutmut-runbook.md`。
@@ -58,14 +58,17 @@ def is_skipped_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return True
 
 
-def function_span(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+def function_lines(node: ast.FunctionDef | ast.AsyncFunctionDef) -> range:
+    """函数占用的行号区间，从装饰器首行到函数末行。"""
     start = min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)])
     end = node.end_lineno if node.end_lineno is not None else node.lineno
-    return end - start + 1
+    return range(start, end + 1)
 
 
 def tally_tree(tree: ast.AST) -> Tally:
     tally = Tally()
+    all_lines: set[int] = set()
+    skipped_lines: set[int] = set()
 
     def visit(node: ast.AST, inherited_skip: bool) -> None:
         for child in ast.iter_child_nodes(node):
@@ -73,18 +76,20 @@ def tally_tree(tree: ast.AST) -> Tally:
                 visit(child, inherited_skip or bool(child.decorator_list))
             elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
                 skipped = inherited_skip or is_skipped_function(child)
-                span = function_span(child)
+                lines = function_lines(child)
                 tally.functions += 1
-                tally.lines += span
+                all_lines.update(lines)
                 if skipped:
                     tally.skipped_functions += 1
-                    tally.skipped_lines += span
+                    skipped_lines.update(lines)
                 else:
                     visit(child, False)
             else:
                 visit(child, inherited_skip)
 
     visit(tree, False)
+    tally.lines = len(all_lines)
+    tally.skipped_lines = len(skipped_lines)
     return tally
 
 
