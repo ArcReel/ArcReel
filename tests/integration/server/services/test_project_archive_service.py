@@ -420,6 +420,119 @@ class TestProjectArchiveService:
         assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
         assert not (pm.projects_root / "demo").exists()
 
+    @staticmethod
+    def _rewrite_archive(source_path: Path, target_path: Path, *, rewrite) -> None:
+        """按成员名逐个改写归档内容，其余成员原样复制。"""
+        with (
+            zipfile.ZipFile(source_path) as source,
+            zipfile.ZipFile(target_path, "w", compression=zipfile.ZIP_DEFLATED) as target,
+        ):
+            for member in source.infolist():
+                target.writestr(member, rewrite(member.filename, source.read(member)))
+
+    def test_import_reprojects_a_claim_whose_archived_digest_folded_line_endings(self, tmp_path):
+        """信封 content_digest 若来自文本模式读取（CRLF 折叠为 LF），折叠不可逆，绑不住冻结 claim，改按当前投影补录。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _write_text(project_dir / "source" / "episode_1.txt", "原文")
+        script_plan_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
+        _write_json(script_plan_path, {"segments": [{"segment_id": "E1S01", "text": "原文"}]})
+        _activate_artifact_manifest(project_dir)
+        key = ArtifactKey.episode_script(1)
+        before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before is not None
+        _write_json(script_plan_path, {"segments": [{"segment_id": "E1S01", "text": "改写后的原文"}]})
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scripts/episode_1.json").status
+            is ArtifactStatus.STALE
+        )
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+        legacy_path = tmp_path / "legacy.zip"
+        crlf_bytes: dict[str, bytes] = {}
+
+        def _write_script_with_crlf(name: str, content: bytes) -> bytes:
+            # 文本模式导出的形状：成员按平台换行落盘，信封摘要却按折叠后的 LF 字节计算。
+            if name != "demo/scripts/episode_1.json":
+                return content
+            crlf_bytes[name] = content.replace(b"\n", b"\r\n")
+            return crlf_bytes[name]
+
+        self._rewrite_archive(archive_path, legacy_path, rewrite=_write_script_with_crlf)
+        with zipfile.ZipFile(legacy_path) as archive:
+            envelope = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            archived_digest = envelope["artifact_manifest"]["entries"][key.encode()]["content_digest"]
+        member = crlf_bytes["demo/scripts/episode_1.json"]
+        assert archived_digest == hashlib.sha256(member.replace(b"\r\n", b"\n")).hexdigest()
+        assert archived_digest != hashlib.sha256(member).hexdigest()
+        shutil.rmtree(project_dir)
+
+        service.import_project_archive(legacy_path, uploaded_filename="legacy.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert (imported_dir / "scripts" / "episode_1.json").read_bytes() == member
+        imported = ProjectArtifactManifestAdapter(imported_dir).get_entry(key)
+        assert imported is not None
+        assert imported != before
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="scripts/episode_1.json").status
+            is ArtifactStatus.CURRENT
+        )
+
+    def test_import_reprojects_a_claim_whose_archived_digest_covers_only_the_bytes_before_0x1a(self, tmp_path):
+        """信封 content_digest 若止于首个 0x1A，只证明前缀：其后字节被换掉的 PNG 不得沿用冻结 claim，改按当前投影补录。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _write_bytes(project_dir / "characters" / "Hero.png", b"\x89PNG\r\n\x1a\nIHDR\r\n")
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before is not None
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["description"] = "Changed after generation"
+        _write_json(project_dir / "project.json", project)
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.STALE
+        )
+        swapped_bytes = b"\x89PNG\r\n\x1a\nIDAT-other-image\r\n"
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+        legacy_path = tmp_path / "legacy.zip"
+
+        def _truncate_digest_and_swap_image(name: str, content: bytes) -> bytes:
+            if name == "demo/characters/Hero.png":
+                return swapped_bytes
+            if name != f"demo/{ARCHIVE_MANIFEST_NAME}":
+                return content
+            envelope = json.loads(content)
+            entry = envelope["artifact_manifest"]["entries"][key.encode()]
+            entry["content_digest"] = hashlib.sha256(b"\x89PNG\n").hexdigest()
+            return json.dumps(envelope, ensure_ascii=False).encode("utf-8")
+
+        self._rewrite_archive(archive_path, legacy_path, rewrite=_truncate_digest_and_swap_image)
+        shutil.rmtree(project_dir)
+
+        service.import_project_archive(legacy_path, uploaded_filename="legacy.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert (imported_dir / "characters" / "Hero.png").read_bytes() == swapped_bytes
+        imported = ProjectArtifactManifestAdapter(imported_dir).get_entry(key)
+        assert imported is not None
+        assert imported != before
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.CURRENT
+        )
+
     def test_official_round_trip_preserves_a_stale_asset_claim(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)

@@ -16,7 +16,7 @@ import os
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from lib.artifact_currency import (
     ArtifactComparer,
@@ -75,6 +75,7 @@ from lib.artifact_registration import (
     register_task_current_resource_artifact,
     resolve_current_resource_artifact_basis,
 )
+from lib.content_digest import TextModeDigest
 from lib.formal_write import project_metadata_lock
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.project_schema import project_schema_is_current
@@ -157,9 +158,13 @@ def ensure_imported_artifact_target_state(
 
     Official exports carry the complete source Manifest in their visible archive
     envelope.  Its basis digests are immutable generation evidence and its content
-    digests bind those claims to the exported formal bytes.  Validate both against
-    the imported canonical target plan, then restore that whole snapshot in one
-    commit.  Legacy archives without the envelope retain the self-proving path.
+    digests bind those claims to the exported formal bytes.  Validate the claims
+    against the imported canonical target plan, then commit one snapshot in which
+    each claim is settled by its content evidence: an exact digest match restores
+    the frozen claim; a digest that only matches the text-mode view (CRLF folded,
+    cut at ``0x1A``) cannot prove the whole artifact, so that key is re-registered
+    from the current self-proving projection instead; any other digest rejects the
+    import.  Legacy archives without the envelope retain the self-proving path.
     """
 
     raw = (project_dir / "project.json").read_bytes()
@@ -182,17 +187,26 @@ def ensure_imported_artifact_target_state(
                 raise ValueError(f"archive Artifact Manifest contains unprovable formal claims: {sorted(invalid)}")
             _assert_preflight_unchanged(project_dir, plan)
             adapter = ProjectArtifactManifestAdapter(project_dir)
-            replaced = [
-                key.encode()
-                for key, entry in preserved_entries.items()
-                if read_artifact_content_digest(adapter, entry.artifact_path) != preserved_content_digests[key]
-            ]
+            restored: dict[ArtifactKey, ArtifactManifestEntry] = {}
+            replaced: list[str] = []
+            for key, entry in preserved_entries.items():
+                evidence = _archived_content_evidence(adapter, entry.artifact_path, preserved_content_digests[key])
+                if evidence == "exact":
+                    restored[key] = entry
+                elif evidence == "text_mode":
+                    # 文本模式摘要丢了字节，绑不住整份产物：这条 claim 按无信封归档的口径，
+                    # 用当前投影自证补录；投影不出条目的目标不登记。
+                    projected = plan.entries.get(key)
+                    if projected is not None:
+                        restored[key] = projected
+                else:
+                    replaced.append(key.encode())
             if replaced:
                 raise ValueError(
                     f"archive Artifact Manifest formal artifact content does not match its claims: {sorted(replaced)}"
                 )
             _assert_preflight_unchanged(project_dir, plan)
-            return adapter.replace_entries_atomically(preserved_entries)
+            return adapter.replace_entries_atomically(restored)
     return activate_artifact_target_state(project_dir, bump_schema=False)
 
 
@@ -212,6 +226,25 @@ def snapshot_preserved_artifact_manifest(
         }
         _assert_preflight_unchanged(project_dir, plan)
     return ArtifactManifestArchiveSnapshot(entries=rebased, content_digests=content_digests)
+
+
+def _archived_content_evidence(
+    adapter: ProjectArtifactManifestAdapter,
+    artifact_path: str,
+    archived_digest: str,
+) -> Literal["exact", "text_mode", "mismatch"]:
+    """Classify whether the archived content digest binds a claim to the imported bytes.
+
+    Archives exported through a text-mode descriptor hashed CRLF folded to LF and stopped at
+    the first ``0x1A``.  Both translations drop bytes, so such a digest cannot prove the whole
+    artifact; it only shows the bytes came through that export path.  Both digests come from
+    one streamed read so large formal media is never buffered.
+    """
+
+    text_mode = TextModeDigest()
+    if read_artifact_content_digest(adapter, artifact_path, chunk_observer=text_mode.update) == archived_digest:
+        return "exact"
+    return "text_mode" if text_mode.hexdigest() == archived_digest else "mismatch"
 
 
 def _plan_preserved_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:

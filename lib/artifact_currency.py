@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -26,10 +26,15 @@ from lib.project_migration_failure import ProjectMigrationError
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version, project_schema_is_current
 
 
-def read_artifact_content_digest(adapter: ProjectArtifactManifestAdapter, artifact_path: str) -> str:
+def read_artifact_content_digest(
+    adapter: ProjectArtifactManifestAdapter,
+    artifact_path: str,
+    *,
+    chunk_observer: Callable[[bytes], None] | None = None,
+) -> str:
     """Hash one safely admitted formal path without requiring an active Manifest."""
 
-    observation = adapter.inspect_artifact_content(artifact_path)
+    observation = adapter.inspect_artifact_content(artifact_path, chunk_observer=chunk_observer)
     if observation.blocker is not None:
         raise ArtifactManifestError(observation.blocker.detail)
     if not observation.present:

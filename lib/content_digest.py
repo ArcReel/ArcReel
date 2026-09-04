@@ -51,6 +51,38 @@ def digest_stream(
     return digest.hexdigest(), size, b"".join(chunks) if chunks is not None else None
 
 
+class TextModeDigest:
+    """流式复现 Windows C 运行时文本模式读同一份字节得到的 sha256：CRLF 折叠为 LF，读到首个 0x1A 为止。
+
+    按块喂入 ``update``，块边界上的 ``\\r`` 会留到下一块再决定是否折叠，结果与整体读取一致。
+    """
+
+    def __init__(self) -> None:
+        self._digest = hashlib.sha256()
+        self._pending_cr = False
+        self._truncated = False
+
+    def update(self, chunk: bytes) -> None:
+        if self._truncated or not chunk:
+            return
+        if self._pending_cr:
+            chunk = b"\r" + chunk
+            self._pending_cr = False
+        head, delimiter, _rest = chunk.partition(b"\x1a")
+        if delimiter:
+            self._truncated = True
+        elif head.endswith(b"\r"):
+            head = head[:-1]
+            self._pending_cr = True
+        self._digest.update(head.replace(b"\r\n", b"\n"))
+
+    def hexdigest(self) -> str:
+        digest = self._digest.copy()
+        if self._pending_cr:
+            digest.update(b"\r")
+        return digest.hexdigest()
+
+
 def sha256_file_with_size(path: Path) -> tuple[str, int]:
     """流式取文件摘要与字节数；路径不是常规文件时抛 ``FileNotFoundError``。"""
 

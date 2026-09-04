@@ -38,6 +38,17 @@ from lib.content_digest import (
 )
 from lib.schema_guards import is_str
 
+
+def _binary_open_flag() -> int:
+    """文件 fd 一律按二进制打开的标志位；POSIX 无此标志，取 0。
+
+    Windows 的 C 运行时缺省文本模式会折叠 CRLF、遇 0x1A 停读，经 fd 算出的内容摘要会与
+    按字节读同一文件的摘要不一致。
+    """
+
+    return getattr(os, "O_BINARY", 0)
+
+
 _KEY_PREFIX = "artifact-key-v1:"
 MANIFEST_FILENAME = ".arcreel_artifacts.json"
 LOCK_FILENAME = ".artifact_manifest.lock"
@@ -631,10 +642,19 @@ class ProjectArtifactManifestAdapter:
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
         return self._inspect_artifact(artifact_path, include_content_digest=False)
 
-    def inspect_artifact_content(self, artifact_path: str) -> ArtifactObservation:
-        """Inspect and hash one artifact through the same confined file handle."""
+    def inspect_artifact_content(
+        self,
+        artifact_path: str,
+        *,
+        chunk_observer: Callable[[bytes], None] | None = None,
+    ) -> ArtifactObservation:
+        """Inspect and hash one artifact through the same confined file handle.
 
-        return self._inspect_artifact(artifact_path, include_content_digest=True)
+        ``chunk_observer`` sees every chunk as it is hashed, so callers can derive
+        a second digest from the same read without buffering the artifact.
+        """
+
+        return self._inspect_artifact(artifact_path, include_content_digest=True, chunk_observer=chunk_observer)
 
     def inspect_artifact_snapshot(self, artifact_path: str) -> ArtifactObservation:
         """Read and hash one artifact from the same confined file descriptor."""
@@ -651,6 +671,7 @@ class ProjectArtifactManifestAdapter:
         *,
         include_content_digest: bool,
         include_content_bytes: bool = False,
+        chunk_observer: Callable[[bytes], None] | None = None,
     ) -> ArtifactObservation:
         try:
             normalized = normalize_artifact_path(artifact_path)
@@ -662,11 +683,13 @@ class ProjectArtifactManifestAdapter:
                 normalized,
                 include_content_digest=include_content_digest,
                 include_content_bytes=include_content_bytes,
+                chunk_observer=chunk_observer,
             )
         return self._inspect_artifact_portable(
             normalized,
             include_content_digest=include_content_digest,
             include_content_bytes=include_content_bytes,
+            chunk_observer=chunk_observer,
         )
 
     def _read_open_artifact(
@@ -677,15 +700,19 @@ class ProjectArtifactManifestAdapter:
         *,
         include_content_digest: bool,
         include_content_bytes: bool,
+        chunk_observer: Callable[[bytes], None] | None = None,
     ) -> tuple[str | None, bytes | None, ArtifactObservation | None]:
         if not include_content_digest:
             os.read(fd, 1)
             return None, None, None
 
-        hexdigest, _size, content = digest_stream(
-            lambda size: os.read(fd, size),
-            collect_content=include_content_bytes,
-        )
+        def _read(size: int) -> bytes:
+            chunk = os.read(fd, size)
+            if chunk_observer is not None and chunk:
+                chunk_observer(chunk)
+            return chunk
+
+        hexdigest, _size, content = digest_stream(_read, collect_content=include_content_bytes)
         completed_stat = os.fstat(fd)
         opened_version = (opened_stat.st_size, opened_stat.st_mtime_ns, opened_stat.st_ctime_ns)
         completed_version = (completed_stat.st_size, completed_stat.st_mtime_ns, completed_stat.st_ctime_ns)
@@ -707,10 +734,11 @@ class ProjectArtifactManifestAdapter:
         *,
         include_content_digest: bool = False,
         include_content_bytes: bool = False,
+        chunk_observer: Callable[[bytes], None] | None = None,
     ) -> ArtifactObservation:
         parts = PurePosixPath(normalized).parts
         directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | self._nofollow_flag
-        file_flags = os.O_RDONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0)
+        file_flags = os.O_RDONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0) | _binary_open_flag()
         with contextlib.ExitStack() as stack:
             if not self._nofollow_flag and _is_linkish(self._project_dir):
                 return self._artifact_blocked(
@@ -832,6 +860,7 @@ class ProjectArtifactManifestAdapter:
                     opened_file_stat,
                     include_content_digest=include_content_digest,
                     include_content_bytes=include_content_bytes,
+                    chunk_observer=chunk_observer,
                 )
                 if content_blocker is not None:
                     return content_blocker
@@ -866,6 +895,7 @@ class ProjectArtifactManifestAdapter:
         *,
         include_content_digest: bool = False,
         include_content_bytes: bool = False,
+        chunk_observer: Callable[[bytes], None] | None = None,
     ) -> ArtifactObservation:
         if _is_linkish(self._project_dir):
             return self._artifact_blocked(
@@ -879,6 +909,7 @@ class ProjectArtifactManifestAdapter:
                     normalized,
                     include_content_digest=include_content_digest,
                     include_content_bytes=include_content_bytes,
+                    chunk_observer=chunk_observer,
                 )
         except ArtifactManifestError as exc:
             return self._artifact_blocked(normalized, "artifact_unreadable", str(exc))
@@ -889,6 +920,7 @@ class ProjectArtifactManifestAdapter:
         *,
         include_content_digest: bool = False,
         include_content_bytes: bool = False,
+        chunk_observer: Callable[[bytes], None] | None = None,
     ) -> ArtifactObservation:
         path = self._project_dir.joinpath(*PurePosixPath(normalized).parts)
         cursor = self._project_dir
@@ -920,7 +952,7 @@ class ProjectArtifactManifestAdapter:
                 detail=f"artifact path is not a regular file: {normalized}",
             )
             return ArtifactObservation(artifact_path=normalized, present=False, blocker=blocker)
-        flags = os.O_RDONLY | self._nofollow_flag
+        flags = os.O_RDONLY | self._nofollow_flag | _binary_open_flag()
         try:
             fd = os.open(path, flags)
             try:
@@ -937,6 +969,7 @@ class ProjectArtifactManifestAdapter:
                     opened_stat,
                     include_content_digest=include_content_digest,
                     include_content_bytes=include_content_bytes,
+                    chunk_observer=chunk_observer,
                 )
                 if content_blocker is not None:
                     return content_blocker
@@ -1375,7 +1408,7 @@ class ProjectArtifactManifestAdapter:
             checked_manifest_identity = self._runtime_file_identity(path, "artifact manifest")
             if checked_manifest_identity is None:
                 return {}, None
-        flags = os.O_RDONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0)
+        flags = os.O_RDONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0) | _binary_open_flag()
         try:
             fd = os.open(MANIFEST_FILENAME, flags, dir_fd=root_fd) if root_fd is not None else os.open(path, flags)
         except FileNotFoundError:

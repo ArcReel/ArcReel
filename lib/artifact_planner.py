@@ -24,7 +24,12 @@ from lib.artifact_manifest import (
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_script_plan_basis
+from lib.artifact_provenance import (
+    build_ad_episode_script_basis,
+    build_episode_script_basis,
+    build_script_plan_basis,
+    decode_script_plan_source,
+)
 from lib.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
 from lib.asset_derivatives import (
     DERIVATIVE_SOURCE_KIND,
@@ -541,7 +546,7 @@ class TargetStatePlanner:
         if source_observation.blocker is None and source_observation.present:
             source_raw = self._read_dependency(source_rel, "episode source")
             try:
-                source_content = source_raw.decode("utf-8")
+                source_content = decode_script_plan_source(source_raw)
             except UnicodeDecodeError as exc:
                 raise ValueError(f"episode source {source_rel} is not UTF-8") from exc
             try:

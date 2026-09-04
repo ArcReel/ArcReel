@@ -15,6 +15,7 @@ from lib.episode_ledger import episode_outline_context
 from lib.episode_target_duration import project_episode_target_duration
 from lib.speech_rate import project_speech_rate_override, speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
+from lib.text_utils import normalize_newlines
 
 _STRUCTURED_CONTENT_MODES = frozenset({"narration", "drama"})
 _GENERATION_MODES = frozenset({"storyboard", "reference_video"})
@@ -23,6 +24,19 @@ _DEFAULT_SOURCE_LANGUAGE = "中文"
 _AD_OVERVIEW_FIELDS = ("synopsis", "genre", "theme")
 
 ScriptPlanPromptVariant = Literal["drama", "narration", "reference_video"]
+
+
+def decode_script_plan_source(raw: bytes) -> str:
+    """Decode episode source bytes into the text the script_plan tools consume.
+
+    Script_plan generation reads the source through ``Path.read_text`` and the
+    basis freezes that text, so canonical basis reconstruction must apply the
+    same universal-newline translation: ``\\r\\n`` and lone ``\\r`` both become
+    ``\\n``.  Otherwise a source written with platform line endings never
+    matches its registered basis and the script_plan reads stale forever.
+    """
+
+    return normalize_newlines(raw.decode("utf-8"))
 
 
 def build_script_plan_basis(

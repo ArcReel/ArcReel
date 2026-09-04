@@ -1,10 +1,10 @@
-"""strip_json_code_fences 单元测试：覆盖大小写变体、裸 JSON、仅开/闭栏、空白等输入。"""
+"""text_utils 单元测试：strip_json_code_fences 覆盖大小写变体、裸 JSON、仅开/闭栏、空白等输入；normalize_newlines 覆盖三种换行。"""
 
 import json
 
 import pytest
 
-from lib.text_utils import strip_json_code_fences
+from lib.text_utils import normalize_newlines, strip_json_code_fences
 
 
 @pytest.mark.parametrize(
@@ -50,3 +50,16 @@ def test_bare_json_untouched() -> None:
 def test_case_insensitive_opening_marker() -> None:
     """大小写变体开栏标记均剥离 7 字前缀，不把语言标注残留进正文。"""
     assert strip_json_code_fences('```JSON\n{"a": 1}\n```').startswith("{")
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("a\r\nb\r\n", "a\nb\n"),
+        ("a\rb\r", "a\nb\n"),
+        ("a\nb\n", "a\nb\n"),
+        ("a\r\n\rb", "a\n\nb"),
+    ],
+)
+def test_normalize_newlines_unifies_every_line_ending(raw: str, expected: str) -> None:
+    assert normalize_newlines(raw) == expected

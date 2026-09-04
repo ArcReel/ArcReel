@@ -11,6 +11,11 @@ _OPENING_FENCE = re.compile(r"^```[ \t]*(?:json)?[ \t]*\n?", re.IGNORECASE)
 _CLOSING_FENCE = re.compile(r"\n?```$")
 
 
+def normalize_newlines(text: str) -> str:
+    """把 ``\\r\\n`` 与孤立的 ``\\r`` 统一为 ``\\n``，与 ``Path.read_text`` 的通用换行翻译同口径。"""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def strip_json_code_fences(text: str) -> str:
     """剥离 LLM 输出最外层的 markdown 代码栅栏，返回可交给 json.loads 的纯文本。
 

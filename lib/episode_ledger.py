@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from lib.episode_paths import episode_drafts_dir, episode_script_relpath
 from lib.path_safety import safe_exists
+from lib.text_utils import normalize_newlines
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ def normalize_source_text(text: str) -> str:
     source_range / planning_cursor 的偏移量全部落在本函数输出的坐标系内，
     任何按偏移切片源文的消费方必须先对源文执行本函数。
     """
-    return unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace("\r", "\n")
+    return unicodedata.normalize("NFC", normalize_newlines(text))
 
 
 @dataclass
