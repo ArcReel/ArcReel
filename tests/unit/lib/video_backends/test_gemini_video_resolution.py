@@ -99,6 +99,7 @@ async def test_reference_images_reject_non_8s(tmp_path, seconds):
         await backend.generate(req)
 
     assert exc.value.code == "video_reference_images_duration_unsupported"
+    assert exc.value.params["model"] == "veo-3.1-lite-generate-preview"
     assert exc.value.params["duration"] == seconds
     assert exc.value.params["supported"] == "8s"
     backend._client.aio.models.generate_videos.assert_not_awaited()
@@ -119,6 +120,7 @@ async def test_high_resolution_rejects_non_8s(tmp_path, resolution, seconds):
         await backend.generate(req)
 
     assert exc.value.code == "video_resolution_duration_unsupported"
+    assert exc.value.params["model"] == "veo-3.1-lite-generate-preview"
     assert exc.value.params["resolution"] == resolution.upper()
     assert exc.value.params["duration"] == seconds
     backend._client.aio.models.generate_videos.assert_not_awaited()
@@ -213,6 +215,8 @@ async def test_reference_images_empty_declaration_means_unconstrained(tmp_path, 
     )
     with pytest.raises(RuntimeError):  # 走到 SDK 调用即说明未被约束拦截
         await backend.generate(req)
+
+    backend._client.aio.models.generate_videos.assert_awaited_once()
 
 
 @pytest.mark.parametrize("resolution", ["1080p", "4k"])

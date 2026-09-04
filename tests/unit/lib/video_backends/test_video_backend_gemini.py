@@ -350,14 +350,22 @@ class TestPrepareImageParam:
         img_file.write_bytes(b"\xff\xd8\xff\xe0")  # JPEG magic
 
         result = gemini_backend._prepare_image_param(img_file)
-        assert result is not None
+        # 文件原始字节与按 .jpg 后缀映射的 mime 交给 types.Image
+        assert result is gemini_backend._types.Image.return_value
+        gemini_backend._types.Image.assert_called_once_with(image_bytes=b"\xff\xd8\xff\xe0", mime_type="image/jpeg")
 
     def test_pil_image(self, gemini_backend):
+        from io import BytesIO
+
         from PIL import Image as PILImage
 
         img = PILImage.new("RGB", (10, 10), color="red")
         result = gemini_backend._prepare_image_param(img)
-        assert result is not None
+        # PIL 图像编码为 PNG 字节，mime 为 image/png
+        assert result is gemini_backend._types.Image.return_value
+        image_kwargs = gemini_backend._types.Image.call_args.kwargs
+        assert image_kwargs["mime_type"] == "image/png"
+        assert PILImage.open(BytesIO(image_kwargs["image_bytes"])).format == "PNG"
 
 
 # ── _download_video 测试 ──────────────────────────────────
@@ -444,11 +452,19 @@ class TestGeminiResumeVideo:
         from lib.video_backends.base import ResumeExpiredError
 
         gemini_backend._client.aio.operations.get = AsyncMock(side_effect=RuntimeError("operation not found"))
-        gemini_backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=MagicMock())
+        rebuilt_op = MagicMock()
+        gemini_backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=rebuilt_op)
 
         request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
-        with pytest.raises(ResumeExpiredError):
+        with pytest.raises(ResumeExpiredError) as ei:
             await gemini_backend.resume_video("op-not-found", request)
+
+        assert ei.value.provider == "gemini"
+        # 用 job_id 重建未完成的 operation，再以重建对象向远端查询
+        gemini_backend._types.GenerateVideosOperation.model_validate.assert_called_once_with(
+            {"name": "op-not-found", "done": False}
+        )
+        gemini_backend._client.aio.operations.get.assert_awaited_once_with(rebuilt_op)
 
 
 class TestIsGeminiNotFound:
