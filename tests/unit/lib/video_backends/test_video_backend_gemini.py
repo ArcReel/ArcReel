@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from lib.cost_calculator import cost_calculator
+from lib.gemini_shared import VERTEX_SCOPES
 from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -37,7 +39,7 @@ def mock_rate_limiter():
 @pytest.fixture
 def gemini_backend(mock_rate_limiter):
     """创建 aistudio 模式的 GeminiVideoBackend（mock genai SDK）。"""
-    with patch("google.genai"), patch("google.genai.types"):
+    with patch("google.genai") as genai_mock, patch("google.genai.types"):
         from lib.video_backends.gemini import GeminiVideoBackend
 
         b = GeminiVideoBackend(
@@ -45,6 +47,8 @@ def gemini_backend(mock_rate_limiter):
             api_key="test-key",
             rate_limiter=mock_rate_limiter,
         )
+        # 构造期 genai.Client 的调用记录留在这里，_client 随后换成裸替身供各用例自行布置
+        b._test_genai = genai_mock
         b._client = MagicMock()
         b._client.aio = MagicMock()
         yield b
@@ -56,11 +60,15 @@ def gemini_backend(mock_rate_limiter):
 class TestGeminiVideoBackendProperties:
     def test_name(self, gemini_backend):
         assert gemini_backend.name == "gemini-aistudio"
+        # aistudio 模式：api_key 原样交给 genai.Client，未给 base_url 则不带 http_options
+        gemini_backend._test_genai.Client.assert_called_once_with(api_key="test-key", http_options=None)
 
     def test_video_capabilities_aistudio(self, gemini_backend):
         caps = gemini_backend.video_capabilities
         assert caps.last_frame is True
         assert caps.max_reference_images == 3
+        # 未传 video_model 时落到默认视频型号
+        assert gemini_backend.model == cost_calculator.DEFAULT_VIDEO_MODEL
 
     def test_vertex_backend_constructs_from_credentials_file(self, mock_rate_limiter, tmp_path):
         # 准备 mock vertex 凭证文件
@@ -68,13 +76,13 @@ class TestGeminiVideoBackendProperties:
         creds_file.write_text('{"project_id": "test-project"}')
 
         with (
-            patch("google.genai"),
+            patch("google.genai") as genai_mock,
             patch("google.genai.types"),
             patch(
                 "lib.video_backends.gemini.resolve_vertex_credentials_path",
                 return_value=creds_file,
             ),
-            patch("google.oauth2.service_account.Credentials.from_service_account_file"),
+            patch("google.oauth2.service_account.Credentials.from_service_account_file") as from_service_account_file,
         ):
             from lib.video_backends.gemini import GeminiVideoBackend
 
@@ -83,6 +91,14 @@ class TestGeminiVideoBackendProperties:
                 rate_limiter=mock_rate_limiter,
             )
             assert b.name == "gemini-vertex"
+            # 凭证从服务账号文件按 Vertex scopes 加载；client 以 vertexai 模式 + 凭证文件里的 project_id 构造
+            from_service_account_file.assert_called_once_with(str(creds_file), scopes=VERTEX_SCOPES)
+            genai_mock.Client.assert_called_once_with(
+                vertexai=True,
+                project="test-project",
+                location="global",
+                credentials=from_service_account_file.return_value,
+            )
 
 
 # ── 生成测试 ──────────────────────────────────────────────
@@ -124,12 +140,19 @@ class TestGeminiVideoBackendGenerate:
 
         assert isinstance(result, VideoGenerationResult)
         assert result.provider == "gemini"
+        assert result.model == gemini_backend.model
         assert result.video_uri == "gs://bucket/video.mp4"
         assert result.video_path == output
         assert result.duration_seconds == 8
+        # aistudio 模式的成片恒带音轨
+        assert result.generate_audio is True
 
         # 确认调用了 API
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
+        # 成片经 files.download 取回后落盘到 output_path
+        video = mock_op.response.generated_videos[0].video
+        gemini_backend._client.files.download.assert_called_once_with(file=video)
+        video.save.assert_called_once_with(str(output))
 
     async def test_generate_image_to_video(self, gemini_backend, tmp_path):
         output = tmp_path / "out.mp4"
@@ -171,6 +194,8 @@ class TestGeminiVideoBackendGenerate:
             result = await gemini_backend.generate(request)
 
         assert result.provider == "gemini"
+        # 轮询以 submit 返回的 operation 对象查询状态
+        gemini_backend._client.aio.operations.get.assert_awaited_once_with(pending_op)
 
     async def test_generate_empty_result_raises(self, gemini_backend, tmp_path):
         """API 返回空结果时应抛出 RuntimeError。"""
@@ -208,7 +233,8 @@ class TestGeminiVideoBackendGenerate:
             output_path=output,
         )
 
-        with pytest.raises(RuntimeError, match="视频生成失败"):
+        # 错误消息携带 operation.error 的内容，与空结果分支的文案区分开
+        with pytest.raises(RuntimeError, match="视频生成失败: Something went wrong"):
             await gemini_backend.generate(request)
 
     async def test_rate_limiter_called(self, gemini_backend, mock_rate_limiter, tmp_path):
