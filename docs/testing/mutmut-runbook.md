@@ -18,7 +18,7 @@ uv sync --group mutation
 
 每批 8 个左右没跑过的模块，从第 8 节「已走查模块」表之外挑；每批开一张 issue 登记模块清单、判定结果与研究分支，合入后把模块补进该表。
 
-- **准入**：`server/routers` 整目录不选；其他目录按文件看，被装饰器跳过的行超过一半的文件不选。mutmut 3.7.0 对带装饰器的函数整棵子树不生成 mutant（仅单个 `@staticmethod` / `@classmethod` 豁免，带装饰器的类整体跳过，不可配置），路由函数与 `@tool` 闭包这类形态跑了也几乎不产出 mutant。跑一次普查列出不合准入的文件：
+- **准入**：`server/routers` 整目录不选；其他目录按文件看，被装饰器跳过的行占比不低于 50% 的文件不选。mutmut 3.7.0 对带装饰器的函数整棵子树不生成 mutant（仅单个 `@staticmethod` / `@classmethod` 豁免，带装饰器的类整体跳过，不可配置），路由函数与 `@tool` 闭包这类形态跑了也几乎不产出 mutant。跑一次普查列出不合准入的文件：
 
   ```bash
   uv run python scripts/decorator_census.py --per-file --min-skip 50

@@ -80,7 +80,8 @@ def test_census_groups_by_first_level_subdirectory_and_skips_unparsable_files(tm
 
     per_dir, per_file = census(root)
 
-    assert set(per_file) == {(root / "top.py").as_posix(), (root / "sub" / "a.py").as_posix()}
+    assert list(per_file) == [(root / "sub" / "a.py").as_posix(), (root / "top.py").as_posix()]
+    assert list(per_dir) == [root.as_posix(), (root / "sub").as_posix()]
     assert per_dir == {
         root.as_posix(): Tally(functions=1, skipped_functions=0, lines=2, skipped_lines=0),
         (root / "sub").as_posix(): Tally(functions=1, skipped_functions=1, lines=3, skipped_lines=3),

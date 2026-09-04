@@ -114,7 +114,7 @@ def census(root: Path) -> tuple[dict[str, Tally], dict[str, Tally]]:
             continue
         per_file[path.as_posix()] = tally
         per_dir.setdefault(group_key(root, path), Tally()).add(tally)
-    return per_dir, per_file
+    return dict(sorted(per_dir.items())), per_file
 
 
 def render_rows(rows: Iterable[tuple[str, Tally]], label: str) -> list[str]:
