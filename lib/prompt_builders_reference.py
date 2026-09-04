@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from lib.prompt_builders_script import _neutralize_tags
 from lib.prompt_rules.asset_appearance import asset_reference_names, iter_asset_appearances
 from lib.prompt_rules.episode_target_duration import render_episode_target_duration_rule
 from lib.reference_video.writing_syntax import writing_syntax_spec
@@ -23,9 +24,12 @@ from lib.text_metrics import reading_unit_noun
 def _format_asset_names(assets: dict | None, asset_type: str) -> str:
     """资产块：引用名 + 外观描述。角色的 ``本体名/衍生名`` 与其合成外观由
     :func:`lib.prompt_rules.asset_appearance.iter_asset_appearances` 一并展开。
+
+    名称与描述都是 project.json 动态文本，过 ``_neutralize_tags`` 中和尖括号，避免描述里的
+    标签序列打散 ``<characters>`` 等块结构；多行描述续行缩进，与 script builder 同口径。
     """
     lines = [
-        f"- {name}: " + appearance.replace("\n", "\n  ")
+        f"- {_neutralize_tags(name)}: " + _neutralize_tags(appearance).replace("\n", "\n  ")
         for name, appearance in iter_asset_appearances(asset_type, assets)
     ]
     if not lines:

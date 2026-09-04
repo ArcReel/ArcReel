@@ -252,15 +252,13 @@ async def delete_asset(asset_id: str, _t: Translator):
         if a:
             # 衍生行由 repo.delete 一并删掉，但它们各自的图片文件只有这里知道路径；
             # 删本体前先取出来，否则那些文件再无入口、永久留在库存储里。
-            derivative_images = [d.image_path for d in await repo.list_derivatives(asset_id) if d.image_path]
-            if a.image_path:
-                _delete_global_asset_file(a.image_path)
-            if a.audio_path:
-                _delete_global_asset_file(a.audio_path)
-            for image_path in derivative_images:
-                _delete_global_asset_file(image_path)
+            stored_files = [d.image_path for d in await repo.list_derivatives(asset_id) if d.image_path]
+            stored_files.extend(path for path in (a.image_path, a.audio_path) if path)
             await repo.delete(asset_id)
             await s.commit()
+            # 文件删除放在提交之后：它不可回滚，提前删会在事务失败时留下指向缺失文件的行。
+            for path in stored_files:
+                _delete_global_asset_file(path)
     return
 
 

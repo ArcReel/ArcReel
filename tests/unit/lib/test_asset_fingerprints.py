@@ -127,3 +127,13 @@ class TestComputeAssetFingerprints:
         (derivatives / "Hero").symlink_to(outside, target_is_directory=True)
 
         assert compute_asset_fingerprints(tmp_path) == {}
+
+    def test_ignores_a_symlinked_media_subdir_itself(self, tmp_path):
+        """媒体子目录本身是软链时同样不下探，与其内部各层同口径。"""
+        outside = tmp_path / "outside"
+        (outside / "refs").mkdir(parents=True)
+        (outside / "Hero.png").write_bytes(b"elsewhere")
+        (outside / "refs" / "pose.png").write_bytes(b"elsewhere")
+        (tmp_path / "characters").symlink_to(outside, target_is_directory=True)
+
+        assert compute_asset_fingerprints(tmp_path) == {}
