@@ -1,0 +1,62 @@
+# ArcReel 生产部署 Compose：MySQL 8.0 版
+# 完整部署、备份、恢复、迁移（SQLite / PG → MySQL）指南：
+#   website/docs/ops/deployment.md （第 3 章 MySQL 生产部署、第 7 章备份恢复）
+#   website/docs/ops/migrate-to-mysql.md
+services:
+  mysql:
+    image: mysql:8.0
+    # 8.0+ 默认认证插件即 caching_sha2_password（aiomysql 搭配 cryptography 支持），
+    # 无需显式指定；--default-authentication-plugin 在 8.4 已移除，写上会让容器起不来。
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: arcreel
+      MYSQL_USER: arcreel
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在 .env 中设置 MYSQL_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./mysqldata:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "if mysqladmin ping --silent --socket=/var/run/mysqld/mysqld.sock 2>/dev/null; then exit 0; fi; if [ -e /var/run/mysqld/mysqld.sock ]; then timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/3306 && exec 3>&- && exec 3<&-'; [ $? -eq 0 ] && exit 0; fi; exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  arcreel:
+    image: ghcr.io/arcreel/arcreel:v0.26.0
+    ports:
+      - "1241:1241"
+    env_file: .env
+    environment:
+      # DATABASE_URL 从环境变量读取，避免密码硬编码在 compose 文件中
+      DATABASE_URL: mysql+aiomysql://arcreel:${MYSQL_PASSWORD}@mysql:3306/arcreel?charset=utf8mb4
+      TZ: ${TZ:-Asia/Shanghai}
+    # Agent Bash 沙箱 (bwrap) 需要非特权 user namespace 支持。
+    # 生产环境建议：
+    # 1) 禁用 Docker 默认的 seccomp/apparmor profile，允许 bwrap 使用 --unshare-* 标志
+    # 2) 保留 NET_ADMIN cap，使 bwrap 能在嵌套 netns 内配置 loopback
+    # 注意：seccomp:unconfined 会禁用所有系统调用过滤，仅在可信环境中使用
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./.env:/app/.env
+      - ./projects:/app/projects
+      - ./logs:/app/logs
+      - ./vertex_keys:/app/vertex_keys
+      - ./claude_data:/root/.claude
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1241/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
