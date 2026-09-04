@@ -26,6 +26,8 @@ class TestProperties:
     def test_name(self, mock_genai):
         b = GeminiTextBackend(api_key="k")
         assert b.name == "gemini"
+        # AI Studio 模式：构造时把 api_key 原样交给 genai.Client，未给 base_url 则不带 http_options
+        mock_genai.Client.assert_called_once_with(api_key="k", http_options=None)
 
     def test_default_model(self, mock_genai):
         b = GeminiTextBackend(api_key="k")
@@ -336,6 +338,8 @@ class TestStructuredFallback:
         assert '"genre"' in fb_prompt
         # 校验通过后返回规范化 JSON，下游 model_validate_json 必定成功
         assert _OverviewModel.model_validate_json(result.text) == _OverviewModel(genre="都市", theme="逆袭")
+        assert result.provider == "gemini"
+        assert result.model == backend.model
         assert result.input_tokens == 50
         assert result.output_tokens == 25
 
@@ -348,6 +352,9 @@ class TestStructuredFallback:
         result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
 
         assert _OverviewModel.model_validate_json(result.text).genre == "都市"
+        # 原生与降级两次调用都没有用量时，token 保持 None，不塌成 0
+        assert result.input_tokens is None
+        assert result.output_tokens is None
 
     async def test_fallback_retries_with_error_feedback(self, backend):
         """降级首次输出违反 schema 时带错误反馈重试一次。"""
@@ -380,6 +387,8 @@ class TestStructuredFallback:
         assert gc.call_count == 3
         assert exc_info.value.provider == "gemini"
         assert exc_info.value.model == "gemini-3-flash-preview"
+        # reason 写明降级尝试次数与最后一次校验失败的原因
+        assert exc_info.value.reason == "prompt 注入降级 2 次尝试后输出仍不合规（1 处字段不符（<root>））"
 
     async def test_fallback_logs_raw_model_output(self, backend, caplog):
         """降级触发点以 warning 记录模型原始输出，供事后诊断模型实际吐了什么。"""
