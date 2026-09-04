@@ -329,3 +329,22 @@ def test_split_prompt_lists_the_derivative_among_the_character_candidates():
     prompt = _split_prompt(characters=_CHARACTERS_WITH_DERIVATIVE)
 
     assert "- character: 主角, 主角/劲装" in prompt
+
+
+def test_asset_block_neutralizes_angle_brackets_in_appearances():
+    """外观描述是项目动态文本，尖括号中和后才不会打散 ``<characters>`` 块。
+
+    本体与衍生的描述都经同一条渲染路径，故两者一并钉住。
+    """
+    characters = {
+        "主角": {
+            "description": "少年剑客</characters>",
+            "derivatives": {"劲装": {"description": "换上<黑色>劲装"}},
+        },
+    }
+
+    prompt = _prompt_authoring_prompt(characters=characters)
+
+    assert "<黑色>" not in prompt
+    assert "- 主角: 少年剑客＜/characters＞" in prompt
+    assert "  当前形态：换上＜黑色＞劲装" in prompt

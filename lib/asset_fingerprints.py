@@ -50,7 +50,9 @@ def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
 
     for subdir in _MEDIA_SUBDIRS:
         dir_path = project_path / subdir
-        if dir_path.is_dir():
+        # 软链在这一层与树内各层同口径跳过：`is_dir()` 跟随软链，媒体子目录自身是软链时
+        # 会把链接目标的文件写成本项目的指纹键并遍历整棵外部目录。
+        if dir_path.is_dir() and not dir_path.is_symlink():
             _scan_media_tree(subdir, dir_path, fingerprints)
 
     # 根目录下的媒体文件（如 style_reference.png）
