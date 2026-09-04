@@ -41,6 +41,8 @@ async def test_sdk_batch_tools_are_project_bound_and_use_the_durable_queue(db_fa
     ctx = ToolContext("demo", projects.projects_root, projects, queue=queue)
 
     get_tool = get_generation_batch_tool(ctx)
+    assert get_tool.name == "get_generation_batch"
+    assert get_tool.description
     assert isinstance(get_tool.input_schema, dict)
     assert "project" not in get_tool.input_schema["properties"]
     read = await get_tool.handler({"batch_id": batch_id})
@@ -58,7 +60,10 @@ async def test_sdk_batch_tools_are_project_bound_and_use_the_durable_queue(db_fa
     ]
     assert payload["done"] is False
 
-    cancelled = await cancel_generation_batch_tool(ctx).handler({"batch_id": batch_id})
+    cancel_tool = cancel_generation_batch_tool(ctx)
+    assert cancel_tool.name == "cancel_generation_batch"
+    assert cancel_tool.description
+    cancelled = await cancel_tool.handler({"batch_id": batch_id})
     cancellation = json.loads(cancelled["content"][0]["text"])["generation_batch_cancellation"]
     assert cancellation == {
         "cancelled": [enqueued["task_id"]],
