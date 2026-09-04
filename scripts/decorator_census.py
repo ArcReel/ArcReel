@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import ast
 import sys
+import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -122,10 +123,29 @@ def census(root: Path) -> tuple[dict[str, Tally], dict[str, Tally]]:
     return dict(sorted(per_dir.items())), per_file
 
 
+def display_width(text: str) -> int:
+    """终端显示宽度：东亚宽字符（含中文）占 2 列，其余占 1 列。"""
+    return sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char in text)
+
+
+def pad(text: str, width: int, *, align_right: bool = False) -> str:
+    """按显示宽度填充空格，让含中文的表头与合计行和纯 ASCII 路径的行对齐。"""
+    fill = " " * max(width - display_width(text), 0)
+    return fill + text if align_right else text + fill
+
+
 def render_rows(rows: Iterable[tuple[str, Tally]], label: str) -> list[str]:
-    lines = [f"{label:60} {'函数':>6} {'跳过':>6} {'跳过%':>7} {'函数行':>8} {'跳过行':>8} {'跳过行%':>8}"]
+    header_cells = [
+        pad("函数", 6, align_right=True),
+        pad("跳过", 6, align_right=True),
+        pad("跳过%", 7, align_right=True),
+        pad("函数行", 8, align_right=True),
+        pad("跳过行", 8, align_right=True),
+        pad("跳过行%", 8, align_right=True),
+    ]
+    lines = [" ".join([pad(label, 60), *header_cells])]
     lines.extend(
-        f"{name:60} {t.functions:6} {t.skipped_functions:6} {t.skipped_function_ratio * 100:6.1f}% "
+        f"{pad(name, 60)} {t.functions:6} {t.skipped_functions:6} {t.skipped_function_ratio * 100:6.1f}% "
         f"{t.lines:8} {t.skipped_lines:8} {t.skipped_line_ratio * 100:7.1f}%"
         for name, t in rows
     )

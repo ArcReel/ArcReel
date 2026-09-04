@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.decorator_census import Tally, census, is_skipped_function, main, tally_tree
+from scripts.decorator_census import Tally, census, display_width, is_skipped_function, main, pad, tally_tree
 
 _SOURCE = textwrap.dedent(
     """\
@@ -108,18 +108,31 @@ def test_main_per_file_lists_only_files_at_or_above_min_skip_sorted_by_ratio(
     assert " 60.0%" in out
 
 
+def test_pad_aligns_by_terminal_display_width_so_cjk_labels_line_up_with_ascii_paths() -> None:
+    assert display_width("合计") == 4
+    assert display_width("lib/a.py") == 8
+    assert display_width("café") == 4
+
+    assert pad("合计", 8) == "合计    "
+    assert pad("跳过%", 7, align_right=True) == "  跳过%"
+    assert pad("lib/a.py", 8) == "lib/a.py"
+    assert pad("超出宽度的标签", 4) == "超出宽度的标签"
+
+
 def test_main_prints_directory_summary_with_total_and_rejects_non_directory(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    root = tmp_path / "pkg"
-    (root / "sub").mkdir(parents=True)
-    (root / "sub" / "a.py").write_text("@d\ndef g():\n    return 1\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    Path("pkg/sub").mkdir(parents=True)
+    Path("pkg/sub/a.py").write_text("@d\ndef g():\n    return 1\n", encoding="utf-8")
 
-    assert main([str(root)]) == 0
+    assert main(["pkg"]) == 0
     out = capsys.readouterr().out
-    assert (root / "sub").as_posix() in out
-    assert "合计" in out
+    assert "pkg/sub" in out
     assert "100.0%" in out
+    table = [line for line in out.splitlines() if line.startswith(("目录", "pkg", "合计"))]
+    assert len(table) == 3
+    assert [display_width(line) for line in table] == [display_width(table[0])] * 3
 
-    assert main([str(tmp_path / "missing")]) == 2
+    assert main(["missing"]) == 2
     assert "不是目录" in capsys.readouterr().err
