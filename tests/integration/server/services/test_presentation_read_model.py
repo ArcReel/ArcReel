@@ -759,3 +759,37 @@ async def test_current_presentation_reselects_when_version_changes_during_media_
     assert result.presentation_artifact_path is not None
     persisted = json.loads((project_path / result.presentation_artifact_path).read_text(encoding="utf-8"))
     assert persisted["video"]["version"] == 2
+
+
+async def test_legacy_video_materializes_after_the_provenance_backfill_migration(tmp_path: Path) -> None:
+    from lib.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
+    from tests.legacy_project_shapes import advance_project_schema, write_legacy_storyboard_project
+
+    projects_root = tmp_path / "projects"
+    project_path = write_legacy_storyboard_project(projects_root, "legacy", unit_ids=("E1S1",))
+    advance_project_schema(project_path, to_version=12)
+    settings = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
+
+    async def probe(_path: Path) -> float | None:
+        return 4.0
+
+    read_model = PresentationReadModelService(
+        ProjectManager(projects_root),
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    with pytest.raises(PresentationUnavailableError, match="typed presentation provenance"):
+        await read_model.materialize_unit(
+            project_name="legacy", resource_type="videos", resource_id="E1S1", variant="post_production"
+        )
+
+    migrate_v12_to_v13(project_path)
+
+    presentation = await read_model.materialize_unit(
+        project_name="legacy", resource_type="videos", resource_id="E1S1", variant="post_production"
+    )
+    assert (presentation.episode, presentation.resource_type, presentation.script_file) == (
+        1,
+        "videos",
+        "episode_1.json",
+    )

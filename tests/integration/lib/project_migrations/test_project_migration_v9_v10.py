@@ -107,7 +107,7 @@ def test_every_script_plan_variant_keeps_its_confirmation_across_the_rename(
     project = _read_json(project_dir / "project.json")
     project["episodes"][0]["step1_review"] = {"fingerprint": fingerprint, "confirmed_at": "2026-01-01T00:00:00Z"}
     _write_json(project_dir / "project.json", project)
-    _write_json(project_dir / "scripts" / "episode_1.json", {"metadata": {"step1_revision": fingerprint}})
+    _write_json(project_dir / "scripts" / "episode_1.json", {"episode": 1, "metadata": {"step1_revision": fingerprint}})
 
     assert migrate_project_dir(project_dir) is True
 

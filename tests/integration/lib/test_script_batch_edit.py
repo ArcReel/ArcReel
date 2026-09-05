@@ -55,14 +55,16 @@ def editor(tmp_path: Path) -> tuple[ProjectManager, ScriptBatchEditor, Path]:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo", content_mode="narration")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-    pm.save_script("demo", _script(), "episode_1.json")
     project_dir = pm.get_project_path("demo")
-    source = project_dir / "source" / "episode_1.txt"
-    source.parent.mkdir(parents=True, exist_ok=True)
-    source.write_text("风吹过旷野。", encoding="utf-8")
+    # 先落 script_plan、后落源文：保存剧本时计划在场但尚无源文，剧本不被登记，
+    # 之后的编辑才是首次登记，注入的清单写失败才会真正被触发。
     script_plan = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
     script_plan.parent.mkdir(parents=True, exist_ok=True)
     script_plan.write_text(json.dumps({"segments": [{"segment_id": "E1S01"}]}), encoding="utf-8")
+    pm.save_script("demo", _script(), "episode_1.json")
+    source = project_dir / "source" / "episode_1.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("风吹过旷野。", encoding="utf-8")
     return pm, ScriptBatchEditor(pm), project_dir
 
 

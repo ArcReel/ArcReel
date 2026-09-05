@@ -45,6 +45,7 @@ from lib.project_migration_failure import (
     MigrationFailureRecord,
     load_migration_verdict,
 )
+from lib.project_migration_report import MigrationReport, load_migration_report
 from lib.script_models import get_generated_assets, script_duration_total
 from lib.script_plan_entries import (
     ScriptPlanEntryError,
@@ -181,6 +182,8 @@ class WorkflowStatus(BaseModel):
     gates: dict[str, dict[str, Any]]
     artifacts: dict[str, dict[str, Any]]
     next_action: WorkflowNextAction
+    migration_report: MigrationReport | None = None
+    """上一次跑完的项目迁移登记与跳过了什么；只作说明，不影响状态与阻断。"""
 
 
 #: 11 值制作状态在广度视图（项目列表、卡片、全局头）上的归并显示。
@@ -955,7 +958,9 @@ class WorkflowStateService:
         # 登记落盘留给真正开始消费这些集的入口。
         project = register_orphan_episode_entries(project_path, project)
         shared = self._shared_facts(project_path, project)
-        return self._get_status(project_name, project, project_path, episode, shared)
+        status = self._get_status(project_name, project, project_path, episode, shared)
+        status.migration_report = load_migration_report(project_path)
+        return status
 
     def get_project_summary(
         self,
@@ -1541,7 +1546,10 @@ class WorkflowStateService:
                         state = "SCRIPT_PLAN_CONTENT"
                         next_action = _action(WorkflowActionType.NONE, "formal script_plan currency is blocked")
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
-                    if artifacts["script_plan"]["state"] == "missing":
+                    planless_script = artifacts["script_plan"][
+                        "state"
+                    ] == "missing" and self._script_usable_without_plan(currency, target, selected)
+                    if artifacts["script_plan"]["state"] == "missing" and not planless_script:
                         state = "SCRIPT_PLAN_CONTENT"
                         next_action = _action(
                             WorkflowActionType.PREPARE_SCRIPT_PLAN,
@@ -1549,26 +1557,29 @@ class WorkflowStateService:
                             args={"episode": target.episode, "preprocessor": preprocessor},
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
-                    review = script_review.review_status(project_path, project, target.episode)
-                    if (
-                        selected is not None
-                        and selected[1].get("ledger_status") == "stale"
-                        and script_review.stored_review(project, target.episode).get("fingerprint") is None
-                    ):
-                        review = "pending_review"
-                    gates["script_plan_review"] = {
-                        "state": "confirmed" if review == "confirmed" else "pending",
-                        "revision": revision,
-                    }
-                    if review != "confirmed":
-                        state = "SCRIPT_PLAN_REVIEW"
-                        next_action = _action(
-                            WorkflowActionType.CONFIRM_SCRIPT_PLAN,
-                            "formal script_plan awaits content review",
-                            args={"episode": target.episode},
-                            requires_confirmation=True,
-                        )
-                        return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
+                    if not planless_script:
+                        review = script_review.review_status(project_path, project, target.episode)
+                        if (
+                            selected is not None
+                            and selected[1].get("ledger_status") == "stale"
+                            and script_review.stored_review(project, target.episode).get("fingerprint") is None
+                        ):
+                            review = "pending_review"
+                        gates["script_plan_review"] = {
+                            "state": "confirmed" if review == "confirmed" else "pending",
+                            "revision": revision,
+                        }
+                        if review != "confirmed":
+                            state = "SCRIPT_PLAN_REVIEW"
+                            next_action = _action(
+                                WorkflowActionType.CONFIRM_SCRIPT_PLAN,
+                                "formal script_plan awaits content review",
+                                args={"episode": target.episode},
+                                requires_confirmation=True,
+                            )
+                            return self._response(
+                                project, source, target, state, blockers, gates, artifacts, next_action
+                            )
 
                 script_artifact, items, kind, script = self._load_script_artifacts(
                     project_path, project_name, project, target, blockers, currency
@@ -1745,6 +1756,29 @@ class WorkflowStateService:
                             next_action = _action(WorkflowActionType.EXPORT, "all required artifacts are usable")
 
         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
+
+    @staticmethod
+    def _script_usable_without_plan(
+        currency: ArtifactComparer | None,
+        target: WorkflowTarget,
+        selected: tuple[int, dict[str, Any]] | None,
+    ) -> bool:
+        """一集没有正式 script_plan、但正式剧本已按无计划依据登记且可用时，剧本门代替计划门。
+
+        早于 script_plan 门写出的剧本没有计划文件；迁移把它按无计划依据登记进清单。这样的集
+        不再被打回「准备 script_plan」，直接按剧本与下游产物判状态；一旦用户重跑规划产生
+        正式计划，剧本条目会因依据变化判 stale，走常规路线。
+        """
+
+        if currency is None or selected is None:
+            return False
+        script_file = selected[1].get("script_file")
+        if not isinstance(script_file, str) or not script_file:
+            return False
+        state = WorkflowStateService._artifact_state(
+            currency, ArtifactKey.episode_script(target.episode), script_file, []
+        )
+        return state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}
 
     @staticmethod
     def _response(

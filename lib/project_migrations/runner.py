@@ -12,7 +12,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib.artifact_activation import ARTIFACT_MANIFEST_SCHEMA_VERSION
 from lib.episode_ledger import parse_positive_episode_num
 from lib.episode_paths import episode_drafts_dir
 from lib.path_safety import try_safe_join
@@ -21,6 +20,12 @@ from lib.project_migration_failure import (
     ProjectMigrationError,
     clear_migration_failure,
     record_migration_failure,
+)
+from lib.project_migration_report import ArtifactBackfillOutcome, build_migration_report, write_migration_report
+from lib.project_migrations.backups import (
+    ensure_versioned_backup,
+    versioned_backup_candidates,
+    versioned_backup_name,
 )
 from lib.project_migrations.staged_swap import (
     cleanup_completed_swap_dirs,
@@ -39,41 +44,24 @@ from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from lib.project_migrations.v9_to_v10_script_plan_naming import DRAFT_FILE_RENAMES, migrate_v9_to_v10
 from lib.project_migrations.v10_to_v11_character_voice_binding import migrate_v10_to_v11
 from lib.project_migrations.v11_to_v12_character_derivatives import migrate_v11_to_v12
+from lib.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
 
 CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 
-#: 清单激活的输入备份命名所用的版本号（``*.bak.v7-*``）：它是那一步的**起点**版本。
-_ACTIVATION_BACKUP_VERSION = ARTIFACT_MANIFEST_SCHEMA_VERSION - 1
-
 #: 迁移可能在草稿目录里落备份的全部文件名。备份按落盘那一刻的文件名生成，而这些草稿在
 #: v9→v10 改过名，改名前后两侧都可能留着待回收的备份，故回收侧两侧一起枚举。
 _DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES.values())
 
-MIGRATORS: dict[int, Callable[[Path], None]] = {}
-_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9})
+#: 迁移器返回值：改写产物清单的那几步返回本步登记与跳过的产物，runner 把链上最后一份折进迁移报告。
+MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | None]] = {}
+#: 自行备份输入的迁移器（清单激活按依赖集备份；v8、v9 备份自己改写的文件），runner 不再为它们备份 project.json。
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12})
 
 # 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
-
-
-def _versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
-    """生成单个版本化备份名，例如 project.json → project.json.bak.v0-1712345678。"""
-    return f"{base_name}.bak.v{from_version}-{ts}"
-
-
-def _numeric_backup_candidates(source: Path, versions: tuple[int, ...]) -> list[Path]:
-    """Enumerate only backup names emitted for one migration-owned source."""
-
-    candidates: list[Path] = []
-    for version in versions:
-        prefix = f"{source.name}.bak.v{version}-"
-        candidates.extend(
-            candidate for candidate in source.parent.glob(f"{prefix}*") if candidate.name.removeprefix(prefix).isdigit()
-        )
-    return candidates
 
 
 def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
@@ -128,12 +116,9 @@ def _load_schema_version(project_dir: Path) -> int:
 
 
 def _backup_project_json(project_dir: Path, from_version: int) -> None:
-    pj = project_dir / "project.json"
-    if not pj.exists():
-        return
-    ts = int(time.time())
-    bak = project_dir / _versioned_backup_name("project.json", from_version, ts)
-    bak.write_bytes(pj.read_bytes())
+    """内容相同的备份只留一份：失败重试不会再堆出一列 ``project.json.bak.v<N>-*``。"""
+
+    ensure_versioned_backup(project_dir / "project.json", from_version)
 
 
 def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
@@ -142,7 +127,7 @@ def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
     if not src.is_dir():
         return
     ts = int(time.time())
-    bak = project_dir / _versioned_backup_name("clues", from_version, ts)
+    bak = project_dir / versioned_backup_name("clues", from_version, ts)
     if bak.exists():
         return
     try:
@@ -172,6 +157,8 @@ def migrate_project_dir(project_dir: Path) -> bool:
     version = _load_schema_version(project_dir)
     if version < 0 or version >= CURRENT_SCHEMA_VERSION:
         return False
+    start_version = version
+    outcome: ArtifactBackfillOutcome | None = None
     while version < CURRENT_SCHEMA_VERSION:
         # Activation migrations must finish their complete read-only preflight
         # before creating any backup.  Their commit boundary owns the backup so
@@ -186,8 +173,20 @@ def migrate_project_dir(project_dir: Path) -> bool:
         migrator = MIGRATORS.get(version)
         if not migrator:
             raise RuntimeError(f"no migrator from v{version}")
-        migrator(project_dir)
+        step_outcome = migrator(project_dir)
+        if step_outcome is not None:
+            outcome = step_outcome
         version += 1
+    if outcome is not None:
+        # 链上最后一次清单改写描述的是迁移完成时清单的全貌，报告只留这一份。
+        write_migration_report(
+            project_dir,
+            build_migration_report(
+                outcome,
+                from_schema_version=start_version,
+                to_schema_version=CURRENT_SCHEMA_VERSION,
+            ),
+        )
     return True
 
 
@@ -288,29 +287,21 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
-        # 清单激活的恢复备份留到那一步的版本提升坐实为止，之后才可回收；它锚在
-        # 「激活落点」而非「当前版本」上，否则每次 schema 升版都会把回收目标错位到别的迁移。
-        retain_activation_recovery = _load_schema_version(project_dir) < ARTIFACT_MANIFEST_SCHEMA_VERSION
+        # 每一步的输入备份留到那一步的版本提升坐实为止：项目仍停在 v<N> 时，``*.bak.v<N>-*``
+        # 是那一步失败后唯一的恢复线索，只回收起点版本已低于当前 schema 的备份。
+        schema_version = _load_schema_version(project_dir)
         project_backup_versions = tuple(
-            version
-            for version in range(CURRENT_SCHEMA_VERSION)
-            if not (retain_activation_recovery and version == _ACTIVATION_BACKUP_VERSION)
+            version for version in range(CURRENT_SCHEMA_VERSION) if version < schema_version
         )
-        activation_backup_versions = () if retain_activation_recovery else (_ACTIVATION_BACKUP_VERSION,)
-        manifest_rewrite_versions = tuple(
-            version for version in project_backup_versions if version != _ACTIVATION_BACKUP_VERSION
-        )
-        # 脚本类源文与 project.json 用同一份版本集合：备份名按来源文件枚举，列进从未产生过
-        # 备份的版本没有代价，而写死一张「哪几版改过脚本」的清单会在下一次迁移时漏掉新版本。
-        script_backup_versions = project_backup_versions
         sources = (
             (project_dir / "project.json", project_backup_versions),
-            # 清单不只在激活那一步被改写：v9→v10 也改它的 key 与草稿路径，两版备份都要回收。
-            (project_dir / ".arcreel_artifacts.json", activation_backup_versions + manifest_rewrite_versions),
-            *((source, script_backup_versions) for source in _bound_script_sources(project_dir)),
+            (project_dir / "versions" / "versions.json", project_backup_versions),
+            # 清单不只在激活那一步被改写：v9→v10 改它的 key 与草稿路径，v12→v13 整份重投影。
+            (project_dir / ".arcreel_artifacts.json", project_backup_versions),
+            *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
         )
         for source, versions in sources:
-            for bak in _numeric_backup_candidates(source, versions):
+            for bak in versioned_backup_candidates(source, versions):
                 if bak.is_symlink() or not bak.is_file():
                     continue
                 try:
@@ -318,7 +309,7 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
                         bak.unlink()
                 except OSError:
                     logger.warning("无法删除备份：%s", bak)
-        for bak_dir in _numeric_backup_candidates(project_dir / "clues", (0,)):
+        for bak_dir in versioned_backup_candidates(project_dir / "clues", (0,)):
             if bak_dir.is_symlink() or not bak_dir.is_dir():
                 continue
             try:
@@ -341,3 +332,4 @@ MIGRATORS[8] = migrate_v8_to_v9
 MIGRATORS[9] = migrate_v9_to_v10
 MIGRATORS[10] = migrate_v10_to_v11
 MIGRATORS[11] = migrate_v11_to_v12
+MIGRATORS[12] = migrate_v12_to_v13

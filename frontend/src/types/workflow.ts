@@ -227,6 +227,28 @@ export type WorkflowStateName =
   | "VIDEO"
   | "EXPORT_READY";
 
+/** 上一次跑完的项目迁移没能登记的一件产物及原因。 */
+export interface WorkflowMigrationSkippedArtifact {
+  kind: string;
+  episode: number | null;
+  resource_id: string;
+  artifact_path: string;
+  reason: string;
+}
+
+/**
+ * 上一次跑完的项目迁移登记与跳过了什么。只作说明，不参与状态与阻断；
+ * 迁移失败的项目走 `blockers` 里的 `project_migration_failed`，这里为空。
+ */
+export interface WorkflowMigrationReport {
+  schema_version: 1;
+  migrated_at: string;
+  from_schema_version: number;
+  to_schema_version: number;
+  registered: Record<string, number>;
+  skipped: WorkflowMigrationSkippedArtifact[];
+}
+
 export interface WorkflowStatus {
   schema_version: 1;
   project_revision: string;
@@ -238,6 +260,7 @@ export interface WorkflowStatus {
   gates: Record<string, Record<string, unknown>>;
   artifacts: Record<string, WorkflowArtifactCollection>;
   next_action: WorkflowNextAction;
+  migration_report?: WorkflowMigrationReport | null;
 }
 
 /**

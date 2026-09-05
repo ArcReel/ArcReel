@@ -9,10 +9,12 @@ never consults whichever provider configuration happens to be active later.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from lib.artifact_manifest import (
+    ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifestEntry,
@@ -73,6 +75,136 @@ def build_current_audio_artifact_basis(
     return current
 
 
+@dataclass(frozen=True, slots=True)
+class VideoExecutionShape:
+    """The execution-frozen dependency shape a video's current basis is reprojected through."""
+
+    voice_style_speakers: tuple[str, ...]
+    reference_audio_speakers: tuple[str, ...]
+    reference_image_limit: int | None
+    duration_tiers: tuple[int, ...]
+
+    @classmethod
+    def from_version_record(
+        cls,
+        artifact_currency: VideoArtifactCurrencyFacts,
+        version_metadata: Mapping[str, Any],
+    ) -> VideoExecutionShape:
+        audio_speakers = _execution_reference_audio_speakers(version_metadata.get("execution_provider_media"))
+        if audio_speakers is None:
+            raise ValueError("version record does not list its provider media")
+        return cls(
+            voice_style_speakers=artifact_currency.voice_style_speakers,
+            reference_audio_speakers=audio_speakers,
+            reference_image_limit=artifact_currency.reference_image_limit,
+            duration_tiers=artifact_currency.duration_tiers,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class VideoBasisComponents:
+    visual: ArtifactBasis
+    speech: ArtifactBasis
+    duration: ArtifactBasis
+
+    def compose(self) -> ArtifactBasis:
+        return compose_video_artifact_basis(visual=self.visual, speech=self.speech, duration=self.duration)
+
+
+def project_video_basis_components(
+    *,
+    project_path: Path,
+    project: dict[str, Any],
+    item: dict[str, Any],
+    skeleton_kind: str,
+    resource_type: str,
+    resource_id: str,
+    episode: int,
+    shape: VideoExecutionShape,
+    versions: VersionManager,
+    version_metadata: Mapping[str, Any],
+    current_tts_settings: TtsSynthesisSettings | None = None,
+    resolve_audio_manifest_entry: AudioManifestEntryResolver | None = None,
+) -> VideoBasisComponents:
+    """Project the current script item through ``shape`` into the three video basis components.
+
+    The registration path (backfill) and the comparison path (currency) both
+    build their basis here, so the two can never disagree on what a video
+    depends on. Raises ``ValueError`` naming what could not be projected.
+    """
+
+    admission = admit_script_unit(skeleton_kind, item)
+    if not admission.allowed:
+        raise ValueError("script unit is not admitted for speech composition")
+
+    # 角色声音绑定方式属于交付内容（ADR 0062 的分界线：这一位改变用户拿到的成品）：项目切回提示词
+    # 软约束后，已挂过参考音频的成片不再对得上当前设置，投影里因此不再重放那批音频，条目随之判
+    # stale。反向切换不触发——那批成片本就没挂过音频，参考音频档下渲染出的画面与声明与它们一致。
+    replay_audio = character_voice_binding(project) == "reference_audio"
+    available_audio = resolve_reference_audio_paths(project, project_path) if replay_audio else {}
+    selected_audio = {
+        speaker: available_audio[speaker] for speaker in shape.reference_audio_speakers if speaker in available_audio
+    }
+    speech = build_video_speech_basis(
+        admission.preparation,
+        voices=project_character_voice_evidence(
+            admission.preparation,
+            characters=project.get("characters"),
+            voice_style_speakers=shape.voice_style_speakers,
+            reference_audio_paths=selected_audio,
+        ),
+    )
+
+    if resource_type == "videos":
+        prompt = item.get("video_prompt")
+        try:
+            storyboard, end_frame = resolve_storyboard_video_inputs(
+                project_path=project_path,
+                resource_id=resource_id,
+                item=item,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            raise ValueError(f"storyboard inputs are unavailable: {exc}") from exc
+        visual = build_storyboard_video_artifact_visual_basis(
+            resource_id=resource_id,
+            visual_prompt=prompt,
+            storyboard_image=storyboard,
+            end_frame_image=end_frame,
+            aspect_ratio=resolve_video_aspect_ratio(project),
+        )
+    elif resource_type == "reference_videos":
+        declared = unit_reference_declarations(project, item)
+        resolved = resolve_reference_assets(project, project_path, item)
+        hydration = hydrate_reference_assets(declared, resolved, FilesystemReferenceAssets(project_path))
+        if hydration.missing:
+            raise ValueError("declared reference assets are missing")
+        visual = build_reference_video_artifact_visual_basis(
+            unit=item,
+            request_assets=clamp_reference_assets(hydration.available, shape.reference_image_limit),
+            style=project.get("style") if isinstance(project.get("style"), str) else None,
+            aspect_ratio=resolve_video_aspect_ratio(project),
+        )
+    else:
+        raise ValueError(f"resource type does not carry video artifact metadata: {resource_type}")
+
+    duration = _current_duration_tier_basis(
+        project_path=project_path,
+        project=project,
+        item=item,
+        resource_id=resource_id,
+        episode=episode,
+        versions=versions,
+        version_metadata=version_metadata,
+        duration_tiers=shape.duration_tiers,
+        preparation=admission.preparation,
+        current_tts_settings=current_tts_settings,
+        resolve_audio_manifest_entry=resolve_audio_manifest_entry,
+    )
+    if duration is None:
+        raise ValueError("planned duration cannot be placed on the paid duration tiers")
+    return VideoBasisComponents(visual=visual, speech=speech, duration=duration)
+
+
 def build_current_video_artifact_basis(
     *,
     project_path: Path,
@@ -115,78 +247,25 @@ def build_current_video_artifact_basis(
     )
     if item is None:
         return None
-    admission = admit_script_unit(kind, item)
-    if not admission.allowed:
-        return None
-
-    style_speakers = artifact_currency.voice_style_speakers
-    audio_speakers = _execution_reference_audio_speakers(version_metadata.get("execution_provider_media"))
-    if audio_speakers is None:
-        return None
-    # 角色声音绑定方式属于交付内容（ADR 0062 的分界线：这一位改变用户拿到的成品）：项目切回提示词
-    # 软约束后，已挂过参考音频的成片不再对得上当前设置，投影里因此不再重放那批音频，条目随之判
-    # stale。反向切换不触发——那批成片本就没挂过音频，参考音频档下渲染出的画面与声明与它们一致。
-    replay_audio = character_voice_binding(project) == "reference_audio"
-    available_audio = resolve_reference_audio_paths(project, project_path) if replay_audio else {}
-    selected_audio = {speaker: available_audio[speaker] for speaker in audio_speakers if speaker in available_audio}
-    speech = build_video_speech_basis(
-        admission.preparation,
-        voices=project_character_voice_evidence(
-            admission.preparation,
-            characters=project.get("characters"),
-            voice_style_speakers=style_speakers,
-            reference_audio_paths=selected_audio,
-        ),
-    )
-
-    if resource_type == "videos":
-        prompt = item.get("video_prompt")
-        storyboard, end_frame = resolve_storyboard_video_inputs(
+    try:
+        shape = VideoExecutionShape.from_version_record(artifact_currency, version_metadata)
+        components = project_video_basis_components(
             project_path=project_path,
-            resource_id=resource_id,
+            project=project,
             item=item,
-        )
-        visual = build_storyboard_video_artifact_visual_basis(
+            skeleton_kind=kind,
+            resource_type=resource_type,
             resource_id=resource_id,
-            visual_prompt=prompt,
-            storyboard_image=storyboard,
-            end_frame_image=end_frame,
-            aspect_ratio=resolve_video_aspect_ratio(project),
+            episode=episode,
+            shape=shape,
+            versions=versions,
+            version_metadata=version_metadata,
+            current_tts_settings=current_tts_settings,
+            resolve_audio_manifest_entry=resolve_audio_manifest_entry,
         )
-    elif resource_type == "reference_videos":
-        limit = artifact_currency.reference_image_limit
-        declared = unit_reference_declarations(project, item)
-        resolved = resolve_reference_assets(project, project_path, item)
-        hydration = hydrate_reference_assets(declared, resolved, FilesystemReferenceAssets(project_path))
-        if hydration.missing:
-            return None
-        visual = build_reference_video_artifact_visual_basis(
-            unit=item,
-            request_assets=clamp_reference_assets(hydration.available, limit),
-            style=project.get("style") if isinstance(project.get("style"), str) else None,
-            aspect_ratio=resolve_video_aspect_ratio(project),
-        )
-    else:
+    except (KeyError, OSError, TypeError, ValueError):
         return None
-
-    duration = _current_duration_tier_basis(
-        project_path=project_path,
-        project=project,
-        item=item,
-        resource_id=resource_id,
-        episode=episode,
-        versions=versions,
-        version_metadata=version_metadata,
-        artifact_currency=artifact_currency,
-        preparation=admission.preparation,
-        current_tts_settings=current_tts_settings,
-        resolve_audio_manifest_entry=resolve_audio_manifest_entry,
-    )
-    if duration is None:
-        return None
-    return ArtifactBasisDescriptor.from_basis(
-        compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
-    )
+    return ArtifactBasisDescriptor.from_basis(components.compose())
 
 
 def _current_duration_tier_basis(
@@ -198,12 +277,12 @@ def _current_duration_tier_basis(
     episode: int,
     versions: VersionManager,
     version_metadata: Mapping[str, Any],
-    artifact_currency: VideoArtifactCurrencyFacts,
+    duration_tiers: tuple[int, ...],
     preparation: SpeechPreparation,
     current_tts_settings: TtsSynthesisSettings | None,
     resolve_audio_manifest_entry: AudioManifestEntryResolver | None,
-):
-    tiers = artifact_currency.duration_tiers
+) -> ArtifactBasis | None:
+    tiers = duration_tiers
     planned = item.get("duration_seconds")
     if type(planned) is not int or planned <= 0:
         planned = project.get("default_duration")
@@ -295,6 +374,9 @@ def _execution_reference_audio_speakers(value: object) -> tuple[str, ...] | None
 
 __all__ = [
     "AudioManifestEntryResolver",
+    "VideoBasisComponents",
+    "VideoExecutionShape",
     "build_current_audio_artifact_basis",
     "build_current_video_artifact_basis",
+    "project_video_basis_components",
 ]

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 from lib.artifact_activation import activate_artifact_target_state, plan_artifact_target_state
+from lib.project_migration_report import ArtifactBackfillOutcome
 from lib.project_migrations.v9_to_v10_script_plan_naming import (
     apply_script_plan_draft_renames,
     pending_draft_rename_map,
@@ -12,7 +14,7 @@ from lib.project_migrations.v9_to_v10_script_plan_naming import (
 )
 
 
-def migrate_v7_to_v8(project_dir: Path) -> None:
+def migrate_v7_to_v8(project_dir: Path) -> ArtifactBackfillOutcome:
     project_dir = Path(project_dir)
 
     # 只读预检段：激活按当前代码解析脚本规划草稿路径（新名），故 v9→v10 的草稿改名前置到这里；
@@ -28,6 +30,10 @@ def migrate_v7_to_v8(project_dir: Path) -> None:
     # 改名幂等，v8 之后再跑一次不会有任何动作。
     apply_script_plan_draft_renames(renames, from_version=7)
     activate_artifact_target_state(project_dir, bump_schema=True, plan=plan)
+    return ArtifactBackfillOutcome(
+        registered=dict(Counter(key.kind.value for key in plan.entries)),
+        skipped=plan.skipped,
+    )
 
 
 __all__ = ["migrate_v7_to_v8"]
