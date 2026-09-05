@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -101,7 +101,7 @@ def build_migration_report(
     to_schema_version: int,
 ) -> MigrationReport:
     return MigrationReport(
-        migrated_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        migrated_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         from_schema_version=from_schema_version,
         to_schema_version=to_schema_version,
         registered=dict(sorted(outcome.registered.items())),
@@ -128,7 +128,7 @@ def load_migration_report(project_dir: Path) -> MigrationReport | None:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         logger.warning("无法读取迁移报告：%s（%s）", path, exc)
         return None
     try:

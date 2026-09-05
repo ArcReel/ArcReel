@@ -15,9 +15,9 @@ audio was synthesised with, which no legacy record carries.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,7 @@ from lib.artifact_version_provenance import parse_typed_media_version_target
 from lib.content_digest import canonical_json_digest
 from lib.json_io import atomic_write_json, load_json
 from lib.media_artifact_currency import VideoExecutionShape, project_video_basis_components
+from lib.path_safety import try_safe_join
 from lib.project_manager import ProjectManager
 from lib.project_migration_report import MigrationSkippedArtifact
 from lib.reference_video.execution_checkpoint import CHECKPOINT_SCHEMA_VERSION
@@ -65,7 +66,7 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
     if not isinstance(versions_data, dict):
         raise ValueError("versions/versions.json must contain an object")
     version_manager = VersionManager(project_dir)
-    stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     amended: list[tuple[str, str]] = []
     skipped: list[MigrationSkippedArtifact] = []
@@ -169,8 +170,8 @@ def _bound_scripts(project_dir: Path, project: dict[str, Any]) -> list[tuple[int
         script_file = entry.get("script_file")
         if type(episode) is not int or episode < 1 or not isinstance(script_file, str) or not script_file:
             continue
-        script_path = project_dir / script_file.replace("\\", "/")
-        if not script_path.is_file():
+        script_path = try_safe_join(project_dir, script_file, require_file=True)
+        if script_path is None:
             continue
         try:
             script = load_json(script_path)

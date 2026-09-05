@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import copy
 import json
-import shutil
-import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -18,6 +16,7 @@ from typing import Any
 from lib.asset_types import asset_name_comparison_key
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
+from lib.project_migrations.backups import ensure_versioned_backup
 from lib.script_models import REFERENCE_UNIT_DURATION_RANGE, ReferenceVideoScript
 from lib.speech_composition import SpeechComposition, SpeechProblemCode, adapt_video_unit
 
@@ -304,13 +303,6 @@ def _script_paths(project_dir: Path, project: dict[str, Any]) -> list[tuple[Path
     return result
 
 
-def _ensure_script_backup(path: Path) -> None:
-    if any(path.parent.glob(f"{path.name}.bak.v6-*")):
-        return
-    backup = path.with_name(f"{path.name}.bak.v6-{time.time_ns()}")
-    shutil.copy2(path, backup)
-
-
 def migrate_v6_to_v7(project_dir: Path) -> None:
     """先预检所有剧本，再逐文件原子替换，最后提交 ``project.json`` 版本。"""
     project_dir = Path(project_dir)
@@ -338,7 +330,7 @@ def migrate_v6_to_v7(project_dir: Path) -> None:
 
         # 预检全部成功后才创建备份；所有脚本先备份完，再开始替换。
         for path, _payload in plans:
-            _ensure_script_backup(path)
+            ensure_versioned_backup(path, 6)
         for path, payload in plans:
             atomic_write_json(path, payload)
 

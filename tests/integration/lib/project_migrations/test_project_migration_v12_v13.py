@@ -8,6 +8,7 @@ from pathlib import Path
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactStatus, compose_video_artifact_basis
 from lib.artifact_version_provenance import parse_typed_media_version_target
+from lib.legacy_media_provenance import backfill_legacy_media_provenance
 from lib.project_manager import ProjectManager
 from lib.project_migration_report import MIGRATION_REPORT_FILENAME, load_migration_report
 from lib.project_migrations.runner import migrate_project_dir
@@ -208,6 +209,7 @@ def test_full_chain_from_schema7_writes_a_migration_report_exposed_on_status(tmp
     assert report.registered["episode-video"] == 2
     assert report.registered["episode-script"] == 1
     assert sorted(item.resource_id for item in report.skipped) == ["E1U01", "E1U02"]
+    assert report.migrated_at.endswith("Z")
     assert len(list((project_dir / "versions").glob("versions.json.bak.v12-*"))) == 1
 
     status = WorkflowStateService(ProjectManager(root)).get_status(project_dir.name, 1)
@@ -228,3 +230,27 @@ def test_media_on_a_needs_replan_unit_is_reported_instead_of_dropped(tmp_path: P
     assert outcome.registered["episode-video"] == 1
     assert [(item.kind, item.resource_id) for item in outcome.skipped] == [("episode-video", "E1U02")]
     assert "needs_replan" in outcome.skipped[0].reason
+
+
+def test_script_binding_outside_the_project_is_ignored_by_the_backfill(tmp_path: Path) -> None:
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
+    advance_project_schema(project_dir, to_version=12)
+    outside = tmp_path / "outside.json"
+    outside.write_bytes((project_dir / "scripts" / "episode_1.json").read_bytes())
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["episodes"][0]["script_file"] = "../../outside.json"
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    before = (project_dir / "versions" / "versions.json").read_bytes()
+
+    backfill = backfill_legacy_media_provenance(project_dir)
+
+    assert backfill.amended == ()
+    assert (project_dir / "versions" / "versions.json").read_bytes() == before
+
+
+def test_report_with_invalid_utf8_loads_as_absent(tmp_path: Path) -> None:
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
+    (project_dir / MIGRATION_REPORT_FILENAME).write_bytes(b'{"schema_version": 1, "migrated_at": "\xff"}')
+
+    assert load_migration_report(project_dir) is None
