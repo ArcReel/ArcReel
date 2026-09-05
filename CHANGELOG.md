@@ -1,5 +1,90 @@
 # Changelog
 
+## [0.29.0](https://github.com/ArcReel/ArcReel/compare/v0.28.0...v0.29.0) (2026-09-05)
+
+
+### ✨ 新功能
+
+* **agent-memory:** 两级记忆目录派生与 AgentAccessPolicy 放行 ([02ec1ae](https://github.com/ArcReel/ArcReel/commit/02ec1aeecd1cce1433c364a661c04935359bf188)), closes [#2333](https://github.com/ArcReel/ArcReel/issues/2333)
+* **agent-memory:** 创作 Agent 的笔记按项目与用户分开保存并在开场带上用户偏好 ([2e3d9ee](https://github.com/ArcReel/ArcReel/commit/2e3d9eecebf1fb55ad2141088523c357154671c3)), closes [#2336](https://github.com/ArcReel/ArcReel/issues/2336)
+* **agent-memory:** 在设置页查看与编辑用户记忆和项目记忆 ([6b630e5](https://github.com/ArcReel/ArcReel/commit/6b630e565dd2237089e7307b17fb058da17ff928)), closes [#2338](https://github.com/ArcReel/ArcReel/issues/2338)
+* **agent-memory:** 通过 API 列出、读写、删除与清空项目与用户两级记忆 ([80cab45](https://github.com/ArcReel/ArcReel/commit/80cab453ee6a49bcd83e605044f4d3e1e2c23e30)), closes [#2337](https://github.com/ArcReel/ArcReel/issues/2337)
+* **archive:** 覆盖导入保留项目记忆 ([89c58e3](https://github.com/ArcReel/ArcReel/commit/89c58e33cfb40188225c708b9739a84437ea2c30)), closes [#2334](https://github.com/ArcReel/ArcReel/issues/2334)
+* **draft-quarantine:** 隔离草稿信封带上版本位，无版本位的存量草稿按 v1 读 ([64c8b6d](https://github.com/ArcReel/ArcReel/commit/64c8b6d4fb0207719fdeddfd5df3124f0a783c44)), closes [#2329](https://github.com/ArcReel/ArcReel/issues/2329)
+* **frontend:** 任务失败通知带上供应商拒因摘要 ([4f0c48a](https://github.com/ArcReel/ArcReel/commit/4f0c48ab2d1a5a2427f6f45683fbf12815777429)), closes [#2330](https://github.com/ArcReel/ArcReel/issues/2330)
+* **generate:** 整集配音与宫格批量入队返回逐项任务映射，前端逐项标记占用 ([b018389](https://github.com/ArcReel/ArcReel/commit/b018389c0640dfc29a3b3c870741919285e77fe2)), closes [#1411](https://github.com/ArcReel/ArcReel/issues/1411)
+* **generation:** 展示脱敏的供应商拒因 ([a786774](https://github.com/ArcReel/ArcReel/commit/a786774ccee2910ba76a23a4b2674b41082c6ccc)), closes [#1146](https://github.com/ArcReel/ArcReel/issues/1146)
+* **generation:** 引用未登记或缺资产图时在生成入口阻断并列出名称 ([ece3234](https://github.com/ArcReel/ArcReel/commit/ece3234072ef130a75a4051401ccf1dd4950a389)), closes [#2341](https://github.com/ArcReel/ArcReel/issues/2341)
+* **sse:** 切回前台立即重连事件流，不再等完剩余退避 ([89c5f9c](https://github.com/ArcReel/ArcReel/commit/89c5f9c2a2dec13b6738364beecc0e057915d522)), closes [#2304](https://github.com/ArcReel/ArcReel/issues/2304)
+* **video-caps:** 统一服务端视频时长约束解析 ([3ad96e0](https://github.com/ArcReel/ArcReel/commit/3ad96e0ea05b9928f581a0e251d561ddae9a571f))
+* **分集规划:** 按单集目标时长折算每集原文体量 ([9db8317](https://github.com/ArcReel/ArcReel/commit/9db83175061b5ad5565357c4b632212ced3f4ac2))
+* **引用:** 脚本引用 @[角色/衍生] 与级联改名 ([d8665c0](https://github.com/ArcReel/ArcReel/commit/d8665c054d4872ef7b2a48de8cda1fdc094dc0b6)), closes [#2343](https://github.com/ArcReel/ArcReel/issues/2343)
+* **角色衍生:** Agent 拆解时识别并登记衍生，脚本按剧情状态写 @[角色/衍生] ([1db0ed8](https://github.com/ArcReel/ArcReel/commit/1db0ed81895b11fac30259e44dfe558102790d9e)), closes [#2344](https://github.com/ArcReel/ArcReel/issues/2344)
+* **角色衍生:** 两条生成路线按引用注入衍生资产图 ([e107f01](https://github.com/ArcReel/ArcReel/commit/e107f0101182310bc25d60c74f5abaf3db026d67)), closes [#2345](https://github.com/ArcReel/ArcReel/issues/2345)
+* **角色:** 角色下可登记衍生并在角色卡浮层里管理 ([e68ca47](https://github.com/ArcReel/ArcReel/commit/e68ca47b3449016a34ce2b555fab7aa389b2c79c)), closes [#2340](https://github.com/ArcReel/ArcReel/issues/2340)
+* **资产库:** 角色的衍生随本体整套进出全局资产库 ([549f2d5](https://github.com/ArcReel/ArcReel/commit/549f2d5420acc84f7541754a87757029380d677d)), closes [#2346](https://github.com/ArcReel/ArcReel/issues/2346)
+
+
+### 🐛 Bug 修复
+
+* **agent-credentials:** 火山方舟套餐补默认模型与建议模型，空模型不再报「未知错误」 ([#2370](https://github.com/ArcReel/ArcReel/issues/2370)) ([9352e9d](https://github.com/ArcReel/ArcReel/commit/9352e9d88f914df1078d4fd4325ee95a093558b7)), closes [#2324](https://github.com/ArcReel/ArcReel/issues/2324)
+* **agent-memory:** 收敛记忆路径知识、补齐围栏两层与术语一致性 ([0c1d43a](https://github.com/ArcReel/ArcReel/commit/0c1d43aacf7e33635767067faa7eb65d756548c3)), closes [#2325](https://github.com/ArcReel/ArcReel/issues/2325)
+* **agent-runtime:** 统一附加指令术语 ([6bf9177](https://github.com/ArcReel/ArcReel/commit/6bf9177a8fbf8d03508569e7f420c88f96dd27b4)), closes [#2335](https://github.com/ArcReel/ArcReel/issues/2335)
+* **agent:** isolate inherited Claude auth tokens ([#2228](https://github.com/ArcReel/ArcReel/issues/2228)) ([7aa71d8](https://github.com/ArcReel/ArcReel/commit/7aa71d8ce9408c92ed9fc5b8ba879282ff5f63ee))
+* **artifact-manifest:** Windows 下按二进制描述符算内容摘要并统一源文换行口径 ([a84749e](https://github.com/ArcReel/ArcReel/commit/a84749e8946211931ee126135cba16a5e6ec878e))
+* **async:** async 路径上的同步读素材与 read_text 卸载到线程 ([09f760b](https://github.com/ArcReel/ArcReel/commit/09f760b2e96e458687c5037177a0f9096ad7470f)), closes [#2247](https://github.com/ArcReel/ArcReel/issues/2247)
+* **audio:** DashScope 音频落盘改用 run_sync_transaction 结算取消 ([168a1dd](https://github.com/ArcReel/ArcReel/commit/168a1dd89a6e78995cfe01deb76108556873c03c)), closes [#2234](https://github.com/ArcReel/ArcReel/issues/2234)
+* **audit:** 补齐收集口径并去掉第二次全量 parse ([#2274](https://github.com/ArcReel/ArcReel/issues/2274)) ([ebc8ae8](https://github.com/ArcReel/ArcReel/commit/ebc8ae85826abae26fa7289df24105618bb4e41c))
+* **auth:** 避免 SSE 在 URL 暴露会话凭证 ([946b048](https://github.com/ArcReel/ArcReel/commit/946b048567670c969911e13e17d41ce518d14980))
+* **chat-attachments:** 压缩附图并避免大消息挂死会话 ([7e55747](https://github.com/ArcReel/ArcReel/commit/7e5574706abb2b943f3998ea521a688c1d2af346)), closes [#2275](https://github.com/ArcReel/ArcReel/issues/2275)
+* **ci:** release PR 无变化时 release-please 不再红 ([#2273](https://github.com/ArcReel/ArcReel/issues/2273)) ([c5c329d](https://github.com/ArcReel/ArcReel/commit/c5c329d67ac4f99c7e572b869065caede311becc))
+* **compose-video:** 合成视频时自动定位 ffmpeg/ffprobe 并按 UTF-8 读取输出 ([99d1d03](https://github.com/ArcReel/ArcReel/commit/99d1d03688ddf36f3fcd0ecfb368eae140f71b26)), closes [#2271](https://github.com/ArcReel/ArcReel/issues/2271)
+* **provider-detail:** 切换供应商后保存按钮不再被上一个供应商的在途请求卡住 ([8f45283](https://github.com/ArcReel/ArcReel/commit/8f452834a677c0d57836cd831b13be187e25047e)), closes [#2322](https://github.com/ArcReel/ArcReel/issues/2322)
+* **providers:** 收敛 AI 审查反馈 ([e1409e3](https://github.com/ArcReel/ArcReel/commit/e1409e3658eeae10ab1b1e1171da201bde86f23e))
+* **providers:** 译名缺键回退归一、详情页随语言重取、保存后刷新失败可见 ([12350af](https://github.com/ArcReel/ArcReel/commit/12350af5c3a1cd672bce010715e0088c3ec1856a)), closes [#2215](https://github.com/ArcReel/ArcReel/issues/2215)
+* **providers:** 连接测试、检查更新与模型发现失败时不再回显 URL 里的凭证 ([5e7d68a](https://github.com/ArcReel/ArcReel/commit/5e7d68a50405f748a868880c7efa92850a26a3a5)), closes [#2328](https://github.com/ArcReel/ArcReel/issues/2328)
+* **reference-video:** 台词记号紧跟对应动作落位，参考音频只取音色 ([#2315](https://github.com/ArcReel/ArcReel/issues/2315)) ([802eb54](https://github.com/ArcReel/ArcReel/commit/802eb54111d0b4f16ddbb066439c6286175d5300))
+* **reference-video:** 收敛无归属旁白丢弃后的行内拼接与无声知会 ([30240f6](https://github.com/ArcReel/ArcReel/commit/30240f661f001144002787227b4000039b9074ba)), closes [#2264](https://github.com/ArcReel/ArcReel/issues/2264)
+* **reference-video:** 无归属旁白不再下发视频模型 ([60ff1c5](https://github.com/ArcReel/ArcReel/commit/60ff1c53a48de2b9afec63274fb040738b2b155e)), closes [#2264](https://github.com/ArcReel/ArcReel/issues/2264)
+* **script-plan:** 缺省源文仅读取本集派生内容 ([54ad6db](https://github.com/ArcReel/ArcReel/commit/54ad6db42598ee46ad1cd88a7a7845f34a27f750)), closes [#2270](https://github.com/ArcReel/ArcReel/issues/2270)
+* **settings:** 修正密钥框可访问名并复用公共复制按钮 ([ec0babb](https://github.com/ArcReel/ArcReel/commit/ec0babb718f2c7e20021ce373181a27637302fdd)), closes [#2318](https://github.com/ArcReel/ArcReel/issues/2318)
+* **skills:** 收紧 Agent 工作流边界 ([#2260](https://github.com/ArcReel/ArcReel/issues/2260)) ([956758f](https://github.com/ArcReel/ArcReel/commit/956758f4f4f43c1df03a7081fc62a831f52f44e9))
+* **tool-runtime:** agent 入参非 str 走降级而非 internal_error，类型标注按实际契约收敛 ([e37a72e](https://github.com/ArcReel/ArcReel/commit/e37a72ebb0687ae2717c31b47dba6058759492a4)), closes [#2229](https://github.com/ArcReel/ArcReel/issues/2229) [#2236](https://github.com/ArcReel/ArcReel/issues/2236)
+* **video-backends:** 脱敏轮询与取结果错误 ([1fe476e](https://github.com/ArcReel/ArcReel/commit/1fe476e6e28eacdc58bb47a91efbf3cd203c0610)), closes [#2317](https://github.com/ArcReel/ArcReel/issues/2317)
+* **video-caps,sse:** 集成修复——脏 resolution 收口、能力端点真实 resolver 覆盖、SSE 退避归零时机与约束在途禁选 ([30e457f](https://github.com/ArcReel/ArcReel/commit/30e457f5819deee60cec915657fab5642ade92c7)), closes [#1453](https://github.com/ArcReel/ArcReel/issues/1453) [#1541](https://github.com/ArcReel/ArcReel/issues/1541) [#2202](https://github.com/ArcReel/ArcReel/issues/2202)
+* **video-workflow:** 避免重复生成已有资产图 ([2108c1f](https://github.com/ArcReel/ArcReel/commit/2108c1fcb1020ae942504d7392d16f067ad9626a)), closes [#1980](https://github.com/ArcReel/ArcReel/issues/1980)
+* **workflow-state:** 手动预拆分的 source/episode_N.txt 在无原文时视为源文，路线直达逐集脚本规划 ([#2368](https://github.com/ArcReel/ArcReel/issues/2368)) ([b8a1aff](https://github.com/ArcReel/ArcReel/commit/b8a1aff1d5bab74d3e48ded8f98bac612d2c325f)), closes [#2366](https://github.com/ArcReel/ArcReel/issues/2366)
+* **角色衍生:** 衍生资产图的完成事件、预览重复告警与两处替身失真 ([6d6eb1b](https://github.com/ArcReel/ArcReel/commit/6d6eb1bad345de59220c6b56d7444c2c8ceb6b38)), closes [#2342](https://github.com/ArcReel/ArcReel/issues/2342) [#2343](https://github.com/ArcReel/ArcReel/issues/2343)
+* **角色:** 衍生表在迁移与覆盖写时不再被抹掉 ([060456c](https://github.com/ArcReel/ArcReel/commit/060456c7d390b26cbcb166d99fbb75fa078f9110)), closes [#2339](https://github.com/ArcReel/ArcReel/issues/2339) [#2340](https://github.com/ArcReel/ArcReel/issues/2340) [#2341](https://github.com/ArcReel/ArcReel/issues/2341)
+* **资产指纹/提示词/资产库:** 媒体子目录软链、资产块尖括号与库删图时序 ([3bff63d](https://github.com/ArcReel/ArcReel/commit/3bff63d4a1542d7bc183fab18886f8c22fdaae63)), closes [#2344](https://github.com/ArcReel/ArcReel/issues/2344) [#2345](https://github.com/ArcReel/ArcReel/issues/2345) [#2346](https://github.com/ArcReel/ArcReel/issues/2346) [#2362](https://github.com/ArcReel/ArcReel/issues/2362)
+* **资产指纹:** 项目媒体指纹扫描递归下探，覆盖角色衍生资产图 ([f9598e5](https://github.com/ArcReel/ArcReel/commit/f9598e5d28904924ca23629e6523a0008958485a)), closes [#2362](https://github.com/ArcReel/ArcReel/issues/2362)
+
+
+### ⚡ 性能优化
+
+* **projects:** 项目列表改用登记口径统计产物，不再逐项目哈希图片 ([#2277](https://github.com/ArcReel/ArcReel/issues/2277)) ([b424f7c](https://github.com/ArcReel/ArcReel/commit/b424f7c8d4d10e496d3330f1dd6a487277e2c534))
+
+
+### ♻️ 重构
+
+* **agent-memory:** 收敛索引超限口径并修掉记忆文件柜的两处过期读 ([3520606](https://github.com/ArcReel/ArcReel/commit/352060639e7c73918df565b75e4d592097006a86)), closes [#2336](https://github.com/ArcReel/ArcReel/issues/2336) [#2337](https://github.com/ArcReel/ArcReel/issues/2337) [#2338](https://github.com/ArcReel/ArcReel/issues/2338)
+* **assets:** 收拢已登记引用名的构造入口 ([ae11ef3](https://github.com/ArcReel/ArcReel/commit/ae11ef33ccfbdae54d2047d9ff9e94b8da0008c0)), closes [#2339](https://github.com/ArcReel/ArcReel/issues/2339)
+* **basedpyright:** 开启 unused-function 与 unreachable 两条规则并清零存量 ([34ef11f](https://github.com/ArcReel/ArcReel/commit/34ef11f1a095d0f28e9ccd995067b82c60f9578d)), closes [#2237](https://github.com/ArcReel/ArcReel/issues/2237)
+* **episode-planner:** 统一派生源文路径来源 ([6377f8b](https://github.com/ArcReel/ArcReel/commit/6377f8b0ec2582cdd7aea6da6a5cfd2d728090f0)), closes [#2316](https://github.com/ArcReel/ArcReel/issues/2316)
+
+
+### 📚 文档
+
+* **adr:** 记录浏览器原生请求的凭证载体决策并补齐相关词条 ([#1541](https://github.com/ArcReel/ArcReel/issues/1541)) ([965e294](https://github.com/ArcReel/ArcReel/commit/965e294e78ca02a6d24a6294e1f1348f4f40f4fc))
+* **agent-memory:** 入库 Agent 记忆词条、两级落盘 ADR 与调研笔记 ([7692798](https://github.com/ArcReel/ArcReel/commit/7692798ba612019d0f4134613b0116ad582fab33)), closes [#2332](https://github.com/ArcReel/ArcReel/issues/2332)
+* **contributing:** 测试替身规则改为可核对判据，仓库内依赖对象用真实实例 ([c2177de](https://github.com/ArcReel/ArcReel/commit/c2177dec8787623f96834f61f9f00f129f226147))
+* **frontend:** mono kicker 固定英文不进 i18n，回收两个 kicker 翻译 key ([#2272](https://github.com/ArcReel/ArcReel/issues/2272)) ([22f63bc](https://github.com/ArcReel/ArcReel/commit/22f63bc813405f95504a2c0d102e026292f7c002))
+* **testing:** mutmut runbook 回填选模块规则、已走查模块表、曳光弹步骤，普查脚本进 scripts/ ([#2365](https://github.com/ArcReel/ArcReel/issues/2365)) ([8e22155](https://github.com/ArcReel/ArcReel/commit/8e22155f76a63887539f095bff6f69edb12b531e))
+* **testing:** mutmut runbook 第三层「等价变异体被杀」先新进程复核区分判定错误与整轮作废 ([#2354](https://github.com/ArcReel/ArcReel/issues/2354)) ([efd483b](https://github.com/ArcReel/ArcReel/commit/efd483bba80525b82f478d82b2950da9c23ce43b))
+* **testing:** 固化 mutmut 变异测试 runbook、三层验收比对脚本与独立依赖组 ([#2285](https://github.com/ArcReel/ArcReel/issues/2285)) ([1b6a0c2](https://github.com/ArcReel/ArcReel/commit/1b6a0c2bea3c3137707ebc8aec4519454407fdc2))
+* **triage:** 记录逐模型输出 token 上限表为 out-of-scope ([#2269](https://github.com/ArcReel/ArcReel/issues/2269)) ([aacf2c6](https://github.com/ArcReel/ArcReel/commit/aacf2c606ec20ad91fc8005cfed46d98ce1ba207))
+* 登记文风与抑制注释规范 ([bea1393](https://github.com/ArcReel/ArcReel/commit/bea13931ec61841051f0532328bf604fc2ebdc89))
+
 ## [0.28.0](https://github.com/ArcReel/ArcReel/compare/v0.27.0...v0.28.0) (2026-08-30)
 
 
