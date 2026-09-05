@@ -60,7 +60,7 @@ from server.sse_channel import IDLE, EvictNonCriticalAndSignal, SseChannel
 
 logger = logging.getLogger(__name__)
 
-from claude_agent_sdk import ClaudeSDKClient, tag_session
+from claude_agent_sdk import ClaudeSDKClient
 from claude_agent_sdk.types import (
     PermissionResultAllow,
     PermissionResultDeny,
@@ -333,7 +333,6 @@ class SessionManager:
         "AskUserQuestion",
     ]
     DEFAULT_SETTING_SOURCES: ClassVar[list[str]] = ["project"]
-    _SDK_ID_TIMEOUT = 60.0
 
     def __init__(
         self,
@@ -343,8 +342,11 @@ class SessionManager:
         in_docker: bool = False,
         sandbox_enabled: bool = True,
         event_log_store: EventLogStore | None = None,
+        sdk_id_timeout: float = 60.0,
     ):
         self.event_log_store = event_log_store or EventLogStore()
+        # 新会话等待 CLI init 上报 sdk_session_id 的上限；超时即判启动失败。
+        self._sdk_id_timeout = sdk_id_timeout
         self.project_root = Path(project_root)
         # Tests construct SessionManager directly without going through
         # AssistantService, so we fall back to the legacy ``project_root/projects``
@@ -719,7 +721,7 @@ class SessionManager:
         try:
             await asyncio.wait(
                 watch_tasks,
-                timeout=self._SDK_ID_TIMEOUT,
+                timeout=self._sdk_id_timeout,
                 return_when=asyncio.FIRST_COMPLETED,
             )
         finally:
@@ -1589,21 +1591,8 @@ class SessionManager:
 
         # Only create DB record for new sessions (no existing meta)
         if not managed.sdk_id_event.is_set():
-            # Run DB create and SDK tag in parallel (tag is independent file I/O)
-            tag_coro = None
-            if tag_session is not None:
-
-                async def _tag() -> None:
-                    try:
-                        await asyncio.to_thread(tag_session, sdk_id, f"project:{managed.project_name}")
-                    except Exception:
-                        logger.warning("tag_session failed for %s", sdk_id, exc_info=True)
-
-                tag_coro = _tag()
-            await asyncio.gather(
-                self.meta_store.create(managed.project_name, sdk_id),
-                *([] if tag_coro is None else [tag_coro]),
-            )
+            # 会话与项目的归属只记在 meta_store。
+            await self.meta_store.create(managed.project_name, sdk_id)
             await self.meta_store.update_status(sdk_id, "running")
             # 新会话首条用户消息先写日志分配身份（seq 0）：本方法在 inbox 任务
             # 内串行执行于任何 assistant 条目定型之前，保证时间线顺序；写入
@@ -1637,10 +1626,20 @@ class SessionManager:
 
     @staticmethod
     def _extract_sdk_session_id(message: Any, msg_dict: dict[str, Any]) -> str | None:
-        """Extract SDK session id from either serialized payload or raw object."""
+        """Extract SDK session id from either serialized payload or raw object.
+
+        CLI 的 system 消息（init / status / api_retry）把 ``session_id`` 放在
+        ``data`` 里而非顶层。首轮 API 请求失败（凭证无效触发 CLI 退避重试）时
+        流里只有这类消息，id 必须能从 init 解析出来，否则新会话只能等超时。
+        """
         sdk_id = msg_dict.get("session_id") or msg_dict.get("sessionId")
         if sdk_id:
             return str(sdk_id)
+        data = msg_dict.get("data")
+        if isinstance(data, dict):
+            nested = data.get("session_id") or data.get("sessionId")
+            if nested:
+                return str(nested)
         raw_sdk_id = getattr(message, "session_id", None) or getattr(message, "sessionId", None)
         if raw_sdk_id:
             return str(raw_sdk_id)

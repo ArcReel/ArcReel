@@ -91,9 +91,22 @@ async def test_probe_messages_200_but_not_anthropic_marks_failure(probe_client: 
     assert "non-anthropic" in (result.error or "").lower()
 
 
-async def test_probe_messages_timeout(probe_client: httpx.AsyncClient) -> None:
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (httpx.ReadTimeout("read timed out"), DiagnosisCode.TIMEOUT),
+        (httpx.ConnectTimeout("connect timed out"), DiagnosisCode.NETWORK),
+        (httpx.WriteTimeout("write timed out"), DiagnosisCode.NETWORK),
+        (httpx.PoolTimeout("pool timed out"), DiagnosisCode.NETWORK),
+    ],
+    ids=["read", "connect", "write", "pool"],
+)
+async def test_probe_messages_timeout_only_read_timeout_means_upstream_slow(
+    probe_client: httpx.AsyncClient, exc: httpx.TimeoutException, expected: DiagnosisCode
+) -> None:
+    """只有 ReadTimeout 证明服务可达；其余超时与网络不通同类。"""
     with capture_http() as router:
-        router.post("https://api.example.com/v1/messages").mock(side_effect=httpx.TimeoutException("timeout"))
+        router.post("https://api.example.com/v1/messages").mock(side_effect=exc)
         result = await probe_messages(
             messages_root="https://api.example.com",
             api_key="sk",
@@ -104,7 +117,8 @@ async def test_probe_messages_timeout(probe_client: httpx.AsyncClient) -> None:
 
     assert result.success is False
     assert result.status_code is None
-    assert "timeout" in (result.error or "").lower()
+    assert "timed out" in (result.error or "").lower()
+    assert classify_probe_failure(result) == expected
 
 
 async def test_probe_messages_network_error(probe_client: httpx.AsyncClient) -> None:
@@ -144,7 +158,7 @@ def test_classify_probe_failure_429() -> None:
 
 
 def test_classify_probe_failure_network() -> None:
-    p = ProbeResult(success=False, status_code=None, latency_ms=10, error="timeout")
+    p = ProbeResult(success=False, status_code=None, latency_ms=10, error="connection refused")
     assert classify_probe_failure(p) == DiagnosisCode.NETWORK
 
 
@@ -200,6 +214,27 @@ async def test_probe_discovery_network_error(probe_client: httpx.AsyncClient) ->
     assert result.success is False
     assert result.status_code is None
     assert "dns fail" in (result.error or "").lower()
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (httpx.ReadTimeout("read timed out"), DiagnosisCode.TIMEOUT),
+        (httpx.ConnectTimeout("connect timed out"), DiagnosisCode.NETWORK),
+    ],
+    ids=["read", "connect"],
+)
+async def test_probe_discovery_timeout_follows_messages_probe_rule(
+    probe_client: httpx.AsyncClient, exc: httpx.TimeoutException, expected: DiagnosisCode
+) -> None:
+    with capture_http() as router:
+        router.get("https://api.example.com/v1/models").mock(side_effect=exc)
+        result = await probe_discovery(discovery_root="https://api.example.com", api_key="sk", http_client=probe_client)
+
+    assert result is not None
+    assert result.success is False
+    assert result.status_code is None
+    assert classify_probe_failure(result) == expected
 
 
 async def test_run_test_custom_mode_self_heals_with_anthropic_suffix(probe_client: httpx.AsyncClient) -> None:

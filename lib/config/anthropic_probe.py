@@ -31,6 +31,16 @@ logger = logging.getLogger(__name__)
 
 _ERR_TRUNCATE = 200
 
+# 超时与其他网络异常同为 status_code=None；error 以此前缀开头即为「服务可达但
+# 响应慢」，classify 据此与「网络不通」分开。只有 ReadTimeout（连接已建立、请求已
+# 发出、等响应超时）能证明服务可达；ConnectTimeout / WriteTimeout / PoolTimeout
+# 不能，与其他网络异常同路径处理。
+_TIMEOUT_ERROR_PREFIX = "timeout: "
+
+# messages 探测上限。带推理的模型（如火山方舟 Agent Plan 的 doubao-seed 系列）
+# 首 token 常达 8~10s，上限须留出足够余量，否则正常端点会被误判为网络不通。
+_MESSAGES_PROBE_TIMEOUT_S = 30.0
+
 # 400 错误体里「缺参」措辞紧挨着 model 时 = 模型参数没传（而非模型名不被识别）。
 # 中间允许任意字符以容纳 "missing parameter model" 这类措辞，但限定邻近距离，
 # 避免 body 里另一个参数的缺参提示（如 missing max_tokens）连坐到 model。
@@ -45,6 +55,7 @@ class DiagnosisCode(StrEnum):
     MODEL_REQUIRED = "model_required"
     RATE_LIMITED = "rate_limited"
     NETWORK = "network"
+    TIMEOUT = "timeout"
     UNKNOWN = "unknown"
 
 
@@ -80,7 +91,7 @@ async def probe_messages(
     messages_root: str,
     api_key: str,
     model: str,
-    timeout_s: float = 10.0,
+    timeout_s: float = _MESSAGES_PROBE_TIMEOUT_S,
     http_client: httpx.AsyncClient | None = None,
 ) -> ProbeResult:
     """POST {messages_root}/v1/messages 发最小请求 (max_tokens=1)。
@@ -105,10 +116,10 @@ async def probe_messages(
     started = time.perf_counter()
     try:
         resp = await _post(url=url, headers=headers, payload=payload, timeout_s=timeout_s, http_client=http_client)
-    except httpx.TimeoutException as exc:
+    except httpx.ReadTimeout as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         logger.info("probe_messages timeout url=%s elapsed_ms=%d", url, elapsed)
-        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"timeout: {exc!s}")
+        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"{_TIMEOUT_ERROR_PREFIX}{exc!s}")
     except httpx.HTTPError as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         logger.info("probe_messages network err url=%s elapsed_ms=%d", url, elapsed)
@@ -168,6 +179,8 @@ def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
         # 2xx 但 probe 判失败 = 协议不匹配（OpenAI 兼容响应冒充 anthropic）
         return DiagnosisCode.OPENAI_COMPAT_ONLY
     if code is None:
+        if (result.error or "").startswith(_TIMEOUT_ERROR_PREFIX):
+            return DiagnosisCode.TIMEOUT
         return DiagnosisCode.NETWORK
     return DiagnosisCode.UNKNOWN
 
@@ -203,9 +216,9 @@ async def probe_discovery(
                 timeout_s=timeout_s,
                 http_client=http_client,
             )
-    except httpx.TimeoutException as exc:
+    except httpx.ReadTimeout as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
-        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"timeout: {exc!s}")
+        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"{_TIMEOUT_ERROR_PREFIX}{exc!s}")
     except httpx.HTTPError as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=_truncate(str(exc)))

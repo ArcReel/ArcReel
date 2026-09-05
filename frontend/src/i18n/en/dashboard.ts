@@ -1787,6 +1787,7 @@ export default {
   'diagnosis_model_required': 'No default model set for this preset. Fill in a default model before testing.',
   'diagnosis_rate_limited': 'Rate limited. Try again later.',
   'diagnosis_network': 'Network unreachable. Check URL and firewall.',
+  'diagnosis_timeout': 'Upstream timed out. The endpoint is reachable but the model did not answer in time; you can save and retry.',
   'diagnosis_unknown': 'Unknown error. See raw response.',
   // ==================== Shot end frame ====================
   'end_frame_title': 'End frame',

@@ -14,7 +14,7 @@ from server.agent_runtime.message_serialization import (
     match_user_echo,
     message_to_dict,
 )
-from server.agent_runtime.session_manager import SDK_AVAILABLE, AgentStartupError, ManagedSession
+from server.agent_runtime.session_manager import SDK_AVAILABLE, AgentStartupError, ManagedSession, SessionManager
 from tests.fakes import build_managed_with_actor
 
 
@@ -335,9 +335,10 @@ class TestSessionManagerUserInput:
         assert session_manager.unclaimed_user_echoes == 0
 
     async def test_cleanup_on_error_disconnect_timeout_keeps_startup_failure_out_of_echo_accounting(
-        self, session_manager, meta_store, monkeypatch, caplog, tmp_path
+        self, meta_store, monkeypatch, caplog, tmp_path
     ):
         """会话跑起来后才启动失败时，断开挂起不得把待回放登记误记为未认领。"""
+        session_manager = SessionManager(project_root=tmp_path, meta_store=meta_store, sdk_id_timeout=0.05)
         proj_dir = tmp_path / "projects" / "demo"
         proj_dir.mkdir(parents=True)
         (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
@@ -378,7 +379,6 @@ class TestSessionManagerUserInput:
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
         monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
         monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
-        monkeypatch.setattr(type(session_manager), "_SDK_ID_TIMEOUT", 0.05)
         session_manager._session_actor_shutdown_timeout = 0.05
 
         with (

@@ -1785,6 +1785,7 @@ export default {
   'diagnosis_model_required': 'Preset này chưa có model mặc định. Hãy điền model mặc định trước khi kiểm tra.',
   'diagnosis_rate_limited': 'Đã vượt giới hạn tốc độ. Thử lại sau.',
   'diagnosis_network': 'Không thể truy cập mạng. Kiểm tra URL và tường lửa.',
+  'diagnosis_timeout': 'Upstream hết thời gian chờ. Endpoint truy cập được nhưng model không trả lời kịp; bạn có thể lưu và thử lại.',
   'diagnosis_unknown': 'Lỗi không xác định. Xem chi tiết bên dưới.',
   // ==================== Khung hình cuối ====================
   'end_frame_title': 'Khung hình cuối',
