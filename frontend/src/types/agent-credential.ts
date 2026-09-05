@@ -69,6 +69,7 @@ export type DiagnosisCode =
   | "openai_compat_only"
   | "auth_failed"
   | "model_not_found"
+  | "model_required"
   | "rate_limited"
   | "network"
   | "unknown";

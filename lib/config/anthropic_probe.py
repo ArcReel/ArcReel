@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 from enum import StrEnum
@@ -19,12 +20,21 @@ from typing import Any, Literal
 import httpx
 
 from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset
-from lib.config.anthropic_url import AnthropicEndpoints, derive_anthropic_endpoints
+from lib.config.anthropic_url import (
+    AnthropicEndpoints,
+    anthropic_auth_headers,
+    derive_anthropic_endpoints,
+)
 from lib.httpx_shared import get_http_client
 
 logger = logging.getLogger(__name__)
 
 _ERR_TRUNCATE = 200
+
+# 400 错误体里「缺参」措辞紧挨着 model 时 = 模型参数没传（而非模型名不被识别）。
+# 中间允许任意字符以容纳 "missing parameter model" 这类措辞，但限定邻近距离，
+# 避免 body 里另一个参数的缺参提示（如 missing max_tokens）连坐到 model。
+_MISSING_MODEL_RE = re.compile(r"(missing|required|empty).{0,16}model|model.{0,16}(missing|required|is empty)")
 
 
 class DiagnosisCode(StrEnum):
@@ -32,6 +42,7 @@ class DiagnosisCode(StrEnum):
     OPENAI_COMPAT_ONLY = "openai_compat_only"
     AUTH_FAILED = "auth_failed"
     MODEL_NOT_FOUND = "model_not_found"
+    MODEL_REQUIRED = "model_required"
     RATE_LIMITED = "rate_limited"
     NETWORK = "network"
     UNKNOWN = "unknown"
@@ -147,6 +158,12 @@ def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
     # 启发式：404 body 含 "model" 关键词即视为模型不存在；后端改措辞时会退化到 UNKNOWN
     if code == 404 and ("model" in err or "model_not_found" in err):
         return DiagnosisCode.MODEL_NOT_FOUND
+    # 400 + body 提到 model：网关在参数校验阶段就拒了。缺参（火山方舟的
+    # MissingParameter）与模型名不被识别是两种用户动作，按 body 关键词分开。
+    if code == 400 and "model" in err:
+        if _MISSING_MODEL_RE.search(err):
+            return DiagnosisCode.MODEL_REQUIRED
+        return DiagnosisCode.MODEL_NOT_FOUND
     if code is not None and 200 <= code < 300:
         # 2xx 但 probe 判失败 = 协议不匹配（OpenAI 兼容响应冒充 anthropic）
         return DiagnosisCode.OPENAI_COMPAT_ONLY
@@ -174,10 +191,18 @@ async def probe_discovery(
     if not discovery_root:
         return None
     url = f"{discovery_root.rstrip('/')}/v1/models"
-    headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
     started = time.perf_counter()
     try:
-        resp = await _get(url=url, headers=headers, timeout_s=timeout_s, http_client=http_client)
+        resp = await _get(
+            url=url, headers=anthropic_auth_headers(api_key), timeout_s=timeout_s, http_client=http_client
+        )
+        if resp.status_code == 401:
+            resp = await _get(
+                url=url,
+                headers=anthropic_auth_headers(api_key, bearer=True),
+                timeout_s=timeout_s,
+                http_client=http_client,
+            )
     except httpx.TimeoutException as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"timeout: {exc!s}")
@@ -257,7 +282,20 @@ async def run_test(
         ep = derive_anthropic_endpoints(base_url)
         effective_model = model or _DEFAULT_TEST_MODEL
 
-    # 2. messages + discovery 并发首轮：discovery 是 warn 级独立信号，串行只浪费墙钟时间
+    # 2. 预设模型为空：messages 请求必然被上游以「缺 model」拒掉，直接短路，
+    #    让用户看到「请先填默认模型」而不是一条泛化的上游报错。
+    if not effective_model:
+        return TestConnectionResponse(
+            overall="fail",
+            messages_probe=ProbeResult(success=False, status_code=None, latency_ms=None, error=None),
+            discovery_probe=None,
+            diagnosis=DiagnosisCode.MODEL_REQUIRED,
+            suggestion=SuggestionAction(kind="run_discovery"),
+            derived_messages_root=ep.messages_root,
+            derived_discovery_root=ep.discovery_root,
+        )
+
+    # 3. messages + discovery 并发首轮：discovery 是 warn 级独立信号，串行只浪费墙钟时间
     msg, disc = await asyncio.gather(
         probe_messages(
             messages_root=ep.messages_root,
@@ -272,7 +310,7 @@ async def run_test(
         ),
     )
 
-    # 3. 自定义模式 + 失败 + 没显式 anthropic 后缀 + status 命中 retryable → 串行自愈
+    # 4. 自定义模式 + 失败 + 没显式 anthropic 后缀 + status 命中 retryable → 串行自愈
     suggestion: SuggestionAction | None = None
     diagnosis: DiagnosisCode | None = None
     final_messages_root = ep.messages_root
@@ -302,7 +340,7 @@ async def run_test(
             msg = retry
             final_messages_root = retry_root
 
-    # 4. 诊断 + 总评
+    # 5. 诊断 + 总评
     if msg.success:
         overall = "ok" if (disc is None or disc.success) else "warn"
     else:

@@ -605,7 +605,9 @@ class TestDiscoverModels:
         # 泄漏面真实存在：出站请求 URL 上带着查询串凭证。权限段口令进异常消息这件事由
         # test_model_discovery.py 的 test_status_error_message_drops_query_and_userinfo_credentials
         # 在 exc.request.url 上断言：httpx 出站前会把权限段挪进 Authorization 头。
-        assert "sk-leaked-query" in str(only_request(route).url)
+        # 401 会触发一次 Bearer 重试，两次请求都带同一 URL。
+        assert route.call_count == 2
+        assert "sk-leaked-query" in str(route.calls.last.request.url)
         assert resp.status_code == 502
         detail = resp.json()["detail"]
         assert "sk-leaked-userinfo" not in detail

@@ -145,6 +145,10 @@ export function AddCredentialModal({
 
   if (!open) return null;
 
+  // 供应商不提供模型列表接口时（如火山方舟两档套餐），下拉框回退到预设的建议模型，
+  // 用户不必知道模型 ID 也能选中一个可用值。
+  const availableModels = modelOptions.length > 0 ? modelOptions : (selected?.suggested_models ?? []);
+
   // 草稿任意可影响连通性的字段（preset / base_url / api_key / model）变化后，
   // 旧 testResult 已经不对应当前草稿了，必须失效，避免用户把未重新验证的配置
   // 当成已通过验证。
@@ -483,7 +487,7 @@ export function AddCredentialModal({
                 form.setModel(v);
                 invalidateDraftTest();
               }}
-              options={modelOptions}
+              options={availableModels}
               placeholder={selected?.default_model || ""}
               clearable
             />
@@ -523,7 +527,7 @@ export function AddCredentialModal({
                 envVar="ANTHROPIC_DEFAULT_HAIKU_MODEL"
                 value={form.haikuModel}
                 onChange={form.setHaikuModel}
-                options={modelOptions}
+                options={availableModels}
               />
               <RoutingField
                 id="cred-sonnet"
@@ -532,7 +536,7 @@ export function AddCredentialModal({
                 envVar="ANTHROPIC_DEFAULT_SONNET_MODEL"
                 value={form.sonnetModel}
                 onChange={form.setSonnetModel}
-                options={modelOptions}
+                options={availableModels}
               />
               <RoutingField
                 id="cred-opus"
@@ -541,7 +545,7 @@ export function AddCredentialModal({
                 envVar="ANTHROPIC_DEFAULT_OPUS_MODEL"
                 value={form.opusModel}
                 onChange={form.setOpusModel}
-                options={modelOptions}
+                options={availableModels}
               />
               <RoutingField
                 id="cred-subagent"
@@ -550,7 +554,7 @@ export function AddCredentialModal({
                 envVar="CLAUDE_CODE_SUBAGENT_MODEL"
                 value={form.subagentModel}
                 onChange={form.setSubagentModel}
-                options={modelOptions}
+                options={availableModels}
               />
             </div>
           </details>

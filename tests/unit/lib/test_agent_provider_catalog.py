@@ -84,8 +84,8 @@ def test_default_models_match_table() -> None:
         "minimax-cn": "MiniMax-M3",
         "minimax-intl": "MiniMax-M3",
         "kimi": "",
-        "ark-coding-plan": "",
-        "ark-agent-plan": "",
+        "ark-coding-plan": "doubao-seed-evolving",
+        "ark-agent-plan": "doubao-seed-evolving",
     }
     actual = {p.id: p.default_model for p in list_presets()}
     assert actual == expected
@@ -106,3 +106,14 @@ def test_preset_dataclass_is_frozen() -> None:
     assert dataclasses.is_dataclass(p)
     with pytest.raises(dataclasses.FrozenInstanceError):
         p.display_name = "x"
+
+
+def test_ark_presets_carry_suggested_models_without_discovery() -> None:
+    """火山方舟两档套餐没有模型列表接口：discovery 关闭，靠建议模型兜底。"""
+    for preset_id in ("ark-coding-plan", "ark-agent-plan"):
+        p = get_preset(preset_id)
+        assert p is not None
+        assert p.discovery_url is None, f"{preset_id} 不应声明 discovery_url"
+        assert p.default_model in p.suggested_models
+        assert len(p.suggested_models) >= 2
+        assert p.notes_i18n_key is not None

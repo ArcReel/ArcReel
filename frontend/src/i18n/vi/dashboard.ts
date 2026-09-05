@@ -1782,6 +1782,7 @@ export default {
   'diagnosis_openai_compat_only': 'Endpoint này dùng giao thức tương thích OpenAI — Claude SDK không thể dùng. Kiểm tra Plan.',
   'diagnosis_auth_failed': 'API key không hợp lệ hoặc đã hết hạn.',
   'diagnosis_model_not_found': 'Không tìm thấy model. Hãy khám phá model khả dụng trước.',
+  'diagnosis_model_required': 'Preset này chưa có model mặc định. Hãy điền model mặc định trước khi kiểm tra.',
   'diagnosis_rate_limited': 'Đã vượt giới hạn tốc độ. Thử lại sau.',
   'diagnosis_network': 'Không thể truy cập mạng. Kiểm tra URL và tường lửa.',
   'diagnosis_unknown': 'Lỗi không xác định. Xem chi tiết bên dưới.',
