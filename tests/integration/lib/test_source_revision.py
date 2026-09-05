@@ -29,9 +29,40 @@ def test_all_source_revision_is_stable_and_excludes_planned_episode_files(tmp_pa
     assert second == first
 
 
+def test_all_scope_treats_episode_files_as_source_when_nothing_else_is_authored(tmp_path: Path) -> None:
+    """source/ 下只有 episode_N.txt（用户手动预拆分）：没有任何原文能派生出它们，它们就是源文。"""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "episode_2.txt").write_text("第二集", encoding="utf-8")
+    (source / "episode_1.txt").write_text("第一集", encoding="utf-8")
+
+    result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+
+    assert result.blockers == []
+    assert result.files == ["source/episode_1.txt", "source/episode_2.txt"]
+    assert [doc.text for doc in result.documents] == ["第一集", "第二集"]
+    assert result.revision is not None
+
+
+def test_scoped_revision_accepts_episode_files_when_nothing_else_is_authored(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "episode_1.txt").write_text("第一集", encoding="utf-8")
+
+    result = compute_source_revision(
+        tmp_path,
+        _project(),
+        SourceScope(kind="files", files=["source/episode_1.txt"]),
+    )
+
+    assert result.blockers == []
+    assert result.files == ["source/episode_1.txt"]
+
+
 def test_scoped_revision_rejects_planned_episode_files(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
+    (source / "novel.txt").write_text("原文", encoding="utf-8")
     (source / "episode_1.txt").write_text("derived planning output", encoding="utf-8")
 
     result = compute_source_revision(

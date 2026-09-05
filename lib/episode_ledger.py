@@ -2,7 +2,9 @@
 
 project.json 的 episodes 列表是分集单一真相源，条目在 episode/title/script_file
 之外扩展账本字段（source_range / hook / outline / ledger_status），顶层增加
-planning_cursor 标记下一批规划起点。物理 ``source/episode_N.txt`` 是派生物。
+planning_cursor 标记下一批规划起点。物理 ``source/episode_N.txt`` 是派生物——除非 ``source/``
+下只有它们、没有任何能派生出它们的原文（手动预拆分上传），此时它们本身就是源文（见
+``episode_files_are_derived``）。
 
 ``source_range`` 是账本里唯一的位置真相：有它才能从源文重造派生文件、才能续接
 规划。账本字段全部可缺失，缺失即该集没有位置记录（旧拆分流程写入、或手工预拆分
@@ -16,7 +18,7 @@ import hashlib
 import logging
 import re
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, get_args
@@ -212,21 +214,44 @@ def parse_positive_episode_num(value: Any) -> int | None:
     return num if num is not None and num > 0 else None
 
 
+def is_derived_episode_name(name: str) -> bool:
+    """文件名是否为派生集文件名 ``episode_N.txt``（仅 ASCII 数字）。"""
+    return _EPISODE_FILE_RE.fullmatch(name) is not None
+
+
+def _is_candidate_source(path: Path) -> bool:
+    """``source/`` 直下扩展名合法、非点/下划线前缀的普通文件（含派生集文件名）。"""
+    return path.is_file() and not path.name.startswith((".", "_")) and path.suffix.lower() in SOURCE_TEXT_SUFFIXES
+
+
+def episode_files_are_derived(entries: Iterable[Path]) -> bool:
+    """``source/`` 目录项里的 ``episode_N.txt`` 是否该按派生物对待。
+
+    由目录整体决定：目录里另有候选源文时，集文件是分集规划按账本派生出来的（改动原文即改动
+    源文，派生文件不重复计入）；目录里只有 ``episode_N.txt`` 时没有任何原文能派生出它们——那是
+    用户自行拆好上传的分集，它们本身就是源文（见 ``docs/adr/0031``）。源文枚举与源文修订
+    共用这一个判定，两边的源文口径不会分裂。
+    """
+    return any(not is_derived_episode_name(path.name) and _is_candidate_source(path) for path in entries)
+
+
 def discover_sources(project_dir: Path) -> list[SourceDoc]:
     """枚举 source/ 直下一级的候选源文件（.txt/.md），按文件名排序。
 
-    排除派生集文件（episode_N.txt）、下划线/点前缀文件（_remaining.txt 等）与
-    子目录（source/raw/ 原格式备份天然不进候选）。
+    排除下划线/点前缀文件（_remaining.txt 等）与子目录（source/raw/ 原格式备份天然不进
+    候选）；派生集文件（episode_N.txt）只在目录另有原文时排除（见 ``episode_files_are_derived``）。
     """
     source_dir = project_dir / "source"
     if not source_dir.is_dir():
         return []
+    entries = sorted(source_dir.iterdir())
+    skip_episode_files = episode_files_are_derived(entries)
     docs: list[SourceDoc] = []
-    for path in sorted(source_dir.iterdir()):
+    for path in entries:
         name = path.name
-        if not path.is_file() or name.startswith(("_", ".")):
+        if skip_episode_files and is_derived_episode_name(name):
             continue
-        if path.suffix.lower() not in SOURCE_TEXT_SUFFIXES or _EPISODE_FILE_RE.fullmatch(name):
+        if not _is_candidate_source(path):
             continue
         text = _read_text_or_none(path)
         if text is None:

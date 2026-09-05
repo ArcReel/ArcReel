@@ -104,6 +104,8 @@ expected source revision：{next_action.args.expected_source_revision}
 
 **触发**：`next_action.type == "plan_episodes"`
 
+**用户已自行分集时不走本节**：用户把拆好的 `source/episode_N.txt` 直接放进 `source/`（没有整本原文）时，这些文件本身就是源文，账本会按文件自动登记（条目无原文范围记录），计划不会给出 `plan_episodes`，而是逐集直接进入脚本规划。**不要**把它们合并成全本、**不要**调 `plan_episodes` 重切、**不要**改名或重排；`plan_episodes` 对这类账本一律拒绝并指路全量重置，而全量重置会把这些集文件改名留底——只有用户明确要求重新切分时才走那条路，且须事前告知这一后果并取得确认。
+
 分集规划由服务端工具完成：工具内部从 `planning_cursor` 起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集（标题/钩子/原文范围），在同一把项目锁内写账本、派生 `source/episode_{N}.txt` 并清理残留派生文件。**主 Agent 只调一次工具、只收摘要**——不读小说原文、不自行选切分点：
 
 1. 规划前快速核对 `project.json`：

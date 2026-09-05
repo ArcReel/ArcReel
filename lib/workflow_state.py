@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from portalocker.exceptions import BaseLockException
@@ -31,9 +31,11 @@ from lib.episode_ledger import (
     SourceDoc,
     compute_source_fingerprints,
     episodes_without_source_range,
+    is_derived_episode_name,
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
+    register_orphan_episode_entries,
 )
 from lib.episode_paths import episode_source_relpath
 from lib.project_manager import ProjectManager
@@ -655,10 +657,14 @@ class WorkflowStateService:
         """判定源文是否已全部排布完。
 
         源文只来自 ``planning_sources``——本次请求已经读过一遍的那份，不再回磁盘取。
+        手动预拆分（源文全是 ``episode_N.txt``）没有待排布的原文，也从不产生源文指纹与
+        规划游标，直接视为排布完，做完的集才不会被打回分集规划。
         """
 
         if source is None or not source.files:
             return False
+        if all(is_derived_episode_name(PurePosixPath(rel).name) for rel in source.files):
+            return True
         recorded_fingerprints = project.get(SOURCE_FINGERPRINTS_KEY)
         if not isinstance(recorded_fingerprints, Mapping) or not recorded_fingerprints:
             return False
@@ -942,6 +948,12 @@ class WorkflowStateService:
         failure = load_migration_verdict(project_path)
         if failure is not None:
             return self._migration_blocked_status(project, failure)
+        # 用户自行拆好 source/episode_N.txt 上传、账本为空时，先在内存里补建条目再读账本，路线才有
+        # 目标集可选；否则空账本会把这些集指去分集规划，而那条路对手动预拆分只会以「条目缺位置
+        # 记录、请全量重置」告终。补建与分集规划器、内容确认共用同一登记函数（条目无 source_range，
+        # 规划入口照旧拒绝），但这里不写 project.json：状态计算不改变结论性数据（见模块 docstring），
+        # 登记落盘留给真正开始消费这些集的入口。
+        project = register_orphan_episode_entries(project_path, project)
         shared = self._shared_facts(project_path, project)
         return self._get_status(project_name, project, project_path, episode, shared)
 
@@ -964,10 +976,12 @@ class WorkflowStateService:
 
         project = self.pm.load_project_readonly(project_name)
         project_path = self.pm.get_project_path(project_name)
-        episodes = self._episodes(project, [])
         failure = load_migration_verdict(project_path)
         if failure is not None:
-            return self._migration_blocked_summary(project, episodes, failure)
+            return self._migration_blocked_summary(project, self._episodes(project, []), failure)
+        # 与 get_status 同一口径：手动预拆分的集在内存里补进账本后再数集数，不落盘。
+        project = register_orphan_episode_entries(project_path, project)
+        episodes = self._episodes(project, [])
         try:
             resolver: ArtifactComparer | None = (
                 RegisteredArtifactResolver(project_path, project)

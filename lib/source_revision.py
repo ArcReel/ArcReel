@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 import stat
 import unicodedata
 from collections.abc import Mapping
@@ -13,9 +12,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from lib.content_digest import prefixed_canonical_json_digest
-from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
+from lib.episode_ledger import SOURCE_TEXT_SUFFIXES, episode_files_are_derived, is_derived_episode_name
 
-_DERIVED_EPISODE_RE = re.compile(r"episode_[0-9]+\.txt")
+
+def _has_source_text_name(path: Path) -> bool:
+    """目录项的文件名是否像源文：扩展名合法、非点/下划线前缀（含派生集文件名）。
+
+    不看是否普通文件：那是 ``_read_sources`` 的事，非普通文件在那里以阻塞项报出而不是静默跳过。
+    """
+    return not path.name.startswith((".", "_")) and path.suffix.lower() in SOURCE_TEXT_SUFFIXES
 
 
 class SourceScope(BaseModel):
@@ -114,12 +119,13 @@ def _all_source_paths(
     except OSError as exc:
         return [], _blocked(scope, "source_unreadable", "source", f"source directory cannot be read: {exc}")
 
+    skip_episode_files = episode_files_are_derived(entries)
     paths: list[tuple[str, Path]] = []
     for path in entries:
         name = path.name
-        if name.startswith((".", "_")) or path.suffix.lower() not in SOURCE_TEXT_SUFFIXES:
+        if not _has_source_text_name(path):
             continue
-        if _DERIVED_EPISODE_RE.fullmatch(name):
+        if skip_episode_files and is_derived_episode_name(name):
             continue
         rel = unicodedata.normalize("NFC", f"source/{name}")
         paths.append((rel, path))
@@ -139,6 +145,7 @@ def _scoped_source_paths(
         entries = list(source_dir.iterdir()) if source_dir.exists() else []
     except OSError as exc:
         return [], _blocked(scope, "source_unreadable", "source", f"source directory cannot be read: {exc}")
+    skip_episode_files = episode_files_are_derived(entries)
     by_canonical_path: dict[str, list[Path]] = {}
     for entry in entries:
         rel = unicodedata.normalize("NFC", f"source/{entry.name}")
@@ -153,7 +160,7 @@ def _scoped_source_paths(
         pure = PurePosixPath(rel)
         if len(pure.parts) != 2 or pure.parts[0] != "source" or pure.suffix.lower() not in SOURCE_TEXT_SUFFIXES:
             return [], _blocked(scope, "invalid_source_scope", rel, "scoped files must be source text files")
-        if _DERIVED_EPISODE_RE.fullmatch(pure.name):
+        if skip_episode_files and is_derived_episode_name(pure.name):
             return [], _blocked(scope, "invalid_source_scope", rel, "derived episode files are not source text")
         if rel in seen:
             continue

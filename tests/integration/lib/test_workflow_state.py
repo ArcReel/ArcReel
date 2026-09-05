@@ -15,7 +15,12 @@ from lib.artifact_activation import (
 )
 from lib.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.asset_inventory import complete_asset_inventory
-from lib.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints, discover_sources
+from lib.episode_ledger import (
+    SOURCE_FINGERPRINTS_KEY,
+    compute_source_fingerprints,
+    discover_sources,
+    register_orphan_episode_entries,
+)
 from lib.json_io import atomic_write_json, load_json
 from lib.narration_delivery import (
     TtsSynthesisSettings,
@@ -302,6 +307,99 @@ def test_drama_target_comes_from_ledger_not_derived_filenames(tmp_path: Path) ->
     assert status.state == "SCRIPT_PLAN_CONTENT"
     assert status.next_action.type == "prepare_script_plan"
     assert status.next_action.args["preprocessor"] == "normalize-drama-script"
+
+
+def test_manual_presplit_project_routes_to_script_plan_without_writing_the_ledger(tmp_path: Path) -> None:
+    """source/ 只有用户自行拆好的 episode_N.txt、账本为空：这些文件就是源文，不报缺源文。
+
+    状态按内存里补建的账本条目（无 source_range）给出结论，路线从资产清单直达本集脚本规划、
+    全程不经分集规划；读状态不写 project.json，账本登记留给内容确认入口。
+    """
+    pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
+    for number in (1, 2, 3):
+        _write_episode_source(project_path, number, f"第{number}集原文")
+    project_file = project_path / "project.json"
+    before = project_file.read_bytes()
+    service = WorkflowStateService(pm)
+
+    status = service.get_status("demo")
+
+    assert status.state == "ASSET_INVENTORY"
+    assert status.next_action.type == "analyze_assets"
+    assert status.next_action.args["scope"] == {"kind": "all", "files": []}
+    assert project_file.read_bytes() == before
+
+    scope = SourceScope(kind="all")
+    revision = compute_source_revision(project_path, pm.load_project("demo"), scope)
+    assert revision.files == ["source/episode_1.txt", "source/episode_2.txt", "source/episode_3.txt"]
+    assert revision.revision == status.source_revision
+    complete_asset_inventory(pm, "demo", scope, revision.revision)
+
+    status = service.get_status("demo")
+
+    assert status.target is not None
+    assert status.target.episode == 1
+    assert status.target.source == "source/episode_1.txt"
+    assert status.state == "SCRIPT_PLAN_CONTENT"
+    assert status.next_action.type == "prepare_script_plan"
+    assert status.next_action.args["episode"] == 1
+    assert pm.load_project("demo")["episodes"] == []
+
+
+def test_manual_presplit_project_reaches_export_ready_without_planning_records(tmp_path: Path) -> None:
+    """手动预拆分项目没有源文指纹与规划游标（从未走过分集规划），产物齐备时照样到达 EXPORT_READY。
+
+    源文本身就是各集的文件，没有待排布的原文；「源文尚未排布完」的口径对它不成立，不得把
+    做完的集打回分集规划。
+    """
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_episode_source(project_path, 1, "第一集原文")
+    scope = SourceScope(kind="all")
+    revision = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
+    assert revision is not None
+    complete_asset_inventory(pm, "demo", scope, revision)
+
+    def _confirm_episode(project: dict) -> None:
+        # 内容确认入口落盘的账本条目：只有集号，没有 source_range。
+        project["episodes"] = register_orphan_episode_entries(project_path, project)["episodes"]
+
+    pm.update_project("demo", _confirm_episode)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "script_plan_segments.json", {"episode": 1, "segments": []})
+    segment = _valid_narration_segment()
+    segment["generated_assets"]["storyboard_image"] = resource_relative_path("storyboards", "E1S01")
+    _write_artifact(project_path, segment["generated_assets"]["storyboard_image"])
+    segment["generated_assets"]["video_clip"] = _commit_media_version(project_path, "videos", "E1S01")
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": [segment]},
+    )
+    _register_produced_artifacts(project_path)
+    project = pm.load_project("demo")
+    assert [entry["episode"] for entry in project["episodes"]] == [1]
+    assert "source_range" not in project["episodes"][0]
+    assert SOURCE_FINGERPRINTS_KEY not in project
+    assert project["planning_cursor"] is None
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "EXPORT_READY"
+    assert status.next_action.type == "export"
+
+
+def test_manual_presplit_summary_lists_episodes_without_writing_the_ledger(tmp_path: Path) -> None:
+    """项目列表投影同样按内存补建的账本读集数：手动预拆分项目一进列表就按集数展示，project.json 不动。"""
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_episode_source(project_path, 1, "第一集原文")
+    _write_episode_source(project_path, 2, "第二集原文")
+    project_file = project_path / "project.json"
+    before = project_file.read_bytes()
+
+    summary = WorkflowStateService(pm).get_project_summary("demo")
+
+    assert [episode.episode for episode in summary.episodes] == [1, 2]
+    assert project_file.read_bytes() == before
 
 
 def test_ad_is_episode_one_and_skips_asset_inventory_and_script_plan(tmp_path: Path) -> None:
