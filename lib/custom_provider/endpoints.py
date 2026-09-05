@@ -51,6 +51,10 @@ from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
 from lib.video_backends.vidu import ViduVideoBackend
 
+from lib.image_backends.agnes import AgnesImageBackend
+from lib.text_backends.agnes import AgnesTextBackend
+from lib.video_backends.agnes import AgnesVideoBackend, AgnesVideo_2_5_Flash_Backend
+
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
 
@@ -116,6 +120,38 @@ class EndpointSpec:
 
 
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
+
+
+def _build_agnes_chat(provider, model_id: str) -> CustomTextBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    if not base_url:
+        raise ValueError("Agnes 文本后端需要 base_url")
+    delegate = AgnesTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_agnes_image(provider, model_id: str) -> CustomImageBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    if not base_url:
+        raise ValueError("Agnes 图片后端需要 base_url")
+    delegate = AgnesImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_agnes_video(provider, model_id: str) -> CustomVideoBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    if not base_url:
+        raise ValueError("Agnes 视频后端需要 base_url")
+    delegate = AgnesVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_agnes_video_2_5_flash(provider, model_id: str) -> CustomVideoBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    if not base_url:
+        raise ValueError("Agnes 视频2.5flash后端需要 base_url")
+    delegate = AgnesVideo_2_5_Flash_Backend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_openai_chat(provider, model_id: str) -> CustomTextBackend:
@@ -247,6 +283,45 @@ def _build_kling_video(provider, model_id: str) -> CustomVideoBackend:
 
 
 ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
+    "agnes-chat": EndpointSpec(
+        key="agnes-chat",
+        media_type="text",
+        family="agnes",
+        display_name_key="endpoint_agnes_chat_display",
+        request_method="POST",
+        request_path_template="/chat/completions",
+        build_backend=_build_agnes_chat,
+    ),
+    "agnes-image": EndpointSpec(
+        key="agnes-image",
+        media_type="image",
+        family="agnes",
+        display_name_key="endpoint_agnes_image_display",
+        request_method="POST",
+        request_path_template="/images/generations",
+        build_backend=_build_agnes_image,
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+    ),
+    "agnes-video": EndpointSpec(
+        key="agnes-video",
+        media_type="video",
+        family="agnes",
+        display_name_key="endpoint_agnes_video_display",
+        request_method="POST",
+        request_path_template="/videos",
+        build_backend=_build_agnes_video,
+        video_max_reference_images=20,
+    ),
+    "agnes-video-2_5_flash": EndpointSpec(
+        key="agnes-video-2_5_flash",
+        media_type="video",
+        family="agnes",
+        display_name_key="endpoint_agnes_video_2_5_flash_display",
+        request_method="POST",
+        request_path_template="/videos",
+        build_backend=_build_agnes_video_2_5_flash,
+        video_max_reference_images=5,
+    ),
     "openai-chat": EndpointSpec(
         key="openai-chat",
         media_type="text",

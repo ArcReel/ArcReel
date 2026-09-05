@@ -136,6 +136,8 @@ class OpenAITextBackend:
                     "schema": schema,
                 },
             }
+            # 不支持response_format强制校验的的思考模型，需要拆分这个才可以规范化输出，例如MiniMax
+            kwargs["extra_body"] = {"reasoning_split": True}
 
         logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         try:
