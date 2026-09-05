@@ -31,8 +31,10 @@ logger = logging.getLogger(__name__)
 
 _ERR_TRUNCATE = 200
 
-# 超时与其他网络异常同为 status_code=None；error 以此前缀开头即为超时，
-# classify 据此把「服务可达但响应慢」与「网络不通」分开。
+# 超时与其他网络异常同为 status_code=None；error 以此前缀开头即为「服务可达但
+# 响应慢」，classify 据此与「网络不通」分开。只有 ReadTimeout（连接已建立、请求已
+# 发出、等响应超时）能证明服务可达；ConnectTimeout / WriteTimeout / PoolTimeout
+# 不能，与其他网络异常同路径处理。
 _TIMEOUT_ERROR_PREFIX = "timeout: "
 
 # messages 探测上限。带推理的模型（如火山方舟 Agent Plan 的 doubao-seed 系列）
@@ -114,7 +116,7 @@ async def probe_messages(
     started = time.perf_counter()
     try:
         resp = await _post(url=url, headers=headers, payload=payload, timeout_s=timeout_s, http_client=http_client)
-    except httpx.TimeoutException as exc:
+    except httpx.ReadTimeout as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         logger.info("probe_messages timeout url=%s elapsed_ms=%d", url, elapsed)
         return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"{_TIMEOUT_ERROR_PREFIX}{exc!s}")
@@ -214,7 +216,7 @@ async def probe_discovery(
                 timeout_s=timeout_s,
                 http_client=http_client,
             )
-    except httpx.TimeoutException as exc:
+    except httpx.ReadTimeout as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"{_TIMEOUT_ERROR_PREFIX}{exc!s}")
     except httpx.HTTPError as exc:
