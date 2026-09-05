@@ -15,8 +15,8 @@ from lib.content_digest import prefixed_canonical_json_digest
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES, episode_files_are_derived, is_derived_episode_name
 
 
-def _is_candidate_source(path: Path) -> bool:
-    """``source/`` 直下扩展名合法、非点/下划线前缀的目录项（含派生集文件名）。
+def _has_source_text_name(path: Path) -> bool:
+    """目录项的文件名是否像源文：扩展名合法、非点/下划线前缀（含派生集文件名）。
 
     不看是否普通文件：那是 ``_read_sources`` 的事，非普通文件在那里以阻塞项报出而不是静默跳过。
     """
@@ -123,7 +123,7 @@ def _all_source_paths(
     paths: list[tuple[str, Path]] = []
     for path in entries:
         name = path.name
-        if not _is_candidate_source(path):
+        if not _has_source_text_name(path):
             continue
         if skip_episode_files and is_derived_episode_name(name):
             continue
