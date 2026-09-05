@@ -378,7 +378,7 @@ class TestSessionManagerUserInput:
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
         monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
         monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
-        monkeypatch.setattr(type(session_manager), "_SDK_ID_TIMEOUT", 0.05)
+        session_manager._sdk_id_timeout = 0.05
         session_manager._session_actor_shutdown_timeout = 0.05
 
         with (

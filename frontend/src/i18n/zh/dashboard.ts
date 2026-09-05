@@ -1786,6 +1786,7 @@ export default {
   'diagnosis_model_required': '该预设未指定默认模型，请先填写默认模型再测试',
   'diagnosis_rate_limited': '触发限流，稍后重试',
   'diagnosis_network': '网络无法访问，检查 URL 与防火墙',
+  'diagnosis_timeout': '上游响应超时，服务可达但模型在限定时间内未返回；可直接保存后重试',
   'diagnosis_unknown': '未知错误，请查看原始错误信息',
   // ==================== 分镜尾帧 ====================
   'end_frame_title': '尾帧',

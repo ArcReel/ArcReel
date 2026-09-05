@@ -72,6 +72,7 @@ export type DiagnosisCode =
   | "model_required"
   | "rate_limited"
   | "network"
+  | "timeout"
   | "unknown";
 
 export interface SuggestionAction {

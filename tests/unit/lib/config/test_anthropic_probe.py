@@ -144,8 +144,22 @@ def test_classify_probe_failure_429() -> None:
 
 
 def test_classify_probe_failure_network() -> None:
-    p = ProbeResult(success=False, status_code=None, latency_ms=10, error="timeout")
+    p = ProbeResult(success=False, status_code=None, latency_ms=10, error="connection refused")
     assert classify_probe_failure(p) == DiagnosisCode.NETWORK
+
+
+async def test_probe_messages_timeout_classifies_as_timeout(probe_client: httpx.AsyncClient) -> None:
+    with capture_http() as router:
+        router.post("https://api.example.com/v1/messages").mock(side_effect=httpx.ReadTimeout("read timed out"))
+        result = await probe_messages(
+            messages_root="https://api.example.com",
+            api_key="sk",
+            model="x",
+            timeout_s=0.5,
+            http_client=probe_client,
+        )
+
+    assert classify_probe_failure(result) == DiagnosisCode.TIMEOUT
 
 
 def test_classify_probe_failure_openai_compat() -> None:
