@@ -269,8 +269,7 @@ def build_episode_script_basis(script_plan_content: object, *, project: Mapping[
 def build_planless_episode_script_basis(episode: int) -> ArtifactBasis:
     """Describe an episode script that has no formal script_plan to depend on.
 
-    Scripts written before the script_plan gate existed have no plan file; their
-    basis names only the episode, so the script stays current until a formal
+    The basis names only the episode, so the script stays current until a formal
     plan appears and the regular basis takes over.
     """
 

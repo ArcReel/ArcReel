@@ -16,13 +16,12 @@ activation's stability gate holds them fixed through the commit.
 
 from __future__ import annotations
 
-from collections import Counter
 from pathlib import Path
 
 from lib.artifact_activation import activate_artifact_target_state, plan_artifact_target_state
 from lib.json_io import load_json
 from lib.legacy_media_provenance import backfill_legacy_media_provenance
-from lib.project_migration_report import ArtifactBackfillOutcome, merge_skipped
+from lib.project_migration_report import ArtifactBackfillOutcome
 from lib.project_migrations.backups import ensure_versioned_backup
 from lib.project_schema import parse_project_schema_version
 
@@ -45,11 +44,7 @@ def migrate_v12_to_v13(project_dir: Path) -> ArtifactBackfillOutcome | None:
         plan=plan,
         target_schema_version=TARGET_SCHEMA_VERSION,
     )
-    registered = Counter(key.kind.value for key in plan.entries)
-    return ArtifactBackfillOutcome(
-        registered=dict(registered),
-        skipped=merge_skipped(backfill.skipped, plan.skipped),
-    )
+    return ArtifactBackfillOutcome.from_entries(plan.entries, backfill.skipped, plan.skipped)
 
 
 __all__ = ["TARGET_SCHEMA_VERSION", "migrate_v12_to_v13"]

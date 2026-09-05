@@ -15,8 +15,6 @@ audio was synthesised with, which no legacy record carries.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -25,10 +23,12 @@ from typing import Any
 
 from lib.artifact_manifest import ArtifactKey
 from lib.artifact_version_provenance import parse_typed_media_version_target
+from lib.content_digest import canonical_json_digest
 from lib.json_io import atomic_write_json, load_json
 from lib.media_artifact_currency import VideoExecutionShape, project_video_basis_components
 from lib.project_manager import ProjectManager
 from lib.project_migration_report import MigrationSkippedArtifact
+from lib.reference_video.execution_checkpoint import CHECKPOINT_SCHEMA_VERSION
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.version_manager import VersionManager
@@ -75,12 +75,15 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
         except ScriptEditError:
             continue
         for item in items:
-            if not isinstance(item, dict) or item.get("needs_replan") is True:
+            if not isinstance(item, dict):
                 continue
             assets = item.get("generated_assets")
             if not isinstance(assets, Mapping):
                 continue
             resource_id = str(item.get(id_field))
+            if item.get("needs_replan") is True:
+                skipped.extend(_replan_skips(episode, resource_id, assets))
+                continue
             audio_path = assets.get("narration_audio")
             if isinstance(audio_path, str) and audio_path:
                 record = _selected_record(versions_data, "audio", resource_id)
@@ -132,6 +135,28 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
     if amended:
         atomic_write_json(versions_path, versions_data)
     return LegacyProvenanceBackfill(amended=tuple(amended), skipped=tuple(skipped))
+
+
+def _replan_skips(episode: int, resource_id: str, assets: Mapping[str, Any]) -> list[MigrationSkippedArtifact]:
+    """Media hanging off a unit marked ``needs_replan`` is not formal; say so instead of dropping it."""
+
+    skips: list[MigrationSkippedArtifact] = []
+    for field, key in (
+        ("narration_audio", ArtifactKey.episode_audio(episode, resource_id)),
+        ("video_clip", ArtifactKey.episode_video(episode, resource_id)),
+    ):
+        path = assets.get(field)
+        if isinstance(path, str) and path:
+            skips.append(
+                MigrationSkippedArtifact(
+                    kind=key.kind.value,
+                    episode=episode,
+                    resource_id=resource_id,
+                    artifact_path=path,
+                    reason="script unit is marked needs_replan; its media is not a formal artifact",
+                )
+            )
+    return skips
 
 
 def _bound_scripts(project_dir: Path, project: dict[str, Any]) -> list[tuple[int, str, dict[str, Any]]]:
@@ -238,13 +263,10 @@ def _project_video_provenance(
         parent_version=0,
     )
     facts_dict = facts.to_dict()
-    request_digest = hashlib.sha256(
-        json.dumps(facts_dict, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
     return {
-        "execution_checkpoint_schema_version": 3,
+        "execution_checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "execution_duration_seconds": request_duration,
-        "execution_request_digest": request_digest,
+        "execution_request_digest": canonical_json_digest(facts_dict, allow_nan=False),
         "execution_script_file": script_file,
         "execution_provider_media": [],
         # 旧记录没有记下供应商音轨开关，按项目当前设置投影，与其余字段同一口径。

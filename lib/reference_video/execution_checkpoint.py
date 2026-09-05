@@ -31,6 +31,8 @@ ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image",
 ReferenceCapability = Literal["i2v", "r2v"]
 
 _SCHEMA_VERSION = 3
+#: 版本记录 ``execution_checkpoint_schema_version`` 的当前值，供补写来源的迁移与写侧共用一个字面量。
+CHECKPOINT_SCHEMA_VERSION = _SCHEMA_VERSION
 _VISUAL_BASIS_SCHEMA_VERSION = 2
 _LEGACY_SCHEMA_VERSION = 1
 _CHECKPOINT_KIND = "reference_video_submit"
@@ -1017,6 +1019,7 @@ def classify_video_resume_state(
 
 
 __all__ = [
+    "CHECKPOINT_SCHEMA_VERSION",
     "NarrationExecutionFacts",
     "ProviderMediaInput",
     "ReferenceExecutionIdentityError",

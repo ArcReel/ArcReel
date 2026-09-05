@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from lib.artifact_manifest import ArtifactKey
 from lib.json_io import atomic_write_bytes
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,17 @@ class ArtifactBackfillOutcome:
 
     registered: Mapping[str, int]
     skipped: tuple[MigrationSkippedArtifact, ...]
+
+    @classmethod
+    def from_entries(
+        cls,
+        entries: Mapping[ArtifactKey, object],
+        *skipped_groups: Sequence[MigrationSkippedArtifact],
+    ) -> ArtifactBackfillOutcome:
+        """Count registered entries per kind; skip groups merge with the first reason winning."""
+
+        registered = Counter(key.kind.value for key in entries)
+        return cls(registered=dict(registered), skipped=merge_skipped(*skipped_groups))
 
 
 def merge_skipped(

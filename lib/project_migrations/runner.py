@@ -57,7 +57,7 @@ _DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES
 
 #: 迁移器返回值：改写产物清单的那几步返回本步登记与跳过的产物，runner 把链上最后一份折进迁移报告。
 MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | None]] = {}
-#: 自行备份输入的迁移器（清单激活按依赖集备份；v8、v9 备份自己改写的文件），runner 不再为它们备份 project.json。
+#: 自行备份输入的迁移器（清单激活按依赖集备份；v8、v9 备份自己改写的文件），runner 不为它们备份 project.json。
 _MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12})
 
 # 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
@@ -116,7 +116,7 @@ def _load_schema_version(project_dir: Path) -> int:
 
 
 def _backup_project_json(project_dir: Path, from_version: int) -> None:
-    """内容相同的备份只留一份：失败重试不会再堆出一列 ``project.json.bak.v<N>-*``。"""
+    """同一起点版本、内容相同的 ``project.json`` 只留一份备份。"""
 
     ensure_versioned_backup(project_dir / "project.json", from_version)
 

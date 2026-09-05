@@ -21,6 +21,7 @@ from lib.artifact_manifest import (
 )
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, canonical_narration_text
 from lib.project_manager import ProjectManager
+from lib.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.speech_artifact_provenance import (
     build_video_duration_basis,
@@ -33,6 +34,7 @@ from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from server.services.presentation_bundle import PresentationBundleService
 from server.services.presentation_read_model import PresentationReadModelService, PresentationUnavailableError
+from tests.legacy_project_shapes import advance_project_schema, write_legacy_storyboard_project
 
 
 class _SettingsResolver:
@@ -762,9 +764,6 @@ async def test_current_presentation_reselects_when_version_changes_during_media_
 
 
 async def test_legacy_video_materializes_after_the_provenance_backfill_migration(tmp_path: Path) -> None:
-    from lib.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
-    from tests.legacy_project_shapes import advance_project_schema, write_legacy_storyboard_project
-
     projects_root = tmp_path / "projects"
     project_path = write_legacy_storyboard_project(projects_root, "legacy", unit_ids=("E1S1",))
     advance_project_schema(project_path, to_version=12)

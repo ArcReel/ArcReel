@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from pathlib import Path
 
 from lib.artifact_activation import activate_artifact_target_state, plan_artifact_target_state
@@ -30,10 +29,7 @@ def migrate_v7_to_v8(project_dir: Path) -> ArtifactBackfillOutcome:
     # 改名幂等，v8 之后再跑一次不会有任何动作。
     apply_script_plan_draft_renames(renames, from_version=7)
     activate_artifact_target_state(project_dir, bump_schema=True, plan=plan)
-    return ArtifactBackfillOutcome(
-        registered=dict(Counter(key.kind.value for key in plan.entries)),
-        skipped=plan.skipped,
-    )
+    return ArtifactBackfillOutcome.from_entries(plan.entries, plan.skipped)
 
 
 __all__ = ["migrate_v7_to_v8"]

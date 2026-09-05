@@ -1,10 +1,8 @@
 """早于产物清单（schema 8）写出的项目目录形态，供迁移与读侧测试共用。
 
-字段形状逐一照抄旧版本落盘的真实项目：视频版本记录只有 ``version/file/prompt/created_at/
-duration_seconds`` 五个字段（``duration_seconds`` 可能是字符串）、脚本规划草稿是 ``.md``、
-源文用上传时的原名、没有 ``source/episode_N.txt``。构造出的目录停在 ``schema_version``
-参数指定的版本；``advance_project_schema`` 按迁移链逐级推进到指定版本，模拟已经升级过的
-安装。
+形态清单见 ``docs/agents/project-migrations.md``「已知旧形态」。构造出的目录停在
+``schema_version`` 参数指定的版本；``advance_project_schema`` 按迁移链逐级推进到指定版本，
+模拟已经升级过的安装。
 """
 
 from __future__ import annotations
@@ -16,7 +14,7 @@ from typing import Any
 from lib.project_migrations.runner import MIGRATORS
 from lib.source_revision import SourceScope, compute_source_revision
 
-LEGACY_SNAPSHOT_TIMESTAMP = "20260302T145652"
+_LEGACY_SNAPSHOT_TIMESTAMP = "20260302T145652"
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -24,7 +22,7 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def legacy_video_version_record(
+def _legacy_video_version_record(
     resource_type: str,
     resource_id: str,
     *,
@@ -36,7 +34,7 @@ def legacy_video_version_record(
 
     return {
         "version": version,
-        "file": f"versions/{resource_type}/{resource_id}_v{version}_{LEGACY_SNAPSHOT_TIMESTAMP}.mp4",
+        "file": f"versions/{resource_type}/{resource_id}_v{version}_{_LEGACY_SNAPSHOT_TIMESTAMP}.mp4",
         "prompt": prompt,
         "created_at": "2026-03-02T14:56:52Z",
         "duration_seconds": duration_seconds,
@@ -139,7 +137,7 @@ def write_legacy_storyboard_project(
     for index, unit_id in enumerate(unit_ids):
         (project_dir / "storyboards").mkdir(exist_ok=True)
         (project_dir / "storyboards" / f"scene_{unit_id}.png").write_bytes(f"storyboard-{unit_id}".encode())
-        record = legacy_video_version_record("videos", unit_id, duration_seconds="4" if index == 0 else 4)
+        record = _legacy_video_version_record("videos", unit_id, duration_seconds="4" if index == 0 else 4)
         _write_legacy_video(project_dir, "videos", unit_id, record)
         videos[unit_id] = {"current_version": 1, "versions": [record]}
     _write_versions(project_dir, {"videos": videos})
@@ -205,14 +203,14 @@ def write_legacy_reference_video_project(
     videos: dict[str, dict[str, Any]] = {}
     audio: dict[str, dict[str, Any]] = {}
     for unit_id in unit_ids:
-        record = legacy_video_version_record("reference_videos", unit_id, duration_seconds=8)
+        record = _legacy_video_version_record("reference_videos", unit_id, duration_seconds=8)
         _write_legacy_video(project_dir, "reference_videos", unit_id, record)
         videos[unit_id] = {"current_version": 1, "versions": [record]}
         if with_legacy_audio:
             wav = project_dir / "audio" / f"segment_{unit_id}.wav"
             wav.parent.mkdir(parents=True, exist_ok=True)
             wav.write_bytes(f"tts-{unit_id}".encode())
-            snapshot_rel = f"versions/audio/{unit_id}_v1_{LEGACY_SNAPSHOT_TIMESTAMP}.wav"
+            snapshot_rel = f"versions/audio/{unit_id}_v1_{_LEGACY_SNAPSHOT_TIMESTAMP}.wav"
             snapshot = project_dir / snapshot_rel
             snapshot.parent.mkdir(parents=True, exist_ok=True)
             snapshot.write_bytes(wav.read_bytes())
@@ -233,7 +231,7 @@ def write_legacy_reference_video_project(
 
 
 def _mark_asset_inventory_current(project_dir: Path) -> None:
-    """旧项目都跑过资产分析：把清点标记写成与当前源文一致，制作状态不再停在资产清点。"""
+    """旧项目都跑过资产分析：清点标记与当前源文一致，制作状态越过资产清点门。"""
 
     project_path = project_dir / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))
@@ -255,9 +253,7 @@ def advance_project_schema(project_dir: Path, *, to_version: int) -> None:
 
 
 __all__ = [
-    "LEGACY_SNAPSHOT_TIMESTAMP",
     "advance_project_schema",
-    "legacy_video_version_record",
     "write_legacy_reference_video_project",
     "write_legacy_storyboard_project",
 ]

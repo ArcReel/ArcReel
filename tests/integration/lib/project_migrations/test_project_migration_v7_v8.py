@@ -569,7 +569,7 @@ def test_formal_script_plan_write_serializes_with_schema_last_activation(tmp_pat
     writer_done = Event()
     failures: list[BaseException] = []
 
-    # 迁移链以 v12→v13 的清单激活收尾，它才是落当前版本的那一步；前面几步先走完，
+    # 迁移链以一次清单激活收尾，它才是落当前版本的那一步；前面几步先走完，
     # 等锁的写入方在它放行后看到的就是迁移完成的状态，与启动扫描先迁完再对外服务同口径。
     for version in range(ARTIFACT_MANIFEST_SCHEMA_VERSION - 1, CURRENT_SCHEMA_VERSION - 1):
         MIGRATORS[version](project_dir)

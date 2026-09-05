@@ -208,8 +208,23 @@ def test_full_chain_from_schema7_writes_a_migration_report_exposed_on_status(tmp
     assert report.registered["episode-video"] == 2
     assert report.registered["episode-script"] == 1
     assert sorted(item.resource_id for item in report.skipped) == ["E1U01", "E1U02"]
-    assert (project_dir / "versions" / "versions.json.bak.v12-").parent.glob("versions.json.bak.v12-*")
     assert len(list((project_dir / "versions").glob("versions.json.bak.v12-*"))) == 1
 
     status = WorkflowStateService(ProjectManager(root)).get_status(project_dir.name, 1)
     assert status.migration_report == report
+
+
+def test_media_on_a_needs_replan_unit_is_reported_instead_of_dropped(tmp_path: Path) -> None:
+    project_dir = write_legacy_reference_video_project(tmp_path / "projects")
+    advance_project_schema(project_dir, to_version=12)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = _read_json(script_path)
+    script["video_units"][1]["needs_replan"] = True
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    outcome = migrate_v12_to_v13(project_dir)
+
+    assert outcome is not None
+    assert outcome.registered["episode-video"] == 1
+    assert [(item.kind, item.resource_id) for item in outcome.skipped] == [("episode-video", "E1U02")]
+    assert "needs_replan" in outcome.skipped[0].reason
