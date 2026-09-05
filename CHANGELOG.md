@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.1](https://github.com/ArcReel/ArcReel/compare/v0.29.0...v0.29.1) (2026-09-05)
+
+
+### 🐛 Bug 修复
+
+* **agent-runtime:** 从 CLI init 消息解析 sdk_session_id，凭证无效时不再误报「SDK 会话创建超时」 ([#2371](https://github.com/ArcReel/ArcReel/issues/2371)) ([2a5c6fb](https://github.com/ArcReel/ArcReel/commit/2a5c6fbbd06c0fbb7e51717c89008faf915050dd))
+* **migration:** 旧视频版本记录补写类型化来源，升级后视频照常显示与预览 ([#2374](https://github.com/ArcReel/ArcReel/issues/2374)) ([11f77f8](https://github.com/ArcReel/ArcReel/commit/11f77f8f43a4ce21e59674cfe5b1e3bc8e9922cb))
+
 ## [0.29.0](https://github.com/ArcReel/ArcReel/compare/v0.28.0...v0.29.0) (2026-09-05)
 
 
