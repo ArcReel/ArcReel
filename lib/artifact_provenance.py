@@ -266,6 +266,22 @@ def build_episode_script_basis(script_plan_content: object, *, project: Mapping[
     )
 
 
+def build_planless_episode_script_basis(episode: int) -> ArtifactBasis:
+    """Describe an episode script that has no formal script_plan to depend on.
+
+    The basis names only the episode, so the script stays current until a formal
+    plan appears and the regular basis takes over.
+    """
+
+    if type(episode) is not int or episode < 1:
+        raise ValueError("episode must be a positive integer")
+    return ArtifactBasis.build(
+        "structured-content/episode-script-without-plan",
+        kind_version=1,
+        inputs={"episode": episode},
+    )
+
+
 def project_episode_script_prompt_inputs(project: Mapping[str, object]) -> dict[str, object]:
     """Project the persisted project fields rendered into non-ad prompt_authoring prompts.
 

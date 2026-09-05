@@ -101,19 +101,23 @@ def activate_artifact_target_state(
     backup_file: Callable[[Path, int], None] | None = None,
     commit_schema: Callable[[Path, Mapping[str, Any]], None] | None = None,
     plan: ArtifactTargetStatePlan | None = None,
+    target_schema_version: int = ARTIFACT_MANIFEST_SCHEMA_VERSION,
 ) -> bool:
     """Commit one complete target state, optionally advancing schema last.
 
     ``backup_file`` 与 ``commit_schema`` 是临界区内两个落盘步骤的注入点，缺省即生产实现。
     ``plan`` 供调用方把只读预检提到自身写盘段之前完成；缺省即在此就地预检。传入的计划仍要
     过 ``_assert_preflight_unchanged``，它对着盘上事实自证，晚于预检的改动一律拒绝。
+    ``target_schema_version`` 是 ``bump_schema`` 时提交的版本：项目必须正停在它的前一版，
+    备份按那一版命名（``*.bak.v<前一版>-*``）。
     """
 
     if plan is None:
         plan = plan_artifact_target_state(project_dir)
     current_schema = plan.project.get("schema_version")
-    if bump_schema and current_schema != ARTIFACT_MANIFEST_SCHEMA_VERSION - 1:
-        raise ValueError(f"schema bump requires a v{ARTIFACT_MANIFEST_SCHEMA_VERSION - 1} project")
+    from_version = target_schema_version - 1
+    if bump_schema and current_schema != from_version:
+        raise ValueError(f"schema bump requires a v{from_version} project")
     if not bump_schema and not project_schema_is_current(plan.project):
         raise ValueError("schema-preserving activation requires a current-schema project")
 
@@ -122,7 +126,7 @@ def activate_artifact_target_state(
     if bump_schema:
         with project_metadata_lock(project_dir):
             _assert_preflight_unchanged(project_dir, plan)
-            _backup_activation_inputs(project_dir, plan, backup_file=backup_file)
+            _backup_activation_inputs(project_dir, plan, backup_file=backup_file, from_version=from_version)
             previous_entries = adapter.snapshot_entries()
             changed = adapter.replace_entries_atomically(plan.entries)
             try:
@@ -144,7 +148,10 @@ def activate_artifact_target_state(
                             "artifact activation dependency drifted and Manifest rollback was incomplete"
                         ) from rollback_error
                 raise
-            (commit_schema or _commit_schema_version)(project_dir, plan.project)
+            if commit_schema is None:
+                _commit_schema_version(project_dir, plan.project, target_schema_version)
+            else:
+                commit_schema(project_dir, plan.project)
             return True
     return adapter.replace_entries_atomically(plan.entries)
 
@@ -473,6 +480,7 @@ def _backup_activation_inputs(
     plan: ArtifactTargetStatePlan,
     *,
     backup_file: Callable[[Path, int], None] | None = None,
+    from_version: int = ARTIFACT_MANIFEST_SCHEMA_VERSION - 1,
 ) -> None:
     candidates = [project_dir / "project.json", *plan.script_paths]
     manifest = project_dir / MANIFEST_FILENAME
@@ -481,14 +489,14 @@ def _backup_activation_inputs(
     stamp = time.time_ns()
     for source in candidates:
         if backup_file is None:
-            _ensure_activation_backup(source, stamp=stamp)
+            _ensure_activation_backup(source, stamp=stamp, from_version=from_version)
         else:
             backup_file(source, stamp)
 
 
-def _ensure_activation_backup(source: Path, *, stamp: int) -> None:
+def _ensure_activation_backup(source: Path, *, stamp: int, from_version: int) -> None:
     content = source.read_bytes()
-    pattern = f"{source.name}.bak.v7-*"
+    pattern = f"{source.name}.bak.v{from_version}-*"
     for candidate in source.parent.glob(pattern):
         if candidate.is_symlink() or not candidate.is_file():
             continue
@@ -501,13 +509,13 @@ def _ensure_activation_backup(source: Path, *, stamp: int) -> None:
                 return
         except OSError:
             continue
-    backup = source.with_name(f"{source.name}.bak.v7-{stamp}")
+    backup = source.with_name(f"{source.name}.bak.v{from_version}-{stamp}")
     atomic_write_bytes(backup, content)
 
 
-def _commit_schema_version(project_dir: Path, project: Mapping[str, Any]) -> None:
+def _commit_schema_version(project_dir: Path, project: Mapping[str, Any], target_schema_version: int) -> None:
     updated = dict(project)
-    updated["schema_version"] = ARTIFACT_MANIFEST_SCHEMA_VERSION
+    updated["schema_version"] = target_schema_version
     atomic_write_json(project_dir / "project.json", updated)
 
 

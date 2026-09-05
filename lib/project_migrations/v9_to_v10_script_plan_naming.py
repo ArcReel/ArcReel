@@ -20,8 +20,6 @@
 from __future__ import annotations
 
 import copy
-import shutil
-import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -30,6 +28,7 @@ from lib.artifact_manifest import decode_artifact_key_parts, encode_artifact_key
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
 from lib.project_migration_failure import ProjectMigrationError
+from lib.project_migrations.backups import ensure_versioned_backup
 
 _TARGET_VERSION = 10
 
@@ -142,12 +141,6 @@ def _readable_object(path: Path, label: str) -> dict[str, Any] | None:
     return payload
 
 
-def _ensure_backup(path: Path, from_version: int = 9) -> None:
-    if any(path.parent.glob(f"{path.name}.bak.v{from_version}-*")):
-        return
-    shutil.copy2(path, path.with_name(f"{path.name}.bak.v{from_version}-{time.time_ns()}"))
-
-
 def _plan_draft_renames(project_dir: Path, episodes: list[tuple[Path | None, int]]) -> list[tuple[Path, Path]]:
     """列出待改名的草稿文件；新名已被占用时拒绝，不覆盖任何既有内容。"""
 
@@ -208,7 +201,7 @@ def apply_script_plan_draft_renames(renames: Sequence[tuple[Path, Path]], *, fro
     """落盘执行 :func:`plan_script_plan_draft_renames` 的结果：先备份全部来源，再逐个改名。"""
 
     for source, _target in renames:
-        _ensure_backup(source, from_version)
+        ensure_versioned_backup(source, from_version)
     for source, target in renames:
         source.replace(target)
 
@@ -274,7 +267,7 @@ def migrate_v9_to_v10(project_dir: Path) -> None:
 
     # 预检全部通过后才动盘：所有被改写或改名的文件先备份完，再落盘。
     for path, _payload in [*plans, (project_file, project)]:
-        _ensure_backup(path)
+        ensure_versioned_backup(path, 9)
     apply_script_plan_draft_renames(draft_renames, from_version=9)
     for path, payload in plans:
         atomic_write_json(path, payload)

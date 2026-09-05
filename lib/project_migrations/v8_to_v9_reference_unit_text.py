@@ -24,8 +24,6 @@
 from __future__ import annotations
 
 import copy
-import shutil
-import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -37,6 +35,7 @@ from lib.episode_paths import episode_drafts_dir
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
 from lib.project_migration_failure import ProjectMigrationError
+from lib.project_migrations.backups import ensure_versioned_backup
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.script_models import ReferenceScriptPlanUnit, ReferenceVideoUnit
 
@@ -167,12 +166,6 @@ def _readable_file(path: Path, label: str) -> dict[str, Any] | None:
     return payload
 
 
-def _ensure_backup(path: Path) -> None:
-    if any(path.parent.glob(f"{path.name}.bak.v8-*")):
-        return
-    shutil.copy2(path, path.with_name(f"{path.name}.bak.v8-{time.time_ns()}"))
-
-
 @contextmanager
 def _located(episode: int, file: str) -> Generator[None]:
     """把预检抛出的结构违约补成带定位事实的迁移错误。
@@ -220,7 +213,7 @@ def migrate_v8_to_v9(project_dir: Path) -> None:
 
     # 预检全部成功后才创建备份；所有文件（含 project.json）先备份完，再开始替换。
     for path, _payload in [*plans, (project_file, project)]:
-        _ensure_backup(path)
+        ensure_versioned_backup(path, 8)
     for path, payload in plans:
         atomic_write_json(path, payload)
 

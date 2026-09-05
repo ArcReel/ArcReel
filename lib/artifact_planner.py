@@ -27,6 +27,7 @@ from lib.artifact_manifest import (
 from lib.artifact_provenance import (
     build_ad_episode_script_basis,
     build_episode_script_basis,
+    build_planless_episode_script_basis,
     build_script_plan_basis,
     decode_script_plan_source,
 )
@@ -44,6 +45,7 @@ from lib.grid.models import GridGeneration
 from lib.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.project_migration_failure import ProjectMigrationError
+from lib.project_migration_report import MigrationSkippedArtifact
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version, project_schema_is_current
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
@@ -108,6 +110,8 @@ class ArtifactTargetStatePlan:
     dependency_bytes: Mapping[Path, bytes]
     dependency_digests: Mapping[Path, str]
     script_paths: tuple[Path, ...]
+    skipped: tuple[MigrationSkippedArtifact, ...] = ()
+    """Formal pointers the planner saw but could not register, with the reason each was left out."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +183,7 @@ class TargetStatePlanner:
         self.bases: dict[ArtifactKey, ArtifactBasis] = {}
         self.formal_paths: dict[ArtifactKey, str] = {}
         self._path_owners: dict[str, ArtifactKey] = {}
+        self.skipped: list[MigrationSkippedArtifact] = []
         self._versions: dict[str, Any] | None = None
         self._activation_mode = False
         self._planned: set[str] = set()
@@ -217,6 +222,7 @@ class TargetStatePlanner:
             dependency_bytes=dict(self.dependencies),
             dependency_digests=dict(self.dependency_digests),
             script_paths=tuple(self.script_paths),
+            skipped=tuple(self.skipped),
         )
 
     def resolve_key(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
@@ -516,6 +522,12 @@ class TargetStatePlanner:
         for episode in self.episodes:
             script_plan = script_plan_by_episode.get(episode.episode)
             if script_plan is None:
+                if self._script_plan_absent(episode.episode):
+                    self._add_if_present(
+                        ArtifactKey.episode_script(episode.episode),
+                        episode.script_file,
+                        build_planless_episode_script_basis(episode.episode),
+                    )
                 continue
             try:
                 script_basis = build_episode_script_basis(script_plan.content, project=self.project)
@@ -527,6 +539,16 @@ class TargetStatePlanner:
                 script_basis,
             )
         self._planned.add("structured-content")
+
+    def _script_plan_absent(self, episode: int) -> bool:
+        """Whether the episode's formal script_plan slot resolves and holds no file at all."""
+
+        script_plan_path = script_review.script_plan_path(self.project_dir, self.project, episode)
+        if script_plan_path is None:
+            return False
+        script_plan_rel = script_plan_path.relative_to(self.project_dir).as_posix()
+        observation = self.adapter.inspect_artifact(self._pending_source(script_plan_rel))
+        return observation.blocker is None and not observation.present
 
     def _plan_one_script_plan(self, binding: _EpisodeBinding) -> _FormalScriptPlanState | None:
         if self.project.get("content_mode") not in {"narration", "drama"}:
@@ -935,6 +957,18 @@ class TargetStatePlanner:
                     )
         self._planned.add("typed-media")
 
+    def _skip(self, key: ArtifactKey, artifact_path: str, reason: str) -> None:
+        episode = key.components[0]
+        self.skipped.append(
+            MigrationSkippedArtifact(
+                kind=key.kind.value,
+                episode=episode if type(episode) is int else None,
+                resource_id=str(key.components[-1]),
+                artifact_path=artifact_path,
+                reason=reason,
+            )
+        )
+
     def _plan_one_typed_media(
         self,
         versions: Mapping[str, Any],
@@ -947,42 +981,53 @@ class TargetStatePlanner:
         key: ArtifactKey,
     ) -> None:
         if artifact_path != resource_relative_path(resource_type, resource_id):
+            self._skip(key, artifact_path, "script points at a non-canonical media path")
             return
         resource_bucket = versions.get(resource_type)
         resource = resource_bucket.get(resource_id) if isinstance(resource_bucket, Mapping) else None
         if not isinstance(resource, Mapping):
+            self._skip(key, artifact_path, "version history has no record for this media")
             return
         selected_version = resource.get("current_version")
         records = resource.get("versions")
         if type(selected_version) is not int or not isinstance(records, list):
+            self._skip(key, artifact_path, "version history has no selected version")
             return
         selected = [
             record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version
         ]
         if len(selected) != 1:
+            self._skip(key, artifact_path, "version history has no selected version")
             return
         record = selected[0]
         try:
             target = parse_typed_media_version_target(resource_type, record)
         except (TypeError, ValueError):
+            self._skip(key, artifact_path, "selected version lacks typed provenance")
             return
         if target.episode != episode.episode or normalize_script_binding(target.script_file) != episode.script_file:
+            self._skip(key, artifact_path, "selected version was generated for another episode or script")
             return
         snapshot_rel = record.get("file")
         if not VersionManager.is_managed_snapshot_path(resource_type, snapshot_rel):
+            self._skip(key, artifact_path, "selected version snapshot is not a managed history path")
             return
         artifact = self._safe_present_path(artifact_path)
         snapshot = self._safe_present_path(cast(str, snapshot_rel))
         if artifact is None or snapshot is None:
+            self._skip(key, artifact_path, "current media file or its version snapshot is missing")
             return
         try:
             if artifact.samefile(snapshot):
+                self._skip(key, artifact_path, "current media file is the version snapshot itself")
                 return
             artifact_digest = visual_file_digest(artifact)
             snapshot_digest = visual_file_digest(snapshot)
         except OSError:
+            self._skip(key, artifact_path, "current media file or its version snapshot cannot be read")
             return
         if artifact_digest != snapshot_digest:
+            self._skip(key, artifact_path, "current media file differs from the selected version snapshot")
             return
         self._remember_dependency_digest(artifact, artifact_digest)
         self._remember_dependency_digest(snapshot, snapshot_digest)
@@ -1006,10 +1051,13 @@ class TargetStatePlanner:
                     resolve_audio_manifest_entry=self.entries.get if self._activation_mode else None,
                 )
         except (KeyError, OSError, TypeError, ValueError):
+            self._skip(key, artifact_path, "current basis cannot be projected from the script")
             return
-        if current_basis is None or (
-            self._activation_mode and not self.allow_stale_formal_targets and current_basis != target.basis
-        ):
+        if current_basis is None:
+            self._skip(key, artifact_path, "current basis cannot be projected from the script")
+            return
+        if self._activation_mode and not self.allow_stale_formal_targets and current_basis != target.basis:
+            self._skip(key, artifact_path, "selected version was generated from content that is no longer current")
             return
         self.entries[key] = ArtifactManifestEntry(
             artifact_path=artifact_path,

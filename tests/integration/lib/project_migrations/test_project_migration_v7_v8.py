@@ -569,20 +569,23 @@ def test_formal_script_plan_write_serializes_with_schema_last_activation(tmp_pat
     writer_done = Event()
     failures: list[BaseException] = []
 
+    # 迁移链以一次清单激活收尾，它才是落当前版本的那一步；前面几步先走完，
+    # 等锁的写入方在它放行后看到的就是迁移完成的状态，与启动扫描先迁完再对外服务同口径。
+    for version in range(ARTIFACT_MANIFEST_SCHEMA_VERSION - 1, CURRENT_SCHEMA_VERSION - 1):
+        MIGRATORS[version](project_dir)
+
     def _pause_before_schema(project_dir_arg: Path, project: Mapping[str, Any]) -> None:
         activation_ready.set()
         assert release_activation.wait(timeout=5)
-        artifact_activation._commit_schema_version(project_dir_arg, project)
-        # 清单激活是迁移链的中间一步，它落的版本不是当前版本；链尾从 MIGRATORS 推导后在同一个
-        # 临界区内走完，等锁的写入方因此只会看到迁移前后两个完整状态，与启动扫描先迁完再对外
-        # 服务同口径。
-        for version in range(ARTIFACT_MANIFEST_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION):
-            MIGRATORS[version](project_dir_arg)
+        artifact_activation._commit_schema_version(project_dir_arg, project, CURRENT_SCHEMA_VERSION)
 
     def _activate() -> None:
         try:
             artifact_activation.activate_artifact_target_state(
-                project_dir, bump_schema=True, commit_schema=_pause_before_schema
+                project_dir,
+                bump_schema=True,
+                commit_schema=_pause_before_schema,
+                target_schema_version=CURRENT_SCHEMA_VERSION,
             )
         except Exception as exc:
             failures.append(exc)
@@ -690,7 +693,7 @@ def test_v7_activation_holds_the_project_lock_while_backing_up_its_frozen_inputs
     failures: list[BaseException] = []
 
     def _pause_after_project_backup(source: Path, stamp: int) -> None:
-        artifact_activation._ensure_activation_backup(source, stamp=stamp)
+        artifact_activation._ensure_activation_backup(source, stamp=stamp, from_version=7)
         if source == project_path:
             backup_started.set()
             assert release_backup.wait(timeout=5)
@@ -942,7 +945,7 @@ def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(tmp_
             writer_finished.set()
 
     def _release_writer_inside_the_lock(source: Path, stamp: int) -> None:
-        artifact_activation._ensure_activation_backup(source, stamp=stamp)
+        artifact_activation._ensure_activation_backup(source, stamp=stamp, from_version=7)
         if source == project_path:
             writer_released.set()
             # 写入方此刻必须还卡在项目锁上：拿得到锁就说明 activation 的临界区没罩住提升。
@@ -978,7 +981,7 @@ def test_v7_activation_rolls_back_when_inputs_drift_inside_the_critical_section(
     assert not manifest_path.exists()
 
     def _drift_project_after_backup(source: Path, stamp: int) -> None:
-        artifact_activation._ensure_activation_backup(source, stamp=stamp)
+        artifact_activation._ensure_activation_backup(source, stamp=stamp, from_version=7)
         if source == project_path:
             drifted = _read_json(project_path)
             drifted["title"] = "Drifted inside the lock"

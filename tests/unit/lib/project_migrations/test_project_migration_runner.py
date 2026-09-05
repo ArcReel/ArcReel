@@ -309,3 +309,27 @@ def test_cleanup_reclaims_every_backup_the_draft_rename_leaves_behind(tmp_projec
     cleanup_stale_backups(tmp_projects, max_age_days=7)
 
     assert [backup for backup in backups if backup.exists()] == []
+
+
+def test_failed_retry_does_not_duplicate_an_identical_project_backup(tmp_projects: Path, monkeypatch):
+    """同一起点版本、内容相同的 project.json 只留一份备份；内容变了才新增。"""
+    p = _write_project(tmp_projects, "p1", {"schema_version": 2, "name": "p1"})
+
+    def bad(_d):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("lib.project_migrations.runner.MIGRATORS", {2: bad})
+    for _ in range(3):
+        with pytest.raises(RuntimeError):
+            migrate_project_dir(p)
+    assert len(list(p.glob("project.json.bak.v2-*"))) == 1
+
+    (p / "project.json").write_text(json.dumps({"schema_version": 2, "name": "p1", "title": "改过"}), encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        migrate_project_dir(p)
+    backups = sorted(p.glob("project.json.bak.v2-*"))
+    assert len(backups) == 2
+    assert {b.read_bytes() for b in backups} == {
+        json.dumps({"schema_version": 2, "name": "p1"}, ensure_ascii=False).encode(),
+        json.dumps({"schema_version": 2, "name": "p1", "title": "改过"}).encode(),
+    }

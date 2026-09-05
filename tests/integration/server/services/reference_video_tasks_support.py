@@ -114,3 +114,7 @@ def _activate_project_manifest(proj_dir: Path, *, register_script: bool = True) 
             artifact_path="scripts/episode_1.json",
             basis=ArtifactBasis.build("test/episode-script", kind_version=1, inputs={}),
         )
+    else:
+        # 没有 script_plan 的剧本在激活时按无计划依据登记；这里要的是「绑定的剧本没有清单认领」，
+        # 故把激活登记的条目删掉。
+        ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.episode_script(1))
