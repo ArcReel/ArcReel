@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from portalocker.exceptions import BaseLockException
@@ -31,6 +31,7 @@ from lib.episode_ledger import (
     SourceDoc,
     compute_source_fingerprints,
     episodes_without_source_range,
+    is_derived_episode_name,
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
@@ -656,10 +657,14 @@ class WorkflowStateService:
         """判定源文是否已全部排布完。
 
         源文只来自 ``planning_sources``——本次请求已经读过一遍的那份，不再回磁盘取。
+        手动预拆分（源文全是 ``episode_N.txt``）没有待排布的原文，也从不产生源文指纹与
+        规划游标，直接视为排布完，做完的集才不会被打回分集规划。
         """
 
         if source is None or not source.files:
             return False
+        if all(is_derived_episode_name(PurePosixPath(rel).name) for rel in source.files):
+            return True
         recorded_fingerprints = project.get(SOURCE_FINGERPRINTS_KEY)
         if not isinstance(recorded_fingerprints, Mapping) or not recorded_fingerprints:
             return False
