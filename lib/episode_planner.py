@@ -355,8 +355,9 @@ def _missing_source_range_error(nums: list[int]) -> EpisodePlanningError:
         listed += f" 等 {len(nums)} 集"
     return EpisodePlanningError(
         f"账本中第 {listed} 没有原文范围记录（source_range），无法据此续接规划——这类条目的物理集文件"
-        "就是它们的最终记录，既无法重造也无法确定下一批的起点；请先调用 reset_episode_planning 做"
-        "全量重置（这些集的集文件会改名留底、下游产物不删），再重新规划。"
+        "就是它们的最终记录，既无法重造也无法确定下一批的起点。若这些集是用户自行拆好上传的，"
+        "不需要规划：按 get_workflow_plan 逐集直接做脚本规划即可。确需重新切分时才调用 "
+        "reset_episode_planning 做全量重置（这些集的集文件会改名留底、下游产物不删），再重新规划。"
     )
 
 

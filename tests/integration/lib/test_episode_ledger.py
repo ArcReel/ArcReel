@@ -157,6 +157,36 @@ class TestEpisodesWithoutSourceRange:
         assert episodes_without_source_range({}) == []
 
 
+class TestDiscoverSources:
+    def test_episode_files_are_derived_when_another_source_exists(self, tmp_path: Path):
+        """目录另有原文时 episode_N.txt 是派生物，不进候选。"""
+        d = _project(tmp_path)
+        _write_episode(d, 1, NOVEL[:CUT_1])
+
+        assert [doc.rel_path for doc in discover_sources(d)] == ["source/novel.txt"]
+
+    def test_episode_files_are_sources_when_nothing_else_is_authored(self, tmp_path: Path):
+        """目录里只有 episode_N.txt（手动预拆分上传）：它们本身就是源文，按文件名排序。"""
+        d = _project(tmp_path, novel=None)
+        _write_episode(d, 2, NOVEL[CUT_1:CUT_2])
+        _write_episode(d, 1, NOVEL[:CUT_1])
+        (d / "source" / "_remaining.txt").write_text(NOVEL[CUT_2:], encoding="utf-8")
+        (d / "source" / "raw").mkdir()
+
+        docs = discover_sources(d)
+
+        assert [doc.rel_path for doc in docs] == ["source/episode_1.txt", "source/episode_2.txt"]
+        assert [doc.text for doc in docs] == [NOVEL[:CUT_1], NOVEL[CUT_1:CUT_2]]
+
+    def test_episode_files_are_derived_when_a_markdown_source_exists(self, tmp_path: Path):
+        """判定看的是任何合法后缀的非集文件，不限 .txt。"""
+        d = _project(tmp_path, novel=None)
+        (d / "source" / "novel.md").write_text(NOVEL, encoding="utf-8")
+        _write_episode(d, 1, NOVEL[:CUT_1])
+
+        assert [doc.rel_path for doc in discover_sources(d)] == ["source/novel.md"]
+
+
 class TestSourceFingerprints:
     def test_compute_ignores_newline_style(self, tmp_path: Path):
         d = _project(tmp_path, novel="第一行\r\n第二行\r第三行")

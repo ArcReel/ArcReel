@@ -304,6 +304,57 @@ def test_drama_target_comes_from_ledger_not_derived_filenames(tmp_path: Path) ->
     assert status.next_action.args["preprocessor"] == "normalize-drama-script"
 
 
+def test_manual_presplit_project_routes_to_script_plan_without_writing_the_ledger(tmp_path: Path) -> None:
+    """source/ 只有用户自行拆好的 episode_N.txt、账本为空：这些文件就是源文，不报缺源文。
+
+    状态按内存里补建的账本条目（无 source_range）给出结论，路线从资产清单直达本集脚本规划、
+    全程不经分集规划；读状态不写 project.json，账本登记留给内容确认入口。
+    """
+    pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
+    for number in (1, 2, 3):
+        _write_episode_source(project_path, number, f"第{number}集原文")
+    project_file = project_path / "project.json"
+    before = project_file.read_bytes()
+    service = WorkflowStateService(pm)
+
+    status = service.get_status("demo")
+
+    assert status.state == "ASSET_INVENTORY"
+    assert status.next_action.type == "analyze_assets"
+    assert status.next_action.args["scope"] == {"kind": "all", "files": []}
+    assert project_file.read_bytes() == before
+
+    scope = SourceScope(kind="all")
+    revision = compute_source_revision(project_path, pm.load_project("demo"), scope)
+    assert revision.files == ["source/episode_1.txt", "source/episode_2.txt", "source/episode_3.txt"]
+    assert revision.revision == status.source_revision
+    complete_asset_inventory(pm, "demo", scope, revision.revision)
+
+    status = service.get_status("demo")
+
+    assert status.target is not None
+    assert status.target.episode == 1
+    assert status.target.source == "source/episode_1.txt"
+    assert status.state == "SCRIPT_PLAN_CONTENT"
+    assert status.next_action.type == "prepare_script_plan"
+    assert status.next_action.args["episode"] == 1
+    assert pm.load_project("demo")["episodes"] == []
+
+
+def test_manual_presplit_summary_lists_episodes_without_writing_the_ledger(tmp_path: Path) -> None:
+    """项目列表投影同样按内存补建的账本读集数：手动预拆分项目一进列表就按集数展示，project.json 不动。"""
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_episode_source(project_path, 1, "第一集原文")
+    _write_episode_source(project_path, 2, "第二集原文")
+    project_file = project_path / "project.json"
+    before = project_file.read_bytes()
+
+    summary = WorkflowStateService(pm).get_project_summary("demo")
+
+    assert [episode.episode for episode in summary.episodes] == [1, 2]
+    assert project_file.read_bytes() == before
+
+
 def test_ad_is_episode_one_and_skips_asset_inventory_and_script_plan(tmp_path: Path) -> None:
     pm, _project_path = _make_project(tmp_path, "ad")
 

@@ -34,6 +34,7 @@ from lib.episode_ledger import (
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
+    register_orphan_episode_entries,
 )
 from lib.episode_paths import episode_source_relpath
 from lib.project_manager import ProjectManager
@@ -942,6 +943,12 @@ class WorkflowStateService:
         failure = load_migration_verdict(project_path)
         if failure is not None:
             return self._migration_blocked_status(project, failure)
+        # 用户自行拆好 source/episode_N.txt 上传、账本为空时，先在内存里补建条目再读账本，路线才有
+        # 目标集可选；否则空账本会把这些集指去分集规划，而那条路对手动预拆分只会以「条目缺位置
+        # 记录、请全量重置」告终。补建与分集规划器、内容确认共用同一登记函数（条目无 source_range，
+        # 规划入口照旧拒绝），但这里不写 project.json：状态计算不改变结论性数据（见模块 docstring），
+        # 登记落盘留给真正开始消费这些集的入口。
+        project = register_orphan_episode_entries(project_path, project)
         shared = self._shared_facts(project_path, project)
         return self._get_status(project_name, project, project_path, episode, shared)
 
@@ -964,10 +971,12 @@ class WorkflowStateService:
 
         project = self.pm.load_project_readonly(project_name)
         project_path = self.pm.get_project_path(project_name)
-        episodes = self._episodes(project, [])
         failure = load_migration_verdict(project_path)
         if failure is not None:
-            return self._migration_blocked_summary(project, episodes, failure)
+            return self._migration_blocked_summary(project, self._episodes(project, []), failure)
+        # 与 get_status 同一口径：手动预拆分的集在内存里补进账本后再数集数，不落盘。
+        project = register_orphan_episode_entries(project_path, project)
+        episodes = self._episodes(project, [])
         try:
             resolver: ArtifactComparer | None = (
                 RegisteredArtifactResolver(project_path, project)

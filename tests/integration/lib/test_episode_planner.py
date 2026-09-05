@@ -343,9 +343,11 @@ class TestPlan:
         (project_dir / "source" / "_remaining.txt").write_text(SOURCE[ep1_end:], encoding="utf-8")
         fake = _FakeTextGenerator([])
 
-        with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
+        with pytest.raises(EpisodePlanningError, match="没有原文范围记录") as excinfo:
             await EpisodePlanner(project_dir, generator=fake).plan()
 
+        assert "逐集直接做脚本规划" in str(excinfo.value)
+        assert "reset_episode_planning" in str(excinfo.value)
         assert fake.requests == []
         assert _load_project(project_dir)["episodes"] == [
             {"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}
