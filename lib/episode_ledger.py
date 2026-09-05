@@ -232,7 +232,7 @@ def episode_files_are_derived(entries: Iterable[Path]) -> bool:
     用户自行拆好上传的分集，它们本身就是源文（见 ``docs/adr/0031``）。源文枚举与源文修订
     共用这一个判定，两边的源文口径不会分裂。
     """
-    return any(_is_candidate_source(path) and not is_derived_episode_name(path.name) for path in entries)
+    return any(not is_derived_episode_name(path.name) and _is_candidate_source(path) for path in entries)
 
 
 def discover_sources(project_dir: Path) -> list[SourceDoc]:
@@ -249,9 +249,9 @@ def discover_sources(project_dir: Path) -> list[SourceDoc]:
     docs: list[SourceDoc] = []
     for path in entries:
         name = path.name
-        if not _is_candidate_source(path):
-            continue
         if skip_episode_files and is_derived_episode_name(name):
+            continue
+        if not _is_candidate_source(path):
             continue
         text = _read_text_or_none(path)
         if text is None:
