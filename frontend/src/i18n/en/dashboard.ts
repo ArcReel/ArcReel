@@ -1784,6 +1784,7 @@ export default {
   'diagnosis_openai_compat_only': 'This endpoint speaks OpenAI-compat protocol — Claude SDK cannot use it. Check the plan.',
   'diagnosis_auth_failed': 'API key is invalid or expired.',
   'diagnosis_model_not_found': 'Model not found. Discover available models first.',
+  'diagnosis_model_required': 'No default model set for this preset. Fill in a default model before testing.',
   'diagnosis_rate_limited': 'Rate limited. Try again later.',
   'diagnosis_network': 'Network unreachable. Check URL and firewall.',
   'diagnosis_unknown': 'Unknown error. See raw response.',

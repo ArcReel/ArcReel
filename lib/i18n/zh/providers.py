@@ -57,6 +57,6 @@ MESSAGES: dict[str, str] = {
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
     "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",
-    "preset_notes_ark_coding_plan": "火山方舟 Coding Plan 套餐",
-    "preset_notes_ark_agent_plan": "火山方舟 Agent Plan 套餐",
+    "preset_notes_ark_coding_plan": "火山方舟 Coding Plan 套餐；不提供模型列表接口，请从建议模型中选择已在控制台开通的模型",
+    "preset_notes_ark_agent_plan": "火山方舟 Agent Plan 套餐；不提供模型列表接口，请从建议模型中选择当前套餐已开通的模型",
 }

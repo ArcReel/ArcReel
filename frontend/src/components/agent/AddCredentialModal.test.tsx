@@ -488,3 +488,43 @@ describe("AddCredentialModal", () => {
     }
   });
 });
+
+describe("AddCredentialModal 模型下拉回退", () => {
+  const arkPreset: PresetProvider[] = [
+    {
+      id: "ark-agent-plan",
+      display_name: "Volcengine Ark Agent Plan",
+      icon_key: "Volcengine",
+      messages_url: "https://ark.cn-beijing.volces.com/api/plan",
+      discovery_url: null,
+      default_model: "doubao-seed-evolving",
+      suggested_models: ["doubao-seed-evolving", "kimi-k3"],
+      docs_url: null,
+      api_key_url: "https://console.volcengine.com/ark",
+      notes: null,
+      api_key_pattern: null,
+      is_recommended: false,
+    },
+  ];
+
+  it("未发现模型时用预设的 suggested_models 作为候选", async () => {
+    render(
+      <AddCredentialModal
+        open
+        presets={arkPreset}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Volcengine Ark Agent Plan/i }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /toggle options|切换选项|Bật\/tắt tùy chọn/i })[0],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "kimi-k3" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("option", { name: "doubao-seed-evolving" })).toBeInTheDocument();
+  });
+});

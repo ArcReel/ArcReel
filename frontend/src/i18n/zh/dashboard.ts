@@ -1783,6 +1783,7 @@ export default {
   'diagnosis_openai_compat_only': '该端点返回 OpenAI 兼容协议，Claude SDK 无法直接使用，请确认是否选错 Plan',
   'diagnosis_auth_failed': 'API Key 无效或已过期',
   'diagnosis_model_not_found': '模型不存在，请先发现可用模型',
+  'diagnosis_model_required': '该预设未指定默认模型，请先填写默认模型再测试',
   'diagnosis_rate_limited': '触发限流，稍后重试',
   'diagnosis_network': '网络无法访问，检查 URL 与防火墙',
   'diagnosis_unknown': '未知错误，请查看原始错误信息',

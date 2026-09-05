@@ -249,7 +249,7 @@ async def test_run_test_preset_skips_self_heal(probe_client: httpx.AsyncClient) 
             preset_id="anthropic-official",
             base_url=None,
             api_key="sk",
-            model=None,
+            model="claude-3-5-sonnet-20241022",
             http_client=probe_client,
         )
 
@@ -341,3 +341,152 @@ async def test_run_test_custom_mode_requires_base_url() -> None:
 async def test_run_test_unknown_preset_raises() -> None:
     with pytest.raises(ValueError, match="unknown preset"):
         await run_test(preset_id="bogus-preset", base_url=None, api_key="sk", model=None)
+
+
+def test_classify_probe_failure_400_missing_model_is_model_required() -> None:
+    """火山方舟缺 model 参数时返回 400 MissingParameter，不该落到 UNKNOWN。"""
+    p = ProbeResult(
+        success=False,
+        status_code=400,
+        latency_ms=10,
+        error='{"error":{"code":"MissingParameter","message":"missing `model` parameter"}}',
+    )
+    assert classify_probe_failure(p) == DiagnosisCode.MODEL_REQUIRED
+
+
+def test_classify_probe_failure_400_bad_model_is_model_not_found() -> None:
+    p = ProbeResult(
+        success=False,
+        status_code=400,
+        latency_ms=10,
+        error='{"error":{"code":"InvalidParameter","message":"The model `nope` does not exist"}}',
+    )
+    assert classify_probe_failure(p) == DiagnosisCode.MODEL_NOT_FOUND
+
+
+def test_classify_probe_failure_400_without_model_keyword_stays_unknown() -> None:
+    p = ProbeResult(success=False, status_code=400, latency_ms=10, error="malformed request body")
+    assert classify_probe_failure(p) == DiagnosisCode.UNKNOWN
+
+
+async def test_probe_discovery_retries_with_bearer_after_401(probe_client: httpx.AsyncClient) -> None:
+    """只认 Authorization 的网关（火山方舟）：x-api-key 拿 401 后换 Bearer 重试。"""
+    with capture_http() as router:
+        route = router.get("https://ark.example.com/v1/models").mock(
+            side_effect=[
+                httpx.Response(401, text="unauthorized"),
+                httpx.Response(200, json={"data": [{"id": "m"}]}),
+            ]
+        )
+        result = await probe_discovery(discovery_root="https://ark.example.com", api_key="sk", http_client=probe_client)
+
+    assert result is not None
+    assert result.success is True
+    assert result.status_code == 200
+    assert route.call_count == 2
+    assert route.calls[0].request.headers["x-api-key"] == "sk"
+    assert "x-api-key" not in route.calls[1].request.headers
+    assert route.calls[1].request.headers["authorization"] == "Bearer sk"
+
+
+async def test_probe_discovery_bearer_retry_still_401_marks_failure(probe_client: httpx.AsyncClient) -> None:
+    with capture_http() as router:
+        route = router.get("https://ark.example.com/v1/models").mock(
+            return_value=httpx.Response(401, text="unauthorized")
+        )
+        result = await probe_discovery(
+            discovery_root="https://ark.example.com", api_key="bad", http_client=probe_client
+        )
+
+    assert result is not None
+    assert result.success is False
+    assert result.status_code == 401
+    assert route.call_count == 2
+
+
+async def test_run_test_preset_without_model_short_circuits(probe_client: httpx.AsyncClient) -> None:
+    """预设默认模型为空且用户未填：不发 messages 请求，直接给 MODEL_REQUIRED。"""
+    preset = get_preset("anthropic-official")
+    assert preset is not None
+
+    with capture_http() as router:
+        messages = router.post(f"{preset.messages_url}/v1/messages").mock(
+            return_value=httpx.Response(200, json=_ANTHROPIC_OK)
+        )
+        discovery = router.get(f"{preset.discovery_url}/v1/models").mock(
+            return_value=httpx.Response(200, json={"data": []})
+        )
+
+        resp = await run_test(
+            preset_id="anthropic-official",
+            base_url=None,
+            api_key="sk",
+            model=None,
+            http_client=probe_client,
+        )
+
+    assert resp.overall == "fail"
+    assert resp.diagnosis == DiagnosisCode.MODEL_REQUIRED
+    assert resp.suggestion is not None
+    assert resp.suggestion.kind == "run_discovery"
+    assert resp.messages_probe.success is False
+    assert resp.messages_probe.status_code is None
+    assert resp.discovery_probe is None
+    assert messages.call_count == 0
+    assert discovery.call_count == 0
+
+
+async def test_run_test_ark_preset_uses_default_model_and_skips_discovery(
+    probe_client: httpx.AsyncClient,
+) -> None:
+    """火山方舟 Agent Plan：预设默认模型直接可用，discovery 关闭不拖成 warn。"""
+    preset = get_preset("ark-agent-plan")
+    assert preset is not None
+
+    with capture_http() as router:
+        messages = router.post(f"{preset.messages_url}/v1/messages").mock(
+            return_value=httpx.Response(200, json=_ANTHROPIC_OK)
+        )
+
+        resp = await run_test(
+            preset_id="ark-agent-plan",
+            base_url=None,
+            api_key="sk",
+            model=None,
+            http_client=probe_client,
+        )
+
+    assert resp.overall == "ok"
+    assert resp.discovery_probe is None
+    assert request_json(only_request(messages))["model"] == preset.default_model
+
+
+async def test_run_test_custom_mode_without_model_uses_fallback(probe_client: httpx.AsyncClient) -> None:
+    """自定义模式不受空模型短路影响，仍用内置兜底模型。"""
+    with capture_http() as router:
+        messages = router.post("https://api.example.com/anthropic/v1/messages").mock(
+            return_value=httpx.Response(200, json=_ANTHROPIC_OK)
+        )
+        router.get("https://api.example.com/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
+
+        resp = await run_test(
+            preset_id=CUSTOM_SENTINEL_ID,
+            base_url="https://api.example.com/anthropic",
+            api_key="sk",
+            model=None,
+            http_client=probe_client,
+        )
+
+    assert resp.overall == "ok"
+    assert request_json(only_request(messages))["model"] == "claude-3-5-sonnet-20241022"
+
+
+def test_classify_probe_failure_400_missing_other_param_stays_unknown() -> None:
+    """缺参提示指向别的字段时不连坐到 model。"""
+    p = ProbeResult(
+        success=False,
+        status_code=400,
+        latency_ms=10,
+        error='{"message":"missing `max_tokens`; requested model doubao-seed-evolving"}',
+    )
+    assert classify_probe_failure(p) == DiagnosisCode.MODEL_NOT_FOUND

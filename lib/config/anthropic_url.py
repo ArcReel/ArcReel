@@ -72,3 +72,9 @@ def derive_anthropic_endpoints(user_url: str) -> AnthropicEndpoints:
             )
             return AnthropicEndpoints(messages_root, discovery_root, has_explicit_suffix=True)
     return AnthropicEndpoints(cleaned, cleaned, has_explicit_suffix=False)
+
+
+def anthropic_auth_headers(api_key: str, *, bearer: bool = False) -> dict[str, str]:
+    """Anthropic 协议请求头；``bearer=True`` 给只认 Authorization 的网关（火山方舟）用。"""
+    auth = {"Authorization": f"Bearer {api_key}"} if bearer else {"x-api-key": api_key}
+    return {**auth, "anthropic-version": "2023-06-01"}
