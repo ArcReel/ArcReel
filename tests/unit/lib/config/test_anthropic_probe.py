@@ -354,6 +354,20 @@ def test_classify_probe_failure_400_missing_model_is_model_required() -> None:
     assert classify_probe_failure(p) == DiagnosisCode.MODEL_REQUIRED
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "missing parameter model",
+        "model is required",
+        "the required field model was not provided",
+    ],
+)
+def test_classify_probe_failure_400_missing_model_wording_variants(message: str) -> None:
+    """缺参措辞与 model 之间夹着单词时同样归为 model_required。"""
+    p = ProbeResult(success=False, status_code=400, latency_ms=10, error=message)
+    assert classify_probe_failure(p) == DiagnosisCode.MODEL_REQUIRED
+
+
 def test_classify_probe_failure_400_bad_model_is_model_not_found() -> None:
     p = ProbeResult(
         success=False,
@@ -481,7 +495,7 @@ async def test_run_test_custom_mode_without_model_uses_fallback(probe_client: ht
     assert request_json(only_request(messages))["model"] == "claude-3-5-sonnet-20241022"
 
 
-def test_classify_probe_failure_400_missing_other_param_stays_unknown() -> None:
+def test_classify_probe_failure_400_missing_other_param_is_not_model_required() -> None:
     """缺参提示指向别的字段时不连坐到 model。"""
     p = ProbeResult(
         success=False,

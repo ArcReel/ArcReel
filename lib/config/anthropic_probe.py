@@ -32,8 +32,9 @@ logger = logging.getLogger(__name__)
 _ERR_TRUNCATE = 200
 
 # 400 错误体里「缺参」措辞紧挨着 model 时 = 模型参数没传（而非模型名不被识别）。
-# 限定邻近距离，避免 body 里另一个参数的缺参提示（如 missing max_tokens）连坐到 model。
-_MISSING_MODEL_RE = re.compile(r"(missing|required|empty)\W{0,24}model|model\W{0,24}(missing|required|is empty)")
+# 中间允许任意字符以容纳 "missing parameter model" 这类措辞，但限定邻近距离，
+# 避免 body 里另一个参数的缺参提示（如 missing max_tokens）连坐到 model。
+_MISSING_MODEL_RE = re.compile(r"(missing|required|empty).{0,16}model|model.{0,16}(missing|required|is empty)")
 
 
 class DiagnosisCode(StrEnum):
