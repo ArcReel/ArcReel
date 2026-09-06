@@ -43,7 +43,6 @@
       "Skill(commit-commands:commit)",
       "Skill(commit-commands:commit-push-pr)",
       "Skill(claude-api)",
-      "Skill(receiving-code-review)",
       "Skill(verify)",
       "mcp__github__issue_read",
       "mcp__github__pull_request_read",
