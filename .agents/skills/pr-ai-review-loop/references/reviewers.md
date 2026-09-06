@@ -47,7 +47,7 @@ Gemini 手动重审消耗有限配额，默认沿用最近一次已完成且发�
 
 **触发。** PR 创建不足 5 分钟时等待。超过 5 分钟，仍无 review、inline、reaction 或 `has_started`，才发送一次 `@codex review`。出现启动信号或已经参审后，后续 push 等待自动续审；超时按 [faults.md](faults.md) 处理。
 
-**覆盖完成。** 当前 HEAD 上出现以下任一完成信号：带 `### 💡 Codex Review` 的 review；空 body 的 `COMMENTED` review 且本轮无新 inline；带 `has_pass_marker` 的顶层通过评论；或可确认属于本 HEAD 的 `+1` reaction（新信号由 `is_new` 标示）。新 push 后的 `eyes` 表示正在重审，上一 HEAD 的 `+1` 不能沿用。
+**覆盖完成。** 当前 HEAD 上出现以下任一完成信号：带 `### 💡 Codex Review` 的 review；空 body 的 `COMMENTED` review 且本轮无新 inline；`has_pass_marker` 且 `reviewed_current_head == true` 的顶层通过评论；或可确认属于本 HEAD 的 `+1` reaction（新信号由 `is_new` 标示）。新 push 后的 `eyes` 表示正在重审，上一 HEAD 的 `+1` 不能沿用。
 
 **发现入口。** 读取非 ack inline，以及 `has_body_finding == true` 的 review body。P0/P1 优先；其余发现同样按内容判断，不因标签自动实施或自动驳回。
 
