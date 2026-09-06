@@ -1,4 +1,4 @@
 interface:
   display_name: "PR AI Review Loop"
-  short_description: "Drive AI review fixes until convergence"
-  default_prompt: "Use $pr-ai-review-loop to drive this pull request through AI review convergence."
+  short_description: "Resolve review findings with engineering judgment"
+  default_prompt: "Use $pr-ai-review-loop to assess and resolve this pull request's review findings, verify the resulting changes, and report convergence or unresolved risks."

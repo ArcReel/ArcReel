@@ -1,12 +1,21 @@
-# 故障处理
+# 故障与覆盖降级
 
-条件与处置一一对应,均暂停询问委派方,例外两处:**能力证伪**自行裁决——reviewer 的回复或官方通知确证其无法参审(App 未接入、要求创建 / 连接账号、服务已停止),该家本 PR 按不参审处理、不再触发,记入退出汇报,无响应或一般性报错不构成证伪;reviewers.md 设有专项配额处置段的 reviewer(如 CodeRabbit)配额受阻时按该段自行处置,见下方 `quota_alerts` 条。
+无法取得必要证据时，附上受影响的 reviewer / HEAD、错误和建议处置，暂停交委派方决定。故障造成的未审与代码已审后仍有分歧是两回事；已在案处置的意见无需等待 bot 认同。
 
-- **某家 reviewer(含 CodeQL 分析)超过 30 分钟未响应**:bot 可能服务异常或配额已满,暂停并说明现状。fix-up 顺延导致的「未审」是设计内的跳过,不算无响应
-- **bot 报错**(如 "Internal error"、"Token limit exceeded"):附上错误内容,按 reviewers.md 该家的触发约束询问是否重跑
-- **`quota_alerts` 非空**:alert 之后该家已有成功审查(更晚的 review 或 walkthrough 更新)的视为已恢复,忽略残留 banner;真实受阻时,reviewers.md 该家有专项配额处置段的(如 CodeRabbit)按其规则自行处置,不暂停;其余家附上 `body_head`,询问停用该家继续其他家,还是等待 quota 恢复后再 push
-- **`codeql_checks.failing` 非空**(失败态集合见 poll.sh header `checks_failing` 条):分析失败,alerts 数据停留在上次成功分析,不能做终核;询问是否重跑失败的 workflow
-- **`security_alerts.available == false`**:附上 `unavailable_hint`,按 reviewers.md「仓库未接入」段区分权限问题与未接入——两种情形都需委派方确认,不得自动跳过 security 门槛
-- **`wait.sh` 返回 `WAIT_ERROR`**:401 / 403 按下条处理;其余附上 stderr 暂停
-- **`gh` 401 / 403**:请委派方运行 `gh auth refresh -s repo`
-- **review 评论语义模糊**,按 `receiving-code-review` 的纪律仍无法判定是否 pushback:附上原文请委派方定夺
+## 需要交接的故障
+
+- 必要的 reviewer 或 CodeQL 结果超过 30 分钟仍未到达；合法沿用的审查不算缺失。
+- bot 报错、`POLL_ERROR` / `QUERY_ERROR` / `WAIT_ERROR`，或认证、权限失败；保留原始错误，不把空数据当作无问题。
+- CodeQL 分析失败或 alerts API 不可用；分析失败时告警数据可能仍属于旧 HEAD，不能据此终核。未接入的确认方式见 [reviewers.md](reviewers.md)。
+
+`WAIT_TIMEOUT` 后重新 poll，仍缺结果才按超时交接。评论含糊时先追溯代码和上下文；仍影响风险判断的，把具体未决问题交委派方。
+
+## 配额与未接入
+
+先核实是否仍受阻：配额 banner 之后已有成功审查的，按已恢复处理。其他 reviewer 的真实配额阻塞由委派方决定停用还是等待恢复。
+
+CodeRabbit 沿用自主处理约定：等待限流恢复后手动 `@coderabbitai review` 重试一次；仍限流则本 PR 停用该家并记入退出汇报。等待超过 30 分钟仍无恢复信号时，按超时交接。
+
+reviewer 回复或官方通知明确证实 App 未接入、要求创建或连接账号、服务已停止时，可将该家本 PR 标为不参审并停止触发。无响应和一般报错不构成这种证据。
+
+覆盖降级应明确报告原因和未审范围，不写成“该家通过”。CodeQL 门槛的跳过始终需要委派方确认。
