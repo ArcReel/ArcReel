@@ -36,3 +36,5 @@ disable-model-invocation: true
 ## 4. 收尾
 
 在 Spec issue 发布按已合并 stage 组织的人工 QA 清单，列出 PR、用户可感知的验收路径、暂停/跳过项与转呈事项；显式 issue 批次则并入收尾汇报。移除已认领 issue 的 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
+
+收尾汇报中给出 `batch-id`、账本与 handoff 路径，并保留这些批次记录。用户可在收尾后用 `/afk-retrospective` 评估遗留问题及改进机会；复盘不属于批次完成条件。
