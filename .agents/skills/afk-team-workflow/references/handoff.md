@@ -31,5 +31,5 @@ follow-up 只记候选，立 issue 归 team-lead 并受用户授权约束。
 
 - pushback 与依据
 - reviewer 故障
-- 硬停时：趋势结论、仍开放条目的建议处置、下一步
-- retrospective 候选：ADR / CONTEXT / agent instructions / follow-up
+- 硬停时：进展判断、未决事项的建议处置、下一步
+- 候选（如有）：ADR / CONTEXT / agent instructions / follow-up
