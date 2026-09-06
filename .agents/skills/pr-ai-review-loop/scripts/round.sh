@@ -12,7 +12,7 @@
 #   Append-only within a PR: round = entries so far + 1, head = PR head at mark time (a
 #   pushback-only round repeats the previous head). poll.sh surfaces the entry count as
 #   `rounds` in its index, so the ledger survives context compaction and looper hand-offs.
-#   What counts as a round is defined once, in SKILL.md「轮次与收敛」.
+#   What counts as a round is defined once, in SKILL.md「推进循环」.
 #
 # OUTPUT
 #   mark: {round, head, marked_at, implemented, pushback, note, rounds} for the new entry.

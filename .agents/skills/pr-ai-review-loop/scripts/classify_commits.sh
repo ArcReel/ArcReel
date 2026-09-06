@@ -31,8 +31,8 @@
 # WHY
 # Skill needs to judge whether the latest push is "fix-up only" (nit/format/typo/small bug) so it can:
 #   (a) skip a manual re-trigger of a reviewer that only auto-reviews on PR open (Gemini today), and
-#   (b) feed the trend assessment in references/convergence.md with what the last batches actually
-#       changed. Metadata only; read the diff by SHA when unclear.
+#   (b) show what the last batches actually changed when reporting progress at the evaluation
+#       point (SKILL.md「预算与交接」). Metadata only; read the diff by SHA when unclear.
 # Output is raw metadata (file count, line stats, message text); the orchestrating agent makes the final call —
 # scripting "is this nit?" would miss semantic cues like "fix typo in error message
 # (1 line, 1 file)" being clearly nit vs "fix race in lock release (1 line, 1 file)" being NOT nit.
