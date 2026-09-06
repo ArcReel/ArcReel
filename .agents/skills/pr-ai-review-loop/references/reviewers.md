@@ -60,7 +60,7 @@ CodeQL 不读 inline 回复，修复后由分析更新告警；尚未修复的�
 - `codeql_checks.all_ok == true`：当前 HEAD 分析完成且成功。`total == 0`、pending 或失败都不是通过。
 - `security_alerts.available == true`，且 `open_introduced` 为空，或仅剩经核实并在案的误报。该列表已排除 base 存量，check-run 标题中的 “N new alerts” 不能替代它。
 
-新告警按主文件的证据标准核实。对一般疑似误报，将证据交委派方确认后才纳入在案清单；已确认的误报按 alert number 在 PR 留下证据和结论。dismiss 由用户执行，退出汇报列出待 dismiss 项；循环不代为消警。
+新告警按主文件的证据标准核实。核实为误报的，按 alert number 在 PR 顶层评论写明污点链终点与结论，即纳入在案清单；证据不足以定论的交委派方裁决。dismiss 由用户执行，退出汇报列出待 dismiss 项；循环不代为消警。
 
 **已有授权的误报家族。** `py/path-injection` 的污点链止于 `ProjectManager.get_project_path()` 返回路径本身，且内部 `safe_join` 对 `project_name` 的保护仍成立时，可直接核实并在案。返回值之后又拼接未校验的 `filename` 等污点，不属于此例外。记录 alert number 与实际污点终点；已有记录的前提未变时沿用结论。
 
