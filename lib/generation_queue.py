@@ -364,6 +364,11 @@ class GenerationQueue:
         # set by server.app boot via set_worker_cancel_callback before worker.start()
         self._worker_cancel_callback: WorkerCancelCallback | None = None
 
+    @property
+    def session_factory(self):
+        """本队列落库用的 session factory；与队列协作的记账写入沿用同一处接线。"""
+        return self._session_factory
+
     def set_worker_cancel_callback(self, callback: WorkerCancelCallback | None) -> None:
         """Attach in-process worker cancel callback. Must be called before worker.start()
         so cancel API can deliver signals synchronously (ADR 0006 秒级响应)."""

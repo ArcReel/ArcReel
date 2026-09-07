@@ -1110,6 +1110,16 @@ describe("useProjectEventsSSE", () => {
       expect(Object.keys(useAppStore.getState().entityRevisions)).toHaveLength(0);
     });
 
+    it("仅含结算事件的批次也刷新成本（无任务的调用只有这一个费用变动信号）", () => {
+      const stream = mockProjectEventStream();
+      const debouncedFetchSpy = vi.spyOn(useCostStore.getState(), "debouncedFetch");
+
+      renderHarness("/");
+      emitUsage(stream, [usageRecordChange({ status: "failed" })]);
+
+      expect(debouncedFetchSpy).toHaveBeenCalledWith("demo");
+    });
+
     it("结算事件不弹通知、不触发聚焦跳转（important=false / focus=null）", () => {
       const stream = mockProjectEventStream();
 

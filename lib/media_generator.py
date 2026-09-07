@@ -166,7 +166,8 @@ def _input_path(project_path: Path, value: object) -> str | None:
         return None
     path = Path(value)
     try:
-        return path.relative_to(project_path).as_posix()
+        # 两边都取绝对路径再求相对：项目根或素材路径任一为相对路径（本地调试、CLI）时同样能归一。
+        return path.absolute().relative_to(project_path.absolute()).as_posix()
     except ValueError:
         return path.as_posix()
 
@@ -644,7 +645,7 @@ class MediaGenerator:
                 purpose=CallPurpose.GENERATION_TASK,
                 inputs=_ledger_inputs(
                     reference_images=[
-                        {"path": rel, "label": ref.label or None, "role": "array"}
+                        {"path": rel, "label": None, "role": "array"}
                         for ref in ref_images
                         if (rel := _input_path(self.project_path, ref.path)) is not None
                     ]

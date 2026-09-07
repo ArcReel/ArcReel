@@ -3,7 +3,9 @@
 import asyncio
 
 import pytest
+from sqlalchemy import select
 
+from lib.db.models.api_call import ApiCall
 from lib.db.repositories.task_repo import TaskRepository
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.i18n import _ as translate_message
@@ -44,6 +46,8 @@ class TestTaskRepository:
             status="failed",
             settlement=SettlementInput(cost_amount=0),
             error_message="download failed",
+            error_code="download_failed",
+            error_params={"status": 403},
         )
         await repo.claim_next("video")
         await repo.persist_provider_job_id(task["task_id"], "job-42", endpoint="ce-1")
@@ -61,6 +65,14 @@ class TestTaskRepository:
         assert calls["items"][0]["status"] == "pending"
         assert calls["items"][1]["id"] == older_call_id
         assert calls["items"][1]["status"] == "failed"
+        # 重开的行不再带上一次下载的失败原文与机器码：重试成功后 resume 结算只翻状态，
+        # 留着会让这条 success 行一直挂着 download_failed。
+        reopened = (
+            await db_session.execute(
+                select(ApiCall.error_message, ApiCall.error_code, ApiCall.error_params).where(ApiCall.id == call_id)
+            )
+        ).one()
+        assert tuple(reopened) == (None, None, None)
 
     async def test_retry_artifact_download_reopens_api_call_left_pending_by_resume(self, db_session):
         # 落 artifact_download_failed 的任务，其 ApiCall 停在 pending 时同样受理重试；

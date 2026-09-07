@@ -619,8 +619,9 @@ class TaskRepository(BaseRepository):
             raise ValueError(f"task is not eligible for artifact download retry: {task_id}")
         # 落 artifact_download_failed 的任务，其调用可能停在 failed（首次下载耗尽后已结算），
         # 也可能停在 pending（续跑路径下载耗尽，结算与任务翻状态之间有窗口）。两种都受理并
-        # 原地翻回 pending：仍是同一条调用，不新增计费行。调用行按 ``api_calls.task_id`` 反查
-        # ——任务与调用的关联只有这一个真相源。
+        # 原地翻回 pending：仍是同一条调用，不新增计费行；上一次下载的失败原文与机器码一并
+        # 清掉，否则重试成功后 resume 结算只翻状态，这条 success 行会一直挂着 download_failed。
+        # 调用行按 ``api_calls.task_id`` 反查——任务与调用的关联只有这一个真相源。
         call_row = await self.session.execute(
             select(ApiCall.id)
             .where(
@@ -636,7 +637,13 @@ class TaskRepository(BaseRepository):
         call_update = await self.session.execute(
             update(ApiCall)
             .where(ApiCall.id == call_id, ApiCall.status.in_((CallStatus.FAILED, CallStatus.PENDING)))
-            .values(status=CallStatus.PENDING, finished_at=None, error_message=None)
+            .values(
+                status=CallStatus.PENDING,
+                finished_at=None,
+                error_message=None,
+                error_code=None,
+                error_params=None,
+            )
         )
         if rowcount(call_update) != 1:
             await self.session.rollback()
