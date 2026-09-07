@@ -802,3 +802,28 @@ def blocking_file_read_gate(
         yield gate
     finally:
         gate.release()
+
+
+def hook_claim_recheck(monkeypatch, *, before=None, after_first_pass=None) -> None:
+    """在正式图像任务提交前的 claim 复核处插入一次产物变更，再放行真实复核。
+
+    ``before`` 在每次复核之前执行（参考图冻结之后、发给供应商之前的变更）；
+    ``after_first_pass`` 只在首次复核通过后执行一次，用于验证进供应商调用前的第二道 checkpoint。
+    """
+
+    from server.services import generation_tasks
+
+    real_recheck = generation_tasks.assert_current_artifact_input_claims_usable
+    fired = False
+
+    def _recheck(*args, **kwargs):
+        nonlocal fired
+        if before is not None:
+            before()
+        result = real_recheck(*args, **kwargs)
+        if after_first_pass is not None and not fired:
+            fired = True
+            after_first_pass()
+        return result
+
+    monkeypatch.setattr(generation_tasks, "assert_current_artifact_input_claims_usable", _recheck)

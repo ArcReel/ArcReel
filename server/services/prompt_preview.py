@@ -91,7 +91,8 @@ async def _kept_reference_count(
 
     解析 image lane 会构造 backend（需凭证）。预览是只读视图，凭证缺失 / 供应商未配置时
     不该连提示词都看不到：解析失败按不裁剪处理并记一条 info——这种项目本来也跑不了生成，
-    预览与执行的逐字一致仍然成立。
+    预览与执行的逐字一致仍然成立。预览按项目当前配置解析、没有任务 payload：若入队的 payload
+    钉了别的供应商且其上限不同，编号会与那次执行不一致，这是预览不知 payload 的既有限制。
     """
     try:
         ctx = await resolve_generation_context(

@@ -364,19 +364,20 @@ class TestExecuteGridTask:
         # 第 3 张没随请求发出，正文只留裸名，不指认一个不存在的图3
         assert "图3" not in prompt
         assert "hero3站在门口" in prompt
+        # 宫格记录仍登记完整装配集：目标态规划器据此重建依据，上限是供应商属性、不进记录
         stored = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8"))
-        assert [ref["name"] for ref in stored["reference_images"]] == ["hero1", "hero2"]
+        assert [ref["name"] for ref in stored["reference_images"]] == ["hero1", "hero2", "hero3"]
 
-    async def test_a_dropped_reference_changing_before_submit_does_not_abort(
+    async def test_a_dropped_reference_changing_before_submit_still_aborts(
         self,
         project_with_script,
         grid_json,
         monkeypatch,
     ):
-        """被去尾的第 3 张图不是本次输入：它的登记在提交前被删，任务照常按 2 张提交。"""
+        """被去尾的第 3 张图仍是宫格依据的输入：它的登记在提交前被删，复核拦下，供应商未收到提交。"""
         from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-        from server.services import generation_tasks
         from server.services.generation_tasks import execute_grid_task
+        from tests.fakes import hook_claim_recheck
 
         project, script, grid_image_path = _seed_one_hero_per_scene(project_with_script, grid_json)
         captured: list[dict] = []
@@ -388,16 +389,11 @@ class TestExecuteGridTask:
                 captured.append(kwargs)
                 return grid_image_path, 1
 
-        real_assert = generation_tasks.assert_current_artifact_input_claims_usable
-
-        def _delete_dropped_sheet_then_assert(*args, **kwargs):
-            ProjectArtifactManifestAdapter(project_with_script).delete_entry(
+        hook_claim_recheck(
+            monkeypatch,
+            before=lambda: ProjectArtifactManifestAdapter(project_with_script).delete_entry(
                 ArtifactKey.asset_sheet("character", "hero3")
-            )
-            return real_assert(*args, **kwargs)
-
-        monkeypatch.setattr(
-            generation_tasks, "assert_current_artifact_input_claims_usable", _delete_dropped_sheet_then_assert
+            ),
         )
 
         with (
@@ -414,15 +410,15 @@ class TestExecuteGridTask:
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
 
-            await execute_grid_task(
-                "test-project",
-                grid_json.id,
-                {"prompt": "queued prompt", "script_file": "episode_1.json"},
-                user_id="test-user",
-            )
+            with pytest.raises(ValueError, match="no longer registered"):
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "queued prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
 
-        assert len(captured) == 1
-        assert len(captured[0]["reference_images"]) == 2
+        assert captured == []
 
     async def test_grid_rejects_an_unclaimed_bound_script_before_provider(
         self,
