@@ -1,6 +1,6 @@
 import { startTransition, useState, useEffect, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { ChevronLeft, Activity, Settings, Bell, Download, Loader2, Package } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
@@ -16,6 +16,7 @@ import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
 import { ExportScopeDialog } from "./ExportScopeDialog";
 import { ProjectMenu } from "./ProjectMenu";
 import { PhaseStepper } from "./PhaseStepper";
+import { UsageEntryPrototype } from "./prototype/UsageEntryPrototype";
 
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
@@ -47,6 +48,9 @@ interface GlobalHeaderProps {
 export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const { t } = useTranslation();
   const [, setLocation] = useLocation();
+  // PROTOTYPE — wayfinder #2291：DEV 且 URL 带 ?ue= 时用合并后的入口原型替换费用徽章 + 任务雷达
+  const headerSearch = useSearch();
+  const usageEntryScenario = import.meta.env.DEV ? new URLSearchParams(headerSearch).get("ue") : null;
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const { stats } = useTasksStore();
   const { taskHudOpen, setTaskHudOpen, triggerScrollTo, markWorkspaceNotificationRead } =
@@ -284,6 +288,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             />
           </div>
 
+          {usageEntryScenario ? (
+            <UsageEntryPrototype scenario={usageEntryScenario} />
+          ) : (
+          <>
           {/* Cost badge + UsageDrawer */}
           <div className="relative" ref={usageAnchorRef}>
             <button
@@ -379,6 +387,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             </button>
             <TaskHud anchorRef={taskHudAnchorRef} />
           </div>
+          </>
+          )}
 
           <div
             aria-hidden="true"
