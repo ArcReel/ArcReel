@@ -738,7 +738,8 @@ def _rewritten_mention_warnings(
     try:
         project = projects.load_project_readonly(project_name)
         script = projects.load_script_readonly(project_name, result_path.name)
-    except FileNotFoundError:
+    except (OSError, ValueError):
+        # 剧本已落盘，回执不能因为读回失败（文件缺失、I/O 故障、JSON 不合法）而失败。
         return []
     return storyboard_mention_warnings(project, script, unit_ids=rewritten)
 

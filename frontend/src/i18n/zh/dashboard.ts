@@ -1402,12 +1402,14 @@ export default {
   'review_convert_fresh_hint': '本集尚无正式脚本，将按脚本规划新建 {{count}} 条分镜。',
   'review_convert_counts': '与现有正式脚本相比：新增 {{added}} 条、失效 {{stale}} 条、移出 {{removed}} 条。失效分镜的内容与提示词都会保留，可在时间线逐条「采用新内容」。',
   'review_convert_in_sync': '正式脚本与脚本规划逐条一致，无需转换。',
+  'review_convert_structure_only': '脚本规划只调整了条目顺序或标题，转换后正式脚本随之更新；分镜内容与提示词都不变。',
   'review_convert_preview_failed': '无法比对脚本规划与正式脚本：{{message}}',
   'review_convert_agent': '让 Agent 生成',
   'review_convert_direct': '直接转换',
   'review_convert_converting': '转换中…',
   'review_convert_done': '已转为正式脚本：新增 {{added}} 条、采用新内容 {{refreshed}} 条、移出 {{removed}} 条',
   'review_convert_failed': '转换失败：{{message}}',
+  'review_convert_refresh_failed': '已转为正式脚本，但页面数据刷新失败，请刷新页面查看最新结果。',
   'review_fix_request_promote_prefill':
     '第 {{episode}} 集的脚本规划草稿重新校验已无违约，但尚未晋升为正式内容，请先用 doc_type={{docType}} 调用 open_draft，再用同一 doc_type 调用 promote_draft，并把返回的 revision 作为 base_revision 传入。',
 

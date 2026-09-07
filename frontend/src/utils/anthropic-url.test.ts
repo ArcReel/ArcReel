@@ -11,6 +11,7 @@ describe("normalizeAnthropicBaseUrl", () => {
     ["https://x/anthropic/", "https://x/anthropic"],
     ["https://x/anthropic/v1/messages", "https://x/anthropic"],
     ["https://x/anthropic/v1/messages/", "https://x/anthropic"],
+    ["https://x//v1/messages", "https://x"],
     ["  https://x  ", "https://x"],
   ])("归一 %s", (raw, expected) => {
     expect(normalizeAnthropicBaseUrl(raw)).toBe(expected);

@@ -448,6 +448,8 @@ def _project_grid_cells(members: Sequence[GridStoryboardVisual]) -> list[dict[st
 
 
 def _project_grid_action(video_prompt: object) -> str:
+    if video_prompt is None:
+        return ""
     if isinstance(video_prompt, Mapping):
         return str(video_prompt.get("action") or "")
     return str(video_prompt)

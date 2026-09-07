@@ -46,6 +46,8 @@ def project_with_script(tmp_path):
                     {
                         "segment_id": f"E1S0{i}",
                         "episode": 1,
+                        "image_prompt": {"scene": f"scene {i}", "composition": {"shot_type": "medium"}},
+                        "video_prompt": {"action": f"action {i}", "camera_motion": "static"},
                         "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
                     }
                     for i in range(1, 4)

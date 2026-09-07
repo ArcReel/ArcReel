@@ -1012,7 +1012,7 @@ async def discover_anthropic_models_endpoint(
     if not api_key:
         raise HTTPException(status_code=400, detail=_t("anthropic_discovery_no_key"))
 
-    base_url = body.base_url if not needs_url else (cred.base_url if cred else None)
+    base_url = body.base_url if not needs_url else (_credential_discovery_base(cred) if cred else None)
     if base_url:
         from lib.config.url_utils import InvalidAnthropicBaseUrlError, validate_anthropic_base_url
 
@@ -1060,6 +1060,21 @@ async def check_connectivity_by_id(
     return await _run_connectivity_check(provider.discovery_format, provider.base_url, provider.api_key, _t)
 
 
+def _credential_discovery_base(cred: Any) -> str | None:
+    """激活凭证用于模型发现的根地址。
+
+    预设凭证未覆盖 base_url（存储值仍等于预设 ``messages_url``）时，模型列表按预设目录的
+    ``discovery_url`` 取（DeepSeek 的列表不在 messages 根之下）；自定义或已覆盖的凭证按存储值。
+    与前端凭证表单「预填值不算覆盖」同一规则。
+    """
+    from lib.agent_provider_catalog import get_preset
+
+    preset = get_preset(cred.preset_id) if cred.preset_id else None
+    if preset is not None and cred.base_url == preset.messages_url:
+        return preset.discovery_url or preset.messages_url
+    return cred.base_url
+
+
 async def _run_discover(
     discovery_format: str,
     base_url: str | None,
@@ -1069,6 +1084,7 @@ async def _run_discover(
     discover_models_fn: Callable[..., Awaitable[list[dict]]] | None = None,
 ) -> DiscoverResponse:
     """共用的模型发现逻辑（明文凭证 / 已存储凭证两条入口共用）。"""
+    from lib.config.url_utils import InvalidAnthropicBaseUrlError
     from lib.custom_provider.discovery import UnsupportedDiscoveryFormatError, discover_models
 
     try:
@@ -1081,6 +1097,9 @@ async def _run_discover(
         return DiscoverResponse(models=models)
     except UnsupportedDiscoveryFormatError as exc:
         raise BadRequestError("invalid_discovery_format", discovery_format=discovery_format) from exc
+    except InvalidAnthropicBaseUrlError as exc:
+        # 入口校验拒绝的地址不是上游故障：与 /discover-anthropic 同样 422，文案不回显输入。
+        raise HTTPException(status_code=422, detail=_t("agent_base_url_invalid")) from exc
     except Exception as exc:
         err_msg = str(exc)
         if len(err_msg) > 200:

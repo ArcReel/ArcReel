@@ -24,7 +24,7 @@ from lib.async_thread import run_noninterruptible_sync
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
 from lib.grid.models import GridGeneration, build_grid_task_payload
-from lib.grid.prompt_builder import build_grid_prompt
+from lib.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
 from lib.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
@@ -132,7 +132,10 @@ async def generate_grid(
 
     # 一次请求整批准入：宫格图按分段成图，任一分镜的引用有缺口即整批拒绝、一次报全缺口。
     # 放行部分分组会让同批健康的分组独自计费，用户改完再提交时又要重付一次。
-    require_admitted_storyboard_references(project, [item for group in groups for item in group])
+    batch_items = [item for group in groups for item in group]
+    require_admitted_storyboard_references(project, batch_items)
+    # 提示词待生成的分镜与引用缺口同一口径：整批拒绝、一次报全，不为「None」提示词付费出图。
+    _require_grid_prompts_written(batch_items, id_field)
 
     grid_ids: list[str] = []
     task_ids: list[str] = []
@@ -286,6 +289,13 @@ async def get_grid(project_name: str, grid_id: str):
 # ==================== 重新生成宫格图 ====================
 
 
+def _require_grid_prompts_written(items: list[dict], id_field: str) -> None:
+    """任一分镜的 ``image_prompt`` 待生成即拒绝：联合图的提示词由各格拼成，缺一格整张图都出不了。"""
+    pending_ids = pending_grid_prompt_ids(items, id_field)
+    if pending_ids:
+        raise ConflictError("script_prompt_pending", segment_id=", ".join(pending_ids))
+
+
 def _load_project_for_grid_write(project_name: str) -> dict:
     """加载项目并校验宫格写操作闸门；判定与版本还原共用 ``ensure_grid_writable``。"""
     # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
@@ -314,9 +324,9 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     # 重生成是又一次付费出图：准入与首次生成同一份判定，按记录冻结的分镜集合求值。
     # 剧本在两次生成之间被改过时，缺口以当前剧本为准——worker 也是按当前剧本重建请求的。
     scene_ids = set(grid.scene_ids)
-    require_admitted_storyboard_references(
-        project, [item for item in items if str(item.get(id_field, "")) in scene_ids]
-    )
+    members = [item for item in items if str(item.get(id_field, "")) in scene_ids]
+    require_admitted_storyboard_references(project, members)
+    _require_grid_prompts_written(members, id_field)
 
     # 重生成沿用记录上冻结的 rows/cols 与比例。Worker 在执行时从同一份当前剧本、
     # 风格和冻结布局重建 provider prompt 与 provenance basis，队列里的 prompt 仅作

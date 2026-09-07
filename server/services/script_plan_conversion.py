@@ -17,7 +17,12 @@ from collections.abc import Iterable
 
 from lib.config.resolver import ConfigResolver
 from lib.project_manager import ProjectManager, get_project_manager
-from lib.script_generator import ScriptGenerator, ScriptPlanConversionPreview, ScriptPlanConversionReceipt
+from lib.script_generator import (
+    ScriptGenerator,
+    ScriptPlanConversionPreview,
+    ScriptPlanConversionReceipt,
+    ScriptPlanNotFoundError,
+)
 from server.text_generation import episode_generation_preflight
 
 
@@ -48,7 +53,10 @@ async def preview_script_plan_conversion(
     projects: ProjectManager | None = None,
     config_resolver: ConfigResolver | None = None,
 ) -> ScriptPlanConversionPreview:
-    """只读预演第 ``episode`` 集的机械转换：新增 / 失效 / 移出三组条目 id，不落盘、不经内容确认门禁。"""
+    """只读预演第 ``episode`` 集的机械转换：新增 / 失效 / 移出三组条目 id，不落盘、不经内容确认门禁。
+
+    脚本规划缺失抛 ``ScriptPlanNotFoundError``；项目或项目元数据缺失仍是普通 ``FileNotFoundError``。
+    """
     manager = projects if projects is not None else get_project_manager()
     project_path = manager.get_project_path(project_name)
     generator = await asyncio.to_thread(ScriptGenerator, project_path, config_resolver=config_resolver)
@@ -58,6 +66,7 @@ async def preview_script_plan_conversion(
 __all__ = [
     "ScriptPlanConversionPreview",
     "ScriptPlanConversionReceipt",
+    "ScriptPlanNotFoundError",
     "convert_script_plan",
     "preview_script_plan_conversion",
 ]

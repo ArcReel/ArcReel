@@ -34,6 +34,7 @@ import type { CustomProviderInfo } from "@/types/custom-provider";
 import {
   anthropicMessagesUrl,
   hasUnsupportedUrlComponents,
+  normalizeAnthropicBaseUrl,
 } from "@/utils/anthropic-url";
 import { errMsg } from "@/utils/async";
 
@@ -184,13 +185,20 @@ export function AddCredentialModal({
     setDiscovering(true);
     setDiscoverError(null);
     try {
-      // 优先使用表单里的 base_url：用户改了 URL 但发现仍走预设默认端点会选到
-      // 当前 endpoint 不支持的模型。无 base_url 时回退到预设的 discovery/messages URL。
+      // 用户覆盖了 base_url 时按覆盖值发现：仍走预设默认端点会选到当前 endpoint 不支持的模型。
+      // 选预设时表单预填的是预设的 messages_url，它不是覆盖：此时回退到预设目录的
+      // discovery_url（DeepSeek 等预设的模型列表不在 messages 根之下）。是否覆盖按保存时
+      // 同一套归一化后的值比较，只多一个尾斜杠仍算预设默认。
+      const typedBase = form.baseUrl.trim();
+      const isPresetDefault =
+        form.presetId !== customSentinelId &&
+        normalizeAnthropicBaseUrl(typedBase) === normalizeAnthropicBaseUrl(selected?.messages_url ?? "");
       const discoverBase =
-        form.baseUrl.trim() ||
-        (form.presetId === customSentinelId
-          ? ""
-          : selected?.discovery_url || selected?.messages_url || "");
+        typedBase && !isPresetDefault
+          ? typedBase
+          : form.presetId === customSentinelId
+            ? ""
+            : selected?.discovery_url || selected?.messages_url || "";
       if (!discoverBase) {
         if (session === sessionRef.current) setDiscoverError(t("discover_no_base"));
         return;

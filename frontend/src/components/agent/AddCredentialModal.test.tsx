@@ -122,6 +122,75 @@ describe("AddCredentialModal", () => {
     );
   });
 
+  it("preset chip prefill is not an override: discovery uses the preset discovery_url", async () => {
+    const discover = vi.spyOn(API, "discoverAnthropicModels").mockResolvedValue({ models: [] });
+    render(
+      <AddCredentialModal
+        open
+        presets={presets}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
+    fireEvent.change(screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i), {
+      target: { value: "sk-test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /获取模型列表|discover/i }));
+    await waitFor(() =>
+      expect(discover).toHaveBeenCalledWith({ base_url: "https://api.deepseek.com", api_key: "sk-test" }),
+    );
+  });
+
+  it("a preset messages_url with only a trailing slash is still the preset default", async () => {
+    const discover = vi.spyOn(API, "discoverAnthropicModels").mockResolvedValue({ models: [] });
+    render(
+      <AddCredentialModal
+        open
+        presets={presets}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
+    fireEvent.change(screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i), {
+      target: { value: "sk-test" },
+    });
+    fireEvent.change(screen.getByLabelText(/base[_ ]url|代理地址/i), {
+      target: { value: "https://api.deepseek.com/anthropic/" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /获取模型列表|discover/i }));
+    await waitFor(() =>
+      expect(discover).toHaveBeenCalledWith({ base_url: "https://api.deepseek.com", api_key: "sk-test" }),
+    );
+  });
+
+  it("a base_url the user edited overrides the preset discovery_url", async () => {
+    const discover = vi.spyOn(API, "discoverAnthropicModels").mockResolvedValue({ models: [] });
+    render(
+      <AddCredentialModal
+        open
+        presets={presets}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
+    fireEvent.change(screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i), {
+      target: { value: "sk-test" },
+    });
+    fireEvent.change(screen.getByLabelText(/base[_ ]url|代理地址/i), {
+      target: { value: "https://proxy.internal/anthropic" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /获取模型列表|discover/i }));
+    await waitFor(() =>
+      expect(discover).toHaveBeenCalledWith({ base_url: "https://proxy.internal/anthropic", api_key: "sk-test" }),
+    );
+  });
+
   it("get-api-key link rendered when preset has api_key_url", () => {
     render(
       <AddCredentialModal

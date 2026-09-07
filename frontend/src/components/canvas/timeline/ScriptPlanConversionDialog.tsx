@@ -58,12 +58,11 @@ export function ScriptPlanConversionDialog({ open, projectName, episode, onClose
     onClose();
   };
 
+  const noEntryChanges =
+    preview != null && preview.added.length === 0 && preview.stale.length === 0 && preview.removed.length === 0;
+  // 三组条目为空不等于已同步：只调顺序或只改标题同样要转，与后端的空操作判定同口径。
   const inSync =
-    preview != null &&
-    preview.has_script &&
-    preview.added.length === 0 &&
-    preview.stale.length === 0 &&
-    preview.removed.length === 0;
+    preview != null && preview.has_script && noEntryChanges && !preview.order_changed && !preview.title_changed;
 
   const handleConvert = async () => {
     if (converting) return;
@@ -79,12 +78,19 @@ export function ScriptPlanConversionDialog({ open, projectName, episode, onClose
         "success",
       );
       onClose();
-      // 正式脚本刚落盘，时间线要重取项目数据才能切到分镜视图；刷新失败只留旧不再提示。
-      await useProjectsStore.getState().refreshProject(projectName);
     } catch (e) {
       useAppStore.getState().pushToast(t("review_convert_failed", { message: errMsg(e) }), "error");
+      return;
     } finally {
       setConverting(false);
+    }
+    // 正式脚本已落盘，时间线要重取项目数据才能切到分镜视图。刷新不在转换的失败路径里：
+    // refreshProject 以结算值而非 rejection 报告失败，失败只留旧数据、不把已成功的转换说成失败；
+    // 但要单独提示，否则页面停在规划视图、再打开对话框又显示已同步，看着像转换没生效。
+    // cancelled 是项目已切走，静默。
+    const refreshed = await useProjectsStore.getState().refreshProject(projectName);
+    if (refreshed === "failed") {
+      useAppStore.getState().pushToast(t("review_convert_refresh_failed"), "warning");
     }
   };
 
@@ -96,7 +102,9 @@ export function ScriptPlanConversionDialog({ open, projectName, episode, onClose
         ? t("review_convert_fresh_hint", { count: preview.added.length })
         : inSync
           ? t("review_convert_in_sync")
-          : t("review_convert_counts", {
+          : noEntryChanges
+            ? t("review_convert_structure_only")
+            : t("review_convert_counts", {
               added: preview.added.length,
               stale: preview.stale.length,
               removed: preview.removed.length,

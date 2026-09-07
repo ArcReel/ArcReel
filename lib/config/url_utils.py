@@ -107,7 +107,8 @@ def normalize_anthropic_base_url(raw: str) -> str:
     """
     stripped = raw.strip().rstrip("/")
     if stripped.endswith(ANTHROPIC_MESSAGES_PATH):
-        stripped = stripped[: -len(ANTHROPIC_MESSAGES_PATH)]
+        # 剥掉端点后再去一次尾斜杠：``https://x//v1/messages`` 的存储值须是 ``https://x``。
+        stripped = stripped[: -len(ANTHROPIC_MESSAGES_PATH)].rstrip("/")
     return stripped
 
 
@@ -141,10 +142,10 @@ def validate_anthropic_base_url(raw: str) -> str:
 
 
 def anthropic_endpoint_url(base_url: str, path_suffix: str) -> str:
-    """在 ``base_url`` 的 path 末尾追加 ``path_suffix``（如 ``/v1/messages``）。
+    """在 ``base_url`` 末尾追加 ``path_suffix``（如 ``/v1/messages``）。
 
-    走 httpx.URL 而非裸字符串拼接，保证探测、模型发现与真实请求用的是同一条
-    URL 构造路径。
+    与 Claude CLI 内置 SDK 同样按字符串拼接：``base_url`` 已经过 :func:`validate_anthropic_base_url`
+    （无 query / fragment、无尾斜杠），逐字拼接才能让探测、模型发现与运行时请求的是同一个
+    字符串；经 ``httpx.URL`` 解码再回写 path 会把 ``%2F`` 这类已转义的分隔符还原成真实分隔符。
     """
-    url = httpx.URL(base_url)
-    return str(url.copy_with(path=url.path.rstrip("/") + path_suffix))
+    return base_url.rstrip("/") + path_suffix

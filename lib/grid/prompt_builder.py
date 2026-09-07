@@ -17,9 +17,25 @@ from lib.reference_image_numbering import (
 )
 
 
-def project_grid_image_prompt(image_prompt: object) -> str | dict[str, object]:
-    """Project grid image semantics into the canonical provider/basis shape."""
+def pending_grid_prompt_ids(scenes: Sequence[Mapping[str, object]], id_field: str) -> list[str]:
+    """一张联合图里提示词待生成（``None``）或为空的格子 id，按剧本顺序。
 
+    联合图的提示词由每格的 ``image_prompt`` 拼成，任一格缺失整张图都出不了；REST 路由与
+    Agent 工具在入队计费前共用这一判定。
+    """
+
+    return [str(scene.get(id_field)) for scene in scenes if not scene.get("image_prompt")]
+
+
+def project_grid_image_prompt(image_prompt: object) -> str | dict[str, object]:
+    """Project grid image semantics into the canonical provider/basis shape.
+
+    ``None`` 是机械转换后的待生成态，没有可渲染、可取证的内容，与
+    :func:`lib.prompt_utils.project_storyboard_image_prompt` 同样拒绝，不能变成字面量 ``"None"``。
+    """
+
+    if image_prompt is None:
+        raise ValueError("grid image_prompt is pending; the cell has no prompt to render")
     if not isinstance(image_prompt, Mapping):
         return str(image_prompt)
     scene = image_prompt.get("scene")
@@ -71,7 +87,9 @@ def _extract_action(scene: dict) -> str:
 
     If dict, return action field. If string, return as-is.
     """
-    video_prompt = scene.get("video_prompt", "")
+    video_prompt = scene.get("video_prompt")
+    if video_prompt is None:
+        return ""
     if isinstance(video_prompt, dict):
         return str(video_prompt.get("action", ""))
     return str(video_prompt)

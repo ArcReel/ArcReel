@@ -15,8 +15,9 @@ export const MESSAGES_PATH = "/v1/messages";
  */
 export function normalizeAnthropicBaseUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, "");
+  // 剥掉端点后再去一次尾斜杠：https://x//v1/messages 的存储值须是 https://x。
   return trimmed.endsWith(MESSAGES_PATH)
-    ? trimmed.slice(0, -MESSAGES_PATH.length)
+    ? trimmed.slice(0, -MESSAGES_PATH.length).replace(/\/+$/, "")
     : trimmed;
 }
 

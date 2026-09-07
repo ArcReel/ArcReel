@@ -603,7 +603,7 @@ class TestDiscoverModels:
             asyncio.run(discovery_client.aclose())
 
         assert route.call_count == 0
-        assert resp.status_code == 502
+        assert resp.status_code == 422
         detail = resp.json()["detail"]
         assert "sk-leaked-userinfo" not in detail
         assert "sk-leaked-query" not in detail
@@ -1714,6 +1714,44 @@ class TestDiscoverAnthropic:
         kwargs = mock_discover.call_args.kwargs
         assert kwargs["base_url"] == "https://stored.example"
         assert kwargs["api_key"] == "sk-stored"
+
+    @pytest.mark.parametrize(
+        ("stored_base_url", "expected_discovery_base"),
+        [
+            # 预设默认值不算覆盖：模型列表按预设目录的 discovery_url 取
+            ("https://api.deepseek.com/anthropic", "https://api.deepseek.com"),
+            # 用户覆盖过的 base_url 按存储值发现
+            ("https://proxy.internal/anthropic", "https://proxy.internal/anthropic"),
+        ],
+    )
+    async def test_active_preset_credential_discovers_from_preset_root_unless_overridden(
+        self,
+        custom_providers_client: TestClient,
+        db_session: AsyncSession,
+        stored_base_url: str,
+        expected_discovery_base: str,
+    ):
+        from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+
+        repo = AgentCredentialRepository(db_session)
+        cred = await repo.create(
+            preset_id="deepseek",
+            display_name="DeepSeek",
+            base_url=stored_base_url,
+            api_key="sk-stored",
+        )
+        await repo.set_active(cred.id)
+        await db_session.commit()
+
+        with patch(
+            "lib.custom_provider.discovery.discover_models",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_discover:
+            resp = custom_providers_client.post("/api/v1/custom-providers/discover-anthropic", json={})
+
+        assert resp.status_code == 200
+        assert mock_discover.call_args.kwargs["base_url"] == expected_discovery_base
 
     @pytest.mark.parametrize(
         "base_url",
