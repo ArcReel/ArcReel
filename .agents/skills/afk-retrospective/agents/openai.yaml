@@ -1,5 +1,5 @@
 interface:
   display_name: "AFK 复盘"
-  short_description: "为刚完成的 AFK 批次生成中文 HTML 报告"
+  short_description: "筛选值得投入的项目与执行改进，生成可留存报告供用户裁决"
 policy:
   allow_implicit_invocation: false
