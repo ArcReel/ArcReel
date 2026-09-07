@@ -113,6 +113,10 @@ class OpenAIImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
+    @property
+    def max_reference_images(self) -> int:
+        return _MAX_REFERENCE_IMAGES
+
     @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         has_refs = bool(request.reference_images)

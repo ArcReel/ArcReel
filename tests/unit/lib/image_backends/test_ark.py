@@ -152,6 +152,10 @@ class TestArkImageBackendProperties:
             ImageCapability.IMAGE_TO_IMAGE,
         }
 
+    def test_declares_no_reference_image_limit(self, backend):
+        # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
+        assert backend.max_reference_images == 0
+
 
 class TestArkImageBackendGenerate:
     """generate() 方法测试。"""

@@ -169,9 +169,10 @@ class TestPayloadBuilding:
 
     def test_reference_over_limit_truncated(self, tmp_path):
         refs = [_ref(tmp_path, f"r{i}.png") for i in range(12)]
-        payload = _jwt_backend()._build_payload(_request(tmp_path, reference_images=refs))
-        # o1 上限 10 张，超出截断
-        assert len(payload["image"]) == 10
+        backend = _jwt_backend()
+        payload = backend._build_payload(_request(tmp_path, reference_images=refs))
+        # o1 上限 10 张，超出截断；声明的上限即实际下传张数，编排层按它裁剪后编号。
+        assert len(payload["image"]) == backend.max_reference_images == 10
 
     def test_missing_reference_raises(self, tmp_path):
         bad = ReferenceImage(path=str(tmp_path / "nope.png"))

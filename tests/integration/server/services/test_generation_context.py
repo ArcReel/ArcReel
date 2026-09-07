@@ -53,6 +53,7 @@ class _FakeBackend:
     name: str
     model: str
     voices: list = field(default_factory=list)
+    max_reference_images: int = 0
 
     def list_voices(self):
         """audio backend 协议的一部分：audio lane 解析时会取音色目录快照。"""
@@ -538,6 +539,7 @@ class TestValueObjectAssembly:
             backend_name="ark",
             backend_model="m",
             resolution=None,
+            max_reference_images=0,
         )
         with pytest.raises(AttributeError):
             lane.resolution = "720p"

@@ -115,6 +115,15 @@ class ImageBackend(Protocol):
     def model(self) -> str: ...
     @property
     def capabilities(self) -> set[ImageCapability]: ...
+    @property
+    def max_reference_images(self) -> int:
+        """单请求可携带的参考图上限；``0`` = 该后端不按数量裁剪。
+
+        与 ``generate`` 内的截断常量同源。编排层据此在渲染「图N」编号前裁剪参考图序列
+        （见 ``lib.reference_image_numbering.clamped_reference_count``），后端内的截断退为兜底。
+        """
+        ...
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult: ...
 
 

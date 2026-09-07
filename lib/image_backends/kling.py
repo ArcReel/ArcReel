@@ -101,7 +101,7 @@ class KlingImageBackend(KlingBackendBase):
         return self._capabilities
 
     @property
-    def _ref_limit(self) -> int:
+    def max_reference_images(self) -> int:
         return _MODEL_REF_LIMITS.get(self._model, _DEFAULT_REF_LIMIT)
 
     # ── request building ────────────────────────────────────────────────
@@ -142,14 +142,14 @@ class KlingImageBackend(KlingBackendBase):
             raise ImageCapabilityError(
                 "image_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
             )
-        if len(encoded) > self._ref_limit:
+        if len(encoded) > self.max_reference_images:
             logger.warning(
                 "Kling 参考图数量 %d 超过 model=%s 上限 %d，截断",
                 len(encoded),
                 self._model,
-                self._ref_limit,
+                self.max_reference_images,
             )
-            encoded = encoded[: self._ref_limit]
+            encoded = encoded[: self.max_reference_images]
         return encoded
 
     @staticmethod

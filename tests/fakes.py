@@ -321,6 +321,11 @@ class FakeImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
+    @property
+    def max_reference_images(self) -> int:
+        # 替身不按数量裁剪参考图，全量随请求发出。
+        return 0
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         # Minimal valid PNG (1x1 pixel)

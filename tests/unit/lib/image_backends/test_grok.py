@@ -70,6 +70,10 @@ class TestProperties:
             ImageCapability.IMAGE_TO_IMAGE,
         }
 
+    def test_declares_no_reference_image_limit(self, grok_backend):
+        # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
+        assert grok_backend.max_reference_images == 0
+
 
 # ---------------------------------------------------------------------------
 # 构造函数测试

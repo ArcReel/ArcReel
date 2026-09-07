@@ -1,10 +1,12 @@
 """Tests for reference_image_numbering."""
 
+import logging
 from pathlib import Path
 
 from lib.reference_image_numbering import (
     PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
     PREVIOUS_STORYBOARD_ROLE,
+    clamped_reference_count,
     mention_replacements,
     reference_images_declaration,
     render_reference_mentions,
@@ -86,3 +88,26 @@ class TestRenderReferenceMentions:
     def test_text_without_mentions_is_untouched(self):
         text = "林清坐在窗边木桌前。"
         assert render_reference_mentions(text, [_sheet("character", "林清")]) == text
+
+
+class TestClampedReferenceCount:
+    def test_keeps_the_head_and_drops_the_tail_beyond_the_limit(self):
+        references = [_sheet("character", f"角色{i}") for i in range(8)]
+        assert clamped_reference_count(references, 7, backend="viduq2") == 7
+
+    def test_limit_zero_means_the_backend_does_not_clamp(self):
+        references = [_sheet("character", f"角色{i}") for i in range(20)]
+        assert clamped_reference_count(references, 0, backend="gemini-image") == 20
+
+    def test_sequence_within_the_limit_is_untouched(self):
+        references = [_sheet("character", "林清"), _PREVIOUS]
+        assert clamped_reference_count(references, 7, backend="viduq2") == 2
+
+    def test_warning_names_the_backend_the_limit_and_the_dropped_types(self, caplog):
+        references = [_sheet("character", f"角色{i}") for i in range(7)] + [_sheet("prop", "怀表"), _PREVIOUS]
+        with caplog.at_level(logging.WARNING, logger="lib.reference_image_numbering"):
+            assert clamped_reference_count(references, 7, backend="viduq2") == 7
+        assert "viduq2" in caplog.text
+        assert "7" in caplog.text
+        assert "道具参考图" in caplog.text
+        assert "上一分镜图" in caplog.text

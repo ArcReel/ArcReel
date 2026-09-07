@@ -270,14 +270,16 @@ class TestGenerationTasks:
         key = ArtifactKey.asset_sheet("character", "Alice")
         register_stale_visual_claim(project_path, key, "characters/Alice.png")
         fake_generator = FakeGenerator()
-        resolve_context = fake_resolve_ctx(fake_generator)
+        real_assert = generation_tasks.assert_current_artifact_input_claims_usable
 
-        async def _delete_claim_then_resolve(*args, **kwargs):
+        def _delete_claim_then_assert(*args, **kwargs):
+            # 参考图冻结之后、发给供应商之前登记被删：提交前的复核须在此拦下。
             ProjectArtifactManifestAdapter(project_path).delete_entry(key)
-            return await resolve_context(*args, **kwargs)
+            return real_assert(*args, **kwargs)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _delete_claim_then_resolve)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "assert_current_artifact_input_claims_usable", _delete_claim_then_assert)
 
         with pytest.raises(ValueError, match="no longer registered"):
             await generation_tasks.execute_storyboard_task(
@@ -298,14 +300,16 @@ class TestGenerationTasks:
         artifact_path = "characters/Alice.png"
         register_stale_visual_claim(project_path, key, artifact_path)
         fake_generator = FakeGenerator()
-        resolve_context = fake_resolve_ctx(fake_generator)
+        real_assert = generation_tasks.assert_current_artifact_input_claims_usable
 
-        async def _replace_bytes_then_resolve(*args, **kwargs):
+        def _replace_bytes_then_assert(*args, **kwargs):
+            # 参考图冻结之后、发给供应商之前字节被换：提交前的复核须在此拦下。
             (project_path / artifact_path).write_bytes(b"replacement")
-            return await resolve_context(*args, **kwargs)
+            return real_assert(*args, **kwargs)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _replace_bytes_then_resolve)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "assert_current_artifact_input_claims_usable", _replace_bytes_then_assert)
 
         with pytest.raises(ValueError, match="changed since it was selected"):
             await generation_tasks.execute_storyboard_task(
@@ -329,15 +333,24 @@ class TestGenerationTasks:
                 return await super().generate_image_async(**kwargs)
 
         fake_generator = _SubmittingGenerator(project_path)
-        resolve_context = fake_resolve_ctx(fake_generator)
         character_path = project_path / "characters" / "Alice.png"
+        real_assert = generation_tasks.assert_current_artifact_input_claims_usable
+        replaced = False
 
-        async def _replace_sheet_then_resolve(*args, **kwargs):
-            character_path.write_bytes(b"replacement")
-            return await resolve_context(*args, **kwargs)
+        def _replace_sheet_after_first_check(*args, **kwargs):
+            # 首次复核（提交前）通过后才换字节：第二道复核（进供应商调用前的 checkpoint）须拦下。
+            nonlocal replaced
+            result = real_assert(*args, **kwargs)
+            if not replaced:
+                replaced = True
+                character_path.write_bytes(b"replacement")
+            return result
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _replace_sheet_then_resolve)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(
+            generation_tasks, "assert_current_artifact_input_claims_usable", _replace_sheet_after_first_check
+        )
 
         with pytest.raises(ValueError, match="changed since it was selected"):
             await generation_tasks.execute_storyboard_task(

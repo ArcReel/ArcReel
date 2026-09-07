@@ -73,6 +73,7 @@ class TestWhitelistConfig:
 
     def test_max_reference_images_is_seven(self):
         assert _MAX_REFERENCE_IMAGES == 7
+        assert ViduImageBackend(api_key="k", model="viduq2").max_reference_images == 7
 
     def test_prompt_truncation_limit(self):
         assert _PROMPT_MAX_LEN == 2000
@@ -107,6 +108,34 @@ class TestCapabilityMismatchRaises:
         # 不应是 ImageCapabilityError；应是我们注入的 RuntimeError
         with pytest.raises(RuntimeError, match="short-circuit"):
             await backend.generate(request)
+
+
+class TestViduReferenceImageLimit:
+    async def test_declared_limit_equals_what_it_sends(self, tmp_path: Path, image_output_path: Path):
+        """声明的上限即超量时实际下传的张数——编排层按它裁剪，编号才不会指认没发出的图。
+
+        建任务请求以 400 短路（后端把它折成 ProviderRejectedError），只看已发出的请求体。
+        """
+        refs = []
+        for index in range(9):
+            ref_path = tmp_path / f"r{index}.png"
+            ref_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            refs.append(ReferenceImage(path=str(ref_path)))
+
+        with capture_http() as router:
+            route = router.post("https://api.vidu.com/ent/v2/reference2image").mock(
+                return_value=httpx.Response(400, json={"code": 1013, "message": "nope"})
+            )
+            backend = ViduImageBackend(api_key="k", model="viduq2", base_url="https://api.vidu.com/ent/v2")
+            with pytest.raises(ProviderRejectedError):
+                await backend.generate(
+                    ImageGenerationRequest(prompt="x", output_path=image_output_path, reference_images=refs)
+                )
+
+        import json
+
+        body = json.loads(route.calls.last.request.content)
+        assert len(body["images"]) == backend.max_reference_images == 7
 
 
 class TestViduImageCreateTaskHttpErrors:

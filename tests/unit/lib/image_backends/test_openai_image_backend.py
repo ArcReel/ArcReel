@@ -120,6 +120,34 @@ class TestOpenAIImageBackend:
         # GPT Image 模型族不支持 response_format；严格兼容网关会 400，因此绝不能传
         assert "response_format" not in call_kwargs
 
+    async def test_declared_reference_limit_equals_what_it_sends(self, tmp_path: Path):
+        """声明的上限即超量时实际下传的张数——编排层按它裁剪，编号才不会指认没发出的图。"""
+        mock_client = AsyncMock()
+        mock_client.images.edit = AsyncMock(return_value=_make_mock_image_response())
+
+        refs = []
+        for index in range(20):
+            ref_path = tmp_path / f"ref{index}.png"
+            ref_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            refs.append(ReferenceImage(path=str(ref_path)))
+
+        output_path = tmp_path / "output.png"
+        with captured_openai_clients(mock_client):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            backend = OpenAIImageBackend(api_key="test-key")
+            result = await backend.generate(
+                ImageGenerationRequest(
+                    prompt="Edit these",
+                    output_path=output_path,
+                    reference_images=refs,
+                )
+            )
+
+        assert result.image_path == output_path
+        assert output_path.read_bytes() == b"image_data"
+        assert len(mock_client.images.edit.call_args[1]["image"]) == backend.max_reference_images == 16
+
     async def test_image_to_image(self, tmp_path: Path):
         """I2I 路径应调用 images.edit()。"""
         b64_data = base64.b64encode(b"edited-image").decode()

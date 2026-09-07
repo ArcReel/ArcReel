@@ -91,6 +91,11 @@ class ArkImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
+    @property
+    def max_reference_images(self) -> int:
+        # Ark 不按数量裁剪参考图，全量随请求发出。
+        return 0
+
     @with_retry_async()
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """异步生成图片（T2I / I2I）。"""

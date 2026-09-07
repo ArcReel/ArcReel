@@ -91,6 +91,10 @@ class MiniMaxImageBackend:
         # image-01 文生图 + 图生图（subject_reference）同模型。
         return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
+    @property
+    def max_reference_images(self) -> int:
+        return _SUBJECT_REF_LIMIT
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
         # 重试范围（_submit / _download_result），避免下载失败回退到重跑生成 POST 造成重复计费。
