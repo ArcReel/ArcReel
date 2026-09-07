@@ -362,6 +362,50 @@ class TestFinalizePendingByCallId:
         affected = await repo.finalize_pending_by_call_id(call_id=99999, settlement=SettlementInput())
         assert affected == 0
 
+    async def test_writes_the_failure_triple_when_given_one(self, async_session):
+        repo = UsageRepository(async_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+
+        affected = await repo.finalize_pending_by_call_id(
+            call_id=call_id,
+            settlement=SettlementInput(cost_amount=0.0),
+            status=CallStatus.FAILED,
+            error_message="429 too many requests",
+            error_code="rate_limited",
+            error_params={"retry_after_seconds": 30},
+        )
+        assert affected == 1
+
+        row = await async_session.get(ApiCall, call_id)
+        assert row.error_message == "429 too many requests"
+        assert row.error_code == "rate_limited"
+        assert row.error_params == {"retry_after_seconds": 30}
+
+    async def test_truncates_the_raw_failure_message_at_500(self, async_session):
+        """与 finish_call 同口径：原文列不因一段超长上游错误体撑爆。"""
+        repo = UsageRepository(async_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+
+        await repo.finalize_pending_by_call_id(
+            call_id=call_id,
+            settlement=SettlementInput(cost_amount=0.0),
+            status=CallStatus.FAILED,
+            error_message="x" * 900,
+        )
+
+        row = await async_session.get(ApiCall, call_id)
+        assert row.error_message == "x" * 500
+
+    async def test_leaves_the_failure_triple_untouched_without_one(self, async_session):
+        """success / cancelled 出口不带失败信息，那三列不该被这次 finalize 写成任何值。"""
+        repo = UsageRepository(async_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+
+        await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
+
+        row = await async_session.get(ApiCall, call_id)
+        assert (row.error_message, row.error_code, row.error_params) == (None, None, None)
+
     async def test_writes_duration_ms(self, async_session):
         """resume 完成的调用必须回写 duration_ms，否则记录表的耗时列与详情都读不到这次调用的时长。"""
         repo = UsageRepository(async_session)

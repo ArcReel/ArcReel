@@ -177,6 +177,14 @@ class TestUnclassified:
         assert failure.error_params is None
         assert failure.error_message == "API 未返回图片"
 
+    def test_failure_text_keeps_only_itself(self) -> None:
+        # 派发前判死的续跑出口手上只有一段原文，没有可判类型与属性的异常对象。
+        failure = classify_call_failure("provider ark has no video capacity")
+
+        assert failure.error_code is None
+        assert failure.error_params is None
+        assert failure.error_message == "provider ark has no video capacity"
+
     def test_capability_code_is_not_mistaken_for_a_provider_error_code(self) -> None:
         # 仓库内的能力异常同样带 ``code`` 属性，但那是任务失败码，不属于调用失败分类。
         exc = VideoCapabilityError(code="video_duration_invalid", duration=99)

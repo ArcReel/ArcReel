@@ -134,8 +134,8 @@ class _FakeLedger:
         self.resumed.append({"status": "success", "call_id": call_id, "result": result, "service_tier": service_tier})
         return self._resume_affected
 
-    async def resume_failed(self, *, call_id: int) -> int:
-        self.resumed.append({"status": "failed", "call_id": call_id})
+    async def resume_failed(self, *, call_id: int, failure: BaseException | str | None = None) -> int:
+        self.resumed.append({"status": "failed", "call_id": call_id, "failure": failure})
         return self._resume_affected
 
 
@@ -210,7 +210,8 @@ async def test_resume_idempotent_when_finalize_returns_zero(tmp_path, caplog):
 @pytest.mark.asyncio
 async def test_resume_expired_flips_pending_to_failed(tmp_path):
     gen = _build_generator(tmp_path)
-    gen._video_backend = _FakeVideoBackend(raises=ResumeExpiredError(job_id="provider-job-1", provider="openai"))
+    expired = ResumeExpiredError(job_id="provider-job-1", provider="openai")
+    gen._video_backend = _FakeVideoBackend(raises=expired)
 
     with pytest.raises(ResumeExpiredError):
         await gen.resume_video_async(
@@ -224,6 +225,8 @@ async def test_resume_expired_flips_pending_to_failed(tmp_path):
     call = gen.ledger.resumed[0]
     assert call["call_id"] == 42
     assert call["status"] == "failed"
+    # 过期异常本身递交补账：失败原文与机器码的编码收在 ledger 内部，这里只锁「传了」这一步
+    assert call["failure"] is expired
     # 零费用不重扣的语义收在 ledger.resume_failed 内部（cost_amount=0.0），补账入参不显式承载
 
 
@@ -492,8 +495,8 @@ class _FailingResumeLedger(_FakeLedger):
         self.resumed.append({"status": "success", "call_id": call_id})
         raise self._exc
 
-    async def resume_failed(self, *, call_id: int) -> int:
-        self.resumed.append({"status": "failed", "call_id": call_id})
+    async def resume_failed(self, *, call_id: int, failure: BaseException | str | None = None) -> int:
+        self.resumed.append({"status": "failed", "call_id": call_id, "failure": failure})
         raise self._exc
 
 

@@ -10,7 +10,8 @@
    cancelled（零费用）再原样重抛；正常退出未声明成功抛 ``RuntimeError``。
 2. **resume 补账**（``resume_success`` / ``resume_failed`` / ``resume_cancelled``）—— 按 ``call_id`` 精准翻 pending，
    幂等守卫（``WHERE status='pending'``）由仓储承担；finalize 自身异常不吞、直接冒泡（交
-   worker finally 兜底）。
+   worker finally 兜底）。``resume_failed`` 收调用方手上的异常或失败原文，与记账括号同经
+   :mod:`lib.call_failure` 编码后落三元组。
 3. **事后补录**（``backfill``）—— agent 会话用量一次调用写入终态行（含 SDK 直报费用），对调用
    方省掉需要自行管理的 pending 中间态。
 
@@ -231,10 +232,18 @@ class Ledger:
         settlement = _settlement_from_result("video", result, service_tier=service_tier)
         return await self._finalize(call_id=call_id, status=CallStatus.SUCCESS, settlement=settlement)
 
-    async def resume_failed(self, *, call_id: int) -> int:
-        """resume 过期/失败补账：翻 pending → failed，零费用不重扣（幂等 0/1）。"""
+    async def resume_failed(self, *, call_id: int, failure: BaseException | str | None = None) -> int:
+        """resume 过期/失败补账：翻 pending → failed，零费用不重扣（幂等 0/1）。
+
+        ``failure`` 收调用方手上的异常或失败原文，经 ``classify_call_failure`` 编码后落库：
+        ``error_message`` 是原文，认得出的类型再落 ``error_code`` / ``error_params``。不给
+        失败信息时那三列保持空——记录表对这些行只有一个「失败」状态，没有短语也没有原文。
+        """
         return await self._finalize(
-            call_id=call_id, status=CallStatus.FAILED, settlement=SettlementInput(cost_amount=0.0)
+            call_id=call_id,
+            status=CallStatus.FAILED,
+            settlement=SettlementInput(cost_amount=0.0),
+            failure=None if failure is None else classify_call_failure(failure),
         )
 
     async def resume_cancelled(self, *, call_id: int) -> int:
@@ -391,10 +400,19 @@ class Ledger:
                 call_id, status=CallStatus.CANCELLED, settlement=SettlementInput(cost_amount=0.0)
             )
 
-    async def _finalize(self, *, call_id: int, status: CallStatus, settlement: SettlementInput) -> int:
+    async def _finalize(
+        self, *, call_id: int, status: CallStatus, settlement: SettlementInput, failure: CallFailure | None = None
+    ) -> int:
         async with self._session_factory() as session:
             repo = UsageRepository(session)
-            affected = await repo.finalize_pending_by_call_id(call_id=call_id, status=status, settlement=settlement)
+            affected = await repo.finalize_pending_by_call_id(
+                call_id=call_id,
+                status=status,
+                settlement=settlement,
+                error_message=None if failure is None else failure.error_message,
+                error_code=None if failure is None else failure.error_code,
+                error_params=None if failure is None else failure.error_params,
+            )
             # 事件要带项目名，而 resume 链路只有 call_id；幂等命中 0 行时不查也不发。
             project_name = await repo.get_call_project_name(call_id) if affected else ""
         self._emit_recorded(project_name, call_id, status)

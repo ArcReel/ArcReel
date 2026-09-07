@@ -1043,7 +1043,7 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0))
+            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0, failure=exc))
             return
         except ResumeEndpointChangedError as exc:
             logger.warning("resume endpoint 已变更 task %s: %s", task_id, exc)
@@ -1052,7 +1052,7 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0))
+            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0, failure=exc))
             return
         except ResumeExpiredError as exc:
             logger.warning("resume 已过期 task %s: %s", task_id, exc)
@@ -1061,14 +1061,14 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0))
+            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0, failure=exc))
             return
         except Exception as exc:
             logger.exception("resume 失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
             rows = await asyncio.shield(self.queue.mark_task_failed(task_id, _encode_task_failure_message(exc)))
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0))
+            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0, failure=exc))
             return
 
         try:
@@ -1399,11 +1399,17 @@ class GenerationWorker:
         self._retry_dispatch_tasks.add(dispatch)
         dispatch.add_done_callback(self._retry_dispatch_tasks.discard)
 
-    async def _settle_unresumable_call(self, task: dict[str, Any], *, cancelled: bool = False) -> None:
+    async def _settle_unresumable_call(
+        self, task: dict[str, Any], *, cancelled: bool = False, failure: BaseException | str | None = None
+    ) -> None:
         """把无法继续的 pending ApiCall 按任务终态结算为 failed / cancelled（零费用）。
 
         续跑路径不开新的记账括号——账是提交时记的。派发侧终态失败若只翻任务不结算调用，
         那条 pending 会永久留在用量报表里；重试下载尤其明显：它刚把调用重开成 pending。
+
+        ``failure`` 是把这次续跑判死的那个异常，由调用方从自己的 except 分支传下来：任务侧
+        的失败编码是任务的，调用行的失败原文与机器码只能从这里落。派发前判死时没有异常对象，
+        改传一段失败原文。取消出口不传——已取消的行没有失败原因可写。
         """
         task_id = task.get("task_id")
         if not isinstance(task_id, str) or not task_id:
@@ -1415,8 +1421,10 @@ class GenerationWorker:
             call_id = await ledger.pending_call_id_for_task(task_id)
             if call_id is None:
                 return
-            settle = ledger.resume_cancelled if cancelled else ledger.resume_failed
-            await settle(call_id=call_id)
+            if cancelled:
+                await ledger.resume_cancelled(call_id=call_id)
+            else:
+                await ledger.resume_failed(call_id=call_id, failure=failure)
         except Exception:
             logger.warning("pending ApiCall 结算失败 task_id=%s call_id=%s", task_id, call_id, exc_info=True)
 
@@ -1445,6 +1453,9 @@ class GenerationWorker:
                 logger.warning("reload_limits 兜底失败", exc_info=True)
             cap = self._capacity.get(provider_id, "video")
         if cap <= 0:
+            # 派发前就判死，手上没有异常对象：这一句就是这些调用行的失败原文，与 backend 抛出的
+            # 过期/换端点消息同一登记册（agent-facing 原文，不进 i18n，也没有可分类的机器码）。
+            no_capacity = f"resume unsupported: provider {provider_id} has no video capacity"
             for t in tasks:
                 rows = await self.queue.mark_task_failed(
                     t["task_id"],
@@ -1452,7 +1463,7 @@ class GenerationWorker:
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(t["task_id"], cancelled_by="user")
-                await self._settle_unresumable_call(t, cancelled=rows == 0)
+                await self._settle_unresumable_call(t, cancelled=rows == 0, failure=no_capacity)
                 await self._cleanup_video_staging(t)
             return
 
