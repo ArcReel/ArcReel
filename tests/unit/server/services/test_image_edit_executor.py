@@ -186,6 +186,7 @@ def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, regi
             backend_name="gemini-aistudio",
             backend_model="gemini-image",
             resolution=resolution,
+            max_reference_images=0,
         )
         return GenerationContext(generator=fake_generator, image_lane=lane)
 
@@ -280,6 +281,7 @@ class TestExecuteImageEditTask:
                 backend_name="gemini-aistudio",
                 backend_model="gemini-image",
                 resolution=None,
+                max_reference_images=0,
             )
             return GenerationContext(generator=generator, image_lane=lane)
 
@@ -322,6 +324,7 @@ class TestExecuteImageEditTask:
                 backend_name="gemini-aistudio",
                 backend_model="gemini-image",
                 resolution=None,
+                max_reference_images=0,
             )
             return GenerationContext(generator=generator, image_lane=lane)
 
@@ -872,6 +875,7 @@ class _EchoBackend:
 
     name: str
     model: str
+    max_reference_images: int = 0
 
 
 class TestImageSizeResolutionEquivalence:

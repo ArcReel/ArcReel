@@ -75,6 +75,11 @@ class GrokImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
+    @property
+    def max_reference_images(self) -> int:
+        # Grok 不按数量裁剪参考图，全量随请求发出。
+        return 0
+
     @with_retry_async(retry_if=grok_should_retry)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """生成图片（T2I 或 I2I）。"""

@@ -231,9 +231,9 @@ class TestSubjectReference:
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=refs))
 
-        # image-01 单脸参考：仅取首张
+        # image-01 单脸参考：仅取首张；声明的上限即实际下传张数，编排层按它裁剪后编号。
         subject = request_json(route.calls.last.request)["subject_reference"]
-        assert len(subject) == 1
+        assert len(subject) == b.max_reference_images == 1
 
     async def test_missing_ref_raises_unreadable(self, tmp_path: Path):
         from lib.image_backends.minimax import MiniMaxImageBackend

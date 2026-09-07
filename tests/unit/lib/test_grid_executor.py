@@ -14,7 +14,15 @@ from lib.project_migrations.runner import migrate_project_dir
 from server.services.generation_context import GenerationContext, ImageLaneResult
 
 
-def _image_ctx(generator, *, provider="openai", model="gpt-image-2", resolution="2K", backend_model=None):
+def _image_ctx(
+    generator,
+    *,
+    provider="openai",
+    model="gpt-image-2",
+    resolution="2K",
+    backend_model=None,
+    max_reference_images=0,
+):
     """把 image lane 解析产物拼成假 GenerationContext，替换 resolve_generation_context 单点。
 
     backend_model 可与 model 发散，模拟自定义供应商目标 model 被禁用回退时 backend
@@ -27,6 +35,7 @@ def _image_ctx(generator, *, provider="openai", model="gpt-image-2", resolution=
             backend_name=provider,
             backend_model=backend_model if backend_model is not None else model,
             resolution=resolution,
+            max_reference_images=max_reference_images,
         ),
     )
 
@@ -110,6 +119,28 @@ def _register_sheet(project_path, resource_type, resource_id):
         resource_type=resource_type,
         resource_id=resource_id,
     )
+
+
+def _seed_one_hero_per_scene(project_path, grid_json):
+    """每格一个已登记的角色 sheet（hero1..heroN），格内正文以 @[] 指认该角色；返回项目、剧本与落盘的宫格图路径。"""
+    from PIL import Image
+
+    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+    script = json.loads((project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+    for index, scene_id in enumerate(grid_json.scene_ids):
+        name = f"hero{index + 1}"
+        project["characters"][name] = {"description": name, "character_sheet": f"characters/{name}.png"}
+        Image.new("RGB", (4, 4)).save(project_path / "characters" / f"{name}.png")
+        segment = next(item for item in script["segments"] if item["segment_id"] == scene_id)
+        segment["characters_in_segment"] = [name]
+        segment["image_prompt"]["scene"] = f"@[{name}]站在门口"
+    (project_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    (project_path / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    for index in range(len(grid_json.scene_ids)):
+        _register_sheet(project_path, "characters", f"hero{index + 1}")
+    grid_image_path = project_path / "grids" / f"{grid_json.id}.png"
+    Image.new("RGB", (400, 400)).save(grid_image_path, format="PNG")
+    return project, script, grid_image_path
 
 
 class TestGroupBySegmentBreak:
@@ -285,6 +316,113 @@ class TestExecuteGridTask:
         assert updated_grid_data["grid_image_path"] == f"grids/{grid.id}.png"
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
+
+    async def test_reference_images_are_clamped_to_the_backend_limit_before_numbering(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        """超出后端上限的参考图在编号前去尾：声明行与格内「图N」只指认实际发出的那几张。"""
+        from server.services.generation_tasks import execute_grid_task
+
+        project, script, grid_image_path = _seed_one_hero_per_scene(project_with_script, grid_json)
+        captured: list[dict] = []
+
+        class _Generator:
+            versions = MagicMock()
+
+            async def generate_image_async(self, **kwargs):
+                captured.append(kwargs)
+                return grid_image_path, 1
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(_Generator(), max_reference_images=2),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm.update_scene_asset.return_value = {}
+            mock_pm_fn.return_value = mock_pm
+
+            await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "queued prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        assert len(captured[0]["reference_images"]) == 2
+        prompt = captured[0]["prompt"]
+        assert prompt.startswith("Reference_Images: 图1、图2为角色参考图。")
+        assert "图1站在门口" in prompt
+        assert "图2站在门口" in prompt
+        # 第 3 张没随请求发出，正文只留裸名，不指认一个不存在的图3
+        assert "图3" not in prompt
+        assert "hero3站在门口" in prompt
+        stored = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8"))
+        assert [ref["name"] for ref in stored["reference_images"]] == ["hero1", "hero2"]
+
+    async def test_a_dropped_reference_changing_before_submit_does_not_abort(
+        self,
+        project_with_script,
+        grid_json,
+        monkeypatch,
+    ):
+        """被去尾的第 3 张图不是本次输入：它的登记在提交前被删，任务照常按 2 张提交。"""
+        from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+        from server.services import generation_tasks
+        from server.services.generation_tasks import execute_grid_task
+
+        project, script, grid_image_path = _seed_one_hero_per_scene(project_with_script, grid_json)
+        captured: list[dict] = []
+
+        class _Generator:
+            versions = MagicMock()
+
+            async def generate_image_async(self, **kwargs):
+                captured.append(kwargs)
+                return grid_image_path, 1
+
+        real_assert = generation_tasks.assert_current_artifact_input_claims_usable
+
+        def _delete_dropped_sheet_then_assert(*args, **kwargs):
+            ProjectArtifactManifestAdapter(project_with_script).delete_entry(
+                ArtifactKey.asset_sheet("character", "hero3")
+            )
+            return real_assert(*args, **kwargs)
+
+        monkeypatch.setattr(
+            generation_tasks, "assert_current_artifact_input_claims_usable", _delete_dropped_sheet_then_assert
+        )
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(_Generator(), max_reference_images=2),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm.update_scene_asset.return_value = {}
+            mock_pm_fn.return_value = mock_pm
+
+            await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "queued prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        assert len(captured) == 1
+        assert len(captured[0]["reference_images"]) == 2
 
     async def test_grid_rejects_an_unclaimed_bound_script_before_provider(
         self,
@@ -761,6 +899,7 @@ class TestGridMetadataT2II2ISlotSelection:
                     backend_name=provider,
                     backend_model=model,
                     resolution="2K",
+                    max_reference_images=0,
                 ),
             )
 

@@ -97,6 +97,10 @@ class ViduImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
+    @property
+    def max_reference_images(self) -> int:
+        return _MAX_REFERENCE_IMAGES
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         has_refs = bool(request.reference_images)
         if has_refs and ImageCapability.IMAGE_TO_IMAGE not in self._capabilities:

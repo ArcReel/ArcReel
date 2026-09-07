@@ -92,6 +92,10 @@ class TestProperties:
         assert ImageCapability.TEXT_TO_IMAGE in caps
         assert ImageCapability.IMAGE_TO_IMAGE in caps
 
+    def test_declares_no_reference_image_limit(self, backend_aistudio):
+        # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
+        assert backend_aistudio.max_reference_images == 0
+
 
 # ---------------------------------------------------------------------------
 # Tests: generate

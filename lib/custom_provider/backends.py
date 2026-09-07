@@ -68,6 +68,11 @@ class CustomImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._delegate.capabilities
 
+    @property
+    def max_reference_images(self) -> int:
+        # 自定义供应商的参考图截断发生在被包装的 backend 内，上限即它声明的那一个。
+        return self._delegate.max_reference_images
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         return await self._delegate.generate(request)
 

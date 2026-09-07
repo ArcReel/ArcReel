@@ -60,6 +60,12 @@ class TestCapabilities:
         assert b.model == "agnes-image-2.1-flash"
         assert b.capabilities == {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
+    def test_declares_no_reference_image_limit(self):
+        from lib.image_backends.agnes import AgnesImageBackend
+
+        # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
+        assert AgnesImageBackend(api_key="sk").max_reference_images == 0
+
     def test_default_model_when_unset(self):
         from lib.image_backends.agnes import AgnesImageBackend
 

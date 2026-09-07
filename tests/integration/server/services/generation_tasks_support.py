@@ -31,6 +31,7 @@ def fake_resolve_ctx(
     *,
     image_provider=("openai", "gpt-image-2"),
     image_resolution=None,
+    image_max_reference_images=0,
     video_provider=("ark", "seedance"),
     video_backend_model=None,
     video_resolution="720p",
@@ -46,7 +47,16 @@ def fake_resolve_ctx(
     """
 
     async def _resolve(
-        project_name, payload, *, project, user_id="default", episode=None, image=None, video=None, audio=None
+        project_name,
+        payload,
+        *,
+        project,
+        project_path=None,
+        user_id="default",
+        episode=None,
+        image=None,
+        video=None,
+        audio=None,
     ):
         if seen_lane_requests is not None:
             seen_lane_requests.append({"image": image, "video": video, "audio": audio})
@@ -58,6 +68,7 @@ def fake_resolve_ctx(
                 backend_name=provider,
                 backend_model=model,
                 resolution=image_resolution,
+                max_reference_images=image_max_reference_images,
             )
         video_lane = None
         if video is not None:
@@ -360,6 +371,26 @@ def seed_current_storyboard(fake_pm: _FakePM, resource_id: str = "E1S01") -> Non
         ArtifactKey.episode_storyboard(1, resource_id),
         artifact_path,
     )
+
+
+EIGHT_REFERENCE_CHARACTERS = ["配角1", "配角2", "配角3", "配角4", "配角5"]
+
+
+def pm_with_eight_references(project_path: Path) -> _FakePM:
+    """E1S02 装配出 8 张参考图：6 张角色 sheet + 1 张场景 + 1 张道具（无上一分镜图），正文指认首角色、道具与场景。"""
+    pm = _FakePM(project_path)
+    for name in EIGHT_REFERENCE_CHARACTERS:
+        pm.project["characters"][name] = {"description": name, "character_sheet": f"characters/{name}.png"}
+        (project_path / "characters" / f"{name}.png").write_bytes(b"png")
+    segment = pm.script["segments"][1]
+    segment["characters_in_segment"] = ["Alice", *EIGHT_REFERENCE_CHARACTERS]
+    segment["image_prompt"] = {
+        "scene": "@[Alice]握着@[玉佩]立在@[祠堂]门口",
+        "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+    }
+    persist_active_fake_project(pm)
+    register_asset_sheet_claims(pm)
+    return pm
 
 
 def register_asset_sheet_claims(fake_pm: _FakePM) -> None:

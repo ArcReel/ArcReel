@@ -241,7 +241,8 @@ class TestImageToImage:
 
         content = request_json(only_request(route))["input"]["messages"][0]["content"]
         images = [c for c in content if "image" in c]
-        assert len(images) == 3  # qwen 上限裁剪
+        # qwen 上限裁剪；声明的上限即实际下传张数，编排层按它裁剪后编号。
+        assert len(images) == b.max_reference_images == 3
 
     async def test_wan_ref_limit_9(self, tmp_path: Path):
         download = AsyncMock()
@@ -254,7 +255,7 @@ class TestImageToImage:
 
         content = request_json(only_request(route))["input"]["messages"][0]["content"]
         images = [c for c in content if "image" in c]
-        assert len(images) == 9
+        assert len(images) == b.max_reference_images == 9
 
 
 class TestCapabilityGating:

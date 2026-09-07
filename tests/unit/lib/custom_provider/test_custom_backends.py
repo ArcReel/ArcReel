@@ -102,6 +102,16 @@ class TestCustomImageBackend:
 
         assert backend.capabilities is delegate.capabilities
 
+    def test_max_reference_images_delegated(self):
+        # 截断发生在被包装的 backend 内，上限即它声明的那一个；否则编排层会按 0 不裁剪，
+        # 编号仍会指认被 delegate 丢掉的图。
+        delegate = AsyncMock()
+        delegate.capabilities = {ImageCapability.IMAGE_TO_IMAGE}
+        delegate.max_reference_images = 16
+        backend = CustomImageBackend(provider_id="img-provider", delegate=delegate, model="gpt-image-2")
+
+        assert backend.max_reference_images == 16
+
     async def test_generate_delegates(self, tmp_path: Path):
         output_path = tmp_path / "output.png"
         expected_result = ImageGenerationResult(

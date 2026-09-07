@@ -128,7 +128,7 @@ class DashScopeImageBackend:
         return self._capabilities
 
     @property
-    def _ref_limit(self) -> int:
+    def max_reference_images(self) -> int:
         return _WAN_REF_LIMIT if self._is_wan else _QWEN_REF_LIMIT
 
     @with_retry_async(retry_if=should_retry_submit)
@@ -259,14 +259,14 @@ class DashScopeImageBackend:
                 raise ImageCapabilityError(
                     "image_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
                 )
-            if len(data_uris) > self._ref_limit:
+            if len(data_uris) > self.max_reference_images:
                 logger.warning(
                     "DashScope 参考图数量 %d 超过 model=%s 上限 %d，截断",
                     len(data_uris),
                     self._model,
-                    self._ref_limit,
+                    self.max_reference_images,
                 )
-                data_uris = data_uris[: self._ref_limit]
+                data_uris = data_uris[: self.max_reference_images]
             content.extend({"image": uri} for uri in data_uris)
         content.append({"text": request.prompt})
         return content

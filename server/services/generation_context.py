@@ -181,13 +181,16 @@ class ImageLaneResult:
     ``provider_model`` 是规范 registry 身份；``backend_name`` / ``backend_model`` 是构造后
     backend 报告的实际身份——自定义供应商目标 model 被禁用回退时 ``backend_model`` 可能与
     ``provider_model.model_id`` 不同。``resolution`` 为 None 表示调用时不传 SDK 参数
-    （``docs/adr/0019``）。
+    （``docs/adr/0019``）。``max_reference_images`` 是 backend 声明的参考图上限（0 = 不裁剪），
+    编排层据此在渲染「图N」编号前裁剪参考图序列。与 video lane 的同名能力字段不同，它是
+    backend 上的常量属性、不经能力查询，故无降级分支。
     """
 
     provider_model: ProviderModel
     backend_name: str
     backend_model: str
     resolution: str | None
+    max_reference_images: int
 
 
 @dataclass(frozen=True)
@@ -353,6 +356,7 @@ async def resolve_generation_context(
                 backend_name=image_backend.name,
                 backend_model=image_backend.model,
                 resolution=await r.resolve_resolution(project, resolved.provider_id, image_backend.model),
+                max_reference_images=int(image_backend.max_reference_images),
             )
 
         if video is not None:

@@ -8,15 +8,21 @@
 输入是与实际随请求发出的参考图严格等长同序的 :class:`ReferenceImageSlot` 序列
 （:class:`lib.visual_artifact_provenance.VisualReference` 满足该协议）。参考图列表仍由
 条目的引用字段决定，mention 只指认、不派生参考图。
+
+图像后端各有参考图数量上限，超限的尾部由后端自己丢弃。编排层须先经
+:func:`clamped_reference_count` 按后端上限裁剪、再进本模块编号，声明行才不会指认没发出的图。
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Protocol
 
 from lib.asset_types import asset_name_comparison_key
 from lib.reference_video.text_parser import render_mentions
+
+logger = logging.getLogger(__name__)
 
 #: 类型声明行的 YAML 键，插在 ``Style`` 与 ``Scene`` 之间。
 REFERENCE_IMAGES_KEY = "Reference_Images"
@@ -76,6 +82,35 @@ def reference_images_declaration(references: Sequence[ReferenceImageSlot]) -> st
     return "；".join(f"{'、'.join(labels)}为{description}" for description, labels in groups.items()) + "。"
 
 
+def clamped_reference_count(
+    references: Sequence[ReferenceImageSlot],
+    max_reference_images: int,
+    *,
+    backend: str,
+) -> int:
+    """按图像后端的参考图上限算出应保留的张数：保留前 N 张、去尾（与后端内截断同序）。
+
+    ``max_reference_images`` 为 0 表示后端不按数量裁剪，全量保留。调用方用返回值同时截断
+    发给供应商的参考图与本模块编号所依据的 slot 序列，两者才继续等长同序——否则声明行会
+    指认后端已经丢弃、并未随请求发出的图。
+    """
+    if max_reference_images <= 0 or len(references) <= max_reference_images:
+        return len(references)
+    dropped: list[str] = []
+    for slot in references[max_reference_images:]:
+        description = _describe(slot)
+        if description not in dropped:
+            dropped.append(description)
+    logger.warning(
+        "参考图数量 %d 超过 backend=%s 上限 %d，裁剪后编号；丢弃：%s",
+        len(references),
+        backend,
+        max_reference_images,
+        "、".join(dropped),
+    )
+    return max_reference_images
+
+
 def mention_replacements(references: Sequence[ReferenceImageSlot]) -> dict[str, str]:
     """引用名（比对坐标系）→ 该资产首张参考图的「图N」。上一分镜图与补充参考图没有可指认的名字。"""
     replacements: dict[str, str] = {}
@@ -97,6 +132,7 @@ __all__ = [
     "PREVIOUS_STORYBOARD_ROLE",
     "REFERENCE_IMAGES_KEY",
     "ReferenceImageSlot",
+    "clamped_reference_count",
     "mention_replacements",
     "reference_images_declaration",
     "render_reference_mentions",
