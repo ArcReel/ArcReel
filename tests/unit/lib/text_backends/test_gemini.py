@@ -243,6 +243,26 @@ class TestGenerate:
             validated = gtypes.Schema.model_validate(config["response_schema"])
             assert validated.type == gtypes.Type.OBJECT
 
+    def test_no_additional_properties_anywhere_in_built_schema(self, backend):
+        """回归：``extra="forbid"`` 模型（如 ``AdReferenceFlatUnit``）产出的 ``additionalProperties``
+        必须被剥离，包括嵌套在 ``items``/``properties`` 深处的情况。
+
+        ``types.Schema`` proto 没有 ``additionalProperties`` 字段；Gemini API 收到该字段直接
+        400（``Unknown name "additionalProperties"``），但本地 ``gtypes.Schema.model_validate``
+        对未知字段宽松，不会拦下这类回归——上面那条测试因此无法暴露这个问题，需要单独按内容断言。
+        """
+        from lib.script_models import AdReferenceFlatScript
+
+        def _find_key(node: object, key: str) -> bool:
+            if isinstance(node, dict):
+                return key in node or any(_find_key(v, key) for v in node.values())
+            if isinstance(node, list):
+                return any(_find_key(item, key) for item in node)
+            return False
+
+        config = backend._build_config(AdReferenceFlatScript, None)
+        assert not _find_key(config["response_schema"], "additionalProperties")
+
     async def test_system_prompt(self, backend):
         mock_resp = SimpleNamespace(
             text="output",

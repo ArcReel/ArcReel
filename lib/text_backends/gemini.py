@@ -45,19 +45,26 @@ _INSTANCE_KEYWORDS = frozenset({"const", "enum", "default", "examples"})
 
 
 def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
-    """归一 schema 的枚举形约束为 ``responseSchema`` 通道可表达的形态。
+    """归一 schema 为 ``responseSchema`` 通道（``types.Schema`` proto）可表达的形态。
 
-    两步归一（同一次位置感知遍历完成）：
+    三步归一（同一次位置感知遍历完成）：
     1. 「值为标量」的 ``const: X`` → ``enum: [X]``（语义等价）。单值 ``Literal`` 在
        ``model_json_schema()`` 里渲染为 ``const``，而 ``types.Schema`` 无 ``const`` 字段。
     2. 含非字符串成员的 ``enum`` → 字符串枚举 + ``type: string``。``types.Schema`` 的
        ``enum`` 仅支持字符串（proto 定义如此），整数时长枚举 ``[4,6,8]`` 转为 ``["4","6","8"]``
        后精确集合的约束解码依然成立；解析侧 ``_duration_literal`` 的机械强转恢复 int。
+    3. 丢弃 ``additionalProperties``。``model_config = ConfigDict(extra="forbid")`` 的模型经
+       ``model_json_schema()`` 会带上 ``additionalProperties: false``，但 ``types.Schema`` proto
+       没有这个字段——Gemini API 收到后整请求 400（``Unknown name "additionalProperties"``），
+       不是本地 SDK 校验能拦住的（``types.Schema.model_validate`` 对未知字段宽松，见
+       ``test_all_script_schemas_accepted_by_google_genai_schema`` 的说明）。Gemini 的结构化输出
+       本就只接受 ``properties`` 声明过的字段，丢弃该键不改变实际约束语义。
 
-    ``const`` 出现的位置有三种，须区分对待（这是正确性的不可约最小状态机）：
-    - **schema 关键字**：归一（仅标量，对齐本仓库唯一的 const 形态——单值时长 Literal）；
+    ``const``/``additionalProperties`` 出现的位置需区分对待（这是正确性的不可约最小状态机）：
+    - **schema 关键字**：归一或丢弃（对齐本仓库唯一的 const 形态——单值时长 Literal；
+      本仓库模型也没有以 dict 映射为值的字段，丢弃 additionalProperties 不影响任何字段形状）；
     - **字段名**（``_SUBSCHEMA_MAP_KEYS`` 映射的 key）：当前 dict 的 key 是名字，其值仍是子 schema，
-      继续按 schema 递归（里面真正的 const 照常归一）；
+      继续按 schema 递归（里面恰好叫这两个名字的字段照常保留/递归，不按关键字处理）；
     - **实例数据**（``_INSTANCE_KEYWORDS`` 的值）：原样保留、不递归。
     """
     if isinstance(node, list):
@@ -69,6 +76,8 @@ def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
         return {k: _const_to_enum(v) for k, v in node.items()}
     out: dict = {}
     for k, v in node.items():
+        if k == "additionalProperties":
+            continue  # types.Schema 无此字段，丢弃
         if k in _INSTANCE_KEYWORDS:
             out[k] = v  # 值是实例数据，原样保留
         else:
