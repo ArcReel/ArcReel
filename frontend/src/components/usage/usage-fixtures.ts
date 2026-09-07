@@ -1,4 +1,9 @@
-import type { UsageRecord, UsageRecordDetail, UsageSummary } from "@/types";
+import type {
+  UsageDailyBucket,
+  UsageRecord,
+  UsageRecordDetail,
+  UsageSummary,
+} from "@/types";
 
 /** 一行使用记录；未覆写的列取一组不影响筛选与渲染的中性值。 */
 export function makeUsageRecord(overrides: Partial<UsageRecord> = {}): UsageRecord {
@@ -81,4 +86,25 @@ export function makeUsageSummary(overrides: Partial<UsageSummary> = {}): UsageSu
     },
     ...overrides,
   };
+}
+
+/** 从 `from` 起连续 `days` 天的日桶；`fill` 决定每天的计数与分媒体费用。 */
+export function makeUsageDaily(
+  days: number,
+  from = "2026-03-01",
+  fill: (index: number) => Partial<UsageDailyBucket> = () => ({}),
+): UsageDailyBucket[] {
+  const start = new Date(`${from}T00:00:00Z`);
+  return Array.from({ length: days }, (_, index) => {
+    const day = new Date(start);
+    day.setUTCDate(day.getUTCDate() + index);
+    return {
+      date: day.toISOString().slice(0, 10),
+      success: 0,
+      failed: 0,
+      cancelled: 0,
+      cost_by_media_type: { image: 0, video: 0, text: 0, audio: 0 },
+      ...fill(index),
+    };
+  });
 }

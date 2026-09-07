@@ -28,6 +28,8 @@ export interface UsageRecordsFilters {
   provider: string | null;
   model: string | null;
   mediaType: CallType | null;
+  /** 分镜 id；只有「需要关注」的连续失败条目会写入它，汇总接口不收这一维。 */
+  segment: string | null;
   status: UsageStatusFilter;
 }
 
@@ -39,6 +41,7 @@ export const DEFAULT_USAGE_FILTERS: UsageRecordsFilters = {
   provider: null,
   model: null,
   mediaType: null,
+  segment: null,
   status: "all",
 };
 
@@ -80,6 +83,7 @@ export function parseUsageFilters(search: string): UsageRecordsFilters {
     provider: get("provider"),
     model: get("model"),
     mediaType: MEDIA_TYPES.find((type) => type === mediaType) ?? null,
+    segment: get("segment"),
     status:
       STATUS_FILTERS.find((value) => value === status) ??
       DEFAULT_USAGE_FILTERS.status,
@@ -103,6 +107,7 @@ export function writeUsageFilters(
   set("provider", filters.provider);
   set("model", filters.model);
   set("media", filters.mediaType);
+  set("segment", filters.segment);
   set(
     "status",
     filters.status === DEFAULT_USAGE_FILTERS.status ? null : filters.status,
@@ -150,6 +155,7 @@ function sharedDimensions(filters: UsageRecordsFilters): string {
     filters.provider ?? "",
     filters.model ?? "",
     filters.mediaType ?? "",
+    // 分镜不进这个键：汇总接口不收 segment_id，只筛分镜时 summary 不必重取。
   ].join("|");
 }
 
@@ -265,6 +271,7 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
     providers: filters.provider ? [filters.provider] : undefined,
     models: filters.model ? [filters.model] : undefined,
     mediaTypes: filters.mediaType ? [filters.mediaType] : undefined,
+    segmentIds: filters.segment ? [filters.segment] : undefined,
     statuses: statusesFor(filters.status),
     since: rangeSince(filters.range, new Date()),
     limit: USAGE_PAGE_SIZE,
@@ -347,6 +354,7 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
       providers: filters.provider ? [filters.provider] : undefined,
       models: filters.model ? [filters.model] : undefined,
       mediaTypes: filters.mediaType ? [filters.mediaType] : undefined,
+      segmentIds: filters.segment ? [filters.segment] : undefined,
       statuses: ["pending"],
       limit: USAGE_PAGE_SIZE,
     };

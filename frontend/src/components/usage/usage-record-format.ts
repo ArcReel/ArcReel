@@ -86,6 +86,11 @@ export function formatDurationMs(durationMs: number | null): string {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
+/** 成功率与失败率共用的百分比渲染；分母为 0 时后端给 null，显示破折号。 */
+export function formatRatio(rate: number | null): string {
+  return rate === null ? "—" : `${Math.round(rate * 1000) / 10}%`;
+}
+
 /** 进行中行的实时耗时，起点为 ISO 时刻。 */
 export function elapsedSince(startedAt: string, now: number): string {
   const start = parseIsoTimestamp(startedAt).getTime();
