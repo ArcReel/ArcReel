@@ -50,7 +50,7 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext)
     tool_obj = get_video_capabilities_tool(fake_ctx)
     assert (await call(tool_obj, {})).get("is_error") is not True
     assert (await call(tool_obj, {"episode": 3})).get("is_error") is not True
-    assert resolver.capability_calls == [None, None]
+    assert resolver.generation_type_calls == [None, None]
 
 
 async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext) -> None:
@@ -62,7 +62,7 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
         generation_mode="reference_video",
-        capability_errors=_NO_I2V,
+        generation_type_errors=_NO_I2V,
     )
     out = await call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
@@ -124,7 +124,7 @@ async def test_generate_script_plan_rejects_inapplicable_content_modes(
 
     assert out.get("is_error") is True
     assert json.loads(out["content"][0]["text"])["problem"]["code"] == "generation_refused"
-    assert resolver.capability_calls == []
+    assert resolver.generation_type_calls == []
     assert fake_ctx.pm.readonly_load_threads
     assert all(thread != caller_thread for thread in fake_ctx.pm.readonly_load_threads)
 

@@ -37,7 +37,7 @@ async def test_project_video_caps_preserves_silent_intent_on_capability_failure(
         def __init__(self, _session_factory):
             pass
 
-        async def video_capabilities_for_project(self, _project, *, capability=None):
+        async def video_capabilities_for_project(self, _project, *, generation_type=None):
             raise ValueError("cannot resolve video capabilities")
 
         async def video_generate_audio_for_project(self, _project):
@@ -55,7 +55,7 @@ async def test_project_video_caps_degrades_silent_on_double_failure(monkeypatch:
         def __init__(self, _session_factory):
             pass
 
-        async def video_capabilities_for_project(self, _project, *, capability=None):
+        async def video_capabilities_for_project(self, _project, *, generation_type=None):
             raise ValueError("cannot resolve video capabilities")
 
         async def video_generate_audio_for_project(self, _project):

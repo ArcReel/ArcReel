@@ -384,8 +384,8 @@ async def list_providers(
         models: dict[str, ModelInfoResponse] = {}
         for mid, minfo in (s.models or {}).items():
             silent = VideoAudioMode.ALWAYS_OFF.value
-            audio_track = builtin_video_audio_track(s.name, mid, capability="i2v") or silent
-            reference_route_audio_track = builtin_video_audio_track(s.name, mid, capability="r2v") or silent
+            audio_track = builtin_video_audio_track(s.name, mid, generation_type="i2v") or silent
+            reference_route_audio_track = builtin_video_audio_track(s.name, mid, generation_type="r2v") or silent
             reference_audio_mode = (
                 _video_reference_audio_mode(s.name, mid) if minfo.get("media_type") == "video" else "none"
             )

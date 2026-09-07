@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.config.resolver import (
     ConfigResolver,
-    VideoCapability,
+    VideoGenerationType,
     get_provider_fallback,
     video_bucket_for_generation_mode,
 )
@@ -63,7 +63,7 @@ ACTUAL_COST_TYPES = ("image", "video", "audio")
 #: 读侧定桶要枚举的全部视频任务类型桶。分镜图生视频项目整体走 i2v 桶；参考生视频由公共
 #: request projection 按每个 unit 当前实际可用资产分桶。两个桶都在这里预解析，省去按
 #: 生成模式与分镜分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
-_VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
+_VIDEO_BUCKETS: tuple[VideoGenerationType, ...] = ("i2v", "r2v")
 
 #: 普通分镜图取不到分辨率档时的计价档。执行侧此路径把 ``None`` 原样下发给 backend、由其自行定档
 #: （不像宫格有 ``GRID_FALLBACK_RESOLUTION`` 这一确定的保底档），估价无从同源，只能取最低档保守
@@ -288,21 +288,21 @@ class CostEstimationService:
         # image/video 的项目覆盖优先级由 ConfigResolver 统一解析，与执行路径共用同一套
         # payload>project>全局默认 链路，此处 payload 传 None（预估无历史任务 payload 可排空）。
         projection_capabilities = ConfigReferenceCapabilityProjection(self._resolver)
-        reference_candidates: dict[VideoCapability, ProviderProjectionCandidate] = {}
+        reference_candidates: dict[VideoGenerationType, ProviderProjectionCandidate] = {}
         if is_reference_video:
-            for capability in _VIDEO_BUCKETS:
+            for generation_type in _VIDEO_BUCKETS:
                 try:
-                    reference_candidates[capability] = await projection_capabilities.resolve_candidate(
+                    reference_candidates[generation_type] = await projection_capabilities.resolve_candidate(
                         project_data,
-                        capability,
+                        generation_type,
                     )
                 except Exception:
                     # 真正使用该 bucket 的 unit 会由 projector 返回结构化 blocker；未使用 bucket
                     # 的配置问题不应拖垮整份费用页。
-                    logger.debug("reference_video %s bucket 投影预解析失败", capability, exc_info=True)
+                    logger.debug("reference_video %s bucket 投影预解析失败", generation_type, exc_info=True)
         async with self._resolver.session() as r:
             try:
-                resolved_image = await r.resolve_image_backend(project_data, None, capability="t2i")
+                resolved_image = await r.resolve_image_backend(project_data, None, generation_type="t2i")
                 image_provider, image_model = resolved_image.provider_id, resolved_image.model_id
             except Exception:
                 image_provider, image_model = "unknown", "unknown"
@@ -321,9 +321,9 @@ class CostEstimationService:
             # i2v 桶的价；参考生视频逐 unit 水合当前资产后分桶。两个桶都在这里
             # 解析出来（见 ``_VIDEO_BUCKETS``），分辨率与
             # generate_audio 随各自的模型身份求值。
-            video_identity: dict[VideoCapability, tuple[str, str, str | None, bool]] = {}
-            for capability in _VIDEO_BUCKETS:
-                candidate = reference_candidates.get(capability)
+            video_identity: dict[VideoGenerationType, tuple[str, str, str | None, bool]] = {}
+            for generation_type in _VIDEO_BUCKETS:
+                candidate = reference_candidates.get(generation_type)
                 if candidate is not None:
                     bucket_provider = candidate.provider_id
                     bucket_model = candidate.model_id
@@ -331,7 +331,9 @@ class CostEstimationService:
                     bucket_audio = candidate.generate_audio
                 else:
                     try:
-                        resolved_video = await r.resolve_video_backend(project_data, None, capability=capability)
+                        resolved_video = await r.resolve_video_backend(
+                            project_data, None, generation_type=generation_type
+                        )
                         bucket_provider, bucket_model = resolved_video.provider_id, resolved_video.model_id
                     except Exception:
                         bucket_provider, bucket_model = "unknown", "unknown"
@@ -346,7 +348,7 @@ class CostEstimationService:
                         )
                     except Exception:
                         bucket_resolution = None
-                video_identity[capability] = (
+                video_identity[generation_type] = (
                     bucket_provider,
                     bucket_model,
                     bucket_resolution or get_provider_fallback(bucket_provider),
@@ -375,15 +377,15 @@ class CostEstimationService:
                         bucket_provider, bucket_model
                     )
 
-        video_pricing: dict[VideoCapability, _VideoPricing] = {
-            capability: _VideoPricing(
+        video_pricing: dict[VideoGenerationType, _VideoPricing] = {
+            generation_type: _VideoPricing(
                 provider=bucket_provider,
                 model=bucket_model,
                 resolution=bucket_resolution,
                 generate_audio=bucket_audio,
                 price=video_prices[(bucket_provider, bucket_model)],
             )
-            for capability, (
+            for generation_type, (
                 bucket_provider,
                 bucket_model,
                 bucket_resolution,
@@ -871,7 +873,7 @@ class CostEstimationService:
                         {
                             **projection.to_advisory_payload(),
                             **({"allowed": False} if cost_problem_payload is not None else {}),
-                            "capability": projection.hydrated_capability,
+                            "capability": projection.hydrated_generation_type,
                             "problems": projection_problems,
                             **({"request_cost": request_quote.to_payload()} if request_quote is not None else {}),
                         }

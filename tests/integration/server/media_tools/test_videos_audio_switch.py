@@ -91,8 +91,8 @@ class TestStoryboardRouteGate:
     async def test_gate_is_content_mode_agnostic(self, tmp_path, monkeypatch):
         seen: list[str] = []
 
-        async def _reject(_project, capability):
-            seen.append(capability)
+        async def _reject(_project, generation_type):
+            seen.append(generation_type)
             raise ValueError("成片恒有声")
 
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
@@ -293,8 +293,8 @@ class TestStoryboardGateSkipsEmptyBatches:
     async def _run_episode(self, ctx: ToolContext, monkeypatch, **args: Any) -> dict[str, Any]:
         rejected: list[str] = []
 
-        async def _reject(_project, capability):
-            rejected.append(capability)
+        async def _reject(_project, generation_type):
+            rejected.append(generation_type)
             raise ValueError("成片恒有声")
 
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
@@ -338,7 +338,7 @@ class TestStoryboardGateEntersAdmission:
         )
 
     async def test_audio_switch_conflict_is_reported_as_a_blocked_admission(self, tmp_path, monkeypatch):
-        async def _reject(_project, _capability):
+        async def _reject(_project, _generation_type):
             raise ValueError("成片恒有声，无法关闭音频")
 
         enqueue = AsyncMock(return_value=([], []))
@@ -359,7 +359,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_a_blank_prompt_is_refused_per_unit(self, tmp_path, monkeypatch):
         """空白提示词构造不出 TaskSpec：该条目带自己的问题码进结论，不把整批打成通用报错。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -382,7 +382,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_a_duplicate_item_id_is_refused_before_admission(self, tmp_path, monkeypatch):
         """同一个 id 在剧本里出现两次：副本被拒收，整批停在建任务之前。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -408,7 +408,7 @@ class TestStoryboardGateEntersAdmission:
 
         from lib.batch_admission import BatchAdmission, refused_ticket
 
-        async def _reject(_project, _capability):
+        async def _reject(_project, _generation_type):
             raise ValueError("成片恒有声，无法关闭音频")
 
         async def _admit(**kwargs: Any) -> BatchAdmission:
@@ -444,7 +444,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_a_non_scalar_item_id_is_refused_per_unit(self, tmp_path, monkeypatch):
         """id 写成数组的条目按位置记名拒收，不把整批打成一句通用报错。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -467,7 +467,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_a_non_object_entry_is_refused_per_unit(self, tmp_path, monkeypatch):
         """剧本里混进非对象条目：它按位置记名拒收，不把整批打成一句通用报错。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -490,7 +490,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_a_diagnostic_name_never_shadows_a_real_id(self, tmp_path, monkeypatch):
         """按位置记的诊断名与剧本里某个真实 ID 撞上时另起一个名字：同名会让两条并成一条。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -512,7 +512,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_a_named_alias_pointing_at_two_items_is_refused(self, tmp_path, monkeypatch):
         """点名用的 scene_id 别名落在两个条目上：各入口会各自选中头一个或末一个，先拒收。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -539,7 +539,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_a_non_scalar_alias_does_not_break_addressing(self, tmp_path, monkeypatch):
         """脏剧本把 scene_id 写成数组：按名字寻址前先判类型，该条目仍能按规范 ID 点名。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -561,7 +561,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_two_aliases_over_one_canonical_id_are_refused(self, tmp_path, monkeypatch):
         """两个条目共用规范 ID、别名各不相同：按别名点名同样无从判定要做哪一条。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -591,7 +591,7 @@ class TestStoryboardGateEntersAdmission:
         已经入队计费。
         """
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -617,7 +617,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_generate_all_keeps_an_id_less_item_in_the_verdict(self, tmp_path, monkeypatch):
         """缺 ID 的条目进不了目标集合，但它属于这次请求：健康的兄弟条目不会独自入队计费。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))
@@ -642,7 +642,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_selected_rejects_a_duplicate_of_the_named_id(self, tmp_path, monkeypatch):
         """点名的 ID 在剧本里有两份：无法判定要做哪一条，整批停在建任务之前。"""
 
-        async def _allow(_project, _capability):
+        async def _allow(_project, _generation_type):
             return None
 
         enqueue = AsyncMock(return_value=([], []))

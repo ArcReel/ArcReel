@@ -77,7 +77,7 @@ class TestResolutionFailurePassesThrough:
             def __init__(self, _factory):
                 pass
 
-            async def resolve_video_backend(self, _project, _model, *, capability):
+            async def resolve_video_backend(self, _project, _model, *, generation_type):
                 if backend_exc is not None:
                     raise backend_exc
                 return SimpleNamespace(provider_id="dashscope", model_id="wan2.7-i2v")

@@ -41,7 +41,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
     monkeypatch,
     tmp_path,
 ):
-    """Public request consumers agree; queue routing keeps only current visual capability facts."""
+    """Public request consumers agree; queue routing keeps only current visual generation type facts."""
 
     capabilities = FakeReferenceCapabilityProjection(
         durations=(4, 8, 12),
@@ -218,7 +218,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         queue_duration_input = unit["duration_seconds"]
         queue_request_duration = 8 if queue_duration_input == 5 else 12
         assert (
-            queue_projection.hydrated_capability,
+            queue_projection.hydrated_generation_type,
             queue_projection.provider_id,
             queue_projection.model_id,
             queue_projection.duration_input,

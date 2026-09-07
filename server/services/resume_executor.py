@@ -115,9 +115,9 @@ async def execute_resume_video_task(
 
     checkpoint = load_task_video_checkpoint(task)
     resolver_payload = {
-        f"video_provider_{checkpoint.capability}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
+        f"video_provider_{checkpoint.generation_type}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
     }
-    video_request = VideoLaneRequest(capability=checkpoint.capability)
+    video_request = VideoLaneRequest(generation_type=checkpoint.generation_type)
 
     project, project_path = await asyncio.to_thread(
         lambda: (

@@ -2,7 +2,7 @@
 
 一次衍生资产图生成就是对**本体资产图**的一次图片编辑：本体图是唯一参考图，衍生的外观
 变化描述加固定守卫是唯一 prompt（守卫要求保持三视图版式与其余外观不变）。因此它必然
-i2i，与 ``image_edit`` 同属入队即知 capability 的例外。
+i2i，与 ``image_edit`` 同属入队即知任务类型的例外。
 
 产物坐标与本体资产图同一族：清单键 ``asset_sheet("character", "本体/衍生")``、版本资源类型
 ``character_derivatives``、落盘 ``characters/derivatives/{本体}/{衍生}.png``。正式产物的

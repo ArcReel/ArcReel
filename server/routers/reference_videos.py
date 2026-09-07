@@ -310,7 +310,7 @@ async def add_unit(
     if duration_seconds is None:
         duration_seconds = default_unit_duration(
             await resolve_project_duration_context(
-                project, capability=reference_video_bucket(with_references=bool(refs))
+                project, generation_type=reference_video_bucket(with_references=bool(refs))
             ),
             project,
             with_references=bool(refs),
@@ -526,8 +526,8 @@ async def precheck_unit_duration(
         "duration_input": projection.duration_input,
         "request_duration": slot.seconds,
         "adjustment": slot.adjustment,
-        "declared_capability": projection.declared_capability,
-        "hydrated_capability": projection.hydrated_capability,
+        "declared_capability": projection.declared_generation_type,
+        "hydrated_capability": projection.hydrated_generation_type,
         "provider_id": projection.provider_id,
         "model_id": projection.model_id,
         "problems": _problem_payload(projection, _t),

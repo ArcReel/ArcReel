@@ -260,18 +260,18 @@ class TestVideoAudioTrack:
         assert caps.audio_track_for_route("i2v") is VideoAudioMode.CONTROLLABLE
         assert caps.audio_track_for_route("r2v") is VideoAudioMode.ALWAYS_OFF
 
-    def test_video_route_vocabulary_matches_capability_buckets(self):
-        """VideoRoute 与 lib.config.resolver.VideoCapability 是同一份桶名词汇表。
+    def test_video_route_vocabulary_matches_generation_type_buckets(self):
+        """VideoRoute 与 lib.config.resolver.VideoGenerationType 是同一份桶名词汇表。
 
         分层契约不允许 backend 层导入 config 层，故两侧各声明一次；取值一旦漂开，
         ``audio_track_for_route`` 会对 r2v 静默按 i2v 取值。
         """
         from typing import get_args
 
-        from lib.config.resolver import VideoCapability
+        from lib.config.resolver import VideoGenerationType
         from lib.video_backends.base import VideoRoute
 
-        assert get_args(VideoRoute) == get_args(VideoCapability)
+        assert get_args(VideoRoute) == get_args(VideoGenerationType)
 
     def test_every_video_model_matches_declared_stance(self):
         """backend 声明在全部内置视频 model 上的逐路径取值与上表相等（整表相等，非子集）。"""
@@ -295,16 +295,16 @@ class TestVideoAudioTrack:
         from lib.config.resolver import builtin_video_audio_track
 
         for (provider_id, model_id), (i2v, r2v) in _VIDEO_AUDIO_STANCES.items():
-            assert builtin_video_audio_track(provider_id, model_id, capability="i2v") == i2v
-            assert builtin_video_audio_track(provider_id, model_id, capability="r2v") == r2v
+            assert builtin_video_audio_track(provider_id, model_id, generation_type="i2v") == i2v
+            assert builtin_video_audio_track(provider_id, model_id, generation_type="r2v") == r2v
 
     def test_lookup_returns_none_without_signal(self):
         """非视频 model / 未知供应商没有逐模型声明，返回 None 交调用方按无信号不收紧处理。"""
         from lib.config.resolver import builtin_video_audio_track
 
-        assert builtin_video_audio_track("dashscope", "wan2.7-image", capability="i2v") is None
-        assert builtin_video_audio_track("custom-1", "whatever", capability="i2v") is None
-        assert builtin_video_audio_track("kling", "not-a-registered-model", capability="i2v") is None
+        assert builtin_video_audio_track("dashscope", "wan2.7-image", generation_type="i2v") is None
+        assert builtin_video_audio_track("custom-1", "whatever", generation_type="i2v") is None
+        assert builtin_video_audio_track("kling", "not-a-registered-model", generation_type="i2v") is None
 
 
 class TestVideoCapabilitySingleSourceOfTruth:

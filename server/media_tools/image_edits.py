@@ -69,7 +69,7 @@ async def _i2i_provider_available(
     """
     try:
         resolver = config_resolver or ConfigResolver(async_session_factory)
-        await resolver.resolve_image_backend(project, None, capability="i2i")
+        await resolver.resolve_image_backend(project, None, generation_type="i2i")
     except ValueError:
         return False
     return True

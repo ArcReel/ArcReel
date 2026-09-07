@@ -29,7 +29,7 @@ ModelCapability = Literal[
     "text_generation",
     "structured_output",  # 消费点：文本 backend 结构化输出探测
     "vision",  # 消费点：文本解析的 vision 闸（lib/config/resolver.py）
-    "text_to_image",  # 消费点：图片任务类型桶判定（lib/capability_buckets.py）
+    "text_to_image",  # 消费点：图片任务类型桶判定（lib/generation_type_buckets.py）
     "image_to_image",  # 消费点：同上
     "text_to_speech",
 ]

@@ -348,7 +348,7 @@ async def generate_video(
                 item=item,
                 visual_prompt=req.prompt,
                 seed=req.seed,
-                capability=_video_bucket,
+                generation_type=_video_bucket,
                 # use_tts 不把请求中的 duration 持久化进队列；预检必须和 worker 一样基于
                 # 当前盘上单元重投影，否则客户端旧快照可能先通过、执行时才要求另一档确认。
                 planned_duration_seconds=current_planned_duration,
@@ -985,13 +985,15 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
     """项目 i2i 槽解析不出可用供应商时直接 400，不创建任务。
 
     图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 CONTEXT.md「图片编辑」），
-    故解析前置到入队；执行层 ``generate_image_async`` 的 capability gating 保留兜底。
+    故解析前置到入队；执行层 ``generate_image_async`` 的能力 gating 保留兜底。
     返回解析出的 provider_id，入队时直接复用（限流池路由按 i2i 槽精确记账）。
     """
     from lib.db import async_session_factory
 
     try:
-        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(project, None, capability="i2i")
+        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(
+            project, None, generation_type="i2i"
+        )
     except ValueError as exc:
         raise BadRequestError("image_edit_i2i_unavailable") from exc
     return resolved.provider_id

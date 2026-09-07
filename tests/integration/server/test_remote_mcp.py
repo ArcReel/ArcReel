@@ -73,17 +73,17 @@ class _Planner:
 
 
 class _Capabilities:
-    async def video_capabilities_for_project(self, project: dict, *, capability=None) -> dict:
+    async def video_capabilities_for_project(self, project: dict, *, generation_type=None) -> dict:
         return {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
 
-    async def resolve_image_backend(self, _project: dict, _payload: object, *, capability: str) -> None:
-        assert capability == "i2i"
+    async def resolve_image_backend(self, _project: dict, _payload: object, *, generation_type: str) -> None:
+        assert generation_type == "i2i"
         raise ValueError("image capability unavailable")
 
 
 class _AvailableImageCapabilities(_Capabilities):
-    async def resolve_image_backend(self, _project: dict, _payload: object, *, capability: str) -> None:
-        assert capability == "i2i"
+    async def resolve_image_backend(self, _project: dict, _payload: object, *, generation_type: str) -> None:
+        assert generation_type == "i2i"
 
 
 @pytest.fixture

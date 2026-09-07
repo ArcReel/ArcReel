@@ -28,7 +28,7 @@ from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 logger = logging.getLogger(__name__)
 
 ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image", "end_image"]
-ReferenceCapability = Literal["i2v", "r2v"]
+ReferenceGenerationType = Literal["i2v", "r2v"]
 
 _SCHEMA_VERSION = 3
 #: 版本记录 ``execution_checkpoint_schema_version`` 的当前值，供补写来源的迁移与写侧共用一个字面量。
@@ -511,7 +511,8 @@ class _VideoSubmissionCheckpoint:
     project_name: str
     script_file: str
     unit_id: str
-    capability: ReferenceCapability
+    #: 序列化键固定为 ``capability``：checkpoint 是落盘契约，且参与 ``request_digest``。
+    generation_type: ReferenceGenerationType
     provider_id: str
     provider_model_id: str
     backend_model_id: str
@@ -608,8 +609,8 @@ class _VideoSubmissionCheckpoint:
         _require_nonempty_string(self.project_name, "project_name")
         _require_relative_locator(self.script_file, "script_file")
         _require_nonempty_string(self.unit_id, "unit_id")
-        if self.capability not in ("i2v", "r2v"):
-            raise ValueError(f"unsupported video capability: {self.capability!r}")
+        if self.generation_type not in ("i2v", "r2v"):
+            raise ValueError(f"unsupported video generation type: {self.generation_type!r}")
         _require_nonempty_string(self.provider_id, "provider_id")
         _require_nonempty_string(self.provider_model_id, "provider_model_id")
         _require_nonempty_string(self.backend_model_id, "backend_model_id")
@@ -684,7 +685,7 @@ class _VideoSubmissionCheckpoint:
             "project_name": self.project_name,
             "script_file": self.script_file,
             "unit_id": self.unit_id,
-            "capability": self.capability,
+            "capability": self.generation_type,
             "provider_id": self.provider_id,
             "provider_model_id": self.provider_model_id,
             "backend_model_id": self.backend_model_id,
@@ -737,7 +738,7 @@ class _VideoSubmissionCheckpoint:
         project_name: str,
         script_file: str,
         unit_id: str,
-        capability: ReferenceCapability,
+        generation_type: ReferenceGenerationType,
         provider_id: str,
         provider_model_id: str,
         backend_model_id: str,
@@ -763,7 +764,7 @@ class _VideoSubmissionCheckpoint:
             "project_name": project_name,
             "script_file": script_file,
             "unit_id": unit_id,
-            "capability": capability,
+            "capability": generation_type,
             "provider_id": provider_id,
             "provider_model_id": provider_model_id,
             "backend_model_id": backend_model_id,
@@ -790,7 +791,7 @@ class _VideoSubmissionCheckpoint:
             project_name=project_name,
             script_file=script_file,
             unit_id=unit_id,
-            capability=capability,
+            generation_type=generation_type,
             provider_id=provider_id,
             provider_model_id=provider_model_id,
             backend_model_id=backend_model_id,
@@ -858,7 +859,7 @@ class _VideoSubmissionCheckpoint:
             project_name=raw["project_name"],
             script_file=raw["script_file"],
             unit_id=raw["unit_id"],
-            capability=raw["capability"],
+            generation_type=raw["capability"],
             provider_id=raw["provider_id"],
             provider_model_id=raw["provider_model_id"],
             backend_model_id=raw["backend_model_id"],
@@ -916,7 +917,8 @@ def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[s
         "execution_task_id": checkpoint.task_id,
         "execution_script_file": checkpoint.script_file,
         "execution_request_digest": checkpoint.request_digest,
-        "execution_capability": checkpoint.capability,
+        # 产物元数据键固定为 execution_capability（落盘契约）。
+        "execution_capability": checkpoint.generation_type,
         "execution_provider_id": checkpoint.provider_id,
         "execution_provider_model_id": checkpoint.provider_model_id,
         "execution_backend_model_id": checkpoint.backend_model_id,

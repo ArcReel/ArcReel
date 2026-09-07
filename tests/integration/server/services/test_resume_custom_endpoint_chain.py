@@ -167,7 +167,7 @@ def _storyboard_checkpoint_json(task_id: str, *, provider_id: str, endpoint_guar
         project_name="demo",
         script_file="scripts/episode_1.json",
         unit_id="E1S01",
-        capability="i2v",
+        generation_type="i2v",
         provider_id=provider_id,
         provider_model_id="video-x",
         backend_model_id="video-x",

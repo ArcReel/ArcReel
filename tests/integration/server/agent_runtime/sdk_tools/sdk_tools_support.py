@@ -286,21 +286,21 @@ def fake_reference_projection(
         )
 
         references = unit_reference_declarations(project, unit)
-        capability = "r2v" if references else "i2v"
+        generation_type = "r2v" if references else "i2v"
         if calls is not None:
-            calls.append(capability)
+            calls.append(generation_type)
         if slot_for is None:
             requested_seconds = int(unit.get("duration_seconds") or 8)
         else:
             requested_seconds = int(slot_for(None, unit).seconds)
 
         class _Capabilities:
-            async def resolve_candidate(self, project, capability):
+            async def resolve_candidate(self, project, generation_type):
                 del project
                 return ProviderProjectionCandidate(
-                    capability=capability,
+                    generation_type=generation_type,
                     provider_id="fake",
-                    model_id=f"fake-{capability}",
+                    model_id=f"fake-{generation_type}",
                     supported_durations=(requested_seconds,),
                     max_reference_images=9,
                     resolution="1080p",

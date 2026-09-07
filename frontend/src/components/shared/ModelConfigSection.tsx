@@ -19,7 +19,7 @@ import {
   effectiveModel,
   executingImageModel,
   executingVideoModel,
-  useCapabilityBucketLabels,
+  useGenerationTypeBucketLabels,
   type LayeredSubField,
 } from "./LayeredModelFields";
 import { TextTierFields } from "./TextTierFields";
@@ -173,7 +173,7 @@ export function ModelConfigSection({
   const showText = enable?.text !== false;
   const showDuration = enable?.duration !== false;
 
-  const bucketLabels = useCapabilityBucketLabels();
+  const bucketLabels = useGenerationTypeBucketLabels();
 
   // 时长 / 分辨率 / 声音档位按模型查能力，问的必须是当前配置真正会执行的模型：细分项被覆盖时
   // 它不是默认层那个模型，拿默认层去查会把用户引到执行时并不支持的时长与分辨率上。

@@ -1192,9 +1192,9 @@ class TestCostEstimationService:
             def __init__(self, _resolver):
                 pass
 
-            async def resolve_candidate(self, _project, capability):
+            async def resolve_candidate(self, _project, generation_type):
                 return ProviderProjectionCandidate(
-                    capability=capability,
+                    generation_type=generation_type,
                     provider_id="kling",
                     model_id="kling-v3",
                     supported_durations=(4, 8, 12),
@@ -1247,9 +1247,9 @@ class TestCostEstimationService:
             def __init__(self, _resolver):
                 pass
 
-            async def resolve_candidate(self, _project, capability):
+            async def resolve_candidate(self, _project, generation_type):
                 return ProviderProjectionCandidate(
-                    capability=capability,
+                    generation_type=generation_type,
                     provider_id="openai",
                     model_id="sora-2",
                     supported_durations=(4, 8, 12),
@@ -1357,9 +1357,9 @@ class TestCostEstimationService:
             def __init__(self, _resolver):
                 pass
 
-            async def resolve_candidate(self, _project, capability):
+            async def resolve_candidate(self, _project, generation_type):
                 return ProviderProjectionCandidate(
-                    capability=capability,
+                    generation_type=generation_type,
                     provider_id="kling",
                     model_id="kling-v3",
                     supported_durations=(),
@@ -1902,8 +1902,10 @@ class TestCostEstimationService:
 
         # 取档解析走全局 session factory（真实部署的库），测试库换成 db_factory 后照常做真实
         # 桶解析——被观察的是它拿到哪个模型的档位，不是它怎么连库。
-        async def _caps_from_test_db(project, *, degraded_to, capability=None, episode=None):
-            return await ConfigResolver(db_factory).video_capabilities_for_project(project, capability=capability)
+        async def _caps_from_test_db(project, *, degraded_to, generation_type=None, episode=None):
+            return await ConfigResolver(db_factory).video_capabilities_for_project(
+                project, generation_type=generation_type
+            )
 
         monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)
 
@@ -1941,8 +1943,10 @@ class TestCostEstimationService:
 
         monkeypatch.setattr(cost_calculator, "calculate_cost", _spy)
 
-        async def _caps_from_test_db(project, *, degraded_to, capability=None, episode=None):
-            return await ConfigResolver(db_factory).video_capabilities_for_project(project, capability=capability)
+        async def _caps_from_test_db(project, *, degraded_to, generation_type=None, episode=None):
+            return await ConfigResolver(db_factory).video_capabilities_for_project(
+                project, generation_type=generation_type
+            )
 
         monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)
 

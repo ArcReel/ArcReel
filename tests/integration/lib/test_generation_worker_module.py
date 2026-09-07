@@ -63,7 +63,7 @@ def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> s
         project_name="demo",
         script_file="scripts/episode_1.json",
         unit_id="E1U1",
-        capability="r2v",
+        generation_type="r2v",
         provider_id=provider_id,
         provider_model_id="model-v1",
         backend_model_id="model-v1",
@@ -128,7 +128,7 @@ def _worker_storyboard_checkpoint(task_id: str, *, provider_id: str = "ark") -> 
         project_name="demo",
         script_file="scripts/episode_1.json",
         unit_id="E1S01",
-        capability="i2v",
+        generation_type="i2v",
         provider_id=provider_id,
         provider_model_id="model-v1",
         backend_model_id="model-v1",
@@ -374,7 +374,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "ark"
 
     async def test_project_level_image_t2i(self, monkeypatch):
-        """image 投影按代表性 capability=t2i 取项目级 image_provider_t2i。"""
+        """image 投影按代表性 generation_type=t2i 取项目级 image_provider_t2i。"""
         _patch_pm(monkeypatch, {"image_provider_t2i": "gemini-vertex/imagen-3"})
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
@@ -610,7 +610,7 @@ class TestExtractProviderAlignsWithExecution:
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
 
         worker_provider = await _extract_provider(task)
-        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(project, {}, capability="t2i")
+        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(project, {}, generation_type="t2i")
         assert worker_provider == resolved.provider_id == "openai"
 
     async def test_video_alignment(self, monkeypatch):
@@ -622,7 +622,7 @@ class TestExtractProviderAlignsWithExecution:
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
 
         worker_provider = await _extract_provider(task)
-        resolved = await ConfigResolver(async_session_factory).resolve_video_backend(project, {}, capability="i2v")
+        resolved = await ConfigResolver(async_session_factory).resolve_video_backend(project, {}, generation_type="i2v")
         assert worker_provider == resolved.provider_id == "ark"
 
 

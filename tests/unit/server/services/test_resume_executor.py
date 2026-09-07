@@ -140,7 +140,7 @@ def _storyboard_checkpoint_json(
         project_name="demo",
         script_file="episode_1.json",
         unit_id="E1S01",
-        capability="i2v",
+        generation_type="i2v",
         provider_id=provider_id,
         provider_model_id=provider_model_id,
         backend_model_id=backend_model_id,
@@ -567,7 +567,7 @@ def _reference_checkpoint(
         project_name="demo",
         script_file="scripts/frozen.json",
         unit_id="E1U1",
-        capability="r2v",
+        generation_type="r2v",
         provider_id="custom-7",
         provider_model_id="cinema-v1",
         backend_model_id="cinema-v1-resolved",
@@ -676,7 +676,7 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
 
     assert result["resource_type"] == "reference_videos"
     assert captured_context["payload"] == {"video_provider_r2v": "custom-7/cinema-v1"}
-    assert captured_context["kwargs"]["video"].capability == "r2v"
+    assert captured_context["kwargs"]["video"].generation_type == "r2v"
     call = fake_gen.resume_calls[0]
     assert call["prompt"] == "frozen actual prompt"
     assert call["duration_seconds"] == 12

@@ -33,7 +33,7 @@ class _StubConfigResolver:
     def __init__(self, caps: dict) -> None:
         self._caps = caps
 
-    async def video_capabilities_for_project(self, project: dict, *, capability: object = None) -> dict:
+    async def video_capabilities_for_project(self, project: dict, *, generation_type: object = None) -> dict:
         return self._caps
 
 

@@ -33,7 +33,7 @@ from lib.task_terminal_events import TERMINAL_TASK_STATUSES, emit_task_terminal_
 
 if TYPE_CHECKING:
     from lib.artifact_activation import ArtifactCurrencyResolver
-    from lib.config.resolver import ConfigResolver, ProviderModel, VideoCapability
+    from lib.config.resolver import ConfigResolver, ProviderModel, VideoGenerationType
     from lib.project_manager import ProjectManager
     from lib.reference_video.request_projection import ReferenceUnitRequestProjection
 
@@ -151,7 +151,7 @@ async def video_bucket_for_queued_task(
     task_type: str,
     payload: dict[str, Any] | None,
     resource_id: str | None,
-) -> VideoCapability | None:
+) -> VideoGenerationType | None:
     """视频任务的定桶口径，入队派生与 worker 限流投影共用、与执行侧同步（docs/adr/0054）。
 
     图生视频 / 宫格 → i2v；参考生视频调公共 request projection 按当前实际可用资产分流——
@@ -170,7 +170,7 @@ async def video_bucket_for_queued_task(
         payload=payload,
         resource_id=resource_id,
     )
-    return projection.hydrated_capability if projection is not None else fallback
+    return projection.hydrated_generation_type if projection is not None else fallback
 
 
 async def reference_projection_for_queued_task(
@@ -204,7 +204,7 @@ async def reference_projection_for_queued_task(
             script=script,
             unit=unit,
             project_path=project_path,
-            # Claim/rate-limit routing only needs hydrated visual capability.
+            # Claim/rate-limit routing only needs the hydrated visual generation type.
             # Narration currency belongs to Web/Agent/worker projections, whose
             # server adapter can assemble the effective audio backend identity.
             options=ReferenceRequestOptions(),
@@ -222,7 +222,7 @@ async def resolve_video_execution_for_queued_task(
     task_type: str,
     payload: dict[str, Any] | None,
     resource_id: str | None,
-) -> tuple[ProviderModel, VideoCapability | None]:
+) -> tuple[ProviderModel, VideoGenerationType | None]:
     """解析队列视频任务的当前身份与任务类型桶，供入队 advisory 和 worker 限流共用。"""
 
     projection = (
@@ -238,9 +238,11 @@ async def resolve_video_execution_for_queued_task(
     if projection is not None and projection.provider_candidate is not None:
         from lib.config.resolver import ProviderModel
 
-        return ProviderModel(projection.provider_id or "", projection.model_id or ""), projection.hydrated_capability
+        return ProviderModel(
+            projection.provider_id or "", projection.model_id or ""
+        ), projection.hydrated_generation_type
 
-    capability = await video_bucket_for_queued_task(
+    generation_type = await video_bucket_for_queued_task(
         project=project,
         project_name=project_name,
         task_type=task_type,
@@ -250,8 +252,8 @@ async def resolve_video_execution_for_queued_task(
     execution_payload = (
         without_video_execution_identity(payload) if task_type in ("video", "reference_video") else payload
     )
-    resolved = await resolver.resolve_video_backend(project, execution_payload or {}, capability=capability)
-    return resolved, capability
+    resolved = await resolver.resolve_video_backend(project, execution_payload or {}, generation_type=generation_type)
+    return resolved, generation_type
 
 
 async def _derive_execution_model_for_enqueue(
@@ -261,7 +263,7 @@ async def _derive_execution_model_for_enqueue(
     task_type: str,
     media_type: str,
     resource_id: str | None,
-) -> tuple[ProviderModel, VideoCapability | None] | None:
+) -> tuple[ProviderModel, VideoGenerationType | None] | None:
     """入队时按 project + payload 派生任务的 advisory provider 与视频桶。
 
     ``provider_id`` 落 task 行供 claim SQL 池过滤使用；两种视频生成模式都只保存 advisory provider，
@@ -272,7 +274,7 @@ async def _derive_execution_model_for_enqueue(
     is_text = media_type == "text"
     is_video = media_type == "video" or task_type in ("video", "reference_video")
     is_audio = media_type == "audio" or task_type == "tts"
-    video_capability: VideoCapability | None = None
+    video_generation_type: VideoGenerationType | None = None
     try:
         # 局部导入：lib.config 的解析链会拉进 backend 与自定义供应商装配层，入队路径不为此
         # 付模块级导入代价。
@@ -289,7 +291,7 @@ async def _derive_execution_model_for_enqueue(
 
             resolved = ProviderModel("text", "")
         elif is_video:
-            resolved, video_capability = await resolve_video_execution_for_queued_task(
+            resolved, video_generation_type = await resolve_video_execution_for_queued_task(
                 resolver=resolver,
                 project=project,
                 project_name=project_name,
@@ -301,15 +303,15 @@ async def _derive_execution_model_for_enqueue(
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
             # image_edit / 衍生资产图必然 i2i 且入队即知（唯一例外，见 docs/adr/0001），按 i2i
-            # 槽解析；其余 image 任务 capability 执行时才定，取 t2i 作代表性 provider。
-            capability = "i2i" if task_type in I2I_ONLY_TASK_TYPES else "t2i"
-            resolved = await resolver.resolve_image_backend(project, payload or {}, capability=capability)
+            # 槽解析；其余 image 任务的任务类型执行时才定，取 t2i 作代表性 provider。
+            generation_type = "i2i" if task_type in I2I_ONLY_TASK_TYPES else "t2i"
+            resolved = await resolver.resolve_image_backend(project, payload or {}, generation_type=generation_type)
     except Exception:
         logger.debug("入队时派生执行身份失败，留 NULL 由 worker 兜底", exc_info=True)
         return None
     if not resolved.provider_id:
         return None
-    return resolved, video_capability
+    return resolved, video_generation_type
 
 
 #: 必然走 i2i 且入队即知的图片任务类型（见 ``docs/adr/0001`` 的唯一例外）：图片编辑以当前图
@@ -432,7 +434,7 @@ class GenerationQueue:
                 resource_id=resource_id,
             )
             if derived is not None:
-                execution_model, _video_capability = derived
+                execution_model, _video_generation_type = derived
                 provider_id = execution_model.provider_id
                 # Video provider/model is only an advisory claim projection until the worker materializes the
                 # current request and persists its pre-submit checkpoint. Enqueue payload never freezes identity.

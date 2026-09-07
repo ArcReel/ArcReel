@@ -171,11 +171,11 @@ class TestGenerationTasks:
         }
         fake_pm.project["generation_mode"] = "storyboard"
         await generation_tasks.execute_video_task("demo", "E1S01", payload)
-        assert seen_lanes[-1]["video"].capability == "i2v"
+        assert seen_lanes[-1]["video"].generation_type == "i2v"
 
         fake_pm.project["generation_mode"] = "reference_video"
         await generation_tasks.execute_video_task("demo", "E1S01", payload)
-        assert seen_lanes[-1]["video"].capability == "r2v"
+        assert seen_lanes[-1]["video"].generation_type == "r2v"
 
     async def test_execute_video_task_rejects_unsupported_duration(self, monkeypatch, tmp_path):
         """执行层在解析出 ProviderModel 后，对越界 duration 以明确错误拒绝。"""

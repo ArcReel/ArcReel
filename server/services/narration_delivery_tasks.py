@@ -23,7 +23,7 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.audio_utils import probe_existing_media_duration_seconds
-from lib.config.resolver import ConfigResolver, VideoCapability
+from lib.config.resolver import ConfigResolver, VideoGenerationType
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import GenerationQueue, get_generation_queue
@@ -447,7 +447,7 @@ async def prepare_current_storyboard_narrated_video_duration(
     item: dict[str, Any],
     visual_prompt: object,
     seed: int | None,
-    capability: VideoCapability,
+    generation_type: VideoGenerationType,
     planned_duration_seconds: int | None,
     confirmed_request_duration_seconds: int | None,
     tts_in_progress: bool | None = None,
@@ -459,7 +459,7 @@ async def prepare_current_storyboard_narrated_video_duration(
     """Materialize current TTS and video-tier facts for one storyboard unit."""
 
     resolver = config_resolver or ConfigResolver(async_session_factory)
-    candidate = await ConfigReferenceCapabilityProjection(resolver).resolve_candidate(project, capability)
+    candidate = await ConfigReferenceCapabilityProjection(resolver).resolve_candidate(project, generation_type)
     request_resolution = await resolver.resolve_resolution(project, candidate.provider_id, candidate.model_id)
     planned = planned_duration_seconds
     if planned is None:
@@ -746,7 +746,7 @@ def materialized_reference_video_visual_basis_digest(
         reference_audio_speakers=reference_audio_speakers,
         reference_audio_targets=reference_audio_targets,
         request_context={
-            "capability": candidate.capability,
+            "capability": candidate.generation_type,
             "provider_id": candidate.provider_id,
             "model_id": candidate.model_id,
             "resolution": candidate.resolution,
@@ -775,9 +775,9 @@ async def _reference_visual_basis_digest(
         available = tuple(
             asset for asset in resolve_reference_assets(project, project_path, unit) if availability.is_available(asset)
         )
-        capability: VideoCapability = "r2v" if available else "i2v"
+        generation_type: VideoGenerationType = "r2v" if available else "i2v"
         candidate = await ConfigReferenceCapabilityProjection(ConfigResolver(async_session_factory)).resolve_candidate(
-            project, capability
+            project, generation_type
         )
         request_assets = clamp_reference_assets(available, candidate.max_reference_images)
         return await asyncio.to_thread(

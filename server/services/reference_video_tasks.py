@@ -16,7 +16,7 @@ from lib.artifact_activation import assert_current_artifact_input_claims_usable,
 from lib.artifact_manifest import compose_video_artifact_basis
 from lib.config.resolver import (
     ConfigResolver,
-    VideoCapability,
+    VideoGenerationType,
     constrain_durations,
     get_provider_fallback,
 )
@@ -190,18 +190,18 @@ class ProjectDurationContext:
 async def resolve_project_duration_context(
     project: dict,
     *,
-    capability: VideoCapability | None = None,
+    generation_type: VideoGenerationType | None = None,
 ) -> ProjectDurationContext:
     """一次性解析视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
 
-    ``capability`` 未给定时按项目生成模式定桶；给定时按指定桶解析——参考生视频内按视频单元分流的
+    ``generation_type`` 未给定时按项目生成模式定桶；给定时按指定桶解析——参考生视频内按视频单元分流的
     调用方（费用估算、逐 unit 预检）以此对无参考图的视频单元按 i2v 桶模型取档。
 
     解析失败时返回空档位，仅让新建 unit 选用兼容默认值；不代表生成可执行。
     分辨率仅在档位非空时才解析，空档位下分辨率约束无意义。``max_duration`` 与
     :func:`resolve_max_unit_duration` 取自同一份能力解析结果。
     """
-    caps = await project_video_caps(project, degraded_to="新建 unit 使用兼容默认时长", capability=capability)
+    caps = await project_video_caps(project, degraded_to="新建 unit 使用兼容默认时长", generation_type=generation_type)
     durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
@@ -345,7 +345,7 @@ async def execute_reference_video_task(
     #    registry provider_id。桶按本 unit 解析后的实际参考图分流（docs/adr/0054）：
     #    有参考图 → r2v；无参考图的视频单元降级 → i2v，不送入拒空参考的 r2v 桶模型。
     #    判据取解析结果而非声明，与 backend 的实际请求同源。
-    execution_capability = reference_video_bucket(with_references=bool(hydration.available))
+    execution_generation_type = reference_video_bucket(with_references=bool(hydration.available))
     execution_payload = without_reference_video_execution_identity(payload)
     request_options = ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True)
     ctx = await resolve_generation_context(
@@ -353,7 +353,7 @@ async def execute_reference_video_task(
         execution_payload,
         project=project,
         user_id=user_id,
-        video=VideoLaneRequest(capability=execution_capability),
+        video=VideoLaneRequest(generation_type=execution_generation_type),
         audio=AudioLaneRequest() if request_options.narration_delivery == USE_TTS else None,
     )
     generator = ctx.generator
@@ -380,16 +380,18 @@ async def execute_reference_video_task(
     # 音频冲突都由同一 projector 给出。payload 未声明请求选项时按直接入队兼容语义视为
     # 已确认；显式选项保存在 reference_request_options 中。
     class _ExecutionCapabilities:
-        async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
+        async def resolve_candidate(
+            self, project: dict, generation_type: VideoGenerationType
+        ) -> ProviderProjectionCandidate:
             del project
             has_audio_track, audio_switch_controllable = reference_audio_model_facts(
                 video.provider_model.provider_id,
                 video.backend_model,
                 voice_consistency=video.voice_consistency,
-                capability=capability,
+                generation_type=generation_type,
             )
             return ProviderProjectionCandidate(
-                capability=capability,
+                generation_type=generation_type,
                 provider_id=video.provider_model.provider_id,
                 model_id=video.backend_model,
                 supported_durations=strict_reference_durations(
@@ -397,7 +399,7 @@ async def execute_reference_video_task(
                     model_id=video.backend_model,
                     durations=video.supported_durations,
                     resolution=video.resolution_or_fallback,
-                    capability=capability,
+                    generation_type=generation_type,
                 ),
                 max_reference_images=video.max_reference_images,
                 resolution=video.resolution_or_fallback,
@@ -676,7 +678,7 @@ async def execute_reference_video_task(
                     project_name=project_name,
                     script_file=script_file,
                     unit_id=resource_id,
-                    capability=execution_capability,
+                    generation_type=execution_generation_type,
                     provider_id=video.provider_model.provider_id,
                     provider_model_id=video.provider_model.model_id,
                     backend_model_id=video.backend_model,

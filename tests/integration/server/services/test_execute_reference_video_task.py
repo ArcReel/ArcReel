@@ -263,9 +263,9 @@ async def test_execute_reference_video_task_blocks_a_dirty_text_before_submissio
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("strip_mentions", "expected_capability"), [(False, "r2v"), (True, "i2v")])
+@pytest.mark.parametrize(("strip_mentions", "expected_generation_type"), [(False, "r2v"), (True, "i2v")])
 async def test_execute_reference_video_task_bucket_follows_resolved_references(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, strip_mentions: bool, expected_capability: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, strip_mentions: bool, expected_generation_type: str
 ):
     """执行侧按解析后的实际参考图分流定桶：有参考图 → r2v，无参考图的视频单元 → i2v。
 
@@ -329,7 +329,7 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
         user_id="u1",
     )
 
-    assert captured["video"].capability == expected_capability
+    assert captured["video"].generation_type == expected_generation_type
     assert "video_provider_i2v" not in captured["payload"]
     assert "video_provider_r2v" not in captured["payload"]
 
@@ -1716,7 +1716,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     from server.services.narration_delivery_tasks import reference_video_visual_basis_digest
 
     expected_candidate = ProviderProjectionCandidate(
-        capability="r2v",
+        generation_type="r2v",
         provider_id="openai",
         model_id="sora-2",
         supported_durations=(4, 8, 12),
@@ -2012,11 +2012,11 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     versions = VersionManager(proj_dir)
     project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
     has_audio_track, audio_switch_controllable = reference_audio_model_facts(
-        "openai", "sora-2", voice_consistency="soft", capability="i2v"
+        "openai", "sora-2", voice_consistency="soft", generation_type="i2v"
     )
     # 正文没有 @ 提及 → 无参考图，执行侧按 i2v 桶分流。
     candidate = ProviderProjectionCandidate(
-        capability="i2v",
+        generation_type="i2v",
         provider_id="openai",
         model_id="sora-2",
         supported_durations=(4, 8, 12),
@@ -2340,7 +2340,7 @@ async def test_execute_reference_video_task_persists_execution_identity(
     assert checkpoint.provider_id == "ark-agent-plan"
     assert checkpoint.provider_model_id == "doubao-seedance-1-5-pro-251215"
     assert checkpoint.backend_model_id == "doubao-seedance-1-5-pro-251215"
-    assert checkpoint.capability == "r2v"
+    assert checkpoint.generation_type == "r2v"
     assert events == ["checkpoint", "provider_submit"]
 
 

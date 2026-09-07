@@ -1311,7 +1311,7 @@ class TestFetchVideoCapabilitiesErrorHandling:
         async def _raise(_self, _project, _episode=None):
             raise VideoBucketCapabilityError(
                 code="video_capability_missing_r2v",
-                capability="r2v",
+                generation_type="r2v",
                 provider_id="kling",
                 model_id="kling-v3",
                 message="video model kling/kling-v3 lacks the capability required by the r2v bucket",

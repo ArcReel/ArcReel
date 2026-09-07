@@ -142,7 +142,7 @@ uv run python scripts/mutmut_compare.py \
 
 | 模块 | 批次 | 票号 | 研究分支 |
 | --- | --- | --- | --- |
-| `lib/capability_buckets.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/generation_type_buckets.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
 | `lib/content_digest.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
 | `lib/episode_paths.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
 | `lib/grid/splitter.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |

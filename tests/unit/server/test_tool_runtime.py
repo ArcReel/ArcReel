@@ -86,9 +86,9 @@ class _Planner:
 
 
 class _Capabilities:
-    async def video_capabilities_for_project(self, project: dict, *, capability=None) -> dict:
+    async def video_capabilities_for_project(self, project: dict, *, generation_type=None) -> dict:
         assert project["generation_mode"] == "storyboard"
-        assert capability is None
+        assert generation_type is None
         return {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
 
 

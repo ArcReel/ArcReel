@@ -14,7 +14,7 @@ import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import {
   LayeredModelFields,
   degradeSubFieldsToSaved,
-  useCapabilityBucketLabels,
+  useGenerationTypeBucketLabels,
   type LayeredSubField,
 } from "@/components/shared/LayeredModelFields";
 import { TextTierFields } from "@/components/shared/TextTierFields";
@@ -101,7 +101,7 @@ export function MediaModelSection() {
     options,
     candidates,
   );
-  const bucketLabels = useCapabilityBucketLabels();
+  const bucketLabels = useGenerationTypeBucketLabels();
 
   // 候选与其余配置分开拉：它自带失败态，失败时只影响细分区、不牵动已加载的表单状态，
   // 也让重试不必重取整页配置（会连带清空未保存的 draft）。启动后不等它落地——候选接口
