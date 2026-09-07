@@ -18,6 +18,7 @@ import hashlib
 import logging
 import os
 import tempfile
+import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -38,7 +39,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
 from lib.ledger import Ledger
 from lib.path_safety import PathTraversalError, safe_join
-from lib.providers import CallType, require_provider_pair
+from lib.providers import CallPurpose, CallType, require_provider_pair
 from lib.resource_paths import resource_relative_path
 from lib.version_manager import PaidVersionCommit, VersionManager
 
@@ -154,6 +155,28 @@ def segment_id_for(call_type: CallType, resource_type: str, resource_id: str) ->
     return resource_id if resource_type in allowed else None
 
 
+def _input_path(project_path: Path, value: object) -> str | None:
+    """把一份输入素材的路径归一为项目内相对路径（POSIX 分隔符）。
+
+    落库的是「这次调用喂进去的是哪份素材」，读侧要拿它在项目里定位文件，故一律相对项目根；
+    项目外的路径（临时素材、绝对路径引用）保留原样。非路径值（PIL Image 等）返回 None，
+    由调用点决定是否记这一项。
+    """
+    if not isinstance(value, (str, Path)):
+        return None
+    path = Path(value)
+    try:
+        return path.relative_to(project_path).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _ledger_inputs(**sections: object) -> dict[str, Any] | None:
+    """丢掉空分组后的 ``inputs`` 值；全空时给 None，让记账列留空而不是写一个空对象。"""
+    kept = {key: value for key, value in sections.items() if value not in (None, [], {})}
+    return kept or None
+
+
 class MediaGenerator:
     """
     媒体生成器中间层
@@ -242,9 +265,10 @@ class MediaGenerator:
 
         if not formal_output:
             return None, output_path
-        if task_id is None:
-            raise ValueError("formal image output requires a task_id")
-        staged_output_path = task_image_staging_path(output_path, task_id)
+        # 直接调用（非队列任务）没有队列身份：给一次性 staging 身份，不伪造一个 task_id
+        # ——记账写的 task_id 必须能在 tasks 里查到，编不出来就留空。
+        staging_token = task_id or f"inline-{uuid.uuid4().hex}"
+        staged_output_path = task_image_staging_path(output_path, staging_token)
         _remove_task_staging_path(staged_output_path)
         return staged_output_path, staged_output_path
 
@@ -602,7 +626,7 @@ class MediaGenerator:
             )
 
         # 2. 记账括号：进入落 pending，成功以 call.success(result) 递交 backend 结果对象，
-        #    Exception 自动翻 failed 后重抛，CancelledError 穿透留 pending。
+        #    Exception 自动翻 failed 后重抛，CancelledError 结算 cancelled 后重抛。
         async with _remove_staged_output_on_error(staged_output_path):
             async with self.ledger.record(
                 project_name=self.project_name,
@@ -616,6 +640,15 @@ class MediaGenerator:
                 user_id=self._user_id,
                 segment_id=segment_id_for("image", resource_type, resource_id),
                 output_path=str(output_path),
+                task_id=task_id,
+                purpose=CallPurpose.GENERATION_TASK,
+                inputs=_ledger_inputs(
+                    reference_images=[
+                        {"path": rel, "label": ref.label or None, "role": "array"}
+                        for ref in ref_images
+                        if (rel := _input_path(self.project_path, ref.path)) is not None
+                    ]
+                ),
             ) as call:
                 from lib.reference_compression import ReferenceSpec, RefRole
 
@@ -675,6 +708,7 @@ class MediaGenerator:
         voice: str,
         language_type: str = "Chinese",
         speed: float | None = None,
+        task_id: str | None = None,
         before_submit: Callable[[], Awaitable[None]] | None = None,
         before_commit: Callable[[Path], Awaitable[None]] | None = None,
         commit_staged: Callable[[Path, Path], int | PaidVersionCommit] | None = None,
@@ -691,6 +725,7 @@ class MediaGenerator:
             voice: 音色（如 Cherry）
             language_type: 语种，默认 Chinese
             speed: 语速预留（同步模型忽略）
+            task_id: 本次合成所属的生成任务；记账据此回指任务，直接调用（无队列任务）留空
             before_submit: 首次 provider 提交紧前执行一次的异步准入钩子
             **version_metadata: 额外元数据
 
@@ -730,6 +765,12 @@ class MediaGenerator:
                 user_id=self._user_id,
                 segment_id=segment_id_for("audio", resource_type, resource_id),
                 output_path=str(output_path),
+                task_id=task_id,
+                purpose=CallPurpose.GENERATION_TASK,
+                inputs=_ledger_inputs(
+                    voice=voice,
+                    parameters=_ledger_inputs(language_type=language_type, speed=speed),
+                ),
             ) as call:
                 request = AudioSynthesisRequest(
                     text=text,
@@ -996,6 +1037,23 @@ class MediaGenerator:
                 segment_id=segment_id_for("video", resource_type, resource_id),
                 service_tier=version_metadata.get("service_tier", "default"),
                 output_path=str(output_path),
+                task_id=task_id,
+                purpose=CallPurpose.GENERATION_TASK,
+                inputs=_ledger_inputs(
+                    reference_images=[
+                        {"path": rel, "label": None, "role": "array"}
+                        for ref in (reference_images or [])
+                        if (rel := _input_path(self.project_path, ref)) is not None
+                    ],
+                    start_image=_input_path(self.project_path, start_image),
+                    end_image=_input_path(self.project_path, end_image),
+                    reference_audio=[
+                        rel
+                        for audio in (reference_audio_files or [])
+                        if (rel := _input_path(self.project_path, audio)) is not None
+                    ],
+                    parameters=_ledger_inputs(service_tier=version_metadata.get("service_tier")),
+                ),
             ) as call,
         ):
             # 拿到 call_id 后立即写入 task.payload["api_call_id"]，让 worker 崩溃重启后 resume

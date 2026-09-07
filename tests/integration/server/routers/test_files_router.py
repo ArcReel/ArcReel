@@ -17,6 +17,7 @@ from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.providers import CallPurpose
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
@@ -716,7 +717,17 @@ class TestFilesRouter:
             assert any(item["name"] == "保温杯.jpg" for item in listed.json()["files"]["products"])
 
     def test_style_image_endpoints(self, tmp_path, monkeypatch):
+        from lib.text_generator import TextGenerator
+
         client, pm = _client(monkeypatch, tmp_path)
+        captured: dict[str, object] = {}
+        original_create = TextGenerator.create
+
+        async def capture_create(task_type, project_name=None, *, purpose):
+            captured["purpose"] = purpose
+            return await original_create(task_type, project_name, purpose=purpose)
+
+        monkeypatch.setattr(TextGenerator, "create", capture_create)
 
         # 预置 style_template_id + 展开后的 style prompt，验证上传后被强制清掉（互斥）
         project = pm.load_project("demo")
@@ -731,6 +742,7 @@ class TestFilesRouter:
             )
             assert upload_style.status_code == 200
             assert upload_style.json()["style_description"] == "cinematic, high contrast"
+            assert captured["purpose"] is CallPurpose.STYLE_ANALYSIS
             after = pm.load_project("demo")
             assert after.get("style_image", "").startswith("style_reference")
             assert "style_template_id" not in after

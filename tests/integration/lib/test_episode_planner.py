@@ -30,6 +30,7 @@ from lib.episode_planner import (
 from lib.episode_reset import EpisodeResetResult, reset_episode_planning
 from lib.formal_write import FormalWriteReceipt
 from lib.project_manager import ProjectManager
+from lib.providers import CallPurpose
 from lib.text_backends.base import StructuredOutputExhaustedError, TextGenerationResult
 from lib.text_metrics import count_reading_units
 
@@ -189,6 +190,21 @@ class TestParseDraft:
 
 
 class TestPlan:
+    async def test_create_declares_episode_planning_purpose(self, tmp_path: Path, monkeypatch) -> None:
+        captured: dict[str, object] = {}
+        generator = _FakeTextGenerator([])
+
+        async def fake_create(task_type, project_name=None, *, purpose):
+            captured.update(task_type=task_type, project_name=project_name, purpose=purpose)
+            return generator
+
+        monkeypatch.setattr("lib.episode_planner.TextGenerator.create", fake_create)
+
+        planner = await EpisodePlanner.create(tmp_path / "demo")
+
+        assert planner.project_name == "demo"
+        assert captured["purpose"] is CallPurpose.EPISODE_PLANNING
+
     async def test_cancel_during_started_plan_commit_restores_ledger_and_derived_files(self, tmp_path: Path):
         project_dir = _write_project(tmp_path)
         before_project = (project_dir / "project.json").read_bytes()

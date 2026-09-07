@@ -34,6 +34,7 @@ from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, Dec
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import bound_provider_response
 from lib.ledger import Ledger
+from lib.providers import CallPurpose
 from lib.task_failure import encode_failure
 from lib.video_backends.base import ProviderResponseStage, VideoGenerationRequest
 from lib.video_frame_slots import resolve_first_frame_aspect_ratio
@@ -323,7 +324,7 @@ class TrialRunManager:
         return path if path.is_file() else None
 
     async def cancel(self, run_id: str) -> bool:
-        """停本地轮询并按失败结算。不通知供应商——远端任务照跑，钱照花。"""
+        """停本地轮询并按取消结算。不通知供应商——远端任务照跑，钱照花。"""
         task = self._tasks.get(run_id)
         run = self._runs.get(run_id)
         if task is None or run is None:
@@ -331,18 +332,19 @@ class TrialRunManager:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
-        # 被 shield 保护的诊断写入在任务停下后可能还在跑：结算前等它写完，否则 resume_failed
+        # 被 shield 保护的诊断写入在任务停下后可能还在跑：结算前等它写完，否则 resume_cancelled
         # 会与它并发写同一行，关停路径还可能在写入未完时就关库。
         for write in list(self._response_writes.get(run_id, ())):
             with contextlib.suppress(Exception):
                 await write
-        # 记账在被取消的协程里补不了（那条协程正在被取消，任何 await 都可能再次被打断），
-        # 所以由取消方在任务确实停下之后翻账：pending 行绝不能留给一笔用户已经放弃的调用。
+        # 记账括号自己会把取消结算成 cancelled，这里是它没结算成（写入失败、循环已关停）时的
+        # 兜底：``resume_cancelled`` 带 ``status='pending'`` 守卫，已结算的行不会被改写。pending 行
+        # 绝不能留给一笔用户已经放弃的调用。
         # 结算抛错也要把名额与盘上目录还掉——任务已经停了，占位留下去会把后续测试永远拒成 busy，
         # 而重试取消又因 task 已移除而 404，死锁只能重启解。
         try:
             if run.api_call_id is not None:
-                await self._ledger.resume_failed(call_id=run.api_call_id)
+                await self._ledger.resume_cancelled(call_id=run.api_call_id)
         finally:
             self._release(run_id)
             _remove_tree(self.root / run_id)
@@ -382,6 +384,7 @@ class TrialRunManager:
                 duration_seconds=parameters.duration_seconds,
                 aspect_ratio=parameters.aspect_ratio,
                 generate_audio=parameters.generate_audio,
+                purpose=CallPurpose.ENDPOINT_TRIAL,
             ) as call:
                 run.api_call_id = call.call_id
                 result = await backend.generate(
@@ -475,10 +478,10 @@ class TrialRunManager:
         self._release(run.id)
 
     async def shutdown(self) -> None:
-        """进程关停：停掉所有在跑的 run 并按失败结算。
+        """进程关停：停掉所有在跑的 run 并按取消结算。
 
-        任务随事件循环消亡时 ``Ledger.record`` 的 ``CancelledError`` 穿透会把 pending 行
-        永远留在账本上——没有进程会回来翻它；由关停方走取消那条结算路径。
+        任务随事件循环消亡时没有进程会回来翻账，故由关停方走取消那条路径：先停任务（记账括号
+        据此结算 cancelled），再兜底翻掉没结算成的 pending 行。
 
         单条 run 结算失败（如库已不可用）不中断这趟排空：异常穿透出去会让后面的 run 一条都
         不停，关停流程里排在本步之后的关 HTTP 客户端与关库也一起跳过。

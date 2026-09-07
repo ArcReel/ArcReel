@@ -38,6 +38,7 @@ from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.ledger import Ledger
 from lib.media_generator import MediaGenerator
+from lib.providers import CallPurpose
 from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.text_generator import TextGenerator
 from lib.video_backends.base import (
@@ -139,8 +140,14 @@ def _expected_row(**overrides: Any) -> dict[str, Any]:
         "generate_audio": True,
         "status": "success",
         "error_message": None,
+        "error_code": None,
+        "error_params": None,
         "output_path": None,
         "segment_id": None,
+        "task_id": None,
+        "purpose": None,
+        "session_id": None,
+        "inputs": None,
         "started_at": T0,
         "finished_at": T1,
         # 单次 start→finish 步进时钟前进一格（5s），见模块 docstring
@@ -408,15 +415,17 @@ class TestImageChannel:
         )
 
         await gen.generate_image_async(
-            prompt="图" * 700, resource_type="characters", resource_id="婉儿", image_size="2K"
+            prompt="图" * 700, resource_type="characters", resource_id="婉儿", image_size="2K", task_id="T-1"
         )
 
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="generation_task",
                 call_type="image",
                 model="gemini-3-pro-image-preview",
-                prompt="图" * 500,
+                prompt="图" * 700,
+                task_id="T-1",
                 resolution="2K",
                 aspect_ratio="9:16",
                 output_path=_output_path(tmp_path, "characters/婉儿.png"),
@@ -447,6 +456,7 @@ class TestImageChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="generation_task",
                 call_type="image",
                 model="gpt-image-2",
                 provider="openai",
@@ -481,6 +491,7 @@ class TestImageChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="generation_task",
                 call_type="image",
                 model="gemini-3-pro-image-preview",
                 prompt="p",
@@ -490,7 +501,7 @@ class TestImageChannel:
             ),
         )
 
-    async def test_cancellation_passes_through_leaving_pending(self, tmp_path: Path, acct: _AccountingDb) -> None:
+    async def test_cancellation_settles_cancelled_and_reraises(self, tmp_path: Path, acct: _AccountingDb) -> None:
         gen = _media_generator(
             tmp_path,
             acct,
@@ -504,14 +515,16 @@ class TestImageChannel:
         with pytest.raises(asyncio.CancelledError):
             await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="婉儿")
 
-        # CancelledError 不经 except Exception 括号：行停在 pending，不翻 failed、不计费
+        # CancelledError 结算为 cancelled（零费用）后重抛：不留 pending，也不计入失败
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_pending_row(
+            _expected_row(
+                purpose="generation_task",
                 call_type="image",
                 model="gemini-3-pro-image-preview",
                 prompt="p",
                 aspect_ratio="9:16",
+                status="cancelled",
             ),
         )
 
@@ -529,17 +542,20 @@ class TestAudioChannel:
             audio_backend=_FakeAudioBackend(provider="dashscope", model="qwen3-tts-flash", characters=25_000),
         )
 
-        await gen.generate_audio_async(text="念" * 700, resource_id="E1S01", voice="Cherry")
+        await gen.generate_audio_async(text="念" * 700, resource_id="E1S01", voice="Cherry", task_id="T-1")
 
         # usage_tokens 承载合成字符数，按每万字符 0.8 CNY 计费
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="generation_task",
                 call_type="audio",
                 model="qwen3-tts-flash",
                 provider="dashscope",
-                prompt="念" * 500,
+                prompt="念" * 700,
+                task_id="T-1",
                 segment_id="E1S01",
+                inputs={"voice": "Cherry", "parameters": {"language_type": "Chinese"}},
                 output_path=_output_path(tmp_path, "audio/segment_E1S01.wav"),
                 cost_amount=pytest.approx(2.0),
                 currency="CNY",
@@ -562,11 +578,13 @@ class TestAudioChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="generation_task",
                 call_type="audio",
                 model="qwen3-tts-flash",
                 provider="dashscope",
                 prompt="t",
                 segment_id="E1S01",
+                inputs={"voice": "Cherry", "parameters": {"language_type": "Chinese"}},
                 status="failed",
                 error_message="tts down",
             ),
@@ -594,6 +612,7 @@ async def _generate_video(gen: MediaGenerator) -> None:
 
 def _expected_video_row(tmp_path: Path, **overrides: Any) -> dict[str, Any]:
     defaults: dict[str, Any] = {
+        "purpose": "generation_task",
         "call_type": "video",
         "model": "veo-3.1-generate-preview",
         "prompt": "p",
@@ -702,7 +721,7 @@ class TestVideoChannel:
             ),
         )
 
-    async def test_cancellation_passes_through_leaving_pending(self, tmp_path: Path, acct: _AccountingDb) -> None:
+    async def test_cancellation_settles_cancelled_and_reraises(self, tmp_path: Path, acct: _AccountingDb) -> None:
         gen = _media_generator(
             tmp_path,
             acct,
@@ -718,15 +737,7 @@ class TestVideoChannel:
 
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_pending_row(
-                call_type="video",
-                model="veo-3.1-generate-preview",
-                prompt="p",
-                resolution="720p",
-                duration_seconds=8,
-                aspect_ratio="9:16",
-                segment_id="E1S01",
-            ),
+            _expected_video_row(tmp_path, status="cancelled", output_path=None),
         )
 
 
@@ -746,6 +757,7 @@ class TestTextChannel:
             ),
             Ledger(session_factory=acct.factory),
             "gemini-aistudio",
+            purpose=CallPurpose.SCRIPT_GENERATION,
         )
 
         await gen.generate(TextGenerationRequest(prompt="文" * 700), project_name="demo")
@@ -754,9 +766,10 @@ class TestTextChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="script_generation",
                 call_type="text",
                 model="gemini-3-flash-preview",
-                prompt="文" * 500,
+                prompt="文" * 700,
                 cost_amount=pytest.approx(3.5),
                 provider="gemini-aistudio",
                 input_tokens=1_000_000,
@@ -769,6 +782,7 @@ class TestTextChannel:
             _FakeTextBackend(provider="gemini", model="gemini-3-flash-preview"),
             Ledger(session_factory=acct.factory),
             "gemini-aistudio",
+            purpose=CallPurpose.SCRIPT_GENERATION,
         )
 
         await gen.generate(TextGenerationRequest(prompt="p"))
@@ -777,6 +791,7 @@ class TestTextChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="script_generation",
                 call_type="text",
                 model="gemini-3-flash-preview",
                 project_name="",
@@ -790,6 +805,7 @@ class TestTextChannel:
             _FakeTextBackend(provider="gemini", model="gemini-3-flash-preview", error=ValueError("t" * 600)),
             Ledger(session_factory=acct.factory),
             "gemini-aistudio",
+            purpose=CallPurpose.SCRIPT_GENERATION,
         )
 
         with pytest.raises(ValueError, match="t" * 600):
@@ -798,6 +814,7 @@ class TestTextChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="script_generation",
                 call_type="text",
                 model="gemini-3-flash-preview",
                 prompt="p",
@@ -841,6 +858,7 @@ class TestTextChannel:
             ),
             Ledger(session_factory=acct.factory),
             provider_key,
+            purpose=CallPurpose.SCRIPT_GENERATION,
         )
 
         await gen.generate(TextGenerationRequest(prompt="p"), project_name="demo")
@@ -849,6 +867,7 @@ class TestTextChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="script_generation",
                 call_type="text",
                 model="my-model",
                 provider=provider_key,
@@ -904,6 +923,7 @@ class TestIdentityInvariant:
                 _FakeTextBackend(provider="gemini", model="m"),
                 Ledger(session_factory=acct.factory),
                 cast(str, None),
+                purpose=CallPurpose.SCRIPT_GENERATION,
             )
 
 
@@ -930,6 +950,7 @@ async def _pending_video_call(acct: _AccountingDb) -> int:
             generate_audio=True,
             provider="gemini",
             segment_id="E1S01",
+            purpose=CallPurpose.GENERATION_TASK,
         )
 
 
@@ -949,6 +970,7 @@ async def _resume_video(gen: MediaGenerator, api_call_id: int | None) -> None:
 def _expected_resume_row(**overrides: Any) -> dict[str, Any]:
     # resume 补账不回写 output_path：finalize 只翻状态与费用口径字段
     defaults: dict[str, Any] = {
+        "purpose": "generation_task",
         "call_type": "video",
         "model": "veo-3.1-generate-preview",
         "prompt": "p",
@@ -1051,6 +1073,7 @@ class TestResumeChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_pending_row(
+                purpose="generation_task",
                 call_type="video",
                 model="veo-3.1-generate-preview",
                 prompt="p",
@@ -1100,10 +1123,12 @@ class TestAgentBackfillChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="assistant_session",
+                session_id="s1",
                 call_type="text",
                 model="claude-sonnet-4",
                 provider="anthropic",
-                prompt="u" * 500,
+                prompt="u" * 700,
                 cost_amount=pytest.approx(0.123),
                 usage_tokens=1_200_000,
                 input_tokens=1_000_000,
@@ -1122,10 +1147,12 @@ class TestAgentBackfillChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="assistant_session",
+                session_id="s1",
                 call_type="text",
                 model="claude-sonnet-4",
                 provider="anthropic",
-                prompt="u" * 500,
+                prompt="u" * 700,
                 status="failed",
                 cost_amount=pytest.approx(0.123),
                 usage_tokens=1_200_000,
@@ -1148,10 +1175,12 @@ class TestAgentBackfillChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
+                purpose="assistant_session",
+                session_id="s1",
                 call_type="text",
                 model="claude-sonnet-4",
                 provider="anthropic",
-                prompt="u" * 500,
+                prompt="u" * 700,
                 cost_amount=pytest.approx(6.0),
                 usage_tokens=1_200_000,
                 input_tokens=1_000_000,

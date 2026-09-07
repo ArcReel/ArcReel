@@ -5,9 +5,9 @@
 1. **记账括号**（``record`` async context manager）—— image / audio / video / text 四条生成
    路径用。进入即落 pending 行并在块内暴露 ``call_id``（视频路径先持久化 call_id 再调
    backend）；成功以 ``call.success(result)`` 显式递交 backend 结果对象；``Exception`` 分支自动
-   翻 failed（错误信息截断）后原样重抛，且记账失败不吞原异常；``CancelledError`` 穿透不记账
-   （留 pending 供 resume 补账）；正常退出未声明成功抛 ``RuntimeError``。
-2. **resume 补账**（``resume_success`` / ``resume_failed``）—— 按 ``call_id`` 精准翻 pending，
+   翻 failed（错误信息截断）后原样重抛，且记账失败不吞原异常；``CancelledError`` 先结算为
+   cancelled（零费用）再原样重抛；正常退出未声明成功抛 ``RuntimeError``。
+2. **resume 补账**（``resume_success`` / ``resume_failed`` / ``resume_cancelled``）—— 按 ``call_id`` 精准翻 pending，
    幂等守卫（``WHERE status='pending'``）由仓储承担；finalize 自身异常不吞、直接冒泡（交
    worker finally 兜底）。
 3. **事后补录**（``backfill``）—— agent 会话用量一次调用写入终态行（含 SDK 直报费用），对调用
@@ -27,12 +27,12 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, Literal, assert_never
+from typing import Any, assert_never
 
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
-from lib.providers import PROVIDER_GEMINI, CallType
+from lib.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 
 logger = logging.getLogger(__name__)
 
@@ -108,11 +108,16 @@ class Ledger:
         segment_id: str | None = None,
         service_tier: str = "default",
         output_path: str | None = None,
+        task_id: str | None = None,
+        purpose: CallPurpose | None = None,
+        session_id: str | None = None,
+        inputs: object | None = None,
     ) -> AsyncGenerator[LedgerCall]:
         """记账括号：进入落 pending，块内 ``call.success(result)`` 声明成功。
 
-        退出语义：``CancelledError`` 穿透留 pending；``Exception`` 翻 failed 后原样重抛；正常
-        退出但未声明成功抛 ``RuntimeError``；声明成功则以 backend 结果对象结算翻 success。
+        退出语义：``CancelledError`` 结算为 cancelled（零费用）后原样重抛；``Exception`` 翻
+        failed 后原样重抛；正常退出但未声明成功抛 ``RuntimeError``；声明成功则以 backend 结果
+        对象结算翻 success。
         """
         call_id = await self._start_call(
             project_name=project_name,
@@ -126,14 +131,19 @@ class Ledger:
             provider=provider,
             user_id=user_id,
             segment_id=segment_id,
+            task_id=task_id,
+            purpose=purpose,
+            session_id=session_id,
+            inputs=inputs,
         )
         call = LedgerCall(call_id, call_type=call_type, service_tier=service_tier)
         try:
             yield call
         except asyncio.CancelledError:
-            # 取消穿透：显式立约不记账，pending 行留待 resume 补账。
+            # 用户取消：零费用结算为 cancelled 后原样重抛，不留 pending 也不计入失败率。
             # （CancelledError 在 3.11+ 继承 BaseException 天然不进 except Exception，此处显式
             #  声明为契约，而非依赖隐式继承副作用。）
+            await self._finish_cancelled(call_id)
             raise
         except Exception as exc:
             # 自动翻 failed（错误信息截断由仓储承担）后原样重抛。
@@ -155,11 +165,19 @@ class Ledger:
         finalize 自身异常不吞、直接冒泡（交 worker finally 兜底），避免 ApiCall 永久卡 pending。
         """
         settlement = _settlement_from_result("video", result, service_tier=service_tier)
-        return await self._finalize(call_id=call_id, status="success", settlement=settlement)
+        return await self._finalize(call_id=call_id, status=CallStatus.SUCCESS, settlement=settlement)
 
     async def resume_failed(self, *, call_id: int) -> int:
         """resume 过期/失败补账：翻 pending → failed，零费用不重扣（幂等 0/1）。"""
-        return await self._finalize(call_id=call_id, status="failed", settlement=SettlementInput(cost_amount=0.0))
+        return await self._finalize(
+            call_id=call_id, status=CallStatus.FAILED, settlement=SettlementInput(cost_amount=0.0)
+        )
+
+    async def resume_cancelled(self, *, call_id: int) -> int:
+        """resume 取消补账：翻 pending → cancelled，零费用不重扣（幂等 0/1）。"""
+        return await self._finalize(
+            call_id=call_id, status=CallStatus.CANCELLED, settlement=SettlementInput(cost_amount=0.0)
+        )
 
     async def record_provider_response(self, *, call_id: int, body: object) -> None:
         """覆盖保存该供应商调用最后一次收到的响应体。"""
@@ -175,12 +193,16 @@ class Ledger:
         provider: str,
         prompt: str | None,
         user_id: str,
-        status: Literal["success", "failed"],
+        status: CallStatus,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         usage_tokens: int | None = None,
         cost_amount: float | None = None,
         currency: str | None = None,
+        task_id: str | None = None,
+        purpose: CallPurpose | None = None,
+        session_id: str | None = None,
+        inputs: object | None = None,
     ) -> None:
         """事后补录：一次调用写入终态行（agent 会话用量含 SDK 直报费用）。
 
@@ -202,6 +224,10 @@ class Ledger:
             prompt=prompt,
             provider=provider,
             user_id=user_id,
+            task_id=task_id,
+            purpose=purpose,
+            session_id=session_id,
+            inputs=inputs,
         )
         async with self._session_factory() as session:
             await UsageRepository(session).finish_call(call_id, status=status, settlement=settlement)
@@ -213,7 +239,7 @@ class Ledger:
     async def _finish_success(self, call_id: int, settlement: SettlementInput, *, output_path: str | None) -> None:
         async with self._session_factory() as session:
             await UsageRepository(session).finish_call(
-                call_id, status="success", settlement=settlement, output_path=output_path
+                call_id, status=CallStatus.SUCCESS, settlement=settlement, output_path=output_path
             )
 
     async def _finish_failed(self, call_id: int, exc: BaseException) -> None:
@@ -221,12 +247,23 @@ class Ledger:
         try:
             async with self._session_factory() as session:
                 await UsageRepository(session).finish_call(
-                    call_id, status="failed", settlement=SettlementInput(), error_message=str(exc)
+                    call_id, status=CallStatus.FAILED, settlement=SettlementInput(), error_message=str(exc)
                 )
         except Exception:
             logger.exception("ledger 失败分支记账写入自身失败 call_id=%s（原异常照常重抛）", call_id)
 
-    async def _finalize(self, *, call_id: int, status: str, settlement: SettlementInput) -> int:
+    async def _finish_cancelled(self, call_id: int) -> None:
+        # 取消分支同样不吞 CancelledError：写入失败仅记日志，取消照常重抛
+        # （行留 pending，交由取消方的兜底结算）。
+        try:
+            async with self._session_factory() as session:
+                await UsageRepository(session).finish_call(
+                    call_id, status=CallStatus.CANCELLED, settlement=SettlementInput(cost_amount=0.0)
+                )
+        except Exception:
+            logger.exception("ledger 取消分支记账写入自身失败 call_id=%s（取消照常重抛）", call_id)
+
+    async def _finalize(self, *, call_id: int, status: CallStatus, settlement: SettlementInput) -> int:
         async with self._session_factory() as session:
             return await UsageRepository(session).finalize_pending_by_call_id(
                 call_id=call_id, status=status, settlement=settlement

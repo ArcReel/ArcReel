@@ -3776,6 +3776,7 @@ class ProjectManager:
             生成的 overview 字典，包含 synopsis, genre, theme, world_setting, generated_at
         """
         from .prompt_builders_script import build_overview_prompt
+        from .providers import CallPurpose
         from .text_backends.base import TextGenerationRequest, TextTaskType
         from .text_generator import TextGenerator
 
@@ -3785,7 +3786,9 @@ class ProjectManager:
             raise EmptySourceError("source 目录为空，无法生成概述")
 
         # 创建 TextGenerator（自动追踪用量）
-        generator = await TextGenerator.create(TextTaskType.OVERVIEW, project_name)
+        generator = await TextGenerator.create(
+            TextTaskType.OVERVIEW, project_name, purpose=CallPurpose.PROJECT_OVERVIEW
+        )
 
         # 调用 TextGenerator（Structured Outputs）。source_kind=screenplay 时翻为「提取优先」：
         # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳（novel 行为不变）。

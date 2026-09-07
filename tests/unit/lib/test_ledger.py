@@ -2,7 +2,7 @@
 
 特征化矩阵（tests/test_accounting_characterization.py）从生成器公开方法端到端锁落库行为；
 本文件补齐矩阵覆盖不到的 CM 契约语义：块内 call_id 可用、漏调成功声明抛 RuntimeError、
-Exception 翻 failed 后重抛、记账失败不吞原异常、CancelledError 穿透留 pending。
+Exception 翻 failed 后重抛、记账失败不吞原异常、CancelledError 结算 cancelled 后重抛。
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.db.models.api_call import ApiCall
 from lib.ledger import Ledger, _settlement_from_result
+from lib.providers import CallPurpose, CallStatus
 
 
 async def _only_row(db_factory: async_sessionmaker) -> ApiCall:
@@ -133,7 +134,7 @@ class TestRecordBracket:
         assert row.error_message is not None
         assert len(row.error_message) == 500  # 错误信息截断由仓储承担
 
-    async def test_cancellation_passes_through_leaving_pending(self, db_factory: async_sessionmaker) -> None:
+    async def test_cancellation_settles_cancelled_zero_cost_and_reraises(self, db_factory: async_sessionmaker) -> None:
         ledger = Ledger(session_factory=db_factory)
         caught = False
         try:
@@ -144,9 +145,61 @@ class TestRecordBracket:
 
         assert caught, "expected CancelledError to propagate"
 
-        # 穿透不记账：行停在 pending，不翻 failed
+        # 取消结算：零费用翻 cancelled，不留 pending 也不计入失败
         row = await _only_row(db_factory)
-        assert row.status == "pending"
+        assert row.status == "cancelled"
+        assert row.cost_amount == 0.0
+        assert row.finished_at is not None
+        assert row.error_message is None
+
+    async def test_cancellation_settlement_failure_still_reraises_cancellation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """取消分支记账写入自身抛异常时，取消必须照常冒泡（行留 pending 交兜底处理）。"""
+
+        class _BoomOnCancelRepo:
+            def __init__(self, _session: Any) -> None:
+                pass
+
+            async def start_call(self, **_kwargs: Any) -> int:
+                return 1
+
+            async def finish_call(self, *_args: Any, **_kwargs: Any) -> None:
+                raise RuntimeError("db down")
+
+        @asynccontextmanager
+        async def _factory() -> AsyncGenerator[Any]:
+            yield object()
+
+        monkeypatch.setattr("lib.ledger.UsageRepository", _BoomOnCancelRepo)
+        ledger = Ledger(session_factory=_factory)
+
+        with pytest.raises(asyncio.CancelledError):
+            async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
+                raise asyncio.CancelledError()
+
+    async def test_record_persists_task_purpose_session_and_inputs(self, db_factory: async_sessionmaker) -> None:
+        ledger = Ledger(session_factory=db_factory)
+        inputs = {"reference_images": [{"path": "characters/婉儿.png", "label": "角色", "role": "array"}]}
+        async with ledger.record(
+            project_name="demo",
+            call_type="image",
+            model="m",
+            provider="gemini-aistudio",
+            prompt="p" * 900,
+            task_id="T-1",
+            purpose=CallPurpose.GENERATION_TASK,
+            session_id="s1",
+            inputs=inputs,
+        ) as call:
+            call.success(_ImgResult())
+
+        row = await _only_row(db_factory)
+        assert row.task_id == "T-1"
+        assert row.purpose == "generation_task"
+        assert row.session_id == "s1"
+        assert row.inputs == inputs
+        assert row.prompt == "p" * 900  # 提示词全文入库，不截 500 字
 
     async def test_accounting_failure_does_not_swallow_original_exception(
         self, monkeypatch: pytest.MonkeyPatch
@@ -251,6 +304,17 @@ class TestResumeAndBackfill:
         assert row.status == "failed"
         assert row.cost_amount == 0.0
 
+    async def test_resume_cancelled_flips_pending_zero_cost(self, db_factory: async_sessionmaker) -> None:
+        call_id = await self._seed_pending_video(db_factory)
+        ledger = Ledger(session_factory=db_factory)
+
+        affected = await ledger.resume_cancelled(call_id=call_id)
+
+        assert affected == 1
+        row = await _only_row(db_factory)
+        assert row.status == "cancelled"
+        assert row.cost_amount == 0.0
+
     async def test_resume_success_idempotent_on_terminal_row(self, db_factory: async_sessionmaker) -> None:
         call_id = await self._seed_pending_video(db_factory)
         ledger = Ledger(session_factory=db_factory)
@@ -269,15 +333,19 @@ class TestResumeAndBackfill:
             provider="anthropic",
             prompt="u",
             user_id="default",
-            status="success",
+            status=CallStatus.SUCCESS,
             input_tokens=1_000_000,
             output_tokens=200_000,
             usage_tokens=1_200_000,
             cost_amount=0.123,
             currency="USD",
+            purpose=CallPurpose.ASSISTANT_SESSION,
+            session_id="s1",
         )
 
         row = await _only_row(db_factory)
         assert row.status == "success"
         assert row.cost_amount == pytest.approx(0.123)  # SDK 直报费用优先
         assert row.usage_tokens == 1_200_000
+        assert row.purpose == "assistant_session"
+        assert row.session_id == "s1"

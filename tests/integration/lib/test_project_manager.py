@@ -8,6 +8,7 @@ import pytest
 
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.project_manager import EmptySourceError, ProjectManager
+from lib.providers import CallPurpose
 
 
 def _write(path: Path, text: str):
@@ -103,6 +104,32 @@ class _FakeTextBackend:
 
 
 class TestProjectManager:
+    @pytest.mark.asyncio
+    async def test_generate_overview_declares_project_overview_purpose(self, tmp_path, monkeypatch):
+        from lib.text_generator import TextGenerator
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        _write(pm.get_project_path("demo") / "source" / "1.txt", "source body")
+        captured: dict[str, object] = {}
+        original_create = TextGenerator.create
+
+        async def capture_create(task_type, project_name=None, *, purpose):
+            captured["purpose"] = purpose
+            return await original_create(task_type, project_name, purpose=purpose)
+
+        async def fake_backend(*args, **kwargs):
+            return _FakeTextBackend(), "gemini-aistudio"
+
+        monkeypatch.setattr(TextGenerator, "create", capture_create)
+        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", fake_backend)
+
+        overview = await pm.generate_overview("demo")
+
+        assert overview["genre"] == "悬疑"
+        assert captured["purpose"] is CallPurpose.PROJECT_OVERVIEW
+
     def test_filesystem_script_rebinding_forgets_unbound_resource_claims(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = pm.create_project("demo")

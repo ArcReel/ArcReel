@@ -48,6 +48,7 @@ from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, resolve_source_kind
 from lib.prompt_builders_script import USER_INSTRUCTIONS_HEADER
+from lib.providers import CallPurpose
 from lib.text_backends.base import (
     DEFAULT_MAX_OUTPUT_TOKENS,
     StructuredOutputExhaustedError,
@@ -411,7 +412,7 @@ class EpisodePlanner:
     async def create(cls, project_path: str | Path) -> EpisodePlanner:
         """异步工厂：按项目配置创建文本后端（与剧本生成同一条 SCRIPT 任务配置链）。"""
         project_name = Path(project_path).name
-        generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name)
+        generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name, purpose=CallPurpose.EPISODE_PLANNING)
         return cls(project_path, generator)
 
     # ---------------------------------------------------------------- plan

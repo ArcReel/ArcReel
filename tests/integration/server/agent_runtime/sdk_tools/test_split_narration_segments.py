@@ -148,7 +148,7 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
                 },
             )()
 
-    async def fake_create(_task_type, project_name=None):
+    async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
     use_fake_caps(fake_ctx)

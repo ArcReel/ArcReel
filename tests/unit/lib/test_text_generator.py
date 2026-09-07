@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.repositories.usage_repo import UsageRepository
 from lib.ledger import Ledger
+from lib.providers import CallPurpose
 from lib.text_backends.base import TextGenerationRequest, TextGenerationResult
 from lib.text_generator import TextGenerator
 
@@ -49,7 +50,7 @@ class TestTextGenerator:
     async def test_generate_records_usage_on_success(self, wired):
         # backend.name 为裸 "gemini"，记账须取解析层 provider_id（"gemini-aistudio"）。
         backend = _make_backend()
-        gen = TextGenerator(backend, wired.ledger, "gemini-aistudio")
+        gen = TextGenerator(backend, wired.ledger, "gemini-aistudio", purpose=CallPurpose.SCRIPT_GENERATION)
 
         result = await gen.generate(
             TextGenerationRequest(prompt="测试"),
@@ -73,7 +74,7 @@ class TestTextGenerator:
     async def test_generate_records_usage_on_failure(self, wired):
         backend = _make_backend()
         backend.generate = AsyncMock(side_effect=RuntimeError("API 超时"))
-        gen = TextGenerator(backend, wired.ledger, "gemini-aistudio")
+        gen = TextGenerator(backend, wired.ledger, "gemini-aistudio", purpose=CallPurpose.SCRIPT_GENERATION)
 
         with pytest.raises(RuntimeError, match="API 超时"):
             await gen.generate(
@@ -90,7 +91,7 @@ class TestTextGenerator:
 
     async def test_generate_without_project_name(self, wired):
         backend = _make_backend()
-        gen = TextGenerator(backend, wired.ledger, "gemini-aistudio")
+        gen = TextGenerator(backend, wired.ledger, "gemini-aistudio", purpose=CallPurpose.SCRIPT_GENERATION)
 
         result = await gen.generate(TextGenerationRequest(prompt="工具箱调用"))
 

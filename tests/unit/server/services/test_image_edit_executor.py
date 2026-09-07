@@ -509,7 +509,8 @@ class TestExecuteImageEditTask:
                     script["segments"][0]["image_prompt"] = "prompt changed"
                     pm.save_script("demo", script, script_file, validate=False)
 
-                staged = task_image_staging_path(current, kwargs["task_id"])
+                # 直接调用（非队列任务）没有 task_id：staging 身份由生成器内部造，替身自造一个。
+                staged = task_image_staging_path(current, kwargs["task_id"] or "inline-test")
                 staged.write_bytes(b"edited-image")
                 version = kwargs["commit_formal_output"](
                     staged,
