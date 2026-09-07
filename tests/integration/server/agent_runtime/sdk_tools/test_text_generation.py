@@ -11,6 +11,7 @@ import pytest
 
 from lib import script_review
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.providers import CallPurpose
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     generate_script_plan_tool,
@@ -524,7 +525,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
 
             return _R()
 
-    async def fake_create(task_type, project_name=None):
+    async def fake_create(task_type, project_name=None, **kwargs):
         return _EmptyGenerator()
 
     use_fake_caps(fake_ctx)
@@ -620,9 +621,10 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
 
             return _R()
 
-    async def fake_create(task_type, project_name=None):
+    async def fake_create(task_type, project_name=None, **kwargs):
         captured["task_type"] = task_type
         captured["create_project_name"] = project_name
+        captured["purpose"] = kwargs.get("purpose")
         return _FakeGenerator()
 
     use_fake_caps(fake_ctx)
@@ -633,6 +635,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
 
     assert out.get("is_error") is not True, out
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
+    assert captured["purpose"] is CallPurpose.SCRIPT_GENERATION
     assert captured["create_project_name"] == "demo", (
         f"normalize_drama_script 必须向 TextGenerator.create 传入 project_name，"
         f"实际传入: {captured.get('create_project_name')!r}"
@@ -699,7 +702,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
                 },
             )()
 
-    async def fake_create(_task_type, project_name=None):
+    async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
     use_fake_caps(fake_ctx)
@@ -775,7 +778,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
                 },
             )()
 
-    async def fake_create(_task_type, project_name=None):
+    async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
     use_fake_caps(fake_ctx)
@@ -830,7 +833,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
 
             return _Result()
 
-    async def fake_create(_task_type, project_name=None):
+    async def fake_create(_task_type, project_name=None, **_kwargs):
         return _FakeGenerator()
 
     use_fake_caps(fake_ctx)

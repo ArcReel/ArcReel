@@ -17,7 +17,7 @@ from lib.db.models.api_call import ApiCall
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.pricing.strategies import PricingParams
-from lib.providers import PROVIDER_GEMINI, CallType
+from lib.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 
 # 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
 # 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
@@ -178,24 +178,36 @@ class UsageRepository(BaseRepository):
         provider: str = PROVIDER_GEMINI,
         user_id: str = DEFAULT_USER_ID,
         segment_id: str | None = None,
+        task_id: str | None = None,
+        purpose: CallPurpose | None = None,
+        session_id: str | None = None,
+        inputs: object | None = None,
     ) -> int:
+        """落一条 pending 行并返回它的 id。
+
+        ``prompt`` 全文入库（详情要显示完整输入）；``task_id`` 空表示这次调用不服务任何生成
+        任务，此时来源由 ``purpose`` 说明。
+        """
         now = utc_now()
-        prompt_truncated = prompt[:500] if prompt else None
 
         row = ApiCall(
             project_name=project_name,
             call_type=call_type,
             model=model,
-            prompt=prompt_truncated,
+            prompt=prompt,
             resolution=resolution,
             duration_seconds=duration_seconds,
             aspect_ratio=aspect_ratio,
             generate_audio=generate_audio,
-            status="pending",
+            status=CallStatus.PENDING,
             started_at=now,
             provider=provider,
             user_id=user_id,
             segment_id=segment_id,
+            task_id=task_id,
+            purpose=purpose,
+            session_id=session_id,
+            inputs=inputs,
         )
         self.session.add(row)
         await self.session.commit()
@@ -317,7 +329,7 @@ class UsageRepository(BaseRepository):
         *,
         call_id: int,
         settlement: SettlementInput,
-        status: str = "success",
+        status: CallStatus = CallStatus.SUCCESS,
     ) -> int:
         """Resume 路径专用：按 call_id 精准翻 pending → success/failed。
 
@@ -341,13 +353,13 @@ class UsageRepository(BaseRepository):
             row=row,
             finished_at=finished_at,
             settlement=settlement,
-            auto_calc=status == "success" and row.status == "pending",
+            auto_calc=status == CallStatus.SUCCESS and row.status == CallStatus.PENDING,
             base_currency=settlement.currency or "USD",
         )
 
         result = await self.session.execute(
             update(ApiCall)
-            .where(ApiCall.id == call_id, ApiCall.status == "pending")
+            .where(ApiCall.id == call_id, ApiCall.status == CallStatus.PENDING)
             .values(
                 status=status,
                 finished_at=finished_at,
@@ -368,7 +380,7 @@ class UsageRepository(BaseRepository):
         self,
         call_id: int,
         *,
-        status: str,
+        status: CallStatus,
         settlement: SettlementInput,
         output_path: str | None = None,
         error_message: str | None = None,
@@ -384,7 +396,7 @@ class UsageRepository(BaseRepository):
             row=row,
             finished_at=finished_at,
             settlement=settlement,
-            auto_calc=status == "success",
+            auto_calc=status == CallStatus.SUCCESS,
             base_currency=row.currency or "USD",
         )
 
@@ -421,7 +433,7 @@ class UsageRepository(BaseRepository):
         project_name: str | None = None,
         provider: str | None = None,
         call_type: CallType | None = None,
-        status: str | None = None,
+        status: CallStatus | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> list:
@@ -465,7 +477,9 @@ class UsageRepository(BaseRepository):
                     func.sum(
                         case(
                             (
-                                (ApiCall.status == "success") & (ApiCall.currency == "USD") & (ApiCall.cost_amount > 0),
+                                (ApiCall.status == CallStatus.SUCCESS)
+                                & (ApiCall.currency == "USD")
+                                & (ApiCall.cost_amount > 0),
                                 ApiCall.cost_amount,
                             ),
                             else_=0,
@@ -477,7 +491,7 @@ class UsageRepository(BaseRepository):
                 func.count(case((ApiCall.call_type == "video", 1))).label("video_count"),
                 func.count(case((ApiCall.call_type == "text", 1))).label("text_count"),
                 func.count(case((ApiCall.call_type == "audio", 1))).label("audio_count"),
-                func.count(case((ApiCall.status == "failed", 1))).label("failed_count"),
+                func.count(case((ApiCall.status == CallStatus.FAILED, 1))).label("failed_count"),
                 func.count().label("total_count"),
             )
             .select_from(ApiCall)
@@ -495,7 +509,7 @@ class UsageRepository(BaseRepository):
             .select_from(ApiCall)
             .where(
                 *filters,
-                ApiCall.status == "success",
+                ApiCall.status == CallStatus.SUCCESS,
                 ApiCall.cost_amount > 0,
                 ApiCall.currency.isnot(None),
             )
@@ -537,12 +551,14 @@ class UsageRepository(BaseRepository):
                 ApiCall.provider,
                 ApiCall.call_type,
                 func.count().label("total_calls"),
-                func.count(case((ApiCall.status == "success", 1))).label("success_calls"),
+                func.count(case((ApiCall.status == CallStatus.SUCCESS, 1))).label("success_calls"),
                 func.coalesce(
                     func.sum(
                         case(
                             (
-                                (ApiCall.status == "success") & (ApiCall.currency == "USD") & (ApiCall.cost_amount > 0),
+                                (ApiCall.status == CallStatus.SUCCESS)
+                                & (ApiCall.currency == "USD")
+                                & (ApiCall.cost_amount > 0),
                                 ApiCall.cost_amount,
                             ),
                             else_=0,
@@ -570,7 +586,7 @@ class UsageRepository(BaseRepository):
             .select_from(ApiCall)
             .where(
                 *filters,
-                ApiCall.status == "success",
+                ApiCall.status == CallStatus.SUCCESS,
                 ApiCall.cost_amount > 0,
                 ApiCall.currency.isnot(None),
             )
@@ -646,7 +662,7 @@ class UsageRepository(BaseRepository):
         call_id: int | None = None,
         project_name: str | None = None,
         call_type: CallType | None = None,
-        status: str | None = None,
+        status: CallStatus | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         page: int = 1,
@@ -699,7 +715,7 @@ class UsageRepository(BaseRepository):
             )
             .where(
                 ApiCall.project_name == project_name,
-                ApiCall.status == "success",
+                ApiCall.status == CallStatus.SUCCESS,
                 ApiCall.cost_amount > 0,
             )
             .group_by(ApiCall.segment_id, ApiCall.call_type, ApiCall.currency)
@@ -730,7 +746,7 @@ class UsageRepository(BaseRepository):
             )
             .where(
                 ApiCall.project_name == project_name,
-                ApiCall.status == "success",
+                ApiCall.status == CallStatus.SUCCESS,
                 ApiCall.cost_amount > 0,
                 ApiCall.call_type == "image",
                 ApiCall.segment_id.is_(None),

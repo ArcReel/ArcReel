@@ -2311,8 +2311,13 @@ class TestGenerationWorker:
         assert not staged.exists(), "终态落定后必须清掉该任务的 provider media staging"
 
     @pytest.mark.asyncio
-    async def test_process_resume_task_cancelled_error(self, monkeypatch):
-        """CancelledError → mark_cancelled + 重新抛出。"""
+    async def test_process_resume_task_cancelled_error(self, monkeypatch, worker_db):
+        """CancelledError → task / ApiCall 都结算 cancelled，再重新抛出。"""
+        from lib.db.repositories.usage_repo import UsageRepository
+
+        monkeypatch.setattr("lib.ledger.safe_session_factory", worker_db)
+        async with worker_db() as session:
+            call_id = await UsageRepository(session).start_call(project_name="demo", call_type="video", model="m")
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
 
@@ -2321,10 +2326,15 @@ class TestGenerationWorker:
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _cancel)
         task = _storyboard_resume_task("rc", job_id="x")
+        task["payload"]["api_call_id"] = call_id
         with pytest.raises(asyncio.CancelledError):
             await worker._process_resume_task(task)
         assert queue.cancelled
         assert queue.cancelled[0][0] == "rc"
+        async with worker_db() as session:
+            stored = await UsageRepository(session).get_calls(project_name="demo")
+        assert stored["items"][0]["status"] == "cancelled"
+        assert stored["items"][0]["cost_amount"] == 0
 
     @pytest.mark.asyncio
     async def test_process_resume_task_no_job_id_fails_fast(self):

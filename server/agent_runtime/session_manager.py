@@ -69,7 +69,7 @@ from claude_agent_sdk.types import (
 from lib.config.service import ConfigService
 from lib.db import async_session_factory
 from lib.ledger import Ledger
-from lib.providers import PROVIDER_ANTHROPIC
+from lib.providers import PROVIDER_ANTHROPIC, CallPurpose, CallStatus
 
 SDK_AVAILABLE = True
 
@@ -1236,10 +1236,12 @@ class SessionManager:
             project_name=managed.project_name,
             call_type="text",
             model=resolve_assistant_model(result_msg, managed.assistant_model),
-            prompt=managed.last_user_prompt[:500] if managed.last_user_prompt else None,
+            prompt=managed.last_user_prompt,
             provider=PROVIDER_ANTHROPIC,
             user_id=getattr(self, "_user_id", DEFAULT_USER_ID),
-            status="success" if final_status == "completed" else "failed",
+            status=CallStatus.SUCCESS if final_status == "completed" else CallStatus.FAILED,
+            purpose=CallPurpose.ASSISTANT_SESSION,
+            session_id=managed.session_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             usage_tokens=usage_tokens,

@@ -1006,12 +1006,12 @@ class GenerationWorker:
 
         # 续跑不开新的记账括号（账是提交时记的），任何终态出口都要顺手结算那条 pending 的
         # ApiCall，否则用量报表里留下永不终态的行。「重试下载」把调用重开成 pending 之后，
-        # 下面每一条出口都变得可达。``resume_failed`` 带 WHERE status='pending'，重复调用无副作用。
+        # 下面每一条出口都变得可达。resume 结算带 WHERE status='pending'，重复调用无副作用。
         try:
             result = await _execute_with_video_cleanup()
         except asyncio.CancelledError:
             await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            await asyncio.shield(self._settle_unresumable_call(task))
+            await asyncio.shield(self._settle_unresumable_call(task, cancelled=True))
             raise
         except NotImplementedError as exc:
             logger.warning("resume 不支持 task %s: %s", task_id, exc)
@@ -1020,7 +1020,7 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            await asyncio.shield(self._settle_unresumable_call(task))
+            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0))
             return
         except ResumeEndpointChangedError as exc:
             logger.warning("resume endpoint 已变更 task %s: %s", task_id, exc)
@@ -1029,7 +1029,7 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            await asyncio.shield(self._settle_unresumable_call(task))
+            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0))
             return
         except ResumeExpiredError as exc:
             logger.warning("resume 已过期 task %s: %s", task_id, exc)
@@ -1038,14 +1038,14 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            await asyncio.shield(self._settle_unresumable_call(task))
+            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0))
             return
         except Exception as exc:
             logger.exception("resume 失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
             rows = await asyncio.shield(self.queue.mark_task_failed(task_id, _encode_task_failure_message(exc)))
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            await asyncio.shield(self._settle_unresumable_call(task))
+            await asyncio.shield(self._settle_unresumable_call(task, cancelled=rows == 0))
             return
 
         try:
@@ -1343,8 +1343,8 @@ class GenerationWorker:
         self._retry_dispatch_tasks.add(dispatch)
         dispatch.add_done_callback(self._retry_dispatch_tasks.discard)
 
-    async def _settle_unresumable_call(self, task: dict[str, Any]) -> None:
-        """任务在派发前就被判死时，把它那条 pending 的 ApiCall 一并翻 failed（零费用）。
+    async def _settle_unresumable_call(self, task: dict[str, Any], *, cancelled: bool = False) -> None:
+        """把无法继续的 pending ApiCall 按任务终态结算为 failed / cancelled（零费用）。
 
         续跑路径不开新的记账括号——账是提交时记的。派发侧终态失败若只翻任务不结算调用，
         那条 pending 会永久留在用量报表里；重试下载尤其明显：它刚把调用重开成 pending。
@@ -1356,7 +1356,9 @@ class GenerationWorker:
         from lib.ledger import Ledger
 
         try:
-            await Ledger().resume_failed(call_id=call_id)
+            ledger = Ledger()
+            settle = ledger.resume_cancelled if cancelled else ledger.resume_failed
+            await settle(call_id=call_id)
         except Exception:
             logger.warning(
                 "pending ApiCall 结算失败 task_id=%s call_id=%s", task.get("task_id"), call_id, exc_info=True
@@ -1394,7 +1396,7 @@ class GenerationWorker:
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(t["task_id"], cancelled_by="user")
-                await self._settle_unresumable_call(t)
+                await self._settle_unresumable_call(t, cancelled=rows == 0)
                 await self._cleanup_video_staging(t)
             return
 
@@ -1422,6 +1424,7 @@ class GenerationWorker:
                 #    cancelled 行返回 0 rows，无副作用
                 try:
                     await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+                    await asyncio.shield(self._settle_unresumable_call(t, cancelled=True))
                     await asyncio.shield(self._cleanup_video_staging(t))
                 except Exception:
                     logger.exception("sem dispatch cancel 落终态失败 task_id=%s", task_id)

@@ -418,10 +418,11 @@ def rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = 
 
             return _R()
 
-    async def fake_create(task_type, project_name=None):
+    async def fake_create(task_type, project_name=None, **kwargs):
         if captured is not None:
             captured["task_type"] = task_type
             captured["create_project_name"] = project_name
+            captured["purpose"] = kwargs.get("purpose")
         return _FakeGenerator()
 
     return fake_create
@@ -548,10 +549,11 @@ def nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None
 
             return _R()
 
-    async def fake_create(task_type, project_name=None):
+    async def fake_create(task_type, project_name=None, **kwargs):
         if captured is not None:
             captured["task_type"] = task_type
             captured["create_project_name"] = project_name
+            captured["purpose"] = kwargs.get("purpose")
         return _FakeGenerator()
 
     return fake_create

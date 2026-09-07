@@ -11,9 +11,10 @@ from fastapi import APIRouter, Query
 from lib.db import async_session_factory
 from lib.db.repositories.usage_repo import UsageRepository
 from lib.i18n import Locale, translate_or
-from lib.providers import CallType
+from lib.providers import CallStatus, CallType
 
 router = APIRouter()
+_CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
 
 
 @router.get("/usage/stats")
@@ -58,7 +59,7 @@ async def get_calls(
     call_id: int | None = Query(None, ge=1, description="调用记录 ID"),
     project_name: str | None = Query(None, description="项目名称"),
     call_type: CallType | None = Query(None, description="调用类型 (image/video/text)"),
-    status: str | None = Query(None, description="状态 (success/failed)"),
+    status: CallStatus | None = Query(None, description=_CALL_STATUS_DESCRIPTION),
     start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
     end_date: str | None = Query(None, description="结束日期 (YYYY-MM-DD)"),
     page: int = Query(1, ge=1, description="页码"),

@@ -73,6 +73,7 @@ from lib.prompt_builders_script import (
     build_narration_prompt,
     render_drama_content_for_prompt_authoring,
 )
+from lib.providers import CallPurpose
 from lib.reference_video.draft_validation import (
     DraftViolation,
     DraftViolations,
@@ -317,7 +318,7 @@ class ScriptGenerator:
     ) -> "ScriptGenerator":
         """异步工厂方法，自动从 DB 加载供应商配置创建 TextGenerator。"""
         project_name = Path(project_path).name
-        generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name)
+        generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name, purpose=CallPurpose.SCRIPT_GENERATION)
         return await asyncio.to_thread(
             cls,
             project_path,

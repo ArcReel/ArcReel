@@ -8,7 +8,6 @@ import asyncio
 import copy
 import logging
 import math
-import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -267,12 +266,6 @@ class _FormalImageCommitOutcome:
 type _StagedImageCommit = Callable[[Path, Path, Mapping[str, Any]], int]
 type _MetadataCompensator = Callable[[Callable[[], None]], None]
 type _MetadataCommitter = Callable[[Callable[[], None]], _MetadataCompensator | None]
-
-
-def _formal_image_task_token(task_id: str | None) -> str:
-    """Give direct invocations an isolated staging identity without inventing a queue identity."""
-
-    return task_id or f"inline-{uuid.uuid4().hex}"
 
 
 def _created_at_for_version(versions: Any, resource_type: str, resource_id: str, version: int) -> str:
@@ -1297,7 +1290,7 @@ async def _run_formal_image_task(
             aspect_ratio=plan.aspect_ratio,
             image_size=ctx.image.resolution,
             formal_output=True,
-            task_id=_formal_image_task_token(task_id),
+            task_id=task_id,
             commit_formal_output=plan.build_commit_callback(generator, formal_outcomes),
             **optional,
         )
@@ -2075,6 +2068,7 @@ async def execute_tts_task(
         resource_id=resource_id,
         voice=voice,
         speed=speed,
+        task_id=task_id,
         before_submit=_before_submit,
         before_commit=_measure_staged,
         commit_staged=_commit_staged,
@@ -2279,6 +2273,7 @@ async def execute_character_voice_sample_task(
         resource_id=sample_id,
         voice=voice.strip(),
         speed=None,
+        task_id=task_id,
     )
 
     audio_rel = resource_relative_path("audio", sample_id)
@@ -3336,7 +3331,7 @@ async def execute_grid_task(
             image_size=image_size,
             before_submit=_before_submit,
             formal_output=True,
-            task_id=_formal_image_task_token(task_id),
+            task_id=task_id,
             commit_formal_output=_grid_formal_image_callback(
                 project_path=project_path,
                 grid_manager=grid_manager,

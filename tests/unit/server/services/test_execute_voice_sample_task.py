@@ -52,8 +52,10 @@ class _FakeAudioGenerator:
         self.audio_calls: list[dict] = []
         self.versions = self
 
-    async def generate_audio_async(self, *, text, resource_id, voice, speed):
-        self.audio_calls.append({"text": text, "resource_id": resource_id, "voice": voice, "speed": speed})
+    async def generate_audio_async(self, *, text, resource_id, voice, speed, task_id=None):
+        self.audio_calls.append(
+            {"text": text, "resource_id": resource_id, "voice": voice, "speed": speed, "task_id": task_id}
+        )
         audio_rel = resource_relative_path("audio", resource_id)
         path = self._project_path / audio_rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,6 +95,7 @@ class TestExecuteCharacterVoiceSampleTask:
                 "resource_id": "voice_sample__艾莉__task-1",
                 "voice": "Cherry",
                 "speed": None,
+                "task_id": "task-1",
             }
         ]
         assert result["resource_type"] == "audio"

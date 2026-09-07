@@ -19,6 +19,7 @@ from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import BatchTask, GenerationBatch, Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
+from lib.providers import CallStatus
 from lib.task_failure import bound_reason, collapse_cascade_reason, encode_failure, parse_failure
 from lib.task_terminal_events import TERMINAL_TASK_STATUSES
 
@@ -625,8 +626,8 @@ class TaskRepository(BaseRepository):
         # 原地翻回 pending：仍是同一条调用，不新增计费行。
         call_update = await self.session.execute(
             update(ApiCall)
-            .where(ApiCall.id == call_id, ApiCall.status.in_(("failed", "pending")))
-            .values(status="pending", finished_at=None, error_message=None)
+            .where(ApiCall.id == call_id, ApiCall.status.in_((CallStatus.FAILED, CallStatus.PENDING)))
+            .values(status=CallStatus.PENDING, finished_at=None, error_message=None)
         )
         if rowcount(call_update) != 1:
             await self.session.rollback()

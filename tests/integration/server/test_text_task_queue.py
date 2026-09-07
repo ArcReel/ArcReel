@@ -761,7 +761,7 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_no_workflow_b
         async def generate(self, _request, project_name=None):
             return BackendTextGenerationResult(text=generated_text, provider="fake", model="fake-model")
 
-    async def create_generator(_task_type, project_name=None):
+    async def create_generator(_task_type, project_name=None, **_kwargs):
         return Generator()
 
     monkeypatch.setattr("server.text_generation.TextGenerator.create", create_generator)

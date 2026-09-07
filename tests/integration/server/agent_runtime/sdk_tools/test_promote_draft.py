@@ -446,7 +446,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
 
             return _Result()
 
-    async def fake_create(_task_type, project_name=None):
+    async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
     resolver = use_fake_caps(fake_ctx)
@@ -777,7 +777,7 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolC
     class _TextBoundary:
         model = "review-factory"
 
-    async def create_text_generator(task_type, project_name=None):
+    async def create_text_generator(task_type, project_name=None, **_kwargs):
         seen["task_type"] = task_type
         seen["project_name"] = project_name
         return _TextBoundary()
@@ -832,7 +832,7 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     class _TextBoundary:
         model = "async-lock"
 
-    async def create_text_generator(_task_type, _project_name=None):
+    async def create_text_generator(_task_type, _project_name=None, **_kwargs):
         return _TextBoundary()
 
     monkeypatch.setattr(TextGenerator, "create", create_text_generator)
@@ -1132,7 +1132,7 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
 
             return _R()
 
-    async def fake_create(_task_type, project_name=None):
+    async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
     use_fake_caps(fake_ctx)
@@ -1163,7 +1163,7 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
 
             return _R()
 
-    async def fake_create(_task_type, project_name=None):
+    async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
     use_fake_caps(fake_ctx)
@@ -1215,7 +1215,7 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
 
             return _R()
 
-    async def fake_create(_task_type, project_name=None):
+    async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
     use_fake_caps(fake_ctx)
@@ -1268,7 +1268,7 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
 
             return _R()
 
-    async def fake_create(_task_type, project_name=None):
+    async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
     use_fake_caps(fake_ctx)

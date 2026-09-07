@@ -59,6 +59,7 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, is_reference_video_project
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import append_user_instructions, build_narration_split_prompt, build_normalize_prompt
+from lib.providers import CallPurpose
 from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.reference_video.draft_validation import (
     validate_dialogue_load,
@@ -882,7 +883,9 @@ async def generate_drama_script_plan(
                 script_plan_path,
             )
         schema = build_drama_normalized_script_model(supported_durations)
-        generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=project_name)
+        generator = await TextGenerator.create(
+            TextTaskType.SCRIPT, project_name=project_name, purpose=CallPurpose.SCRIPT_GENERATION
+        )
         result = await generator.generate(
             BackendTextGenerationRequest(
                 prompt=prompt,
@@ -1542,7 +1545,9 @@ async def generate_reference_script_plan(
                 formal_script_plan_path,
             )
         schema = build_reference_units_script_plan_model(split_caps.durations)
-        generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=project_name)
+        generator = await TextGenerator.create(
+            TextTaskType.SCRIPT, project_name=project_name, purpose=CallPurpose.SCRIPT_GENERATION
+        )
         result = await generator.generate(
             BackendTextGenerationRequest(
                 prompt=prompt,
@@ -1689,7 +1694,9 @@ async def generate_narration_script_plan(
                 draft_path,
                 script_plan_path,
             )
-        generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=project_name)
+        generator = await TextGenerator.create(
+            TextTaskType.SCRIPT, project_name=project_name, purpose=CallPurpose.SCRIPT_GENERATION
+        )
         result = await generator.generate(
             BackendTextGenerationRequest(
                 prompt=prompt,

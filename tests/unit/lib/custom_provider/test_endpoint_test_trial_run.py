@@ -117,6 +117,9 @@ class TestTrialRun:
         assert rows[0].id == run.api_call_id
         assert rows[0].status == "success"
         assert rows[0].call_type == "video"
+        # 端点试跑没有任务可回指，来源由 purpose 说明。
+        assert rows[0].task_id is None
+        assert rows[0].purpose == "endpoint_trial"
         # 内联凭证没有供应商身份，落账用 base_url 的 host，账单上才认得出这笔钱花在哪。
         assert rows[0].provider == "relay.test"
 
@@ -328,7 +331,7 @@ class TestConcurrencyAndCancel:
 
         assert second.id != first.id
 
-    async def test_cancel_settles_the_call_as_failed_and_frees_the_slot(
+    async def test_cancel_settles_the_call_as_cancelled_and_frees_the_slot(
         self, trial_runs: TrialRunManager, db_factory: async_sessionmaker
     ):
         with capture_http() as router, bounded_poll_clock():
@@ -344,7 +347,7 @@ class TestConcurrencyAndCancel:
 
         async with db_factory() as session:
             rows = (await session.execute(select(ApiCall).order_by(ApiCall.id))).scalars().all()
-        assert [row.status for row in rows] == ["failed", "success"]
+        assert [row.status for row in rows] == ["cancelled", "success"]
         # 取消的 run 不留结果文件，读接口据此 404。
         assert trial_runs.get(started.id) is None
 
@@ -362,7 +365,7 @@ class TestConcurrencyAndCancel:
             started = await trial_runs.start(_target(), PARAMETERS)
             await submitted.wait()
 
-            monkeypatch.setattr(trial_runs._ledger, "resume_failed", _boom)
+            monkeypatch.setattr(trial_runs._ledger, "resume_cancelled", _boom)
             with pytest.raises(RuntimeError):
                 await trial_runs.cancel(started.id)
 
@@ -390,7 +393,7 @@ class TestConcurrencyAndCancel:
     async def test_shutdown_keeps_draining_after_a_failed_settlement(self, trial_runs: TrialRunManager, monkeypatch):
         """一条 run 结算失败不能中断关停：后面的 run 一条都不会停，关库等后续步骤也一起跳过。"""
         settled: list[int] = []
-        original = trial_runs._ledger.resume_failed
+        original = trial_runs._ledger.resume_cancelled
 
         async def _boom_once(*, call_id: int) -> None:
             if not settled:
@@ -407,14 +410,14 @@ class TestConcurrencyAndCancel:
             second = await trial_runs.start(_target(), PARAMETERS, user_id="user-b")
             await submitted.wait()
 
-            monkeypatch.setattr(trial_runs._ledger, "resume_failed", _boom_once)
+            monkeypatch.setattr(trial_runs._ledger, "resume_cancelled", _boom_once)
             await trial_runs.shutdown()
 
         assert len(settled) == 2
         assert trial_runs.get(first.id) is None
         assert trial_runs.get(second.id) is None
 
-    async def test_shutdown_settles_every_active_run_as_failed(
+    async def test_shutdown_settles_every_active_run_as_cancelled(
         self, trial_runs: TrialRunManager, db_factory: async_sessionmaker
     ):
         """进程关停不能把 pending 记账行留给一个不会回来的进程。"""
@@ -427,7 +430,7 @@ class TestConcurrencyAndCancel:
 
         async with db_factory() as session:
             rows = (await session.execute(select(ApiCall))).scalars().all()
-        assert [row.status for row in rows] == ["failed"]
+        assert [row.status for row in rows] == ["cancelled"]
         assert trial_runs.get(started.id) is None
 
 

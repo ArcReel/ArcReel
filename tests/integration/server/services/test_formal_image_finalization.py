@@ -624,7 +624,8 @@ class TestGenerationTasks:
             versions = version_manager
 
             async def generate_image_async(self, **kwargs):
-                staged = task_image_staging_path(current, kwargs["task_id"])
+                # 直接调用（非队列任务）没有 task_id：staging 身份由生成器内部造，替身自造一个。
+                staged = task_image_staging_path(current, kwargs["task_id"] or "inline-test")
                 staged.write_bytes(b"generated-sheet")
                 version = kwargs["commit_formal_output"](
                     staged,
