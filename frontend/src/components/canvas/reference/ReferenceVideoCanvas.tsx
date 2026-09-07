@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  FileText,
   Loader2,
   Save,
   Scissors,
@@ -14,6 +15,7 @@ import { UnitRail } from "./UnitRail";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import { ReferenceVideoCard } from "./ReferenceVideoCard";
 import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
+import { ReferenceScriptOverviewModal } from "./ReferenceScriptOverviewModal";
 import { deriveUnitStatus } from "./unit-status";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
@@ -860,6 +862,7 @@ export function ReferenceVideoCanvas({
     ? `${listColW}px minmax(0, 1fr)`
     : `${listColW}px minmax(0, 1fr) ${previewColW}px`;
   const [listFlyoutOpen, setListFlyoutOpen] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   const segCost = useCostStore((s) =>
     selected ? s._segmentIndex.get(selected.unit_id) : undefined,
@@ -944,6 +947,15 @@ export function ReferenceVideoCanvas({
               onChange={setNarrationDelivery}
               compact
             />
+            <button
+              type="button"
+              onClick={() => setOverviewOpen(true)}
+              disabled={units.length === 0}
+              className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t("reference_overview_open")}</span>
+            </button>
             <button
               type="button"
               onClick={() => void handleBatchGenerate()}
@@ -1390,6 +1402,13 @@ export function ReferenceVideoCanvas({
         admission={batchAdmission}
         onConfirm={handleBatchConfirm}
         onClose={() => setBatchAdmission(null)}
+      />
+      <ReferenceScriptOverviewModal
+        open={overviewOpen}
+        onClose={() => setOverviewOpen(false)}
+        episodeTitle={episodeTitle ?? `E${episode}`}
+        units={units}
+        lookup={mentionLookup}
       />
     </div>
   );

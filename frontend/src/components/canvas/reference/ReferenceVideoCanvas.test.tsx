@@ -129,6 +129,27 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
   });
 
+  it("opens a full-script overview listing every unit and copies it to the clipboard", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "开场镜头。"), mkUnit("E1U2", "收尾镜头。")],
+    });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await screen.findByTestId("unit-row-E1U1");
+
+    fireEvent.click(screen.getByRole("button", { name: /Script overview|整稿预览/ }));
+    const dialog = await screen.findByRole("dialog", { name: /Script overview|整稿预览/ });
+    expect(within(dialog).getByText("开场镜头。")).toBeInTheDocument();
+    expect(within(dialog).getByText("收尾镜头。")).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /Copy all|复制全文/ }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0][0]).toContain("开场镜头。");
+    expect(writeText.mock.calls[0][0]).toContain("收尾镜头。");
+  });
+
   it("keeps request controls outside the tablist semantics", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
