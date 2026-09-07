@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { ChevronRight, ExternalLink, X } from "lucide-react";
 
 import { ERROR_LABELS, MEDIA_LABELS, PURPOSE_LABELS, RECORDS, durationLabel, money, projectLabel, providerLabel, type UsageRecord } from "./usage-prototype-data";
-import { Kicker, MediaGlyph, StatusPill, useProtoFilters, useRecordParam } from "./usage-prototype-shared";
+import { Kicker, MediaGlyph, StatusPill, useRecordParam } from "./usage-prototype-shared";
 
 const EDITORIAL = { fontWeight: 400, fontSize: 20, lineHeight: 1.15, letterSpacing: "-0.01em" } as const;
 
@@ -110,7 +110,6 @@ function targetOf(r: UsageRecord) {
 }
 
 export function RecordDetailPanel({ record: r, onClose }: { record: UsageRecord; onClose: () => void }) {
-  const [, set] = useProtoFilters();
   const x = extrasOf(r);
   const failed = r.status === "failed";
   const error = failed ? (r.error_code ? ERROR_LABELS[r.error_code] : r.error_message) : null;
@@ -215,21 +214,6 @@ export function RecordDetailPanel({ record: r, onClose }: { record: UsageRecord;
           </Fold>
         </div>
 
-        {r.segment_id && (
-          <footer className="flex items-center gap-2 border-t border-hairline px-6 py-3">
-            <button
-              type="button"
-              onClick={() => {
-                set({ segment: r.segment_id, status: null });
-                onClose();
-              }}
-              className="rounded-[6px] border border-hairline px-2.5 py-1 text-[12px] text-text-2 transition-colors hover:border-accent/50 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              只看分镜 {r.segment_id}
-            </button>
-            <span className="text-[11px] text-text-4">写入筛选后关闭面板</span>
-          </footer>
-        )}
       </section>
     </div>,
     document.body,
