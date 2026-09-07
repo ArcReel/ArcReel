@@ -68,22 +68,6 @@ class TestUsageRouter:
         assert projects.status_code == 200
         assert set(projects.json()["projects"]) == {"demo", "demo2"}
 
-    @pytest.mark.parametrize(
-        ("accept_language", "expected"),
-        [("zh", "火山方舟"), ("en", "Volcengine Ark"), ("vi", "Volcengine Ark")],
-    )
-    def test_grouped_provider_display_name_follows_locale(self, usage_env, accept_language, expected):
-        """按供应商分组的用量统计里，内置供应商名跟随请求语言。"""
-        resp = usage_env.get(
-            "/api/v1/usage/stats?group_by=provider",
-            headers={"accept-language": accept_language},
-        )
-        assert resp.status_code == 200
-        names = {s["provider"]: s["display_name"] for s in resp.json()["stats"]}
-        assert names["ark"] == expected
-        # 译名表里没有的供应商（自定义供应商用用户自填的名字）保留仓储写入的原名。
-        assert names["not-in-registry"] == "not-in-registry"
-
 
 BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 

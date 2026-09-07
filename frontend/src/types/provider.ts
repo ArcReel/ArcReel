@@ -105,18 +105,3 @@ export interface ProviderCredential {
 
 export type CallType = "image" | "video" | "text" | "audio";
 
-export interface UsageStat {
-  provider: string;
-  display_name?: string;
-  call_type: CallType;
-  total_calls: number;
-  success_calls: number;
-  total_cost_usd: number;
-  cost_by_currency: Record<string, number>;
-  total_duration_seconds?: number;
-}
-
-export interface UsageStatsResponse {
-  stats: UsageStat[];
-  period: { start: string; end: string };
-}

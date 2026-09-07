@@ -115,7 +115,7 @@ describe("EndpointTestSection", () => {
     ));
   });
 
-  it("plays a successful artifact in place and links its API call to the spend ledger", async () => {
+  it("plays a successful artifact in place and deep-links its API call to the usage record", async () => {
     vi.spyOn(API, "getTrialRunArtifact").mockResolvedValue(new Blob(["video"]));
     vi.spyOn(API, "createTrialRun").mockResolvedValue({
       ...RUNNING,
@@ -139,9 +139,9 @@ describe("EndpointTestSection", () => {
       "blob:trial-artifact",
     );
     expect(API.getTrialRunArtifact).toHaveBeenCalledWith("run-1", { signal: expect.any(AbortSignal) });
-    expect(screen.getByRole("link", { name: "费用账本 #42" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "使用记录 #42" })).toHaveAttribute(
       "href",
-      "/app/settings?section=usage&call_id=42#usage-call-42",
+      "/app/settings?section=usage&record=42",
     );
     unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:trial-artifact");
