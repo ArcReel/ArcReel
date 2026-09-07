@@ -420,7 +420,7 @@ class TestDiscoverModelsAnthropic:
 
         result = await discover_models(
             discovery_format="anthropic",
-            base_url="https://example.com/v1",  # 故意带 /v1，验证规范化
+            base_url="https://example.com/anthropic/v1/messages",  # 整条端点，验证归一
             api_key="sk-ant-test",
         )
 
@@ -440,9 +440,9 @@ class TestDiscoverModelsAnthropic:
                 "is_enabled": True,
             },
         ]
-        # URL 规范化：/v1 应被剥掉，请求 path 为 /v1/models
+        # 归一到调用根后在 path 上追加 /v1/models，子路径保留
         called_url = mock_client.get.call_args.args[0]
-        assert called_url == "https://example.com/v1/models"
+        assert called_url == "https://example.com/anthropic/v1/models"
         # headers 携带 anthropic 鉴权
         headers = mock_client.get.call_args.kwargs["headers"]
         assert headers["x-api-key"] == "sk-ant-test"
@@ -489,15 +489,29 @@ class TestDiscoverModelsAnthropic:
         assert [m["model_id"] for m in result] == ["claude-x"]
         assert result[0]["display_name"] == "claude-x"
 
-    async def test_status_error_message_drops_query_and_userinfo_credentials(self):
-        """4xx 抛的是脱敏后的 HTTPStatusError：base_url 里的查询串与权限段凭证都不进异常消息。
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "https://ant-user:sk-leaked-userinfo@relay.example.com/anthropic",
+            "https://relay.example.com/anthropic?api_key=sk-leaked-query",
+            "https://relay.example.com/anthropic#frag",
+            "relay.example.com/anthropic",
+        ],
+    )
+    async def test_rejects_unsupported_base_url(self, base_url: str):
+        """带 query / fragment / userinfo 或缺 scheme 的地址在发起请求前就被拒，消息不回显输入。"""
+        from lib.config.url_utils import InvalidAnthropicBaseUrlError
+        from lib.custom_provider.discovery import discover_models
 
-        base_url 由用户自填，整条带 api_key query 的 URL 或 https://user:pw@host 形态都会被 httpx
-        原样保留在请求 URL 上；发现失败的异常消息经 discovery_failed 回到自定义供应商表单。
-        """
-        base_url = "https://ant-user:sk-leaked-userinfo@relay.example.com/anthropic?api_key=sk-leaked-query"
+        with pytest.raises(InvalidAnthropicBaseUrlError) as exc_info:
+            await discover_models(discovery_format="anthropic", base_url=base_url, api_key="sk-ant")
+        assert "sk-leaked" not in str(exc_info.value)
+
+    async def test_status_error_message_drops_request_url(self):
+        """4xx 抛的是脱敏后的 HTTPStatusError：消息只留 status 与请求 URL，不带响应体。"""
+        base_url = "https://relay.example.com/anthropic"
         with capture_http() as http:
-            http.get(host="relay.example.com").respond(status_code=401, text="unauthorized")
+            http.get(host="relay.example.com").respond(status_code=401, text="unauthorized sk-body-secret")
             async with httpx.AsyncClient() as client:
                 with patch("lib.custom_provider.discovery.get_http_client", return_value=client):
                     from lib.custom_provider.discovery import discover_models
@@ -505,10 +519,8 @@ class TestDiscoverModelsAnthropic:
                     with pytest.raises(httpx.HTTPStatusError) as exc_info:
                         await discover_models(discovery_format="anthropic", base_url=base_url, api_key="sk-ant")
 
-        # 泄漏面真实存在：异常保留的请求 URL 两个凭证都带着，消息里都没有
-        assert "sk-leaked-userinfo" in str(exc_info.value.request.url)
-        assert "sk-leaked-query" in str(exc_info.value.request.url)
-        assert str(exc_info.value) == "401 response for https://relay.example.com/anthropic"
+        assert str(exc_info.value) == "401 response for https://relay.example.com/anthropic/v1/models"
+        assert "sk-body-secret" not in str(exc_info.value)
         assert exc_info.value.response.status_code == 401
 
     async def test_unknown_format_raises(self):
