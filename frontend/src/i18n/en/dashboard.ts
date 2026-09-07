@@ -739,7 +739,7 @@ export default {
   'usage_page_position': '{{from}}–{{to}} / {{total}}',
   'usage_prev_page': 'Previous page',
   'usage_next_page': 'Next page',
-  'usage_records_empty': 'No calls recorded yet. Generate something and every call will show up here.',
+  'usage_records_empty': 'No usage records yet. Generate something and every call will show up here.',
   'usage_load_failed': 'Failed to load',
   'usage_detail_close': 'Close',
   'usage_detail_group_failure': 'Failure reason',
