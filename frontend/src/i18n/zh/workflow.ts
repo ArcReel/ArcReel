@@ -132,6 +132,7 @@ export default {
   'action_prepare_script_plan': '为这一集准备脚本规划',
   'action_confirm_script_plan': '完成内容确认',
   'action_generate_script': '生成正式脚本',
+  'action_author_prompts': '补充提示词',
   'action_generate_asset_sheets': '生成缺失的资产图',
   'action_generate_storyboards': '生成缺失的分镜图',
   'action_generate_grid': '生成多宫格分镜',

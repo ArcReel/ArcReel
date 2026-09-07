@@ -309,3 +309,39 @@ async def test_generate_storyboards_rejects_path_in_script_arg(fake_ctx: ToolCon
     out = await call(tool_obj, {"script": "../etc/passwd"})
     assert out.get("is_error") is True
     assert "路径分隔符" in out["content"][0]["text"]
+
+
+async def test_generate_storyboards_blocks_only_the_entry_whose_prompt_is_pending(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """机械转换出的条目 image_prompt 为 None：逐条阻断该分镜、不计费，其余分镜照常入队。"""
+    from server.media_tools import storyboards as mod
+
+    enqueued: list[str] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+        enqueued.extend(spec.resource_id for spec in specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}
+    fake_ctx.pm.script_payload["segments"].append(
+        {
+            "segment_id": "E1S02",
+            "image_prompt": None,
+            "novel_text": "他停下脚步。",
+            "video_prompt": None,
+            "duration_seconds": 4,
+            "generated_assets": {},
+        }
+    )
+
+    out = await call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+
+    result = read_generation_result(out)
+    assert result.blocked == ["E1S02"]
+    assert enqueued == ["E1S01"]
+    problem = next(item for item in result.items if item.unit_id == "E1S02").problem
+    assert problem is not None
+    assert (problem.code, problem.action) == ("generation_unit_request_invalid", "fix_input")
+    assert "E1S02" in problem.detail

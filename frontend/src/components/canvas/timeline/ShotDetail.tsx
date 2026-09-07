@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Check,
   Loader2,
+  RefreshCw,
   Undo2,
 } from "lucide-react";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -58,8 +59,9 @@ type DetailContentMode = "narration" | "drama" | "ad";
 
 /** 提示词形态切换与预览按分镜图 / 视频两侧分别作用。 */
 type PromptSide = "image" | "video";
-type ImagePromptValue = ImagePrompt | string;
-type VideoPromptValue = VideoPrompt | string;
+/** `null` = 待生成：机械转换落盘的条目还没有这一侧提示词。 */
+type ImagePromptValue = ImagePrompt | string | null;
+type VideoPromptValue = VideoPrompt | string | null;
 
 interface ShotDetailProps {
   segment: Segment;
@@ -98,6 +100,10 @@ interface ShotDetailProps {
   durationOptions?: number[];
   /** 已保存时长越界的成因判定；缺省时退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
+  /** 该条目的内容已落后于脚本规划：提示词可能与新内容不符。 */
+  promptsStale?: boolean;
+  /** 按脚本规划采用新内容（提示词保留）；缺省时不渲染入口。 */
+  onAdoptPlanContent?: () => void | Promise<void>;
 }
 
 function getNarrationText(seg: Segment, mode: DetailContentMode): string {
@@ -452,6 +458,8 @@ export function ShotDetail({
   generatingNarration,
   durationOptions = [],
   durationWarningReason,
+  promptsStale = false,
+  onAdoptPlanContent,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
@@ -575,14 +583,17 @@ export function ShotDetail({
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
     const patch: Record<string, unknown> = {};
+    // 待生成（上游 null）的一侧，空文本不算改动：既没有内容可保存，PATCH 也不接受清空提示词。
     if (
       draft.image_prompt !== ip &&
-      stableSig(draft.image_prompt) !== stableSig(ip)
+      stableSig(draft.image_prompt) !== stableSig(ip) &&
+      !(ip === null && draft.image_prompt === "")
     )
       patch.image_prompt = draft.image_prompt;
     if (
       draft.video_prompt !== vp &&
-      stableSig(draft.video_prompt) !== stableSig(vp)
+      stableSig(draft.video_prompt) !== stableSig(vp) &&
+      !(vp === null && draft.video_prompt === "")
     )
       patch.video_prompt = draft.video_prompt;
     if (isAd) {
@@ -958,6 +969,27 @@ export function ShotDetail({
     </div>
   );
 
+  const [adopting, setAdopting] = useState(false);
+  const handleAdoptPlanContent = async () => {
+    if (!onAdoptPlanContent || adopting) return;
+    setAdopting(true);
+    try {
+      await onAdoptPlanContent();
+    } finally {
+      setAdopting(false);
+    }
+  };
+
+  const renderPendingBadge = (pending: boolean) =>
+    pending ? (
+      <span
+        className="rounded px-1.5 py-px text-[10px] font-semibold"
+        style={{ color: "var(--color-warm)", border: "1px solid var(--color-hairline-soft)" }}
+      >
+        {t("detail_prompt_pending")}
+      </span>
+    ) : null;
+
   const midColumn = (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-5 pb-7 pt-3.5">
       <div
@@ -971,6 +1003,36 @@ export function ShotDetail({
         {t("detail_section_prompts")}
       </div>
 
+      {promptsStale && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-[11.5px]"
+          style={{
+            color: "var(--color-text-2)",
+            background: "var(--color-warm-tint-faint)",
+            border: "1px solid var(--color-hairline-soft)",
+          }}
+        >
+          <span className="min-w-0 flex-1">{t("detail_prompts_stale_hint")}</span>
+          {onAdoptPlanContent && (
+            <button
+              type="button"
+              onClick={() => void handleAdoptPlanContent()}
+              disabled={adopting || dirty || refsReadOnly}
+              className="focus-ring inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ color: "var(--color-accent-2)", border: "1px solid var(--color-accent-soft)" }}
+            >
+              {adopting ? (
+                <Loader2 className="h-3 w-3 motion-safe:animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              {t("detail_adopt_plan_content")}
+            </button>
+          )}
+        </div>
+      )}
+
       <section>
         <div className="mb-2 flex items-center gap-1.5">
           <ImageIcon
@@ -983,6 +1045,7 @@ export function ShotDetail({
           >
             {t("detail_image_prompt_title")}
           </span>
+          {renderPendingBadge(ip === null)}
           <span className="flex-1" />
           {imgDraft && (
             <span
@@ -1032,6 +1095,7 @@ export function ShotDetail({
           >
             {t("detail_video_prompt_title")}
           </span>
+          {renderPendingBadge(vp === null)}
           <span className="flex-1" />
           {vidDraft && (
             <span

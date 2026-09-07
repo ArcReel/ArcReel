@@ -101,11 +101,13 @@ from lib.script_models import (
     script_duration_total,
 )
 from lib.script_plan_entries import (
+    SCRIPT_PLAN_ENTRY_REVISION_FIELD,
     ScriptEntryCurrency,
     ScriptPlanEntryError,
     ScriptPlanKind,
     entry_id_field,
     evaluate_entry_currency,
+    plan_entry_content,
     plan_entry_revisions,
     plan_variant,
     resolve_rewrite_ids,
@@ -185,11 +187,46 @@ class PromptAuthoringScope:
     rewrite_ids: tuple[str, ...]
     entries_to_rewrite: list[dict]
     currency: ScriptEntryCurrency
+    #: 旧剧本 metadata 记录的整集脚本规划指纹；无旧剧本或未记录时为 None。
+    existing_plan_revision: str | None = None
 
     @property
     def items_key(self) -> str:
         """该变体在剧本 dict 里的条目数组键。"""
         return plan_variant(self.plan_kind).skeleton_kind
+
+
+@dataclass(frozen=True, slots=True)
+class ScriptPlanConversionReceipt:
+    """一次「按脚本规划转为正式脚本」的回执：三组条目 id 都按脚本规划顺序（``removed`` 按旧剧本顺序）。"""
+
+    episode: int
+    script_filename: str
+    #: 这一次转换新加进剧本、提示词为待生成的条目（参考生视频的单元正文即提示词，加入即算已编写）。
+    added: tuple[str, ...]
+    #: 这一次转换「采用新内容」的失效条目：内容层按脚本规划重取、提示词保留、盖新指纹。
+    refreshed: tuple[str, ...]
+    #: 这一次转换因脚本规划里已不存在而移出剧本的条目。
+    removed: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ScriptPlanConversionPreview:
+    """机械转换的只读预演：不落盘，只回答「现在转会有哪些条目新增 / 失效 / 移出」。"""
+
+    episode: int
+    #: 正式剧本是否已存在；不存在时 ``added`` 即脚本规划全部条目。
+    has_script: bool
+    #: 脚本规划里有、正式剧本里没有的条目，按脚本规划顺序。
+    added: tuple[str, ...]
+    #: 正式剧本里内容指纹已落后于脚本规划的条目，按脚本规划顺序。
+    stale: tuple[str, ...]
+    #: 正式剧本里有、脚本规划里已不存在的条目，按剧本顺序。
+    removed: tuple[str, ...]
+
+
+#: 机械转换写进剧本 ``metadata.generator`` 的标记：这份剧本的条目是按脚本规划投影出来的，不经文本模型。
+SCRIPT_PLAN_CONVERSION_GENERATOR = "script_plan_conversion"
 
 
 class ScriptGenerator:
@@ -295,6 +332,7 @@ class ScriptGenerator:
             )
             existing: dict[str, dict] = {}
             existing_title = None
+            recorded = None
         else:
             metadata = existing_script.get("metadata")
             recorded = metadata.get(SCRIPT_PLAN_REVISION_FIELD) if isinstance(metadata, Mapping) else None
@@ -333,6 +371,7 @@ class ScriptGenerator:
             rewrite_ids=rewrite_ids,
             entries_to_rewrite=entries_to_rewrite,
             currency=currency,
+            existing_plan_revision=recorded if isinstance(recorded, str) else None,
         )
 
     def _assemble_script(
@@ -668,6 +707,157 @@ class ScriptGenerator:
             cancellation_file_receipts=cancellation_file_receipts,
             cancellation_manifest_receipts=cancellation_manifest_receipts,
         )
+
+    async def _load_plan_entries_for_conversion(self, episode: int) -> tuple[ScriptPlanKind, list[dict], str | None]:
+        """按项目路线读脚本规划并过与 ``generate`` 同一组准入断言，返回 (变体, 条目, 标题)。
+
+        三条路线各自的加载器负责结构校验、待修复草稿守卫与整集指纹 / 产物依据的冻结；时长档位
+        与发声准入与走文本模型的路径同口径——机械转换不调用模型，但落盘的是同一份正式剧本，
+        放行判据不能比生成路径松。
+        """
+        gen_mode = self.generation_mode
+        if self.content_mode == "ad":
+            raise ValueError("广告/短片项目没有脚本规划步骤，不适用机械转换")
+        if gen_mode == "reference_video":
+            caps = await self._fetch_video_capabilities()
+            units = await run_sync_transaction(
+                self._load_reference_script_plan, episode, self._resolve_raw_supported_durations(caps)
+            )
+            self._assert_reference_script_plan_ready(units, caps=caps, gen_mode=gen_mode)
+            return "reference_video", units, None
+        if self.content_mode != "narration":
+            content = self._load_drama_script_plan_content(episode)
+            raw_scenes = content.get("scenes")
+            scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
+            for scene in scenes:
+                require_script_unit_admitted("scenes", scene)
+            await self._assert_drama_script_plan_durations(scenes, episode=episode, gen_mode=gen_mode)
+            title = content.get("title") if isinstance(content.get("title"), str) else None
+            return "drama", scenes, title
+        caps = await self._fetch_video_capabilities()
+        supported = self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=None)
+        return "narration", self._load_narration_script_plan(episode, supported), None
+
+    async def preview_script_plan_conversion(self, episode: int) -> ScriptPlanConversionPreview:
+        """按当前脚本规划与正式剧本算一次 ``convert_script_plan`` 的三组条目，不写任何文件。"""
+        self._script_plan_revision = None
+        self._artifact_basis = None
+        self._script_plan_input_claim = None
+        plan_kind, plan_entries, _title = await self._load_plan_entries_for_conversion(episode)
+        scope = self._resolve_prompt_authoring_scope(
+            episode, episode_script_filename(episode), plan_kind=plan_kind, plan_entries=plan_entries, scope=None
+        )
+        return ScriptPlanConversionPreview(
+            episode=episode,
+            has_script=bool(scope.existing) or scope.existing_title is not None,
+            added=scope.currency.new_ids,
+            stale=scope.currency.stale_ids,
+            removed=scope.currency.removed_ids,
+        )
+
+    async def convert_script_plan(
+        self,
+        episode: int,
+        *,
+        entry_ids: Iterable[str] | None = None,
+    ) -> ScriptPlanConversionReceipt:
+        """把脚本规划机械转为正式剧本：只同步内容层，从不写视觉层。
+
+        无正式剧本时整集投影，drama / narration 条目的 ``image_prompt`` / ``video_prompt`` 以 ``None``
+        落盘（待生成），参考生视频的单元正文逐字复制即算已编写。已有正式剧本时做集合同步：
+        脚本规划新增的条目以待生成态加入，规划里已不存在的条目移出，顺序跟随规划；失效条目的
+        内容、提示词与指纹三样原样保留、继续报失效；未变条目逐字节不变。``entry_ids`` 点名的
+        失效条目「采用新内容」：内容层按脚本规划重取、提示词保留、盖当前指纹；点名了非失效条目
+        即报错、不落盘。剧本与规划逐条一致时不写盘，回执三组为空。
+        """
+        self._script_plan_revision = None
+        self._artifact_basis = None
+        self._script_plan_input_claim = None
+        plan_kind, plan_entries, title = await self._load_plan_entries_for_conversion(episode)
+        filename = episode_script_filename(episode)
+        scope = self._resolve_prompt_authoring_scope(
+            episode, filename, plan_kind=plan_kind, plan_entries=plan_entries, scope=None
+        )
+        currency = scope.currency
+        requested = tuple(dict.fromkeys(entry_ids or ()))
+        unknown = [entry_id for entry_id in requested if entry_id not in currency.plan_ids]
+        if unknown:
+            raise ScriptPlanEntryError(f"entry_ids 不在当前脚本规划内: {unknown}")
+        not_stale = [entry_id for entry_id in requested if entry_id not in currency.stale_ids]
+        if not_stale:
+            raise ScriptPlanEntryError(f"只有失效条目才能采用新内容，这些条目并未失效: {not_stale}")
+        refreshed = tuple(entry_id for entry_id in currency.plan_ids if entry_id in requested)
+        added = currency.new_ids
+        untouched_stale = tuple(entry_id for entry_id in currency.stale_ids if entry_id not in requested)
+
+        id_field = entry_id_field(plan_kind)
+        rewritten: list[dict] = []
+        for entry in plan_entries:
+            entry_id = str(rewrite_episode_prefix(entry.get(id_field), episode))
+            content = plan_entry_content(plan_kind, entry)
+            if entry_id in added:
+                if plan_kind != "reference_video":
+                    content = {**content, "image_prompt": None, "video_prompt": None}
+                rewritten.append(content)
+            elif entry_id in refreshed:
+                rewritten.append({**scope.existing[entry_id], **content})
+
+        script_data: dict[str, Any] = {
+            "title": title or scope.existing_title or f"第{episode}集",
+            scope.items_key: rewritten,
+        }
+        script_data = self._add_metadata(script_data, episode)
+        script_data["metadata"]["generator"] = SCRIPT_PLAN_CONVERSION_GENERATOR
+        script_data[scope.items_key] = splice_entries(
+            plan_kind,
+            plan_revisions=scope.plan_revisions,
+            rewritten=script_data[scope.items_key],
+            existing=scope.existing,
+            keep_revision_ids=untouched_stale,
+        )
+        # 未盖指纹的存量失效条目只能靠整集指纹继续报失效：此时沿用旧剧本记录的整集指纹，
+        # 不换成当前值，否则它们会在读时被当成「随整集一起生成」而误判为当前。
+        if any(SCRIPT_PLAN_ENTRY_REVISION_FIELD not in item for item in script_data[scope.items_key]):
+            script_data["metadata"].pop(SCRIPT_PLAN_REVISION_FIELD, None)
+            if scope.existing_plan_revision is not None:
+                script_data["metadata"][SCRIPT_PLAN_REVISION_FIELD] = scope.existing_plan_revision
+
+        receipt = ScriptPlanConversionReceipt(
+            episode=episode,
+            script_filename=filename,
+            added=added,
+            refreshed=refreshed,
+            removed=currency.removed_ids,
+        )
+        if (
+            not added
+            and not refreshed
+            and not currency.removed_ids
+            and script_data[scope.items_key] == list(scope.existing.values())
+        ):
+            logger.info("第 %d 集剧本与脚本规划逐条一致，机械转换未写盘", episode)
+            return receipt
+
+        pm = ProjectManager(str(self.project_path.parent))
+        formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
+        output_path = await run_sync_transaction(
+            pm.save_script,
+            self.project_path.name,
+            script_data,
+            filename,
+            validate=True,
+            artifact_basis=self._artifact_basis,
+            expected_fingerprint=formal_baseline,
+        )
+        logger.info(
+            "第 %d 集已按脚本规划机械转为正式剧本（新增 %d / 采用新内容 %d / 移出 %d），保存至 %s",
+            episode,
+            len(added),
+            len(refreshed),
+            len(currency.removed_ids),
+            output_path,
+        )
+        return receipt
 
     async def _generate_drama_prompt_authoring(
         self,
@@ -1724,13 +1914,7 @@ class ScriptGenerator:
             except DraftViolation as exc:
                 violations.extend(violation_items(exc))
                 continue
-            video_units.append(
-                {
-                    "unit_id": script_plan_unit["unit_id"],
-                    "text": flat_unit.text,
-                    "duration_seconds": script_plan_unit["duration_seconds"],
-                }
-            )
+            video_units.append({**plan_entry_content("reference_video", script_plan_unit), "text": flat_unit.text})
 
         if violations:
             raise DraftViolations(violations)
@@ -2101,7 +2285,7 @@ class ScriptGenerator:
         merged_segments: list[dict] = []
         for s1 in script_plan_segments:
             sid = s1["segment_id"]
-            merged_segments.append({**s1, **visual_by_id[sid]})
+            merged_segments.append({**plan_entry_content("narration", s1), **visual_by_id[sid]})
 
         title = visual_data.get("title")
         return {

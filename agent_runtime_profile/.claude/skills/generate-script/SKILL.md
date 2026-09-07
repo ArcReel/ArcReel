@@ -37,6 +37,23 @@ mcp__arcreel__generate_episode_script({"episode": N, "dry_run": true})   # 仅�
 输出路径由工具内部固定为 `{project}/scripts/episode_{N}.json`，不支持自定义；
 如需重命名或归档，请在 Web 端操作。
 
+### 补充提示词（`author_prompts`）
+
+内容确认后用户可能不经模型、把脚本规划**机械转为正式脚本**（Web 端「直接转换」或
+`mcp__arcreel__convert_script_plan({"episode": N})`）：条目内容层已落盘，drama / narration 的
+`image_prompt` / `video_prompt` 为 `null`（待生成）。此时工作流计划的 `next_action.type` 为
+`author_prompts`，`requested_ids` 列出提示词待生成的条目：
+
+```text
+mcp__arcreel__generate_episode_script({"episode": N, "entry_ids": [<requested_ids>]})
+```
+
+- **只传 `entry_ids`**，让工具只给这些条目补视觉层；**不得传 `scope: "all"`**——整集重写会把用户
+  已手写的提示词一并覆盖。
+- 用户已在 Web 端手写过提示词的条目不在 `requested_ids` 里，不要主动把它们加进 `entry_ids`。
+- 脚本规划再次变更后，失效条目由 `generate_script`（默认 `scope: "stale"`）或用户在 Web 端
+  「采用新内容」处理；`convert_script_plan` 从不改写失效条目的内容与提示词。
+
 **重要：生成剧本必须调用上述 MCP 工具。此 skill 不提供任何 Python/Shell 脚本，不得用 BASH 调 `python .../scripts/*.py`。**
 
 ## 生成流程

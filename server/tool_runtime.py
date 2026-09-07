@@ -95,7 +95,7 @@ from lib.generation_result import (
 )
 from lib.path_safety import safe_join
 from lib.profile_manifest import ContentMode
-from lib.project_manager import ProjectManager, SourceKind, is_reference_video_project
+from lib.project_manager import ProjectManager, ScriptWriteConflict, SourceKind, is_reference_video_project
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MigrationFailureRecord,
@@ -121,7 +121,8 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
-from lib.script_plan_entries import SCOPE_STALE
+from lib.script_generator import ScriptPlanConversionReceipt
+from lib.script_plan_entries import SCOPE_STALE, ScriptPlanEntryError
 from lib.script_review import ScriptPlanRebuildCompletionError, complete_stale_script_plan_rebuild, script_plan_kind
 from lib.source_loader import (
     ConflictError,
@@ -145,6 +146,7 @@ from server.draft_workflow import (
     PromoteDraftRequest,
 )
 from server.services.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
+from server.services.script_plan_conversion import convert_script_plan as run_script_plan_conversion
 from server.services.video_caps import annotate_reference_unit_tiers
 from server.services.workflow_planner import WorkflowPlanner
 from server.text_generation import (
@@ -152,7 +154,7 @@ from server.text_generation import (
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
-    _episode_generation_preflight,
+    episode_generation_preflight,
     generate_drama_script_plan,
     generate_narration_script_plan,
     generate_reference_script_plan,
@@ -548,7 +550,7 @@ async def generate_episode_script(
         )
     try:
         await asyncio.to_thread(
-            _episode_generation_preflight,
+            episode_generation_preflight,
             services.projects.get_project_path(scope.project_name),
             request.value.episode,
             enforce_review_gate=True,
@@ -566,6 +568,48 @@ async def generate_episode_script(
         caller=_caller,
         services=services,
     )
+
+
+class ScriptPlanConversionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: int = Field(ge=1, description="剧集编号")
+    entry_ids: tuple[str, ...] = Field(default=(), description="要「采用新内容」的失效条目 id")
+
+    @field_validator("entry_ids")
+    @classmethod
+    def _non_empty_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not entry_id.strip() for entry_id in value):
+            raise ValueError("entry_ids must be non-empty strings")
+        return value
+
+
+async def convert_script_plan(
+    request: ToolRequest[ScriptPlanConversionRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[ScriptPlanConversionReceipt]:
+    """按脚本规划机械转为正式剧本；内容确认门禁与 ``generate_episode_script`` 同一道预检。"""
+    try:
+        receipt = await run_script_plan_conversion(
+            scope.project_name,
+            request.value.episode,
+            entry_ids=request.value.entry_ids,
+            projects=services.projects,
+            config_resolver=services.capabilities,
+        )
+    except TextGenerationError as exc:
+        return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
+    except ScriptWriteConflict as exc:
+        return ToolOutcome(problem=ToolProblem("script_write_conflict", str(exc)))
+    except FileNotFoundError as exc:
+        return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
+    except (ScriptPlanEntryError, TypeError, ValueError) as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+    except Exception as exc:
+        return ToolOutcome(problem=ToolProblem("internal_error", f"convert_script_plan 失败: {exc}"))
+    return ToolOutcome(value=receipt)
 
 
 async def generate_script_plan(

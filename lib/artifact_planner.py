@@ -613,6 +613,14 @@ class TargetStatePlanner:
                         key, basis = grid_target
                         self._add_if_present(key, artifact_path, basis)
                     continue
+                # 提示词待生成的单张分镜图没有可登记的视觉依据：显式跳过并进迁移报告，不靠构造器抛错兜底。
+                if item.get("image_prompt") is None:
+                    self._skip(
+                        ArtifactKey.episode_storyboard(episode.episode, resource_id),
+                        artifact_path,
+                        "storyboard image_prompt is pending",
+                    )
+                    continue
                 references = self._storyboard_references(
                     item,
                     char_field=char_field,

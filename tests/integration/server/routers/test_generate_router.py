@@ -312,6 +312,39 @@ class TestGenerateRouter:
             assert call["resource_id"] == "E1S02"
             assert call["source"] == "webui"
 
+    def test_storyboard_refuses_a_pending_image_prompt_before_enqueue(self, tmp_path, monkeypatch):
+        """正式剧本里该分镜的 image_prompt 尚未填写（None）：单条端点 409，不入队。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][1]["image_prompt"] = None
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "请求体里带的提示词不算数"},
+            )
+            assert response.status_code == 409
+            assert "E1S02" in str(response.json()["detail"])
+            assert fake_queue.calls == []
+
+    def test_video_refuses_a_pending_video_prompt_before_enqueue(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["video_prompt"] = None
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "duration_seconds": 5, "prompt": "跑"},
+            )
+            assert response.status_code == 409
+            assert "E1S01" in str(response.json()["detail"])
+            assert fake_queue.calls == []
+
     def test_video_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

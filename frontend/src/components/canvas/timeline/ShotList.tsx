@@ -51,6 +51,12 @@ function getSegmentText(seg: Segment, mode: ListContentMode): string {
   return getImagePromptScene(seg);
 }
 
+/** 提示词待生成：机械转换落盘的条目任一侧提示词为 `null`（广告/短片没有这一态）。 */
+function hasPendingPrompt(seg: Segment, mode: ListContentMode): boolean {
+  if (mode === "ad") return false;
+  return seg.image_prompt === null || seg.video_prompt === null;
+}
+
 function getStoryboardVersionCount(seg: Segment): number {
   // 暂用 storyboard_image 是否存在作为粗略 V1 指示。真实版本数走 GET /versions API（异步），
   // 此处只显示 V1 标记或空。后续可扩展。
@@ -238,6 +244,7 @@ export function ShotList({
             const text = getSegmentText(seg, contentMode);
             const status = statusFromAssets(seg.generated_assets?.status);
             const versions = getStoryboardVersionCount(seg);
+            const pendingPrompt = hasPendingPrompt(seg, contentMode);
             const active = originalIndex === selectedIndex;
             const sbPath = seg.generated_assets?.storyboard_image;
             const sbFp = sbPath ? (fingerprints[sbPath] ?? null) : null;
@@ -349,6 +356,18 @@ export function ShotList({
                         style={{ color: "var(--color-text-4)" }}
                       >
                         · V{versions}
+                      </span>
+                    )}
+                    {pendingPrompt && (
+                      <span
+                        className="rounded px-1 py-px text-[9px] font-semibold"
+                        style={{
+                          color: "var(--color-warm)",
+                          border: "1px solid var(--color-hairline-soft)",
+                          letterSpacing: "0.4px",
+                        }}
+                      >
+                        {t("shot_prompt_pending")}
                       </span>
                     )}
                   </div>

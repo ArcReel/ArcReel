@@ -624,7 +624,7 @@ def _resolve_script_plan_path(
     return script_plan_json, "generate_script_plan tool"
 
 
-def _episode_generation_preflight(project_path: Path, episode: int, *, enforce_review_gate: bool) -> None:
+def episode_generation_preflight(project_path: Path, episode: int, *, enforce_review_gate: bool) -> None:
     try:
         project_data = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -666,7 +666,7 @@ async def generate_episode_script(
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
     await asyncio.to_thread(
-        _episode_generation_preflight,
+        episode_generation_preflight,
         project_path,
         episode,
         enforce_review_gate=not request.dry_run,

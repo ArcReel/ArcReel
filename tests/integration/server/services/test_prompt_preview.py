@@ -270,17 +270,32 @@ class TestPreviewIsReadOnly:
 
 
 class TestPreviewUnavailableSides:
-    async def test_missing_prompt_reports_that_side_only(self, tmp_path, monkeypatch):
+    async def test_pending_prompt_reports_that_side_only(self, tmp_path, monkeypatch):
+        """机械转换写下的 ``None`` 与根本没有该字段的存量条目都是待生成：另一侧照常渲染。"""
         project_path = prepare_files(tmp_path)
         pm = _pm_for("narration", project_path)
-        _item_of(pm).pop("video_prompt")
+        _item_of(pm)["video_prompt"] = None
         _patch_execution(monkeypatch, pm, FakeGenerator())
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
         assert preview.video.text is None
-        assert preview.video.unavailable == prompt_preview.UNAVAILABLE_MISSING
+        assert preview.video.unavailable == prompt_preview.UNAVAILABLE_PENDING
         assert preview.storyboard_image.text
+
+        _item_of(pm).pop("video_prompt")
+        preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
+        assert preview.video.unavailable == prompt_preview.UNAVAILABLE_PENDING
+
+    async def test_blank_prompt_reports_missing(self, tmp_path, monkeypatch):
+        project_path = prepare_files(tmp_path)
+        pm = _pm_for("narration", project_path)
+        _item_of(pm)["video_prompt"] = "   "
+        _patch_execution(monkeypatch, pm, FakeGenerator())
+
+        preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
+
+        assert preview.video.unavailable == prompt_preview.UNAVAILABLE_MISSING
 
     async def test_malformed_prompt_reports_invalid(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)

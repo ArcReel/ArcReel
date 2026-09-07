@@ -2393,3 +2393,30 @@ def test_script_plan_registered_from_read_text_source_stays_current_with_crlf_by
     comparison = ArtifactCurrencyResolver(project_path).compare(key, artifact_path=artifact_path)
 
     assert comparison.status is ArtifactStatus.CURRENT
+
+
+def test_pending_prompts_ask_to_author_prompts_before_visual_generation(tmp_path: Path) -> None:
+    """机械转换出的条目提示词为 None：剧本条目本身是当前的，下一步是补提示词而非生成分镜图。"""
+    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
+    revisions = plan_entry_revisions("narration", plan, episode=1)
+    pm, _project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [
+            _valid_narration_segment(script_plan_entry_revision=revisions["E1S01"]),
+            _valid_narration_segment(
+                segment_id="E1S02",
+                image_prompt=None,
+                video_prompt=None,
+                script_plan_entry_revision=revisions["E1S02"],
+            ),
+        ],
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "current"
+    assert status.state == "FINAL_SCRIPT"
+    assert status.next_action.type == "author_prompts"
+    assert status.next_action.requested_ids == ["E1S02"]
+    assert status.next_action.args["episode"] == 1

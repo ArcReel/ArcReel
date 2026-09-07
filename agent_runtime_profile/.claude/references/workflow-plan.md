@@ -84,6 +84,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `prepare_script_plan` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
 | `confirm_script_plan` | `mcp__arcreel__confirm_script_review` |
 | `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
+| `author_prompts` | 正式剧本已按脚本规划机械转换、`requested_ids` 列出提示词待生成的条目：调 `mcp__arcreel__generate_episode_script` 并把 `requested_ids` 作为 `entry_ids` 传入，只补这些条目的提示词（见 generate-script skill） |
 | `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
 | `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
 | `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |

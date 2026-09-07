@@ -180,6 +180,11 @@ def _require_non_blank_prompt(value: str) -> str:
 #: 文本形态是创作者在时间线里显式切换的编写方式，不是模型可选的输出形状。
 PromptText = SkipJsonSchema[Annotated[str, AfterValidator(_require_non_blank_prompt)]]
 
+#: 提示词的「待生成」态：脚本规划机械转为正式脚本时视觉层不写，条目以 ``None`` 落盘等待
+#: 提示词编写或人工补写。``SkipJsonSchema`` 把 ``null`` 排除在 response_schema 之外——待生成
+#: 只由转换路径写入，不是模型可选的输出形状；空串仍由 ``PromptText`` 拒绝。
+PendingPrompt = SkipJsonSchema[None]
+
 
 class GeneratedAssets(BaseModel):
     """生成资源状态（初始化为空）"""
@@ -255,8 +260,8 @@ class NarrationSegment(BaseModel):
     characters_in_segment: list[str] = Field(description="出场角色名称列表")
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
-    image_prompt: ImagePrompt | PromptText = Field(description="分镜图生成提示词")
-    video_prompt: VideoPrompt | PromptText = Field(description="视频生成提示词")
+    image_prompt: ImagePrompt | PromptText | PendingPrompt = Field(default=None, description="分镜图生成提示词")
+    video_prompt: VideoPrompt | PromptText | PendingPrompt = Field(default=None, description="视频生成提示词")
     # transition_to_next 由 _add_metadata default + 用户 PATCH 路径(projects.py UpdateSegmentRequest)管理;
     # LLM 无 prompt 引导,隐藏避免乱填污染剪映/compose-video 合成
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
@@ -507,9 +512,9 @@ class DramaScene(BaseModel):
     characters_in_scene: list[str] = Field(description="出场角色名称列表")
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
-    image_prompt: ImagePrompt | PromptText = Field(description="分镜图生成提示词")
+    image_prompt: ImagePrompt | PromptText | PendingPrompt = Field(default=None, description="分镜图生成提示词")
     # drama 的 video_prompt 只承载画面动作、运镜与环境音，口播由下方 utterances 承载。
-    video_prompt: DramaVideoPrompt | PromptText = Field(description="视频生成提示词")
+    video_prompt: DramaVideoPrompt | PromptText | PendingPrompt = Field(default=None, description="视频生成提示词")
     # utterances 统一承载分镜级角色台词与画外音；条目顺序即幕内发声顺序（见 ADR 0040）。
     utterances: list[Utterance] = Field(
         default_factory=list,
@@ -635,7 +640,8 @@ class DramaVisualMergeError(ValueError):
 
 
 #: 合并后从内容层剔除的、不属于最终 ``DramaScene`` 的 script_plan-only 字段。
-_DRAMA_CONTENT_ONLY_FIELDS = frozenset({"scene_description"})
+#: ``lib.script_plan_entries`` 的内容投影读同一份清单。
+DRAMA_CONTENT_ONLY_FIELDS = frozenset({"scene_description"})
 
 
 def merge_drama_visual_into_scenes(
@@ -682,7 +688,7 @@ def merge_drama_visual_into_scenes(
         # 在合并阶段 fail-loud，避免写入 None 后绕过 DramaVisualMergeError、拖到 save_script 才以通用异常失败。
         if "image_prompt" not in visual or "video_prompt" not in visual:
             raise DramaVisualMergeError(f"prompt_authoring 视觉层分镜 {sid} 缺少必要的视觉字段")
-        scene = {k: v for k, v in content.items() if k not in _DRAMA_CONTENT_ONLY_FIELDS}
+        scene = {k: v for k, v in content.items() if k not in DRAMA_CONTENT_ONLY_FIELDS}
         scene["image_prompt"] = visual["image_prompt"]
         scene["video_prompt"] = visual["video_prompt"]
         merged.append(scene)
@@ -720,6 +726,7 @@ class AdShot(BaseModel):
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     products_in_shot: list[str] = Field(default_factory=list, description="出场商品名称列表，非空即商品分镜")
+    # ad 没有脚本规划、不经机械转换，提示词没有待生成态：字段保持必填，LLM 的 response_schema 不变。
     image_prompt: ImagePrompt | PromptText = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt | PromptText = Field(description="视频生成提示词")
     # 见 NarrationSegment.transition_to_next 说明

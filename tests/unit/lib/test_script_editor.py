@@ -185,6 +185,15 @@ class TestPatchField:
         with pytest.raises(ScriptEditError, match="不可改 end_frame_image"):
             patch_field(_narration(), "E1S01", "end_frame_image", "../../../etc/passwd")
 
+    @pytest.mark.parametrize("field", ["image_prompt", "video_prompt"])
+    def test_patch_cannot_clear_a_prompt_to_none(self, field):
+        # None 是提示词的「待生成」态，只由脚本规划机械转换写入；剧本模型接受 None 之后，
+        # patch 是把已有提示词清空的唯一入口，须在这里拒绝。
+        with pytest.raises(ScriptEditError, match="清成 null"):
+            patch_field(_narration(), "E1S01", field, None)
+        with pytest.raises(ScriptEditError, match="清成 null"):
+            patch_field(_drama(), "E1S01", field, None)
+
     def test_patch_does_not_touch_generated_assets(self):
         script = patch_field(_narration(), "E1S01", "duration_seconds", 7)
         assert script["segments"][0]["generated_assets"]["status"] == "completed"

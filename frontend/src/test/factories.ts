@@ -1,4 +1,4 @@
-import type { TaskItem } from "@/types";
+import type { NarrationSegment, TaskItem } from "@/types";
 import type {
   WorkflowPlan,
   WorkflowPlanStep,
@@ -86,6 +86,24 @@ export function makePlan(overrides: Partial<WorkflowPlan> = {}): WorkflowPlan {
     blockers: status.blockers,
     problems: [],
     next_action: status.next_action,
+    ...overrides,
+  };
+}
+
+/** 一条旁白分镜；默认两侧提示词都是文本形态，各用例按需覆盖为结构化或待生成（null）。 */
+export function makeNarrationSegment(overrides: Partial<NarrationSegment> = {}): NarrationSegment {
+  return {
+    segment_id: "E1S01",
+    episode: 1,
+    duration_seconds: 8,
+    segment_break: false,
+    novel_text: "旁白正文",
+    characters_in_segment: [],
+    scenes: [],
+    props: [],
+    image_prompt: "雨夜街道",
+    video_prompt: "撑伞走过",
+    transition_to_next: "cut",
     ...overrides,
   };
 }
