@@ -145,7 +145,6 @@ def _storyboard_checkpoint_json(
         provider_model_id=provider_model_id,
         backend_model_id=backend_model_id,
         endpoint_guard=endpoint_guard,
-        api_call_id=11,
         prompt="p",
         duration_seconds=8,
         aspect_ratio="9:16",
@@ -303,7 +302,8 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
     assert call["resolution"] == "720p"
     assert call["generate_audio"] is True
     assert call["formal_output"] is True
-    assert call["api_call_id"] == 11
+    # 待结算调用行由 generator 按 task_id 反查，续跑不再透传调用坐标
+    assert "api_call_id" not in call
     assert call["execution_provider_id"] == "openai"
     assert call["execution_provider_model_id"] == "sora-2"
     assert call["execution_backend_model_id"] == "sora-2"
@@ -572,7 +572,6 @@ def _reference_checkpoint(
         provider_model_id="cinema-v1",
         backend_model_id="cinema-v1-resolved",
         endpoint_guard=endpoint_guard,
-        api_call_id=91,
         prompt="frozen actual prompt",
         duration_seconds=12,
         aspect_ratio="16:9",
@@ -668,7 +667,6 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
             "prompt": "current wrong prompt",
             "duration_seconds": 3,
             "video_provider_r2v": "wrong/model",
-            "api_call_id": 999,
             "resolution": "360p",
             "generate_audio": True,
         },
@@ -687,7 +685,7 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
     assert call["generate_audio"] is False
     assert call["service_tier"] == "pro"
     assert call["seed"] == 123
-    assert call["api_call_id"] == 91
+    assert "api_call_id" not in call
     assert call["formal_output"] is True
     assert call["submitted_base_url"] == "https://submitted.example/v1"
     assert call["execution_prompt_sha256"]

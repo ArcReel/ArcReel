@@ -548,7 +548,7 @@ async def execute_reference_video_task(
     provider_refs = constrained_refs
     provider_audio = reference_audio_files or None
     staged_media: tuple[StagedProviderMedia, ...] = ()
-    checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None
+    checkpoint_hook: Callable[[], Awaitable[Mapping[str, object] | None]] | None = None
     if task_id is not None:
         artifact_episode = script_input.episode
         artifact_speech_preparation = admit_script_unit("video_units", unit).preparation
@@ -658,7 +658,7 @@ async def execute_reference_video_task(
                 duration=artifact_duration_basis,
             )
 
-            def _build_checkpoint(api_call_id: int) -> ReferenceSubmissionCheckpoint:
+            def _build_checkpoint() -> ReferenceSubmissionCheckpoint:
                 artifact_currency = VideoArtifactCurrencyFacts(
                     episode=artifact_episode,
                     request_duration_seconds=effective_duration,
@@ -681,7 +681,6 @@ async def execute_reference_video_task(
                     provider_model_id=video.provider_model.model_id,
                     backend_model_id=video.backend_model,
                     endpoint_guard=video.endpoint,
-                    api_call_id=api_call_id,
                     prompt=rendered_prompt,
                     duration_seconds=effective_duration,
                     aspect_ratio=aspect_ratio,
@@ -696,13 +695,13 @@ async def execute_reference_video_task(
                     reference_audio_targets=audio_targets_tuple,
                 )
 
-            async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
+            async def _checkpoint_before_submit() -> Mapping[str, object]:
                 await asyncio.to_thread(
                     assert_current_artifact_input_claims_usable,
                     project_path,
                     formal_input_claims,
                 )
-                checkpoint = _build_checkpoint(api_call_id)
+                checkpoint = _build_checkpoint()
                 await get_generation_queue().persist_execution_checkpoint(
                     task_id,
                     checkpoint.to_json(),

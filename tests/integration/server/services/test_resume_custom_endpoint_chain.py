@@ -172,7 +172,6 @@ def _storyboard_checkpoint_json(task_id: str, *, provider_id: str, endpoint_guar
         provider_model_id="video-x",
         backend_model_id="video-x",
         endpoint_guard=endpoint_guard,
-        api_call_id=7,
         prompt="frozen",
         duration_seconds=8,
         aspect_ratio="9:16",

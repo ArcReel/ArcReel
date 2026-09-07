@@ -932,11 +932,14 @@ class TestIdentityInvariant:
 # ---------------------------------------------------------------------------
 
 
-async def _pending_video_call(acct: _AccountingDb) -> int:
+_RESUME_TASK_ID = "T-resume"
+
+
+async def _pending_video_call(acct: _AccountingDb, *, task_id: str | None = _RESUME_TASK_ID) -> int:
     """模拟 submit 侧已记账的 pending 行（resume 的补账锚点）。
 
     直接经 UsageRepository 落 pending 行 —— submit 侧生产入口是记账括号的 start，此处仅需
-    锚点行，不必开括号。
+    锚点行，不必开括号。``task_id`` 是 resume 反查这条行的唯一凭据。
     """
     async with acct.factory() as session:
         return await UsageRepository(session).start_call(
@@ -950,11 +953,12 @@ async def _pending_video_call(acct: _AccountingDb) -> int:
             generate_audio=True,
             provider="gemini",
             segment_id="E1S01",
+            task_id=task_id,
             purpose=CallPurpose.GENERATION_TASK,
         )
 
 
-async def _resume_video(gen: MediaGenerator, api_call_id: int | None) -> None:
+async def _resume_video(gen: MediaGenerator, task_id: str | None = _RESUME_TASK_ID) -> None:
     await gen.resume_video_async(
         job_id="job-1",
         resource_type="videos",
@@ -963,7 +967,7 @@ async def _resume_video(gen: MediaGenerator, api_call_id: int | None) -> None:
         aspect_ratio="9:16",
         duration_seconds="8",
         resolution="720p",
-        api_call_id=api_call_id,
+        task_id=task_id,
     )
 
 
@@ -971,6 +975,7 @@ def _expected_resume_row(**overrides: Any) -> dict[str, Any]:
     # resume 补账不回写 output_path：finalize 只翻状态与费用口径字段
     defaults: dict[str, Any] = {
         "purpose": "generation_task",
+        "task_id": _RESUME_TASK_ID,
         "call_type": "video",
         "model": "veo-3.1-generate-preview",
         "prompt": "p",
@@ -986,14 +991,14 @@ def _expected_resume_row(**overrides: Any) -> dict[str, Any]:
 
 class TestResumeChannel:
     async def test_success_finalizes_pending_with_auto_cost(self, tmp_path: Path, acct: _AccountingDb) -> None:
-        call_id = await _pending_video_call(acct)
+        await _pending_video_call(acct)
         gen = _media_generator(
             tmp_path,
             acct,
             video_backend=_veo_backend(usage_tokens=0, generate_audio=False, duration_seconds=6),
         )
 
-        await _resume_video(gen, call_id)
+        await _resume_video(gen)
 
         # backend 回报值覆盖请求口径：无声 + 6s → (720p, 无声) 0.20 USD/s × 6s
         _assert_full_row(
@@ -1009,14 +1014,14 @@ class TestResumeChannel:
     async def test_success_clamps_billed_duration_and_keeps_request_audio(
         self, tmp_path: Path, acct: _AccountingDb
     ) -> None:
-        call_id = await _pending_video_call(acct)
+        await _pending_video_call(acct)
         gen = _media_generator(
             tmp_path,
             acct,
             video_backend=_veo_backend(usage_tokens=0, generate_audio=None, duration_seconds=86_401),
         )
 
-        await _resume_video(gen, call_id)
+        await _resume_video(gen)
 
         # 超限计费时长回落请求 8s；backend 未回报音频标志（None）保留行内请求值 True
         _assert_full_row(
@@ -1025,7 +1030,7 @@ class TestResumeChannel:
         )
 
     async def test_expired_flips_pending_to_failed_without_billing(self, tmp_path: Path, acct: _AccountingDb) -> None:
-        call_id = await _pending_video_call(acct)
+        await _pending_video_call(acct)
         gen = _media_generator(
             tmp_path,
             acct,
@@ -1037,7 +1042,7 @@ class TestResumeChannel:
         )
 
         with pytest.raises(ResumeExpiredError):
-            await _resume_video(gen, call_id)
+            await _resume_video(gen)
 
         # 过期补账翻 failed、零费用；error_message 不落行（异常沿调用链上抛由 worker 兜底）
         _assert_full_row(
@@ -1058,18 +1063,18 @@ class TestResumeChannel:
         terminal_snapshot = await acct.fetch_only_row()
 
         gen = _media_generator(tmp_path, acct, video_backend=_veo_backend(usage_tokens=0, duration_seconds=6))
-        await _resume_video(gen, call_id)
+        await _resume_video(gen)
 
         # WHERE status='pending' 幂等守卫：已终态行整行原样（含 created_at/updated_at）
         assert await acct.fetch_only_row() == terminal_snapshot
 
-    async def test_missing_api_call_id_leaves_row_pending(self, tmp_path: Path, acct: _AccountingDb) -> None:
-        await _pending_video_call(acct)
+    async def test_unlinked_call_row_leaves_row_pending(self, tmp_path: Path, acct: _AccountingDb) -> None:
+        await _pending_video_call(acct, task_id=None)
         gen = _media_generator(tmp_path, acct, video_backend=_veo_backend(usage_tokens=0))
 
-        await _resume_video(gen, api_call_id=None)
+        await _resume_video(gen)
 
-        # 旧任务未持久化 api_call_id：不做模糊匹配补账，行保持 pending
+        # 历史行没有 task_id 可反查：不做模糊匹配补账，行保持 pending
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_pending_row(

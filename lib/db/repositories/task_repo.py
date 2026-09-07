@@ -617,13 +617,22 @@ class TaskRepository(BaseRepository):
             or not task.provider_id
         ):
             raise ValueError(f"task is not eligible for artifact download retry: {task_id}")
-        payload = _json_loads(task.payload_json, {})
-        call_id = payload.get("api_call_id") if isinstance(payload, dict) else None
-        if not isinstance(call_id, int):
-            raise ValueError(f"task has no api_call_id for artifact download retry: {task_id}")
         # 落 artifact_download_failed 的任务，其调用可能停在 failed（首次下载耗尽后已结算），
         # 也可能停在 pending（续跑路径下载耗尽，结算与任务翻状态之间有窗口）。两种都受理并
-        # 原地翻回 pending：仍是同一条调用，不新增计费行。
+        # 原地翻回 pending：仍是同一条调用，不新增计费行。调用行按 ``api_calls.task_id`` 反查
+        # ——任务与调用的关联只有这一个真相源。
+        call_row = await self.session.execute(
+            select(ApiCall.id)
+            .where(
+                ApiCall.task_id == task_id,
+                ApiCall.status.in_((CallStatus.FAILED, CallStatus.PENDING)),
+            )
+            .order_by(ApiCall.id.desc())
+            .limit(1)
+        )
+        call_id = call_row.scalars().first()
+        if call_id is None:
+            raise ValueError(f"task has no settleable api call for artifact download retry: {task_id}")
         call_update = await self.session.execute(
             update(ApiCall)
             .where(ApiCall.id == call_id, ApiCall.status.in_((CallStatus.FAILED, CallStatus.PENDING)))
@@ -1018,43 +1027,6 @@ class TaskRepository(BaseRepository):
             await self.session.rollback()
             raise ValueError(f"execution checkpoint persistence guard rejected task: {task_id}")
         await self.session.commit()
-
-    async def _merge_payload_field(self, task_id: str, key: str, value: Any, *, raise_if_missing: bool = True) -> None:
-        """把单个字段并入 task.payload 并提交；``raise_if_missing`` 决定 task 缺失时的处置。
-
-        Task.payload_json 是 TEXT 列存 JSON 字符串（非 native JSONB），故用 read-modify-write
-        模式更新。并发安全前提：写 payload 的路径在同一 task 的执行协程内串行。
-        引入真正并发写 payload 的路径时需要外层加
-        ``SELECT ... FOR UPDATE`` 或单事务串行化。
-        """
-        # 用 .first() 而非 scalar_one_or_none()：Task.payload_json 允许 NULL（迁移输入可含
-        # payload_json IS NULL 行），scalar_one_or_none 会把"行存在但
-        # payload_json=NULL"误判成"无行"。Row 解构 row[0] 后 None 由 _json_loads 兜底为 {}。
-        result = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
-        row = result.first()
-        if row is None:
-            if raise_if_missing:
-                raise ValueError(f"task not found: {task_id}")
-            return
-        data = _json_loads(row[0], {})
-        if not isinstance(data, dict):
-            data = {}
-        data[key] = value
-        update_result = await self.session.execute(
-            update(Task).where(Task.task_id == task_id).values(payload_json=_json_dumps(data), updated_at=utc_now())
-        )
-        if raise_if_missing and rowcount(update_result) == 0:
-            raise ValueError(f"task not found: {task_id}")
-        await self.session.commit()
-
-    async def persist_api_call_id(self, task_id: str, call_id: int) -> None:
-        """将 ApiCall.id 写入 task.payload["api_call_id"]，供 resume 路径精准翻 pending。
-
-        Raises:
-            ValueError: task_id 不存在或 UPDATE 命中 0 行——避免静默 commit 让上层
-                以为"已持久化"但 payload["api_call_id"] 实际未写入，resume 时只能退回兜底。
-        """
-        await self._merge_payload_field(task_id, "api_call_id", call_id)
 
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
         """把 worker 重投影的 provider advisory 写回 ``task.provider_id``。

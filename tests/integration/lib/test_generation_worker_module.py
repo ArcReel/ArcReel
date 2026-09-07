@@ -68,7 +68,6 @@ def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> s
         provider_model_id="model-v1",
         backend_model_id="model-v1",
         endpoint_guard=None,
-        api_call_id=7,
         prompt="frozen",
         duration_seconds=8,
         aspect_ratio="9:16",
@@ -134,7 +133,6 @@ def _worker_storyboard_checkpoint(task_id: str, *, provider_id: str = "ark") -> 
         provider_model_id="model-v1",
         backend_model_id="model-v1",
         endpoint_guard=None,
-        api_call_id=7,
         prompt="frozen",
         duration_seconds=8,
         aspect_ratio="9:16",
@@ -2317,7 +2315,12 @@ class TestGenerationWorker:
 
         monkeypatch.setattr("lib.ledger.safe_session_factory", worker_db)
         async with worker_db() as session:
-            call_id = await UsageRepository(session).start_call(project_name="demo", call_type="video", model="m")
+            older_call_id = await UsageRepository(session).start_call(
+                project_name="demo", call_type="video", model="old", task_id="rc"
+            )
+            call_id = await UsageRepository(session).start_call(
+                project_name="demo", call_type="video", model="m", task_id="rc"
+            )
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
 
@@ -2326,14 +2329,16 @@ class TestGenerationWorker:
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _cancel)
         task = _storyboard_resume_task("rc", job_id="x")
-        task["payload"]["api_call_id"] = call_id
         with pytest.raises(asyncio.CancelledError):
             await worker._process_resume_task(task)
         assert queue.cancelled
         assert queue.cancelled[0][0] == "rc"
         async with worker_db() as session:
             stored = await UsageRepository(session).get_calls(project_name="demo")
-        assert stored["items"][0]["status"] == "cancelled"
+        assert [(item["id"], item["status"]) for item in stored["items"]] == [
+            (call_id, "cancelled"),
+            (older_call_id, "pending"),
+        ]
         assert stored["items"][0]["cost_amount"] == 0
 
     @pytest.mark.asyncio
@@ -2406,7 +2411,9 @@ class TestDispatcherFailFastAndPendingTracking:
                 base_url="https://example.invalid",
                 api_key="k",
             )
-            call_id = await UsageRepository(session).start_call(project_name="demo", call_type="video", model="m")
+            await UsageRepository(session).start_call(
+                project_name="demo", call_type="video", model="m", task_id="retry-1"
+            )
             await session.commit()
         provider_key = f"custom-{provider.id}"
 
@@ -2415,7 +2422,7 @@ class TestDispatcherFailFastAndPendingTracking:
 
         await worker._dispatch_provider_bucket(
             provider_key,
-            [{"task_id": "retry-1", "provider_id": provider_key, "payload": {"api_call_id": call_id}}],
+            [{"task_id": "retry-1", "provider_id": provider_key, "payload": {}}],
         )
 
         async with worker_db() as session:

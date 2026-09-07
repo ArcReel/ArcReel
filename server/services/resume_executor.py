@@ -156,7 +156,6 @@ async def execute_resume_video_task(
         }
         resource_type = "reference_videos" if task_type == "reference_video" else "videos"
         script_file = checkpoint.script_file
-        api_call_id: int | None = checkpoint.api_call_id
         event_payload: dict[str, Any] = {"script_file": checkpoint.script_file}
         artifact_committer = VideoArtifactCommitter(
             project_manager=get_project_manager(),
@@ -178,7 +177,6 @@ async def execute_resume_video_task(
                 duration_seconds=duration_seconds,
                 resolution=resolution,
                 task_id=task_id,
-                api_call_id=api_call_id,
                 submitted_base_url=_submitted_base_url(task),
                 seed=seed,
                 service_tier=service_tier,

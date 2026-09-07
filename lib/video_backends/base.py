@@ -133,41 +133,6 @@ class ProviderJobIdPersistenceMixin:
             request.on_provider_resubmit_unsafe()
 
 
-@with_retry_async(
-    max_attempts=3,
-    backoff_seconds=_PERSIST_BACKOFF_SECONDS,
-    retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS),
-)
-async def _persist_api_call_id_with_retry(task_id: str, call_id: int) -> None:
-    from lib.generation_queue import get_generation_queue
-
-    await get_generation_queue().persist_api_call_id(task_id, call_id)
-
-
-async def persist_api_call_id(task_id: str, call_id: int) -> None:
-    """Start_call 拿到 call_id 后立即调：把 ApiCall.id 写入 task.payload。
-
-    Resume 路径据此精准翻 pending ApiCall 行而不是按 segment_id+LIMIT 1 模糊匹配。
-    与 ``persist_provider_job_id`` 同样走 DB 瞬态错误重试；重试用尽抛异常，由
-    media_generator 的外层 try/except 走 finish_call(failed) 翻 pending ApiCall，
-    并把异常冒泡给 worker finally 兜底 mark_failed（ADR 0007 fail-fast：未持久化
-    的 submit 视为整笔失败——provider 端尚未提交，无需担心「幽灵任务」；若已提交
-    则 resume 拿不到 api_call_id 锚定将永远留 pending 账目，必须 fail-fast 让记账
-    在原地翻 failed 而不是延后到永远不会发生的 resume）。
-    """
-    try:
-        await _persist_api_call_id_with_retry(task_id, call_id)
-        logger.info("api_call_id 已持久化 task_id=%s call_id=%d", task_id, call_id)
-    except Exception as exc:
-        logger.error(
-            "api_call_id_persist_failed task_id=%s call_id=%d error=%s",
-            task_id,
-            call_id,
-            exc,
-        )
-        raise
-
-
 class ResumeExpiredError(RuntimeError):
     """Provider 端 job 已过期或未找到——重启自愈无法接续，须走 mark_failed。
 

@@ -2,7 +2,7 @@
 
 关注点：
 - resume 路径不落新 pending 行（不开记账括号）
-- ledger.resume_success / resume_failed 按 api_call_id 精准翻 pending → success/failed
+- 待结算调用行按 api_calls.task_id 反查，ledger.resume_success / resume_failed 精准翻 pending
 - resume 成功后保存一个付费版本；正式媒体经 staging callback 原子决定 current，
   非正式请求直接追加并选中新版本
 - ResumeExpiredError 沿调用链上抛，pending 翻 failed
@@ -103,14 +103,20 @@ class _FakeLedger:
     """记账账本假实现：resume 路径只该走 resume_success/resume_failed，不开记账括号。
 
     ``started`` 捕获误开的括号（应恒空）；``resumed`` 捕获 resume 补账入参（含递交的
-    backend 结果对象）——新主缝。
+    backend 结果对象）——新主缝。``lookups`` 捕获按任务反查调用行的入参。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, pending_call_id: int | None = 42) -> None:
         self.started: list[dict[str, Any]] = []
         self.resumed: list[dict[str, Any]] = []
+        self.lookups: list[str] = []
+        self._pending_call_id = pending_call_id
         self._n = 0
         self._resume_affected = 1
+
+    async def pending_call_id_for_task(self, task_id: str) -> int | None:
+        self.lookups.append(task_id)
+        return self._pending_call_id
 
     @asynccontextmanager
     async def record(self, **kwargs):
@@ -157,7 +163,6 @@ async def test_resume_does_not_open_record_bracket(tmp_path):
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=42,
     )
 
     # resume 不落新 pending 行：只走 resume_success/resume_failed 补账，不开记账括号
@@ -173,7 +178,6 @@ async def test_resume_success_flips_pending_apicall_by_call_id(tmp_path):
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=42,
     )
 
     assert len(gen.ledger.resumed) == 1
@@ -195,7 +199,6 @@ async def test_resume_idempotent_when_finalize_returns_zero(tmp_path, caplog):
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=42,
     )
 
     assert output_path.exists()
@@ -215,7 +218,6 @@ async def test_resume_expired_flips_pending_to_failed(tmp_path):
             resource_type="videos",
             resource_id="E1S01",
             task_id="T-1",
-            api_call_id=42,
         )
 
     assert len(gen.ledger.resumed) == 1
@@ -237,7 +239,6 @@ async def test_resume_other_exception_does_not_finalize(tmp_path):
             resource_type="videos",
             resource_id="E1S01",
             task_id="T-1",
-            api_call_id=42,
         )
 
     assert gen.ledger.resumed == [], "非 ResumeExpired 不应 finalize pending"
@@ -256,7 +257,6 @@ async def test_resume_calls_add_version_after_download(tmp_path):
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=42,
     )
 
     # add_version 必须发生在下载之后：进入 resume_video 时 add_calls 还是 0
@@ -277,7 +277,6 @@ async def test_resume_after_pre_version_crash_creates_v1(tmp_path):
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=42,
     )
 
     assert version == 1
@@ -296,7 +295,6 @@ async def test_resume_after_version_v1_crash_bumps_to_v2(tmp_path):
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=42,
     )
 
     assert version == 2, "已有 v1 + 覆盖式重新生成 → 必须登记 v2"
@@ -329,7 +327,6 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
         resource_type="reference_videos",
         resource_id="E1U1",
         task_id="T-1",
-        api_call_id=42,
         formal_output=True,
         before_formal_commit=_prepare,
         commit_formal_output=_commit,
@@ -363,7 +360,6 @@ async def test_resume_formal_prepare_failure_archives_paid_history_without_selec
             resource_type="reference_videos",
             resource_id="E1U1",
             task_id="T-1",
-            api_call_id=42,
             formal_output=True,
             before_formal_commit=_fail_prepare,
         )
@@ -389,7 +385,6 @@ async def test_resume_handles_float_string_duration(tmp_path):
         resource_id="E1S01",
         duration_seconds="10.0",
         task_id="T-1",
-        api_call_id=42,
     )
 
     # add_version 应该收到 duration_seconds=10（int），不是 "10.0" 也不是 8
@@ -443,7 +438,6 @@ async def test_resume_passes_usage_tokens_to_finalize(tmp_path):
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=42,
     )
 
     assert len(gen.ledger.resumed) == 1
@@ -454,21 +448,37 @@ async def test_resume_passes_usage_tokens_to_finalize(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_resume_missing_api_call_id_warns_does_not_crash(tmp_path, caplog):
-    """旧任务 task.payload 无 api_call_id → resume 仍成功，仅 warning。"""
+async def test_resume_without_settleable_call_row_warns_does_not_crash(tmp_path, caplog):
+    """按 task_id 反查不到待结算调用行 → resume 仍成功，仅 warning。"""
     gen = _build_generator(tmp_path)
+    gen.ledger = _FakeLedger(pending_call_id=None)
 
     output_path, version, _, _ = await gen.resume_video_async(
         job_id="provider-job-1",
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=None,
     )
 
     assert output_path.exists()
     assert version == 1
-    assert gen.ledger.resumed == [], "无 api_call_id 时不应 finalize"
+    assert gen.ledger.resumed == [], "反查不到调用行时不应 finalize"
+
+
+@pytest.mark.asyncio
+async def test_resume_looks_up_settleable_call_by_task_id(tmp_path):
+    """调用行按任务身份反查，不再由 caller 透传 —— 任务与调用只有 api_calls.task_id 一个真相源。"""
+    gen = _build_generator(tmp_path)
+
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="videos",
+        resource_id="E1S01",
+        task_id="T-1",
+    )
+
+    assert gen.ledger.lookups == ["T-1"]
+    assert gen.ledger.resumed[0]["call_id"] == 42
 
 
 class _FailingResumeLedger(_FakeLedger):
@@ -503,7 +513,6 @@ async def test_resume_success_propagates_finalize_exception(tmp_path):
             resource_type="videos",
             resource_id="E1S01",
             task_id="T-1",
-            api_call_id=42,
         )
 
     # finalize 被调过一次（看到异常上抛前的入参）
@@ -527,7 +536,6 @@ async def test_resume_formal_output_cleans_staging_when_finalize_fails(tmp_path)
             resource_type="reference_videos",
             resource_id="E1U1",
             task_id="T-1",
-            api_call_id=42,
             formal_output=True,
         )
 
@@ -550,7 +558,6 @@ async def test_resume_expired_propagates_finalize_exception(tmp_path):
             resource_type="videos",
             resource_id="E1S01",
             task_id="T-1",
-            api_call_id=42,
         )
 
     assert len(gen.ledger.resumed) == 1
@@ -579,7 +586,6 @@ async def test_resume_expired_cleans_formal_staging_when_finalize_fails(tmp_path
             resource_type="reference_videos",
             resource_id="E1U1",
             task_id="T-1",
-            api_call_id=42,
             formal_output=True,
         )
 
@@ -609,7 +615,6 @@ async def test_resume_cancellation_cleans_partial_formal_staging(tmp_path):
             resource_type="reference_videos",
             resource_id="E1U1",
             task_id="T-1",
-            api_call_id=42,
             formal_output=True,
         )
 
@@ -654,7 +659,6 @@ async def test_resume_passes_generate_audio_to_finalize(tmp_path):
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=42,
     )
 
     assert len(gen.ledger.resumed) == 1
@@ -700,7 +704,6 @@ async def test_resume_passes_billed_duration_to_finalize(tmp_path):
         resource_id="E1S01",
         duration_seconds="8",
         task_id="T-1",
-        api_call_id=42,
     )
 
     assert len(gen.ledger.resumed) == 1
@@ -722,7 +725,6 @@ async def test_resume_forwards_submitted_base_url_to_request(tmp_path):
         resource_type="videos",
         resource_id="E1S01",
         task_id="T-1",
-        api_call_id=42,
         submitted_base_url="https://maas-a.example.com/ws-1/api/v1",
     )
 

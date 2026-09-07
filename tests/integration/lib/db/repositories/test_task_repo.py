@@ -20,21 +20,30 @@ def _translator(locale: str):
 class TestTaskRepository:
     async def test_retry_artifact_download_reopens_same_api_call(self, db_session):
         usage = UsageRepository(db_session)
-        call_id = await usage.start_call(project_name="demo", call_type="video", model="m")
-        await usage.finish_call(
-            call_id,
-            status="failed",
-            settlement=SettlementInput(cost_amount=0),
-            error_message="download failed",
-        )
         repo = TaskRepository(db_session)
         task = await repo.enqueue(
             project_name="demo",
             task_type="video",
             media_type="video",
             resource_id="E1S01",
-            payload={"api_call_id": call_id},
+            payload={},
             provider_id="custom-1",
+        )
+        older_call_id = await usage.start_call(
+            project_name="demo", call_type="video", model="old", task_id=task["task_id"]
+        )
+        await usage.finish_call(
+            older_call_id,
+            status="failed",
+            settlement=SettlementInput(cost_amount=0),
+            error_message="older download failed",
+        )
+        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", task_id=task["task_id"])
+        await usage.finish_call(
+            call_id,
+            status="failed",
+            settlement=SettlementInput(cost_amount=0),
+            error_message="download failed",
         )
         await repo.claim_next("video")
         await repo.persist_provider_job_id(task["task_id"], "job-42", endpoint="ce-1")
@@ -47,24 +56,26 @@ class TestTaskRepository:
 
         assert retried["status"] == "running"
         calls = await usage.get_calls(project_name="demo")
-        assert calls["total"] == 1
+        assert calls["total"] == 2
         assert calls["items"][0]["id"] == call_id
         assert calls["items"][0]["status"] == "pending"
+        assert calls["items"][1]["id"] == older_call_id
+        assert calls["items"][1]["status"] == "failed"
 
     async def test_retry_artifact_download_reopens_api_call_left_pending_by_resume(self, db_session):
         # 落 artifact_download_failed 的任务，其 ApiCall 停在 pending 时同样受理重试；
         # 不受理就意味着产物只能整单重跑、重扣一次费。
         usage = UsageRepository(db_session)
-        call_id = await usage.start_call(project_name="demo", call_type="video", model="m")
         repo = TaskRepository(db_session)
         task = await repo.enqueue(
             project_name="demo",
             task_type="video",
             media_type="video",
             resource_id="E1S03",
-            payload={"api_call_id": call_id},
+            payload={},
             provider_id="custom-1",
         )
+        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", task_id=task["task_id"])
         await repo.claim_next("video")
         await repo.persist_provider_job_id(task["task_id"], "job-44", endpoint="ce-1")
         await repo.mark_failed(task["task_id"], encode_failure("artifact_download_failed", detail="403"))
@@ -79,8 +90,6 @@ class TestTaskRepository:
 
     async def test_retry_artifact_download_leaves_undispatchable_task_failed(self, db_session):
         usage = UsageRepository(db_session)
-        call_id = await usage.start_call(project_name="demo", call_type="video", model="m")
-        await usage.finish_call(call_id, status="failed", settlement=SettlementInput(cost_amount=0))
         repo = TaskRepository(db_session)
         # provider_id 缺席的任务没有派发目标：翻成 running 后无人接手，故资格判定就该拒绝。
         task = await repo.enqueue(
@@ -88,8 +97,10 @@ class TestTaskRepository:
             task_type="video",
             media_type="video",
             resource_id="E1S02",
-            payload={"api_call_id": call_id},
+            payload={},
         )
+        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", task_id=task["task_id"])
+        await usage.finish_call(call_id, status="failed", settlement=SettlementInput(cost_amount=0))
         await repo.claim_next("video")
         await repo.persist_provider_job_id(task["task_id"], "job-43", endpoint="ce-1")
         await repo.mark_failed(task["task_id"], encode_failure("artifact_download_failed", detail="403"))
@@ -99,6 +110,29 @@ class TestTaskRepository:
 
         assert (await repo.get(task["task_id"]))["status"] == "failed"
         assert (await usage.get_calls(project_name="demo"))["items"][0]["status"] == "failed"
+
+    async def test_retry_artifact_download_rejects_task_without_linked_call(self, db_session):
+        """调用行按 api_calls.task_id 反查；历史任务的调用没有这层关联时拒绝重试，不新开计费行。"""
+        usage = UsageRepository(db_session)
+        repo = TaskRepository(db_session)
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S04",
+            payload={},
+            provider_id="custom-1",
+        )
+        call_id = await usage.start_call(project_name="demo", call_type="video", model="m")
+        await usage.finish_call(call_id, status="failed", settlement=SettlementInput(cost_amount=0))
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(task["task_id"], "job-45", endpoint="ce-1")
+        await repo.mark_failed(task["task_id"], encode_failure("artifact_download_failed", detail="403"))
+
+        with pytest.raises(ValueError, match=r"task has no settleable api call"):
+            await repo.retry_artifact_download(task["task_id"])
+
+        assert (await repo.get(task["task_id"]))["status"] == "failed"
 
     async def test_enqueue_dedupe_claim_succeed(self, db_session):
         repo = TaskRepository(db_session)
@@ -650,83 +684,6 @@ class TestTaskRepository:
         stats = await repo.get_stats()
         assert stats["cancelled"] == 1
         assert stats["queued"] == 0
-
-
-class TestPersistApiCallId:
-    """persist_api_call_id：read-modify-write 写入 task.payload["api_call_id"]。"""
-
-    async def _enqueue(self, repo: TaskRepository, *, payload=None) -> str:
-        # 不用 `payload or {...}`——空 dict {} 会被 falsy 回退为默认值
-        if payload is None:
-            payload = {"prompt": "p"}
-        result = await repo.enqueue(
-            project_name="demo",
-            task_type="video",
-            media_type="video",
-            resource_id="E1S01",
-            payload=payload,
-            script_file="ep1.json",
-        )
-        return result["task_id"]
-
-    async def test_persist_writes_api_call_id_into_payload(self, db_session):
-        repo = TaskRepository(db_session)
-        task_id = await self._enqueue(repo, payload={"prompt": "p"})
-
-        await repo.persist_api_call_id(task_id, 42)
-
-        task = await repo.get(task_id)
-        assert task is not None
-        assert task["payload"]["api_call_id"] == 42
-        assert task["payload"]["prompt"] == "p", "其它 payload 字段不应被覆盖"
-
-    async def test_persist_overwrites_existing_api_call_id(self, db_session):
-        """重试场景：同一 task 第二次走 generate 写新 call_id 应覆盖。"""
-        repo = TaskRepository(db_session)
-        task_id = await self._enqueue(repo)
-
-        await repo.persist_api_call_id(task_id, 10)
-        await repo.persist_api_call_id(task_id, 20)
-
-        task = await repo.get(task_id)
-        assert task is not None
-        assert task["payload"]["api_call_id"] == 20
-
-    async def test_persist_handles_empty_payload(self, db_session):
-        """Payload 为空 JSON 也能正常写。"""
-        repo = TaskRepository(db_session)
-        task_id = await self._enqueue(repo, payload={})
-
-        await repo.persist_api_call_id(task_id, 7)
-
-        task = await repo.get(task_id)
-        assert task is not None
-        assert task["payload"] == {"api_call_id": 7}
-
-    async def test_persist_raises_when_task_not_found(self, db_session):
-        """task_id 不存在 → 显式 ValueError，避免静默 commit 让上层以为已持久化。"""
-        repo = TaskRepository(db_session)
-        with pytest.raises(ValueError, match="task not found"):
-            await repo.persist_api_call_id("nonexistent-task-id", 42)
-
-    async def test_persist_handles_null_payload_json_row(self, db_session):
-        """task 存在但 payload_json IS NULL（迁移历史/旧任务）→ 走 first() 判存在性，不应误判 task not found。"""
-        from sqlalchemy import update as sql_update
-
-        from lib.db.models.task import Task
-
-        repo = TaskRepository(db_session)
-        task_id = await self._enqueue(repo, payload={"prompt": "p"})
-        # 模拟历史/迁移数据 payload_json IS NULL（Task.payload_json 是 Mapped[str | None]）
-        await db_session.execute(sql_update(Task).where(Task.task_id == task_id).values(payload_json=None))
-        await db_session.commit()
-
-        # 不应抛 ValueError——行存在
-        await repo.persist_api_call_id(task_id, 99)
-
-        task = await repo.get(task_id)
-        assert task is not None
-        assert task["payload"] == {"api_call_id": 99}
 
 
 class TestCancelCascadeAcrossCancelling:
