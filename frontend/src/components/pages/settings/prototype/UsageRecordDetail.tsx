@@ -1,5 +1,5 @@
 // PROTOTYPE — wayfinder #2290 记录详情：`record=<id>` 深链打开的居中弹窗，字段分组对齐 #2288 的 UsageRecord
-//（调用 / 产出 / 用量 / 参考费用 / 失败原因；prompt 与供应商原始响应默认折叠）。列表接口不带的字段在此用假数据补齐。评审后整目录删除。
+//（失败原因 / 输入：prompt、参考图、首帧、音色、参数 / 调用 / 产出 / 用量 / 参考费用；供应商原始响应默认折叠）。列表接口不带的字段在此用假数据补齐。评审后整目录删除。
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, ExternalLink, X } from "lucide-react";
@@ -14,23 +14,39 @@ function fullTime(iso: string | null) {
   return new Date(iso).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-/** 仅详情接口返回的字段（prompt / last_provider_response / 产出参数）按媒体类型伪造。 */
+interface RefImage {
+  label: string;
+  path: string;
+  hue: number;
+}
+
+/** 仅详情接口返回的字段（prompt / last_provider_response / 输入与产出参数）按媒体类型伪造。 */
 function extrasOf(r: UsageRecord) {
   const seg = r.segment_id ?? "E1S1";
   const prompt =
     r.media_type === "text"
-      ? `你是分镜编剧。根据下面的分集大纲，为第 ${seg.slice(1, 2)} 集写出逐镜脚本，每镜给出画面、台词与时长……`
+      ? `你是分镜编剧。根据下面的分集大纲，为第 ${seg.slice(1, 2)} 集写出逐镜脚本，每镜给出画面、台词与时长。\n\n大纲：雨夜，侦探在末班车站台等一个不会来的人……`
       : r.media_type === "audio"
         ? `（旁白，低沉）雨还没停。月台上只剩他一个人，和一盏忽明忽暗的灯。`
         : `分镜 ${seg}：雨夜的车站月台，霓虹倒映在积水里，镜头从远处缓慢推向站在灯下的侦探，冷色调，胶片颗粒。`;
-  const output =
+  const refs: RefImage[] =
+    r.media_type === "image"
+      ? [
+          { label: "角色 · 侦探", path: "characters/detective/sheet.png", hue: 290 },
+          { label: "场景 · 月台", path: "scenes/platform/ref.png", hue: 220 },
+        ]
+      : r.media_type === "video"
+        ? [{ label: "首帧 · 本分镜图片 v3", path: `segments/${seg}/image_v3.png`, hue: 250 }]
+        : [];
+  const voice = r.media_type === "audio" ? "Adam · 旁白" : null;
+  const params: Array<[string, string]> =
     r.media_type === "video"
-      ? { 分辨率: "1280 × 720", 时长: "5 s", 画幅: "16:9" }
+      ? [["分辨率", "1280 × 720"], ["画幅", "16:9"], ["时长", "5 s"], ["生成音频", "否"]]
       : r.media_type === "image"
-        ? { 分辨率: "1024 × 1024", 画幅: "1:1" }
+        ? [["分辨率", "1024 × 1024"], ["画幅", "1:1"]]
         : r.media_type === "audio"
-          ? { 时长: "12 s" }
-          : null;
+          ? [["格式", "mp3 · 44.1 kHz"]]
+          : [["温度", "0.7"], ["最大输出", "8 192 tokens"]];
   const response = {
     id: `resp_${r.id.toString(36)}`,
     model: r.model,
@@ -39,7 +55,21 @@ function extrasOf(r: UsageRecord) {
     ...(r.input_tokens !== null ? { usage: { input_tokens: r.input_tokens, output_tokens: r.output_tokens } } : {}),
     created_at: r.started_at,
   };
-  return { prompt, output, response };
+  return { prompt, refs, voice, params, response };
+}
+
+function Thumb({ img }: { img: RefImage }) {
+  return (
+    <figure className="w-[92px] min-w-0">
+      <div
+        className="aspect-square w-full rounded-[6px] border border-hairline"
+        style={{ background: `linear-gradient(145deg, oklch(0.34 0.06 ${img.hue}), oklch(0.20 0.03 ${img.hue}))` }}
+        role="img"
+        aria-label={img.label}
+      />
+      <figcaption className="mt-1 truncate text-[10.5px] text-text-3" title={img.path}>{img.label}</figcaption>
+    </figure>
+  );
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -126,6 +156,19 @@ export function RecordDetailPanel({ record: r, onClose }: { record: UsageRecord;
             </section>
           )}
 
+          <Group kicker="Inputs">
+            <p className="whitespace-pre-wrap rounded-[6px] bg-bg-grad-b/60 px-3 py-2 text-[12px] leading-[1.6] text-text-2">{x.prompt}</p>
+            {x.refs.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap gap-3">
+                {x.refs.map((img) => <Thumb key={img.path} img={img} />)}
+              </div>
+            )}
+            <div className="mt-2">
+              {x.voice && <Field label="音色">{x.voice}</Field>}
+              {x.params.map(([k, v]) => <Field key={k} label={k}><span className="num">{v}</span></Field>)}
+            </div>
+          </Group>
+
           <Group kicker="Call">
             <Field label="供应商">{providerLabel(r.provider)}</Field>
             <Field label="模型"><span className="font-mono">{r.model}</span></Field>
@@ -136,17 +179,19 @@ export function RecordDetailPanel({ record: r, onClose }: { record: UsageRecord;
             <Field label="耗时"><span className="num">{durationLabel(r.duration_ms)}</span></Field>
           </Group>
 
-          {(x.output || r.output_path) && (
+          {r.output_path && (
             <Group kicker="Output">
-              {x.output && Object.entries(x.output).map(([k, v]) => <Field key={k} label={k}><span className="num">{v}</span></Field>)}
-              {r.output_path && (
-                <Field label="文件">
-                  <button type="button" className="inline-flex items-center gap-1 font-mono text-[11.5px] text-accent-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                    {r.output_path}
-                    <ExternalLink className="h-3 w-3" />
-                  </button>
-                </Field>
-              )}
+              <div className="flex items-start gap-3">
+                {r.media_type !== "audio" && <Thumb img={{ label: r.media_type === "video" ? "视频 · 首帧" : "图片", path: r.output_path, hue: 150 }} />}
+                <div className="min-w-0 flex-1">
+                  <Field label="文件">
+                    <button type="button" className="inline-flex max-w-full items-center gap-1 font-mono text-[11.5px] text-accent-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                      <span className="truncate">{r.output_path}</span>
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                    </button>
+                  </Field>
+                </div>
+              </div>
             </Group>
           )}
 
@@ -165,9 +210,6 @@ export function RecordDetailPanel({ record: r, onClose }: { record: UsageRecord;
             <div className="mt-1 text-[11px] text-text-4">{r.cost_amount > 0 ? "按你配置的单价估算，只作参考" : "未产生费用"}</div>
           </Group>
 
-          <Fold title="Prompt">
-            <p className="whitespace-pre-wrap rounded-[6px] bg-bg-grad-b/60 px-3 py-2 text-[12px] leading-[1.6] text-text-2">{x.prompt}</p>
-          </Fold>
           <Fold title="供应商原始响应">
             <pre className="overflow-x-auto rounded-[6px] bg-bg-grad-b/60 px-3 py-2 font-mono text-[10.5px] leading-[1.55] text-text-3">{JSON.stringify(x.response, null, 2)}</pre>
           </Fold>
