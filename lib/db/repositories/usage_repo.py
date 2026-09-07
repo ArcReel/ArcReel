@@ -384,6 +384,8 @@ class UsageRepository(BaseRepository):
         settlement: SettlementInput,
         output_path: str | None = None,
         error_message: str | None = None,
+        error_code: str | None = None,
+        error_params: dict[str, object] | None = None,
     ) -> None:
         finished_at = utc_now()
 
@@ -422,6 +424,8 @@ class UsageRepository(BaseRepository):
                 text_output_tokens=settlement.text_output_tokens,
                 output_path=output_path,
                 error_message=error_truncated,
+                error_code=error_code,
+                error_params=error_params,
             )
         )
         await self.session.commit()

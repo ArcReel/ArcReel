@@ -5,7 +5,8 @@
 1. **记账括号**（``record`` async context manager）—— image / audio / video / text 四条生成
    路径用。进入即落 pending 行并在块内暴露 ``call_id``（视频路径先持久化 call_id 再调
    backend）；成功以 ``call.success(result)`` 显式递交 backend 结果对象；``Exception`` 分支自动
-   翻 failed（错误信息截断）后原样重抛，且记账失败不吞原异常；``CancelledError`` 先结算为
+   翻 failed（原文截断落 ``error_message``，可识别的失败类别另落 ``error_code`` + ``error_params``，
+   见 :mod:`lib.call_failure`）后原样重抛，且记账失败不吞原异常；``CancelledError`` 先结算为
    cancelled（零费用）再原样重抛；正常退出未声明成功抛 ``RuntimeError``。
 2. **resume 补账**（``resume_success`` / ``resume_failed`` / ``resume_cancelled``）—— 按 ``call_id`` 精准翻 pending，
    幂等守卫（``WHERE status='pending'``）由仓储承担；finalize 自身异常不吞、直接冒泡（交
@@ -29,6 +30,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, assert_never
 
+from lib.call_failure import classify_call_failure
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
@@ -243,11 +245,18 @@ class Ledger:
             )
 
     async def _finish_failed(self, call_id: int, exc: BaseException) -> None:
-        # 记账失败不吞原异常：写入失败仅记日志，原异常继续冒泡。
+        # 记账失败不吞原异常：写入失败仅记日志，原异常继续冒泡。分类也在 try 内：它读的是异常
+        # 自身的属性，真抛出来也只该跟写入失败同样处理，不该顶替原异常冒出去。
         try:
+            failure = classify_call_failure(exc)
             async with self._session_factory() as session:
                 await UsageRepository(session).finish_call(
-                    call_id, status=CallStatus.FAILED, settlement=SettlementInput(), error_message=str(exc)
+                    call_id,
+                    status=CallStatus.FAILED,
+                    settlement=SettlementInput(),
+                    error_message=failure.error_message,
+                    error_code=failure.error_code,
+                    error_params=failure.error_params,
                 )
         except Exception:
             logger.exception("ledger 失败分支记账写入自身失败 call_id=%s（原异常照常重抛）", call_id)

@@ -1,7 +1,8 @@
-"""HTTP 状态错误的脱敏封装。
+"""供应商 HTTP 失败的共享异常：脱敏后的状态错误与产物取件失败。
 
 独立于 backend 层：``lib.vidu_shared`` 等 backend 之下的共享模块也要抛脱敏后的状态错误，
-放在 ``lib.video_backends.base`` 会把它们拖成 backend 层的下游。
+放在 ``lib.video_backends.base`` 会把它们拖成 backend 层的下游；``lib.call_failure``
+（记账层的失败分类）同理——它按异常类型认出「下载失败」，而记账层在 backend 层之下。
 """
 
 from __future__ import annotations
@@ -30,6 +31,16 @@ class ProviderRejectedError(httpx.HTTPStatusError):
     ) -> None:
         super().__init__(message, request=request, response=response)
         self.provider_reason = provider_reason
+
+
+class ArtifactDownloadError(RuntimeError):
+    """供应商任务已成功、仅产物下载耗尽，可接续原任务重试取件。"""
+
+    code = "artifact_download_failed"
+
+    def __init__(self, *, detail: str) -> None:
+        self.params = {"detail": detail}
+        super().__init__(detail)
 
 
 def redacted_status_error(exc: httpx.HTTPStatusError, *, provider_reason: str | None = None) -> httpx.HTTPStatusError:
