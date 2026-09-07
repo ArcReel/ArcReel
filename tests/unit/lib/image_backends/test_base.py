@@ -1,3 +1,4 @@
+from dataclasses import fields
 from pathlib import Path
 
 from lib.image_backends.base import (
@@ -13,10 +14,10 @@ def test_image_capability_is_str_enum():
     assert ImageCapability.IMAGE_TO_IMAGE == "image_to_image"
 
 
-def test_reference_image_defaults():
+def test_reference_image_carries_only_the_path():
     ref = ReferenceImage(path="/tmp/test.png")
     assert ref.path == "/tmp/test.png"
-    assert ref.label == ""
+    assert [f.name for f in fields(ref)] == ["path"]
 
 
 def test_image_generation_request_defaults():

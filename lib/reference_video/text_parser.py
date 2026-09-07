@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import unicodedata
-from collections.abc import Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
 
 from lib.asset_types import asset_name_comparison_key
@@ -376,6 +376,28 @@ def derive_references_from_text(text: str, project: dict) -> tuple[list[Referenc
     正文在编辑器与生成侧派生出不同的 ``图N`` 编号。
     """
     return resolve_references(extract_mentions(text), project)
+
+
+def render_mentions(text: str, render: Callable[[str], str]) -> str:
+    """把正文中每个 ``@[X]`` / ``@X`` 就地换成 ``render(X)`` 的返回值。
+
+    名字先归一到比对坐标系再交给 ``render``（NFD 落盘的 ``@[名称]`` 与 NFC 登记的同一个
+    名字因此同判）；mention 之外的文本一个字节都不动——没有记号的正文原样返回，格式写坏而
+    解析不出的记号也原样保留。分镜图 / 宫格图路线用它把 ``@[名称]`` 换成参考图编号，
+    :func:`render_mentions_as_subjects` 则是参考生视频路线的主体记号形态。
+    """
+    if "@" not in text:
+        return text
+    parts: list[str] = []
+    last = 0
+    for start, end, name in _iter_mentions(text):
+        parts.append(text[last:start])
+        parts.append(render(asset_name_comparison_key(name)))
+        last = end
+    if last == 0:
+        return text
+    parts.append(text[last:])
+    return "".join(parts)
 
 
 def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:

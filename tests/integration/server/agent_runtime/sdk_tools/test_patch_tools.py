@@ -354,6 +354,31 @@ class TestPatchEpisodeScript:
         assert saved[0]["duration_seconds"] == 6
         assert saved[1]["video_prompt"]["action"] == "抬头"
 
+    async def test_unbound_scene_mentions_are_reported_as_warnings(self, ctx: ToolContext) -> None:
+        """画面描述里的 @[名称] 对不上该分镜引用字段或未登记时，提交成功但带 warnings。"""
+        from lib.storyboard_mentions import WARN_STORYBOARD_MENTION_UNBOUND
+
+        out = await _patch(
+            ctx,
+            [{"op": "update", "id": "E1S02", "fields": {"image_prompt.scene": "@[角色A]与@[无名路人]对视"}}],
+        )
+
+        assert out.get("is_error") is not True
+        assert out["script_edit"]["warnings"] == [
+            {"key": WARN_STORYBOARD_MENTION_UNBOUND, "params": {"unit_id": "E1S02", "name": "无名路人"}}
+        ]
+        assert "无名路人" in _text(out)
+        assert _load(ctx)["segments"][1]["image_prompt"]["scene"] == "@[角色A]与@[无名路人]对视"
+
+    async def test_bound_scene_mentions_raise_no_warning(self, ctx: ToolContext) -> None:
+        out = await _patch(
+            ctx,
+            [{"op": "update", "id": "E1S02", "fields": {"image_prompt.scene": "@[角色A]转身离开"}}],
+        )
+
+        assert out.get("is_error") is not True
+        assert out["script_edit"]["warnings"] == []
+
     async def test_single_edit_is_length_one_map(self, ctx: ToolContext) -> None:
         """单条编辑 = 长度 1 的 map（不再有 id/field/value 单条形态）。"""
         out = await _call(

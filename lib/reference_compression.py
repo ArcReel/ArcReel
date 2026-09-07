@@ -73,7 +73,6 @@ class ReferenceSpec:
     """待压缩的参考图来源。"""
 
     source: Path
-    label: str
     role: RefRole
 
 
@@ -85,7 +84,6 @@ class CompressedRef:
     """
 
     path: Path
-    label: str
     role: RefRole
 
 
@@ -231,8 +229,8 @@ def compressed_reference_payload(
 
     透传（compress 返回与输入同一对象，未重编码）的项一律用**原始源路径**，不写临时副本：
     既省一次拷贝、避免 PNG 字节落进 .jpg 后缀造成 MIME 错配，也最大保真（FRAME 像素匹配）。
-    被重编码的项写入临时文件，文件名**沿用源 stem**（如 ``张三.jpg``）——gemini 等后端在
-    label 为空时按文件名 stem 推断参考图名称，随机临时名会注入错误标签、毁掉 I2I 角色识别。
+    被重编码的项写入临时文件，文件名**沿用源 stem**（如 ``张三.jpg``），仅为日志与临时目录
+    可读；参考图身份由 prompt 内按序位的「图N」指认，后端不从文件名推断任何名称。
 
     yield 出的 landed_step 是 select_ladder_step 的实际落定档位——被动 413 续档须据此续档
     （否则 off-by-step）。
@@ -262,7 +260,7 @@ def compressed_reference_payload(
             spec = specs[idx]
             if data is compressible_raws[k]:
                 # 透传：未重编码，直接用原始源路径（不写临时副本）。
-                by_index[idx] = CompressedRef(path=Path(spec.source), label=spec.label, role=spec.role)
+                by_index[idx] = CompressedRef(path=Path(spec.source), role=spec.role)
                 continue
             # 重编码：写临时文件，按 idx 分子目录避免重名，文件名沿用源 stem 保留参考图名。
             if temp_root is None:
@@ -271,14 +269,14 @@ def compressed_reference_payload(
             sub.mkdir()
             tmp_path = sub / f"{Path(spec.source).stem}.jpg"
             tmp_path.write_bytes(data)
-            by_index[idx] = CompressedRef(path=tmp_path, label=spec.label, role=spec.role)
+            by_index[idx] = CompressedRef(path=tmp_path, role=spec.role)
 
         merged: list[CompressedRef] = []
         for i, spec in enumerate(specs):
             ref = by_index.get(i)
             if ref is None:
                 # 非本地 / 不可解码透传项：保留原路径，交回 backend 按旧行为处理。
-                ref = CompressedRef(path=Path(spec.source), label=spec.label, role=spec.role)
+                ref = CompressedRef(path=Path(spec.source), role=spec.role)
             merged.append(ref)
 
         yield landed_step, merged

@@ -224,13 +224,13 @@ def plan_frame_slots(
 
     if isinstance(start_image, (str, Path)):
         start_index = len(specs)
-        specs.append(ReferenceSpec(source=Path(start_image), label="", role=RefRole.FRAME))
+        specs.append(ReferenceSpec(source=Path(start_image), role=RefRole.FRAME))
     if end_image is not None:
         end_index = len(specs)
-        specs.append(ReferenceSpec(source=Path(end_image), label="", role=RefRole.FRAME))
+        specs.append(ReferenceSpec(source=Path(end_image), role=RefRole.FRAME))
     if reference_images:
         reference_start_index = len(specs)
-        specs.extend(ReferenceSpec(source=Path(r), label="", role=RefRole.ARRAY) for r in reference_images)
+        specs.extend(ReferenceSpec(source=Path(r), role=RefRole.ARRAY) for r in reference_images)
 
     return FrameSlotPlan(
         specs=specs,

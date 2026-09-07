@@ -8,6 +8,7 @@ from lib.reference_video.text_parser import (
     leading_mention_before_colon,
     line_speech_marks,
     mention_names,
+    render_mentions,
     render_mentions_as_subjects,
     resolve_references,
     rewrite_mentions,
@@ -432,3 +433,24 @@ class TestRewriteDerivativeMentions:
 
     def test_other_characters_derivatives_are_untouched(self):
         assert rewrite_mentions("@[王五/劲装]", "张三", "李四") == ("@[王五/劲装]", 0)
+
+
+# ── render_mentions ─────────────────────────────────────────
+
+
+def test_render_mentions_hands_each_name_to_the_renderer_in_comparison_form():
+    """每个 mention 的名字（含衍生形态）以比对坐标系交给渲染函数，替换文本落回原位。"""
+    mapping = {"张三": "图1", "张三/黑化": "图2"}
+    text = "@[张三]坐在窗边，@[怀表]与 @[李四] 同框；@[张三/黑化]立在门口"
+    assert render_mentions(text, lambda name: mapping.get(name, name)) == "图1坐在窗边，怀表与 李四 同框；图2立在门口"
+
+
+def test_render_mentions_matches_across_unicode_forms():
+    nfc = unicodedata.normalize("NFC", "Hiếu")
+    nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert render_mentions(f"@[{nfd}] 抬头", lambda name: "图1" if name == nfc else name) == "图1 抬头"
+
+
+def test_render_mentions_without_mentions_returns_the_exact_text():
+    nfd_text = unicodedata.normalize("NFD", "Hiếu 抬头看向窗外")
+    assert render_mentions(nfd_text, lambda name: "图1") is nfd_text

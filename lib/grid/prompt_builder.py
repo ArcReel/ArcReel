@@ -1,9 +1,20 @@
-"""Grid prompt builder for grid-image-to-video feature."""
+"""Grid prompt builder for grid-image-to-video feature.
+
+参考图与分镜图同一口径：prompt 首行为 ``Reference_Images`` 类型声明，各格正文里的 ``@[登记名]``
+按最终参考图列表的序位换成「图N」（见 :mod:`lib.reference_image_numbering`）。
+"""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from math import gcd
+
+from lib.reference_image_numbering import (
+    REFERENCE_IMAGES_KEY,
+    ReferenceImageSlot,
+    reference_images_declaration,
+    render_reference_mentions,
+)
 
 
 def project_grid_image_prompt(image_prompt: object) -> str | dict[str, object]:
@@ -34,19 +45,19 @@ def project_grid_image_prompt(image_prompt: object) -> str | dict[str, object]:
     return {"scene": scene, "composition": composition}
 
 
-def _extract_image_desc(scene: dict) -> str:
+def _extract_image_desc(scene: dict, references: Sequence[ReferenceImageSlot] = ()) -> str:
     """Extract image description from a scene.
 
     If image_prompt is a dict, join scene + composition fields.
-    If string, return as-is.
+    If string, return as-is. ``@[登记名]`` in the scene text is rendered against *references*.
     """
     image_prompt = project_grid_image_prompt(scene.get("image_prompt", ""))
     if isinstance(image_prompt, str):
-        return image_prompt
+        return render_reference_mentions(image_prompt, references)
     parts: list[str] = []
     scene_text = image_prompt["scene"]
     if scene_text:
-        parts.append(str(scene_text))
+        parts.append(render_reference_mentions(str(scene_text), references))
     composition = image_prompt["composition"]
     if isinstance(composition, Mapping):
         comp_parts = [f"{key}: {value}" for key, value in composition.items()]
@@ -87,7 +98,7 @@ def build_grid_prompt(
     style: str,
     aspect_ratio: str = "16:9",
     grid_aspect_ratio: str | None = None,
-    reference_image_mapping: dict[str, str] | None = None,
+    references: Sequence[ReferenceImageSlot] = (),
 ) -> str:
     """Assemble a grid image generation prompt with first-last frame chain structure.
 
@@ -98,7 +109,8 @@ def build_grid_prompt(
         cols: Number of columns in the grid.
         style: Style description for the grid.
         aspect_ratio: Aspect ratio for each cell (default "16:9").
-        reference_image_mapping: Optional mapping of image labels to character names.
+        references: The reference images sent with the request, in array order; they are
+            declared as 图N on the first line and addressed as such in the cell texts.
 
     Returns:
         Assembled prompt string.
@@ -121,6 +133,11 @@ def build_grid_prompt(
     panel_ar = _compute_panel_aspect(effective_grid_ar, rows, cols)
 
     lines: list[str] = []
+
+    declaration = reference_images_declaration(references)
+    if declaration:
+        lines.append(f"{REFERENCE_IMAGES_KEY}: {declaration}")
+        lines.append("")
 
     # Header
     lines.append(
@@ -146,13 +163,6 @@ def build_grid_prompt(
     lines.append("- 相邻格之间应体现画面的自然过渡和动作延续")
     lines.append("")
 
-    # Reference images (optional)
-    if reference_image_mapping:
-        lines.append("【参考图说明】")
-        for label, character in reference_image_mapping.items():
-            lines.append(f"- {label}：{character}")
-        lines.append("")
-
     # Cell contents
     lines.append("【各格内容】")
 
@@ -165,7 +175,7 @@ def build_grid_prompt(
             # First scene opening
             scene = scenes[0]
             scene_id = scene.get(id_field, "")
-            image_desc = _extract_image_desc(scene)
+            image_desc = _extract_image_desc(scene, references)
             lines.append(f"格{cell_idx}（{position}）— {scene_id}开场：")
             lines.append(f"  {image_desc}")
 
@@ -176,7 +186,7 @@ def build_grid_prompt(
             prev_scene_id = prev_scene.get(id_field, "")
             next_scene_id = next_scene.get(id_field, "")
             prev_action = _extract_action(prev_scene)
-            next_image_desc = _extract_image_desc(next_scene)
+            next_image_desc = _extract_image_desc(next_scene, references)
             lines.append(f"格{cell_idx}（{position}）— {prev_scene_id}→{next_scene_id}过渡：")
             lines.append(f"  {prev_action}，过渡到 {next_image_desc}")
 

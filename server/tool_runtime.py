@@ -1870,6 +1870,14 @@ async def plan_episodes(
     )
 
 
+def _text_result_payload(value: TextGenerationResult) -> dict[str, Any]:
+    """任务结果里的文本回执：``warnings`` 只在非空时写入，读侧按 ``result.warnings`` 渲染。"""
+    payload: dict[str, Any] = {"message": value.message}
+    if value.warnings:
+        payload["warnings"] = list(value.warnings)
+    return payload
+
+
 async def execute_queued_text_task(
     task: dict[str, Any], *, planner_cls: type[EpisodePlanner] = EpisodePlanner
 ) -> dict[str, Any]:
@@ -1919,9 +1927,11 @@ async def execute_queued_text_task(
     value = outcome.value
     if isinstance(value, CompensableTextGenerationResult):
         return CompensableGenerationResult(
-            value.payload or {"message": value.message},
+            value.payload or _text_result_payload(value),
             cancel_compensation=value.compensate_cancelled,
         )
+    if isinstance(value, TextGenerationResult):
+        return _text_result_payload(value)
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json")
     if is_dataclass(value) and not isinstance(value, type):

@@ -12,9 +12,16 @@ from typing import Any, get_args
 import yaml
 
 from lib.asset_types import normalize_asset_bucket, normalize_asset_name
+from lib.reference_image_numbering import REFERENCE_IMAGES_KEY
 from lib.script_models import CameraMotion, ShotType
 
 logger = logging.getLogger(__name__)
+
+#: 反向约束的 YAML 键：分镜图置于 ``Composition`` 之后，视频置于 ``Dialogue`` 之后。
+AVOID_KEY = "Avoid"
+#: 分镜图与视频的反向条目各自定义，内容相同也不合并（同 ``lib.prompt_builders`` 的资产图反向提示词）。
+STORYBOARD_AVOID_ITEMS = "水印、多余文字、Logo"
+VIDEO_AVOID_ITEMS = "BGM、文字字幕、水印"
 
 # 风格值开头的「画风：」前缀（全角/半角冒号）。新版风格模版已去前缀，此处兼容存量 project.json。
 _STYLE_PREFIX_RE = re.compile(r"^画风[：:]\s*")
@@ -34,7 +41,7 @@ SHOT_TYPES: list[str] = list(get_args(ShotType))
 CAMERA_MOTIONS: list[str] = list(get_args(CameraMotion))
 
 
-def image_prompt_to_yaml(image_prompt: dict, project_style: str) -> str:
+def image_prompt_to_yaml(image_prompt: dict, project_style: str, *, reference_images: str = "") -> str:
     """
     将 imagePrompt 结构转换为 YAML 格式字符串
 
@@ -49,19 +56,22 @@ def image_prompt_to_yaml(image_prompt: dict, project_style: str) -> str:
                 }
             }
         project_style: 项目级风格设置（从 project.json 读取）
+        reference_images: 参考图类型声明行的值（``lib.reference_image_numbering``），非空时作为
+            ``Reference_Images`` 键插在 ``Style`` 与 ``Scene`` 之间
 
     Returns:
-        YAML 格式字符串，用于 Gemini API 调用
+        YAML 格式字符串，键序 Style / Reference_Images / Scene / Composition / Avoid
     """
-    ordered = {
-        "Style": normalize_style(project_style),
-        "Scene": image_prompt["scene"],
-        "Composition": {
-            "shot_type": image_prompt["composition"]["shot_type"],
-            "lighting": image_prompt["composition"]["lighting"],
-            "ambiance": image_prompt["composition"]["ambiance"],
-        },
+    ordered: dict[str, Any] = {"Style": normalize_style(project_style)}
+    if reference_images:
+        ordered[REFERENCE_IMAGES_KEY] = reference_images
+    ordered["Scene"] = image_prompt["scene"]
+    ordered["Composition"] = {
+        "shot_type": image_prompt["composition"]["shot_type"],
+        "lighting": image_prompt["composition"]["lighting"],
+        "ambiance": image_prompt["composition"]["ambiance"],
     }
+    ordered[AVOID_KEY] = STORYBOARD_AVOID_ITEMS
     return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
@@ -121,7 +131,7 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
             }
 
     Returns:
-        YAML 格式字符串，用于 Veo API 调用
+        YAML 格式字符串，以 ``Avoid`` 反向约束键收尾
     """
     dialogue = [{"Speaker": d["speaker"], "Line": d["line"]} for d in video_prompt.get("dialogue", [])]
     voice_profiles = video_prompt.get("voice_profiles") or []
@@ -138,6 +148,7 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     # 仅在有对话时添加 Dialogue 字段
     if dialogue:
         ordered["Dialogue"] = dialogue
+    ordered[AVOID_KEY] = VIDEO_AVOID_ITEMS
 
     return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
@@ -181,7 +192,7 @@ def normalize_video_prompt(prompt: object) -> str:
         "dialogue": normalized_dialogue,
         "voice_profiles": prompt.get("voice_profiles") or [],
     }
-    return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt))
+    return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt).rstrip())
 
 
 def render_storyboard_video_prompt(
@@ -229,10 +240,10 @@ def _attach_drama_speech_text(text: str, item: Mapping[str, Any] | None, *, char
     if characters is not None:
         voice_profiles = _build_voice_profiles(dialogue, characters)
         if voice_profiles:
-            sections.append(_speech_section({"Voice_Profiles": voice_profiles}))
+            sections.append(yaml_section({"Voice_Profiles": voice_profiles}))
     if dialogue:
         sections.append(
-            _speech_section({"Dialogue": [{"Speaker": entry["speaker"], "Line": entry["line"]} for entry in dialogue]})
+            yaml_section({"Dialogue": [{"Speaker": entry["speaker"], "Line": entry["line"]} for entry in dialogue]})
         )
     pending = [section for section in sections if section not in text]
     if not pending:
@@ -240,8 +251,12 @@ def _attach_drama_speech_text(text: str, item: Mapping[str, Any] | None, *, char
     return f"{text.rstrip()}\n\n" + "\n".join(pending) + "\n"
 
 
-def _speech_section(ordered: dict[str, Any]) -> str:
-    """渲染一个发声声明段，键名与缩进沿用 ``video_prompt_to_yaml``，两种形态判重可比。"""
+def yaml_section(ordered: dict[str, Any]) -> str:
+    """渲染一个可独立追加到文本形态提示词的 YAML 段（无尾随换行）。
+
+    键名与缩进沿用 ``image_prompt_to_yaml`` / ``video_prompt_to_yaml``：发声声明段、参考图类型
+    声明行与 ``Avoid`` 反向约束在结构形态与文本形态下逐字同形，文本形态才能按内容判重。
+    """
     return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False).rstrip()
 
 

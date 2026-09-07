@@ -43,15 +43,16 @@ class TestAdProductFidelityStoryboard:
         assert [reference["kind"] for reference in refs[:2]] == ["sheet", "original"]
         assert [path.name for path in paths[:2]] == ["0000-保温杯.png", "0001-保温杯_1.jpg"]
         assert generator.image_reference_bytes[0][:2] == [b"png", b"jpg"]
-        # 既有装配照常跟在商品参考之后（角色/场景 sheet + 上一分镜衔接参考）
-        assert {reference.get("label") for reference in refs[2:] if isinstance(reference, dict)} >= {"Alice", "祠堂"}
-        # 商品参考带可读标签（供支持 label 的后端内联）
-        assert all(isinstance(r, dict) and "保温杯" in r["label"] for r in refs[:2])
-        # 附高保真还原指令
+        # 既有装配照常跟在商品参考之后（角色/场景 sheet）
+        assert [path.name for path in paths[2:]] == ["0002-Alice.png", "0003-祠堂.png"]
+        # 商品参考在声明行里按序位点名并附完全一致约束，参考图本身不带任何标签
         prompt = generator.image_calls[0]["prompt"]
-        assert prompt.startswith("Style: Anime\nVisual style: cinematic")
+        assert prompt.startswith(
+            "Style: Anime\nVisual style: cinematic\n"
+            "Reference_Images: 图1、图2为商品参考图，画面中的商品须与之完全一致；图3为角色参考图；图4为场景参考图。\n"
+        )
         assert "\n\n商品特写\n\n" in prompt
-        assert "「保温杯」" in prompt
+        assert "保温杯" not in prompt
 
     async def test_product_shot_without_sheet_injects_originals_directly(self, tmp_path, monkeypatch):
         """无 sheet 的商品分镜：原图直注、仍排首位；声明但缺失的原图跳过。"""
@@ -71,10 +72,10 @@ class TestAdProductFidelityStoryboard:
         assert generator.image_reference_bytes[0][0] == b"jpg"
         # 全量注入 = 存在的原图都进；声明的 missing.jpg 不指向任何文件，不出现
         assert all("missing" not in str(p) for p in paths)
-        assert "「保温杯」" in generator.image_calls[0]["prompt"]
+        assert "Reference_Images: 图1为商品参考图，画面中的商品须与之完全一致；" in generator.image_calls[0]["prompt"]
 
-    async def test_fidelity_instruction_only_names_products_with_injected_references(self, tmp_path, monkeypatch):
-        """指令点名的商品与实际注入参考的商品一致：图全缺的商品不被指令点名（避免指向不存在的参考）。"""
+    async def test_declaration_only_numbers_products_with_injected_references(self, tmp_path, monkeypatch):
+        """声明行只为实际注入了参考图的商品编号：图全缺的商品不占序位，也不会凭空多出一张商品参考图。"""
         project_path = prepare_files(tmp_path)
         pm = ad_pm(project_path, with_sheet=False)
         pm.project["products"]["杯刷"] = {
@@ -93,8 +94,11 @@ class TestAdProductFidelityStoryboard:
         )
 
         prompt = generator.image_calls[0]["prompt"]
-        assert "「保温杯」" in prompt
-        assert "「杯刷」" not in prompt
+        assert (
+            "Reference_Images: 图1为商品参考图，画面中的商品须与之完全一致；图2为角色参考图；图3为场景参考图。\n"
+            in prompt
+        )
+        assert len(generator.image_calls[0]["reference_images"]) == 3
 
     async def test_atmosphere_shot_zero_product_images(self, tmp_path, monkeypatch):
         """氛围分镜（products_in_shot 为空）：零商品图，场景/角色 sheet 照常注入，prompt 无保真指令。"""
@@ -109,12 +113,14 @@ class TestAdProductFidelityStoryboard:
         )
 
         refs = generator.image_calls[0]["reference_images"]
-        assert [reference["label"] for reference in refs] == ["Alice", "祠堂"]
+        assert [reference["image"].name for reference in refs] == ["0000-Alice.png", "0001-祠堂.png"]
         assert generator.image_reference_bytes[0] == [b"png", b"png"]
         prompt = generator.image_calls[0]["prompt"]
-        assert prompt.startswith("Style: Anime\nVisual style: cinematic")
+        assert prompt.startswith(
+            "Style: Anime\nVisual style: cinematic\nReference_Images: 图1为角色参考图；图2为场景参考图。\n"
+        )
         assert "\n\n氛围开场\n\n" in prompt
-        assert "商品高保真还原" not in prompt
+        assert "商品参考图" not in prompt
 
     def test_collect_shot_product_references_skips_non_list_products_in_shot(self, tmp_path):
         """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零商品参考（str 不得被逐字符迭代）。"""

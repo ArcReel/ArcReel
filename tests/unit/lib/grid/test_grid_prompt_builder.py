@@ -119,37 +119,38 @@ class TestBuildGridPrompt:
         prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=3, cols=2, style="anime")
         assert "空占位" in prompt
 
-    def test_reference_mapping(self):
-        scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(
-            scenes=scenes,
-            id_field="scene_id",
-            rows=2,
-            cols=2,
-            style="x",
-            reference_image_mapping={"图片1": "角色A"},
-        )
-        assert "图片1" in prompt
-        assert "角色A" in prompt
+    def test_references_lead_with_a_numbered_declaration_and_replace_mentions(self):
+        from pathlib import Path
+
+        from lib.visual_artifact_provenance import VisualReference
+
+        scenes = [self._scene(f"S{i}", f"@[角色A]在s{i}", f"a{i}") for i in range(1, 5)]
+        scenes[1]["image_prompt"] = "@[角色A]与@[路人]对视"
+        references = [
+            VisualReference(
+                path=Path("characters/角色A.png"), role="asset_sheet", logical_type="character", logical_id="角色A"
+            ),
+            VisualReference(path=Path("scenes/酒馆.png"), role="asset_sheet", logical_type="scene", logical_id="酒馆"),
+        ]
+        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="x", references=references)
+        assert prompt.startswith("Reference_Images: 图1为角色参考图；图2为场景参考图。\n\n你是一位专业的分镜画师。")
+        assert "图1在s1" in prompt
+        assert "图1与路人对视" in prompt
+        assert "@[" not in prompt
+        assert "角色A" not in prompt.split("\n", 1)[1]
 
     def test_string_prompts(self):
         scenes = [{"scene_id": f"S{i}", "image_prompt": f"text{i}", "video_prompt": f"vid{i}"} for i in range(1, 5)]
         prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
         assert "text1" in prompt
 
-    def test_no_reference_mapping_no_reference_section(self):
-        scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
+    def test_without_references_there_is_no_declaration_and_mentions_fall_back_to_names(self):
+        scenes = [self._scene(f"S{i}", f"@[角色Z]在s{i}", f"a{i}") for i in range(1, 5)]
         prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
-        with_mapping = build_grid_prompt(
-            scenes=scenes,
-            id_field="scene_id",
-            rows=2,
-            cols=2,
-            style="realistic",
-            reference_image_mapping={"图片37": "角色Z"},
-        )
-        assert "图片37" not in prompt
-        assert "图片37" in with_mapping
+        assert "Reference_Images" not in prompt
+        assert prompt.startswith("你是一位专业的分镜画师。")
+        assert "角色Z在s1" in prompt
+        assert "@[" not in prompt
 
     def test_grid_dimensions_in_header(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]

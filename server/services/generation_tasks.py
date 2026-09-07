@@ -96,6 +96,7 @@ from lib.prompt_builders import (
 )
 from lib.prompt_utils import render_storyboard_video_prompt
 from lib.reference_catalog import build_reference_catalog
+from lib.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, ReferenceImageSlot
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     ProviderMediaInput,
@@ -113,7 +114,6 @@ from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_LABEL_KEYS,
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.speech_composition import SpeechAdmissionError, admit_script_unit
 from lib.storyboard_sequence import (
-    build_previous_storyboard_reference,
     find_storyboard_item,
     get_storyboard_items,
     resolve_previous_storyboard_path,
@@ -395,12 +395,12 @@ def _normalize_storyboard_prompt(
     prompt: object,
     style: str,
     style_description: str = "",
-    product_names: Sequence[str] | None = None,
+    references: Sequence[ReferenceImageSlot] = (),
 ) -> str:
     """Render one semantic storyboard prompt through the shared provider projection."""
 
     return render_storyboard_image_prompt(
-        prompt, style=style, style_description=style_description, product_names=product_names
+        prompt, style=style, style_description=style_description, references=references
     )
 
 
@@ -461,16 +461,16 @@ def _collect_sheet_references(
 ) -> tuple[list[dict], set[str]]:
     """Collect character_sheet, scene_sheet and prop_sheet references from scene/segment items.
 
-    Returns (list of ``{"image": Path, "label": 资产名}`` dicts, set of relative
-    sheet strings for dedup). If *max_count* > 0 collection stops after that many images.
+    Returns (list of ``{"image": Path}`` dicts, set of relative sheet strings for dedup).
+    If *max_count* > 0 collection stops after that many images.
 
-    label 取剧本条目里的资产名，与 prompt 里的专名严格一致——供支持内联标签的
-    后端（如 Gemini）把参考图与 prompt 专名显式绑定，不再依赖文件名推断。
+    参考图对后端只按数组序位传输；资产名只进 ``visual_references`` 的逻辑身份，供 prompt
+    渲染层把正文里的 ``@[登记名]`` 换成对应序位的「图N」。
 
     引用名经 :class:`lib.reference_catalog.ReferenceCatalog` 解析：``characters_in_*`` 里
     写的 ``本体名/衍生名`` 因此取到该形态自己的资产图（见 ``docs/adr/0072``），本体与衍生
     同现时各注入一张——它们是两个引用名、两条资产图路径，天然不互相去重。目录同时收敛
-    NFC/NFD 判等坐标系（登记闸口落 NFC，存量剧本与桶均无需迁移），label 保留剧本原文。
+    NFC/NFD 判等坐标系（登记闸口落 NFC，存量剧本与桶均无需迁移）。
 
     ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
     references 条目形态存在），``item.get(None) or []`` 天然跳过角色 sheet 收集。
@@ -511,7 +511,7 @@ def _collect_sheet_references(
                     claims=formal_claims,
                 ):
                     continue
-                refs.append({"image": path, "label": name})
+                refs.append({"image": path})
                 if visual_references is not None:
                     visual_references.append(
                         VisualReference(
@@ -581,12 +581,12 @@ def _collect_reference_images(
             claims=formal_claims,
         ):
             return reference_images or None
-        reference_images.append(build_previous_storyboard_reference(previous_storyboard_path))
+        reference_images.append({"image": previous_storyboard_path})
         if visual_references is not None:
             visual_references.append(
                 VisualReference(
                     path=previous_storyboard_path,
-                    role="previous_storyboard",
+                    role=PREVIOUS_STORYBOARD_ROLE,
                     logical_type="storyboard",
                     logical_id=previous_storyboard_id,
                 )
@@ -606,10 +606,11 @@ def collect_shot_product_references(
     """商品分镜（``products_in_shot`` 非空）的商品参考集，用于分镜图生成。
 
     每个商品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
-    原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "label": str, "name": str,
-    "kind": "sheet"|"original"}`` 列表——label 供支持内联标签的后端绑定图与商品名，
-    name 供高保真指令点名（指令只点名实际注入了参考的商品），kind 供截断时让 sheet
-    优先存活；调用方负责把该列表排在其它参考之前（排序绝对优先）。氛围分镜
+    原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "name": str,
+    "kind": "sheet"|"original"}`` 列表——name 是商品的逻辑身份（进参考图证据，供正文
+    ``@[商品名]`` 指认到对应「图N」），kind 供截断时让 sheet 优先存活；调用方负责把该列表
+    排在其它参考之前（排序绝对优先），声明行随之把这些序位标为商品参考图并附完全一致
+    的保真约束。氛围分镜
     （列表为空）返回空列表，零商品图。脏数据（products_in_shot 非列表、products
     非 dict、商品名非字符串、引用不存在的商品）按既有装配口径跳过不抛。
     """
@@ -670,31 +671,14 @@ def collect_product_references_for_names(
                 claims=formal_claims,
             )
         ):
-            references.append(
-                {
-                    "image": project_path / sheet,
-                    "label": f"商品「{canonical}」标准多角度参考图",
-                    "name": canonical,
-                    "kind": "sheet",
-                }
-            )
+            references.append({"image": project_path / sheet, "name": canonical, "kind": "sheet"})
         references.extend(
-            {
-                "image": original,
-                "label": f"商品「{canonical}」实拍原图（保真锚点）",
-                "name": canonical,
-                "kind": "original",
-            }
+            {"image": original, "name": canonical, "kind": "original"}
             for original in _collect_product_reference_images(project, project_path, canonical) or []
         )
         if len(references) == before:
             logger.warning("商品分镜引用的商品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
     return references
-
-
-def _product_names_in_references(product_references: list[dict]) -> list[str]:
-    """从商品参考集提取去重保序的商品名——高保真指令只点名实际注入了参考的商品。"""
-    return list(dict.fromkeys(ref["name"] for ref in product_references))
 
 
 def _product_visual_references(product_references: Sequence[Mapping[str, object]]) -> list[VisualReference]:
@@ -717,6 +701,83 @@ def _product_visual_references(product_references: Sequence[Mapping[str, object]
             )
         )
     return evidence
+
+
+@dataclass(frozen=True)
+class StoryboardReferenceSet:
+    """一个分镜条目最终随请求发出的参考图列表及其证据。
+
+    ``provider_references`` 与 ``visual_references`` 严格等长同序：前者是发给供应商的
+    路径条目，后者是同一序位的逻辑身份，prompt 渲染层据此声明「图N」并替换正文的
+    ``@[登记名]``。
+    """
+
+    item: dict[str, Any]
+    provider_references: list[object]
+    visual_references: list[VisualReference]
+
+
+def collect_storyboard_references(
+    project: dict,
+    project_path: Path,
+    script: dict[str, Any],
+    resource_id: str,
+    *,
+    artifact_episode: int,
+    currency_resolver: ArtifactCurrencyResolver,
+    formal_claims: list[ArtifactInputClaim] | None = None,
+    extra_reference_images: Sequence[str] | None = None,
+) -> StoryboardReferenceSet:
+    """按执行期口径装配一个分镜条目的参考图：商品参考排首、随后角色/场景/道具 sheet、
+    补充参考图，上一分镜图收尾。预览与执行共用此函数，提示词里的编号才能逐字一致。
+
+    条目不存在时抛 ``ValueError``。
+    """
+    items, id_field, char_field, scene_field, prop_field = get_storyboard_items(script)
+    resolved = find_storyboard_item(items, id_field, resource_id)
+    if resolved is None:
+        raise ValueError(f"scene/segment not found: {resource_id}")
+    target_item, target_index = resolved
+
+    previous_path = resolve_previous_storyboard_path(project_path, items, id_field, resource_id)
+    previous_id = (
+        str(items[target_index - 1].get(id_field) or "") if previous_path is not None and target_index > 0 else None
+    )
+    visual_references: list[VisualReference] = []
+    provider_references = (
+        _collect_reference_images(
+            project,
+            project_path,
+            target_item,
+            char_field=char_field,
+            scene_field=scene_field,
+            prop_field=prop_field,
+            extra_reference_images=list(extra_reference_images or []),
+            previous_storyboard_path=previous_path,
+            previous_storyboard_id=previous_id,
+            visual_references=visual_references,
+            artifact_episode=artifact_episode,
+            currency_resolver=currency_resolver,
+            formal_claims=formal_claims,
+        )
+        or []
+    )
+    # 商品分镜：商品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet）；氛围分镜零商品图。
+    product_references = collect_shot_product_references(
+        project,
+        project_path,
+        target_item,
+        currency_resolver=currency_resolver,
+        formal_claims=formal_claims,
+    )
+    if product_references:
+        provider_references = [*product_references, *provider_references]
+        visual_references = [*_product_visual_references(product_references), *visual_references]
+    return StoryboardReferenceSet(
+        item=target_item,
+        provider_references=provider_references,
+        visual_references=visual_references,
+    )
 
 
 def _staged_formal_image_callback(
@@ -1602,57 +1663,25 @@ async def execute_storyboard_task(
         _artifact_episode = _script_input.episode
         _currency_resolver = active_artifact_currency_resolver(_project_path, _project)
         _formal_claims: list[ArtifactInputClaim] = [_script_input.claim]
-        _items, _id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(_script)
-
-        _resolved = find_storyboard_item(_items, _id_field, resource_id)
-        if _resolved is None:
-            raise ValueError(f"scene/segment not found: {resource_id}")
-        _target_item, _target_index = _resolved
-        _semantic_prompt = _target_item.get("image_prompt")
-
-        _prev_path = resolve_previous_storyboard_path(_project_path, _items, _id_field, resource_id)
-        _previous_id = (
-            str(_items[_target_index - 1].get(_id_field) or "")
-            if _prev_path is not None and _target_index > 0
-            else None
-        )
         _style = _project.get("style", "")
         _style_description = _project.get("style_description", "")
         if not isinstance(_style, str) or not isinstance(_style_description, str):
             raise ValueError("storyboard style and style description must be strings")
-        _visual_references: list[VisualReference] = []
-        _ref_images = _collect_reference_images(
+        _references = collect_storyboard_references(
             _project,
             _project_path,
-            _target_item,
-            char_field=_char_field,
-            scene_field=_scene_field,
-            prop_field=_prop_field,
-            extra_reference_images=payload.get("extra_reference_images") or [],
-            previous_storyboard_path=_prev_path,
-            previous_storyboard_id=_previous_id,
-            visual_references=_visual_references,
+            _script,
+            resource_id,
             artifact_episode=_artifact_episode,
             currency_resolver=_currency_resolver,
             formal_claims=_formal_claims,
+            extra_reference_images=payload.get("extra_reference_images") or [],
         )
-        # 商品分镜：商品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
-        # 并附高保真还原指令；氛围分镜零商品图，既有装配不变。
-        _product_refs = collect_shot_product_references(
-            _project,
-            _project_path,
-            _target_item,
-            currency_resolver=_currency_resolver,
-            formal_claims=_formal_claims,
-        )
-        if _product_refs:
-            _ref_images = _product_refs + (_ref_images or [])
-            _visual_references = _product_visual_references(_product_refs) + _visual_references
+        _semantic_prompt = _references.item.get("image_prompt")
+        _ref_images = _references.provider_references or None
+        _visual_references = _references.visual_references
         _prompt_text = _normalize_storyboard_prompt(
-            _semantic_prompt,
-            _style,
-            _style_description,
-            _product_names_in_references(_product_refs) if _product_refs else None,
+            _semantic_prompt, _style, _style_description, references=_visual_references
         )
         _frozen = freeze_image_references(_ref_images, _visual_references)
         try:
@@ -3066,10 +3095,10 @@ def _collect_grid_reference_images(
     metadata = [
         {
             "path": reference.path.relative_to(project_path).as_posix(),
-            "name": provider["label"],
+            "name": reference.logical_id,
             "ref_type": reference.logical_type,
         }
-        for provider, reference in zip(references, selected_visuals, strict=True)
+        for _provider, reference in zip(references, selected_visuals, strict=True)
     ]
     return [reference["image"] for reference in references] or None, metadata
 
@@ -3260,6 +3289,7 @@ async def execute_grid_task(
             style=str(project.get("style") or ""),
             aspect_ratio=member_aspect_ratio,
             grid_aspect_ratio=grid_aspect_ratio,
+            references=frozen_references.visual_references,
         )
         grid_basis = build_grid_composite_visual_basis(
             group_id=grid.id,

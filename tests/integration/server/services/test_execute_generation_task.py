@@ -6,11 +6,7 @@ import threading
 import pytest
 
 from lib.generation_queue import CompensableGenerationResult
-from lib.storyboard_sequence import (
-    PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
-    PREVIOUS_STORYBOARD_REFERENCE_LABEL,
-    StoryboardImageBindingRequired,
-)
+from lib.storyboard_sequence import StoryboardImageBindingRequired
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
     FakeGenerator,
@@ -56,32 +52,44 @@ class TestGenerationTasks:
         )
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
-        # 资产 sheet 以「资产名 label」显式绑定（供 Gemini 等支持内联标签的后端
-        # 把参考图与 prompt 专名对应）；provider 收到的是任务私有快照，extra 无标签仍保持裸 Path。
-        assert [ref.get("label") if isinstance(ref, dict) else None for ref in storyboard_refs] == [
-            "Alice",
-            "祠堂",
-            "玉佩",
+        # 参考图只按数组序位传输、不带任何标签；身份由 prompt 内的 Reference_Images 声明行按「图N」指认。
+        # provider 收到的是任务私有快照，extra 仍保持裸 Path。
+        assert [sorted(ref) if isinstance(ref, dict) else None for ref in storyboard_refs] == [
+            ["image"],
+            ["image"],
+            ["image"],
             None,
-            PREVIOUS_STORYBOARD_REFERENCE_LABEL,
+            ["image"],
         ]
-        assert storyboard_refs[-1]["description"] == PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION
         assert all(
             not (ref["image"] if isinstance(ref, dict) else ref).is_relative_to(project_path) for ref in storyboard_refs
         )
         assert fake_generator.image_reference_bytes[0] == [b"png"] * 5
+        assert fake_generator.image_calls[0]["prompt"] == (
+            "Visual style: cinematic\n\n"
+            "Style: Anime\n"
+            "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图；图4为补充参考图；"
+            "图5为上一分镜图，只参考构图与色调。\n"
+            "Scene: 在雨夜街道\n"
+            "Composition:\n  shot_type: Medium Shot\n  lighting: 暖光\n  ambiance: 薄雾\n"
+            "Avoid: 水印、多余文字、Logo"
+        )
 
         await generation_tasks.execute_storyboard_task(
             "demo",
             "E1S03",
             {"script_file": "episode_1.json", "prompt": "direct prompt"},
         )
-        assert [ref["label"] for ref in fake_generator.image_calls[1]["reference_images"]] == [
-            "Alice",
-            "祠堂",
-            "玉佩",
+        assert [ref["image"].name for ref in fake_generator.image_calls[1]["reference_images"]] == [
+            "0000-Alice.png",
+            "0001-祠堂.png",
+            "0002-玉佩.png",
         ]
         assert fake_generator.image_reference_bytes[1] == [b"png"] * 3
+        assert (
+            "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图。\n"
+            in (fake_generator.image_calls[1]["prompt"])
+        )
 
         video_result = await generation_tasks.execute_video_task(
             "demo",

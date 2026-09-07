@@ -70,10 +70,9 @@ class ImageCapability(StrEnum):
 
 @dataclass
 class ReferenceImage:
-    """参考图片。"""
+    """参考图片。参考图在 prompt 里按数组序位以「图N」指认，传输链只携带路径。"""
 
     path: str
-    label: str = ""
 
 
 @dataclass

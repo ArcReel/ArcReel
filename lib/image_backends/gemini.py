@@ -20,16 +20,12 @@ from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
-    ReferenceImage,
 )
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GEMINI
 from lib.system_config import resolve_vertex_credentials_path
 
 logger = logging.getLogger(__name__)
-
-# 跳过名称推断的文件名模式
-SKIP_NAME_PATTERNS = ("scene_", "storyboard_", "output_")
 
 # 默认图片模型
 DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
@@ -109,8 +105,10 @@ class GeminiImageBackend:
         if self._rate_limiter:
             await self._rate_limiter.acquire_async(self._image_model)
 
-        # 2. 构建 contents（参考图 + prompt）
-        contents = self._build_contents_with_labeled_refs(request.prompt, request.reference_images)
+        # 2. 构建 contents：参考图按数组序位排在前，prompt 置于末尾；
+        #    参考图的身份由 prompt 内的 Reference_Images 声明行按「图N」指认，图片之间不夹任何文本标签。
+        contents: list = [self._load_image_detached(ref.path) for ref in request.reference_images]
+        contents.append(request.prompt)
 
         image_config_kwargs: dict = {"aspect_ratio": request.aspect_ratio}
         if request.image_size is not None:
@@ -147,50 +145,6 @@ class GeminiImageBackend:
         """从路径加载图片并与底层文件句柄解绑。"""
         with Image.open(image_path) as img:
             return img.copy()
-
-    @staticmethod
-    def _extract_name_from_path(image_path: str | Path) -> str | None:
-        """从图片路径推断名称。跳过 scene_/storyboard_/output_ 前缀的文件。"""
-        path = Path(image_path)
-        filename = path.stem
-        for pattern in SKIP_NAME_PATTERNS:
-            if filename.startswith(pattern):
-                return None
-        return filename
-
-    def _build_contents_with_labeled_refs(
-        self,
-        prompt: str,
-        reference_images: list[ReferenceImage] | None = None,
-    ) -> list:
-        """
-        构建带名称标签的 contents 列表。
-
-        格式：[标签1, 图片1, 标签2, 图片2, ..., prompt]
-        """
-        contents: list = []
-
-        if reference_images:
-            labeled_refs: list[str] = []
-            for ref in reference_images:
-                # 确定标签
-                label = ref.label.strip() if ref.label else ""
-                name = label or self._extract_name_from_path(ref.path)
-
-                if name:
-                    labeled_refs.append(name)
-                    contents.append(name)
-
-                # 加载图片
-                loaded_img = self._load_image_detached(ref.path)
-                contents.append(loaded_img)
-
-            if labeled_refs:
-                logger.debug("参考图片标签: %s", ", ".join(labeled_refs))
-
-        # prompt 放最后
-        contents.append(prompt)
-        return contents
 
     @staticmethod
     def _process_image_response(response, output_path: Path) -> Image.Image:

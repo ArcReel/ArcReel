@@ -26,7 +26,7 @@ from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.audio_utils import resolve_audio_ref_path
-from lib.prompt_builders import append_product_fidelity_tail
+from lib.prompt_builders import PRODUCT_FIDELITY_CORE
 from lib.prompt_utils import normalize_style
 from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.reference_video.script_preview import (
@@ -194,7 +194,32 @@ def render_video_unit_prompt(
         style=project.get("style"),
     )
     product_names = list(dict.fromkeys(reference.name for reference in references if reference.type == "product"))
-    return replace(rendered, prompt=append_product_fidelity_tail(rendered.prompt, product_names))
+    return replace(rendered, prompt=_append_product_fidelity_tail(rendered.prompt, product_names))
+
+
+def _append_product_fidelity_tail(prompt: str, product_names: list[str]) -> str:
+    """给带商品参考的单元 prompt 追加高保真还原指令。
+
+    仅在商品参考图实际随请求发出时调用——指令指向「商品参考图」，参考缺席时追加只会误导模型。
+    ``product_names`` 为空返回原 prompt；重复调用幂等。显式声明优先于第三段约束包里的文字 / Logo
+    禁止项（``_WATERMARK_PACK`` 等）：那些约束防的是画面里凭空多出的水印 / Logo，与「商品参考图
+    本身自带的品牌标识须原样保留」并不矛盾，但两条指令的字面文本在同一 prompt 里共存时对模型是
+    冲突信号，需要显式排出优先级。
+    """
+    names = "".join(f"「{name}」" for name in product_names if name)
+    if not names:
+        return prompt
+    tail = (
+        f"商品高保真还原（最高优先级，优先于前述文字/Logo 禁止项）：画面中的商品{names}"
+        f"必须与商品参考图完全一致——{PRODUCT_FIDELITY_CORE}，不得重新设计或美化商品本身；"
+        "前述文字/Logo 禁止项仅指画面中不得凭空新增文字或 Logo，商品参考图自带的文字与 Logo"
+        "须原样保留；项目画风只作用于商品以外的画面元素。"
+    )
+    if not prompt or not prompt.strip():
+        return tail
+    if tail in prompt:
+        return prompt
+    return f"{prompt.rstrip()}\n\n{tail}"
 
 
 def _warning_unregistered(name: str) -> dict[str, Any]:
