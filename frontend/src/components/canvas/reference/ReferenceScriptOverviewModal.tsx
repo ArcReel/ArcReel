@@ -7,7 +7,7 @@ import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { useAppStore } from "@/stores/app-store";
-import { downloadBlob } from "@/utils/download";
+import { downloadBlob, sanitizeFilename } from "@/utils/download";
 import type { ReferenceVideoUnit } from "@/types";
 
 export interface ReferenceScriptOverviewModalProps {
@@ -57,7 +57,7 @@ export function ReferenceScriptOverviewModal({
 
   const handleDownload = () => {
     const blob = new Blob([plainText], { type: "text/plain;charset=utf-8" });
-    downloadBlob(blob, `${episodeTitle || "script"}.txt`);
+    downloadBlob(blob, `${sanitizeFilename(episodeTitle, "script")}.txt`);
   };
 
   return (
