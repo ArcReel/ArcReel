@@ -187,7 +187,7 @@ export function AttentionList({ items, set, layout = "list" }: { items: Attentio
   );
 }
 
-/** 记录表：进行中区置顶（不受时间范围），已结束按时间倒序，按页翻（筛选变化回到第 1 页）。 */
+/** 记录表：进行中区置顶（不受时间范围），已结束按时间倒序，按页翻，只有上一页 / 下一页（对应 keyset 游标），筛选变化回到第 1 页。 */
 export function RecordsTable({ f, pageSize = 20, header = true }: { f: Filters; pageSize?: number; header?: boolean }) {
   // 页码与筛选签名绑定：筛选一变就自然回到第 1 页，不需要 effect
   const sig = JSON.stringify(f);
@@ -227,9 +227,6 @@ export function RecordsTable({ f, pageSize = 20, header = true }: { f: Filters; 
               <button type="button" disabled={cur <= 1} onClick={() => setPage(cur - 1)} aria-label="上一页" className="rounded-[6px] p-1 text-text-3 hover:bg-bg-grad-a hover:text-text disabled:opacity-35 disabled:hover:bg-transparent">
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
-              <span className="num px-1 text-text-3">
-                {cur} / {pages}
-              </span>
               <button type="button" disabled={cur >= pages} onClick={() => setPage(cur + 1)} aria-label="下一页" className="rounded-[6px] p-1 text-text-3 hover:bg-bg-grad-a hover:text-text disabled:opacity-35 disabled:hover:bg-transparent">
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
