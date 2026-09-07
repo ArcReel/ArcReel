@@ -222,13 +222,13 @@ def test_payload_writes_and_cleans_tempfiles(tmp_path: Path):
     a = _write(tmp_path, "a.png", _solid_png_bytes(800, 600))
     b = _write(tmp_path, "b.png", _solid_png_bytes(800, 600))
     specs = [
-        ReferenceSpec(source=a, label="图1", role=RefRole.ARRAY),
-        ReferenceSpec(source=b, label="图2", role=RefRole.ARRAY),
+        ReferenceSpec(source=a, role=RefRole.ARRAY),
+        ReferenceSpec(source=b, role=RefRole.ARRAY),
     ]
     written: list[Path] = []
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (landed, refs):
         assert landed == 0
-        assert [r.label for r in refs] == ["图1", "图2"]
+        assert [r.role for r in refs] == [RefRole.ARRAY, RefRole.ARRAY]
         assert all(isinstance(r, CompressedRef) for r in refs)
         for r in refs:
             assert r.path.exists()
@@ -243,10 +243,10 @@ def test_payload_writes_and_cleans_tempfiles(tmp_path: Path):
 
 def test_payload_preserves_order_and_count(tmp_path: Path):
     paths = [_write(tmp_path, f"r{i}.png", _solid_png_bytes(400, 400)) for i in range(5)]
-    specs = [ReferenceSpec(source=p, label=f"图{i}", role=RefRole.ARRAY) for i, p in enumerate(paths)]
+    specs = [ReferenceSpec(source=p, role=RefRole.ARRAY) for p in paths]
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (_landed, refs):
         assert len(refs) == 5
-        assert [r.label for r in refs] == [f"图{i}" for i in range(5)]
+        assert [r.path.stem for r in refs] == [f"r{i}" for i in range(5)]
 
 
 def test_payload_empty_noop():
@@ -259,8 +259,8 @@ def test_payload_passthrough_non_local_source_no_raise(tmp_path: Path):
     real = _write(tmp_path, "real.png", _solid_png_bytes(800, 600))
     missing = tmp_path / "does-not-exist.png"
     specs = [
-        ReferenceSpec(source=real, label="图0", role=RefRole.ARRAY),
-        ReferenceSpec(source=missing, label="图1", role=RefRole.ARRAY),
+        ReferenceSpec(source=real, role=RefRole.ARRAY),
+        ReferenceSpec(source=missing, role=RefRole.ARRAY),
     ]
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (_landed, refs):
         assert len(refs) == 2
@@ -273,7 +273,7 @@ def test_payload_passthrough_non_local_source_no_raise(tmp_path: Path):
 
 def test_payload_passthrough_undecodable_source(tmp_path: Path):
     bad = _write(tmp_path, "bad.png", b"not an image at all")
-    specs = [ReferenceSpec(source=bad, label="图0", role=RefRole.ARRAY)]
+    specs = [ReferenceSpec(source=bad, role=RefRole.ARRAY)]
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (_landed, refs):
         assert len(refs) == 1
         assert refs[0].path == bad  # 不可解码 → 透传原路径，不 raise
@@ -282,7 +282,7 @@ def test_payload_passthrough_undecodable_source(tmp_path: Path):
 def test_payload_passthrough_excluded_from_budget(tmp_path: Path):
     # 透传项不计入字节预算：即便 total 极小，只要可压缩子集为空也不抛
     missing = tmp_path / "missing.png"
-    specs = [ReferenceSpec(source=missing, label="图0", role=RefRole.ARRAY)]
+    specs = [ReferenceSpec(source=missing, role=RefRole.ARRAY)]
     with compressed_reference_payload(specs, limits=PayloadLimits(total_max_bytes=1, single_max_bytes=1)) as (
         _landed,
         refs,
@@ -293,7 +293,7 @@ def test_payload_passthrough_excluded_from_budget(tmp_path: Path):
 def test_payload_tempfiles_cleaned_on_floor_error(tmp_path: Path):
     # 主动预检在 __enter__ 内抛 floor，select_ladder_step 在写 tempfile 之前 → 无泄漏
     real = _write(tmp_path, "big.jpg", _noise_jpeg_bytes(2048, 2048))
-    specs = [ReferenceSpec(source=real, label="图0", role=RefRole.ARRAY)]
+    specs = [ReferenceSpec(source=real, role=RefRole.ARRAY)]
     before = set(Path(tempfile.gettempdir()).glob("refcomp-*"))
     with (
         pytest.raises(ReferencePayloadFloorError),
@@ -308,9 +308,9 @@ def test_payload_tempfiles_cleaned_on_floor_error(tmp_path: Path):
 
 
 def test_payload_reencoded_tempfile_preserves_source_stem(tmp_path: Path):
-    # 重编码副本的文件名沿用源 stem（如 张三），让 gemini 按文件名推断参考图名仍生效。
+    # 重编码副本的文件名沿用源 stem（如 张三），临时目录里仍能按名对应回源图。
     src = _write(tmp_path, "张三.png", _solid_png_bytes(800, 600))
-    specs = [ReferenceSpec(source=src, label="", role=RefRole.ARRAY)]
+    specs = [ReferenceSpec(source=src, role=RefRole.ARRAY)]
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (_landed, refs):
         assert refs[0].path != src  # 是临时副本
         assert refs[0].path.stem == "张三"  # 但保留源 stem
@@ -320,7 +320,7 @@ def test_payload_reencoded_tempfile_preserves_source_stem(tmp_path: Path):
 def test_payload_passthrough_uses_original_path_not_copy(tmp_path: Path):
     # 已是小 JPEG 的 ARRAY → 透传：用原始源路径，不写临时副本（省拷贝、避免后缀错配、最大保真）。
     src = _write(tmp_path, "small.jpg", _solid_jpeg_bytes(600, 400))
-    specs = [ReferenceSpec(source=src, label="图0", role=RefRole.ARRAY)]
+    specs = [ReferenceSpec(source=src, role=RefRole.ARRAY)]
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (_landed, refs):
         assert refs[0].path == src
 
@@ -328,7 +328,7 @@ def test_payload_passthrough_uses_original_path_not_copy(tmp_path: Path):
 def test_payload_frame_under_budget_uses_original_path(tmp_path: Path):
     # FRAME 在预算内 → 透传原始路径（含 PNG，不强转 JPEG），护首/尾帧像素
     src = _write(tmp_path, "frame.png", _solid_png_bytes(1000, 1600))
-    specs = [ReferenceSpec(source=src, label="", role=RefRole.FRAME)]
+    specs = [ReferenceSpec(source=src, role=RefRole.FRAME)]
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (_landed, refs):
         assert refs[0].path == src
 
@@ -338,6 +338,6 @@ def test_payload_truncated_image_passthrough_no_raise(tmp_path: Path):
     full = _solid_jpeg_bytes(1200, 900)
     truncated = full[: len(full) // 2]
     src = _write(tmp_path, "truncated.jpg", truncated)
-    specs = [ReferenceSpec(source=src, label="图0", role=RefRole.ARRAY)]
+    specs = [ReferenceSpec(source=src, role=RefRole.ARRAY)]
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (_landed, refs):
         assert refs[0].path == src  # 透传，不 raise

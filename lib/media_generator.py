@@ -584,13 +584,7 @@ class MediaGenerator:
         if reference_images:
             for ref in reference_images:
                 if isinstance(ref, dict):
-                    img_val = ref.get("image", "")
-                    ref_images.append(
-                        ReferenceImage(
-                            path=str(img_val),
-                            label=str(ref.get("label", "")),
-                        )
-                    )
+                    ref_images.append(ReferenceImage(path=str(ref.get("image", ""))))
                 elif hasattr(ref, "__fspath__") or isinstance(ref, (str, Path)):
                     ref_images.append(ReferenceImage(path=str(ref)))
                 # PIL Image 等不支持的类型忽略
@@ -627,14 +621,14 @@ class MediaGenerator:
 
                 image_backend = self._image_backend
                 # 所有图像参考图都走数组角色（完整基线 + 降档梯子 + 字节预算）。
-                specs = [ReferenceSpec(source=Path(r.path), label=r.label, role=RefRole.ARRAY) for r in ref_images]
+                specs = [ReferenceSpec(source=Path(r.path), role=RefRole.ARRAY) for r in ref_images]
 
                 def _call_image(compressed: "list[CompressedRef]"):
                     return image_backend.generate(
                         ImageGenerationRequest(
                             prompt=prompt,
                             output_path=backend_output_path,
-                            reference_images=[ReferenceImage(path=str(c.path), label=c.label) for c in compressed],
+                            reference_images=[ReferenceImage(path=str(c.path)) for c in compressed],
                             aspect_ratio=aspect_ratio,
                             image_size=image_size,
                             project_name=self.project_name,

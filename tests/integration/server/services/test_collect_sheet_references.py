@@ -85,7 +85,7 @@ class TestCollectSheetReferences:
             register_stale_visual_claim(tmp_path, ArtifactKey.asset_sheet(asset_type, name), relative)
         return project
 
-    def _collect(self, tmp_path, project: dict, names: list[str]) -> list[dict]:
+    def _collect(self, tmp_path, project: dict, names: list[str], visuals: list | None = None) -> list[dict]:
         from server.services.generation_tasks import _collect_sheet_references
 
         refs, _seen = _collect_sheet_references(
@@ -95,6 +95,7 @@ class TestCollectSheetReferences:
             char_field="characters_in_segment",
             scene_field="scenes",
             prop_field="props",
+            visual_references=visuals,
             currency_resolver=build_currency_resolver(tmp_path, project),
         )
         return refs
@@ -102,10 +103,13 @@ class TestCollectSheetReferences:
     def test_a_derivative_reference_collects_the_derivative_sheet(self, tmp_path):
         project = self._project_with_derivatives(tmp_path)
 
-        refs = self._collect(tmp_path, project, ["张三/劲装"])
+        visuals: list = []
+        refs = self._collect(tmp_path, project, ["张三/劲装"], visuals)
 
+        # 参考图条目只带路径；衍生引用名作为逻辑身份进参考图证据，供正文 @[张三/劲装] 指认到对应序位。
+        assert [sorted(ref) for ref in refs] == [["image"]]
         assert [ref["image"].name for ref in refs] == ["劲装.png"]
-        assert [ref["label"] for ref in refs] == ["张三/劲装"]
+        assert [(visual.logical_type, visual.logical_id) for visual in visuals] == [("character", "张三/劲装")]
 
     def test_ontology_and_derivative_together_each_collect_one_sheet(self, tmp_path):
         project = self._project_with_derivatives(tmp_path)

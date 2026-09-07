@@ -7,8 +7,10 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.i18n import _ as translate
 from lib.script_batch_edit import ScriptBatchEditResult, script_revision
 from lib.script_editor import ScriptEditError
+from lib.storyboard_mentions import render_storyboard_mention_warnings
 from server.media_tools.context import (
     ToolContext,
     tool_error,
@@ -80,6 +82,7 @@ def _tool_edit_result(name: str, result: ScriptBatchEditResult) -> dict[str, Any
     if result.success:
         ids = ", ".join(result.affected_ids) or "无"
         text = f"✅ {name} 已原子提交；revision={result.revision}；affected_ids={ids}"
+        text += "".join(f"\n⚠️ {line}" for line in render_storyboard_mention_warnings(result.warnings, translate))
         return {
             "content": [
                 {"type": "text", "text": text},

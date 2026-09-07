@@ -37,12 +37,6 @@ class EndFrameImageUnavailable(ValueError):
     """The optional end-frame binding is invalid or its snapshot is unavailable."""
 
 
-PREVIOUS_STORYBOARD_REFERENCE_LABEL = "上一分镜图（分镜衔接参考）"
-PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
-    "仅用于延续前一分镜的构图、色调和场景连续性，不是新增角色、服装或道具设定；请以当前 prompt 为准生成当前分镜。"
-)
-
-
 def get_storyboard_items(script: dict) -> tuple[list[Any], str, str | None, str, str]:
     """返回 旁白/解说、剧情演绎与广告/短片剧本的分镜列表 + 各引用字段名。
 
@@ -190,14 +184,6 @@ def resolve_previous_storyboard_path(
         return None
     previous_path = resolve_storyboard_image_ref(project_path, previous_rel)
     return previous_path if previous_path is not None and previous_path.is_file() else None
-
-
-def build_previous_storyboard_reference(path: Path) -> dict:
-    return {
-        "image": path,
-        "label": PREVIOUS_STORYBOARD_REFERENCE_LABEL,
-        "description": PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
-    }
 
 
 def group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:

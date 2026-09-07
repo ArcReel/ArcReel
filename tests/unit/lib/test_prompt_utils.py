@@ -48,9 +48,17 @@ class TestPromptUtils:
 
         text = image_prompt_to_yaml(data, "Anime")
         parsed = yaml.safe_load(text)
+        assert list(parsed) == ["Style", "Scene", "Composition", "Avoid"]
         assert parsed["Style"] == "Anime"
         assert parsed["Scene"] == "夜雨中的街道"
         assert parsed["Composition"]["shot_type"] == "Medium Shot"
+        assert parsed["Avoid"] == "水印、多余文字、Logo"
+
+    def test_image_prompt_to_yaml_places_reference_images_between_style_and_scene(self):
+        data = {"scene": "x", "composition": {"shot_type": "Medium Shot", "lighting": "", "ambiance": ""}}
+        text = image_prompt_to_yaml(data, "Anime", reference_images="图1为角色参考图。")
+        assert list(yaml.safe_load(text)) == ["Style", "Reference_Images", "Scene", "Composition", "Avoid"]
+        assert "Reference_Images: 图1为角色参考图。\n" in text
 
     def test_image_prompt_to_yaml_strips_legacy_huafeng_style(self):
         # 存量 project.json 的 style 带「画风：」前缀，注入 YAML 前兜底清理，避免 Style: 画风：叠加
@@ -78,6 +86,10 @@ class TestPromptUtils:
         assert parsed_a["Action"] == "抬头观察"
         assert parsed_a["Dialogue"][0]["Speaker"] == "姜月茴"
         assert "Dialogue" not in parsed_b
+        # 反向约束以 Avoid 键收尾：有对话时置于 Dialogue 之后
+        assert list(parsed_a)[-2:] == ["Dialogue", "Avoid"]
+        assert list(parsed_b)[-1] == "Avoid"
+        assert parsed_a["Avoid"] == "BGM、文字字幕、水印"
 
     def test_structured_checks(self):
         assert is_structured_image_prompt({"scene": "x"})

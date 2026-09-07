@@ -317,6 +317,8 @@ MESSAGES = {
     "ref_warn_unit_without_scene": "本单元未引用场景，画面地点将由模型自由决定",
     "ref_warn_silent_model": "当前视频模型「{model}」不会生成有声视频，台词仅用于提示词参考",
     "ref_warn_silent_episode": "本集已关闭参考音频：不会上传参考音频，声音一致性不生效，台词仅用于提示词参考；成片是否有声音由所选模型决定",
+    # 分镜画面描述里的 @[名称] 没有绑定到参考图
+    "storyboard_warn_mention_unbound": "分镜 {unit_id} 的画面描述引用了 @[{name}]，但它未登记为资产或不在该分镜的引用字段里：不会编号为图N，将按名字原样发送",
     # Episode meta
     "episode_not_found": "第 {episode} 集不存在或尚无脚本文件",
     "episode_title_empty": "分集标题不能为空",

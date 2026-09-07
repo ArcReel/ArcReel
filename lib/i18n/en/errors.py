@@ -369,6 +369,11 @@ MESSAGES = {
         "consistency does not apply; dialogue is used only as prompt context. Whether the rendered "
         "video actually has sound depends on the selected model"
     ),
+    # Storyboard scene text mentions that are not bound to a reference image
+    "storyboard_warn_mention_unbound": (
+        "The scene text of {unit_id} mentions @[{name}], which is not a registered asset or is not listed in "
+        "that entry's reference fields: it is not numbered as a reference image and is sent as a plain name"
+    ),
     # Episode meta
     "episode_not_found": "Episode {episode} not found or has no script file yet",
     "episode_title_empty": "Episode title cannot be empty",

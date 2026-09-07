@@ -2265,18 +2265,15 @@ async def test_generate_videos_scene_scope_generated_assets_non_dict_readable_re
 
 
 def _admitted_video_yaml(item: dict, **kwargs) -> dict:
-    """准入渲染出口产出的 YAML 段。
+    """准入渲染出口产出的 YAML 文档。
 
-    该出口与执行路径共用 ``render_storyboard_video_prompt``，尾部统一追加的反向约束不是
-    YAML，解析前剥离。
+    该出口与执行路径共用 ``render_storyboard_video_prompt``，反向约束是其中的 ``Avoid`` 键。
     """
     import yaml
 
-    from lib.prompt_builders import append_video_negative_tail
     from server.services.video_batch_admission import storyboard_video_prompt
 
-    rendered = storyboard_video_prompt(item, **kwargs)
-    return yaml.safe_load(rendered.removesuffix(append_video_negative_tail("")).rstrip())
+    return yaml.safe_load(storyboard_video_prompt(item, **kwargs))
 
 
 def test_storyboard_video_prompt_drama_sources_dialogue_from_utterances() -> None:

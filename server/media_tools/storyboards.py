@@ -27,7 +27,7 @@ from lib.generation_result import (
     record_batch_outcomes,
     select_generation_targets,
 )
-from lib.prompt_builders import build_storyboard_prompt
+from lib.prompt_builders import render_storyboard_image_prompt
 from lib.reference_admission import admit_storyboard_item
 from lib.reference_catalog import build_reference_catalog
 from lib.resource_paths import resource_relative_path
@@ -96,7 +96,7 @@ def _build_prompt(
     image_prompt = segment.get("image_prompt", "")
     if not image_prompt:
         raise ValueError(f"分镜 {segment[id_field]} 缺少 image_prompt 字段")
-    return build_storyboard_prompt(image_prompt, style, style_description)
+    return render_storyboard_image_prompt(image_prompt, style=style, style_description=style_description)
 
 
 async def handle_generate_storyboards(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:

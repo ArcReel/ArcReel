@@ -369,6 +369,12 @@ MESSAGES = {
         "không có hiệu lực, lời thoại chỉ dùng làm gợi ý cho prompt; video hoàn chỉnh có tiếng hay không "
         "tùy thuộc vào mô hình đã chọn"
     ),
+    # Mô tả khung hình phân cảnh nhắc tới @[tên] chưa gắn với ảnh tham chiếu
+    "storyboard_warn_mention_unbound": (
+        "Mô tả khung hình của {unit_id} nhắc tới @[{name}], nhưng tên này chưa được đăng ký là tài sản hoặc "
+        "không nằm trong các trường tham chiếu của phân cảnh đó: sẽ không được đánh số thành ảnh N mà gửi "
+        "nguyên tên"
+    ),
     # Episode meta
     "episode_not_found": "Không tìm thấy tập {episode} hoặc tập chưa có tệp kịch bản",
     "episode_title_empty": "Tiêu đề tập không được để trống",

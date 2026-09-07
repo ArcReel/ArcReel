@@ -42,9 +42,8 @@ class TestGenerationTasks:
             "composition": {"shot_type": "Close-up", "lighting": "暖光", "ambiance": "薄雾"},
         }
         structured = generation_tasks._normalize_storyboard_prompt(structured_input, "Anime", "cinematic")
-        assert structured == append_image_negative_tail(
-            f"Visual style: cinematic\n\n{image_prompt_to_yaml(structured_input, 'Anime')}"
-        )
+        assert structured == f"Visual style: cinematic\n\n{image_prompt_to_yaml(structured_input, 'Anime').rstrip()}"
+        assert structured.endswith("\nAvoid: 水印、多余文字、Logo")
 
         with pytest.raises(ValueError, match=r"image_prompt\.scene must be a non-empty string"):
             generation_tasks._normalize_storyboard_prompt({"scene": ""}, "Anime")

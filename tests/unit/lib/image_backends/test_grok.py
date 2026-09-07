@@ -155,7 +155,7 @@ class TestGenerateI2I:
             request = ImageGenerationRequest(
                 prompt="Make it darker",
                 output_path=output,
-                reference_images=[ReferenceImage(path=str(ref_image), label="base")],
+                reference_images=[ReferenceImage(path=str(ref_image))],
             )
             result = await grok_backend.generate(request)
 
@@ -210,7 +210,7 @@ class TestGenerateI2I:
             request = ImageGenerationRequest(
                 prompt="Make it darker",
                 output_path=output,
-                reference_images=[ReferenceImage(path=str(ref_image), label="base")],
+                reference_images=[ReferenceImage(path=str(ref_image))],
             )
             with blocking_file_read_gate(monkeypatch, ref_image) as gate:
                 task = asyncio.create_task(grok_backend.generate(request))

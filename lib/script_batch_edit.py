@@ -39,6 +39,7 @@ from lib.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.script_review import content_fingerprint_of_data
 from lib.script_structure_validator import validate_script_structure
 from lib.speech_composition import SpeechAdmission, admit_script_unit, refresh_video_unit_replan_state
+from lib.storyboard_mentions import storyboard_mention_warnings
 from lib.validation_messages import ValidationMessage
 
 _REVISION_PATTERN = r"^sha256-v1:[0-9a-f]{64}$"
@@ -155,6 +156,9 @@ class ScriptBatchEditResult(BaseModel):
     revision: str
     affected_ids: tuple[str, ...] = ()
     problems: tuple[ScriptBatchEditProblem, ...] = ()
+    #: 提交成功后对受影响条目的提示（如画面描述里没绑定参考图的 ``@[名称]``），
+    #: locale-neutral 的 ``{"key", "params"}`` 条目，不影响 ``success``。
+    warnings: tuple[dict[str, Any], ...] = ()
 
 
 class _ManifestAdapterFactory(Protocol):
@@ -495,6 +499,7 @@ class ScriptBatchEditor:
             before_revision=before_revision,
             revision=revision,
             affected_ids=tuple(affected_ids),
+            warnings=tuple(storyboard_mention_warnings(project, candidate, unit_ids=affected_ids)),
         )
 
     def _prepare_manifest_commit(

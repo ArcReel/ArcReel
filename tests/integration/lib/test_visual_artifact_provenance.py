@@ -223,11 +223,11 @@ def test_storyboard_text_basis_tracks_the_style_sent_to_the_request(tmp_path: Pa
     ],
 )
 def test_preformatted_storyboard_prompt_still_consumes_project_style_inputs(image_prompt: str) -> None:
-    from lib.prompt_builders import build_storyboard_prompt
+    from lib.prompt_builders import render_storyboard_image_prompt
 
-    first_prompt = build_storyboard_prompt(image_prompt, "水墨", "柔光")
-    changed_style_prompt = build_storyboard_prompt(image_prompt, "写实", "柔光")
-    changed_description_prompt = build_storyboard_prompt(image_prompt, "水墨", "硬光")
+    first_prompt = render_storyboard_image_prompt(image_prompt, style="水墨", style_description="柔光")
+    changed_style_prompt = render_storyboard_image_prompt(image_prompt, style="写实", style_description="柔光")
+    changed_description_prompt = render_storyboard_image_prompt(image_prompt, style="水墨", style_description="硬光")
 
     first_basis = build_storyboard_image_visual_basis(
         resource_id="E1S01",
