@@ -88,10 +88,7 @@ export function UsagePrototypeA() {
       {/* Records */}
       <section className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
         <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <Kicker>Records</Kicker>
-            <div className="mt-1 text-[13.5px] text-text">调用记录</div>
-          </div>
+          <Kicker>Records</Kicker>
           <Seg
             size="xs"
             value={f.status ?? "*"}

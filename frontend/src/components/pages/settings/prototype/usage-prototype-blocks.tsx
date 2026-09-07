@@ -1,6 +1,6 @@
 // PROTOTYPE — wayfinder #2290 区块级零件：筛选行、构成表、需要关注、记录表。变体 A / C 直接组合；变体 B 自带分面栏只借记录表。
 import { useState } from "react";
-import { AlertOctagon, Repeat2, RefreshCw, X } from "lucide-react";
+import { AlertOctagon, ChevronLeft, ChevronRight, Repeat2, RefreshCw, X } from "lucide-react";
 
 import {
   FILTER_OPTIONS,
@@ -187,17 +187,25 @@ export function AttentionList({ items, set, layout = "list" }: { items: Attentio
   );
 }
 
-/** 记录表：进行中区置顶（不受时间范围），已结束按时间倒序，分页用「加载更多」。 */
+/** 记录表：进行中区置顶（不受时间范围），已结束按时间倒序，按页翻（筛选变化回到第 1 页）。 */
 export function RecordsTable({ f, set, pageSize = 20, header = true }: { f: Filters; set: (p: Partial<Filters>) => void; pageSize?: number; header?: boolean }) {
-  const [limit, setLimit] = useState(pageSize);
+  // 页码与筛选签名绑定：筛选一变就自然回到第 1 页，不需要 effect
+  const sig = JSON.stringify(f);
+  const [pager, setPager] = useState({ sig, page: 1 });
+  const page = pager.sig === sig ? pager.page : 1;
+  const setPage = (p: number) => setPager({ sig, page: p });
   const active = activeRows(f);
   const rows = filterTerminal(f, true);
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const cur = Math.min(page, pages);
+  const from = (cur - 1) * pageSize;
+  const shown = rows.slice(from, from + pageSize);
   const locate = (segment: string) => set({ segment, status: null });
   const hideProject = f.project !== null;
   return (
     <div>
       {header && <RowHeader />}
-      {active.length > 0 && (
+      {active.length > 0 && cur === 1 && (
         <div className="border-b border-hairline bg-accent-dim/30">
           <div className="flex items-center gap-2 px-3 pt-2 pb-1">
             <Kicker>In progress · {active.length}</Kicker>
@@ -206,20 +214,30 @@ export function RecordsTable({ f, set, pageSize = 20, header = true }: { f: Filt
           <ActiveRows rows={active} layout="table" hideProject={hideProject} onLocate={locate} />
         </div>
       )}
-      {rows.slice(0, limit).map((r) => (
+      {shown.map((r) => (
         <RecordRow key={r.id} record={r} layout="table" hideProject={hideProject} onLocate={locate} />
       ))}
       {rows.length === 0 && <div className="px-3 py-8 text-center text-[12.5px] text-text-3">这段时间没有符合筛选的记录</div>}
-      <div className="flex items-center justify-between px-3 pt-3 text-[11.5px] text-text-4">
-        <span className="num">
-          {Math.min(limit, rows.length)} / {rows.length}
-        </span>
-        {rows.length > limit && (
-          <button type="button" onClick={() => setLimit((v) => v + pageSize)} className="text-accent-2 hover:underline">
-            加载更多
-          </button>
-        )}
-      </div>
+      {rows.length > 0 && (
+        <div className="flex items-center justify-between px-3 pt-3 text-[11.5px] text-text-4">
+          <span className="num">
+            {from + 1}–{from + shown.length} / {rows.length}
+          </span>
+          {pages > 1 && (
+            <div className="flex items-center gap-1">
+              <button type="button" disabled={cur <= 1} onClick={() => setPage(cur - 1)} aria-label="上一页" className="rounded-[6px] p-1 text-text-3 hover:bg-bg-grad-a hover:text-text disabled:opacity-35 disabled:hover:bg-transparent">
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span className="num px-1 text-text-3">
+                {cur} / {pages}
+              </span>
+              <button type="button" disabled={cur >= pages} onClick={() => setPage(cur + 1)} aria-label="下一页" className="rounded-[6px] p-1 text-text-3 hover:bg-bg-grad-a hover:text-text disabled:opacity-35 disabled:hover:bg-transparent">
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
