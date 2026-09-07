@@ -1044,10 +1044,13 @@ class TestResumeChannel:
         with pytest.raises(ResumeExpiredError):
             await _resume_video(gen)
 
-        # 过期补账翻 failed、零费用；error_message 不落行（异常沿调用链上抛由 worker 兜底）
+        # 过期补账翻 failed、零费用；过期异常的原文随补账落行，分类不认得这一类故无码
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_resume_row(status="failed"),
+            _expected_resume_row(
+                status="failed",
+                error_message="resume job job-1 expired or not found on provider gemini",
+            ),
         )
 
     async def test_pending_guard_never_touches_terminal_row(self, tmp_path: Path, acct: _AccountingDb) -> None:

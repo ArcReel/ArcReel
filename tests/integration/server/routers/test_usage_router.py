@@ -61,7 +61,14 @@ async def records_client(db_factory, monkeypatch):
         session.add_all(
             [
                 make_call(started_at=BASE_TIME, segment_id="S1", provider="ark", model="doubao", call_type="text"),
-                make_call(started_at=BASE_TIME + timedelta(minutes=1), segment_id="S2", status=CallStatus.FAILED),
+                make_call(
+                    started_at=BASE_TIME + timedelta(minutes=1),
+                    segment_id="S2",
+                    status=CallStatus.FAILED,
+                    error_message="429 too many requests",
+                    error_code="rate_limited",
+                    error_params={"retry_after_seconds": 30},
+                ),
                 make_call(started_at=BASE_TIME + timedelta(minutes=4), segment_id="S3", project_name="demo2"),
                 make_call(started_at=BASE_TIME + timedelta(minutes=4), segment_id="S4", status=CallStatus.CANCELLED),
                 make_call(
@@ -198,6 +205,16 @@ class TestUsageRecordDetail:
         assert detail["last_provider_response"] == {"raw": "body"}
         assert detail["task_type"] == "video_generation"
         assert "user_id" not in detail
+
+    def test_detail_carries_the_failure_columns(self, records_client):
+        """失败行的三字段要一路到详情：弹窗的「失败原因」分组靠它们渲染。"""
+        record_id = records_client.get("/api/v1/usage/records?segment_id=S2").json()["items"][0]["id"]
+
+        detail = records_client.get(f"/api/v1/usage/records/{record_id}").json()
+
+        assert detail["error_message"] == "429 too many requests"
+        assert detail["error_code"] == "rate_limited"
+        assert detail["error_params"] == {"retry_after_seconds": 30}
 
     def test_unknown_id_returns_404(self, records_client):
         assert records_client.get("/api/v1/usage/records/99999").status_code == 404

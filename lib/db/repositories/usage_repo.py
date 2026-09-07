@@ -347,6 +347,9 @@ class UsageRepository(BaseRepository):
         call_id: int,
         settlement: SettlementInput,
         status: CallStatus = CallStatus.SUCCESS,
+        error_message: str | None = None,
+        error_code: str | None = None,
+        error_params: dict[str, object] | None = None,
     ) -> int:
         """Resume 路径专用：按 call_id 精准翻 pending → success/failed。
 
@@ -355,6 +358,9 @@ class UsageRepository(BaseRepository):
         已扣费的事实由此守卫，绝不触发再次扣费。结算逻辑（计费时长/有声覆盖、自动 cost、
         duration_ms 回写）与 finish_call 共享 ``_settle``，唯币种兜底口径按 resume 语义
         取 ``settlement.currency``。返回受影响行数（0=幂等无操作；1=正常翻一行）。
+
+        失败三元组与 ``finish_call`` 同口径（原文截断 500 字），只在调用方给了失败信息时才写：
+        success / cancelled 出口不带它，那三列保持原样。
         """
         finished_at = utc_now()
 
@@ -374,19 +380,23 @@ class UsageRepository(BaseRepository):
             base_currency=settlement.currency or "USD",
         )
 
+        values: dict[str, Any] = {
+            "status": status,
+            "finished_at": finished_at,
+            "duration_ms": settled.duration_ms,
+            "duration_seconds": settled.effective_duration_seconds,
+            "cost_amount": settled.cost_amount,
+            "currency": settled.currency,
+            "usage_tokens": settlement.usage_tokens,
+            "generate_audio": settled.effective_generate_audio,
+        }
+        if error_message is not None or error_code is not None:
+            values["error_message"] = error_message[:500] if error_message else None
+            values["error_code"] = error_code
+            values["error_params"] = error_params
+
         result = await self.session.execute(
-            update(ApiCall)
-            .where(ApiCall.id == call_id, ApiCall.status == CallStatus.PENDING)
-            .values(
-                status=status,
-                finished_at=finished_at,
-                duration_ms=settled.duration_ms,
-                duration_seconds=settled.effective_duration_seconds,
-                cost_amount=settled.cost_amount,
-                currency=settled.currency,
-                usage_tokens=settlement.usage_tokens,
-                generate_audio=settled.effective_generate_audio,
-            )
+            update(ApiCall).where(ApiCall.id == call_id, ApiCall.status == CallStatus.PENDING).values(**values)
         )
         affected = rowcount(result)
         if affected > 0:

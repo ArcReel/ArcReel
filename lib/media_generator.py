@@ -1246,14 +1246,15 @@ class MediaGenerator:
 
         try:
             result = await self._video_backend.resume_video(job_id, request)
-        except ResumeExpiredError:
+        except ResumeExpiredError as exc:
             # Pending ApiCall 翻 failed 而不是留 pending：让 /api/v1/usage 报表不堆积无终态行；
             # cost_amount=0 不增加计费（resume 不重扣，符合 "不主动扣费" 红线）。
+            # 过期异常一并交给补账：这条行的失败原文只有这里拿得到，不传就只剩一个裸「失败」。
             # finalize 失败时不吞异常，让 worker finally 走 mark_failed 兜底，避免 ApiCall
             # 永久卡 pending 导致 usage 报表/补账缺口。
             async with _remove_staged_output_on_error(staged_output_path):
                 if api_call_id is not None:
-                    await self.ledger.resume_failed(call_id=api_call_id)
+                    await self.ledger.resume_failed(call_id=api_call_id, failure=exc)
                 raise
         except asyncio.CancelledError:
             if staged_output_path is not None:

@@ -27,6 +27,7 @@ from lib.db.repositories.usage_repo import UsageRepository
 from lib.http_status_errors import ArtifactDownloadError
 from lib.ledger import Ledger, _settlement_from_result
 from lib.providers import CallPurpose, CallStatus
+from lib.video_backends.base import ResumeExpiredError
 
 _HTTP_REQUEST = httpx.Request("POST", "https://provider.example/v1/videos")
 
@@ -411,6 +412,62 @@ class TestResumeAndBackfill:
         row = await _only_row(db_factory)
         assert row.status == "failed"
         assert row.cost_amount == 0.0
+
+    async def test_resume_failed_lands_the_raw_message_of_the_expired_exception(
+        self, db_factory: async_sessionmaker
+    ) -> None:
+        """续跑过期的失败原文只有调用方手上有；不传就只剩一个裸「失败」。"""
+        call_id = await self._seed_pending_video(db_factory)
+        ledger = Ledger(session_factory=db_factory)
+        expired = ResumeExpiredError(job_id="job-1", provider="ark")
+
+        affected = await ledger.resume_failed(call_id=call_id, failure=expired)
+
+        assert affected == 1
+        row = await _only_row(db_factory)
+        assert row.status == "failed"
+        assert row.error_message == str(expired)
+        # 过期异常不带 HTTP 状态也不带上游错误码，分类落空——读侧按原文显示。
+        assert (row.error_code, row.error_params) == (None, None)
+
+    async def test_resume_failed_classifies_the_exception_it_is_given(self, db_factory: async_sessionmaker) -> None:
+        """认得出类别的异常在 resume 路径也落码，与记账括号同一口径。"""
+        call_id = await self._seed_pending_video(db_factory)
+        ledger = Ledger(session_factory=db_factory)
+        exc = httpx.HTTPStatusError(
+            "429 response",
+            request=_HTTP_REQUEST,
+            response=httpx.Response(429, headers={"Retry-After": "30"}, request=_HTTP_REQUEST),
+        )
+
+        await ledger.resume_failed(call_id=call_id, failure=exc)
+
+        row = await _only_row(db_factory)
+        assert row.error_code == "rate_limited"
+        assert row.error_params == {"retry_after_seconds": 30}
+        assert row.error_message == str(exc)
+
+    async def test_resume_failed_takes_a_plain_failure_text(self, db_factory: async_sessionmaker) -> None:
+        """派发前判死的出口手上没有异常，只有一段原文——照落，无码。"""
+        call_id = await self._seed_pending_video(db_factory)
+        ledger = Ledger(session_factory=db_factory)
+
+        await ledger.resume_failed(call_id=call_id, failure="provider has no video capacity")
+
+        row = await _only_row(db_factory)
+        assert row.error_message == "provider has no video capacity"
+        assert (row.error_code, row.error_params) == (None, None)
+
+    async def test_resume_failed_without_failure_leaves_the_three_columns_empty(
+        self, db_factory: async_sessionmaker
+    ) -> None:
+        call_id = await self._seed_pending_video(db_factory)
+        ledger = Ledger(session_factory=db_factory)
+
+        await ledger.resume_failed(call_id=call_id)
+
+        row = await _only_row(db_factory)
+        assert (row.error_message, row.error_code, row.error_params) == (None, None, None)
 
     async def test_resume_cancelled_flips_pending_zero_cost(self, db_factory: async_sessionmaker) -> None:
         call_id = await self._seed_pending_video(db_factory)

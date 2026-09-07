@@ -2232,6 +2232,37 @@ class TestGenerationWorker:
         assert "[resume_expired_detail]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
+    async def test_process_resume_task_settles_the_call_row_with_the_failure_text(self, monkeypatch, worker_db):
+        """派发侧终态失败：判死这次续跑的异常要随补账落到调用行，不能只翻任务。
+
+        任务侧落的是任务失败码（``[resume_expired_detail]``），记录表读的是调用行的
+        error_message / error_code——两张表各有自己的失败登记，调用行那份只能从这里落。
+        """
+        from lib.db.repositories.usage_repo import UsageRepository
+        from lib.video_backends.base import ResumeExpiredError
+
+        async with worker_db() as session:
+            call_id = await UsageRepository(session).start_call(
+                project_name="demo", call_type="video", model="m", task_id="exp-row"
+            )
+
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _expire(_task, *, job_id):
+            raise ResumeExpiredError(job_id=job_id, provider="ark")
+
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _expire)
+        await worker._process_resume_task(_storyboard_resume_task("exp-row", job_id="x"))
+
+        async with worker_db() as session:
+            row = await session.get(ApiCall, call_id)
+        assert (row.status, row.cost_amount) == ("failed", 0)
+        assert row.error_message == "resume job x expired or not found on provider ark"
+        # 过期异常不带 HTTP 状态也不带上游错误码，分类落空——读侧按原文显示
+        assert (row.error_code, row.error_params) == (None, None)
+
+    @pytest.mark.asyncio
     async def test_process_resume_task_endpoint_changed(self, monkeypatch):
         """ResumeEndpointChangedError → mark_failed [resume_endpoint_changed]，错误可归因。"""
         from lib.video_backends.base import ResumeEndpointChangedError
@@ -2422,7 +2453,7 @@ class TestDispatcherFailFastAndPendingTracking:
                 base_url="https://example.invalid",
                 api_key="k",
             )
-            await UsageRepository(session).start_call(
+            call_id = await UsageRepository(session).start_call(
                 project_name="demo", call_type="video", model="m", task_id="retry-1"
             )
             await session.commit()
@@ -2437,9 +2468,11 @@ class TestDispatcherFailFastAndPendingTracking:
         )
 
         async with worker_db() as session:
-            stored = await stored_calls(session)
-        assert stored[0].status == "failed"
-        assert stored[0].cost_amount == 0
+            row = await session.get(ApiCall, call_id)
+        assert (row.status, row.cost_amount) == ("failed", 0)
+        # 判死时没有异常对象可分类，只有一段原文：落 error_message，不落码
+        assert row.error_message == f"resume unsupported: provider {provider_key} has no video capacity"
+        assert (row.error_code, row.error_params) == (None, None)
 
     @pytest.mark.asyncio
     async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch, staged_project):

@@ -67,14 +67,19 @@ class CallFailure:
     error_params: dict[str, Any] | None = None
 
 
-def classify_call_failure(exc: BaseException) -> CallFailure:
+def classify_call_failure(exc: BaseException | str) -> CallFailure:
     """把记账括号捕获的异常编码为落库三元组。
 
     顺序即优先级：产物下载失败先判——下载耗尽的根因常是一次超时或一个 HTTP 状态，但对用户而言
     它是「下载失败」（可重试取件），不是一次超时的生成。其余三类互不重叠，沿 ``__cause__`` 链
     逐层判：提交阶段的歧义态包装之类的外层异常自身不带可分类的信息，根因在它包住的那一层。
     ``error_message`` 始终取最外层的原文。
+
+    也收失败原文：resume 补账的部分出口只拿得到一段文本而没有异常对象。分类依据全在异常的
+    类型与属性上，文本没有可判的信号，因而只留原文——与认不出的异常同一结果。
     """
+    if isinstance(exc, str):
+        return CallFailure(exc)
     message = str(exc)
     if _provider_error_code(exc) == _ARTIFACT_DOWNLOAD_FAILED_CODE:
         return CallFailure(message, CallErrorCode.DOWNLOAD_FAILED, _download_params(exc))
