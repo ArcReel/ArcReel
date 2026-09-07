@@ -8,7 +8,8 @@ import logging
 from google import genai
 from openai import OpenAI
 
-from lib.config.anthropic_url import anthropic_auth_headers, derive_anthropic_endpoints
+from lib.config.anthropic_probe import anthropic_auth_headers
+from lib.config.url_utils import anthropic_endpoint_url, validate_anthropic_base_url
 from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint
 from lib.http_status_errors import raise_for_status_redacted
 from lib.httpx_shared import get_http_client
@@ -81,14 +82,19 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
 
 
 async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
-    """Anthropic Messages 协议 GET /v1/models 发现可用模型。
+    """Anthropic 协议 GET {base_url}/v1/models 发现可用模型。
+
+    base_url 与 Agent 调用地址同一个值，不剥子路径：网关把 Claude 协议挂在
+    /anthropic 等子路径下时，模型列表也在同一子路径下。
 
     返回 dict 与 OpenAI/Google 路径同形态，但 endpoint 字段为空字符串
     （anthropic 不参与 ENDPOINT_REGISTRY 派发，前端只读 model_id）。
+
+    Raises:
+        InvalidAnthropicBaseUrlError: base_url 含 query / fragment / userinfo 或不是绝对 http(s) 地址。
     """
-    ep = derive_anthropic_endpoints(base_url or "https://api.anthropic.com")
-    normalized = ep.discovery_root or "https://api.anthropic.com"
-    url = f"{normalized}/v1/models"
+    normalized = validate_anthropic_base_url(base_url or "https://api.anthropic.com")
+    url = anthropic_endpoint_url(normalized, "/v1/models")
     client = get_http_client()
     resp = await client.get(url, headers=anthropic_auth_headers(api_key), timeout=15.0)
     if resp.status_code == 401:

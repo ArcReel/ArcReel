@@ -126,6 +126,83 @@ async def test_create_custom_with_base_url(agent_config_client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_normalizes_full_messages_endpoint(agent_config_client) -> None:
+    """预设凭证覆盖 base_url 时，整条 messages 端点归一为调用根后入库。"""
+    body = {
+        "preset_id": "deepseek",
+        "base_url": "https://proxy.internal/anthropic/v1/messages",
+        "api_key": "sk",
+    }
+    resp = await agent_config_client.post("/api/v1/agent/credentials", json=body)
+    assert resp.status_code == 201
+    assert resp.json()["base_url"] == "https://proxy.internal/anthropic"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://relay.example.com/anthropic?api_key=sk-x",
+        "https://x/a#frag",
+        "https://u:p@x/a",
+        "x.example.com",
+    ],
+)
+async def test_create_rejects_unsupported_base_url(agent_config_client, base_url: str) -> None:
+    """保存入口拒绝带 query / fragment / userinfo 或缺 scheme 的地址，文案不回显 query 值。"""
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "__custom__", "base_url": base_url, "api_key": "sk"},
+    )
+    assert resp.status_code == 422
+    assert "sk-x" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_normalizes_full_messages_endpoint(agent_config_client) -> None:
+    """PATCH 的 base_url 与 POST 走同一归一：整条 messages 端点入库为调用根。"""
+    cred = (
+        await agent_config_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk"},
+        )
+    ).json()
+    resp = await agent_config_client.patch(
+        f"/api/v1/agent/credentials/{cred['id']}",
+        json={"base_url": "https://proxy.internal/anthropic/v1/messages/"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["base_url"] == "https://proxy.internal/anthropic"
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_unsupported_base_url(agent_config_client) -> None:
+    cred = (
+        await agent_config_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk"},
+        )
+    ).json()
+    resp = await agent_config_client.patch(
+        f"/api/v1/agent/credentials/{cred['id']}",
+        json={"base_url": "https://relay.example.com/anthropic?api_key=sk-x"},
+    )
+    assert resp.status_code == 422
+    assert "sk-x" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_test_connection_rejects_unsupported_base_url(agent_config_client) -> None:
+    """测试连接入口同样在探测前 422，不发任何出站请求。"""
+    resp = await agent_config_client.post(
+        "/api/v1/agent/test-connection",
+        json={"preset_id": "__custom__", "api_key": "sk", "base_url": "https://x/a?api_key=sk-x"},
+    )
+    assert resp.status_code == 422
+    assert "sk-x" not in resp.text
+
+
+@pytest.mark.asyncio
 async def test_create_unknown_preset_rejected(agent_config_client) -> None:
     resp = await agent_config_client.post(
         "/api/v1/agent/credentials",
@@ -233,11 +310,9 @@ async def test_test_connection_draft_calls_run_test(agent_config_client, monkeyp
     expected = probe_mod.TestConnectionResponse(
         overall="ok",
         messages_probe=probe_mod.ProbeResult(success=True, status_code=200, latency_ms=10, error=None),
-        discovery_probe=probe_mod.ProbeResult(success=True, status_code=200, latency_ms=8, error=None),
         diagnosis=None,
         suggestion=None,
-        derived_messages_root="https://api.deepseek.com/anthropic",
-        derived_discovery_root="https://api.deepseek.com",
+        messages_url="https://api.deepseek.com/anthropic/v1/messages",
     )
     fake = AsyncMock(return_value=expected)
     monkeypatch.setattr("server.routers.agent_config.run_test", fake)
@@ -250,7 +325,9 @@ async def test_test_connection_draft_calls_run_test(agent_config_client, monkeyp
     body = resp.json()
     assert body["overall"] == "ok"
     assert body["messages_probe"]["success"] is True
-    assert body["derived_messages_root"] == "https://api.deepseek.com/anthropic"
+    assert body["messages_url"] == "https://api.deepseek.com/anthropic/v1/messages"
+    assert "discovery_probe" not in body
+    assert "derived_discovery_root" not in body
     fake.assert_awaited_once()
 
 
@@ -263,11 +340,9 @@ async def test_test_credential_uses_stored(agent_config_client, monkeypatch) -> 
     expected = probe_mod.TestConnectionResponse(
         overall="fail",
         messages_probe=probe_mod.ProbeResult(success=False, status_code=401, latency_ms=12, error="bad"),
-        discovery_probe=None,
         diagnosis=probe_mod.DiagnosisCode.AUTH_FAILED,
         suggestion=None,
-        derived_messages_root="https://api.deepseek.com/anthropic",
-        derived_discovery_root="https://api.deepseek.com",
+        messages_url="https://api.deepseek.com/anthropic/v1/messages",
     )
     fake = AsyncMock(return_value=expected)
     monkeypatch.setattr("server.routers.agent_config.run_test", fake)

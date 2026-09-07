@@ -12,10 +12,10 @@ from lib.config.anthropic_probe import (
     DiagnosisCode,
     ProbeResult,
     classify_probe_failure,
-    probe_discovery,
     probe_messages,
     run_test,
 )
+from lib.config.url_utils import InvalidAnthropicBaseUrlError
 from tests.http_capture import capture_http, only_request, request_json
 
 _ANTHROPIC_OK = {"id": "msg_1", "type": "message", "content": [{"type": "text", "text": "ok"}]}
@@ -37,7 +37,7 @@ async def test_probe_messages_success(probe_client: httpx.AsyncClient) -> None:
             return_value=httpx.Response(200, json=_ANTHROPIC_OK)
         )
         result = await probe_messages(
-            messages_root="https://api.example.com",
+            base_url="https://api.example.com",
             api_key="sk-test",
             model="claude-3-5-sonnet-20241022",
             http_client=probe_client,
@@ -62,7 +62,7 @@ async def test_probe_messages_401_marks_failure(probe_client: httpx.AsyncClient)
             return_value=httpx.Response(401, json={"error": {"type": "authentication_error"}})
         )
         result = await probe_messages(
-            messages_root="https://api.example.com",
+            base_url="https://api.example.com",
             api_key="bad",
             model="claude-3-5-sonnet-20241022",
             http_client=probe_client,
@@ -80,7 +80,7 @@ async def test_probe_messages_200_but_not_anthropic_marks_failure(probe_client: 
             return_value=httpx.Response(200, json={"id": "chatcmpl-1", "object": "chat.completion", "choices": []})
         )
         result = await probe_messages(
-            messages_root="https://api.example.com",
+            base_url="https://api.example.com",
             api_key="sk",
             model="x",
             http_client=probe_client,
@@ -108,7 +108,7 @@ async def test_probe_messages_timeout_only_read_timeout_means_upstream_slow(
     with capture_http() as router:
         router.post("https://api.example.com/v1/messages").mock(side_effect=exc)
         result = await probe_messages(
-            messages_root="https://api.example.com",
+            base_url="https://api.example.com",
             api_key="sk",
             model="x",
             timeout_s=0.5,
@@ -125,7 +125,7 @@ async def test_probe_messages_network_error(probe_client: httpx.AsyncClient) -> 
     with capture_http() as router:
         router.post("https://api.example.com/v1/messages").mock(side_effect=httpx.ConnectError("connection refused"))
         result = await probe_messages(
-            messages_root="https://api.example.com",
+            base_url="https://api.example.com",
             api_key="sk",
             model="x",
             http_client=probe_client,
@@ -177,78 +177,18 @@ def test_classify_probe_failure_unknown_404_no_model() -> None:
     assert classify_probe_failure(p) == DiagnosisCode.UNKNOWN
 
 
-async def test_probe_discovery_none_root_returns_none() -> None:
-    assert await probe_discovery(discovery_root=None, api_key="sk") is None
-
-
-async def test_probe_discovery_success(probe_client: httpx.AsyncClient) -> None:
+async def test_run_test_probes_only_messages_endpoint(probe_client: httpx.AsyncClient) -> None:
+    """测试连接只打 Agent 真正调用的 messages 端点：不发 /v1/models，也不补 /anthropic 重试。"""
     with capture_http() as router:
-        route = router.get("https://api.example.com/v1/models").mock(
-            return_value=httpx.Response(200, json={"data": [{"id": "m"}]})
-        )
-        result = await probe_discovery(discovery_root="https://api.example.com", api_key="sk", http_client=probe_client)
-
-    assert result is not None
-    assert result.success is True
-    assert result.status_code == 200
-    assert only_request(route).headers["x-api-key"] == "sk"
-
-
-async def test_probe_discovery_non_2xx_marks_failure(probe_client: httpx.AsyncClient) -> None:
-    with capture_http() as router:
-        router.get("https://api.example.com/v1/models").mock(return_value=httpx.Response(404, text="not found"))
-        result = await probe_discovery(discovery_root="https://api.example.com", api_key="sk", http_client=probe_client)
-
-    assert result is not None
-    assert result.success is False
-    assert result.status_code == 404
-    assert "not found" in (result.error or "")
-
-
-async def test_probe_discovery_network_error(probe_client: httpx.AsyncClient) -> None:
-    with capture_http() as router:
-        router.get("https://api.example.com/v1/models").mock(side_effect=httpx.ConnectError("dns fail"))
-        result = await probe_discovery(discovery_root="https://api.example.com", api_key="sk", http_client=probe_client)
-
-    assert result is not None
-    assert result.success is False
-    assert result.status_code is None
-    assert "dns fail" in (result.error or "").lower()
-
-
-@pytest.mark.parametrize(
-    ("exc", "expected"),
-    [
-        (httpx.ReadTimeout("read timed out"), DiagnosisCode.TIMEOUT),
-        (httpx.ConnectTimeout("connect timed out"), DiagnosisCode.NETWORK),
-    ],
-    ids=["read", "connect"],
-)
-async def test_probe_discovery_timeout_follows_messages_probe_rule(
-    probe_client: httpx.AsyncClient, exc: httpx.TimeoutException, expected: DiagnosisCode
-) -> None:
-    with capture_http() as router:
-        router.get("https://api.example.com/v1/models").mock(side_effect=exc)
-        result = await probe_discovery(discovery_root="https://api.example.com", api_key="sk", http_client=probe_client)
-
-    assert result is not None
-    assert result.success is False
-    assert result.status_code is None
-    assert classify_probe_failure(result) == expected
-
-
-async def test_run_test_custom_mode_self_heals_with_anthropic_suffix(probe_client: httpx.AsyncClient) -> None:
-    """用户填 https://api.deepseek.com，messages probe 失败 (404)；
-    自动重试 https://api.deepseek.com/anthropic 成功 → suggestion 给出修复值。
-    """
-    with capture_http() as router:
-        plain = router.post("https://api.deepseek.com/v1/messages").mock(
+        messages = router.post("https://api.deepseek.com/v1/messages").mock(
             return_value=httpx.Response(404, text="not found")
         )
-        suffixed = router.post("https://api.deepseek.com/anthropic/v1/messages").mock(
-            return_value=httpx.Response(200, json={"id": "msg_1", "type": "message", "content": []})
+        models = router.get("https://api.deepseek.com/v1/models").mock(
+            return_value=httpx.Response(200, json={"data": []})
         )
-        router.get("https://api.deepseek.com/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
+        suffixed = router.post("https://api.deepseek.com/anthropic/v1/messages").mock(
+            return_value=httpx.Response(200, json=_ANTHROPIC_OK)
+        )
 
         resp = await run_test(
             preset_id=CUSTOM_SENTINEL_ID,
@@ -258,105 +198,26 @@ async def test_run_test_custom_mode_self_heals_with_anthropic_suffix(probe_clien
             http_client=probe_client,
         )
 
-    assert resp.overall == "ok"
-    assert resp.diagnosis == DiagnosisCode.MISSING_ANTHROPIC_SUFFIX
-    assert resp.suggestion is not None
-    assert resp.suggestion.kind == "replace_base_url"
-    assert resp.suggestion.suggested_value == "https://api.deepseek.com/anthropic"
-    assert plain.call_count == 1
-    assert suffixed.call_count == 1
-
-
-async def test_run_test_preset_skips_self_heal(probe_client: httpx.AsyncClient) -> None:
-    """preset_id != __custom__ 时不做自愈尝试。"""
-    preset = get_preset("anthropic-official")
-    assert preset is not None
-    root = preset.messages_url
-
-    with capture_http() as router:
-        router.post(f"{root}/v1/messages").mock(return_value=httpx.Response(404, text="not found"))
-        suffixed = router.post(f"{root}/anthropic/v1/messages").mock(
-            return_value=httpx.Response(200, json=_ANTHROPIC_OK)
-        )
-        router.get(f"{preset.discovery_url}/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
-
-        resp = await run_test(
-            preset_id="anthropic-official",
-            base_url=None,
-            api_key="sk",
-            model="claude-3-5-sonnet-20241022",
-            http_client=probe_client,
-        )
-
-    assert resp.overall == "fail"
-    assert resp.suggestion is None
+    assert messages.call_count == 1
+    assert models.call_count == 0
     assert suffixed.call_count == 0
-
-
-async def test_run_test_self_heal_retry_also_fails_keeps_original_failure(probe_client: httpx.AsyncClient) -> None:
-    """自愈重试也失败 (同 404) → suggestion=None，diagnosis=UNKNOWN。"""
-    with capture_http() as router:
-        plain = router.post("https://api.example.com/v1/messages").mock(
-            return_value=httpx.Response(404, text="not found")
-        )
-        suffixed = router.post("https://api.example.com/anthropic/v1/messages").mock(
-            return_value=httpx.Response(404, text="still not found")
-        )
-        router.get("https://api.example.com/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
-
-        resp = await run_test(
-            preset_id=CUSTOM_SENTINEL_ID,
-            base_url="https://api.example.com",
-            api_key="sk",
-            model=None,
-            http_client=probe_client,
-        )
-
     assert resp.overall == "fail"
     assert resp.suggestion is None
-    assert resp.diagnosis == DiagnosisCode.UNKNOWN
-    assert plain.call_count == 1
-    assert suffixed.call_count == 1
+    assert resp.messages_url == "https://api.deepseek.com/v1/messages"
 
 
-async def test_run_test_self_heal_retry_promotes_specific_diagnosis(probe_client: httpx.AsyncClient) -> None:
-    """重试失败但二次诊断更具体 (401) → 采纳 retry，让用户看到 AUTH_FAILED 而非 UNKNOWN。"""
+async def test_run_test_preset_with_base_url_override_probes_stored_value(
+    probe_client: httpx.AsyncClient,
+) -> None:
+    """preset 凭证覆盖 base_url：整条完整端点归一后即为调用值，探测打的就是它。"""
     with capture_http() as router:
-        router.post("https://api.example.com/v1/messages").mock(return_value=httpx.Response(404, text="not found"))
-        router.post("https://api.example.com/anthropic/v1/messages").mock(
-            return_value=httpx.Response(401, json={"error": {"type": "authentication_error"}})
-        )
-        router.get("https://api.example.com/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
-
-        resp = await run_test(
-            preset_id=CUSTOM_SENTINEL_ID,
-            base_url="https://api.example.com",
-            api_key="bad",
-            model=None,
-            http_client=probe_client,
-        )
-
-    assert resp.overall == "fail"
-    assert resp.diagnosis == DiagnosisCode.AUTH_FAILED
-    assert resp.derived_messages_root.endswith("/anthropic")
-    # retry 401 ≠ 缺后缀的诊断，不发 suggestion
-    assert resp.suggestion is None
-
-
-async def test_run_test_preset_with_base_url_override_derives_discovery(probe_client: httpx.AsyncClient) -> None:
-    """preset 凭证覆盖 base_url → discovery 也从 base_url 派生，与运行时一致。"""
-    with capture_http() as router:
-        messages = router.post("https://corp-proxy.example.com/anthropic/v1/messages").mock(
-            return_value=httpx.Response(200, json={"id": "msg_1", "type": "message", "content": []})
-        )
-        # discovery 也从 base_url 派生（剥掉 /anthropic）
-        discovery = router.get("https://corp-proxy.example.com/v1/models").mock(
-            return_value=httpx.Response(200, json={"data": []})
+        messages = router.post("https://proxy.internal/anthropic/v1/messages").mock(
+            return_value=httpx.Response(200, json=_ANTHROPIC_OK)
         )
 
         resp = await run_test(
             preset_id="deepseek",
-            base_url="https://corp-proxy.example.com/anthropic",
+            base_url="https://proxy.internal/anthropic/v1/messages",
             api_key="sk",
             model=None,
             http_client=probe_client,
@@ -364,8 +225,23 @@ async def test_run_test_preset_with_base_url_override_derives_discovery(probe_cl
 
     assert resp.overall == "ok"
     assert messages.call_count == 1
-    assert discovery.call_count == 1
-    assert resp.derived_discovery_root == "https://corp-proxy.example.com"
+    assert resp.messages_url == "https://proxy.internal/anthropic/v1/messages"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://relay.example.com/anthropic?api_key=sk-x",
+        "https://x/a#frag",
+        "https://u:p@x/a",
+        "x.example.com",
+    ],
+)
+async def test_run_test_rejects_unsupported_base_url(base_url: str) -> None:
+    """带 query / fragment / userinfo 或缺 scheme 的地址在探测前就被拒，文案不回显输入。"""
+    with pytest.raises(InvalidAnthropicBaseUrlError) as exc_info:
+        await run_test(preset_id=CUSTOM_SENTINEL_ID, base_url=base_url, api_key="sk", model="m")
+    assert "sk-x" not in str(exc_info.value)
 
 
 async def test_run_test_custom_mode_requires_base_url() -> None:
@@ -418,41 +294,6 @@ def test_classify_probe_failure_400_without_model_keyword_stays_unknown() -> Non
     assert classify_probe_failure(p) == DiagnosisCode.UNKNOWN
 
 
-async def test_probe_discovery_retries_with_bearer_after_401(probe_client: httpx.AsyncClient) -> None:
-    """只认 Authorization 的网关（火山方舟）：x-api-key 拿 401 后换 Bearer 重试。"""
-    with capture_http() as router:
-        route = router.get("https://ark.example.com/v1/models").mock(
-            side_effect=[
-                httpx.Response(401, text="unauthorized"),
-                httpx.Response(200, json={"data": [{"id": "m"}]}),
-            ]
-        )
-        result = await probe_discovery(discovery_root="https://ark.example.com", api_key="sk", http_client=probe_client)
-
-    assert result is not None
-    assert result.success is True
-    assert result.status_code == 200
-    assert route.call_count == 2
-    assert route.calls[0].request.headers["x-api-key"] == "sk"
-    assert "x-api-key" not in route.calls[1].request.headers
-    assert route.calls[1].request.headers["authorization"] == "Bearer sk"
-
-
-async def test_probe_discovery_bearer_retry_still_401_marks_failure(probe_client: httpx.AsyncClient) -> None:
-    with capture_http() as router:
-        route = router.get("https://ark.example.com/v1/models").mock(
-            return_value=httpx.Response(401, text="unauthorized")
-        )
-        result = await probe_discovery(
-            discovery_root="https://ark.example.com", api_key="bad", http_client=probe_client
-        )
-
-    assert result is not None
-    assert result.success is False
-    assert result.status_code == 401
-    assert route.call_count == 2
-
-
 async def test_run_test_preset_without_model_short_circuits(probe_client: httpx.AsyncClient) -> None:
     """预设默认模型为空且用户未填：不发 messages 请求，直接给 MODEL_REQUIRED。"""
     preset = get_preset("anthropic-official")
@@ -461,9 +302,6 @@ async def test_run_test_preset_without_model_short_circuits(probe_client: httpx.
     with capture_http() as router:
         messages = router.post(f"{preset.messages_url}/v1/messages").mock(
             return_value=httpx.Response(200, json=_ANTHROPIC_OK)
-        )
-        discovery = router.get(f"{preset.discovery_url}/v1/models").mock(
-            return_value=httpx.Response(200, json={"data": []})
         )
 
         resp = await run_test(
@@ -480,15 +318,12 @@ async def test_run_test_preset_without_model_short_circuits(probe_client: httpx.
     assert resp.suggestion.kind == "run_discovery"
     assert resp.messages_probe.success is False
     assert resp.messages_probe.status_code is None
-    assert resp.discovery_probe is None
+    assert resp.messages_url == f"{preset.messages_url}/v1/messages"
     assert messages.call_count == 0
-    assert discovery.call_count == 0
 
 
-async def test_run_test_ark_preset_uses_default_model_and_skips_discovery(
-    probe_client: httpx.AsyncClient,
-) -> None:
-    """火山方舟 Agent Plan：预设默认模型直接可用，discovery 关闭不拖成 warn。"""
+async def test_run_test_ark_preset_uses_default_model(probe_client: httpx.AsyncClient) -> None:
+    """火山方舟 Agent Plan：预设默认模型直接可用。"""
     preset = get_preset("ark-agent-plan")
     assert preset is not None
 
@@ -506,7 +341,6 @@ async def test_run_test_ark_preset_uses_default_model_and_skips_discovery(
         )
 
     assert resp.overall == "ok"
-    assert resp.discovery_probe is None
     assert request_json(only_request(messages))["model"] == preset.default_model
 
 
@@ -516,7 +350,6 @@ async def test_run_test_custom_mode_without_model_uses_fallback(probe_client: ht
         messages = router.post("https://api.example.com/anthropic/v1/messages").mock(
             return_value=httpx.Response(200, json=_ANTHROPIC_OK)
         )
-        router.get("https://api.example.com/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
 
         resp = await run_test(
             preset_id=CUSTOM_SENTINEL_ID,

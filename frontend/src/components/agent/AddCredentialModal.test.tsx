@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
@@ -414,11 +414,9 @@ describe("AddCredentialModal", () => {
     const okResult = {
       overall: "ok" as const,
       messages_probe: { success: true, status_code: 200, latency_ms: 123, error: null },
-      discovery_probe: null,
       diagnosis: null,
       suggestion: null,
-      derived_messages_root: "https://api.deepseek.com/anthropic",
-      derived_discovery_root: "",
+      messages_url: "https://api.deepseek.com/anthropic/v1/messages",
     };
 
     it("disabled until both base_url and api_key filled", () => {
@@ -464,6 +462,61 @@ describe("AddCredentialModal", () => {
       });
       // TestResultPanel headline 渲染（test_ok 文案三语 OR-match）
       await screen.findByText(/test[_ ]ok|连通正常|Kết nối/i);
+      // 结果面板只剩调用地址，没有发现端点行
+      const panel = within(screen.getByRole("status"));
+      expect(panel.getByText("https://api.deepseek.com/anthropic/v1/messages")).toBeInTheDocument();
+      expect(panel.queryByText(/发现端点|Discovery endpoint|Endpoint discovery/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("base_url 预览与拦截", () => {
+    const fillBaseUrl = (value: string) => {
+      fireEvent.change(screen.getByLabelText(/api[_ ]base[_ ]url|API 代理地址|Địa chỉ/i), {
+        target: { value },
+      });
+    };
+
+    const renderModal = () =>
+      render(
+        <AddCredentialModal
+          open
+          presets={presets}
+          customSentinelId="__custom__"
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+    it("预览拼出的地址与运行时调用一致，不剥版本段", () => {
+      renderModal();
+      fillBaseUrl("https://api.deepseek.com/anthropic/v1");
+      expect(
+        screen.getByText("https://api.deepseek.com/anthropic/v1/v1/messages"),
+      ).toBeInTheDocument();
+    });
+
+    it("带 query 的地址拦下测试与保存", () => {
+      const testSpy = vi.spyOn(API, "testAgentConnectionDraft");
+      const onSubmit = vi.fn();
+      render(
+        <AddCredentialModal
+          open
+          presets={presets}
+          customSentinelId="__custom__"
+          onSubmit={onSubmit}
+          onClose={vi.fn()}
+        />,
+      );
+      fillBaseUrl("https://relay.example.com/anthropic?api_key=sk-x");
+      fireEvent.change(
+        screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i),
+        { target: { value: "sk-test" } },
+      );
+
+      expect(screen.getByTestId("test-connection")).toBeDisabled();
+      expect(screen.getByRole("button", { name: /common:add|添加|Add|Thêm/i })).toBeDisabled();
+      expect(testSpy).not.toHaveBeenCalled();
+      expect(onSubmit).not.toHaveBeenCalled();
     });
   });
 

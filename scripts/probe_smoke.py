@@ -7,7 +7,8 @@
 只测安全路径（不发任何真付费请求；错 key 立即被上游拒绝）：
 1. 故意错的 key 打真 anthropic → 看 AUTH_FAILED 抓不抓到
 2. 不存在的 host → 看 NETWORK 抓不抓到
-3. 完全不带 anthropic 后缀的 OpenAI 兼容 host → 看 OPENAI_COMPAT 路径
+3. 完全不带 anthropic 子路径的 OpenAI 兼容 host → 看 OPENAI_COMPAT / 404 路径
+4. 带 query 的地址 → 看入口校验抓不抓到
 
 跑法：uv run python scripts/probe_smoke.py
 """
@@ -37,21 +38,13 @@ async def case(label: str, **kw):
     print(f"  overall:    {resp.overall}")
     print(f"  diagnosis:  {resp.diagnosis}")
     print(f"  suggestion: {resp.suggestion}")
-    print(f"  derived_messages_root:  {resp.derived_messages_root}")
-    print(f"  derived_discovery_root: {resp.derived_discovery_root}")
+    print(f"  messages_url: {resp.messages_url}")
     print("  messages_probe:")
     for k, v in dataclasses.asdict(resp.messages_probe).items():
         if k == "error" and v:
             print(f"    {k}: {v[:160]!r}{'...' if len(v) > 160 else ''}")
         else:
             print(f"    {k}: {v}")
-    if resp.discovery_probe:
-        print("  discovery_probe:")
-        for k, v in dataclasses.asdict(resp.discovery_probe).items():
-            if k == "error" and v:
-                print(f"    {k}: {v[:160]!r}{'...' if len(v) > 160 else ''}")
-            else:
-                print(f"    {k}: {v}")
 
 
 async def main():
@@ -78,9 +71,16 @@ async def _run_cases():
         model=None,
     )
     await case(
-        "Case 3: OpenAI 兼容端点（不带 /anthropic 后缀）→ 触发自愈路径",
+        "Case 3: OpenAI 兼容端点（不带 /anthropic 子路径）",
         preset_id=None,
         base_url="https://api.deepseek.com",
+        api_key="sk-fake",
+        model=None,
+    )
+    await case(
+        "Case 4: 带 query 的地址 → 入口校验拒绝",
+        preset_id=None,
+        base_url="https://api.deepseek.com/anthropic?api_key=sk-fake",
         api_key="sk-fake",
         model=None,
     )

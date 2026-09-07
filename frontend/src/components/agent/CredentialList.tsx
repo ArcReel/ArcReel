@@ -13,7 +13,6 @@ interface Props {
   /** 显示在对应凭证行下方的连接测试结果(null 时不显示). */
   testedId?: number | null;
   testResult?: TestConnectionResponse | null;
-  onApplyFix?: (suggestedBaseUrl: string) => void;
   onActivate: (id: number) => void;
   onTest: (id: number) => void;
   onEdit: (cred: AgentCredential) => void;
@@ -25,7 +24,6 @@ export function CredentialList({
   busyId = null,
   testedId = null,
   testResult = null,
-  onApplyFix,
   onActivate,
   onTest,
   onEdit,
@@ -122,14 +120,7 @@ export function CredentialList({
                 </button>
               </div>
             </div>
-            {showResult && (
-              <TestResultPanel
-                attached
-                originalBaseUrl={c.base_url}
-                result={testResult}
-                onApplyFix={onApplyFix}
-              />
-            )}
+            {showResult && <TestResultPanel attached result={testResult} />}
           </li>
         );
       })}

@@ -1013,6 +1013,14 @@ async def discover_anthropic_models_endpoint(
         raise HTTPException(status_code=400, detail=_t("anthropic_discovery_no_key"))
 
     base_url = body.base_url if not needs_url else (cred.base_url if cred else None)
+    if base_url:
+        from lib.config.url_utils import InvalidAnthropicBaseUrlError, validate_anthropic_base_url
+
+        try:
+            base_url = validate_anthropic_base_url(base_url)
+        except InvalidAnthropicBaseUrlError as exc:
+            # 文案固定，不回显输入：地址里可能带着用户误填的 api_key
+            raise HTTPException(status_code=422, detail=_t("agent_base_url_invalid")) from exc
 
     return await _run_discover("anthropic", base_url, api_key, _t)
 

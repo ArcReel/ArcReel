@@ -18,6 +18,7 @@ from lib.config.anthropic_probe import DiagnosisCode, run_test
 from lib.config.anthropic_probe import ProbeResult as ProbeResultDC
 from lib.config.anthropic_probe import TestConnectionResponse as TestConnectionResponseDC
 from lib.config.repository import mask_secret
+from lib.config.url_utils import InvalidAnthropicBaseUrlError, validate_anthropic_base_url
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
@@ -144,6 +145,17 @@ def _cred_to_response(cred) -> CredentialResponse:
     )
 
 
+def _normalized_base_url(raw: str, _t: Translator) -> str:
+    """入库前归一 + 校验：存储值即 Claude CLI 的调用值。
+
+    错误文案固定，不回显输入——地址里可能带着用户误填的 api_key。
+    """
+    try:
+        return validate_anthropic_base_url(raw)
+    except InvalidAnthropicBaseUrlError as exc:
+        raise HTTPException(status_code=422, detail=_t("agent_base_url_invalid")) from exc
+
+
 # ── Credential endpoints ───────────────────────────────────────────
 
 
@@ -167,13 +179,13 @@ async def create_credential(
         preset = get_preset(body.preset_id)
         if preset is None:
             raise HTTPException(status_code=422, detail=_t("agent_preset_unknown", preset_id=body.preset_id))
-        base_url = body.base_url or preset.messages_url
+        base_url = _normalized_base_url(body.base_url, _t) if body.base_url else preset.messages_url
         display_name = body.display_name or preset.display_name
         model = body.model or preset.default_model
     else:
         if not body.base_url:
             raise HTTPException(status_code=422, detail=_t("agent_base_url_required_custom"))
-        base_url = body.base_url
+        base_url = _normalized_base_url(body.base_url, _t)
         display_name = body.display_name or "Custom"
         model = body.model
 
@@ -216,6 +228,8 @@ async def update_credential(
     for required in ("display_name", "base_url", "api_key"):
         if fields.get(required) is None:
             fields.pop(required, None)
+    if "base_url" in fields:
+        fields["base_url"] = _normalized_base_url(fields["base_url"], _t)
     if not fields:
         raise HTTPException(status_code=400, detail=_t("agent_no_fields_to_update"))
     cred = await repo.update(cred_id, **fields)
@@ -274,18 +288,16 @@ class ProbeResultModel(BaseModel):
 
 
 class SuggestionModel(BaseModel):
-    kind: Literal["replace_base_url", "check_api_key", "run_discovery", "see_docs"]
+    kind: Literal["check_api_key", "run_discovery", "see_docs"]
     suggested_value: str | None = None
 
 
 class TestConnectionResponseModel(BaseModel):
-    overall: Literal["ok", "warn", "fail"]
+    overall: Literal["ok", "fail"]
     messages_probe: ProbeResultModel | None
-    discovery_probe: ProbeResultModel | None
     diagnosis: str | None
     suggestion: SuggestionModel | None
-    derived_messages_root: str
-    derived_discovery_root: str
+    messages_url: str
 
 
 class TestConnectionRequest(BaseModel):
@@ -305,13 +317,11 @@ def _serialize_test_response(r: TestConnectionResponseDC) -> TestConnectionRespo
     return TestConnectionResponseModel(
         overall=r.overall,
         messages_probe=_serialize_probe(r.messages_probe),
-        discovery_probe=_serialize_probe(r.discovery_probe),
         diagnosis=r.diagnosis.value if isinstance(r.diagnosis, DiagnosisCode) else None,
         suggestion=SuggestionModel(kind=r.suggestion.kind, suggested_value=r.suggestion.suggested_value)
         if r.suggestion
         else None,
-        derived_messages_root=r.derived_messages_root,
-        derived_discovery_root=r.derived_discovery_root,
+        messages_url=r.messages_url,
     )
 
 
@@ -325,6 +335,8 @@ async def _run_and_serialize(
 ) -> TestConnectionResponseModel:
     try:
         result = await run_test(preset_id=preset_id, base_url=base_url, api_key=api_key, model=model)
+    except InvalidAnthropicBaseUrlError as exc:
+        raise HTTPException(status_code=422, detail=_t("agent_base_url_invalid")) from exc
     except ValueError as exc:
         raise UnprocessableError("agent_test_validation_error").with_diagnostic(str(exc)) from exc
     return _serialize_test_response(result)

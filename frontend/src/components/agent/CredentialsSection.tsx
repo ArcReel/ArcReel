@@ -140,23 +140,6 @@ export function CredentialsSection() {
     }
   }, [confirmDeleteId, loadCreds]);
 
-  const handleApplyFix = useCallback(
-    async (suggestedUrl: string) => {
-      if (testedCredId == null) return;
-      try {
-        await API.updateAgentCredential(testedCredId, { base_url: suggestedUrl });
-        await loadCreds();
-        useAppStore.getState().pushToast(t("agent_config_saved"), "success");
-      } catch (err) {
-        useAppStore.getState().pushToast(errMsg(err), "error");
-      } finally {
-        setTestResult(null);
-        setTestedCredId(null);
-      }
-    },
-    [testedCredId, loadCreds, t],
-  );
-
   return (
     <>
       <SectionShell
@@ -178,7 +161,6 @@ export function CredentialsSection() {
           busyId={busyCredId}
           testedId={testedCredId}
           testResult={testResult}
-          onApplyFix={(suggestedUrl) => void handleApplyFix(suggestedUrl)}
           onActivate={(id) => void handleActivate(id)}
           onTest={(id) => void handleTest(id)}
           onEdit={setEditingCred}
