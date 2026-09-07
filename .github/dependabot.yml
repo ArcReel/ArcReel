@@ -162,6 +162,7 @@ updates:
           - "@floating-ui/*"
           - "@lobehub/*"
           - "@tanstack/react-virtual"
+          - "@visx/*"
           - "streamdown"
           - "driver.js"
         update-types:

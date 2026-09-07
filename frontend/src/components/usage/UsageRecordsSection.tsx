@@ -12,10 +12,13 @@ import {
 } from "@/stores/usage-records-store";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import type { TaskItem } from "@/types";
+import { UsageAttentionCard } from "./UsageAttentionCard";
+import { UsageBreakdownCard } from "./UsageBreakdownCard";
 import { UsageFilterBar } from "./UsageFilterBar";
 import { UsageKpiStrip } from "./UsageKpiStrip";
 import { UsageRecordDetailModal } from "./UsageRecordDetailModal";
 import { UsageRecordsCard } from "./UsageRecordsCard";
+import { UsageTrendCard } from "./UsageTrendCard";
 import { providerLabelResolver } from "./usage-record-format";
 import {
   sortByStartedDesc,
@@ -31,6 +34,8 @@ function taskMatchesFilters(task: TaskItem, filters: UsageRecordsFilters): boole
   if (filters.project !== null && task.project_name !== filters.project) return false;
   if (filters.mediaType !== null && task.media_type !== filters.mediaType) return false;
   if (filters.provider !== null && task.provider_id !== filters.provider) return false;
+  // 任务的分镜就是它的资源 id；生成图片、视频、配音的任务都以分镜为目标。
+  if (filters.segment !== null && task.resource_id !== filters.segment) return false;
   // 排队中的任务还没解析出模型，按模型筛选时一律算不匹配。
   if (filters.model !== null) return false;
   return true;
@@ -42,10 +47,10 @@ export function UsageRecordsSection() {
   const search = useSearch();
 
   const parsedFilters = useMemo(() => parseUsageFilters(search), [search]);
-  const { range, project, provider, model, mediaType, status } = parsedFilters;
+  const { range, project, provider, model, mediaType, segment, status } = parsedFilters;
   const filters = useMemo(
-    () => ({ range, project, provider, model, mediaType, status }),
-    [range, project, provider, model, mediaType, status],
+    () => ({ range, project, provider, model, mediaType, segment, status }),
+    [range, project, provider, model, mediaType, segment, status],
   );
   const recordId = useMemo(() => parseUsageRecordId(search), [search]);
 
@@ -136,6 +141,8 @@ export function UsageRecordsSection() {
     [records],
   );
 
+  const hasAttention = (summary?.attention.length ?? 0) > 0;
+
   return (
     <section className="space-y-4">
       <header>
@@ -160,7 +167,19 @@ export function UsageRecordsSection() {
 
       <UsageKpiStrip summary={summary} />
 
-      {/* 趋势卡、构成表与需要关注插在这里，与 KPI 条和记录卡同列。 */}
+      <UsageTrendCard summary={summary} />
+
+      <div className="grid grid-cols-12 gap-4">
+        <UsageBreakdownCard
+          summary={summary}
+          filters={filters}
+          onChange={onFiltersChange}
+          wide={!hasAttention}
+        />
+        {hasAttention && summary && (
+          <UsageAttentionCard summary={summary} onChange={onFiltersChange} />
+        )}
+      </div>
 
       <UsageRecordsCard
         filters={filters}

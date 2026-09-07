@@ -71,6 +71,14 @@ export function UsageFilterBar({
       clear: { mediaType: null },
     });
   }
+  // 分镜没有下拉可选，只由「需要关注」的连续失败条目写入；chip 是它唯一的出口。
+  if (filters.segment) {
+    chips.push({
+      key: "segment",
+      label: t("usage_target_segment", { id: filters.segment }),
+      clear: { segment: null },
+    });
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-2">
