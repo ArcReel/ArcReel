@@ -334,3 +334,84 @@ describe("ScriptReviewGate", () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("ScriptReviewGate 转为正式脚本", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function confirmedState() {
+    return dramaState({ status: "confirmed", confirmed_at: "2026-06-26T00:00:00Z" });
+  }
+
+  it("未确认时没有转换入口", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    await waitFor(() => expect(screen.getByText("确认并继续")).toBeInTheDocument());
+    expect(screen.queryByText("转为正式脚本")).not.toBeInTheDocument();
+  });
+
+  it("首次转换：对话框说明本集尚无正式脚本，「直接转换」调用转换端点并提示回执", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmedState());
+    vi.spyOn(API, "previewScriptPlanConversion").mockResolvedValue({
+      episode: 1,
+      has_script: false,
+      added: ["E1S01", "E1S02"],
+      stale: [],
+      removed: [],
+    });
+    const convert = vi.spyOn(API, "convertScriptPlan").mockResolvedValue({
+      episode: 1,
+      script_filename: "episode_1.json",
+      added: ["E1S01", "E1S02"],
+      refreshed: [],
+      removed: [],
+    });
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.click(await screen.findByText("转为正式脚本"));
+
+    expect(await screen.findByText("本集尚无正式脚本，将按脚本规划新建 2 条分镜。")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "直接转换" }));
+
+    await waitFor(() => expect(convert).toHaveBeenCalledWith("p", 1));
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.text).toBe("已转为正式脚本：新增 2 条、采用新内容 0 条、移出 0 条"),
+    );
+  });
+
+  it("已有正式脚本：对话框列出新增 / 失效 / 移出条目数", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmedState());
+    vi.spyOn(API, "previewScriptPlanConversion").mockResolvedValue({
+      episode: 1,
+      has_script: true,
+      added: ["E1S03"],
+      stale: ["E1S01", "E1S02"],
+      removed: ["E1S09"],
+    });
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.click(await screen.findByText("转为正式脚本"));
+
+    expect(await screen.findByText(/新增 1 条、失效 2 条、移出 1 条/)).toBeInTheDocument();
+  });
+
+  it("「让 Agent 生成」预填生成脚本请求并打开助手面板，不调用转换端点", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmedState());
+    vi.spyOn(API, "previewScriptPlanConversion").mockResolvedValue({
+      episode: 1,
+      has_script: false,
+      added: ["E1S01"],
+      stale: [],
+      removed: [],
+    });
+    const convert = vi.spyOn(API, "convertScriptPlan");
+    useAppStore.getState().setAssistantPanelOpen(false);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.click(await screen.findByText("转为正式脚本"));
+    fireEvent.click(await screen.findByRole("button", { name: "让 Agent 生成" }));
+
+    expect(useAssistantStore.getState().input).toBe("为第 1 集生成脚本");
+    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+    expect(convert).not.toHaveBeenCalled();
+  });
+});

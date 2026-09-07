@@ -733,3 +733,29 @@ class TestTextFormArtifactCurrency:
 
         assert _digest("初版视频文本提示词") == _digest("初版视频文本提示词")
         assert _digest("初版视频文本提示词") != _digest("改过的视频文本提示词")
+
+
+def test_storyboard_image_basis_refuses_a_pending_prompt() -> None:
+    """机械转换后 image_prompt 为 None：没有可取证的视觉输入，构建方拒绝而非以空提示词入基。"""
+    with pytest.raises(ValueError, match="pending"):
+        build_storyboard_image_visual_basis(
+            resource_id="E1S01",
+            image_prompt=None,
+            style="水墨",
+            style_description="柔光",
+            aspect_ratio="16:9",
+            references=(),
+        )
+
+
+def test_storyboard_video_basis_refuses_a_pending_prompt(tmp_path: Path) -> None:
+    start = tmp_path / "start.png"
+    start.write_bytes(b"start")
+    with pytest.raises(ValueError, match="pending"):
+        build_storyboard_video_artifact_visual_basis(
+            resource_id="E1S01",
+            visual_prompt=None,
+            storyboard_image=start,
+            end_frame_image=None,
+            aspect_ratio="16:9",
+        )

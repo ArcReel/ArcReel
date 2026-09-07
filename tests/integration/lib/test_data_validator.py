@@ -1885,3 +1885,34 @@ class TestCharacterDerivativesStructure:
         project = _project_payload()
         project["scenes"]["古宅"]["derivatives"] = "dirty"
         assert DataValidator("/tmp").validate_project_payload(project).error_messages == []
+
+
+class TestPendingPromptValidation:
+    def test_pending_prompts_are_not_reported_as_missing(self, tmp_path):
+        """机械转换落盘的条目 image_prompt / video_prompt 为 None：属于待生成态，校验不报错。"""
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload())
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 5,
+                        "novel_text": "他推开门。",
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                        "image_prompt": None,
+                        "video_prompt": None,
+                    }
+                ],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not any("image_prompt" in error or "video_prompt" in error for error in result.errors)

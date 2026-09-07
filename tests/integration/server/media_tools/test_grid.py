@@ -782,3 +782,32 @@ async def test_generate_grid_legacy_unresolvable_episode_fails_before_enqueue(
     assert out.get("is_error") is True
     assert "无法确定集号" in out["content"][0]["text"]
     enqueue.assert_not_awaited()
+
+
+async def test_generate_grid_blocks_the_whole_chunk_when_a_prompt_is_pending(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """一格的 image_prompt 尚未填写（None）：整张联合图无从生成，chunk 内每一格都记名阻断。"""
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
+    ]
+    fake_ctx.pm.script_payload["segments"][2]["image_prompt"] = None
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    async def unreachable_waiter(**_kwargs: Any):
+        raise AssertionError("提示词待生成时不该走到入队")
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=unreachable_waiter), {"script": "episode_1.json"})
+
+    result = read_generation_result(out)
+    assert result.blocked == ["E1S01", "E1S02", "E1S03", "E1S04"]
+    problem = next(item for item in result.items if item.unit_id == "E1S01").problem
+    assert problem is not None
+    assert (problem.code, problem.action) == ("generation_unit_request_invalid", "fix_input")
+    assert problem.params["pending_ids"] == ["E1S03"]

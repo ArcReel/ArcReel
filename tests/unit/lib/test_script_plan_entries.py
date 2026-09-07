@@ -13,6 +13,7 @@ from lib.script_plan_entries import (
     entry_revision,
     evaluate_entry_currency,
     plan_entries_from_document,
+    plan_entry_content,
     plan_entry_revisions,
     plan_variant,
     resolve_rewrite_ids,
@@ -395,3 +396,43 @@ class TestScriptEntriesById:
     def test_skips_malformed_items_instead_of_raising(self) -> None:
         script = {"scenes": ["坏条目", {"no_id": 1}, {"scene_id": "E1S01"}]}
         assert list(script_entries_by_id("drama", script)) == ["E1S01"]
+
+
+class TestPlanEntryContent:
+    def test_drama_drops_plan_only_fields_and_keeps_the_rest(self) -> None:
+        entry = drama_plan_entry("E1S01", scene_description="仅脚本规划可见")
+        content = plan_entry_content("drama", entry)
+        assert "scene_description" not in content
+        assert content["utterances"] == entry["utterances"]
+        assert content["source_text"] == entry["source_text"]
+        assert content is not entry
+
+    def test_narration_passes_every_field_through(self) -> None:
+        entry = narration_plan_entry("E1S01")
+        assert plan_entry_content("narration", entry) == entry
+
+    def test_reference_video_keeps_only_script_fields(self) -> None:
+        entry = reference_plan_entry("E1U01", references=[{"name": "主角"}])
+        content = plan_entry_content("reference_video", entry)
+        assert content == {"unit_id": "E1U01", "text": entry["text"], "duration_seconds": 4}
+
+    def test_unknown_plan_kind_fails_loud(self) -> None:
+        with pytest.raises(ScriptPlanEntryError):
+            plan_entry_content("ad", {})
+
+
+class TestSpliceEntriesKeepRevision:
+    def test_kept_entries_are_not_restamped(self) -> None:
+        revisions = plan_entry_revisions("drama", [drama_plan_entry("E1S01"), drama_plan_entry("E1S02")], episode=1)
+        stale = {"scene_id": "E1S01", "image_prompt": "旧图", SCRIPT_PLAN_ENTRY_REVISION_FIELD: "sha256-v1:" + "0" * 64}
+        legacy = {"scene_id": "E1S02", "image_prompt": "旧图二"}
+        entries = splice_entries(
+            "drama",
+            plan_revisions=revisions,
+            rewritten=[],
+            existing={"E1S01": stale, "E1S02": legacy},
+            keep_revision_ids=("E1S01", "E1S02"),
+        )
+        assert entries[0] == stale
+        assert entries[1] == legacy
+        assert SCRIPT_PLAN_ENTRY_REVISION_FIELD not in entries[1]

@@ -132,6 +132,7 @@ export default {
   'action_prepare_script_plan': 'chuẩn bị kế hoạch kịch bản cho tập này',
   'action_confirm_script_plan': 'hoàn tất xác nhận nội dung',
   'action_generate_script': 'tạo kịch bản chính thức',
+  'action_author_prompts': 'bổ sung các prompt còn thiếu',
   'action_generate_asset_sheets': 'tạo các ảnh tài nguyên còn thiếu',
   'action_generate_storyboards': 'tạo các ảnh phân cảnh còn thiếu',
   'action_generate_grid': 'tạo phân cảnh đa lưới',

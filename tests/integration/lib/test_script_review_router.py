@@ -692,3 +692,99 @@ class TestReferenceVideoRouter:
             resp = client.put(f"{base}/content", params={"base_fingerprint": fresh}, json=mine)
             assert resp.status_code == 200
             assert resp.json()["content"]["units"][0]["text"] == "@[阿离] 立于屋檐下。"
+
+
+class TestScriptPlanConversionRouter:
+    """内容确认后的机械转换：预演只读，转换经内容确认门禁，回执列出三组条目。"""
+
+    @staticmethod
+    def _client_with_conversion(monkeypatch, tmp_path: Path) -> tuple[TestClient, ProjectManager]:
+        from server.services import script_plan_conversion as conversion_mod
+        from tests.fakes import FakeConfigResolver
+
+        client, pm = _client(monkeypatch, tmp_path)
+        pm.update_project("demo", lambda project: project.__setitem__("style", "Anime"))
+        monkeypatch.setattr(conversion_mod, "get_project_manager", lambda: pm)
+        resolver = cast(ConfigResolver, FakeConfigResolver(supported_durations=(4, 6, 8)))
+        original = conversion_mod.ScriptGenerator
+        monkeypatch.setattr(
+            conversion_mod,
+            "ScriptGenerator",
+            lambda project_path, config_resolver=None: original(project_path, config_resolver=resolver),
+        )
+        return client, pm
+
+    @staticmethod
+    def _admitted_drama_script_plan() -> dict:
+        """机械转换与生成路径同一道发声准入：分镜只留台词，避免画外音 + 台词混排被拒。"""
+        plan = _drama_script_plan()
+        plan["scenes"][0]["utterances"] = [{"kind": "dialogue", "speaker": "阿离", "text": "你终于回来了。"}]
+        return plan
+
+    @staticmethod
+    def _write_registered_script_plan(pm: ProjectManager, content: dict) -> None:
+        """机械转换读的是已登记的脚本规划产物：落盘后按源文激活产物清单。"""
+        from lib.artifact_activation import activate_artifact_target_state
+
+        _write_script_plan(pm, content)
+        project_path = pm.get_project_path("demo")
+        source = project_path / "source" / "episode_1.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("三年后，阿离立于屋檐下：你终于回来了。", encoding="utf-8")
+        activate_artifact_target_state(project_path, bump_schema=False)
+
+    def test_preview_then_convert_then_no_op(self, tmp_path, monkeypatch):
+        client, pm = self._client_with_conversion(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            self._write_registered_script_plan(pm, self._admitted_drama_script_plan())
+
+            # 预演不经门禁：未确认也能读到「无正式剧本，将新建 1 条」
+            preview = client.get(f"{base}/conversion-preview")
+            assert preview.status_code == 200
+            assert preview.json() == {
+                "episode": 1,
+                "has_script": False,
+                "added": ["E1S01"],
+                "stale": [],
+                "removed": [],
+            }
+
+            # 转换经内容确认门禁：未确认 409
+            refused = client.post(f"{base}/convert")
+            assert refused.status_code == 409
+
+            assert client.post(f"{base}/confirm").status_code == 200
+            converted = client.post(f"{base}/convert")
+            assert converted.status_code == 200
+            assert converted.json() == {
+                "episode": 1,
+                "script_filename": "episode_1.json",
+                "added": ["E1S01"],
+                "refreshed": [],
+                "removed": [],
+            }
+            scene = pm.load_script("demo", "episode_1.json")["scenes"][0]
+            assert scene["image_prompt"] is None
+            assert scene["video_prompt"] is None
+            assert scene["utterances"][0]["text"] == "你终于回来了。"
+
+            # 逐条一致：再转一次三组为空，预演也报已同步
+            again = client.post(f"{base}/convert", json={"entry_ids": []})
+            assert again.status_code == 200
+            assert (again.json()["added"], again.json()["refreshed"], again.json()["removed"]) == ([], [], [])
+            synced = client.get(f"{base}/conversion-preview").json()
+            assert synced["has_script"] is True
+            assert (synced["added"], synced["stale"], synced["removed"]) == ([], [], [])
+
+    def test_adopting_a_current_entry_is_rejected(self, tmp_path, monkeypatch):
+        client, pm = self._client_with_conversion(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            self._write_registered_script_plan(pm, self._admitted_drama_script_plan())
+            assert client.post(f"{base}/confirm").status_code == 200
+            assert client.post(f"{base}/convert").status_code == 200
+
+            rejected = client.post(f"{base}/convert", json={"entry_ids": ["E1S01"]})
+            assert rejected.status_code == 422
+            assert "E1S01" in rejected.json()["diagnostic"]

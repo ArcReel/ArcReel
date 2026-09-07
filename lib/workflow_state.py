@@ -129,6 +129,7 @@ class WorkflowActionType(StrEnum):
     PREPARE_SCRIPT_PLAN = "prepare_script_plan"
     CONFIRM_SCRIPT_PLAN = "confirm_script_plan"
     GENERATE_SCRIPT = "generate_script"
+    AUTHOR_PROMPTS = "author_prompts"
     GENERATE_ASSET_SHEETS = "generate_asset_sheets"
     GENERATE_STORYBOARDS = "generate_storyboards"
     GENERATE_GRID = "generate_grid"
@@ -290,6 +291,24 @@ class _SharedWorkflowFacts:
 
 def _project_revision(project: Mapping[str, Any]) -> str:
     return prefixed_canonical_json_digest(dict(project))
+
+
+#: 提示词可为待生成态的骨架：分镜图生视频的两条剧集路线。参考生视频的单元正文即提示词，ad 无脚本规划。
+_PROMPT_BEARING_KINDS = frozenset({"segments", "scenes"})
+
+
+def _pending_prompt_entry_ids(items: list[dict[str, Any]], kind: str | None) -> list[str]:
+    """``image_prompt`` / ``video_prompt`` 任一为 ``None``（含字段缺失）的条目 id，按剧本顺序。"""
+    if kind not in _PROMPT_BEARING_KINDS:
+        return []
+    id_field = SKELETONS[kind].id_field
+    return [
+        str(item[id_field])
+        for item in items
+        if isinstance(item.get(id_field), str)
+        and item[id_field]
+        and (item.get("image_prompt") is None or item.get("video_prompt") is None)
+    ]
 
 
 def _action(
@@ -1628,6 +1647,15 @@ class WorkflowStateService:
                         "target episode has no current final script",
                         args={"episode": target.episode}
                         | ({"stale_entry_ids": stale_entry_ids} if stale_entry_ids else {}),
+                    )
+                elif pending_prompt_ids := _pending_prompt_entry_ids(items, kind):
+                    # 机械转换出的剧本条目还没有提示词：剧本阶段未完成，先补提示词，不报生成分镜图。
+                    state = "FINAL_SCRIPT"
+                    next_action = _action(
+                        WorkflowActionType.AUTHOR_PROMPTS,
+                        "script entries still need prompts",
+                        args={"episode": target.episode},
+                        ids=pending_prompt_ids,
                     )
                 else:
                     missing_sheets = [

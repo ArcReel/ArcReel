@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from lib.generation_result import GenerationAction
 from lib.project_migration_failure import RETRY_MIGRATION_ACTION
 from lib.workflow_state import WorkflowActionType
@@ -42,3 +44,30 @@ def test_frontend_union_matches_the_backend_enum() -> None:
     """前端按这份闭集分派动作；漏一个就是界面把后端明确给出的一步讲成未知动作。"""
 
     assert _frontend_action_types() == [action.value for action in WorkflowActionType]
+
+
+PROFILE_ACTION_READERS = (
+    "agent_runtime_profile/.claude/references/workflow-plan.md",
+    "agent_runtime_profile/.claude/skills/generate-script/SKILL.md",
+)
+
+
+@pytest.mark.parametrize("relative_path", PROFILE_ACTION_READERS)
+def test_author_prompts_action_is_mirrored_in_the_profile(relative_path: str) -> None:
+    """补提示词是新的下一步动作：动作表要能路由它，generate-script skill 要写明按 ``entry_ids`` 补、不整集重出。"""
+    md = (REPO / relative_path).read_text(encoding="utf-8")
+
+    assert f"`{WorkflowActionType.AUTHOR_PROMPTS.value}`" in md, (
+        f"{WorkflowActionType.AUTHOR_PROMPTS.value} 未在 {relative_path} 中找到（漂移）"
+    )
+
+
+def test_generate_script_skill_pins_the_author_prompts_contract() -> None:
+    """补提示词只按 ``entry_ids`` 补：skill 须写明不得整集重写、不得覆盖用户手写的提示词。"""
+    md = (REPO / "agent_runtime_profile/.claude/skills/generate-script/SKILL.md").read_text(encoding="utf-8")
+    section = md.split("### 补充提示词", 1)[1].split("\n## ", 1)[0]
+
+    assert "`entry_ids`" in section
+    assert '`scope: "all"`' in section
+    assert "手写" in section
+    assert "mcp__arcreel__convert_script_plan" in section

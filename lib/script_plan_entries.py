@@ -24,7 +24,7 @@ from typing import Literal
 from pydantic import BaseModel, ValidationError
 
 from lib.artifact_manifest import ArtifactBasis
-from lib.script_models import NarrationScriptPlanDraft, ReferenceScriptPlanDraft
+from lib.script_models import DRAMA_CONTENT_ONLY_FIELDS, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.script_skeleton import SKELETONS, rewrite_episode_prefix
 
 #: script_plan 变体：drama / narration（按 content_mode）+ reference_video（按项目生成模式，
@@ -86,6 +86,10 @@ class ScriptPlanVariant:
     #: 该变体中间文件的草稿模型。生成侧读脚本规划时用它归一条目，时效判定读同一份文件时须走
     #: 同一道归一，否则两侧摘出的指纹不同源。drama 为 ``None``：它没有草稿模型，生成侧消费原始 dict。
     draft_model: type[BaseModel] | None
+    #: 规划条目投影到剧本条目内容层时**只保留**的字段；``None`` 表示整条透传。
+    script_fields: tuple[str, ...] | None = None
+    #: 规划条目投影到剧本条目内容层时**剔除**的、只属于脚本规划的字段。
+    plan_only_fields: frozenset[str] = frozenset()
 
 
 #: 脚本规划变体表，是变体分叉的唯一真相源。
@@ -104,6 +108,7 @@ PLAN_VARIANTS: dict[str, ScriptPlanVariant] = {
             "source_text",
         ),
         draft_model=None,
+        plan_only_fields=DRAMA_CONTENT_ONLY_FIELDS,
     ),
     "narration": ScriptPlanVariant(
         skeleton_kind="segments",
@@ -127,6 +132,7 @@ PLAN_VARIANTS: dict[str, ScriptPlanVariant] = {
             "source_text",
         ),
         draft_model=ReferenceScriptPlanDraft,
+        script_fields=("unit_id", "text", "duration_seconds"),
     ),
 }
 
@@ -151,6 +157,20 @@ def entry_id_field(kind: ScriptPlanKind) -> str:
     """该变体在剧本条目上的 id 字段名。"""
 
     return _skeleton(kind)[1]
+
+
+def plan_entry_content(kind: ScriptPlanKind, entry: Mapping[str, object]) -> dict[str, object]:
+    """脚本规划条目 → 剧本条目的内容层（不含视觉层）。
+
+    三条路线的视觉合并与机械转换共用这一份投影：drama 剔除只属于规划的 ``scene_description``，
+    narration 整条透传，参考生视频只取 ``unit_id`` / ``text`` / ``duration_seconds``。返回新 dict，
+    不就地修改入参。
+    """
+
+    variant = plan_variant(kind)
+    if variant.script_fields is not None:
+        return {field: entry[field] for field in variant.script_fields if field in entry}
+    return {key: value for key, value in entry.items() if key not in variant.plan_only_fields}
 
 
 def entry_revision(kind: ScriptPlanKind, entry: Mapping[str, object]) -> str:
@@ -395,6 +415,7 @@ def splice_entries(
     plan_revisions: Mapping[str, str],
     rewritten: Sequence[Mapping[str, object]],
     existing: Mapping[str, Mapping[str, object]],
+    keep_revision_ids: Iterable[str] = (),
 ) -> list[dict[str, object]]:
     """按脚本规划顺序装配最终条目列表：本次重写的取新值，其余原样沿用旧条目。
 
@@ -402,7 +423,8 @@ def splice_entries(
     已存在条目时沿用其 ``PRESERVED_ON_REWRITE_FIELDS``；未被重写的条目整条沿用，因而其视觉层
     与用户字段逐字节不变。规划里存在、既没被重写也不在旧剧本里的条目 fail-loud——那是
     ``resolve_rewrite_ids`` 与本函数的调用契约被破坏，静默丢条目会让剧本悄悄少一段。
-    每个条目落盘前统一盖上其消费的条目内容指纹。
+    每个条目落盘前统一盖上其消费的条目内容指纹；``keep_revision_ids`` 里沿用的旧条目例外，
+    它们连指纹一起原样保留（有则留旧值、无则仍缺），机械转换借此让失效条目继续报失效。
     """
 
     _, id_field = _skeleton(kind)
@@ -417,6 +439,7 @@ def splice_entries(
     if unknown:
         raise ScriptPlanEntryError(f"提示词编写产出了当前脚本规划之外的条目 id: {unknown}")
 
+    keep_revision = set(keep_revision_ids)
     entries: list[dict[str, object]] = []
     for entry_id, revision in plan_revisions.items():
         entry = rewritten_by_id.get(entry_id)
@@ -431,6 +454,9 @@ def splice_entries(
             if previous is None:
                 raise ScriptPlanEntryError(f"条目 {entry_id} 既未被重写、旧剧本中也不存在")
             entry = dict(previous)
+            if entry_id in keep_revision:
+                entries.append(entry)
+                continue
         entry[SCRIPT_PLAN_ENTRY_REVISION_FIELD] = revision
         entries.append(entry)
     return entries
@@ -455,6 +481,7 @@ __all__ = [
     "entry_revision",
     "evaluate_entry_currency",
     "plan_entries_from_document",
+    "plan_entry_content",
     "plan_entry_revisions",
     "plan_variant",
     "resolve_rewrite_ids",

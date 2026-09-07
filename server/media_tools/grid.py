@@ -331,6 +331,29 @@ async def handle_generate_grid(
                             artifact_status=artifact_status,
                         )
                     continue
+                # 一张联合图的提示词由 chunk 内每个分镜的 image_prompt 拼成：任一分镜的提示词
+                # 待生成，这张图就出不了，chunk 覆盖的每个缺口分镜都记名阻断、不入队计费。
+                pending_ids = [str(item.get(id_field)) for item in chunk if not item.get("image_prompt")]
+                if pending_ids:
+                    for scene_id in report_ids:
+                        artifact_path = scene_artifact_paths.get(scene_id)
+                        artifact_key = _scene_artifact_key(episode, scene_id)
+                        artifact_status, _blocker = observe_artifact_status(
+                            resolver=resolver, key=artifact_key, artifact_path=artifact_path
+                        )
+                        builder.block(
+                            scene_id,
+                            problem=GenerationProblem(
+                                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                                detail=f"同组分镜 {pending_ids} 的 image_prompt 尚未填写，整张宫格无法生成",
+                                action=GenerationAction.FIX_INPUT,
+                                params={"pending_ids": pending_ids},
+                            ),
+                            artifact_key=artifact_key,
+                            artifact_path=artifact_path,
+                            artifact_status=artifact_status,
+                        )
+                    continue
                 prompt = build_grid_prompt(
                     scenes=chunk,
                     id_field=id_field,

@@ -73,6 +73,8 @@ import type {
   ScriptPreview,
   ItemPromptPreview,
   ScriptReviewState,
+  ScriptPlanConversionPreview,
+  ScriptPlanConversionReceipt,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
   ReferenceScriptPlanDraft,
@@ -1660,6 +1662,33 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/confirm`,
       { method: "POST" }
+    );
+  }
+
+  /** 只读预演机械转换：按当前脚本规划与正式剧本列出新增 / 失效 / 移出条目，不落盘。 */
+  static async previewScriptPlanConversion(
+    projectName: string,
+    episode: number,
+    options?: { signal?: AbortSignal },
+  ): Promise<ScriptPlanConversionPreview> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/conversion-preview`,
+      { signal: options?.signal },
+    );
+  }
+
+  /**
+   * 把脚本规划机械转为正式脚本（只同步内容层，drama / narration 的提示词以待生成落盘）。
+   * `entryIds` 非空时让点名的失效条目「采用新内容」：内容按脚本规划重取、提示词保留。
+   */
+  static async convertScriptPlan(
+    projectName: string,
+    episode: number,
+    entryIds: string[] = [],
+  ): Promise<ScriptPlanConversionReceipt> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/convert`,
+      { method: "POST", body: JSON.stringify({ entry_ids: entryIds }) },
     );
   }
 

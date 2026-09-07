@@ -1920,6 +1920,52 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_sp
     assert codes["E1S02"] == "generation_batch_admission_withheld"
 
 
+async def test_generate_videos_episode_scope_storyboard_batch_blocks_when_a_video_prompt_is_pending(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """机械转换出的条目 video_prompt 为 None：整批受阻、零任务入队，回执点名待生成的条目。"""
+    from server.media_tools import videos as mod
+
+    project_dir = fake_ctx.pm.get_project_path("demo")
+    for segment_id in ("E1S01", "E1S02"):
+        (project_dir / "storyboards" / f"scene_{segment_id}.png").write_bytes(b"png")
+    fake_ctx.pm.script_payload["segments"] = [
+        {
+            "segment_id": "E1S01",
+            "novel_text": "风吹过旷野。",
+            "image_prompt": None,
+            "video_prompt": None,
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+        },
+        {
+            "segment_id": "E1S02",
+            "novel_text": "他停下脚步。",
+            "video_prompt": "第二镜",
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S02.png"},
+        },
+    ]
+
+    enqueued: list[str] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+        enqueued.extend(spec.resource_id for spec in specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    monkeypatch.setattr(
+        "server.services.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
+    )
+
+    out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
+
+    assert enqueued == []
+    assert out["is_error"] is True
+    result = read_generation_result(out)
+    codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
+    assert codes["E1S01"] == "generation_unit_request_invalid"
+    assert codes["E1S02"] == "generation_batch_admission_withheld"
+
+
 @pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
 async def test_six_route_agent_single_video_generation_returns_structured_admission_without_enqueuing(
     fake_ctx: ToolContext,

@@ -128,6 +128,17 @@ def test_legacy_string_video_prompt_has_no_structured_character_dialogue(snapsho
     assert result.problems == ()
 
 
+def test_pending_video_prompt_has_no_structured_dialogue_and_no_parse_problem() -> None:
+    """机械转换后 video_prompt 为 None（待生成）：与文本形态同口径，旁白仍取 novel_text，不报 parse_failed。"""
+    admission = admit_script_unit(
+        "segments", {"segment_id": "E1S01", "novel_text": "风吹过旷野。", "video_prompt": None, "image_prompt": None}
+    )
+
+    assert admission.allowed
+    assert admission.preparation.problems == ()
+    assert [utterance.text for utterance in admission.preparation.utterances] == ["风吹过旷野。"]
+
+
 @pytest.mark.parametrize("text", ["别回头。", "我不能让他发现。", "她不会知道我在这里。"])
 def test_character_dialogue_inner_monologue_and_offscreen_speech_share_character_owner(text: str) -> None:
     result = SpeechComposition.prepare(

@@ -66,6 +66,7 @@ from server.tool_runtime import (
     PromptPreviewRequest,
     RenameAssetRequest,
     ResetEpisodePlanningRequest,
+    ScriptPlanConversionRequest,
     Services,
     ToolOutcome,
     ToolProblem,
@@ -75,6 +76,7 @@ from server.tool_runtime import (
     complete_asset_inventory,
     complete_script_plan_rebuild,
     confirm_script_review,
+    convert_script_plan,
     create_project,
     discard_draft,
     generate_episode_script,
@@ -550,6 +552,31 @@ def build_remote_mcp_server(
                 context,
                 "Generating episode script",
             ),
+        )
+
+    @server.tool(name="convert_script_plan", structured_output=False)
+    async def remote_convert_script_plan(  # pyright: ignore[reportUnusedFunction]
+        project: str,
+        episode: PositiveEpisode,
+        entry_ids: list[str] | None = None,
+    ) -> CallToolResult:
+        """Project the confirmed script plan into the formal script without calling the text model.
+
+        New entries land with pending (null) prompts; existing stale entries keep their content,
+        prompts and fingerprint unless named in ``entry_ids`` (adopt the new plan content, keep prompts).
+        """
+        try:
+            scope = _project_scope(project, projects)
+            request = ScriptPlanConversionRequest(episode=episode, entry_ids=tuple(entry_ids or ()))
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result(
+                "script_plan_conversion", ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+            )
+        if problem := await migration_gate(scope, services):
+            return _to_mcp_result("script_plan_conversion", ToolOutcome(problem=problem))
+        return _to_mcp_result(
+            "script_plan_conversion",
+            await convert_script_plan(ToolRequest(request), scope, _authenticated_caller(), services),
         )
 
     @server.tool(

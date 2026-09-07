@@ -208,6 +208,9 @@ async def generate_storyboard(
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
+        # 正式脚本的提示词才是生成依据：条目提示词待生成时拒绝，请求体里的 prompt 不能代替它。
+        if resolved[0].get("image_prompt") is None:
+            raise ConflictError("script_prompt_pending", segment_id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
 
     await asyncio.to_thread(_sync)
@@ -294,6 +297,9 @@ async def generate_video(
             admission = admit_script_unit(script_kind, {**resolved[0], "video_prompt": req.prompt})
         if not admission.allowed:
             raise HTTPException(status_code=409, detail=admission.to_dict())
+        # 同分镜图端点：按正式脚本的 video_prompt 判待生成，请求体里的 prompt 不能代替它。
+        if resolved[0].get("video_prompt") is None:
+            raise ConflictError("script_prompt_pending", segment_id=segment_id)
         # 字段值来自磁盘剧本 JSON，不可信任；路径校验和 schema 激活后的显式绑定要求
         # 与 worker / 当前基线重建共用同一解析器。
         try:

@@ -42,6 +42,10 @@ interface ShotSplitViewProps {
   durationOptions?: number[];
   /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
+  /** 内容已落后于脚本规划的条目 id；命中的条目在详情里提示「采用新内容」。 */
+  staleEntryIds?: ReadonlySet<string>;
+  /** 让某条失效条目按脚本规划采用新内容（提示词保留）。 */
+  onAdoptPlanContent?: (segmentId: string) => void | Promise<void>;
 }
 
 
@@ -67,6 +71,8 @@ export function ShotSplitView({
   generatingNarration,
   durationOptions,
   durationWarningReason,
+  staleEntryIds,
+  onAdoptPlanContent,
 }: ShotSplitViewProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [collapsed, setCollapsed] = useState(
@@ -170,6 +176,8 @@ export function ShotSplitView({
         generatingNarration={generatingNarration?.(segmentId)}
         durationOptions={durationOptions}
         durationWarningReason={durationWarningReason}
+        promptsStale={staleEntryIds?.has(segmentId) ?? false}
+        onAdoptPlanContent={onAdoptPlanContent ? () => onAdoptPlanContent(segmentId) : undefined}
       />
     </div>
   );

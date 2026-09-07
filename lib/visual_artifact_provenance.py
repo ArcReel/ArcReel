@@ -165,6 +165,8 @@ def build_storyboard_image_visual_basis(
     identity = _require_non_empty("resource_id", resource_id)
     _require_string("style", style)
     _require_string("style_description", style_description)
+    if image_prompt is None:
+        raise ValueError("image_prompt is pending; a storyboard image has no visual basis yet")
     prompt, style_input = project_storyboard_image_prompt(image_prompt, style)
     inputs: dict[str, object] = {
         "resource_id": identity,
@@ -316,6 +318,8 @@ def build_storyboard_video_artifact_visual_basis(
     Artifact Manifest currency at all.
     """
 
+    if visual_prompt is None:
+        raise ValueError("visual_prompt is pending; a storyboard video has no visual basis yet")
     if isinstance(visual_prompt, str):
         visual_text = visual_prompt.strip()
         if not visual_text:

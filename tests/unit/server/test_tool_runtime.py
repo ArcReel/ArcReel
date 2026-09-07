@@ -697,3 +697,62 @@ def test_text_generation_request_rejects_non_string_entry_ids(entry_ids: tuple[o
 
     with pytest.raises(ValueError, match="entry_ids must be non-empty strings"):
         shared_text_generation.TextGenerationRequest(episode=1, scope="stale", entry_ids=entry_ids)
+
+
+class TestConvertScriptPlanTool:
+    @staticmethod
+    def _call(monkeypatch: pytest.MonkeyPatch, run):
+        from server.tool_runtime import ScriptPlanConversionRequest, convert_script_plan
+
+        monkeypatch.setattr(tool_runtime, "run_script_plan_conversion", run)
+        return convert_script_plan(
+            ToolRequest(ScriptPlanConversionRequest(episode=1, entry_ids=("E1S02",))),
+            ProjectScope("demo", Path("/projects")),
+            CallerContext(user_id="u1", source="embedded"),
+            Services(projects=_Projects({}), workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
+        )
+
+    async def test_receipt_is_returned_as_the_domain_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lib.script_generator import ScriptPlanConversionReceipt
+
+        seen: dict[str, object] = {}
+
+        async def run(project_name, episode, *, entry_ids, projects, config_resolver):
+            seen.update(project_name=project_name, episode=episode, entry_ids=tuple(entry_ids))
+            return ScriptPlanConversionReceipt(
+                episode=episode, script_filename="episode_1.json", added=(), refreshed=("E1S02",), removed=()
+            )
+
+        outcome = await self._call(monkeypatch, run)
+
+        assert outcome.problem is None
+        assert outcome.value is not None
+        assert outcome.value.refreshed == ("E1S02",)
+        assert seen == {"project_name": "demo", "episode": 1, "entry_ids": ("E1S02",)}
+
+    async def test_entry_errors_map_to_invalid_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lib.script_plan_entries import ScriptPlanEntryError
+
+        async def run(*_args, **_kwargs):
+            raise ScriptPlanEntryError("只有失效条目才能采用新内容")
+
+        outcome = await self._call(monkeypatch, run)
+
+        assert outcome.value is None
+        assert outcome.problem is not None
+        assert outcome.problem.code == "invalid_request"
+
+    async def test_review_gate_refusal_maps_to_generation_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def run(*_args, **_kwargs):
+            raise shared_text_generation.TextGenerationError("未确认")
+
+        outcome = await self._call(monkeypatch, run)
+
+        assert outcome.problem is not None
+        assert outcome.problem.code == "generation_refused"
+
+    def test_blank_entry_ids_are_rejected_at_the_boundary(self) -> None:
+        from server.tool_runtime import ScriptPlanConversionRequest
+
+        with pytest.raises(ValidationError):
+            ScriptPlanConversionRequest(episode=1, entry_ids=(" ",))

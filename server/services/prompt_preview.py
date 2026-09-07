@@ -27,7 +27,9 @@ from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.generation_tasks import collect_storyboard_references
 from server.services.video_batch_admission import resolve_voice_context
 
-#: 条目没有该提示词字段时的不可用原因。
+#: 条目的该提示词为待生成（``None`` 或字段不在）时的不可用原因：机械转换后尚未补写。
+UNAVAILABLE_PENDING = "prompt_preview_pending"
+#: 提示词字段在场但为空（空串 / 空对象）时的不可用原因。
 UNAVAILABLE_MISSING = "prompt_preview_missing"
 #: 提示词字段在场但形状不合规、渲染函数拒绝时的不可用原因。
 UNAVAILABLE_INVALID = "prompt_preview_invalid"
@@ -56,7 +58,9 @@ class ItemPromptPreview:
 
 def _render(prompt: object, render: Any) -> RenderedPrompt:
     is_text_form = isinstance(prompt, str)
-    if prompt is None or (is_text_form and not prompt.strip()) or prompt == {}:
+    if prompt is None:
+        return RenderedPrompt(unavailable=UNAVAILABLE_PENDING)
+    if (is_text_form and not prompt.strip()) or prompt == {}:
         return RenderedPrompt(unavailable=UNAVAILABLE_MISSING, is_text_form=is_text_form)
     try:
         return RenderedPrompt(text=render(prompt), is_text_form=is_text_form)
@@ -145,6 +149,7 @@ async def preview_item_prompts(
 __all__ = [
     "UNAVAILABLE_INVALID",
     "UNAVAILABLE_MISSING",
+    "UNAVAILABLE_PENDING",
     "ItemPromptPreview",
     "RenderedPrompt",
     "ScriptItemNotFound",

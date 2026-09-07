@@ -906,11 +906,6 @@ class DataValidator:
                 asset_type="prop",
             )
 
-            if not segment.get("image_prompt"):
-                errors.append(_m("val_missing_field_at", prefix=prefix, field="image_prompt"))
-            if not segment.get("video_prompt"):
-                errors.append(_m("val_missing_field_at", prefix=prefix, field="video_prompt"))
-
             if project_dir is not None:
                 self._validate_generated_assets(
                     project_dir,
@@ -1011,11 +1006,6 @@ class DataValidator:
             # 一并拒绝；键缺失放行（默认空串，存量数据无此字段）。用 in 判定以区分缺失与显式 null。
             if "source_text" in scene and not isinstance(scene["source_text"], str):
                 errors.append(_m("val_field_must_be_string", field=f"{prefix}: source_text"))
-
-            if not scene.get("image_prompt"):
-                errors.append(_m("val_missing_field_at", prefix=prefix, field="image_prompt"))
-            if not scene.get("video_prompt"):
-                errors.append(_m("val_missing_field_at", prefix=prefix, field="video_prompt"))
 
             if project_dir is not None:
                 self._validate_generated_assets(
@@ -1191,6 +1181,7 @@ class DataValidator:
                 asset_type="product",
             )
 
+            # 广告/短片分镜没有待生成态：两侧提示词缺失或为空即结构不完整。
             if not shot.get("image_prompt"):
                 errors.append(_m("val_missing_field_at", prefix=prefix, field="image_prompt"))
             if not shot.get("video_prompt"):

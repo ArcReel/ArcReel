@@ -295,9 +295,10 @@ def _append_video_prompt_dialogue(
     unit_id: str,
     video_prompt: object,
 ) -> None:
-    if isinstance(video_prompt, str):
-        # 存量 narration / ad 允许直接存供应商 prompt 字符串；这种形状没有可解析的
-        # 结构化角色台词，发声仍只取各自的 novel_text / voiceover_text。
+    if isinstance(video_prompt, str) or video_prompt is None:
+        # 存量 narration / ad 允许直接存供应商 prompt 字符串；机械转换后的条目在补写前为 None
+        # （待生成）。两种形状都没有可解析的结构化角色台词，发声仍只取各自的
+        # novel_text / voiceover_text。
         return
     if not isinstance(video_prompt, Mapping):
         problems.append(_parse_problem(unit_id, SpeechFieldLocation(("video_prompt",))))

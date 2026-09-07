@@ -1,6 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, Clock, Lock, RotateCcw, Save, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, FileOutput, Lock, RotateCcw, Save, Wrench } from "lucide-react";
 import type {
   DramaNormalizedScript,
   DramaSceneContent,
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/darkroom-tokens";
 import { sumItemDuration } from "@/utils/script-shape";
 import { UtteranceListEditor } from "./UtteranceListEditor";
+import { ScriptPlanConversionDialog } from "./ScriptPlanConversionDialog";
 
 interface ScriptReviewGateProps {
   projectName: string;
@@ -229,6 +230,7 @@ function QuarantinePanel(props: { quarantine: ScriptReviewQuarantine; onRequestF
 export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptReviewGateProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
+  const [convertOpen, setConvertOpen] = useState(false);
 
   const handleConfirmed = useCallback(() => {
     pushToast(t("dashboard:review_confirmed"), "success");
@@ -362,6 +364,12 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
               {saving ? t("common:saving") : t("dashboard:review_save_action")}
             </button>
           )}
+          {confirmed && (
+            <button type="button" onClick={() => setConvertOpen(true)} disabled={busy} className={GHOST_BTN_CLS}>
+              <FileOutput className="h-3.5 w-3.5" />
+              {t("dashboard:review_convert_action")}
+            </button>
+          )}
           <button
             type="button"
             onClick={voidPromise(handleConfirm)}
@@ -379,6 +387,13 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           </button>
         </div>
       </header>
+
+      <ScriptPlanConversionDialog
+        open={convertOpen}
+        projectName={projectName}
+        episode={episode}
+        onClose={() => setConvertOpen(false)}
+      />
 
       {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
       {!quarantined && (

@@ -219,8 +219,9 @@ export interface NarrationSegment {
   characters_in_segment: string[];
   scenes?: string[];
   props?: string[];
-  image_prompt: ImagePrompt | string;
-  video_prompt: VideoPrompt | string;
+  /** `null` = 待生成：脚本规划机械转换只落内容层，提示词尚未编写。 */
+  image_prompt: ImagePrompt | string | null;
+  video_prompt: VideoPrompt | string | null;
   transition_to_next: TransitionType;
   note?: string;
   /**
@@ -239,8 +240,9 @@ export interface DramaScene {
   characters_in_scene: string[];
   scenes?: string[];
   props?: string[];
-  image_prompt: ImagePrompt | string;
-  video_prompt: VideoPrompt | string;
+  /** `null` = 待生成：脚本规划机械转换只落内容层，提示词尚未编写。 */
+  image_prompt: ImagePrompt | string | null;
+  video_prompt: VideoPrompt | string | null;
   /**
    * 分镜级有序发声序列：角色台词与画外音按时序排列。新结构（drama）；
    * 存量 drama 走后端读时迁移，前端读到时此字段可能缺省。
@@ -347,4 +349,23 @@ export interface ItemPromptPreview {
   content_mode: "narration" | "drama" | "ad";
   storyboard_image: RenderedPromptPreview;
   video: RenderedPromptPreview;
+}
+
+/** 脚本规划机械转换的只读预演：三组条目 id 按脚本规划顺序（`removed` 按剧本顺序）。 */
+export interface ScriptPlanConversionPreview {
+  episode: number;
+  /** 正式剧本是否已存在；不存在时 `added` 即脚本规划全部条目。 */
+  has_script: boolean;
+  added: string[];
+  stale: string[];
+  removed: string[];
+}
+
+/** 一次机械转换的回执：新增（提示词待生成）/ 采用新内容 / 移出。 */
+export interface ScriptPlanConversionReceipt {
+  episode: number;
+  script_filename: string;
+  added: string[];
+  refreshed: string[];
+  removed: string[];
 }

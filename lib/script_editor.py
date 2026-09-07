@@ -113,6 +113,14 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         # 尾帧字段的值是本服务写出的快照相对路径，只由尾帧设置/清除端点写入。放行 patch
         # 会让原样写入的任意字符串绕过快照复制，重新引入悬空引用与越界路径。
         raise ScriptEditError("patch_episode_script 不可改 end_frame_image；尾帧的设置/清除是独立的显式动作")
+    if value is None and parts in (["image_prompt"], ["video_prompt"]):
+        # 提示词的 None 是「待生成」态，只由脚本规划机械转换写入；剧本模型接受 None 后，
+        # 这里是 patch 把已有提示词清空的唯一关口。要重写提示词就给新值，要让模型补写走
+        # generate_episode_script(entry_ids=…)。
+        raise ScriptEditError(
+            f"patch_episode_script 不可把 {parts[0]} 清成 null；待生成态只由脚本规划机械转换写入，"
+            "要重写请给出新的提示词"
+        )
     if parts[0] in {"segment_id", "scene_id", "unit_id", "shot_id"}:
         # patch 不可改分镜 id：id 由 insert/split 从锚点派生，结构校验不查 id 唯一性，
         # Agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜

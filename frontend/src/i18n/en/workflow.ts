@@ -130,6 +130,7 @@ export default {
   'action_prepare_script_plan': 'prepare the script plan for this episode',
   'action_confirm_script_plan': 'complete content confirmation',
   'action_generate_script': 'generate the final script',
+  'action_author_prompts': 'fill in the missing prompts',
   'action_generate_asset_sheets': 'generate the missing asset images',
   'action_generate_storyboards': 'generate the missing storyboards',
   'action_generate_grid': 'generate the multi-grid storyboard',

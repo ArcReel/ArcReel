@@ -7,13 +7,18 @@ drama（utterances + source_text）与 narration（结构化 novel_text）共用
 
 import logging
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
+from pydantic import BaseModel, ConfigDict, Field
 
-from lib.api_errors import NotFoundError
+from lib.api_errors import ConflictError, NotFoundError, UnprocessableError
 from lib.i18n import Translator
-from lib.project_manager import get_project_manager
+from lib.project_manager import ScriptWriteConflict, get_project_manager
+from lib.script_plan_entries import ScriptPlanEntryError
+from server.dependencies import require_project_migration_ok
 from server.routers._script_review_errors import raise_review_error
+from server.services.script_plan_conversion import convert_script_plan, preview_script_plan_conversion
 from server.services.script_review import ScriptReviewError, ScriptReviewService
+from server.text_generation import TextGenerationError
 
 logger = logging.getLogger(__name__)
 
@@ -129,3 +134,68 @@ async def confirm_script_review(project_name: str, episode: int, _t: Translator)
         raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
+
+
+class ConvertScriptPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entry_ids: list[str] = Field(default_factory=list, description="要「采用新内容」的失效分镜 id")
+
+
+@router.post(
+    "/projects/{project_name}/episodes/{episode}/script-review/convert",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def convert_script_plan_to_script(
+    project_name: str,
+    episode: int,
+    _t: Translator,
+    req: ConvertScriptPlanRequest | None = None,
+):
+    """按脚本规划机械转为正式脚本，不调用文本模型。
+
+    与 MCP 工具 ``convert_script_plan`` 同一入口：内容确认门禁与 ``generate_episode_script`` 共用同一道
+    预检；无 ``entry_ids`` 为集合同步（新增以待生成落盘、移出、改序，失效分镜不碰），有 ``entry_ids``
+    让点名的失效分镜采用新内容。回执列出 ``added`` / ``refreshed`` / ``removed`` 三组条目 id。
+    """
+    entry_ids = req.entry_ids if req is not None else []
+    try:
+        receipt = await convert_script_plan(project_name, episode, entry_ids=entry_ids)
+    except TextGenerationError as exc:
+        raise ConflictError("script_conversion_refused").with_diagnostic(str(exc)) from exc
+    except ScriptWriteConflict as exc:
+        raise ConflictError("script_conversion_conflict") from exc
+    except ScriptPlanEntryError as exc:
+        raise UnprocessableError("script_conversion_invalid_entries").with_diagnostic(str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
+    except ValueError as exc:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    return {
+        "episode": receipt.episode,
+        "script_filename": receipt.script_filename,
+        "added": list(receipt.added),
+        "refreshed": list(receipt.refreshed),
+        "removed": list(receipt.removed),
+    }
+
+
+@router.get("/projects/{project_name}/episodes/{episode}/script-review/conversion-preview")
+async def preview_script_plan_conversion_to_script(project_name: str, episode: int, _t: Translator):
+    """只读预演机械转换：按当前脚本规划与正式剧本列出 ``added`` / ``stale`` / ``removed`` 三组条目 id。
+
+    不落盘、不经内容确认门禁；web 在「转为正式脚本」对话框与时间线的失效提示里读它。
+    """
+    try:
+        preview = await preview_script_plan_conversion(project_name, episode)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
+    except ValueError as exc:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    return {
+        "episode": preview.episode,
+        "has_script": preview.has_script,
+        "added": list(preview.added),
+        "stale": list(preview.stale),
+        "removed": list(preview.removed),
+    }

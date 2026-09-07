@@ -38,6 +38,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "prepare_script_plan",
   "confirm_script_plan",
   "generate_script",
+  "author_prompts",
   "generate_asset_sheets",
   "generate_storyboards",
   "generate_grid",

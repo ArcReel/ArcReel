@@ -3,27 +3,19 @@ import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import { API } from "@/api";
 import type { ItemPromptPreview, NarrationSegment } from "@/types";
+import { makeNarrationSegment } from "@/test/factories";
 
 const RENDERED_IMAGE_PROMPT = "Style: Anime\n\nScene: 雨夜街道";
 
 function makeSegment(overrides: Partial<NarrationSegment> = {}): NarrationSegment {
-  return {
-    segment_id: "E1S01",
-    episode: 1,
-    duration_seconds: 8,
-    segment_break: false,
-    novel_text: "旁白正文",
-    characters_in_segment: [],
-    scenes: [],
-    props: [],
+  return makeNarrationSegment({
     image_prompt: {
       scene: "雨夜街道",
       composition: { shot_type: "Medium Shot", lighting: "暖光", ambiance: "薄雾" },
     },
     video_prompt: { action: "撑伞走过", camera_motion: "Static", ambiance_audio: "雨声", dialogue: [] },
-    transition_to_next: "cut",
     ...overrides,
-  };
+  });
 }
 
 function renderDetail(
