@@ -722,7 +722,7 @@ export default {
   'usage_page_position': '{{from}}–{{to}} / {{total}}',
   'usage_prev_page': 'Trang trước',
   'usage_next_page': 'Trang sau',
-  'usage_records_empty': 'Chưa ghi nhận lượt gọi nào. Hãy tạo nội dung, mọi lượt gọi sẽ xuất hiện ở đây.',
+  'usage_records_empty': 'Chưa có bản ghi sử dụng nào. Hãy tạo nội dung, mọi lượt gọi sẽ xuất hiện ở đây.',
   'usage_load_failed': 'Tải thất bại',
   'usage_detail_close': 'Đóng',
   'usage_detail_group_failure': 'Lý do thất bại',

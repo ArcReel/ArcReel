@@ -738,7 +738,7 @@ export default {
   'usage_page_position': '{{from}}–{{to}} / {{total}}',
   'usage_prev_page': '上一页',
   'usage_next_page': '下一页',
-  'usage_records_empty': '还没有调用记录。生成一次内容后，这里会列出每一次调用。',
+  'usage_records_empty': '还没有使用记录。生成一次内容后，这里会列出每一次调用。',
   'usage_load_failed': '加载失败',
   'usage_detail_close': '关闭',
   'usage_detail_group_failure': '失败原因',
