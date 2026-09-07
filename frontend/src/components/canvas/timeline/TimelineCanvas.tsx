@@ -199,9 +199,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         useAppStore.getState().pushToast(t("detail_adopt_plan_content_failed", { message: errMsg(err) }), "error");
         return;
       }
-      // 剧本已改写：重取项目数据拿新内容，再按新剧本重新比对时效。
-      await useProjectsStore.getState().refreshProject(projectName);
-      await reloadEntryCurrency();
+      // 剧本已改写：重取项目数据拿新内容，再按新剧本重新比对时效。刷新失败或被取消时 store 里
+      // 仍是旧剧本，此时不能重取时效——服务端会报该条目已是当前，失效提示消失而内容还是旧的。
+      const refreshed = await useProjectsStore.getState().refreshProject(projectName);
+      if (refreshed === "success") await reloadEntryCurrency();
     },
     [projectName, episode, t, reloadEntryCurrency],
   );

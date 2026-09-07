@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.config.resolver import ConfigResolver
+from lib.i18n import _ as i18n_message
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
@@ -698,11 +699,13 @@ class TestScriptPlanConversionRouter:
     """内容确认后的机械转换：预演只读，转换经内容确认门禁，回执列出三组条目。"""
 
     @staticmethod
-    def _client_with_conversion(monkeypatch, tmp_path: Path) -> tuple[TestClient, ProjectManager]:
+    def _client_with_conversion(
+        monkeypatch, tmp_path: Path, *, generation_mode: str | None = None
+    ) -> tuple[TestClient, ProjectManager]:
         from server.services import script_plan_conversion as conversion_mod
         from tests.fakes import FakeConfigResolver
 
-        client, pm = _client(monkeypatch, tmp_path)
+        client, pm = _client(monkeypatch, tmp_path, generation_mode=generation_mode)
         pm.update_project("demo", lambda project: project.__setitem__("style", "Anime"))
         monkeypatch.setattr(conversion_mod, "get_project_manager", lambda: pm)
         resolver = cast(ConfigResolver, FakeConfigResolver(supported_durations=(4, 6, 8)))
@@ -748,6 +751,8 @@ class TestScriptPlanConversionRouter:
                 "added": ["E1S01"],
                 "stale": [],
                 "removed": [],
+                "order_changed": False,
+                "title_changed": False,
             }
 
             # 转换经内容确认门禁：未确认 409
@@ -776,6 +781,34 @@ class TestScriptPlanConversionRouter:
             synced = client.get(f"{base}/conversion-preview").json()
             assert synced["has_script"] is True
             assert (synced["added"], synced["stale"], synced["removed"]) == ([], [], [])
+            assert (synced["order_changed"], synced["title_changed"]) == (False, False)
+
+    def test_preview_distinguishes_a_missing_script_plan_from_a_missing_project(self, tmp_path, monkeypatch):
+        client, _pm = self._client_with_conversion(monkeypatch, tmp_path)
+        with client:
+            no_plan = client.get("/api/v1/projects/demo/episodes/1/script-review/conversion-preview")
+            assert no_plan.status_code == 422, no_plan.text
+            assert no_plan.json()["detail"] == i18n_message("script_review_no_script_plan")
+
+            no_project = client.get("/api/v1/projects/absent/episodes/1/script-review/conversion-preview")
+            assert no_project.status_code == 404, no_project.text
+
+    def test_preview_reports_missing_project_metadata_as_missing_project(self, tmp_path, monkeypatch):
+        """参考生视频路线读规划时项目元数据已不在：是项目缺失（404），不是脚本规划缺失（422）。"""
+        import lib.script_generator as generator_mod
+
+        client, pm = self._client_with_conversion(monkeypatch, tmp_path, generation_mode="reference_video")
+        _write_rv_script_plan(pm, _rv_script_plan())
+
+        class _MetadataGone(ProjectManager):
+            def load_project(self, project_name: str) -> dict:
+                raise FileNotFoundError("项目元数据文件不存在")
+
+        monkeypatch.setattr(generator_mod, "ProjectManager", _MetadataGone)
+        with client:
+            got = client.get("/api/v1/projects/demo/episodes/1/script-review/conversion-preview")
+            assert got.status_code == 404, got.text
+            assert got.json()["detail"] != i18n_message("script_review_no_script_plan")
 
     def test_adopting_a_current_entry_is_rejected(self, tmp_path, monkeypatch):
         client, pm = self._client_with_conversion(monkeypatch, tmp_path)

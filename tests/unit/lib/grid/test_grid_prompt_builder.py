@@ -7,6 +7,7 @@ from lib.grid.prompt_builder import (
     _extract_action,
     _extract_image_desc,
     build_grid_prompt,
+    pending_grid_prompt_ids,
     project_grid_image_prompt,
 )
 
@@ -53,6 +54,24 @@ class TestExtractImageDesc:
         result = _extract_image_desc(scene)
         assert result == ""
 
+    def test_pending_image_prompt_refused(self):
+        """机械转换后 image_prompt 为 None：不能渲染成字面量 "None"，投影拒绝。"""
+        with pytest.raises(ValueError, match="pending"):
+            project_grid_image_prompt(None)
+        with pytest.raises(ValueError, match="pending"):
+            _extract_image_desc({"scene_id": "S1", "image_prompt": None})
+
+
+class TestPendingGridPromptIds:
+    def test_lists_pending_and_empty_cells_in_script_order(self):
+        scenes = [
+            {"scene_id": "S1", "image_prompt": {"scene": "ok"}},
+            {"scene_id": "S2", "image_prompt": None},
+            {"scene_id": "S3"},
+            {"scene_id": "S4", "image_prompt": ""},
+        ]
+        assert pending_grid_prompt_ids(scenes, "scene_id") == ["S2", "S3", "S4"]
+
 
 class TestExtractAction:
     def test_dict_video_prompt_returns_action(self):
@@ -69,6 +88,10 @@ class TestExtractAction:
         scene = {"video_prompt": {"camera_motion": "zoom"}}
         result = _extract_action(scene)
         assert result == ""
+
+    def test_pending_video_prompt_returns_empty(self):
+        assert _extract_action({"video_prompt": None}) == ""
+        assert _extract_action({}) == ""
 
 
 class TestComputePanelAspect:

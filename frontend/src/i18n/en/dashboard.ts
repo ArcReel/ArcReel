@@ -1403,12 +1403,14 @@ export default {
   'review_convert_fresh_hint': 'This episode has no final script yet; {{count}} shots will be created from the script plan.',
   'review_convert_counts': 'Compared with the existing final script: {{added}} added, {{stale}} outdated, {{removed}} removed. Outdated shots keep both content and prompts; adopt the new content shot by shot in the timeline.',
   'review_convert_in_sync': 'The final script already matches the script plan entry by entry; nothing to convert.',
+  'review_convert_structure_only': 'The script plan only changed the shot order or the title; converting updates the final script accordingly, leaving shot content and prompts untouched.',
   'review_convert_preview_failed': 'Could not compare the script plan with the final script: {{message}}',
   'review_convert_agent': 'Let the Agent generate',
   'review_convert_direct': 'Convert directly',
   'review_convert_converting': 'Converting…',
   'review_convert_done': 'Converted to final script: {{added}} added, {{refreshed}} refreshed, {{removed}} removed',
   'review_convert_failed': 'Conversion failed: {{message}}',
+  'review_convert_refresh_failed': 'Converted to the final script, but the page data failed to refresh. Reload the page to see the latest result.',
   'review_fix_request_promote_prefill':
     'Episode {{episode}}’s script plan draft now revalidates with no violations but has not been promoted yet — call open_draft with doc_type={{docType}}, then call promote_draft with the same doc_type and pass the returned revision as base_revision.',
 

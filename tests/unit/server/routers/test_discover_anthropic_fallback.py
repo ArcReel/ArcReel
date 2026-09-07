@@ -57,7 +57,8 @@ async def test_discover_falls_back_to_active_credential(discover_client, monkeyp
     )
     assert create_resp.status_code == 201, create_resp.text
 
-    # /discover-anthropic with empty body → should pick up the active credential
+    # /discover-anthropic with empty body → should pick up the active credential；
+    # 预设凭证未覆盖 base_url，模型列表按预设目录的 discovery_url 取，而不是 messages 根
     resp = await discover_client.post(
         "/api/v1/custom-providers/discover-anthropic",
         json={},
@@ -65,7 +66,7 @@ async def test_discover_falls_back_to_active_credential(discover_client, monkeyp
     assert resp.status_code == 200, resp.text
     assert captured["discovery_format"] == "anthropic"
     assert captured["api_key"] == "stored-sk"
-    assert captured["base_url"] == "https://api.deepseek.com/anthropic"
+    assert captured["base_url"] == "https://api.deepseek.com"
 
 
 @pytest.mark.asyncio

@@ -223,6 +223,27 @@ class ScriptPlanConversionPreview:
     stale: tuple[str, ...]
     #: 正式剧本里有、脚本规划里已不存在的条目，按剧本顺序。
     removed: tuple[str, ...]
+    #: 三组都为空时也可能要转：沿用条目的顺序与脚本规划不同。
+    order_changed: bool = False
+    #: 脚本规划的标题（drama）与正式剧本标题不同。
+    title_changed: bool = False
+
+
+class ScriptPlanNotFoundError(FileNotFoundError):
+    """该集的脚本规划文件缺失（含仅剩结构化前旧拆分表）：三条路线的规划加载器统一抛此类型。
+
+    仍是 ``FileNotFoundError`` 的子类，按缺文件处理的调用方不受影响；需要把「缺规划」与
+    「缺项目 / 缺其他文件」区分开的调用方按本类型捕获。
+    """
+
+
+def _conversion_title(plan_title: str | None, scope: PromptAuthoringScope, episode: int) -> str:
+    """机械转换落盘的标题：规划有标题取规划，否则沿用旧剧本，再否则按集号兜底。"""
+    return plan_title or _existing_title(scope, episode)
+
+
+def _existing_title(scope: PromptAuthoringScope, episode: int) -> str:
+    return scope.existing_title or f"第{episode}集"
 
 
 #: 机械转换写进剧本 ``metadata.generator`` 的标记：这份剧本的条目是按脚本规划投影出来的，不经文本模型。
@@ -732,7 +753,9 @@ class ScriptGenerator:
             for scene in scenes:
                 require_script_unit_admitted("scenes", scene)
             await self._assert_drama_script_plan_durations(scenes, episode=episode, gen_mode=gen_mode)
-            title = content.get("title") if isinstance(content.get("title"), str) else None
+            raw_title = content.get("title")
+            # 与旧剧本标题同一口径：空白标题视为缺失，否则转换后预演会一直报 title_changed。
+            title = raw_title if isinstance(raw_title, str) and raw_title.strip() else None
             return "drama", scenes, title
         caps = await self._fetch_video_capabilities()
         supported = self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=None)
@@ -743,16 +766,19 @@ class ScriptGenerator:
         self._script_plan_revision = None
         self._artifact_basis = None
         self._script_plan_input_claim = None
-        plan_kind, plan_entries, _title = await self._load_plan_entries_for_conversion(episode)
+        plan_kind, plan_entries, title = await self._load_plan_entries_for_conversion(episode)
         scope = self._resolve_prompt_authoring_scope(
             episode, episode_script_filename(episode), plan_kind=plan_kind, plan_entries=plan_entries, scope=None
         )
+        has_script = bool(scope.existing) or scope.existing_title is not None
         return ScriptPlanConversionPreview(
             episode=episode,
-            has_script=bool(scope.existing) or scope.existing_title is not None,
+            has_script=has_script,
             added=scope.currency.new_ids,
             stale=scope.currency.stale_ids,
             removed=scope.currency.removed_ids,
+            order_changed=has_script and scope.currency.order_changed,
+            title_changed=has_script and _conversion_title(title, scope, episode) != _existing_title(scope, episode),
         )
 
     async def convert_script_plan(
@@ -775,6 +801,9 @@ class ScriptGenerator:
         self._script_plan_input_claim = None
         plan_kind, plan_entries, title = await self._load_plan_entries_for_conversion(episode)
         filename = episode_script_filename(episode)
+        # 指纹先于读入旧剧本：装配用的快照与 expected_fingerprint 出自同一时刻之前，两者之间
+        # 落下的并发保存在写入时按冲突拒绝，而不是拿新文件的指纹把它覆盖掉。
+        formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
         scope = self._resolve_prompt_authoring_scope(
             episode, filename, plan_kind=plan_kind, plan_entries=plan_entries, scope=None
         )
@@ -803,7 +832,7 @@ class ScriptGenerator:
                 rewritten.append({**scope.existing[entry_id], **content})
 
         script_data: dict[str, Any] = {
-            "title": title or scope.existing_title or f"第{episode}集",
+            "title": _conversion_title(title, scope, episode),
             scope.items_key: rewritten,
         }
         script_data = self._add_metadata(script_data, episode)
@@ -829,17 +858,24 @@ class ScriptGenerator:
             refreshed=refreshed,
             removed=currency.removed_ids,
         )
+        # 条目集合、顺序与标题都没变才是空操作：只调顺序或只改标题同样要落盘。
         if (
             not added
             and not refreshed
             and not currency.removed_ids
             and script_data[scope.items_key] == list(scope.existing.values())
+            and script_data["title"] == _existing_title(scope, episode)
         ):
             logger.info("第 %d 集剧本与脚本规划逐条一致，机械转换未写盘", episode)
             return receipt
 
+        # 与 ``_generate_text`` 同一道复核：快照之后脚本规划又被改写（登记的正式产物已不是冻结的
+        # 那份），拒绝把旧投影落盘。输出侧的 expected_fingerprint 只守正式剧本，守不住输入。
+        if self._script_plan_input_claim is not None:
+            await asyncio.to_thread(
+                assert_current_artifact_input_claims_usable, self.project_path, (self._script_plan_input_claim,)
+            )
         pm = ProjectManager(str(self.project_path.parent))
-        formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
         output_path = await run_sync_transaction(
             pm.save_script,
             self.project_path.name,
@@ -1535,7 +1571,7 @@ class ScriptGenerator:
         script_plan_path = drafts_path / SCRIPT_PLAN_FILENAMES.get(self.content_mode, SCRIPT_PLAN_FILENAMES["drama"])
 
         if not script_plan_path.exists():
-            raise FileNotFoundError(
+            raise ScriptPlanNotFoundError(
                 f"未找到脚本规划中间文件: {script_plan_path}；content_mode={self.content_mode} 期望该文件，请先完成本集脚本规划"
             )
 
@@ -1575,11 +1611,11 @@ class ScriptGenerator:
         if not script_plan_json.exists():
             legacy_md = drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME
             if legacy_md.exists():
-                raise FileNotFoundError(
+                raise ScriptPlanNotFoundError(
                     f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {script_plan_json}；"
                     f"请调用 generate_script_plan 产出结构化 {REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME}"
                 )
-            raise FileNotFoundError(
+            raise ScriptPlanNotFoundError(
                 f"未找到脚本规划中间文件: {script_plan_json}；generation_mode=reference_video 期望该文件，"
                 "请先完成 video_unit 拆分"
             )
@@ -1691,11 +1727,11 @@ class ScriptGenerator:
         if not script_plan_json.exists():
             legacy_md = drafts_path / SCRIPT_PLAN_LEGACY_FILENAMES["narration"][0]
             if legacy_md.exists():
-                raise FileNotFoundError(
+                raise ScriptPlanNotFoundError(
                     f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {script_plan_json}；"
                     f"请调用 generate_script_plan 产出结构化 {narration_json}"
                 )
-            raise FileNotFoundError(
+            raise ScriptPlanNotFoundError(
                 f"未找到脚本规划中间文件: {script_plan_json}；content_mode=narration 期望该文件，请先完成分镜拆分"
             )
 

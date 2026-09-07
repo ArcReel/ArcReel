@@ -748,6 +748,41 @@ def test_storyboard_image_basis_refuses_a_pending_prompt() -> None:
         )
 
 
+def test_grid_bases_refuse_a_pending_member_prompt(tmp_path: Path) -> None:
+    """宫格成员的 image_prompt 为 None：联合图与格子的依据都拒绝，不把字面量 "None" 写进摘要。"""
+    composite = tmp_path / "grid.png"
+    composite.write_bytes(b"grid-v1")
+    members = (
+        GridStoryboardVisual(resource_id="E1S01", image_prompt=None, video_prompt=None),
+        GridStoryboardVisual(
+            resource_id="E1S02",
+            image_prompt={"scene": "雨巷", "composition": {"shot_type": "Medium Shot"}},
+            video_prompt={"action": "推门"},
+        ),
+    )
+    with pytest.raises(ValueError, match="pending"):
+        build_grid_composite_visual_basis(
+            group_id="grid_1",
+            members=members,
+            rows=1,
+            columns=2,
+            style="水墨",
+            grid_aspect_ratio="18:16",
+            references=(),
+        )
+    with pytest.raises(ValueError, match="pending"):
+        build_grid_member_storyboard_visual_basis(
+            group_id="grid_1",
+            members=members,
+            cell_index=1,
+            composite_image=composite,
+            rows=1,
+            columns=2,
+            style="水墨",
+            member_aspect_ratio="9:16",
+        )
+
+
 def test_storyboard_video_basis_refuses_a_pending_prompt(tmp_path: Path) -> None:
     start = tmp_path / "start.png"
     start.write_bytes(b"start")

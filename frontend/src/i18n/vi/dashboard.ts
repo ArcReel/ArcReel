@@ -1377,12 +1377,14 @@ export default {
   'review_convert_fresh_hint': 'Tập này chưa có kịch bản chính thức; sẽ tạo {{count}} cảnh quay từ kế hoạch kịch bản.',
   'review_convert_counts': 'So với kịch bản chính thức hiện có: thêm {{added}}, lỗi thời {{stale}}, gỡ bỏ {{removed}}. Cảnh lỗi thời giữ nguyên nội dung lẫn prompt; có thể 「áp dụng nội dung mới」 từng cảnh trên dòng thời gian.',
   'review_convert_in_sync': 'Kịch bản chính thức đã khớp từng cảnh với kế hoạch kịch bản, không cần chuyển.',
+  'review_convert_structure_only': 'Kế hoạch kịch bản chỉ thay đổi thứ tự cảnh hoặc tiêu đề; chuyển đổi sẽ cập nhật kịch bản chính thức tương ứng, nội dung và prompt của các cảnh giữ nguyên.',
   'review_convert_preview_failed': 'Không thể so sánh kế hoạch kịch bản với kịch bản chính thức: {{message}}',
   'review_convert_agent': 'Để Agent tạo',
   'review_convert_direct': 'Chuyển trực tiếp',
   'review_convert_converting': 'Đang chuyển…',
   'review_convert_done': 'Đã chuyển thành kịch bản chính thức: thêm {{added}}, áp dụng nội dung mới {{refreshed}}, gỡ bỏ {{removed}}',
   'review_convert_failed': 'Chuyển thất bại: {{message}}',
+  'review_convert_refresh_failed': 'Đã chuyển thành kịch bản chính thức nhưng không tải lại được dữ liệu trang, hãy tải lại trang để xem kết quả mới nhất.',
   'review_fix_request_promote_prefill':
     'Bản nháp kế hoạch kịch bản của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn chưa được thăng cấp — hãy gọi open_draft với doc_type={{docType}}, sau đó gọi promote_draft với cùng doc_type và truyền revision trả về làm base_revision.',
 

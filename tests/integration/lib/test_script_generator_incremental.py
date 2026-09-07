@@ -17,7 +17,7 @@ import pytest
 from lib import script_review
 from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, ScriptWriteConflict
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script_generator import SCRIPT_PLAN_CONVERSION_GENERATOR, ScriptGenerator
 from lib.script_plan_entries import (
@@ -665,6 +665,109 @@ class TestScriptPlanConversion:
         currency = _currency(project_dir, plan_path, variant)
         assert currency.stale_ids == (second,)
         assert currency.new_ids == ()
+
+    async def test_conversion_rejects_a_save_that_landed_after_its_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """读入旧剧本之后、落盘之前另一次保存落下：按冲突拒绝，不能拿新文件的指纹把它覆盖掉。"""
+        variant = NARRATION
+        project_dir, plan_path = variant.build(tmp_path)
+        await _converter(project_dir).convert_script_plan(1)
+        self._edit_plan(plan_path, project_dir, variant)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        original = ProjectManager.load_script_readonly
+
+        def load_then_concurrent_save(self: ProjectManager, name: str, filename: str) -> Any:
+            data = original(self, name, filename)
+            if filename == "episode_1.json":
+                document = json.loads(script_path.read_text(encoding="utf-8"))
+                document["title"] = "并发改写"
+                script_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+            return data
+
+        monkeypatch.setattr(ProjectManager, "load_script_readonly", load_then_concurrent_save)
+
+        with pytest.raises(ScriptWriteConflict):
+            await _converter(project_dir).convert_script_plan(1)
+        assert _script(project_dir)["title"] == "并发改写"
+
+    async def test_conversion_rejects_a_plan_edit_that_landed_after_its_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variant: _Variant
+    ) -> None:
+        """冻结规划快照之后、落盘之前规划又被改写并重新登记：拒绝写盘，剧本保持原样。"""
+        project_dir, plan_path = variant.build(tmp_path)
+        await _converter(project_dir).convert_script_plan(1)
+        self._edit_plan(plan_path, project_dir, variant)
+        before = (project_dir / "scripts" / "episode_1.json").read_bytes()
+        original = ProjectManager.load_script_readonly
+
+        def load_then_concurrent_plan_edit(self: ProjectManager, name: str, filename: str) -> Any:
+            data = original(self, name, filename)
+            if filename == "episode_1.json":
+                document = json.loads(plan_path.read_text(encoding="utf-8"))
+                document[_PLAN_ENTRIES_KEY[variant.name]][0][_plan_text_field(variant)] = "快照之后又改了一遍。"
+                plan_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+                _activate(project_dir)
+            return data
+
+        monkeypatch.setattr(ProjectManager, "load_script_readonly", load_then_concurrent_plan_edit)
+
+        with pytest.raises(ValueError, match="changed since it was selected"):
+            await _converter(project_dir).convert_script_plan(1)
+        assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
+
+    async def test_title_only_change_is_previewed_and_persisted(self, tmp_path: Path) -> None:
+        """drama 规划只改标题：三组条目为空但不是空操作，预演报 title_changed，转换落盘新标题。"""
+        project_dir, plan_path = DRAMA.build(tmp_path)
+        await _converter(project_dir).convert_script_plan(1)
+        document = json.loads(plan_path.read_text(encoding="utf-8"))
+        document["title"] = "改名后的第一集"
+        plan_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        _activate(project_dir)
+
+        preview = await _converter(project_dir).preview_script_plan_conversion(1)
+        assert (preview.added, preview.stale, preview.removed) == ((), (), ())
+        assert (preview.order_changed, preview.title_changed) == (False, True)
+
+        receipt = await _converter(project_dir).convert_script_plan(1)
+        assert (receipt.added, receipt.refreshed, receipt.removed) == ((), (), ())
+        assert _script(project_dir)["title"] == "改名后的第一集"
+        assert (await _converter(project_dir).preview_script_plan_conversion(1)).title_changed is False
+
+    async def test_blank_plan_title_counts_as_missing(self, tmp_path: Path) -> None:
+        """规划标题只有空白：沿用旧剧本标题，预演不报 title_changed，重复转换仍是空操作。"""
+        project_dir, plan_path = DRAMA.build(tmp_path)
+        await _converter(project_dir).convert_script_plan(1)
+        document = json.loads(plan_path.read_text(encoding="utf-8"))
+        document["title"] = "   "
+        plan_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        _activate(project_dir)
+
+        assert (await _converter(project_dir).preview_script_plan_conversion(1)).title_changed is False
+        before = (project_dir / "scripts" / "episode_1.json").read_bytes()
+        await _converter(project_dir).convert_script_plan(1)
+        assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
+        assert _script(project_dir)["title"] == "第一集"
+
+    async def test_reorder_only_change_is_previewed_and_persisted(self, tmp_path: Path, variant: _Variant) -> None:
+        """规划只调换条目顺序：预演报 order_changed，转换让剧本顺序跟随，回执三组为空。"""
+        first, second = variant.entry_ids
+        project_dir, plan_path = variant.build(tmp_path)
+        await _converter(project_dir).convert_script_plan(1)
+        entries_key = _PLAN_ENTRIES_KEY[variant.name]
+        document = json.loads(plan_path.read_text(encoding="utf-8"))
+        document[entries_key] = list(reversed(document[entries_key]))
+        plan_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        _activate(project_dir)
+
+        preview = await _converter(project_dir).preview_script_plan_conversion(1)
+        assert (preview.added, preview.stale, preview.removed) == ((), (), ())
+        assert (preview.order_changed, preview.title_changed) == (True, False)
+
+        receipt = await _converter(project_dir).convert_script_plan(1)
+        assert (receipt.added, receipt.refreshed, receipt.removed) == ((), (), ())
+        assert [entry[variant.id_field] for entry in _script(project_dir)[variant.items_key]] == [second, first]
+        assert (await _converter(project_dir).preview_script_plan_conversion(1)).order_changed is False
 
     async def test_adopting_new_content_refreshes_a_stale_entry_but_keeps_its_prompts(
         self, tmp_path: Path, variant: _Variant

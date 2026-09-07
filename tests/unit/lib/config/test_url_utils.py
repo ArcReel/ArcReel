@@ -20,6 +20,7 @@ class TestNormalizeAnthropicBaseUrl:
             ("https://x/anthropic/", "https://x/anthropic"),
             ("https://x/anthropic/v1/messages", "https://x/anthropic"),
             ("https://x/anthropic/v1/messages/", "https://x/anthropic"),
+            ("https://x//v1/messages", "https://x"),
             ("  https://x  ", "https://x"),
         ],
     )
@@ -74,6 +75,8 @@ class TestAnthropicEndpointUrl:
             ("https://x", "https://x/v1/messages"),
             ("https://x/anthropic", "https://x/anthropic/v1/messages"),
             ("https://api.deepseek.com/anthropic/v1", "https://api.deepseek.com/anthropic/v1/v1/messages"),
+            # 已转义的路径分隔符逐字保留：运行时 CLI 也是字符串拼接，探测不能打到另一个端点。
+            ("https://example.com/gateway%2Ftenant", "https://example.com/gateway%2Ftenant/v1/messages"),
         ],
     )
     def test_appends_to_path(self, base: str, expected: str) -> None:

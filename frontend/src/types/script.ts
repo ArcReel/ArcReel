@@ -359,6 +359,10 @@ export interface ScriptPlanConversionPreview {
   added: string[];
   stale: string[];
   removed: string[];
+  /** 三组都为空时也可能要转：沿用条目的顺序与脚本规划不同。 */
+  order_changed: boolean;
+  /** 脚本规划的标题（剧情演绎）与正式剧本标题不同。 */
+  title_changed: boolean;
 }
 
 /** 一次机械转换的回执：新增（提示词待生成）/ 采用新内容 / 移出。 */

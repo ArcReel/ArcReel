@@ -16,7 +16,11 @@ from lib.project_manager import ScriptWriteConflict, get_project_manager
 from lib.script_plan_entries import ScriptPlanEntryError
 from server.dependencies import require_project_migration_ok
 from server.routers._script_review_errors import raise_review_error
-from server.services.script_plan_conversion import convert_script_plan, preview_script_plan_conversion
+from server.services.script_plan_conversion import (
+    ScriptPlanNotFoundError,
+    convert_script_plan,
+    preview_script_plan_conversion,
+)
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 from server.text_generation import TextGenerationError
 
@@ -182,12 +186,14 @@ async def convert_script_plan_to_script(
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review/conversion-preview")
 async def preview_script_plan_conversion_to_script(project_name: str, episode: int, _t: Translator):
-    """只读预演机械转换：按当前脚本规划与正式剧本列出 ``added`` / ``stale`` / ``removed`` 三组条目 id。
+    """只读预演机械转换：列出 ``added`` / ``stale`` / ``removed`` 三组条目 id，以及顺序、标题是否有变。
 
     不落盘、不经内容确认门禁；web 在「转为正式脚本」对话框与时间线的失效提示里读它。
     """
     try:
         preview = await preview_script_plan_conversion(project_name, episode)
+    except ScriptPlanNotFoundError as exc:
+        raise UnprocessableError("script_review_no_script_plan") from exc
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
     except ValueError as exc:
@@ -198,4 +204,6 @@ async def preview_script_plan_conversion_to_script(project_name: str, episode: i
         "added": list(preview.added),
         "stale": list(preview.stale),
         "removed": list(preview.removed),
+        "order_changed": preview.order_changed,
+        "title_changed": preview.title_changed,
     }

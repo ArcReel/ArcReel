@@ -475,6 +475,31 @@ class _FakePMSheetlessReference(_FakePMGenerate):
         return script
 
 
+class _FakePMPendingPrompt(_FakePMGenerate):
+    """机械转换后一条分镜的 image_prompt 仍是 None：整批拒绝，不为「None」提示词付费出图。"""
+
+    def load_script(self, name, script_file):
+        script = _narration_script()
+        script["segments"][2]["image_prompt"] = None
+        return script
+
+
+def test_generate_grid_blocks_the_whole_batch_on_a_pending_prompt(monkeypatch, tmp_path):
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMPendingPrompt(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post("/api/v1/projects/demo/generate/grid/1", json={"script_file": "episode_1.json"})
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == i18n_message("script_prompt_pending", segment_id="E1S03")
+    assert fake_queue.calls == []
+    assert not (tmp_path / "grids").exists()
+
+
 def test_generate_grid_blocks_the_whole_batch_on_an_unregistered_reference(monkeypatch, tmp_path):
     """整批准入：一条分镜有缺口就整批拒绝，不让同批健康的分组独自计费。"""
     fake_queue = _FakeQueue()
@@ -835,6 +860,43 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
     assert saved.status == "pending"
     assert saved.error_message is None
     assert saved.provider == ""
+
+
+class _FakePMRegeneratePendingPrompt(_FakePMRegenerate):
+    def load_script(self, name, script_file):
+        script = _narration_script()
+        script["segments"][0]["image_prompt"] = None
+        return script
+
+
+def test_regenerate_grid_blocks_on_a_pending_prompt_without_mutating_the_record(monkeypatch, tmp_path):
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S01", "E1S02", "E1S03", "E1S04"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="stale-provider",
+        model="stale-model",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "failed"
+    GridManager(tmp_path).save(grid)
+
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegeneratePendingPrompt(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate")
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == i18n_message("script_prompt_pending", segment_id="E1S01")
+    assert fake_queue.calls == []
+    assert GridManager(tmp_path).get(grid.id) == grid
 
 
 class _FakePMRegenerateBlockedReference(_FakePMRegenerate):
