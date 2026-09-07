@@ -423,3 +423,183 @@ class TestResumeAndBackfill:
         assert row.usage_tokens == 1_200_000
         assert row.purpose == "assistant_session"
         assert row.session_id == "s1"
+
+
+class _RecordingPublisher:
+    """记下发上项目变更总线的 (project_name, changes)。"""
+
+    def __init__(self) -> None:
+        self.batches: list[tuple[str, list[dict[str, Any]]]] = []
+
+    def __call__(self, project_name: str, changes: Any) -> None:
+        self.batches.append((project_name, [dict(change) for change in changes]))
+
+    @property
+    def changes(self) -> list[dict[str, Any]]:
+        return [change for _, changes in self.batches for change in changes]
+
+
+class TestSettlementEvents:
+    """结算即项目事件：usage_record / recorded 随三种终态发出，pending 与无项目名不发。"""
+
+    async def test_success_emits_recorded_change_with_project(self, db_factory: async_sessionmaker) -> None:
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+
+        async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
+            assert publisher.batches == [], "pending 阶段不发事件"
+            call.success(_TextResult())
+
+        row = await _only_row(db_factory)
+        assert publisher.batches == [
+            (
+                "demo",
+                [
+                    {
+                        "entity_type": "usage_record",
+                        "action": "recorded",
+                        "entity_id": str(row.id),
+                        "label": str(row.id),
+                        "focus": None,
+                        "important": False,
+                        "status": "success",
+                    }
+                ],
+            )
+        ]
+
+    async def test_failure_emits_recorded_change(self, db_factory: async_sessionmaker) -> None:
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+
+        with pytest.raises(ValueError, match="boom"):
+            async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
+                raise ValueError("boom")
+
+        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
+            ("demo", ["failed"])
+        ]
+
+    async def test_cancellation_emits_recorded_change(self, db_factory: async_sessionmaker) -> None:
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+
+        with pytest.raises(asyncio.CancelledError):
+            async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
+                raise asyncio.CancelledError()
+
+        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
+            ("demo", ["cancelled"])
+        ]
+
+    async def test_row_left_pending_emits_nothing(self, db_factory: async_sessionmaker) -> None:
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+
+        with pytest.raises(RuntimeError, match=re.escape("未调用 call.success")):
+            async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
+                pass
+
+        assert (await _only_row(db_factory)).status == "pending"
+        assert publisher.batches == []
+
+    async def test_call_without_project_name_emits_nothing(self, db_factory: async_sessionmaker) -> None:
+        """端点试跑没有项目归属，事件无处可送。"""
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+
+        async with ledger.record(
+            project_name="", call_type="text", model="m", provider="anthropic", purpose=CallPurpose.ENDPOINT_TRIAL
+        ) as call:
+            call.success(_TextResult())
+
+        assert (await _only_row(db_factory)).status == "success"
+        assert publisher.batches == []
+
+    async def test_resume_emits_once_and_stays_silent_on_idempotent_replay(
+        self, db_factory: async_sessionmaker
+    ) -> None:
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+        async with db_factory() as session:
+            from lib.db.repositories.usage_repo import UsageRepository
+
+            call_id = await UsageRepository(session).start_call(
+                project_name="demo", call_type="video", model="veo-3.1-generate-preview", duration_seconds=8
+            )
+
+        assert await ledger.resume_success(call_id=call_id, result=_VideoResult()) == 1
+        assert await ledger.resume_success(call_id=call_id, result=_VideoResult()) == 0
+
+        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
+            ("demo", ["success"])
+        ]
+
+    async def test_backfill_emits_recorded_change(self, db_factory: async_sessionmaker) -> None:
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+
+        await ledger.backfill(
+            project_name="demo",
+            call_type="text",
+            model="claude-sonnet-4",
+            provider="anthropic",
+            prompt="u",
+            user_id="default",
+            status=CallStatus.SUCCESS,
+            cost_amount=0.1,
+        )
+
+        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
+            ("demo", ["success"])
+        ]
+
+    async def test_publisher_failure_does_not_break_settlement(self, db_factory: async_sessionmaker) -> None:
+        """事件只是实时性优化：发布炸了，账照样落，调用方看不见异常。"""
+
+        def _boom(_project_name: str, _changes: Any) -> None:
+            raise RuntimeError("bus down")
+
+        ledger = Ledger(session_factory=db_factory, publish_change=_boom)
+        async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
+            call.success(_TextResult())
+
+        assert (await _only_row(db_factory)).status == "success"
+
+
+class TestSettleInterruptedCalls:
+    """启动收口：翻掉无存活任务的 pending 行，并按项目分组发结算事件。"""
+
+    async def _seed_pending(self, db_factory: async_sessionmaker, *, project_name: str) -> int:
+        from lib.db.repositories.usage_repo import UsageRepository
+
+        async with db_factory() as session:
+            return await UsageRepository(session).start_call(
+                project_name=project_name, call_type="text", model="m", provider="anthropic"
+            )
+
+    async def test_settles_orphan_rows_and_emits_one_batch_per_project(self, db_factory: async_sessionmaker) -> None:
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+        first = await self._seed_pending(db_factory, project_name="demo")
+        second = await self._seed_pending(db_factory, project_name="demo")
+        other = await self._seed_pending(db_factory, project_name="other")
+
+        assert await ledger.settle_interrupted_calls() == 3
+
+        async with db_factory() as session:
+            rows = {row.id: row for row in (await session.execute(select(ApiCall))).scalars().all()}
+        assert [rows[call_id].status for call_id in (first, second, other)] == ["failed"] * 3
+        assert rows[first].error_code == "interrupted"
+
+        assert sorted((project, len(changes)) for project, changes in publisher.batches) == [
+            ("demo", 2),
+            ("other", 1),
+        ]
+
+    async def test_no_orphan_rows_emits_nothing(self, db_factory: async_sessionmaker) -> None:
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+
+        assert await ledger.settle_interrupted_calls() == 0
+        assert publisher.batches == []

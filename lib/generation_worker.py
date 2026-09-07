@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
     ProviderProjection = Callable[[dict[str, Any]], Awaitable[str]]
     TaskExecutor = Callable[..., Awaitable[dict[str, Any]]]
+    # 启动收口：返回已翻成终态的 pending 调用行数。
+    InterruptedCallSettler = Callable[[], Awaitable[int]]
 
 logger = logging.getLogger(__name__)
 
@@ -484,6 +486,12 @@ async def _read_video_poll_timeout_seconds() -> int:
     return await read_video_poll_timeout_seconds()
 
 
+async def _settle_interrupted_calls() -> int:
+    from lib.ledger import Ledger
+
+    return await Ledger().settle_interrupted_calls()
+
+
 class GenerationWorker:
     """Queue worker with per-provider image/video/audio/text lanes and single-active lease."""
 
@@ -496,8 +504,12 @@ class GenerationWorker:
         provider_projection: ProviderProjection = _extract_provider,
         executor: TaskExecutor = _execute_task,
         lanes: tuple[str, ...] = ("image", "video", "audio", "text"),
+        settle_interrupted_calls: InterruptedCallSettler | None = None,
     ):
         self.queue = queue or get_generation_queue()
+        # 启动收口入口（记账层的公开方法）。默认在首次持 lease 时现建 Ledger，与
+        # _settle_unresumable_call 一样延迟 import，避开 worker → ledger 的模块级依赖。
+        self._settle_interrupted_calls = settle_interrupted_calls or _settle_interrupted_calls
         # 认领期与执行期共用的 provider 投影：限流按它的结果路由到对应容量桶。
         self._provider_projection = provider_projection
         self._executor = executor
@@ -619,6 +631,7 @@ class GenerationWorker:
                 # 单 lease 互斥保证不会与另一个 worker 同时扫；跨进程接管由上述阈值兜底。
                 if self._owns_lease and not self._orphan_handled_once:
                     await self._handle_orphan_tasks_on_start()
+                    await self._settle_interrupted_calls_on_start()
                     self._orphan_handled_once = True
 
                 if not self._owns_lease:
@@ -1111,6 +1124,21 @@ class GenerationWorker:
             await asyncio.to_thread(cleanup_staged_provider_media, project_path, task["task_id"])
         except Exception:
             logger.warning("video provider media cleanup failed task_id=%s", task.get("task_id"), exc_info=True)
+
+    async def _settle_interrupted_calls_on_start(self) -> None:
+        """孤儿任务处理之后收口没有存活任务的 pending 调用行（与孤儿扫描共用一次性开关）。
+
+        顺序不能反：孤儿处理先把无法接续的任务翻成终态，收口才能按任务的结局判定它的调用行；
+        反过来那些任务还是 running，它们的调用行会被当成「任务还活着」跳过。收口失败只记日志，
+        不阻断认领循环——账目收尾比不上 worker 起不来。
+        """
+        try:
+            settled = await self._settle_interrupted_calls()
+        except Exception:
+            logger.warning("启动收口 pending 调用行失败", exc_info=True)
+            return
+        if settled:
+            logger.info("启动收口：%d 条无存活任务的 pending 调用行已结算", settled)
 
     async def _handle_orphan_tasks_on_start(self) -> None:
         """重启自愈：扫 running + cancelling 孤儿，按"是否可安全 resume"分流。

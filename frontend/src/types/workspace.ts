@@ -28,7 +28,10 @@ export interface ProjectChange {
     | "grid"
     // task 不是项目实体，而是任务终态的刷新信号（important=false / focus=null）：
     // 只用来重拉任务列表与受影响画布，不进通知与聚焦跳转。
-    | "task";
+    | "task"
+    // usage_record 同样是刷新信号：一次供应商调用结算落库（成功/失败/取消），
+    // 用来重拉用量与成本，不进通知与聚焦跳转。
+    | "usage_record";
   action:
     | "created"
     | "updated"
@@ -42,7 +45,8 @@ export interface ProjectChange {
     | "voice_sample_ready"
     | "task_succeeded"
     | "task_failed"
-    | "task_cancelled";
+    | "task_cancelled"
+    | "recorded";
   entity_id: string;
   /** 后端按默认语言渲染的条目标签，只作日志与旧发布方兜底；界面文案以 label_key 为准。 */
   label: string;
@@ -54,6 +58,8 @@ export interface ProjectChange {
   episode?: number;
   /** 仅 entity_type === "task" 携带：终态任务的任务类型，用于判定哪类画布需重拉。 */
   task_type?: string;
+  /** 仅 entity_type === "usage_record" 携带：这次调用结算成的终态。 */
+  status?: string;
   focus?: ProjectChangeFocus | null;
   important: boolean;
   asset_fingerprints?: Record<string, number>;
