@@ -34,6 +34,8 @@ class CallErrorCode(StrEnum):
     CONTENT_POLICY = "content_policy"
     TIMEOUT = "timeout"
     DOWNLOAD_FAILED = "download_failed"
+    # 进程重启把这次调用截断在 pending：没有异常对象可分类，由启动收口按「没有任务身份」写入。
+    INTERRUPTED = "interrupted"
 
 
 # 上游错误体里表示「内容被策略拦下」的 ``code``。OpenAI 兼容协议（官方、Azure、各中转）把它

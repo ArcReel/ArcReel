@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, and_, case, func, or_, select, update
 
+from lib.call_failure import CallErrorCode
 from lib.cost_calculator import cost_calculator
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
@@ -21,6 +22,7 @@ from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.pricing.strategies import PricingParams
 from lib.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.task_terminal_events import TERMINAL_TASK_STATUSES
 from lib.usage_summary import UsageFilterOptions, UsageSummaryRow
 
 # 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
@@ -125,6 +127,37 @@ def _classify_asset_output_path(output_path: str | None) -> str:
     if "/clues/" in normalized or normalized.startswith("clues/"):
         return "props"
     return "other"
+
+
+@dataclass(frozen=True, slots=True)
+class InterruptedCallSettlement:
+    """启动收口翻掉的一行：调用 id、所属项目与翻成的终态，供上层发项目事件。"""
+
+    call_id: int
+    project_name: str
+    status: CallStatus
+
+
+def _interrupted_target(task_id: str | None, task_statuses: dict[str, str]) -> tuple[CallStatus, str | None] | None:
+    """判定一行 pending 调用该翻成什么终态；任务仍存活时返回 ``None``（不动这一行）。
+
+    - 无 ``task_id``：这次调用不归属任何任务（端点试跑、文本调用等），进程重启后没有任何
+      在跑的东西能结算它 —— 翻 failed 并写 ``interrupted``，读侧据此渲染「被中断」。
+    - ``task_id`` 查不到任务行：任务已被清理，调用同样无人接续，与上一条同处理。
+    - 任务已终态：按任务的结局翻（cancelled → cancelled，succeeded / failed → failed）。
+      成功任务也翻 failed —— 调用没走完结算就是没记成账，把它记成 success 会凭空补一笔费用。
+    - 任务未终态（queued / running / cancelling）：还活着，它自己的结算路径会收尾。
+    """
+    if not task_id:
+        return CallStatus.FAILED, CallErrorCode.INTERRUPTED
+    status = task_statuses.get(task_id)
+    if status is None:
+        return CallStatus.FAILED, CallErrorCode.INTERRUPTED
+    if status not in TERMINAL_TASK_STATUSES:
+        return None
+    if status == "cancelled":
+        return CallStatus.CANCELLED, None
+    return CallStatus.FAILED, None
 
 
 def _row_to_dict(row: ApiCall) -> dict[str, Any]:
@@ -393,6 +426,71 @@ class UsageRepository(BaseRepository):
         if affected > 0:
             await self.session.commit()
         return affected
+
+    async def get_call_project_name(self, call_id: int) -> str:
+        """取该调用所属项目名；行不存在时返回空串（调用方据此不发事件）。"""
+        result = await self.session.execute(select(ApiCall.project_name).where(ApiCall.id == call_id))
+        return result.scalar_one_or_none() or ""
+
+    async def settle_interrupted_pending_calls(self) -> list[InterruptedCallSettlement]:
+        """服务启动收口：把没有存活任务的 pending 调用行翻成终态（零费用），返回翻掉的行。
+
+        进程崩溃/重启会让「已落 pending、还没结算」的调用行永远停在 pending —— 用量报表里
+        它既不是成功也不是失败，只是一直悬着。启动时一次性收口：分流规则见 ``_interrupted_target``，
+        有存活任务的行一律不动（它们的结算路径还在）。
+
+        零费用是这里的口径：调用没走完结算，没有任何可信的计费维度可用，按 0 记账不给用户凭空
+        补账。每行的 UPDATE 带 ``status='pending'`` 守卫，与并发的正常结算竞态时只会有一方生效。
+        """
+        finished_at = utc_now()
+        pending_rows = (
+            (await self.session.execute(select(ApiCall).where(ApiCall.status == CallStatus.PENDING))).scalars().all()
+        )
+        if not pending_rows:
+            return []
+
+        task_ids = {row.task_id for row in pending_rows if row.task_id}
+        task_statuses: dict[str, str] = {}
+        if task_ids:
+            rows = await self.session.execute(select(Task.task_id, Task.status).where(Task.task_id.in_(task_ids)))
+            task_statuses = {task_id: status for task_id, status in rows.all()}  # noqa: C416 -- Row 元组不是二元序列，dict() 无法直接消费
+
+        settled: list[InterruptedCallSettlement] = []
+        for row in pending_rows:
+            target = _interrupted_target(row.task_id, task_statuses)
+            if target is None:
+                continue
+            status, error_code = target
+            settlement = SettlementInput(cost_amount=0.0)
+            effective = await self._settle(
+                row=row,
+                finished_at=finished_at,
+                settlement=settlement,
+                auto_calc=False,
+                base_currency=row.currency or "USD",
+            )
+            values: dict[str, Any] = {
+                "status": status,
+                "finished_at": finished_at,
+                "duration_ms": effective.duration_ms,
+                "cost_amount": effective.cost_amount,
+                "currency": effective.currency,
+            }
+            if error_code is not None:
+                # 已分类必有参数对象（读侧不变量：有码 ⇒ params 是对象），中断没有参数可带。
+                values["error_code"] = error_code
+                values["error_params"] = {}
+            result = await self.session.execute(
+                update(ApiCall).where(ApiCall.id == row.id, ApiCall.status == CallStatus.PENDING).values(**values)
+            )
+            if rowcount(result) > 0:
+                settled.append(
+                    InterruptedCallSettlement(call_id=row.id, project_name=row.project_name or "", status=status)
+                )
+
+        if settled:
+            await self.session.commit()
+        return settled
 
     async def finish_call(
         self,

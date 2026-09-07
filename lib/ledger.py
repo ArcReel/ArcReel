@@ -17,6 +17,11 @@
 成功通道的 backend 结果对象 union 分发集中在 ``_settlement_from_result``：audio 合成字符数、
 video 实际计费时长两处语义转写在此单点完成，调用点成功分支不再有逐字段提取胶水。
 
+结算落库后发一条 ``usage_record / recorded`` 项目变更（走 ``project_change_hints`` 的 batch 总线，
+与任务终态事件同一条 SSE），界面据此刷新用量而不必轮询；无项目名的调用（端点试跑）不发，pending
+阶段不发。发布口经 ``publish_change`` 注入，带生产默认值。``settle_interrupted_calls`` 是启动收口
+入口：把崩溃留下的、没有存活任务的 pending 行翻成终态。
+
 ``session_factory`` 注入口保留：``Ledger(session_factory=...)`` 覆盖生产三处接线
 （MediaGenerator / TextGenerator / SessionManager）与测试内存库替换需求。写侧直连
 ``UsageRepository``，不经用量透传层。
@@ -26,7 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, assert_never
 
@@ -34,9 +39,36 @@ from lib.call_failure import classify_call_failure
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.project_change_hints import emit_project_change_batch
 from lib.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 
 logger = logging.getLogger(__name__)
+
+#: 记账结算的项目变更条目：entity_type 与项目实体、任务终态都区分开。
+USAGE_RECORD_ENTITY_TYPE = "usage_record"
+USAGE_RECORD_ACTION = "recorded"
+
+#: 结算事件的发布口。生产默认是项目变更批次总线（与任务终态事件同一条 SSE），测试注入替身。
+ProjectChangePublisher = Callable[[str, Sequence[dict[str, Any]]], None]
+
+
+def build_usage_record_change(call_id: int, status: CallStatus) -> dict[str, Any]:
+    """把一次结算转成项目变更 dict。
+
+    与任务终态事件同构，是**刷新信号**而非实体变更：``important=False`` + ``focus=None``，
+    消费方据此只重拉用量数据，不弹通知、不触发聚焦跳转。``status`` 让消费方不必回查即可
+    判断这次结算是成功还是失败。
+    """
+    return {
+        "entity_type": USAGE_RECORD_ENTITY_TYPE,
+        "action": USAGE_RECORD_ACTION,
+        "entity_id": str(call_id),
+        # label 不进通知文案（important=False），仅作日志/调试可读标识。
+        "label": str(call_id),
+        "focus": None,
+        "important": False,
+        "status": str(status),
+    }
 
 
 def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: str = "default") -> SettlementInput:
@@ -90,8 +122,23 @@ class LedgerCall:
 
 
 class Ledger:
-    def __init__(self, *, session_factory=None):
+    def __init__(self, *, session_factory=None, publish_change: ProjectChangePublisher = emit_project_change_batch):
         self._session_factory = session_factory or safe_session_factory
+        self._publish_change = publish_change
+
+    def _publish(self, project_name: str, changes: Sequence[dict[str, Any]]) -> None:
+        """发一批结算事件。项目名为空（端点试跑）不发；发布失败不向上抛——账已落库，
+        事件只是实时性优化，消费方有轮询兜底。"""
+        if not project_name or not changes:
+            return
+        try:
+            self._publish_change(project_name, changes)
+        except Exception:
+            logger.exception("发送记账结算项目事件失败 project=%s count=%d", project_name, len(changes))
+
+    def _emit_recorded(self, project_name: str, call_id: int, status: CallStatus) -> None:
+        """结算落库后推一条 ``usage_record / recorded``；pending 阶段不发。"""
+        self._publish(project_name, [build_usage_record_change(call_id, status)])
 
     @asynccontextmanager
     async def record(
@@ -145,11 +192,13 @@ class Ledger:
             # 用户取消：零费用结算为 cancelled 后原样重抛，不留 pending 也不计入失败率。
             # （CancelledError 在 3.11+ 继承 BaseException 天然不进 except Exception，此处显式
             #  声明为契约，而非依赖隐式继承副作用。）
-            await self._finish_cancelled(call_id)
+            if await self._finish_cancelled(call_id):
+                self._emit_recorded(project_name, call_id, CallStatus.CANCELLED)
             raise
         except Exception as exc:
             # 自动翻 failed（错误信息截断由仓储承担）后原样重抛。
-            await self._finish_failed(call_id, exc)
+            if await self._finish_failed(call_id, exc):
+                self._emit_recorded(project_name, call_id, CallStatus.FAILED)
             raise
         else:
             if call._settlement is None:
@@ -158,8 +207,10 @@ class Ledger:
                 await self._finish_success(call_id, call._settlement, output_path=output_path)
             except Exception as exc:
                 # 成功结算写入本身失败：不留永久 pending，尝试翻 failed 后原样重抛。
-                await self._finish_failed(call_id, exc)
+                if await self._finish_failed(call_id, exc):
+                    self._emit_recorded(project_name, call_id, CallStatus.FAILED)
                 raise
+            self._emit_recorded(project_name, call_id, CallStatus.SUCCESS)
 
     async def pending_call_id_for_task(self, task_id: str) -> int | None:
         """按任务反查它那条待结算的调用行 id，供续跑与派发终态补账定位。"""
@@ -238,6 +289,26 @@ class Ledger:
         )
         async with self._session_factory() as session:
             await UsageRepository(session).finish_call(call_id, status=status, settlement=settlement)
+        self._emit_recorded(project_name, call_id, status)
+
+    async def settle_interrupted_calls(self) -> int:
+        """服务启动收口：把没有存活任务的 pending 调用行翻成终态，返回翻掉的行数。
+
+        进程崩溃会把「已落 pending、未结算」的调用行永远留在 pending。分流规则与零费用口径
+        由仓储承担（见 ``UsageRepository.settle_interrupted_pending_calls``），这里只按项目
+        分组把结算事件发出去，让正开着的界面立刻看到这些行不再悬着。
+        """
+        async with self._session_factory() as session:
+            settled = await UsageRepository(session).settle_interrupted_pending_calls()
+
+        by_project: dict[str, list[dict[str, Any]]] = {}
+        for item in settled:
+            if not item.project_name:
+                continue
+            by_project.setdefault(item.project_name, []).append(build_usage_record_change(item.call_id, item.status))
+        for project_name, changes in by_project.items():
+            self._publish(project_name, changes)
+        return len(settled)
 
     async def _start_call(self, **kwargs: Any) -> int:
         async with self._session_factory() as session:
@@ -249,9 +320,12 @@ class Ledger:
                 call_id, status=CallStatus.SUCCESS, settlement=settlement, output_path=output_path
             )
 
-    async def _finish_failed(self, call_id: int, exc: BaseException) -> None:
-        # 记账失败不吞原异常：写入失败仅记日志，原异常继续冒泡。分类也在 try 内：它读的是异常
-        # 自身的属性，真抛出来也只该跟写入失败同样处理，不该顶替原异常冒出去。
+    async def _finish_failed(self, call_id: int, exc: BaseException) -> bool:
+        """翻 failed；返回是否真的写进去了（写失败时不发事件）。
+
+        记账失败不吞原异常：写入失败仅记日志，原异常继续冒泡。分类也在 try 内：它读的是异常
+        自身的属性，真抛出来也只该跟写入失败同样处理，不该顶替原异常冒出去。
+        """
         try:
             failure = classify_call_failure(exc)
             async with self._session_factory() as session:
@@ -265,10 +339,15 @@ class Ledger:
                 )
         except Exception:
             logger.exception("ledger 失败分支记账写入自身失败 call_id=%s（原异常照常重抛）", call_id)
+            return False
+        return True
 
-    async def _finish_cancelled(self, call_id: int) -> None:
-        # 取消分支同样不吞 CancelledError：写入失败仅记日志，取消照常重抛
-        # （行留 pending，交由取消方的兜底结算）。
+    async def _finish_cancelled(self, call_id: int) -> bool:
+        """翻 cancelled；返回是否真的写进去了（写失败时不发事件）。
+
+        取消分支同样不吞 CancelledError：写入失败仅记日志，取消照常重抛
+        （行留 pending，交由取消方的兜底结算或启动收口）。
+        """
         try:
             async with self._session_factory() as session:
                 await UsageRepository(session).finish_call(
@@ -276,9 +355,14 @@ class Ledger:
                 )
         except Exception:
             logger.exception("ledger 取消分支记账写入自身失败 call_id=%s（取消照常重抛）", call_id)
+            return False
+        return True
 
     async def _finalize(self, *, call_id: int, status: CallStatus, settlement: SettlementInput) -> int:
         async with self._session_factory() as session:
-            return await UsageRepository(session).finalize_pending_by_call_id(
-                call_id=call_id, status=status, settlement=settlement
-            )
+            repo = UsageRepository(session)
+            affected = await repo.finalize_pending_by_call_id(call_id=call_id, status=status, settlement=settlement)
+            # 事件要带项目名，而 resume 链路只有 call_id；幂等命中 0 行时不查也不发。
+            project_name = await repo.get_call_project_name(call_id) if affected else ""
+        self._emit_recorded(project_name, call_id, status)
+        return affected

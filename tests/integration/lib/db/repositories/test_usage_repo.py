@@ -1085,3 +1085,104 @@ class TestSummaryQueriesRespectScope:
 
         rows = await repo.fetch_summary_rows()
         assert [row.id for row in rows] == [done]
+
+
+class TestSettleInterruptedPendingCalls:
+    """启动收口：没有存活任务的 pending 调用行按任务结局翻终态。"""
+
+    async def _seed_task(self, db_session, task_id: str, status: str) -> None:
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        db_session.add(
+            Task(
+                task_id=task_id,
+                project_name="demo",
+                task_type="video",
+                media_type="video",
+                resource_id="E1S01",
+                status=status,
+                queued_at=now,
+                updated_at=now,
+            )
+        )
+        await db_session.commit()
+
+    async def _seed_pending_call(self, db_session, *, task_id: str | None = None) -> int:
+        return await UsageRepository(db_session).start_call(
+            project_name="demo",
+            call_type="video",
+            model="veo-3.1-generate-preview",
+            duration_seconds=8,
+            task_id=task_id,
+        )
+
+    async def _row(self, db_session, call_id: int) -> ApiCall:
+        return (await db_session.execute(select(ApiCall).where(ApiCall.id == call_id))).scalar_one()
+
+    async def test_call_without_task_flips_failed_with_interrupted_code(self, db_session):
+        call_id = await self._seed_pending_call(db_session)
+
+        settled = await UsageRepository(db_session).settle_interrupted_pending_calls()
+
+        assert [(s.call_id, s.project_name, s.status) for s in settled] == [(call_id, "demo", CallStatus.FAILED)]
+        row = await self._row(db_session, call_id)
+        assert row.status == "failed"
+        assert row.error_code == "interrupted"
+        assert row.error_params == {}
+        assert row.cost_amount == 0.0
+        assert row.finished_at is not None
+
+    async def test_call_of_cancelled_task_flips_cancelled_without_code(self, db_session):
+        await self._seed_task(db_session, "t-cancelled", "cancelled")
+        call_id = await self._seed_pending_call(db_session, task_id="t-cancelled")
+
+        settled = await UsageRepository(db_session).settle_interrupted_pending_calls()
+
+        assert [s.status for s in settled] == [CallStatus.CANCELLED]
+        row = await self._row(db_session, call_id)
+        assert row.status == "cancelled"
+        assert row.error_code is None
+        assert row.cost_amount == 0.0
+
+    @pytest.mark.parametrize("task_status", ["failed", "succeeded"])
+    async def test_call_of_other_terminal_task_flips_failed_without_code(self, db_session, task_status):
+        await self._seed_task(db_session, "t-term", task_status)
+        call_id = await self._seed_pending_call(db_session, task_id="t-term")
+
+        await UsageRepository(db_session).settle_interrupted_pending_calls()
+
+        row = await self._row(db_session, call_id)
+        assert row.status == "failed"
+        assert row.error_code is None
+
+    @pytest.mark.parametrize("task_status", ["queued", "running", "cancelling"])
+    async def test_call_of_live_task_is_left_pending(self, db_session, task_status):
+        await self._seed_task(db_session, "t-live", task_status)
+        call_id = await self._seed_pending_call(db_session, task_id="t-live")
+
+        settled = await UsageRepository(db_session).settle_interrupted_pending_calls()
+
+        assert settled == []
+        row = await self._row(db_session, call_id)
+        assert row.status == "pending"
+        assert row.finished_at is None
+
+    async def test_call_of_missing_task_flips_failed_with_interrupted_code(self, db_session):
+        call_id = await self._seed_pending_call(db_session, task_id="t-purged")
+
+        await UsageRepository(db_session).settle_interrupted_pending_calls()
+
+        row = await self._row(db_session, call_id)
+        assert row.status == "failed"
+        assert row.error_code == "interrupted"
+
+    async def test_terminal_rows_are_not_touched(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await self._seed_pending_call(db_session)
+        await repo.finish_call(call_id, status=CallStatus.SUCCESS, settlement=SettlementInput(cost_amount=1.5))
+
+        settled = await repo.settle_interrupted_pending_calls()
+
+        assert settled == []
+        row = await self._row(db_session, call_id)
+        assert row.status == "success"
+        assert row.cost_amount == pytest.approx(1.5)

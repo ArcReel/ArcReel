@@ -51,6 +51,11 @@ function isTaskChange(change: ProjectChange): boolean {
   return change.entity_type === "task";
 }
 
+/** 记账结算变更（刷新信号，非项目实体变更）。 */
+function isUsageRecordChange(change: ProjectChange): boolean {
+  return change.entity_type === "usage_record";
+}
+
 function getChangePriority(change: ProjectChange): number {
   if (COMPLETION_ACTIONS.has(change.action)) {
     return CHANGE_PRIORITY[change.action] ?? Number.MAX_SAFE_INTEGER;
@@ -253,7 +258,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         // 会把前一批实体变更排队等待 refreshProject 的 `queuedFocusRef` 清成 null，用户
         // 因此丢失本该发生的自动导航与高亮。
         const taskChanges = payload.changes.filter(isTaskChange);
-        const entityChanges = payload.changes.filter((c) => !isTaskChange(c));
+        // 记账结算与任务终态同为刷新信号：混进实体变更会在 entityRevisions 里留下永不
+        // 被消费的 `usage_record:<id>` 键，并把前一批实体变更排队的聚焦目标清空。
+        const entityChanges = payload.changes.filter(
+          (c) => !isTaskChange(c) && !isUsageRecordChange(c),
+        );
 
         // 提取并更新 asset fingerprints（零延迟，立即写入 store）
         const mergedFingerprints: Record<string, number> = {};

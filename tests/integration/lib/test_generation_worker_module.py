@@ -2848,3 +2848,68 @@ class TestOrphanOnceAndLeaseFlap:
             await worker._handle_orphan_tasks_on_start()
             worker._orphan_handled_once = True
         assert len(scan_count) == 2, "lost 超过 3×ttl 应重扫一次"
+
+
+class TestStartupInterruptedCallSettlement:
+    """启动收口挂在孤儿处理旁：同一 lease 内只跑一次，且跑在孤儿处理之后。"""
+
+    class _CyclingQueue(_FakeQueue):
+        """认领若干轮后置位事件，让测试等到主循环真的转了几圈再断言。"""
+
+        def __init__(self, cycles: int = 3):
+            super().__init__()
+            self._target_cycles = cycles
+            self._cycles = 0
+            self.cycled = asyncio.Event()
+
+        async def claim_next_task(self, media_type, **_kwargs):
+            if media_type == "image":
+                self._cycles += 1
+                if self._cycles >= self._target_cycles:
+                    self.cycled.set()
+            return
+
+    async def _run_until_settled(self, worker, queue) -> None:
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+        await worker.start()
+        try:
+            await asyncio.wait_for(queue.cycled.wait(), timeout=5)
+        finally:
+            await worker.stop()
+
+    @pytest.mark.asyncio
+    async def test_settles_once_and_after_orphan_handling(self):
+        queue = self._CyclingQueue()
+        queue._orphans = [
+            {"task_id": "orphan-image", "status": "running", "task_type": "gen_image", "media_type": "image"}
+        ]
+        seen_failed_orphans: list[list[str]] = []
+
+        async def _settle() -> int:
+            seen_failed_orphans.append([task_id for task_id, _error in queue.failed])
+            return 0
+
+        worker = GenerationWorker(queue=queue, settle_interrupted_calls=_settle)
+        await self._run_until_settled(worker, queue)
+
+        assert seen_failed_orphans == [["orphan-image"]], "收口只跑一次，且孤儿已先被处理"
+
+    @pytest.mark.asyncio
+    async def test_default_wiring_flips_orphan_pending_call_row(self, db_factory, monkeypatch):
+        """不注入替身时走真实 Ledger：无任务身份的 pending 行被翻成 failed[interrupted]。"""
+        from lib.db.models.api_call import ApiCall
+        from lib.db.repositories.usage_repo import UsageRepository
+
+        monkeypatch.setattr("lib.ledger.safe_session_factory", db_factory)
+        async with db_factory() as session:
+            call_id = await UsageRepository(session).start_call(
+                project_name="demo", call_type="text", model="m", provider="anthropic"
+            )
+
+        queue = self._CyclingQueue()
+        await self._run_until_settled(GenerationWorker(queue=queue), queue)
+
+        async with db_factory() as session:
+            row = await session.get(ApiCall, call_id)
+        assert (row.status, row.error_code) == ("failed", "interrupted")

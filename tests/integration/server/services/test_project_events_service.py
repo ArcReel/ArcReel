@@ -2,10 +2,12 @@ import asyncio
 import contextlib
 import json
 import logging
+from types import SimpleNamespace
 
 import pytest
 
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.ledger import Ledger
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
 from lib.script_skeleton import (
@@ -417,6 +419,40 @@ class TestProjectEventService:
             assert payload["source"] == "worker"
             assert payload["fingerprint"] == snapshot["fingerprint"]
             assert payload["changes"][0]["action"] == "storyboard_ready"
+
+        await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_usage_record_settlement_reaches_the_stream(self, tmp_path, db_factory):
+        """记账结算发出的 usage_record 事件与其它项目变更走同一条流，前端无需轮询用量。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, poll_interval=1.0)
+        await service.start()
+
+        async with service.stream_events("demo", idle_timeout=0.1) as stream:
+            event_name, _snapshot = await anext(stream)
+            assert event_name == "snapshot"
+
+            ledger = Ledger(session_factory=db_factory)
+            with project_change_source("worker"):
+                async with ledger.record(
+                    project_name="demo", call_type="text", model="m", provider="anthropic"
+                ) as call:
+                    call.success(SimpleNamespace(input_tokens=10, output_tokens=5))
+
+            event_name, payload = await _next_event(stream, timeout=1.0)
+            assert event_name == "changes"
+            assert payload["source"] == "worker"
+            change = payload["changes"][0]
+            assert (change["entity_type"], change["action"], change["status"]) == (
+                "usage_record",
+                "recorded",
+                "success",
+            )
+            assert change["important"] is False
 
         await service.shutdown()
 
