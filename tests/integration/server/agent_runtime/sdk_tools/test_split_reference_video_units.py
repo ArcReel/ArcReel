@@ -31,7 +31,7 @@ _VEO_CAPS = {
     "provider_id": "gemini-aistudio",
     "model": "veo-3.1-generate-preview",
     "supported_durations": (4, 6, 8),
-    "capability_errors": _NO_I2V,
+    "generation_type_errors": _NO_I2V,
 }
 
 
@@ -53,7 +53,7 @@ async def test_fetch_reference_caps_with_fallback_returns_declared_slots() -> No
         supported_durations=[1, 8, 16, 18],
         default_duration=16,
         max_reference_images=None,
-        capability_errors=_NO_I2V,
+        generation_type_errors=_NO_I2V,
     )
 
     caps = await mod._fetch_reference_caps_with_fallback({}, 1, config_resolver=resolver)
@@ -78,7 +78,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap() ->
         model="MiniMax-Hailuo-2.3",
         supported_durations=[6, 10],
         default_duration=None,
-        capability_errors=_NO_I2V,
+        generation_type_errors=_NO_I2V,
     )
 
     project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
@@ -96,7 +96,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution() 
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
         default_duration=None,
-        capability_errors=_NO_I2V,
+        generation_type_errors=_NO_I2V,
     )
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
@@ -131,7 +131,7 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
         project,
         {"provider_id": "p", "model": "m"},
         [4, 6, 8],
-        config_resolver=fake_caps_resolver(capability_errors=_NO_I2V),
+        config_resolver=fake_caps_resolver(generation_type_errors=_NO_I2V),
     )
 
     assert with_refs == [4, 6, 8]
@@ -145,7 +145,7 @@ async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket() ->
     from server.media_tools import context as _context
 
     resolver = fake_caps_resolver(
-        by_capability={
+        by_generation_type={
             "i2v": {
                 "provider_id": "ark",
                 "model": "doubao-seedance-1-5-pro-251215",
@@ -161,7 +161,7 @@ async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket() ->
     assert with_refs == [6, 10]
     assert without_refs == [5, 10]
     # 不带图那套只按 i2v 桶解析一次，r2v 的档位由调用方传入、不再回查
-    assert resolver.capability_calls == ["i2v"]
+    assert resolver.generation_type_calls == ["i2v"]
 
 
 async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_state() -> None:
@@ -176,7 +176,7 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
         default_duration=None,
-        capability_errors=_NO_I2V,
+        generation_type_errors=_NO_I2V,
     )
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}

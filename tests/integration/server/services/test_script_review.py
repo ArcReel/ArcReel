@@ -133,11 +133,11 @@ class _I2vUnresolvableResolver(ConfigResolver):
         self,
         project: dict,
         *,
-        capability=None,
+        generation_type=None,
         resolution: str | None = None,
         uses_reference_images: bool | None = None,
     ) -> dict:
-        raise ValueError(f"{capability} bucket unresolvable in this test")
+        raise ValueError(f"{generation_type} bucket unresolvable in this test")
 
 
 def _make_project(

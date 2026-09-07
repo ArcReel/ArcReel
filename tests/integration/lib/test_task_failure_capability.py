@@ -18,7 +18,7 @@ import pytest
 
 from lib import task_failure
 from lib.api_errors import ConflictError
-from lib.config.resolver import VideoBucketCapabilityError, VideoCapability
+from lib.config.resolver import VideoBucketCapabilityError, VideoGenerationType
 from lib.db.repositories.task_repo import _encode_bounded_cascade_failure
 from lib.generation_worker import _encode_task_failure_message
 from lib.i18n import MESSAGES
@@ -503,14 +503,14 @@ def test_active_narrated_video_worker_rejection_is_localizable() -> None:
 
 
 @pytest.mark.parametrize(
-    ("code", "capability"),
+    ("code", "generation_type"),
     [
         ("video_capability_missing_i2v", "i2v"),
         ("video_capability_missing_r2v", "r2v"),
         ("video_capability_reference_unavailable", "r2v"),
     ],
 )
-def test_encode_video_bucket_capability_error_renders_per_locale(code: str, capability: VideoCapability):
+def test_encode_video_bucket_capability_error_renders_per_locale(code: str, generation_type: VideoGenerationType):
     """视频解析闸异常（VideoBucketCapabilityError）同走结构化编码，读侧三语渲染。
 
     三个 code 逐个断言渲染结果：只覆盖其中一个的话，另两条模板的占位符拼错或参数缺失
@@ -518,10 +518,10 @@ def test_encode_video_bucket_capability_error_renders_per_locale(code: str, capa
     """
     exc = VideoBucketCapabilityError(
         code=code,
-        capability=capability,
+        generation_type=generation_type,
         provider_id="minimax",
         model_id="MiniMax-Hailuo-2.3",
-        message=f"lacks {capability}",
+        message=f"lacks {generation_type}",
     )
     stored = _encode_task_failure_message(exc)
     assert stored.startswith(f"[{code}]")

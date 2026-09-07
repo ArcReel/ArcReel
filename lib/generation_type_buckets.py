@@ -28,17 +28,17 @@ from lib.custom_provider.capabilities import synthesize_video_capabilities
 from lib.custom_provider.endpoints import EndpointSpec, endpoint_to_image_capabilities, endpoint_to_media_type
 from lib.image_backends.base import ImageCapability
 
-CapabilityBucket = Literal["t2i", "i2i", "i2v", "r2v"]
+GenerationTypeBucket = Literal["t2i", "i2i", "i2v", "r2v"]
 
 #: 每个 media_type 有哪些桶。文本 / 音频不设桶，故不在表内。
-BUCKETS_BY_MEDIA_TYPE: dict[str, tuple[CapabilityBucket, ...]] = {
+BUCKETS_BY_MEDIA_TYPE: dict[str, tuple[GenerationTypeBucket, ...]] = {
     "image": ("t2i", "i2i"),
     "video": ("i2v", "r2v"),
 }
 
 
-def _image_buckets_from_capabilities(has_t2i: bool, has_i2i: bool) -> frozenset[CapabilityBucket]:
-    buckets: set[CapabilityBucket] = set()
+def _image_buckets_from_capabilities(has_t2i: bool, has_i2i: bool) -> frozenset[GenerationTypeBucket]:
+    buckets: set[GenerationTypeBucket] = set()
     if has_t2i:
         buckets.add("t2i")
     if has_i2i:
@@ -46,15 +46,17 @@ def _image_buckets_from_capabilities(has_t2i: bool, has_i2i: bool) -> frozenset[
     return frozenset(buckets)
 
 
-def _video_buckets(has_i2v: bool, max_reference_images: int) -> frozenset[CapabilityBucket]:
+def _video_buckets(has_i2v: bool, max_reference_images: int) -> frozenset[GenerationTypeBucket]:
     return frozenset(
-        cap
-        for cap in ("i2v", "r2v")
-        if video_capability_satisfied(capability=cap, first_frame=has_i2v, max_reference_images=max_reference_images)
+        generation_type
+        for generation_type in ("i2v", "r2v")
+        if video_capability_satisfied(
+            generation_type=generation_type, first_frame=has_i2v, max_reference_images=max_reference_images
+        )
     )
 
 
-def builtin_model_buckets(provider_id: str, model_id: str, model_info: ModelInfo) -> frozenset[CapabilityBucket]:
+def builtin_model_buckets(provider_id: str, model_id: str, model_info: ModelInfo) -> frozenset[GenerationTypeBucket]:
     """内置模型具备的任务类型桶；文本 / 音频模型恒为空集。"""
     if model_info.media_type == "image":
         return _image_buckets_from_capabilities(
@@ -77,7 +79,7 @@ def custom_model_buckets(
     model_id: str,
     capability_overrides: object | None = None,
     endpoint_spec: EndpointSpec | None = None,
-) -> frozenset[CapabilityBucket]:
+) -> frozenset[GenerationTypeBucket]:
     """自定义供应商模型具备的任务类型桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。"""
     try:
         media_type = endpoint_spec.media_type if endpoint_spec is not None else endpoint_to_media_type(endpoint)

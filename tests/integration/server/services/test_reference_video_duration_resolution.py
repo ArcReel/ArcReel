@@ -54,7 +54,7 @@ async def test_resolve_project_duration_context_resolves_caps_and_resolution_onc
     caps_calls = 0
     resolution_calls = 0
 
-    async def fake_caps(_project, *, degraded_to, capability=None, episode=None):
+    async def fake_caps(_project, *, degraded_to, generation_type=None, episode=None):
         nonlocal caps_calls
         caps_calls += 1
         return {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview", "supported_durations": [4, 6, 8]}
@@ -86,7 +86,7 @@ async def test_resolve_project_duration_context_skips_resolution_when_no_duratio
 
     resolution_calls = 0
 
-    async def fake_caps(_project, *, degraded_to, capability=None, episode=None):
+    async def fake_caps(_project, *, degraded_to, generation_type=None, episode=None):
         return {}
 
     async def fake_resolution(*_a, **_kw):

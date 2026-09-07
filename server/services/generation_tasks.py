@@ -1280,7 +1280,7 @@ async def _run_formal_image_task(
             payload,
             project=project,
             user_id=user_id,
-            image=ImageLaneRequest(capability="i2i" if reference_images else "t2i"),
+            image=ImageLaneRequest(generation_type="i2i" if reference_images else "t2i"),
         )
         if plan.pre_submit is not None:
             await plan.pre_submit()
@@ -2367,7 +2367,7 @@ async def execute_video_task(
         execution_payload,
         project=project,
         user_id=user_id,
-        video=VideoLaneRequest(capability=video_bucket_for_generation_mode(project.get("generation_mode"))),
+        video=VideoLaneRequest(generation_type=video_bucket_for_generation_mode(project.get("generation_mode"))),
         audio=AudioLaneRequest() if delivery_options.narration_delivery == USE_TTS else None,
     )
     generator = ctx.generator
@@ -2673,7 +2673,7 @@ async def execute_video_task(
                     project_name=project_name,
                     script_file=script_file,
                     unit_id=resource_id,
-                    capability="i2v",
+                    generation_type="i2v",
                     provider_id=ctx.video.provider_model.provider_id,
                     provider_model_id=ctx.video.provider_model.model_id,
                     backend_model_id=ctx.video.backend_model,
@@ -3305,7 +3305,7 @@ async def execute_grid_task(
             payload,
             project=project,
             user_id=user_id,
-            image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
+            image=ImageLaneRequest(generation_type="i2i" if _needs_i2i else "t2i"),
         )
         generator = ctx.generator
         aspect_ratio = grid_aspect_ratio

@@ -697,7 +697,7 @@ async def admit_storyboard_video_batch(
         if request_options.narration_delivery == USE_TTS
         else frozenset()
     )
-    capability = video_bucket_for_generation_mode(project.get("generation_mode"))
+    generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
     catalog = build_reference_catalog(project)
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
@@ -725,7 +725,7 @@ async def admit_storyboard_video_batch(
             item=item,
             visual_prompt=visual_prompt,
             seed=None,
-            capability=capability,
+            generation_type=generation_type,
             planned_duration_seconds=(
                 planned if isinstance(planned, int) and not isinstance(planned, bool) and planned > 0 else None
             ),

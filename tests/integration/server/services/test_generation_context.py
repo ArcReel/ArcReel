@@ -195,7 +195,9 @@ class TestLaneDeclaration:
             "image_provider_t2i": "ark/img-t2i",
             "image_provider_i2i": "ark/img-i2i",
         }
-        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest(capability="i2i"))
+        ctx = await resolve_generation_context(
+            "demo", None, project=project, image=ImageLaneRequest(generation_type="i2i")
+        )
         assert ctx.image.provider_model == ProviderModel("ark", "img-i2i")
 
     async def test_all_three_lanes(self, patched_session_factory, project_env, fake_assemble):

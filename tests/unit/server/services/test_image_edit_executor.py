@@ -168,7 +168,7 @@ def _prepare_files(tmp_path: Path) -> Path:
 
 def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, register_artifacts=True):
     """替换项目管理器与 generation context 解析缝：ctx.generator 即 fake_generator，
-    image lane 携带指定 resolution。断言编辑恒声明 i2i 槽（capability == "i2i"）。"""
+    image lane 携带指定 resolution。断言编辑恒声明 i2i 槽（generation_type == "i2i"）。"""
     if isinstance(fake_pm, _FakePM):
         # 真实 ProjectManager 的用例自己造项目与登记，这里只服务假 PM。
         if register_artifacts:
@@ -180,7 +180,7 @@ def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, regi
 
     async def _fake_resolve(project_name, payload, *, project, image=None, **_kwargs):
         assert image is not None
-        assert image.capability == "i2i"
+        assert image.generation_type == "i2i"
         lane = ImageLaneResult(
             provider_model=ProviderModel("gemini-aistudio", "gemini-image"),
             backend_name="gemini-aistudio",
@@ -901,7 +901,7 @@ class TestImageSizeResolutionEquivalence:
         """旧执行层口径：resolve_image_backend(i2i) 得 provider/model，再按 model_id 查 resolution。"""
         resolver = ConfigResolver(patched_session_factory)
         async with resolver.session() as r:
-            resolved = await r.resolve_image_backend(project, payload, capability="i2i")
+            resolved = await r.resolve_image_backend(project, payload, generation_type="i2i")
             return await r.resolve_resolution(project, resolved.provider_id, resolved.model_id)
 
     @pytest.mark.usefixtures("_ctx_env")
@@ -911,7 +911,9 @@ class TestImageSizeResolutionEquivalence:
             "model_settings": {"gemini-aistudio/gemini-image": {"resolution": "2048x2048"}},
         }
         old = await self._old_image_size(patched_session_factory, project, None)
-        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest(capability="i2i"))
+        ctx = await resolve_generation_context(
+            "demo", None, project=project, image=ImageLaneRequest(generation_type="i2i")
+        )
         assert old == "2048x2048"
         assert ctx.image.resolution == old
 
@@ -919,7 +921,9 @@ class TestImageSizeResolutionEquivalence:
     async def test_default_falls_back_to_none(self, patched_session_factory):
         project = {"image_provider_i2i": "gemini-aistudio/gemini-image"}
         old = await self._old_image_size(patched_session_factory, project, None)
-        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest(capability="i2i"))
+        ctx = await resolve_generation_context(
+            "demo", None, project=project, image=ImageLaneRequest(generation_type="i2i")
+        )
         assert old is None
         assert ctx.image.resolution == old
 

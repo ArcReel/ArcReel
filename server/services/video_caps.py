@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
-    VideoCapability,
+    VideoGenerationType,
     builtin_video_audio_track,
     constrain_durations_for_project,
 )
@@ -29,12 +29,12 @@ logger = logging.getLogger(__name__)
 async def resolve_video_caps(
     project: dict,
     *,
-    capability: VideoCapability | None = None,
+    generation_type: VideoGenerationType | None = None,
     config_resolver: ConfigResolver | None = None,
 ) -> dict:
     """Resolve full model capabilities from an already loaded project."""
     resolver = config_resolver or ConfigResolver(async_session_factory)
-    return await resolver.video_capabilities_for_project(project, capability=capability)
+    return await resolver.video_capabilities_for_project(project, generation_type=generation_type)
 
 
 def constrained_caps_durations(
@@ -65,9 +65,9 @@ async def reference_unit_duration_tiers(
 ) -> tuple[list[int], list[int]]:
     """Return effective duration tiers for units with and without reference images.
 
-    Reference-video units without references execute through the i2v capability
+    Reference-video units without references execute through the i2v generation type
     bucket. If that bucket cannot be resolved, the main r2v bucket remains the
-    soft fallback so capability annotations never block the creative flow.
+    soft fallback so generation type annotations never block the creative flow.
     """
     with_references = constrained_caps_durations(
         project, caps, durations, generation_mode="reference_video", uses_reference_images=True
@@ -75,9 +75,9 @@ async def reference_unit_duration_tiers(
     i2v_caps, i2v_durations = caps, durations
     try:
         if config_resolver is None:
-            resolved = await resolve_video_caps(project, capability="i2v")
+            resolved = await resolve_video_caps(project, generation_type="i2v")
         else:
-            resolved = await resolve_video_caps(project, capability="i2v", config_resolver=config_resolver)
+            resolved = await resolve_video_caps(project, generation_type="i2v", config_resolver=config_resolver)
         resolved_durations = [int(d) for d in resolved.get("supported_durations") or []]
         if resolved_durations:
             i2v_caps, i2v_durations = resolved, resolved_durations
@@ -122,19 +122,19 @@ async def project_video_caps(
     project: dict,
     *,
     degraded_to: str,
-    capability: VideoCapability | None = None,
+    generation_type: VideoGenerationType | None = None,
 ) -> dict:
     """项目视频后端的 model 粒度能力；解析失败返回部分 dict（可能仅含 ``requested_generate_audio``），
     由调用方各自降级。
 
     ``degraded_to`` 只用于日志，说明这次解析失败会让调用方退化成什么行为。
-    ``capability`` 未给定时按项目生成模式定桶；给定时按指定桶解析（参考生视频内无参考图视频单元
+    ``generation_type`` 未给定时按项目生成模式定桶；给定时按指定桶解析（参考生视频内无参考图视频单元
     按 i2v 桶取档 / 计价的读侧）。
     ``requested_generate_audio`` 独立于能力接口解析（见下方实现注释），双重失败时该键为 ``False``。
     """
     resolver = ConfigResolver(async_session_factory)
     try:
-        return await resolver.video_capabilities_for_project(project, capability=capability)
+        return await resolver.video_capabilities_for_project(project, generation_type=generation_type)
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
         caps: dict = {}
@@ -148,14 +148,14 @@ async def project_video_caps(
         return caps
 
 
-async def resolve_audio_switch_conflict(project: dict, capability: VideoCapability) -> tuple[str, str] | None:
+async def resolve_audio_switch_conflict(project: dict, generation_type: VideoGenerationType) -> tuple[str, str] | None:
     """项目的「关闭音频」意图是否落在一个收不到音轨开关的模型上；冲突时返回 ``(provider, model)``。
 
     成片恒有声（音轨形态 ``always_on``）的模型请求里没有音轨开关可下发，关闭意图无法抵达
     供应商，却会让编排层按无声路径裁掉全部音色约束——用户拿到的是失去音色约束的有声成片。
     视频生成的各个提交入口据此在入队前拒绝，WebUI 与 Agent 两条路径共用这一份判据。
 
-    判据按 ``capability`` 定的执行路径取（:func:`builtin_video_audio_track`）：同一 model 在不同
+    判据按 ``generation_type`` 定的执行路径取（:func:`builtin_video_audio_track`）：同一 model 在不同
     子路径上可以有不同的音轨形态，按无路径上下文的声明判会对参考生视频误判。
 
     解析失败一律返回 ``None``（不把配置解析问题升级为提交期拒绝），自定义供应商与未登记模型
@@ -167,8 +167,10 @@ async def resolve_audio_switch_conflict(project: dict, capability: VideoCapabili
 
     resolver = ConfigResolver(async_session_factory)
     try:
-        selected = await resolver.resolve_video_backend(project, None, capability=capability)
-        audio_track = builtin_video_audio_track(selected.provider_id, selected.model_id, capability=capability)
+        selected = await resolver.resolve_video_backend(project, None, generation_type=generation_type)
+        audio_track = builtin_video_audio_track(
+            selected.provider_id, selected.model_id, generation_type=generation_type
+        )
         if audio_track != VideoAudioMode.ALWAYS_ON:
             return None
         if await resolver.video_generate_audio_for_project(project):
@@ -178,14 +180,14 @@ async def resolve_audio_switch_conflict(project: dict, capability: VideoCapabili
     return selected.provider_id, selected.model_id
 
 
-async def assert_audio_switch_supported(project: dict, capability: VideoCapability) -> None:
+async def assert_audio_switch_supported(project: dict, generation_type: VideoGenerationType) -> None:
     """Agent 视频入队前的音频开关预检，冲突时抛 ``ValueError``。
 
     与 WebUI 入口的 ``server.routers._validators.require_audio_switch_supported`` 判据同源
     （:func:`resolve_audio_switch_conflict`），差别只在出口：这里的消息面向 Agent 转述，不走
     Translator。
     """
-    conflict = await resolve_audio_switch_conflict(project, capability)
+    conflict = await resolve_audio_switch_conflict(project, generation_type)
     if conflict is None:
         return
     provider_id, model_id = conflict

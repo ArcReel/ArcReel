@@ -2,7 +2,7 @@
 
 只断言外部行为——给定 ready 供应商与自定义供应商模型，断言各桶候选列表的成员关系。
 桶归属的真相源判定（registry 图片能力声明 / backend 视频能力 / endpoint 系统判定 ⊕ 覆盖）
-在 lib.capability_buckets 层单独覆盖。
+在 lib.generation_type_buckets 层单独覆盖。
 
 dashscope 被选作内置侧的样本供应商：它同时提供 i2v-only、t2v-only、r2v 三类视频模型与
 t2i+i2i、i2i-only 两类图片模型，一个 ready 供应商就能把四个桶的过滤差异全部区分出来。
@@ -18,12 +18,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.capability_buckets import builtin_model_buckets, custom_model_buckets
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.base import Base
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.generation_type_buckets import builtin_model_buckets, custom_model_buckets
 from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router

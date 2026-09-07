@@ -120,8 +120,8 @@ def _client(monkeypatch, fake_pm, fake_queue, *, i2i_ready=True):
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
 
-    async def _resolve(self, project, payload, *, capability):
-        assert capability == "i2i"
+    async def _resolve(self, project, payload, *, generation_type):
+        assert generation_type == "i2i"
         if not i2i_ready:
             raise ValueError("未找到可用的 image 供应商")
         return ProviderModel("gemini-aistudio", "gemini-image")

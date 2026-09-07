@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from lib.audio_backends.base import VoiceOption
 from lib.backend_assembly import assemble_backend
-from lib.config.resolver import ConfigResolver, VideoCapability, VoiceConsistency, get_provider_fallback
+from lib.config.resolver import ConfigResolver, VideoGenerationType, VoiceConsistency, get_provider_fallback
 from lib.custom_provider.backends import CustomVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
@@ -151,22 +151,22 @@ async def _get_or_create_audio_backend(
 
 @dataclass(frozen=True)
 class ImageLaneRequest:
-    """声明当前任务需要 image lane。capability 决定 t2i / i2i 默认槽（``docs/adr/0001``）。"""
+    """声明当前任务需要 image lane。``generation_type`` 决定 t2i / i2i 默认槽（``docs/adr/0001``）。"""
 
-    capability: Literal["t2i", "i2i"] = "t2i"
+    generation_type: Literal["t2i", "i2i"] = "t2i"
 
 
 @dataclass(frozen=True)
 class VideoLaneRequest:
     """声明当前任务需要 video lane。
 
-    ``capability`` 决定 i2v / r2v 任务类型桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
+    ``generation_type`` 决定 i2v / r2v 任务类型桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
     参考生视频按视频单元解析后的实际参考图分流——有参考图 → r2v，无参考图的视频单元降级
     → i2v（由 executor 判定后声明，见 ``lib.reference_video.units``）。None = 不定桶，
     走旧三级解析且不过能力闸——供 resume 等按 payload 排空、不承诺能力的路径使用。
     """
 
-    capability: VideoCapability | None = None
+    generation_type: VideoGenerationType | None = None
 
 
 @dataclass(frozen=True)
@@ -318,7 +318,7 @@ async def resolve_generation_context(
     查询失败降级空值放行。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
     持有项目路径的事务传入，避免同步事务解析当前配置时嵌套占用默认线程池。本函数不读项目。
 
-    video lane 的定桶随 ``VideoLaneRequest.capability``：None 时按项目生成模式解析（见
+    video lane 的定桶随 ``VideoLaneRequest.generation_type``：None 时按项目生成模式解析（见
     ``lib.config.resolver.caps_generation_mode``）——生成模式创建即定、整个项目按同一种模式生成，
     声音一致性等二维派生值因此不需要集号；显式给定时按指定桶解析（参考生视频内按视频单元分流的
     调用方自带判定结果）。
@@ -341,7 +341,7 @@ async def resolve_generation_context(
 
     async with resolver.session() as r:
         if image is not None:
-            resolved = await r.resolve_image_backend(project, payload, capability=image.capability)
+            resolved = await r.resolve_image_backend(project, payload, generation_type=image.generation_type)
             image_backend = await _get_or_create_image_backend(
                 resolved.provider_id,
                 {},
@@ -356,7 +356,7 @@ async def resolve_generation_context(
             )
 
         if video is not None:
-            resolved = await r.resolve_video_backend(project, payload, capability=video.capability)
+            resolved = await r.resolve_video_backend(project, payload, generation_type=video.generation_type)
             video_backend = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},
@@ -380,7 +380,7 @@ async def resolve_generation_context(
                 # 带上该任务落的桶：音轨形态等逐路径能力位按执行子路径分叉，不传会按项目
                 # 路线定桶，参考生视频内降级到 i2v 的镜头就会拿到 r2v 的口径。
                 caps = await r.video_capabilities_for_model(
-                    resolved.provider_id, actual_model, project, capability=video.capability
+                    resolved.provider_id, actual_model, project, generation_type=video.generation_type
                 )
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")

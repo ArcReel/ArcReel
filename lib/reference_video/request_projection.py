@@ -18,7 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.asset_types import AssetSpec, asset_name_comparison_key
 from lib.config.resolver import (
     VideoBucketCapabilityError,
-    VideoCapability,
+    VideoGenerationType,
     builtin_video_audio_track,
     constrain_durations,
     get_provider_fallback,
@@ -129,7 +129,7 @@ class ResolvedReferenceAsset:
 class ProviderProjectionCandidate:
     """当前任务类型桶的供应商模型组合与请求能力事实。"""
 
-    capability: VideoCapability
+    generation_type: VideoGenerationType
     provider_id: str
     model_id: str
     supported_durations: tuple[int, ...]
@@ -213,8 +213,9 @@ class ReferenceUnitRequestProjection:
     declared_references: tuple[ReferenceResource, ...]
     available_assets: tuple[ResolvedReferenceAsset, ...]
     request_assets: tuple[ResolvedReferenceAsset, ...]
-    declared_capability: VideoCapability
-    hydrated_capability: VideoCapability
+    #: 两者的对外载荷键固定为 ``declared_capability`` / ``hydrated_capability``（API 契约）。
+    declared_generation_type: VideoGenerationType
+    hydrated_generation_type: VideoGenerationType
     provider_candidate: ProviderProjectionCandidate | None
     planned_duration: int
     narration_duration_floor: float | None
@@ -248,8 +249,8 @@ class ReferenceUnitRequestProjection:
             "kind": "reference_request_projection",
             "advisory": True,
             "unit_id": self.unit_id,
-            "declared_capability": self.declared_capability,
-            "hydrated_capability": self.hydrated_capability,
+            "declared_capability": self.declared_generation_type,
+            "hydrated_capability": self.hydrated_generation_type,
             "provider_id": self.provider_id,
             "model_id": self.model_id,
             "planned_duration": self.planned_duration,
@@ -273,7 +274,9 @@ class ReferenceAssetAvailability(Protocol):
 class ReferenceCapabilityProjection(Protocol):
     """当前供应商模型组合能力的异步适配器。"""
 
-    async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
+    async def resolve_candidate(
+        self, project: dict, generation_type: VideoGenerationType
+    ) -> ProviderProjectionCandidate:
         raise NotImplementedError
 
 
@@ -299,7 +302,11 @@ def hydrate_reference_assets(
 
 
 class ProjectionResolutionError(ValueError):
-    """生产适配器解析失败；``code`` 可直接进入结构化 problem。"""
+    """生产适配器解析失败；``code`` 可直接进入结构化 problem。
+
+    ``params`` 是 problem 的 i18n 模板参数，键名属对外契约：``capability`` 键承载的是
+    generation_type 值，不随内部标识符改名。
+    """
 
     def __init__(self, code: str, **params: object) -> None:
         self.code = code
@@ -312,16 +319,16 @@ def reference_audio_model_facts(
     model_id: str,
     *,
     voice_consistency: str,
-    capability: VideoCapability,
+    generation_type: VideoGenerationType,
 ) -> tuple[bool, bool]:
     """返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
 
-    ``capability`` 定的是执行路径：音轨形态按子路径分叉，参考生视频的镜头必须按 r2v 取值，否则
+    ``generation_type`` 定的是执行路径：音轨形态按子路径分叉，参考生视频的镜头必须按 r2v 取值，否则
     可灵 v3-omni 这类「图生可控、参考生无开关」的型号会被当成开关可控（用户的音频配置在多图
     主体子路径上根本发不出去）。自定义供应商与未登记模型没有逐模型声明，按无信号不收紧。
     """
 
-    audio_track = builtin_video_audio_track(provider_id, model_id, capability=capability)
+    audio_track = builtin_video_audio_track(provider_id, model_id, generation_type=generation_type)
     if audio_track is None:
         return voice_consistency != "none", True
     return audio_track != "always_off", audio_track == "controllable"
@@ -333,7 +340,7 @@ def strict_reference_durations(
     model_id: str,
     durations: Sequence[int | float | str],
     resolution: str | None,
-    capability: VideoCapability,
+    generation_type: VideoGenerationType,
 ) -> tuple[int, ...]:
     """校验并按当前请求条件收窄时长；缺失或矛盾一律 fail loud。"""
 
@@ -374,7 +381,7 @@ def strict_reference_durations(
         model_id,
         list(normalized),
         resolution=resolution,
-        uses_reference_images=capability == "r2v",
+        uses_reference_images=generation_type == "r2v",
         fallback_on_empty=False,
     )
     if not allowed:
@@ -383,7 +390,7 @@ def strict_reference_durations(
             provider=provider_id,
             model=model_id,
             resolution=resolution,
-            capability=capability,
+            capability=generation_type,
         )
     return tuple(allowed)
 
@@ -492,33 +499,37 @@ class ConfigReferenceCapabilityProjection:
 
     def __init__(self, resolver: object) -> None:
         self._resolver = resolver
-        self._cache: dict[VideoCapability, ProviderProjectionCandidate] = {}
-        self._failures: dict[VideoCapability, ProjectionResolutionError] = {}
+        self._cache: dict[VideoGenerationType, ProviderProjectionCandidate] = {}
+        self._failures: dict[VideoGenerationType, ProjectionResolutionError] = {}
 
-    async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
-        cached = self._cache.get(capability)
+    async def resolve_candidate(
+        self, project: dict, generation_type: VideoGenerationType
+    ) -> ProviderProjectionCandidate:
+        cached = self._cache.get(generation_type)
         if cached is not None:
             return cached
-        failure = self._failures.get(capability)
+        failure = self._failures.get(generation_type)
         if failure is not None:
             raise failure
         try:
-            candidate = await self._resolve_uncached(project, capability)
+            candidate = await self._resolve_uncached(project, generation_type)
         except ProjectionResolutionError as exc:
-            self._failures[capability] = exc
+            self._failures[generation_type] = exc
             raise
-        self._cache[capability] = candidate
+        self._cache[generation_type] = candidate
         return candidate
 
-    async def _resolve_uncached(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
+    async def _resolve_uncached(
+        self, project: dict, generation_type: VideoGenerationType
+    ) -> ProviderProjectionCandidate:
         try:
-            caps = await self._resolver.video_capabilities_for_project(project, capability=capability)  # type: ignore[attr-defined]
+            caps = await self._resolver.video_capabilities_for_project(project, generation_type=generation_type)  # type: ignore[attr-defined]
         except VideoBucketCapabilityError as exc:
             raise ProjectionResolutionError(exc.code, **exc.params) from exc
         except (SQLAlchemyError, ValueError) as exc:
             message = str(exc)
             if "supported_durations" not in message:
-                raise ProjectionResolutionError("reference_capability_unavailable", capability=capability) from exc
+                raise ProjectionResolutionError("reference_capability_unavailable", capability=generation_type) from exc
             code = (
                 "reference_supported_durations_missing"
                 if "is empty" in message
@@ -538,7 +549,7 @@ class ConfigReferenceCapabilityProjection:
         except (SQLAlchemyError, ValueError) as exc:
             raise ProjectionResolutionError(
                 "reference_capability_unavailable",
-                capability=capability,
+                capability=generation_type,
                 provider=provider_id,
                 model=model_id,
             ) from exc
@@ -549,18 +560,18 @@ class ConfigReferenceCapabilityProjection:
             model_id=model_id,
             durations=raw_durations,
             resolution=resolution,
-            capability=capability,
+            generation_type=generation_type,
         )
 
         has_audio_track, audio_switch_controllable = reference_audio_model_facts(
             provider_id,
             model_id,
             voice_consistency=str(caps.get("voice_consistency") or "soft"),
-            capability=capability,
+            generation_type=generation_type,
         )
         max_references = caps.get("max_reference_images")
         return ProviderProjectionCandidate(
-            capability=capability,
+            generation_type=generation_type,
             provider_id=provider_id,
             model_id=model_id,
             supported_durations=durations,
@@ -652,7 +663,7 @@ class ReferenceUnitRequestProjector:
         del script
         options = options or ReferenceRequestOptions()
         canonical = unit_reference_declarations(project, unit)
-        declared_capability: VideoCapability = "r2v" if canonical else "i2v"
+        declared_generation_type: VideoGenerationType = "r2v" if canonical else "i2v"
         hydration = hydrate_reference_assets(canonical, resolved_assets, self._assets)
         available = hydration.available
 
@@ -693,23 +704,23 @@ class ReferenceUnitRequestProjector:
                 )
             )
 
-        hydrated_capability: VideoCapability = "r2v" if available else "i2v"
-        if hydrated_capability != declared_capability:
+        hydrated_generation_type: VideoGenerationType = "r2v" if available else "i2v"
+        if hydrated_generation_type != declared_generation_type:
             problems.append(
                 _problem(
                     "reference_capability_changed",
                     blocking=True,
-                    declared=declared_capability,
-                    hydrated=hydrated_capability,
+                    declared=declared_generation_type,
+                    hydrated=hydrated_generation_type,
                 )
             )
 
         candidate: ProviderProjectionCandidate | None = None
         try:
-            candidate = await self._capabilities.resolve_candidate(project, hydrated_capability)
+            candidate = await self._capabilities.resolve_candidate(project, hydrated_generation_type)
         except ProjectionResolutionError as exc:
             code = exc.code
-            error_params = {"capability": hydrated_capability, **exc.params}
+            error_params = {"capability": hydrated_generation_type, **exc.params}
             problems.append(
                 _problem(
                     code,
@@ -722,17 +733,17 @@ class ReferenceUnitRequestProjector:
                 _problem(
                     "reference_capability_unavailable",
                     blocking=True,
-                    capability=hydrated_capability,
+                    capability=hydrated_generation_type,
                 )
             )
 
         request_assets = available
         if candidate is not None:
             if (
-                hydrated_capability == "i2v"
+                hydrated_generation_type == "i2v"
                 and not available
                 and not video_capability_satisfied(
-                    capability=hydrated_capability,
+                    generation_type=hydrated_generation_type,
                     first_frame=candidate.first_frame,
                     max_reference_images=candidate.max_reference_images or 0,
                     text_to_video=candidate.text_to_video,
@@ -839,8 +850,8 @@ class ReferenceUnitRequestProjector:
             declared_references=canonical,
             available_assets=available,
             request_assets=request_assets,
-            declared_capability=declared_capability,
-            hydrated_capability=hydrated_capability,
+            declared_generation_type=declared_generation_type,
+            hydrated_generation_type=hydrated_generation_type,
             provider_candidate=candidate,
             planned_duration=planned_duration,
             narration_duration_floor=narration_floor,

@@ -28,7 +28,7 @@ async def resolve_image_resolution(r: ConfigResolver, project: dict) -> str | No
     这条降级会让已配置 4K 的项目静默退回 3×3，故留一条 warning 便于排查。
     """
     try:
-        resolved = await r.resolve_image_backend(project, None, capability="t2i")
+        resolved = await r.resolve_image_backend(project, None, generation_type="t2i")
         return await r.resolve_resolution(project, resolved.provider_id, resolved.model_id or "")
     except Exception as exc:
         logger.warning("取不到 T2I 图像分辨率档，宫格门控按未配置收紧、计价按保底档: %s", exc)

@@ -298,7 +298,7 @@ class TestGenerationTasks:
             assert req["image"] is not None
             assert req["video"] is None
             assert req["audio"] is None
-        assert seen[0]["image"].capability == "i2i"
+        assert seen[0]["image"].generation_type == "i2i"
 
         seen.clear()
         await generation_tasks.execute_video_task(

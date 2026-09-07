@@ -176,7 +176,7 @@ def test_add_unit_derives_references_from_text_before_selecting_duration_bucket(
 
     assert response.status_code == 201, response.text
     assert response.json()["unit"]["duration_seconds"] == 6
-    assert resolve_context.await_args.kwargs["capability"] == "r2v"
+    assert resolve_context.await_args.kwargs["generation_type"] == "r2v"
 
 
 @pytest.mark.parametrize("duration_seconds", [0, -1])
@@ -599,7 +599,7 @@ def test_generate_unit_bucket_capability_error_returns_400(
 
     async def _reject(**kwargs):
         projection = await base_project(**kwargs)
-        assert projection.hydrated_capability == "r2v"
+        assert projection.hydrated_generation_type == "r2v"
         return replace(
             projection,
             problems=(
@@ -666,7 +666,7 @@ def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
 
     async def _record(**kwargs):
         projection = await base_project(**kwargs)
-        checked.append(projection.hydrated_capability)
+        checked.append(projection.hydrated_generation_type)
         return projection
 
     monkeypatch.setattr(router_mod, "project_reference_unit_request", _record)

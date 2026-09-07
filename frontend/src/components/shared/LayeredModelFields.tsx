@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronRight } from "lucide-react";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { InlineWarning } from "@/components/ui/InlineWarning";
-import type { CapabilityBucket } from "@/types/system";
+import type { GenerationTypeBucket } from "@/types/system";
 
 /**
  * 层级解析（docs/adr/0054）：取第一个非空层作为生效值。全层皆空即自动推断——那需要
@@ -52,7 +52,7 @@ export function executingImageModel(
 }
 
 /** 任务类型桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
-export function useCapabilityBucketLabels(): Record<CapabilityBucket, { label: string; caption?: string }> {
+export function useGenerationTypeBucketLabels(): Record<GenerationTypeBucket, { label: string; caption?: string }> {
   const { t } = useTranslation("templates");
   return useMemo(
     () => ({

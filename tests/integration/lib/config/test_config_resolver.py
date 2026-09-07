@@ -218,8 +218,10 @@ class TestDefaultBackends:
         result = await resolver._resolve_default_image_backend(fake_svc, None, "i2i")
         assert result == ("ark", "kolors-img2img")
 
-    @pytest.mark.parametrize("capability", ["t2i", "i2i"])
-    async def test_default_image_backend_empty_bucket_falls_back_to_default_layer(self, db_factory, capability: str):
+    @pytest.mark.parametrize("generation_type", ["t2i", "i2i"])
+    async def test_default_image_backend_empty_bucket_falls_back_to_default_layer(
+        self, db_factory, generation_type: str
+    ):
         """桶键为空字符串时回退默认层（docs/adr/0054）。
 
         语义锁：桶是可选覆盖，空值不再表示「不设默认 / 自动选择」。ready_providers=[] 让
@@ -229,20 +231,20 @@ class TestDefaultBackends:
         fake_svc = _FakeConfigService(
             settings={
                 "default_image_backend": "grok/grok-2-image",
-                f"default_image_backend_{capability}": "",
+                f"default_image_backend_{generation_type}": "",
             },
             ready_providers=[],
         )
         async with db_factory() as session:
-            result = await resolver._resolve_default_image_backend(fake_svc, session, capability)
+            result = await resolver._resolve_default_image_backend(fake_svc, session, generation_type)
         assert result == ("grok", "grok-2-image")
 
-    @pytest.mark.parametrize("capability", ["t2i", "i2i"])
-    async def test_default_image_backend_only_default_layer_covers_all_buckets(self, capability: str):
+    @pytest.mark.parametrize("generation_type", ["t2i", "i2i"])
+    async def test_default_image_backend_only_default_layer_covers_all_buckets(self, generation_type: str):
         """只配 default_image_backend、两个桶都不配时，全部图片路径解析到该默认模型。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_image_backend": "grok/grok-2-image"})
-        result = await resolver._resolve_default_image_backend(fake_svc, None, capability)
+        result = await resolver._resolve_default_image_backend(fake_svc, None, generation_type)
         assert result == ("grok", "grok-2-image")
 
 
@@ -589,7 +591,7 @@ class TestVideoCapabilities:
                 with pytest.raises(VideoBucketCapabilityError) as excinfo:
                     await resolver._resolve_video_capabilities(fake_svc, session, "demo")
         assert excinfo.value.code == "video_capability_reference_unavailable"
-        assert excinfo.value.capability == "i2v"
+        assert excinfo.value.generation_type == "i2v"
 
     async def test_unknown_provider_raises(self, db_factory):
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -1090,8 +1092,8 @@ class TestResolveImageBackend:
             }
         )
         project = {"default_image_backend": "openai/proj-default"}
-        for capability in ("t2i", "i2i"):
-            resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, capability)
+        for generation_type in ("t2i", "i2i"):
+            resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, generation_type)
             assert (resolved.provider_id, resolved.model_id) == ("openai", "proj-default")
 
     async def test_empty_project_bucket_falls_through_to_project_default(self):
@@ -1106,8 +1108,8 @@ class TestResolveImageBackend:
         """只配全局默认层、两桶皆空 → t2i / i2i 都解析到该模型。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_image_backend": "grok/grok-2-image"})
-        for capability in ("t2i", "i2i"):
-            resolved = await resolver._resolve_image_provider_model(fake_svc, None, None, None, capability)
+        for generation_type in ("t2i", "i2i"):
+            resolved = await resolver._resolve_image_provider_model(fake_svc, None, None, None, generation_type)
             assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-2-image")
 
     async def test_falls_through_to_global_default(self):
@@ -1322,10 +1324,10 @@ class TestResolveVideoBackend:
 
 
 class TestResolveVideoBackendBuckets:
-    """capability 给定时的视频四级解析（项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断）与能力闸。
+    """generation_type 给定时的视频四级解析（项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断）与能力闸。
 
     能力闸样本取 backend 声明的真实能力位：vidu/viduq3-pro 仅 i2v、dashscope/happyhorse-1.0-r2v
-    仅 r2v、ark 全系两桶齐备（见 lib/capability_buckets.py 的判定口径）。
+    仅 r2v、ark 全系两桶齐备（见 lib/generation_type_buckets.py 的判定口径）。
     """
 
     async def test_project_bucket_wins_over_project_default(self):
@@ -1380,7 +1382,7 @@ class TestResolveVideoBackendBuckets:
             await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
         exc = exc_info.value
         assert exc.code == "video_capability_missing_i2v"
-        assert exc.capability == "i2v"
+        assert exc.generation_type == "i2v"
         assert exc.params == {"provider": "dashscope", "model": "happyhorse-1.0-r2v"}
 
     async def test_missing_r2v_capability_raises_structured_error(self):
@@ -1457,7 +1459,7 @@ class TestVideoBucketCapabilityGateCustomProvider:
         resolver = ConfigResolver(db_factory)
         with pytest.raises(VideoBucketCapabilityError) as exc_info:
             await resolver.resolve_video_backend(
-                {"video_provider_r2v": f"custom-{provider_id}/ghost-model"}, None, capability="r2v"
+                {"video_provider_r2v": f"custom-{provider_id}/ghost-model"}, None, generation_type="r2v"
             )
         assert exc_info.value.code == "video_capability_reference_unavailable"
 
@@ -1486,7 +1488,7 @@ class TestVideoBucketCapabilityGateCustomProvider:
         resolver = ConfigResolver(db_factory)
         with pytest.raises(VideoBucketCapabilityError) as exc_info:
             await resolver.resolve_video_backend(
-                {"video_backend": f"custom-{provider_id}/disabled-model"}, None, capability="i2v"
+                {"video_backend": f"custom-{provider_id}/disabled-model"}, None, generation_type="i2v"
             )
         assert exc_info.value.code == "video_capability_reference_unavailable"
 
@@ -1505,7 +1507,7 @@ class TestVideoBucketCapabilityGateCustomProvider:
         )
         resolver = ConfigResolver(db_factory)
         resolved = await resolver.resolve_video_backend(
-            {"video_provider_i2v": f"custom-{provider_id}/live-model"}, None, capability="i2v"
+            {"video_provider_i2v": f"custom-{provider_id}/live-model"}, None, generation_type="i2v"
         )
         assert (resolved.provider_id, resolved.model_id) == (f"custom-{provider_id}", "live-model")
 
@@ -1840,7 +1842,7 @@ class TestPayloadPinnedVideoModel:
         assert (resolved.provider_id, resolved.model_id) == ("vidu", "viduq3-pro")
 
     async def test_pinned_bucket_key_hit_without_capability(self):
-        """resume 口径（capability=None）：入队只写一个桶键，按固定桶序取到即命中。"""
+        """resume 口径（generation_type=None）：入队只写一个桶键，按固定桶序取到即命中。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
@@ -1849,7 +1851,7 @@ class TestPayloadPinnedVideoModel:
         assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
 
     async def test_pin_of_other_bucket_ignored_when_capability_given(self):
-        """capability 明确时只认该桶的键，另一个桶的锁不越桶生效。"""
+        """generation_type 明确时只认该桶的键，另一个桶的锁不越桶生效。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
@@ -1978,4 +1980,4 @@ class TestPayloadPinnedVideoModel:
                 )
 
         assert excinfo.value.model_id == "pinned-model"
-        assert excinfo.value.capability == "i2v"
+        assert excinfo.value.generation_type == "i2v"

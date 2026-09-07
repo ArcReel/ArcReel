@@ -15,13 +15,13 @@ class _FakeResolver:
     def __init__(self, resolution: str | None = None, raises: bool = False):
         self._resolution = resolution
         self._raises = raises
-        self.asked_capability: str | None = None
+        self.asked_generation_type: str | None = None
         self.asked_identity: tuple[str, str] | None = None
 
-    async def resolve_image_backend(self, project: dict, payload: Any, *, capability: str):
+    async def resolve_image_backend(self, project: dict, payload: Any, *, generation_type: str):
         if self._raises:
             raise RuntimeError("no image provider configured")
-        self.asked_capability = capability
+        self.asked_generation_type = generation_type
         return type("Resolved", (), {"provider_id": "gemini", "model_id": "img-model"})()
 
     async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
@@ -37,7 +37,7 @@ def _as_resolver(fake: _FakeResolver) -> ConfigResolver:
 async def test_reads_resolution_of_the_t2i_slot():
     resolver = _FakeResolver("4K")
     assert await resolve_image_resolution(_as_resolver(resolver), {}) == "4K"
-    assert resolver.asked_capability == "t2i"
+    assert resolver.asked_generation_type == "t2i"
     assert resolver.asked_identity == ("gemini", "img-model")
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from lib.api_errors import BadRequestError
 from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
-from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoCapability
+from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoGenerationType
 
 
 def split_video_backend_query(video_backend: str) -> tuple[str, str]:
@@ -22,7 +22,7 @@ def split_video_backend_query(video_backend: str) -> tuple[str, str]:
     return provider_id, model_id
 
 
-async def require_video_bucket_capability(project: dict, capability: VideoCapability) -> None:
+async def require_video_bucket_capability(project: dict, generation_type: VideoGenerationType) -> None:
     """视频生成入口预检：按任务类型桶解析全局 + 项目配置并过解析闸（``docs/adr/0054``）。
 
     解析出的模型缺该桶所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
@@ -33,7 +33,9 @@ async def require_video_bucket_capability(project: dict, capability: VideoCapabi
     from lib.db import async_session_factory
 
     try:
-        await ConfigResolver(async_session_factory).resolve_video_backend(project, None, capability=capability)
+        await ConfigResolver(async_session_factory).resolve_video_backend(
+            project, None, generation_type=generation_type
+        )
     except VideoBucketCapabilityError as exc:
         raise BadRequestError(exc.code, **exc.params) from exc
     except ValueError:
@@ -42,7 +44,7 @@ async def require_video_bucket_capability(project: dict, capability: VideoCapabi
         return
 
 
-async def require_audio_switch_supported(project: dict, capability: VideoCapability) -> None:
+async def require_audio_switch_supported(project: dict, generation_type: VideoGenerationType) -> None:
     """视频生成入口预检：成片恒有声的模型不接受「关闭音频」的配置。
 
     这类模型在该执行路径上没有音轨开关可下发（音轨形态 ``always_on``），关闭意图无法抵达供应商，
@@ -56,7 +58,7 @@ async def require_audio_switch_supported(project: dict, capability: VideoCapabil
     """
     from server.services.video_caps import resolve_audio_switch_conflict
 
-    conflict = await resolve_audio_switch_conflict(project, capability)
+    conflict = await resolve_audio_switch_conflict(project, generation_type)
     if conflict is None:
         return
     provider_id, model_id = conflict

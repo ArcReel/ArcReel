@@ -86,7 +86,7 @@ class _StubConfigResolver:
     def __init__(self, caps: dict | None = None) -> None:
         self._caps = caps
 
-    async def video_capabilities_for_project(self, project: dict, *, capability: object = None) -> dict:
+    async def video_capabilities_for_project(self, project: dict, *, generation_type: object = None) -> dict:
         if self._caps is None:
             raise OperationalError("SELECT ...", {}, Exception("no such table: system_setting"))
         return self._caps

@@ -355,12 +355,12 @@ class FakeReferenceCapabilityProjection:
         self.max_reference_images = max_reference_images
         self.text_to_video = text_to_video
 
-    async def resolve_candidate(self, project: dict, capability):
+    async def resolve_candidate(self, project: dict, generation_type):
         from lib.reference_video.request_projection import ProviderProjectionCandidate
 
         del project
         return ProviderProjectionCandidate(
-            capability=capability,
+            generation_type=generation_type,
             provider_id=self.provider_id,
             model_id=self.model_id,
             supported_durations=self.durations,
@@ -445,8 +445,8 @@ class FakeConfigResolver:
     本身的整体替换——被替换掉的取值器里有软回退、联动约束收窄与声音档派生，那些才是用例要
     保护的行为。
 
-    ``by_capability`` 给按桶分叉的路径用（参考生视频的无引用 unit 走 i2v 桶）：键是
-    ``VideoCapability`` 字面量，值是覆盖在基础能力上的字段。``error`` / ``generate_audio_error``
+    ``by_generation_type`` 给按桶分叉的路径用（参考生视频的无引用 unit 走 i2v 桶）：键是
+    ``VideoGenerationType`` 字面量，值是覆盖在基础能力上的字段。``error`` / ``generate_audio_error``
     让软回退分支不必再 patch 就能触发。
     """
 
@@ -463,8 +463,8 @@ class FakeConfigResolver:
         generate_audio: bool = True,
         requested_generate_audio: bool = True,
         voice_consistency: str = "soft",
-        by_capability: Mapping[str, Mapping[str, Any]] | None = None,
-        capability_errors: Mapping[str, BaseException] | None = None,
+        by_generation_type: Mapping[str, Mapping[str, Any]] | None = None,
+        generation_type_errors: Mapping[str, BaseException] | None = None,
         error: BaseException | None = None,
         generate_audio_error: BaseException | None = None,
         image_backend: tuple[str, str] = ("fake", "fake-image"),
@@ -487,25 +487,25 @@ class FakeConfigResolver:
             "default_duration": default_duration,
             **extra,
         }
-        self._by_capability = {key: dict(value) for key, value in (by_capability or {}).items()}
-        self._capability_errors = dict(capability_errors or {})
+        self._by_generation_type = {key: dict(value) for key, value in (by_generation_type or {}).items()}
+        self._generation_type_errors = dict(generation_type_errors or {})
         self._error = error
         self._generate_audio_error = generate_audio_error
         self._image_backend = image_backend
         self._image_backend_error = image_backend_error
         self._reference_payload_limits = reference_payload_limits
-        self.capability_calls: list[str | None] = []
+        self.generation_type_calls: list[str | None] = []
         self.project_names: list[str | None] = []
         self.project_payloads: list[dict[str, Any]] = []
-        self.image_capability_calls: list[str | None] = []
+        self.image_generation_type_calls: list[str | None] = []
         self.generate_audio_calls: list[dict[str, Any] | None] = []
         self.generate_audio_project_names: list[str | None] = []
         self.reference_limits_calls: list[str | None] = []
 
-    def caps_for(self, capability: str | None = None) -> dict[str, Any]:
+    def caps_for(self, generation_type: str | None = None) -> dict[str, Any]:
         """该桶的能力 dict（与生产返回同形），供用例直接对照期望。"""
         caps = dict(self._base)
-        caps.update(self._by_capability.get(capability or "", {}))
+        caps.update(self._by_generation_type.get(generation_type or "", {}))
         durations = caps.get("supported_durations") or []
         caps["max_duration"] = max(durations) if durations else 0
         return caps
@@ -518,10 +518,10 @@ class FakeConfigResolver:
         self,
         project: dict[str, Any],
         *,
-        capability: str | None = None,
+        generation_type: str | None = None,
     ) -> dict[str, Any]:
         self.project_payloads.append(project)
-        return self._resolve(capability)
+        return self._resolve(generation_type)
 
     async def resolve_resolution(self, project: dict[str, Any], provider_id: str, model_id: str) -> str:
         del project, provider_id, model_id
@@ -532,13 +532,13 @@ class FakeConfigResolver:
         project: dict[str, Any] | None,
         payload: dict[str, Any] | None = None,
         *,
-        capability: str | None = None,
+        generation_type: str | None = None,
     ) -> Any:
         """解析图像供应商；``image_backend_error`` 给「项目槽位解析不出可用供应商」那条路径。"""
         from lib.config.resolver import ProviderModel
 
         del project, payload
-        self.image_capability_calls.append(capability)
+        self.image_generation_type_calls.append(generation_type)
         if self._image_backend_error is not None:
             raise self._image_backend_error
         return ProviderModel(*self._image_backend)
@@ -572,14 +572,14 @@ class FakeConfigResolver:
 
         return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
-    def _resolve(self, capability: str | None) -> dict[str, Any]:
-        self.capability_calls.append(capability)
+    def _resolve(self, generation_type: str | None) -> dict[str, Any]:
+        self.generation_type_calls.append(generation_type)
         if self._error is not None:
             raise self._error
-        bucket_error = self._capability_errors.get(capability or "")
+        bucket_error = self._generation_type_errors.get(generation_type or "")
         if bucket_error is not None:
             raise bucket_error
-        return self.caps_for(capability)
+        return self.caps_for(generation_type)
 
 
 def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:

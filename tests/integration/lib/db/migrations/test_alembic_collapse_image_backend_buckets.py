@@ -183,17 +183,17 @@ async def test_resolution_after_upgrade(name, before, after):
         async def get_all_settings(self) -> dict[str, str]:
             return dict(after)
 
-    for capability, expected in zip(("t2i", "i2i"), _RESOLVED_AFTER[name], strict=True):
+    for generation_type, expected in zip(("t2i", "i2i"), _RESOLVED_AFTER[name], strict=True):
         if expected is None:
             # 无配置可落：解析必然走自动推断（需真实供应商表，此处不求值），
             # 断言其前提——迁移后该桶与默认层都无有效值
-            assert not any("/" in after.get(key, "") for key in (f"default_image_backend_{capability}", _KEYS[0]))
+            assert not any("/" in after.get(key, "") for key in (f"default_image_backend_{generation_type}", _KEYS[0]))
             continue
         resolved = await resolver._resolve_layered_backend(
             _Settings(),
             None,
             None,
-            _IMAGE_LAYERED_KEYS[capability],
+            _IMAGE_LAYERED_KEYS[generation_type],
         )
         assert resolved == tuple(expected.split("/", 1))
 

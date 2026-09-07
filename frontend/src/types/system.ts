@@ -40,12 +40,12 @@ export interface GetSystemConfigResponse {
 }
 
 /** 任务类型桶键（docs/adr/0054）。代码内部术语，界面文案不直接呈现。 */
-export type CapabilityBucket = "t2i" | "i2i" | "i2v" | "r2v";
+export type GenerationTypeBucket = "t2i" | "i2i" | "i2v" | "r2v";
 
 /** 单一 media_type 的候选：默认层全量 + 各任务类型桶按能力过滤后的子集。 */
 export interface MediaCandidates {
   default: string[];
-  buckets: Partial<Record<CapabilityBucket, string[]>>;
+  buckets: Partial<Record<GenerationTypeBucket, string[]>>;
 }
 
 export interface ModelCandidatesResponse {

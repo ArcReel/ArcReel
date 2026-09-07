@@ -259,7 +259,7 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
     assert out.get("is_error") is True
     assert "not bound" in out["content"][0]["text"]
     # 剧本未绑定在供应商判定之前就拒：解析器一次都没被问过
-    assert resolver.image_capability_calls == []
+    assert resolver.image_generation_type_calls == []
     enqueue.assert_not_awaited()
 
 
@@ -425,7 +425,7 @@ async def test_i2i_provider_available_true() -> None:
     resolver = fake_caps_resolver()
     assert await mod._i2i_provider_available({}, config_resolver=resolver) is True
     # 判的是 i2i 槽位，不是项目默认图像槽
-    assert resolver.image_capability_calls == ["i2i"]
+    assert resolver.image_generation_type_calls == ["i2i"]
 
 
 async def test_i2i_provider_available_false_on_value_error() -> None:

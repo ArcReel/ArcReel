@@ -628,10 +628,10 @@ def stub_enqueue_resolution(monkeypatch):
         def __init__(self, factory):
             pass
 
-        async def resolve_video_backend(self, project, payload, *, capability=None):
+        async def resolve_video_backend(self, project, payload, *, generation_type=None):
             return holder["resolved"]
 
-        async def resolve_image_backend(self, project, payload, *, capability):
+        async def resolve_image_backend(self, project, payload, *, generation_type):
             return holder["resolved"]
 
         async def resolve_audio_backend(self, project, payload):
@@ -697,7 +697,7 @@ class TestProjectExecutionProviderOnEnqueue:
         assert task["provider_id"] == "custom-7"
 
     async def test_non_video_task_pins_nothing(self, queue, stub_enqueue_resolution):
-        """图片任务的 capability 执行时才定，入队不锁——只落 provider_id。"""
+        """图片任务的任务类型执行时才定，入队不锁——只落 provider_id。"""
         enqueued = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",

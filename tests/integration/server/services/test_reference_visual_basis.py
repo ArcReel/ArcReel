@@ -37,7 +37,7 @@ def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Pa
     used_audio.write_bytes(b"used-v1")
     unrelated_audio.write_bytes(b"unrelated-v1")
     candidate = ProviderProjectionCandidate(
-        capability="r2v",
+        generation_type="r2v",
         provider_id="ark",
         model_id="doubao-seedance-2-0-260128",
         supported_durations=(4, 8, 12),

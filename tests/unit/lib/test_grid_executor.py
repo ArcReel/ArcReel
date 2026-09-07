@@ -751,9 +751,9 @@ class TestGridMetadataT2II2ISlotSelection:
         mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 1))
 
         async def _cap_aware_resolve(project_name, req_payload, *, image, **kwargs):
-            # capability-aware：grid 任务按 reference_images 是否非空选 t2i/i2i 槽，
+            # generation_type-aware：grid 任务按 reference_images 是否非空选 t2i/i2i 槽，
             # 假解析回显对应 payload 槽的 provider/model，锁定「槽选择 → 元数据回填」契约。
-            provider, model = req_payload[f"image_provider_{image.capability}"].split("/")
+            provider, model = req_payload[f"image_provider_{image.generation_type}"].split("/")
             return GenerationContext(
                 generator=mock_generator,
                 image_lane=ImageLaneResult(

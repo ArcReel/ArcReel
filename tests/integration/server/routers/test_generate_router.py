@@ -180,7 +180,7 @@ def _prepare_files(tmp_path: Path) -> Path:
     return project_path
 
 
-async def _noop_bucket_precheck(project, capability):
+async def _noop_bucket_precheck(project, generation_type):
     return None
 
 
@@ -805,8 +805,8 @@ class TestGenerateRouter:
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
-        async def _reject(project, capability):
-            assert capability == "i2v"
+        async def _reject(project, generation_type):
+            assert generation_type == "i2v"
             raise BadRequestError("video_capability_missing_i2v", provider="dashscope", model="happyhorse-1.0-r2v")
 
         monkeypatch.setattr(generate, "require_video_bucket_capability", _reject)
@@ -831,8 +831,8 @@ class TestGenerateRouter:
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
-        async def _reject(project, capability):
-            assert capability == "i2v"
+        async def _reject(project, generation_type):
+            assert generation_type == "i2v"
             raise BadRequestError("video_audio_switch_not_supported", provider="dashscope", model="wan2.7-i2v")
 
         monkeypatch.setattr(generate, "require_audio_switch_supported", _reject)
@@ -1482,8 +1482,8 @@ class TestVideoRouteGate:
 
         seen: list[str] = []
 
-        async def _record(project, capability):
-            seen.append(capability)
+        async def _record(project, generation_type):
+            seen.append(generation_type)
 
         monkeypatch.setattr(generate, "require_video_bucket_capability", _record)
 

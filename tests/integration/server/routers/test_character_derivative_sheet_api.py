@@ -54,8 +54,8 @@ class _FakeConfigResolver:
     def __init__(self, _session_factory: Any) -> None:
         pass
 
-    async def resolve_image_backend(self, project, payload=None, *, capability=None) -> ProviderModel:
-        del project, payload, capability
+    async def resolve_image_backend(self, project, payload=None, *, generation_type=None) -> ProviderModel:
+        del project, payload, generation_type
         return ProviderModel("dashscope", "qwen-image-2.0")
 
 

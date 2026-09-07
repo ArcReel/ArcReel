@@ -9,7 +9,7 @@ paths:
   - "lib/config/**"
   - "lib/pricing/**"
   - "lib/providers.py"
-  - "lib/capability_buckets.py"
+  - "lib/generation_type_buckets.py"
   - "lib/cost_calculator.py"
   - "lib/kling_backend_base.py"
   - "lib/agent_provider_catalog.py"

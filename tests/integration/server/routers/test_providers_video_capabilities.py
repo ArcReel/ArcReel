@@ -104,7 +104,7 @@ class TestGetModelVideoCapabilities:
         resolver_instance.video_capabilities_for_model = AsyncMock(
             side_effect=VideoBucketCapabilityError(
                 code="video_capability_missing_r2v",
-                capability="r2v",
+                generation_type="r2v",
                 provider_id="kling",
                 model_id="kling-v3",
                 message="lacks r2v",

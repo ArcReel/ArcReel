@@ -26,12 +26,12 @@ class _FakeCapabilities:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def resolve_candidate(self, project: dict, capability: str) -> ProviderProjectionCandidate:
+    async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
         del project
-        self.calls.append(capability)
-        if capability == "r2v":
+        self.calls.append(generation_type)
+        if generation_type == "r2v":
             return ProviderProjectionCandidate(
-                capability="r2v",
+                generation_type="r2v",
                 provider_id="reference-provider",
                 model_id="reference-model",
                 supported_durations=(8, 16),
@@ -43,7 +43,7 @@ class _FakeCapabilities:
                 audio_switch_controllable=True,
             )
         return ProviderProjectionCandidate(
-            capability="i2v",
+            generation_type="i2v",
             provider_id="fallback-provider",
             model_id="fallback-model",
             supported_durations=(4, 8, 16),
@@ -155,8 +155,8 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
         ("prop", "长剑"),
     ]
     assert [asset.path.name for asset in first.request_assets] == ["product-sheet.png", "character.png"]
-    assert first.declared_capability == "r2v"
-    assert first.hydrated_capability == "r2v"
+    assert first.declared_generation_type == "r2v"
+    assert first.hydrated_generation_type == "r2v"
     assert first.request_duration.seconds == 8
     assert first.provider_candidate is not None
     assert first.provider_candidate.pair_key == "reference-provider/reference-model"
@@ -180,8 +180,8 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
 
     assert second.declared_references == ()
     assert second.request_assets == ()
-    assert second.declared_capability == "i2v"
-    assert second.hydrated_capability == "i2v"
+    assert second.declared_generation_type == "i2v"
+    assert second.hydrated_generation_type == "i2v"
     assert second.request_duration.seconds == 16
     assert second.provider_candidate is not None
     assert second.provider_candidate.pair_key == "fallback-provider/fallback-model"
@@ -398,7 +398,7 @@ async def test_projection_exposes_declared_to_hydrated_bucket_change() -> None:
         resolved_assets=[_asset("character", "阿离", str(missing))],
     )
 
-    assert (result.declared_capability, result.hydrated_capability) == ("r2v", "i2v")
+    assert (result.declared_generation_type, result.hydrated_generation_type) == ("r2v", "i2v")
     assert result.provider_candidate is not None
     assert result.provider_candidate.pair_key == "fallback-provider/fallback-model"
     assert [problem.code for problem in result.problems[:2]] == [
@@ -413,8 +413,8 @@ async def test_projection_blocks_empty_duration_metadata_without_cost_facts() ->
     base = await _FakeCapabilities().resolve_candidate({}, "i2v")
 
     class _MissingDurations:
-        async def resolve_candidate(self, project: dict, capability: str) -> ProviderProjectionCandidate:
-            del project, capability
+        async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
+            del project, generation_type
             return replace(base, supported_durations=())
 
     projector = ReferenceUnitRequestProjector(_MissingDurations(), _FakeAssets(set()))
@@ -431,8 +431,8 @@ async def test_projection_blocks_empty_duration_metadata_without_cost_facts() ->
 @pytest.mark.asyncio
 async def test_projection_sanitizes_unexpected_capability_failures() -> None:
     class _BrokenCapabilities:
-        async def resolve_candidate(self, project: dict, capability: str) -> ProviderProjectionCandidate:
-            del project, capability
+        async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
+            del project, generation_type
             raise RuntimeError("database password leaked by driver")
 
     projector = ReferenceUnitRequestProjector(_BrokenCapabilities(), _FakeAssets(set()))
@@ -451,8 +451,8 @@ async def test_projection_owns_audio_switch_conflict() -> None:
     base = await _FakeCapabilities().resolve_candidate({}, "i2v")
 
     class _AlwaysAudible:
-        async def resolve_candidate(self, project: dict, capability: str) -> ProviderProjectionCandidate:
-            del project, capability
+        async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
+            del project, generation_type
             return replace(
                 base,
                 requested_generate_audio=False,
@@ -538,7 +538,7 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
     class _Resolver:
         empty = False
 
-        async def video_capabilities_for_project(self, project: dict, *, capability: str) -> dict:
+        async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
             del project
             return {
                 "provider_id": "ark",
@@ -568,8 +568,8 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
     assert exc_info.value.code == "reference_supported_durations_missing"
 
     class _InvalidResolver(_Resolver):
-        async def video_capabilities_for_project(self, project: dict, *, capability: str) -> dict:
-            del project, capability
+        async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
+            del project, generation_type
             raise ValueError("supported_durations contains malformed JSON")
 
     with pytest.raises(ProjectionResolutionError, match=r"reference_supported_durations_invalid") as invalid_exc:
@@ -577,9 +577,9 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
     assert invalid_exc.value.code == "reference_supported_durations_invalid"
 
     class _InvalidValuesResolver(_Resolver):
-        async def video_capabilities_for_project(self, project: dict, *, capability: str) -> dict:
-            del project, capability
-            payload = await super().video_capabilities_for_project({}, capability="r2v")
+        async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
+            del project, generation_type
+            payload = await super().video_capabilities_for_project({}, generation_type="r2v")
             payload["supported_durations"] = [4, "bad"]
             return payload
 
@@ -594,7 +594,7 @@ def test_strict_reference_durations_uses_shared_constraints_and_rejects_empty_in
         model_id="veo-3.1-generate-preview",
         durations=[4, 6, 8],
         resolution="1080p",
-        capability="r2v",
+        generation_type="r2v",
     ) == (8,)
     with pytest.raises(ProjectionResolutionError) as exc_info:
         strict_reference_durations(
@@ -602,6 +602,6 @@ def test_strict_reference_durations_uses_shared_constraints_and_rejects_empty_in
             model_id="veo-3.1-generate-preview",
             durations=[4, 6],
             resolution="1080p",
-            capability="r2v",
+            generation_type="r2v",
         )
     assert exc_info.value.code == "reference_supported_durations_incompatible"

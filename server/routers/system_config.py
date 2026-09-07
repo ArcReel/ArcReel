@@ -24,17 +24,17 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.capability_buckets import (
-    BUCKETS_BY_MEDIA_TYPE,
-    CapabilityBucket,
-    builtin_model_buckets,
-    custom_model_buckets,
-)
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
 from lib.db import get_async_session
+from lib.generation_type_buckets import (
+    BUCKETS_BY_MEDIA_TYPE,
+    GenerationTypeBucket,
+    builtin_model_buckets,
+    custom_model_buckets,
+)
 from lib.http_status_errors import raise_for_status_redacted
 from lib.httpx_shared import get_http_client
 from lib.i18n import DEFAULT_LOCALE, Locale, Translator, translate_or
@@ -165,7 +165,7 @@ class _ModelCandidate:
 
     option: str  # "provider_id/model_id"
     media_type: str
-    buckets: frozenset[CapabilityBucket]
+    buckets: frozenset[GenerationTypeBucket]
     display_name: str  # 按请求语言成文的模型名
 
 
@@ -273,7 +273,7 @@ class MediaCandidates(BaseModel):
     """单一 media_type 的候选：默认层全量 + 各任务类型桶过滤后的子集。"""
 
     default: list[str]
-    buckets: dict[CapabilityBucket, list[str]]
+    buckets: dict[GenerationTypeBucket, list[str]]
 
 
 class ModelCandidatesResponse(BaseModel):

@@ -311,7 +311,7 @@ async def test_body_shape_drives_the_reference_images_of_the_real_request(
 
     assert [(ref.type, ref.name) for ref in projection.declared_references] == expected_references
     assert [asset.path.name for asset in projection.request_assets] == expected_images
-    assert projection.hydrated_capability == ("r2v" if expected_images else "i2v")
+    assert projection.hydrated_generation_type == ("r2v" if expected_images else "i2v")
     assert [problem.code for problem in projection.problems if problem.blocking] == []
 
 
