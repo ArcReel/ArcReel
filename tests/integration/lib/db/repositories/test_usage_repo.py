@@ -1051,3 +1051,37 @@ class TestGetRecord:
         assert page["total"] == 1
         assert [item["segment_id"] for item in page["items"]] == ["in-scope"]
         assert await repo.get_record(ids["out-of-scope"]) is None
+
+
+class SummaryProjectScopedUsageRepository(UsageRepository):
+    """只看得到一个项目的仓储，用来验证汇总读接口的查询确实经过 ``_scope_query``。"""
+
+    def _scope_query(self, stmt, model):
+        return stmt.where(ApiCall.project_name == "visible")
+
+
+class TestSummaryQueriesRespectScope:
+    async def test_summary_rows_and_filter_options_are_scoped(self, db_session):
+        seeder = UsageRepository(db_session)
+        for project_name in ("visible", "hidden"):
+            call_id = await seeder.start_call(
+                project_name=project_name, call_type="image", model=f"{project_name}-model", provider="gemini"
+            )
+            await seeder.finish_call(call_id, status="success", settlement=SettlementInput())
+
+        scoped = SummaryProjectScopedUsageRepository(db_session)
+        rows = await scoped.fetch_summary_rows()
+        options = await scoped.fetch_usage_filter_options()
+
+        assert [row.project_name for row in rows] == ["visible"]
+        assert options.projects == ["visible"]
+        assert options.models == [("gemini", "visible-model")]
+
+    async def test_pending_rows_stay_out_of_the_projection(self, db_session):
+        repo = UsageRepository(db_session)
+        done = await repo.start_call(project_name="demo", call_type="image", model="m")
+        await repo.finish_call(done, status="success", settlement=SettlementInput())
+        await repo.start_call(project_name="demo", call_type="image", model="m")
+
+        rows = await repo.fetch_summary_rows()
+        assert [row.id for row in rows] == [done]

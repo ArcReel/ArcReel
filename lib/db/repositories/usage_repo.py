@@ -21,6 +21,7 @@ from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.pricing.strategies import PricingParams
 from lib.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.usage_summary import UsageFilterOptions, UsageSummaryRow
 
 # 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
 # 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
@@ -854,6 +855,91 @@ class UsageRepository(BaseRepository):
         )
         row = (await self.session.execute(self._scope_query(stmt, ApiCall))).first()
         return _record_detail_to_dict(row[0], row[1]) if row is not None else None
+
+    # --- 汇总读接口（GET /usage/summary）------------------------------------------------
+    # 只取行，不在 SQL 里聚合：切天与桶填充交给 lib/usage_summary.py，回避 SQLite 与
+    # PostgreSQL 的日期函数差异，也让时区与异常判定的边界能脱离数据库单独驱动。
+
+    async def _provider_display_names(self, provider_ids: set[str]) -> dict[str, str]:
+        """供应商 id → 目录里的显示名；目录查不到的回退 id 本身。"""
+        from lib.config.registry import PROVIDER_REGISTRY
+        from lib.db.models.custom_provider import CustomProvider
+
+        custom_db_ids: set[int] = set()
+        for provider_id in provider_ids:
+            if is_custom_provider(provider_id):
+                # 防御畸形 provider 字符串（如 "custom-abc"）
+                with contextlib.suppress(ValueError):
+                    custom_db_ids.add(parse_provider_id(provider_id))
+
+        custom_names: dict[int, str] = {}
+        if custom_db_ids:
+            cp_stmt = select(CustomProvider).where(CustomProvider.id.in_(custom_db_ids))
+            custom_names = {cp.id: cp.display_name for cp in (await self.session.execute(cp_stmt)).scalars()}
+
+        names: dict[str, str] = {}
+        for provider_id in provider_ids:
+            if is_custom_provider(provider_id):
+                try:
+                    names[provider_id] = custom_names.get(parse_provider_id(provider_id), provider_id)
+                except ValueError:
+                    names[provider_id] = provider_id
+                continue
+            meta = PROVIDER_REGISTRY.get(provider_id)
+            names[provider_id] = (
+                meta.display_name if meta else _LEGACY_PROVIDER_DISPLAY_NAMES.get(provider_id, provider_id)
+            )
+        return names
+
+    async def fetch_summary_rows(self, *, filters: UsageFilters | None = None) -> list[UsageSummaryRow]:
+        """期间内可聚合的调用行（轻投影）；pending 行不参与任何汇总口径。"""
+        stmt = select(
+            ApiCall.id,
+            ApiCall.project_name,
+            ApiCall.call_type,
+            ApiCall.provider,
+            ApiCall.model,
+            ApiCall.status,
+            ApiCall.started_at,
+            ApiCall.cost_amount,
+            ApiCall.currency,
+            ApiCall.segment_id,
+            ApiCall.error_code,
+        ).where(ApiCall.status != CallStatus.PENDING, *usage_filter_clauses(filters or UsageFilters()))
+        stmt = self._scope_query(stmt, ApiCall)
+
+        return [
+            UsageSummaryRow(
+                id=row.id,
+                project_name=row.project_name,
+                media_type=row.call_type,
+                provider=row.provider,
+                model=row.model,
+                status=row.status,
+                started_at=row.started_at,
+                cost_amount=row.cost_amount or 0.0,
+                currency=row.currency or "USD",
+                segment_id=row.segment_id,
+                error_code=row.error_code,
+            )
+            for row in (await self.session.execute(stmt)).all()
+        ]
+
+    async def fetch_usage_filter_options(self) -> UsageFilterOptions:
+        """筛选候选值：全表 distinct，不受本次筛选影响，好让下拉项在筛选后不消失。"""
+        projects_stmt = self._scope_query(select(ApiCall.project_name).distinct(), ApiCall)
+        models_stmt = self._scope_query(select(ApiCall.provider, ApiCall.model).distinct(), ApiCall)
+
+        projects = sorted({row[0] for row in (await self.session.execute(projects_stmt)).all()})
+        models = sorted({(row.provider, row.model) for row in (await self.session.execute(models_stmt)).all()})
+        provider_ids = {provider for provider, _ in models}
+        labels = await self._provider_display_names(provider_ids)
+
+        return UsageFilterOptions(
+            projects=projects,
+            providers=[(provider, labels[provider]) for provider in sorted(provider_ids)],
+            models=models,
+        )
 
 
 # ---------------------------------------------------------------------------

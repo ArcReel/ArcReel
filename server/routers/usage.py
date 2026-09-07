@@ -5,15 +5,17 @@ API 调用统计路由
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel, Field
 
 from lib.db import async_session_factory
-from lib.db.repositories.usage_repo import UsageCursor, UsageCursorError, UsageFilters, UsageRepository
+from lib.db.repositories.usage_repo import UsageCursor, UsageCursorError, UsageFilters, UsageRepository, as_utc
 from lib.i18n import Locale, Translator, translate_or
 from lib.providers import CallStatus, CallType
+from lib.usage_summary import UsageFilterOptions, build_summary
 
 router = APIRouter()
 _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
@@ -197,3 +199,177 @@ async def get_usage_record(record_id: int, _t: Translator) -> UsageRecordDetail:
     if record is None:
         raise HTTPException(status_code=404, detail=_t("usage_record_not_found"))
     return UsageRecordDetail.model_validate(record)
+
+
+# --- 汇总读接口（GET /usage/summary）---------------------------------------------------
+# 设置页总览与顶栏入口共用这一次请求：KPI、日桶趋势、三维构成、需要关注与筛选候选值。
+# 聚合规则在 lib/usage_summary.py，这里只负责取参、取行与形状声明。
+
+
+def _validated_timezone(value: str) -> str:
+    """IANA 时区名；解析不了的直接 422，不静默回落 UTC——切天口径错了整张趋势图都会错位。"""
+    try:
+        ZoneInfo(value)
+    except (KeyError, ValueError, OSError) as exc:
+        raise ValueError("未知的 IANA 时区名") from exc
+    return value
+
+
+class UsageStats(BaseModel):
+    """一组调用的计数与分币种参考费用。"""
+
+    calls: int
+    success: int
+    failed: int
+    cancelled: int
+    success_rate: float | None
+    cost: dict[str, float]
+
+
+class UsageRange(BaseModel):
+    """趋势覆盖的本地日区间，两端均含，与 daily 首尾桶一致。"""
+
+    since: str
+    until: str
+
+
+class UsageDailyBucket(BaseModel):
+    date: str
+    success: int
+    failed: int
+    cancelled: int
+    cost_by_media_type: dict[str, float]
+
+
+class UsageProjectRow(UsageStats):
+    project_name: str
+
+
+class UsageProviderRow(UsageStats):
+    provider: str
+
+
+class UsageModelRow(UsageStats):
+    provider: str
+    model: str
+
+
+class UsageBreakdownOther(UsageStats):
+    """构成表列表外的余量：被合并的分组数与它们的合计。"""
+
+    groups: int
+
+
+class UsageProjectBreakdown(BaseModel):
+    rows: list[UsageProjectRow]
+    other: UsageBreakdownOther | None
+
+
+class UsageProviderBreakdown(BaseModel):
+    rows: list[UsageProviderRow]
+    other: UsageBreakdownOther | None
+
+
+class UsageModelBreakdown(BaseModel):
+    rows: list[UsageModelRow]
+    other: UsageBreakdownOther | None
+
+
+class UsageBreakdown(BaseModel):
+    project: UsageProjectBreakdown
+    provider: UsageProviderBreakdown
+    model: UsageModelBreakdown
+
+
+class UsageFailureRateAttention(BaseModel):
+    type: Literal["failure_rate"]
+    provider: str
+    model: str | None
+    success: int
+    failed: int
+    failure_rate: float
+    overall_failure_rate: float
+
+
+class UsageConsecutiveFailuresAttention(BaseModel):
+    type: Literal["consecutive_failures"]
+    project_name: str
+    media_type: str
+    segment_id: str
+    count: int
+    first_failed_at: str
+    last_failed_at: str
+    last_error_code: str | None
+
+
+class UsageProviderOption(BaseModel):
+    provider: str
+    label: str
+
+
+class UsageModelOption(BaseModel):
+    provider: str
+    model: str
+
+
+class UsageFilterOptionsResponse(BaseModel):
+    projects: list[str]
+    providers: list[UsageProviderOption]
+    models: list[UsageModelOption]
+
+
+class UsageSummaryResponse(BaseModel):
+    range: UsageRange | None
+    primary_currency: str | None
+    kpi: UsageStats
+    daily: list[UsageDailyBucket]
+    breakdown: UsageBreakdown
+    attention: list[
+        Annotated[UsageFailureRateAttention | UsageConsecutiveFailuresAttention, Field(discriminator="type")]
+    ]
+    filter_options: UsageFilterOptionsResponse
+
+
+@router.get("/usage/summary", response_model=UsageSummaryResponse)
+async def get_usage_summary(
+    locale: Locale,
+    tz: Annotated[str, AfterValidator(_validated_timezone), Query(description="IANA 时区名，按此切天")] = "UTC",
+    project_name: str | None = Query(None, description="项目名称（空串筛选端点试跑）"),
+    provider: str | None = Query(None, description="按供应商筛选"),
+    model: str | None = Query(None, description="按模型筛选"),
+    media_type: CallType | None = Query(None, description="媒体类型 (image/video/text/audio)"),
+    since: datetime | None = Query(None, description="起始时刻（含），ISO 8601，无时区按 UTC"),
+    until: datetime | None = Query(None, description="结束时刻（不含），ISO 8601，无时区按 UTC"),
+) -> dict[str, object]:
+    """一次返回总览所需的全部聚合；不传 since / until 即全部时间。
+
+    不收 ``status``：pending 不进聚合，其余三个终态一起构成 KPI 的口径，按状态再切会让
+    调用次数与成功率互相矛盾。记录表的状态筛选带上来时在此被忽略。
+    """
+    since_utc = as_utc(since) if since is not None else None
+    until_utc = as_utc(until) if until is not None else None
+    filters = UsageFilters(
+        project_name=project_name,
+        providers=(provider,) if provider else (),
+        models=(model,) if model else (),
+        media_types=(media_type,) if media_type else (),
+        since=since_utc,
+        until=until_utc,
+    )
+
+    async with async_session_factory() as session:
+        repo = UsageRepository(session)
+        rows = await repo.fetch_summary_rows(filters=filters)
+        options = await repo.fetch_usage_filter_options()
+
+    # 仓储按默认语言给出目录里的显示名；有译名表的内置供应商按请求语言改写，自定义供应商
+    # 用户自填的名字原样保留，与 /providers 目录同一张表。
+    localized = UsageFilterOptions(
+        projects=options.projects,
+        providers=[
+            (provider_id, translate_or(f"provider_name_{provider_id}", label, locale))
+            for provider_id, label in options.providers
+        ],
+        models=options.models,
+    )
+    return build_summary(rows, tz=ZoneInfo(tz), since=since_utc, until=until_utc, filter_options=localized)
