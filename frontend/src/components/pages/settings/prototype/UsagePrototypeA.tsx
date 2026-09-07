@@ -96,7 +96,7 @@ export function UsagePrototypeA() {
             options={[{ value: "*", label: "全部" }, ...(["pending", "success", "failed", "cancelled"] as RecordStatus[]).map((st) => ({ value: st, label: STATUS_LABELS[st] }))]}
           />
         </div>
-        <RecordsTable f={f} set={set} />
+        <RecordsTable f={f} />
       </section>
 
       <CompactPreview active={activeRows({ ...f, status: null })} records={filterTerminal({ ...f, status: null, range: 0 }, false)} project="星海列车" />

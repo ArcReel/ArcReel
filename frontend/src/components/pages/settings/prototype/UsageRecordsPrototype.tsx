@@ -1,8 +1,9 @@
 // PROTOTYPE — wayfinder #2290 宿主：三个变体挂在设置页「使用记录 · 原型」小节下，经 ?variant= 切换
-// （A 纵向仪表盘 / B 记录优先·分面栏 / C 概览·记录分页签），筛选状态写在 u_* query。评审后整目录删除。
+// （A 纵向仪表盘 / B 记录优先·分面栏 / C 概览·记录分页签），筛选状态写在 u_* query，详情面板由 record=<id> 打开。评审后整目录删除。
 import { useSearch } from "wouter";
 
 import { PrototypeSwitcher } from "./PrototypeSwitcher";
+import { RecordDetailHost } from "./UsageRecordDetail";
 import { UsagePrototypeA } from "./UsagePrototypeA";
 import { UsagePrototypeB } from "./UsagePrototypeB";
 import { UsagePrototypeC } from "./UsagePrototypeC";
@@ -19,6 +20,7 @@ export function UsageRecordsPrototype() {
   return (
     <>
       {variant === "B" ? <UsagePrototypeB /> : variant === "C" ? <UsagePrototypeC /> : <UsagePrototypeA />}
+      <RecordDetailHost />
       <PrototypeSwitcher variants={VARIANTS} current={variant} />
     </>
   );

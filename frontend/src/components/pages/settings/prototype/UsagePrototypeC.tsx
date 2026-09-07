@@ -138,7 +138,7 @@ export function UsagePrototypeC() {
         <Overview s={s} f={f} set={set} goRecords={goRecords} />
       ) : (
         <section className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
-          <RecordsTable f={f} set={set} pageSize={30} />
+          <RecordsTable f={f} pageSize={30} />
         </section>
       )}
       <CompactPreview active={activeRows({ ...f, status: null })} records={filterTerminal({ ...f, status: null, range: 0 }, false)} project="星海列车" />

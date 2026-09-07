@@ -188,7 +188,7 @@ export function AttentionList({ items, set, layout = "list" }: { items: Attentio
 }
 
 /** 记录表：进行中区置顶（不受时间范围），已结束按时间倒序，按页翻（筛选变化回到第 1 页）。 */
-export function RecordsTable({ f, set, pageSize = 20, header = true }: { f: Filters; set: (p: Partial<Filters>) => void; pageSize?: number; header?: boolean }) {
+export function RecordsTable({ f, pageSize = 20, header = true }: { f: Filters; pageSize?: number; header?: boolean }) {
   // 页码与筛选签名绑定：筛选一变就自然回到第 1 页，不需要 effect
   const sig = JSON.stringify(f);
   const [pager, setPager] = useState({ sig, page: 1 });
@@ -200,7 +200,6 @@ export function RecordsTable({ f, set, pageSize = 20, header = true }: { f: Filt
   const cur = Math.min(page, pages);
   const from = (cur - 1) * pageSize;
   const shown = rows.slice(from, from + pageSize);
-  const locate = (segment: string) => set({ segment, status: null });
   const hideProject = f.project !== null;
   return (
     <div>
@@ -211,11 +210,11 @@ export function RecordsTable({ f, set, pageSize = 20, header = true }: { f: Filt
             <Kicker>In progress · {active.length}</Kicker>
             <button type="button" className="ml-auto text-[11px] text-text-4 hover:text-danger-2">全部取消</button>
           </div>
-          <ActiveRows rows={active} layout="table" hideProject={hideProject} onLocate={locate} />
+          <ActiveRows rows={active} layout="table" hideProject={hideProject} />
         </div>
       )}
       {shown.map((r) => (
-        <RecordRow key={r.id} record={r} layout="table" hideProject={hideProject} onLocate={locate} />
+        <RecordRow key={r.id} record={r} layout="table" hideProject={hideProject} />
       ))}
       {rows.length === 0 && <div className="px-3 py-8 text-center text-[12.5px] text-text-3">这段时间没有符合筛选的记录</div>}
       {rows.length > 0 && (

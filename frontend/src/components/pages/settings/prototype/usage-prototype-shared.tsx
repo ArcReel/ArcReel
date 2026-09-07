@@ -2,7 +2,7 @@
 // 记录行有意做成一个组件两种布局，用来回答「顶栏悬浮层能否直接复用这行」。评审后整目录删除。
 import { useEffect, useState, type ReactNode } from "react";
 import { useLocation, useSearch } from "wouter";
-import { AlertTriangle, ChevronDown, Film, Image as ImageIcon, Mic, Type, X } from "lucide-react";
+import { AlertTriangle, Film, Image as ImageIcon, Mic, Type, X } from "lucide-react";
 
 import { useNowTick } from "@/hooks/useNowTick";
 
@@ -50,6 +50,22 @@ export function useProtoFilters(): [Filters, (patch: Partial<Filters>) => void] 
     navigate(`${location}?${q.toString()}`, { replace: true });
   };
   return [f, set];
+}
+
+/** 详情面板的深链参数 `record=<id>`（对应正式实现的 /app/settings?section=usage&record=<id>）。 */
+export function useRecordParam(): [number | null, (id: number | null) => void] {
+  const [location, navigate] = useLocation();
+  const search = useSearch();
+  const raw = new URLSearchParams(search).get("record");
+  const parsed = raw === null ? null : Number(raw);
+  const id = parsed !== null && Number.isFinite(parsed) ? parsed : null;
+  const set = (next: number | null) => {
+    const q = new URLSearchParams(search);
+    if (next === null) q.delete("record");
+    else q.set("record", String(next));
+    navigate(`${location}?${q.toString()}`, { replace: true });
+  };
+  return [id, set];
 }
 
 export function activeFilterChips(f: Filters): Array<{ key: keyof Filters; label: string }> {
@@ -131,7 +147,7 @@ export function StatusPill({ status, compact }: { status: keyof typeof STATUS_LA
 export type RowLayout = "table" | "compact";
 
 /** 表格态列宽（grid-template-columns），表头与行共用。 */
-export const ROW_GRID = "28px minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.2fr) 72px 86px 78px 20px";
+export const ROW_GRID = "28px minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.2fr) 72px 60px 86px 78px 40px";
 
 export function RowHeader() {
   const cell = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
@@ -142,6 +158,7 @@ export function RowHeader() {
       <span className={cell}>Target</span>
       <span className={cell}>Model</span>
       <span className={cell}>Status</span>
+      <span className={cell + " text-right"}>Duration</span>
       <span className={cell + " text-right"}>Time</span>
       <span className={cell + " text-right"}>Ref. cost</span>
       <span />
@@ -165,20 +182,21 @@ interface RecordRowProps {
   layout: RowLayout;
   /** 当前筛选已固定项目时，行内可隐藏项目列（顶栏悬浮层始终隐藏）。 */
   hideProject?: boolean;
-  onLocate?: (segment: string) => void;
 }
 
-export function RecordRow({ record: r, layout, hideProject, onLocate }: RecordRowProps) {
-  const [open, setOpen] = useState(false);
+/** 记录行：表格态每行末尾统一「详情」按钮，紧凑态整行可点；两态都只打开详情面板，不做行内展开。 */
+export function RecordRow({ record: r, layout, hideProject }: RecordRowProps) {
+  const [, openDetail] = useRecordParam();
   const failed = r.status === "failed";
   const pending = r.status === "pending";
   const cost = r.cost_amount > 0 ? money(r.currency, r.cost_amount, r.cost_amount < 0.1 ? 3 : 2) : "—";
   const modelText = `${providerLabel(r.provider)} · ${r.model}`;
   const error = failed ? (r.error_code ? ERROR_LABELS[r.error_code] : r.error_message) : null;
+  const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
   if (layout === "compact") {
     return (
-      <div className={"rounded-[8px] px-2.5 py-2 transition-colors hover:bg-bg-grad-a/70" + (failed ? " bg-[oklch(0.30_0.10_25/0.14)]" : "")}>
+      <button type="button" onClick={() => openDetail(r.id)} className={"block w-full rounded-[8px] px-2.5 py-2 text-left transition-colors hover:bg-bg-grad-a/70 " + focus + (failed ? " bg-[oklch(0.30_0.10_25/0.14)]" : "")}>
         <div className="flex items-center gap-2.5">
           <MediaGlyph type={r.media_type} size={12} />
           <span className="min-w-0 flex-1 truncate text-[12.5px] text-text">{hideProject ? targetOf(r) : `${projectLabel(r.project_name)} · ${targetOf(r)}`}</span>
@@ -190,46 +208,30 @@ export function RecordRow({ record: r, layout, hideProject, onLocate }: RecordRo
           <span className="ml-auto shrink-0 num">{shortTime(r.started_at)}</span>
         </div>
         {error && <div className="mt-1 pl-[31px] text-[11px] leading-[1.45] text-danger-2">{error}</div>}
-      </div>
+      </button>
     );
   }
 
   return (
-    <div className={"border-b border-hairline-soft last:border-b-0" + (failed ? " bg-[oklch(0.30_0.10_25/0.10)]" : "")}>
-      <button
-        type="button"
-        onClick={() => failed && setOpen((v) => !v)}
-        aria-expanded={failed ? open : undefined}
-        className={"grid w-full items-center gap-x-3 px-3 py-2 text-left transition-colors hover:bg-bg-grad-a/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" + (failed ? " cursor-pointer" : " cursor-default")}
-        style={{ gridTemplateColumns: ROW_GRID }}
-      >
-        <MediaGlyph type={r.media_type} />
-        <span className="truncate text-[12.5px] text-text-2">{hideProject ? "" : projectLabel(r.project_name)}</span>
-        <span className="truncate text-[12.5px] text-text">{targetOf(r)}</span>
-        <span className="truncate text-[12px] text-text-3">{modelText}</span>
+    <div
+      className={"grid items-center gap-x-3 border-b border-hairline-soft px-3 py-2 transition-colors last:border-b-0 hover:bg-bg-grad-a/40" + (failed ? " bg-[oklch(0.30_0.10_25/0.10)]" : "")}
+      style={{ gridTemplateColumns: ROW_GRID }}
+    >
+      <MediaGlyph type={r.media_type} />
+      <span className="truncate text-[12.5px] text-text-2">{hideProject ? "" : projectLabel(r.project_name)}</span>
+      <span className="truncate text-[12.5px] text-text">{targetOf(r)}</span>
+      <span className="truncate text-[12px] text-text-3">{modelText}</span>
+      <span title={error ?? undefined}>
         <StatusPill status={r.status} />
-        <span className="num text-right text-[11.5px] text-text-3">{pending ? <Elapsed from={r.started_at} /> : shortTime(r.started_at)}</span>
-        <span className="num text-right text-[12.5px] text-text">{cost}</span>
-        <span className="flex justify-end text-text-4">{failed && <ChevronDown className={"h-3.5 w-3.5 transition-transform" + (open ? " rotate-180" : "")} />}</span>
-      </button>
-      {failed && open && (
-        <div className="grid gap-x-3 px-3 pb-3 pt-0.5" style={{ gridTemplateColumns: ROW_GRID }}>
-          <span />
-          <div className="col-span-6 rounded-[8px] border border-danger/25 bg-[oklch(0.30_0.10_25/0.14)] px-3 py-2.5 text-[12px] leading-[1.55]">
-            <div className="text-danger-2">{error}</div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-4">
-              <span className="num">{durationLabel(r.duration_ms)} 后失败</span>
-              <span className="num">#{r.id}</span>
-              {r.segment_id && onLocate && (
-                <button type="button" className="text-accent-2 hover:underline" onClick={() => onLocate(r.segment_id!)}>
-                  只看该分镜
-                </button>
-              )}
-              <span className="ml-auto truncate font-mono text-text-4" title={r.error_message ?? ""}>{r.error_message}</span>
-            </div>
-          </div>
-        </div>
-      )}
+      </span>
+      <span className="num text-right text-[11.5px] text-text-3">{pending ? <Elapsed from={r.started_at} /> : durationLabel(r.duration_ms)}</span>
+      <span className="num text-right text-[11.5px] text-text-3">{shortTime(r.started_at)}</span>
+      <span className="num text-right text-[12.5px] text-text">{cost}</span>
+      <span className="flex justify-end">
+        <button type="button" onClick={() => openDetail(r.id)} className={"rounded-[5px] px-1.5 py-0.5 text-[11px] text-text-4 transition-colors hover:bg-bg-grad-a hover:text-accent-2 " + focus}>
+          详情
+        </button>
+      </span>
     </div>
   );
 }
@@ -291,6 +293,7 @@ export function ActiveTaskRow({ task: t, layout, hideProject }: { task: ActiveTa
         <span className="num text-right text-[11.5px] text-text-2">
           <Elapsed from={started} />
         </span>
+        <span className="num text-right text-[11.5px] text-text-3">{shortTime(started)}</span>
         <span className="num text-right text-[12.5px] text-text-4">—</span>
         <span className="flex justify-end">{cancel}</span>
       </div>
@@ -307,14 +310,14 @@ function RunningBar() {
   );
 }
 
-export function ActiveRows({ rows, layout, hideProject, onLocate }: { rows: ActiveRow[]; layout: RowLayout; hideProject?: boolean; onLocate?: (s: string) => void }) {
+export function ActiveRows({ rows, layout, hideProject }: { rows: ActiveRow[]; layout: RowLayout; hideProject?: boolean }) {
   return (
     <>
       {rows.map((row) =>
         row.kind === "task" ? (
           <ActiveTaskRow key={row.task.task_id} task={row.task} layout={layout} hideProject={hideProject} />
         ) : (
-          <RecordRow key={row.record.id} record={row.record} layout={layout} hideProject={hideProject} onLocate={onLocate} />
+          <RecordRow key={row.record.id} record={row.record} layout={layout} hideProject={hideProject} />
         ),
       )}
     </>

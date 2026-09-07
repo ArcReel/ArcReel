@@ -136,7 +136,7 @@ export function UsagePrototypeB() {
             <Kicker>Records</Kicker>
             <Seg size="xs" value={f.status ?? "*"} onChange={(v) => set({ status: v === "*" ? null : (v) })} options={[{ value: "*", label: "全部" }, ...(["pending", "success", "failed", "cancelled"] as RecordStatus[]).map((st) => ({ value: st, label: STATUS_LABELS[st] }))]} />
           </div>
-          <RecordsTable f={f} set={set} pageSize={30} />
+          <RecordsTable f={f} pageSize={30} />
         </section>
 
         <div className="flex items-center gap-3 text-[11px] text-text-4">
