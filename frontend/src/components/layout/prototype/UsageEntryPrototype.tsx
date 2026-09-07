@@ -420,15 +420,15 @@ function HudRecordRow({
       <div className="flex items-center gap-2.5">
         <MediaGlyph type={r.media_type} size={12} />
         <span className="min-w-0 flex-1 truncate text-[12.5px] text-text">{targetOf(r)}</span>
+        {failed && !canRetry && <span className="shrink-0 text-[11px] text-danger-2">{(r.error_code && ERROR_SHORT[r.error_code]) || "失败"}</span>}
         {retry}
         <StatusPill status={r.status} compact />
         <span className="num w-[52px] shrink-0 text-right text-[12px] text-text-2">{pending ? <Elapsed from={r.started_at} /> : cost}</span>
       </div>
-      <div className="mt-0.5 flex items-center gap-2 pl-[31px] text-[11px] text-text-4">
+      <div className="mt-0.5 flex items-center gap-2 pl-[31px] text-[11px] text-text-4" title={error ?? undefined}>
         <span className="truncate">{modelText}</span>
         <span className="ml-auto shrink-0 num">{shortTime(r.started_at)}</span>
       </div>
-      {error && <div className="mt-1 pl-[31px] text-[11px] leading-[1.45] text-danger-2">{error}</div>}
     </button>
   );
 }
@@ -727,6 +727,27 @@ function PopoverC({ data: raw, onClose }: { data: ScenarioData; onClose: () => v
   const { data, askAll, box } = useCancelFlow(raw);
   const goAll = useGoToAll();
   const recent = data.recent.slice(0, RECENT_N.C);
+  const nothing = data.active.length === 0 && data.recent.length === 0;
+  const footer = (
+    <div className="px-3 py-2.5" style={{ borderTop: "1px solid var(--color-hairline-soft)" }}>
+      <button
+        type="button"
+        onClick={goAll}
+        className={"flex w-full items-center justify-center gap-1.5 rounded-[7px] border border-hairline py-1.5 text-[12px] text-text-2 transition-colors hover:border-accent-soft hover:bg-bg-grad-a hover:text-accent-2 " + FOCUS}
+      >
+        查看全部记录
+        <ArrowUpRight className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+  if (nothing)
+    return (
+      <>
+        <HeaderBlock onClose={onClose} />
+        <Empty {...EMPTY_ALL} />
+        {footer}
+      </>
+    );
   return (
     <>
       <HeaderBlock onClose={onClose} />
@@ -739,21 +760,14 @@ function PopoverC({ data: raw, onClose }: { data: ScenarioData; onClose: () => v
         <div className="max-h-[min(32rem,calc(100vh-14rem))] overflow-y-auto px-1.5 pb-1.5">
           <SectionHead kicker="Recent" count={recent.length} />
           {recent.length === 0 ? (
-            <Empty {...(data.active.length === 0 ? EMPTY_ALL : EMPTY_DONE)} compact />
+            <Empty {...EMPTY_DONE} compact />
           ) : (
             recent.map((r) => <HudRecordRow key={r.id} record={r} onRetryDownload={data.retryDownload} retrying={data.retrying.has(r.id)} />)
           )}
         </div>
       </div>
       {box}
-      <div className="flex items-center px-4 py-2" style={{ borderTop: "1px solid var(--color-hairline-soft)" }}>
-        <span className="text-[10.5px] text-text-4">只显示本项目；进行中区不受时间范围影响</span>
-        <span className="flex-1" />
-        <button type="button" onClick={goAll} className={"inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-text-2 transition-colors hover:text-accent-2 " + FOCUS}>
-          查看全部记录
-          <ArrowUpRight className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      {footer}
     </>
   );
 }
@@ -811,15 +825,15 @@ function EntryButton({
       </span>
     );
   } else if (variant === "C") {
-    // C：只显示主币种，其他币种只留一个「+」角标（同 KPI 格的约定）
+    // C（选定）：主币种 + 其他币种全列，计数走角标
     cost = (
-      <span className="num inline-flex items-start">
+      <span className="num inline-flex items-baseline gap-1.5">
         <span className={main ? "text-text-2" : "text-text-4"}>{main ?? "¥0.00"}</span>
-        {others.length > 0 && (
-          <span className="ml-px text-[9px] leading-none text-accent-2" aria-label={`另有 ${others.join("、")}`}>
-            +
+        {others.map((o) => (
+          <span key={o} className="text-[10.5px] text-text-4">
+            + {o}
           </span>
-        )}
+        ))}
       </span>
     );
   } else {
