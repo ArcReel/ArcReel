@@ -1,12 +1,24 @@
 """Tests for UsageRepository."""
 
+import base64
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import select, update
 
+from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.api_call import ApiCall
-from lib.db.repositories.usage_repo import MAX_PROVIDER_RESPONSE_BYTES, SettlementInput, UsageRepository
+from lib.db.models.task import Task
+from lib.db.repositories.usage_repo import (
+    MAX_PROVIDER_RESPONSE_BYTES,
+    SettlementInput,
+    UsageCursor,
+    UsageCursorError,
+    UsageFilters,
+    UsageRepository,
+)
+from lib.providers import CallStatus
 
 
 class TestUsageRepository:
@@ -727,3 +739,315 @@ class TestMultiProviderUsage:
         assert stats["text_count"] == 1
         assert stats["failed_count"] == 1
         assert stats["total_count"] == 3
+
+
+BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+
+
+def make_call(**overrides) -> ApiCall:
+    """一行 api_calls；未覆写的列取一组不影响筛选的中性值。"""
+    fields: dict = {
+        "project_name": "demo",
+        "call_type": "image",
+        "model": "gemini-3.1-flash-image-preview",
+        "provider": "gemini",
+        "status": CallStatus.SUCCESS,
+        "started_at": BASE_TIME,
+        "cost_amount": 0.0,
+        "currency": "USD",
+        "user_id": DEFAULT_USER_ID,
+    }
+    fields.update(overrides)
+    return ApiCall(**fields)
+
+
+def make_task(task_id: str, *, task_type: str = "image_generation") -> Task:
+    return Task(
+        task_id=task_id,
+        project_name="demo",
+        task_type=task_type,
+        media_type="image",
+        resource_id="S1",
+        status="succeeded",
+        queued_at=BASE_TIME,
+        updated_at=BASE_TIME,
+    )
+
+
+class TestUsageCursor:
+    def test_round_trips_started_at_and_id(self):
+        cursor = UsageCursor(started_at=BASE_TIME, id=42)
+        decoded = UsageCursor.decode(cursor.encode())
+        assert decoded == cursor
+
+    def test_encoded_form_is_opaque_base64(self):
+        encoded = UsageCursor(started_at=BASE_TIME, id=42).encode()
+        assert "2026" not in encoded
+        assert base64.urlsafe_b64decode(encoded.encode("ascii"))
+
+    def test_naive_started_at_encodes_as_utc(self):
+        naive = UsageCursor(started_at=BASE_TIME.replace(tzinfo=None), id=7)
+        assert UsageCursor.decode(naive.encode()).started_at == BASE_TIME
+
+    @pytest.mark.parametrize("raw", ["not-base64!!", "", base64.urlsafe_b64encode(b"{}").decode()])
+    def test_undecodable_cursor_raises(self, raw):
+        with pytest.raises(UsageCursorError):
+            UsageCursor.decode(raw)
+
+
+class TestListRecords:
+    async def test_orders_by_started_at_then_id_desc(self, db_session):
+        db_session.add_all(
+            [
+                make_call(started_at=BASE_TIME, segment_id="older"),
+                make_call(started_at=BASE_TIME + timedelta(minutes=1), segment_id="tie-a"),
+                make_call(started_at=BASE_TIME + timedelta(minutes=1), segment_id="tie-b"),
+            ]
+        )
+        await db_session.commit()
+
+        page = await UsageRepository(db_session).list_records()
+
+        # 同一 started_at 上按 id 倒序，后写入的 tie-b 排在 tie-a 之前。
+        assert [item["segment_id"] for item in page["items"]] == ["tie-b", "tie-a", "older"]
+        assert page["total"] == 3
+        assert page["next_cursor"] is None
+
+    async def test_cursor_walks_every_row_once(self, db_session):
+        db_session.add_all([make_call(started_at=BASE_TIME + timedelta(minutes=i)) for i in range(7)])
+        await db_session.commit()
+        repo = UsageRepository(db_session)
+
+        seen: list[int] = []
+        cursor = None
+        for _ in range(4):
+            page = await repo.list_records(limit=3, cursor=cursor)
+            seen.extend(item["id"] for item in page["items"])
+            assert page["total"] == 7
+            if page["next_cursor"] is None:
+                break
+            cursor = UsageCursor.decode(page["next_cursor"])
+
+        assert len(seen) == len(set(seen)) == 7
+
+    async def test_cursor_steps_over_rows_sharing_started_at(self, db_session):
+        db_session.add_all([make_call(started_at=BASE_TIME) for _ in range(4)])
+        await db_session.commit()
+        repo = UsageRepository(db_session)
+
+        first = await repo.list_records(limit=2)
+        second = await repo.list_records(limit=2, cursor=UsageCursor.decode(first["next_cursor"]))
+
+        ids = [item["id"] for item in first["items"] + second["items"]]
+        assert len(set(ids)) == 4
+        assert ids == sorted(ids, reverse=True)
+
+    async def test_next_cursor_is_none_on_last_page(self, db_session):
+        db_session.add_all([make_call(started_at=BASE_TIME + timedelta(minutes=i)) for i in range(4)])
+        await db_session.commit()
+
+        page = await UsageRepository(db_session).list_records(limit=4)
+
+        assert len(page["items"]) == 4
+        assert page["next_cursor"] is None
+
+    async def test_pending_with_task_hidden_and_taskless_pending_kept(self, db_session):
+        db_session.add(make_task("t-1"))
+        db_session.add_all(
+            [
+                make_call(status=CallStatus.PENDING, task_id="t-1", segment_id="represented-by-task"),
+                make_call(status=CallStatus.PENDING, task_id=None, segment_id="taskless"),
+                make_call(status=CallStatus.SUCCESS, task_id="t-1", segment_id="settled"),
+            ]
+        )
+        await db_session.commit()
+
+        page = await UsageRepository(db_session).list_records()
+
+        assert {item["segment_id"] for item in page["items"]} == {"taskless", "settled"}
+        assert page["total"] == 2
+
+    async def test_task_type_comes_from_tasks_and_is_none_without_task(self, db_session):
+        db_session.add(make_task("t-9", task_type="video_generation"))
+        db_session.add_all(
+            [
+                make_call(task_id="t-9", segment_id="joined"),
+                make_call(task_id="t-gone", segment_id="dangling"),
+                make_call(task_id=None, segment_id="taskless"),
+            ]
+        )
+        await db_session.commit()
+
+        page = await UsageRepository(db_session).list_records()
+        by_segment = {item["segment_id"]: item["task_type"] for item in page["items"]}
+
+        assert by_segment == {"joined": "video_generation", "dangling": None, "taskless": None}
+
+    async def test_user_id_not_projected(self, db_session):
+        db_session.add(make_call())
+        await db_session.commit()
+
+        page = await UsageRepository(db_session).list_records()
+
+        assert "user_id" not in page["items"][0]
+
+    async def test_detail_only_fields_absent_from_list(self, db_session):
+        db_session.add(make_call(prompt="full prompt", inputs={"voice": "v1"}, last_provider_response={"raw": 1}))
+        await db_session.commit()
+
+        item = (await UsageRepository(db_session).list_records())["items"][0]
+
+        assert not {"prompt", "inputs", "last_provider_response"} & set(item)
+
+
+class TestListRecordsFilters:
+    async def test_multi_select_dimensions(self, db_session):
+        db_session.add_all(
+            [
+                make_call(provider="ark", model="doubao", call_type="text", segment_id="S1"),
+                make_call(provider="grok", model="grok-image", call_type="image", segment_id="S2"),
+                make_call(provider="vidu", model="vidu-q1", call_type="video", segment_id="S3"),
+            ]
+        )
+        await db_session.commit()
+        repo = UsageRepository(db_session)
+
+        by_provider = await repo.list_records(filters=UsageFilters(providers=("ark", "vidu")))
+        by_model = await repo.list_records(filters=UsageFilters(models=("doubao", "grok-image")))
+        by_media = await repo.list_records(filters=UsageFilters(media_types=("text", "image")))
+        by_segment = await repo.list_records(segment_ids=("S2", "S3"))
+
+        assert {item["provider"] for item in by_provider["items"]} == {"ark", "vidu"}
+        assert {item["model"] for item in by_model["items"]} == {"doubao", "grok-image"}
+        assert {item["media_type"] for item in by_media["items"]} == {"text", "image"}
+        assert {item["segment_id"] for item in by_segment["items"]} == {"S2", "S3"}
+
+    async def test_status_multi_select(self, db_session):
+        db_session.add_all(
+            [
+                make_call(status=CallStatus.SUCCESS),
+                make_call(status=CallStatus.FAILED),
+                make_call(status=CallStatus.CANCELLED),
+            ]
+        )
+        await db_session.commit()
+
+        page = await UsageRepository(db_session).list_records(statuses=("failed", "cancelled"))
+
+        assert {item["status"] for item in page["items"]} == {"failed", "cancelled"}
+        assert page["total"] == 2
+
+    async def test_empty_project_name_selects_trial_runs(self, db_session):
+        db_session.add_all([make_call(project_name=""), make_call(project_name="demo")])
+        await db_session.commit()
+        repo = UsageRepository(db_session)
+
+        trials = await repo.list_records(filters=UsageFilters(project_name=""))
+        unfiltered = await repo.list_records()
+
+        assert [item["project_name"] for item in trials["items"]] == [""]
+        assert unfiltered["total"] == 2
+
+    async def test_since_until_is_half_open_on_started_at(self, db_session):
+        db_session.add_all(
+            [
+                make_call(started_at=BASE_TIME - timedelta(seconds=1), segment_id="before"),
+                make_call(started_at=BASE_TIME, segment_id="at-since"),
+                make_call(started_at=BASE_TIME + timedelta(hours=1), segment_id="at-until"),
+            ]
+        )
+        await db_session.commit()
+
+        page = await UsageRepository(db_session).list_records(
+            filters=UsageFilters(since=BASE_TIME, until=BASE_TIME + timedelta(hours=1))
+        )
+
+        assert [item["segment_id"] for item in page["items"]] == ["at-since"]
+
+    async def test_naive_bounds_are_read_as_utc(self, db_session):
+        db_session.add(make_call(started_at=BASE_TIME))
+        await db_session.commit()
+
+        page = await UsageRepository(db_session).list_records(
+            filters=UsageFilters(since=BASE_TIME.replace(tzinfo=None), until=None)
+        )
+
+        assert page["total"] == 1
+
+    async def test_total_counts_filtered_rows_not_page(self, db_session):
+        db_session.add_all([make_call(provider="ark") for _ in range(5)])
+        db_session.add_all([make_call(provider="grok") for _ in range(3)])
+        await db_session.commit()
+
+        page = await UsageRepository(db_session).list_records(filters=UsageFilters(providers=("ark",)), limit=2)
+
+        assert len(page["items"]) == 2
+        assert page["total"] == 5
+
+
+class TestGetRecord:
+    async def test_detail_carries_prompt_inputs_and_provider_response(self, db_session):
+        db_session.add(
+            make_call(
+                prompt="a very long prompt",
+                inputs={"reference_images": [{"path": "a.png", "label": "角色", "role": "reference"}]},
+                last_provider_response={"raw": "body"},
+                task_id="t-3",
+            )
+        )
+        db_session.add(make_task("t-3"))
+        await db_session.commit()
+        repo = UsageRepository(db_session)
+        record_id = (await repo.list_records())["items"][0]["id"]
+
+        detail = await repo.get_record(record_id)
+
+        assert detail is not None
+        assert detail["prompt"] == "a very long prompt"
+        assert detail["inputs"]["reference_images"][0]["path"] == "a.png"
+        assert detail["last_provider_response"] == {"raw": "body"}
+        assert detail["task_type"] == "image_generation"
+        assert "user_id" not in detail
+
+    async def test_unknown_id_returns_none(self, db_session):
+        assert await UsageRepository(db_session).get_record(999) is None
+
+    async def test_pending_row_hidden_from_list_is_still_readable_by_id(self, db_session):
+        db_session.add(make_task("t-5"))
+        db_session.add(make_call(status=CallStatus.PENDING, task_id="t-5"))
+        await db_session.commit()
+        repo = UsageRepository(db_session)
+        row_id = (await db_session.execute(select(ApiCall.id))).scalar_one()
+
+        assert (await repo.list_records())["total"] == 0
+        assert (await repo.get_record(row_id)) is not None
+
+    async def test_timestamps_are_utc_iso(self, db_session):
+        db_session.add(make_call(started_at=BASE_TIME, finished_at=BASE_TIME + timedelta(seconds=3)))
+        await db_session.commit()
+        repo = UsageRepository(db_session)
+        item = (await repo.list_records())["items"][0]
+
+        assert item["started_at"] == "2026-03-01T12:00:00+00:00"
+        assert item["finished_at"] == "2026-03-01T12:00:03+00:00"
+
+    async def test_scope_applies_to_page_count_and_detail(self, db_session):
+        class ProjectScopedUsageRepository(UsageRepository):
+            def _scope_query(self, stmt, model):
+                return stmt.where(model.project_name == "visible")
+
+        db_session.add_all(
+            [
+                make_call(project_name="visible", segment_id="in-scope"),
+                make_call(project_name="hidden", segment_id="out-of-scope"),
+            ]
+        )
+        await db_session.commit()
+        repo = ProjectScopedUsageRepository(db_session)
+        ids = {row.segment_id: row.id for row in (await db_session.execute(select(ApiCall))).scalars()}
+
+        page = await repo.list_records()
+
+        assert page["total"] == 1
+        assert [item["segment_id"] for item in page["items"]] == ["in-scope"]
+        assert await repo.get_record(ids["out-of-scope"]) is None
