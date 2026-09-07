@@ -225,6 +225,8 @@ MESSAGES = {
     "model_not_found": "模型不存在",
     "trial_run_already_running": "已有一个测试连接在进行中，请等它结束或取消后再试",
     "trial_run_not_found": "测试连接记录不存在或已过期",
+    "usage_record_not_found": "使用记录不存在",
+    "usage_cursor_invalid": "分页游标无效，请回到第一页重新翻阅",
     "trial_run_artifact_not_found": "本次测试连接没有可播放的产物",
     "at_least_one_field_required": "至少需要提供一个更新字段",
     "discovery_failed": "模型发现失败: {err_msg}",

@@ -240,6 +240,8 @@ MESSAGES = {
     "model_not_found": "Model not found",
     "trial_run_already_running": "A trial run is already in progress. Wait for it to finish or cancel it first",
     "trial_run_not_found": "Trial run not found or expired",
+    "usage_record_not_found": "Usage record not found",
+    "usage_cursor_invalid": "Invalid pagination cursor; go back to the first page and browse again",
     "trial_run_artifact_not_found": "This trial run has no playable output",
     "at_least_one_field_required": "At least one field must be provided for update",
     "discovery_failed": "Model discovery failed: {err_msg}",

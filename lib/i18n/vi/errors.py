@@ -238,6 +238,8 @@ MESSAGES = {
     "model_not_found": "Không tìm thấy mô hình",
     "trial_run_already_running": "Đã có một lần chạy thử đang diễn ra, hãy đợi nó kết thúc hoặc hủy trước",
     "trial_run_not_found": "Không tìm thấy bản ghi chạy thử hoặc bản ghi đã hết hạn",
+    "usage_record_not_found": "Không tìm thấy bản ghi sử dụng",
+    "usage_cursor_invalid": "Con trỏ phân trang không hợp lệ, hãy quay lại trang đầu và duyệt lại",
     "trial_run_artifact_not_found": "Lần chạy thử này không có sản phẩm để phát",
     "at_least_one_field_required": "Phải cung cấp ít nhất một trường để cập nhật",
     "discovery_failed": "Phát hiện mô hình thất bại: {err_msg}",

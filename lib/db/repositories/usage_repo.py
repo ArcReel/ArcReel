@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import contextlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import ColumnElement, and_, case, func, or_, select, update
 
 from lib.cost_calculator import cost_calculator
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
+from lib.db.models.task import Task
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.pricing.strategies import PricingParams
@@ -772,3 +775,227 @@ class UsageRepository(BaseRepository):
         stmt = self._scope_query(stmt, ApiCall)
         result = await self.session.execute(stmt)
         return [row[0] for row in result.all()]
+
+    # ------------------------------------------------------------------
+    # 使用记录读接口
+    # 筛选维度、投影与游标编码定义在本文件末尾的模块级「使用记录读侧」一节。
+    # ------------------------------------------------------------------
+
+    async def list_records(
+        self,
+        *,
+        filters: UsageFilters | None = None,
+        statuses: tuple[str, ...] = (),
+        segment_ids: tuple[str, ...] = (),
+        limit: int = 20,
+        cursor: UsageCursor | None = None,
+    ) -> dict[str, Any]:
+        """按 ``started_at DESC, id DESC`` 取一页使用记录。
+
+        返回 ``{"items", "next_cursor", "total"}``：``total`` 是筛选后的总数、不随游标变化，
+        ``next_cursor`` 为 ``None`` 表示已到末页。``task_type`` 经 ``task_id`` 外连 ``tasks``
+        得到，任务行已被清理时留空。
+        """
+        clauses = _records_base_clauses(filters or UsageFilters(), statuses=statuses, segment_ids=segment_ids)
+
+        count_stmt = self._scope_query(select(func.count()).select_from(ApiCall).where(*clauses), ApiCall)
+        total = (await self.session.execute(count_stmt)).scalar() or 0
+
+        page_clauses = [*clauses]
+        if cursor is not None:
+            page_clauses.append(
+                or_(
+                    ApiCall.started_at < cursor.started_at,
+                    and_(ApiCall.started_at == cursor.started_at, ApiCall.id < cursor.id),
+                )
+            )
+        # 多取一行只为判断还有没有下一页，省掉第二次 COUNT；它不进 items。
+        items_stmt = (
+            select(ApiCall, Task.task_type)
+            .outerjoin(Task, Task.task_id == ApiCall.task_id)
+            .where(*page_clauses)
+            .order_by(ApiCall.started_at.desc(), ApiCall.id.desc())
+            .limit(limit + 1)
+        )
+        rows = (await self.session.execute(self._scope_query(items_stmt, ApiCall))).all()
+
+        page = rows[:limit]
+        next_cursor = UsageCursor(started_at=page[-1][0].started_at, id=page[-1][0].id) if len(rows) > limit else None
+        return {
+            "items": [_record_to_dict(row, task_type) for row, task_type in page],
+            "next_cursor": next_cursor.encode() if next_cursor is not None else None,
+            "total": total,
+        }
+
+    async def get_record(self, record_id: int) -> dict[str, Any] | None:
+        """单条使用记录的详情；不存在或不在 scope 内返回 ``None``。
+
+        不套列表那条「有任务的 pending 不出现」——那条只为避免进行中区与记录表重复展示，
+        按 id 直达（``record=<id>`` 深链）的一行仍应可读。
+        """
+        stmt = (
+            select(ApiCall, Task.task_type)
+            .outerjoin(Task, Task.task_id == ApiCall.task_id)
+            .where(ApiCall.id == record_id)
+        )
+        row = (await self.session.execute(self._scope_query(stmt, ApiCall))).first()
+        return _record_detail_to_dict(row[0], row[1]) if row is not None else None
+
+
+# ---------------------------------------------------------------------------
+# 使用记录读侧
+#
+# 这一段只读，与上面的记账写侧互不引用：写侧关心一次调用如何结算，读侧把 api_calls
+# 投影成「使用记录」交给设置页与顶栏。筛选维度、UTC 归一与游标编码在此定义一次，
+# ``/usage/records`` 与 ``/usage/summary`` 共用。
+# ---------------------------------------------------------------------------
+
+
+class UsageCursorError(ValueError):
+    """游标串无法解码——不是合法 base64，或载荷不是 ``(started_at, id)``。"""
+
+
+@dataclass(frozen=True)
+class UsageFilters:
+    """使用记录的筛选维度，``/usage/records`` 与 ``/usage/summary`` 同口径。
+
+    ``providers`` / ``models`` / ``media_types`` 是多选，空元组表示该维度不筛。
+    ``since`` / ``until`` 是作用于 ``started_at`` 的半开区间 ``[since, until)``。
+    """
+
+    project_name: str | None = None
+    providers: tuple[str, ...] = ()
+    models: tuple[str, ...] = ()
+    media_types: tuple[str, ...] = ()
+    since: datetime | None = None
+    until: datetime | None = None
+
+
+def as_utc(value: datetime) -> datetime:
+    """无时区的时刻按 UTC 理解，带时区的换算到 UTC。"""
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def usage_filter_clauses(filters: UsageFilters) -> list[ColumnElement[bool]]:
+    """把 ``UsageFilters`` 展开成 WHERE 子句。
+
+    ``project_name`` 用 ``is not None`` 而非真值判断：端点试跑的记录以 ``""`` 落库，
+    ``project_name=""`` 要能筛出它们，只有 ``None`` 表示不筛这一维。
+    """
+    clauses: list[ColumnElement[bool]] = []
+    if filters.project_name is not None:
+        clauses.append(ApiCall.project_name == filters.project_name)
+    if filters.providers:
+        clauses.append(ApiCall.provider.in_(filters.providers))
+    if filters.models:
+        clauses.append(ApiCall.model.in_(filters.models))
+    if filters.media_types:
+        clauses.append(ApiCall.call_type.in_(filters.media_types))
+    if filters.since is not None:
+        clauses.append(ApiCall.started_at >= as_utc(filters.since))
+    if filters.until is not None:
+        clauses.append(ApiCall.started_at < as_utc(filters.until))
+    return clauses
+
+
+def _records_base_clauses(
+    filters: UsageFilters,
+    *,
+    statuses: tuple[str, ...],
+    segment_ids: tuple[str, ...],
+) -> list[ColumnElement[bool]]:
+    """记录列表的完整 WHERE：共享维度 + 状态/分镜多选 + 「有任务的 pending 不出现」。
+
+    ``status=pending`` 且 ``task_id`` 非空的行由它服务的那个生成任务代表（进行中区读任务
+    store），列表里再出现一次就是重复；无任务的 pending 调用没有别的代表，必须留下。
+    """
+    clauses = usage_filter_clauses(filters)
+    if statuses:
+        clauses.append(ApiCall.status.in_(statuses))
+    if segment_ids:
+        clauses.append(ApiCall.segment_id.in_(segment_ids))
+    clauses.append(or_(ApiCall.status != CallStatus.PENDING, ApiCall.task_id.is_(None)))
+    return clauses
+
+
+@dataclass(frozen=True)
+class UsageCursor:
+    """keyset 分页的位置：上一页最后一行的 ``(started_at, id)``。
+
+    对客户端不透明——只允许原样回传，故编码成 base64。
+    """
+
+    started_at: datetime
+    id: int
+
+    def encode(self) -> str:
+        payload = json.dumps({"started_at": as_utc(self.started_at).isoformat(), "id": self.id})
+        return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+
+    @classmethod
+    def decode(cls, raw: str) -> UsageCursor:
+        try:
+            payload = json.loads(base64.b64decode(raw.encode("ascii"), altchars=b"-_", validate=True))
+            started_at = payload["started_at"]
+            cursor_id = payload["id"]
+            if not isinstance(started_at, str) or type(cursor_id) is not int or not 1 <= cursor_id <= 2**31 - 1:
+                raise ValueError("游标字段类型或范围无效")
+            return cls(started_at=as_utc(datetime.fromisoformat(started_at)), id=cursor_id)
+        except (binascii.Error, LookupError, TypeError, UnicodeError, ValueError) as exc:
+            raise UsageCursorError(f"无法解码的游标: {raw!r}") from exc
+
+
+def _record_iso(value: datetime | None) -> str | None:
+    """记录里的时刻一律输出 UTC ISO 串。
+
+    不能直接 ``isoformat``：SQLite 的 ``DateTime(timezone=True)`` 取回来是 naive 的，
+    不带偏移量的串会被前端按浏览器本地时区解读，同一行在 SQLite 与 PostgreSQL 上还会
+    得到不同含义。
+    """
+    return as_utc(value).isoformat() if value is not None else None
+
+
+def _record_to_dict(row: ApiCall, task_type: str | None) -> dict[str, Any]:
+    """一次调用的列表投影。``user_id`` 不出现在响应里。"""
+    return {
+        "id": row.id,
+        "project_name": row.project_name,
+        "purpose": row.purpose,
+        "task_id": row.task_id,
+        "task_type": task_type,
+        "media_type": row.call_type,
+        "provider": row.provider,
+        "model": row.model,
+        "status": row.status,
+        "error_code": row.error_code,
+        "error_params": row.error_params,
+        "error_message": row.error_message,
+        "segment_id": row.segment_id,
+        "output_path": row.output_path,
+        "started_at": _record_iso(row.started_at),
+        "finished_at": _record_iso(row.finished_at),
+        "duration_ms": row.duration_ms,
+        "cost_amount": row.cost_amount,
+        "currency": row.currency,
+        "input_tokens": row.input_tokens,
+        "output_tokens": row.output_tokens,
+        "usage_tokens": row.usage_tokens,
+        "image_input_tokens": row.image_input_tokens,
+        "image_output_tokens": row.image_output_tokens,
+        "text_input_tokens": row.text_input_tokens,
+        "text_output_tokens": row.text_output_tokens,
+        "resolution": row.resolution,
+        "duration_seconds": row.duration_seconds,
+        "aspect_ratio": row.aspect_ratio,
+        "session_id": row.session_id,
+    }
+
+
+def _record_detail_to_dict(row: ApiCall, task_type: str | None) -> dict[str, Any]:
+    """详情比列表多三项重载荷：提示词全文、输入与最后一次供应商响应。"""
+    return {
+        **_record_to_dict(row, task_type),
+        "prompt": row.prompt,
+        "inputs": row.inputs,
+        "last_provider_response": row.last_provider_response,
+    }
