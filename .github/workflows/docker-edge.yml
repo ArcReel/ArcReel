@@ -113,14 +113,14 @@ jobs:
 
       - name: Upload Trivy SARIF amd64
         if: always() && hashFiles('trivy-amd64.sarif') != ''
-        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: trivy-amd64.sarif
           category: trivy-image-amd64
 
       - name: Upload Trivy SARIF arm64
         if: always() && hashFiles('trivy-arm64.sarif') != ''
-        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: trivy-arm64.sarif
           category: trivy-image-arm64
