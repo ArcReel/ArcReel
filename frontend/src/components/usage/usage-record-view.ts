@@ -15,6 +15,8 @@ export interface UsageRecordView {
   key: string;
   /** 可打开详情的行才有记录 id；进行中的任务行为 null。 */
   recordId: number | null;
+  /** 服务了任务的调用带任务 id；无任务的文本调用与端点试跑为 null。 */
+  taskId: string | null;
   /** 端点试跑记录为空串。 */
   projectName: string;
   mediaType: CallType;
@@ -38,6 +40,7 @@ export function usageRecordToView(record: UsageRecord): UsageRecordView {
   return {
     key: `record:${record.id}`,
     recordId: record.id,
+    taskId: record.task_id,
     projectName: record.project_name,
     mediaType: record.media_type,
     provider: record.provider,
@@ -63,6 +66,7 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView {
   return {
     key: `task:${task.task_id}`,
     recordId: null,
+    taskId: task.task_id,
     projectName: task.project_name,
     mediaType: task.media_type,
     provider: task.provider_id,
@@ -78,6 +82,17 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView {
     costAmount: 0,
     currency: "USD",
   };
+}
+
+/**
+ * 后端 `_localize_task` 已把 `result.warnings` 渲染成当前语言的字符串数组，这里只做形态
+ * 收窄：`result` 是 `Record<string, unknown>`，类型上给不出字符串数组的保证，非字符串条目
+ * 一律丢弃而不是渲染成 `[object Object]`。
+ */
+export function taskWarnings(task: TaskItem): string[] {
+  const warnings = task.result?.warnings;
+  if (!Array.isArray(warnings)) return [];
+  return warnings.filter((warning): warning is string => typeof warning === "string");
 }
 
 /**

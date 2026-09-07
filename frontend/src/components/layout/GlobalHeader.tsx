@@ -1,17 +1,15 @@
 import { startTransition, useState, useEffect, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
-import { ChevronLeft, Activity, Settings, Bell, Download, Loader2, Package } from "lucide-react";
+import { ChevronLeft, Settings, Bell, Download, Loader2, Package } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { isDemoProject } from "@/onboarding/demo-project";
-import { useTasksStore } from "@/stores/tasks-store";
-import { useUsageStore, type UsageStats } from "@/stores/usage-store";
-import { TaskHud } from "@/components/task-hud/TaskHud";
-import { UsageDrawer } from "./UsageDrawer";
+import { useUsageHeaderStore } from "@/stores/usage-header-store";
+import { UsageHeaderEntry } from "@/components/usage/UsageHeaderEntry";
 import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
 import { ExportScopeDialog } from "./ExportScopeDialog";
 import { ProjectMenu } from "./ProjectMenu";
@@ -20,7 +18,6 @@ import { PhaseStepper } from "./PhaseStepper";
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
-import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
 
@@ -42,39 +39,34 @@ interface GlobalHeaderProps {
  * 工作台顶栏（48px，玻璃面板）。三段式 grid：
  * - 左：返回按钮 + ProjectMenu（项目切换菜单）
  * - 中：PhaseStepper（5 阶段胶囊）
- * - 右：通知 / 费用 / 任务雷达 / 导出 / 资产库 / 设置
+ * - 右：通知 / 使用记录 / 导出 / 资产库 / 设置
  */
 export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const { t } = useTranslation();
   const [, setLocation] = useLocation();
   const { currentProjectData, currentProjectName } = useProjectsStore();
-  const { stats } = useTasksStore();
-  const { taskHudOpen, setTaskHudOpen, triggerScrollTo, markWorkspaceNotificationRead } =
-    useAppStore();
-  const { stats: usageStats, setStats: setUsageStats } = useUsageStore();
-  const [usageDrawerOpen, setUsageDrawerOpen] = useState(false);
+  const { setUsagePanelOpen, triggerScrollTo, markWorkspaceNotificationRead } = useAppStore();
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [exportingProject, setExportingProject] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [jianyingExporting, setJianyingExporting] = useState(false);
   const [exportDiagnostics, setExportDiagnostics] = useState<ExportDiagnostics | null>(null);
-  const usageAnchorRef = useRef<HTMLDivElement>(null);
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
-  const taskHudAnchorRef = useRef<HTMLDivElement>(null);
   const exportAnchorRef = useRef<HTMLDivElement>(null);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
 
   const currentPhase = currentProjectData?.status?.phase;
-  const runningCount = stats.running + stats.queued;
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
 
-  // 演示项目在后端没有用量记录，按项目查会 404；退回全局用量，顶栏费用仍有值可显示。
-  // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
-  // 兜住这一帧仍读到旧演示项目名的窗口，避免按不存在的演示项目查用量而 404。
+  // 演示项目在后端没有用量记录，入口整个不渲染。demoMode 在演示→真实切换时先于 store
+  // 变为 false，currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
   const demoMode = useDemoWorkbench();
-  const usageProjectName = demoMode || isDemoProject(currentProjectName) ? null : currentProjectName;
+  const usageProjectName =
+    demoMode || !currentProjectName || isDemoProject(currentProjectName)
+      ? null
+      : currentProjectName;
 
   // 导出弹窗打开期间切到演示项目（如浏览器前进/后退复用同一路由实例）时随即关闭——
   // 触发按钮虽已按 demoMode 禁用，但已打开的弹窗不受影响，仍会展示可点击的导出/剪映草稿操作
@@ -84,31 +76,15 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     setExportDialogOpen(false);
   }, [demoMode]);
 
-  const completedTaskCount = stats.succeeded + stats.failed;
+  // 入口的数据随项目走：切到别的项目或演示项目时清空上一项目的用量，并收起悬浮层。
   useEffect(() => {
-    const controller = new AbortController();
-    API.getUsageStats(
-      usageProjectName ? { projectName: usageProjectName } : {},
-      { signal: controller.signal }
-    )
-      .then((res) => {
-        setUsageStats(res as unknown as UsageStats);
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [usageProjectName, completedTaskCount, setUsageStats]);
+    void useUsageHeaderStore.getState().setProject(usageProjectName);
+    if (usageProjectName === null) setUsagePanelOpen(false);
+  }, [usageProjectName, setUsagePanelOpen]);
 
   useEffect(() => {
     void fetchConfigStatus();
   }, [fetchConfigStatus]);
-
-  // Format cost display – show multi-currency summary
-  const costByCurrency = usageStats?.cost_by_currency ?? {};
-  const nonZeroCostEntries = costEntries(costByCurrency);
-  const primaryCost = nonZeroCostEntries[0];
-  const secondaryCost = nonZeroCostEntries[1];
-  const extraCostCount = Math.max(0, nonZeroCostEntries.length - 2);
-  const costTooltip = formatCostOrZero(costByCurrency);
 
   const handleNotificationNavigate = (notification: WorkspaceNotification) => {
     if (!notification.target) return;
@@ -284,101 +260,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             />
           </div>
 
-          {/* Cost badge + UsageDrawer */}
-          <div className="relative" ref={usageAnchorRef}>
-            <button
-              type="button"
-              onClick={() => setUsageDrawerOpen(!usageDrawerOpen)}
-              className="inline-flex items-center gap-2 rounded-md px-2.5 py-[5px] text-[11.5px] transition-colors focus-ring"
-              style={{
-                background: usageDrawerOpen
-                  ? "var(--color-accent-dim)"
-                  : "oklch(0.22 0.011 265 / 0.5)",
-                border: "1px solid var(--color-hairline-soft)",
-                color: "var(--color-text-2)",
-              }}
-              title={t("dashboard:cost_tooltip", { cost: costTooltip })}
-            >
-              {primaryCost ? (
-                <span className="num" style={{ color: "var(--color-text-4)" }}>
-                  {formatCurrencyAmount(primaryCost[0], primaryCost[1])}
-                </span>
-              ) : (
-                <span
-                  className="num font-medium"
-                  style={{ color: "var(--color-text-2)" }}
-                >
-                  {formatCostOrZero(undefined)}
-                </span>
-              )}
-              {primaryCost && secondaryCost && (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: 2,
-                    height: 10,
-                    borderRadius: 1,
-                    background: "var(--color-hairline)",
-                  }}
-                />
-              )}
-              {secondaryCost && (
-                <span
-                  className="num font-medium"
-                  style={{ color: "var(--color-text-2)" }}
-                >
-                  {formatCurrencyAmount(secondaryCost[0], secondaryCost[1])}
-                </span>
-              )}
-              {extraCostCount > 0 && (
-                <span className="num" style={{ color: "var(--color-text-4)" }}>
-                  +{extraCostCount}
-                </span>
-              )}
-            </button>
-            <UsageDrawer
-              open={usageDrawerOpen}
-              onClose={() => setUsageDrawerOpen(false)}
-              projectName={usageProjectName}
-              anchorRef={usageAnchorRef}
-            />
-          </div>
-
-          {/* Task radar + TaskHud popover */}
-          <div className="relative" ref={taskHudAnchorRef}>
-            <button
-              type="button"
-              onClick={() => setTaskHudOpen(!taskHudOpen)}
-              className="relative grid h-[30px] w-[30px] place-items-center rounded-md transition-colors focus-ring"
-              style={{
-                color: taskHudOpen ? "var(--color-accent-2)" : "var(--color-text-3)",
-                background: taskHudOpen ? "var(--color-accent-dim)" : "transparent",
-              }}
-              onMouseEnter={(e) => {
-                if (!taskHudOpen)
-                  e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
-              }}
-              onMouseLeave={(e) => {
-                if (!taskHudOpen) e.currentTarget.style.background = "transparent";
-              }}
-              title={t("dashboard:task_status_tooltip", {
-                running: stats.running,
-                queued: stats.queued,
-              })}
-              aria-label={t("dashboard:toggle_task_panel")}
-            >
-              <Activity className={`h-4 w-4 ${runningCount > 0 ? "animate-shot-pulse" : ""}`} />
-              {runningCount > 0 && (
-                <span
-                  className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
-                  style={{ background: "var(--color-accent)", color: "oklch(0.14 0 0)" }}
-                >
-                  {runningCount}
-                </span>
-              )}
-            </button>
-            <TaskHud anchorRef={taskHudAnchorRef} />
-          </div>
+          {/* Usage entry + popover */}
+          {usageProjectName && <UsageHeaderEntry projectName={usageProjectName} />}
 
           <div
             aria-hidden="true"

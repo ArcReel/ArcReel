@@ -12,6 +12,12 @@ from lib.i18n import _ as translate_message
 from lib.task_failure import encode_failure, render_failure
 
 
+async def stored_calls(session) -> list[ApiCall]:
+    """按 started_at 倒序读回 api_calls 行。"""
+    stmt = select(ApiCall).order_by(ApiCall.started_at.desc(), ApiCall.id.desc())
+    return list((await session.execute(stmt)).scalars().all())
+
+
 def _translator(locale: str):
     def translate(key: str, **kwargs):
         return translate_message(key, locale=locale, **kwargs)
@@ -59,12 +65,11 @@ class TestTaskRepository:
         retried = await repo.retry_artifact_download(task["task_id"])
 
         assert retried["status"] == "running"
-        calls = await usage.get_calls(project_name="demo")
-        assert calls["total"] == 2
-        assert calls["items"][0]["id"] == call_id
-        assert calls["items"][0]["status"] == "pending"
-        assert calls["items"][1]["id"] == older_call_id
-        assert calls["items"][1]["status"] == "failed"
+        calls = await stored_calls(db_session)
+        assert [(row.id, row.status) for row in calls] == [
+            (call_id, "pending"),
+            (older_call_id, "failed"),
+        ]
         # 重开的行不再带上一次下载的失败原文与机器码：重试成功后 resume 结算只翻状态，
         # 留着会让这条 success 行一直挂着 download_failed。
         reopened = (
@@ -95,10 +100,8 @@ class TestTaskRepository:
         retried = await repo.retry_artifact_download(task["task_id"])
 
         assert retried["status"] == "running"
-        calls = await usage.get_calls(project_name="demo")
-        assert calls["total"] == 1
-        assert calls["items"][0]["id"] == call_id
-        assert calls["items"][0]["status"] == "pending"
+        calls = await stored_calls(db_session)
+        assert [(row.id, row.status) for row in calls] == [(call_id, "pending")]
 
     async def test_retry_artifact_download_leaves_undispatchable_task_failed(self, db_session):
         usage = UsageRepository(db_session)
@@ -121,7 +124,7 @@ class TestTaskRepository:
             await repo.retry_artifact_download(task["task_id"])
 
         assert (await repo.get(task["task_id"]))["status"] == "failed"
-        assert (await usage.get_calls(project_name="demo"))["items"][0]["status"] == "failed"
+        assert (await stored_calls(db_session))[0].status == "failed"
 
     async def test_retry_artifact_download_rejects_task_without_linked_call(self, db_session):
         """调用行按 api_calls.task_id 反查；历史任务的调用没有这层关联时拒绝重试，不新开计费行。"""

@@ -5,12 +5,11 @@
 (``server/routers/generate.py``, ``server/routers/grids.py``,
 ``server/routers/reference_videos.py``, ``server/agent_runtime/sdk_tools/enqueue_*.py``)
 or dynamically from :data:`ASSET_SPECS` keys (``lib/asset_types.py``) via
-``server/agent_runtime/sdk_tools/enqueue_assets.py``. The frontend Task HUD
-(``frontend/src/components/task-hud/TaskHud.tsx``) renders each task's type by
-looking up ``task_type_<type>`` in the ``dashboard`` i18n namespace; if a
-backend task_type ships without a corresponding ``task_type_<type>`` key in
-zh/en/vi, the label falls back to the raw task_type string. This test fails CI
-in that case so the gap is caught at PR time.
+``server/agent_runtime/sdk_tools/enqueue_assets.py``. Frontend task displays,
+including the usage cancellation preview, look up ``task_type_<type>`` in the
+``dashboard`` i18n namespace; if a backend task_type ships without a matching
+zh/en/vi key, the label falls back to the raw task_type string. This test fails
+CI in that case so the gap is caught at PR time.
 
 The fixed literals below were enumerated by grepping every ``task_type="..."``
 and ``task_type=asset_type``/``task_type=spec.task_type`` call site in

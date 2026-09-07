@@ -115,7 +115,7 @@ export function buildTaskFailureTarget(
 
 /**
  * 通知文案里拒因摘要的最大字符数。通知是一行 toast，超出部分截断并省略号收尾，
- * 完整摘要仍可在任务面板（TaskHud）读到。
+ * 完整摘要不在单行通知 toast 内展开。
  */
 const PROVIDER_REASON_MAX_LENGTH = 120;
 

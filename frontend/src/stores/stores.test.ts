@@ -4,7 +4,6 @@ import {
   useAssistantStore,
   useProjectsStore,
   useTasksStore,
-  useUsageStore,
 } from "@/stores";
 import type { DraftState, TaskItem, TimelineEntry } from "@/types";
 
@@ -13,7 +12,6 @@ function resetAllStores(): void {
   useAssistantStore.setState(useAssistantStore.getInitialState(), true);
   useProjectsStore.setState(useProjectsStore.getInitialState(), true);
   useTasksStore.setState(useTasksStore.getInitialState(), true);
-  useUsageStore.setState(useUsageStore.getInitialState(), true);
 }
 
 function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
@@ -116,8 +114,8 @@ describe("stores", () => {
       useAppStore.getState().workspaceNotifications.some((item) => item.id === notification.id)
     ).toBe(false);
 
-    app.setTaskHudOpen(true);
-    expect(useAppStore.getState().taskHudOpen).toBe(true);
+    app.setUsagePanelOpen(true);
+    expect(useAppStore.getState().usagePanelOpen).toBe(true);
 
     expect(useAppStore.getState().sourceFilesVersion).toBe(0);
     app.invalidateSourceFiles();
@@ -401,58 +399,5 @@ describe("stores", () => {
       useProjectsStore.getState().setCurrentProject("demo", {} as any, {}, { "storyboards/x.png": 999 });
       expect(useProjectsStore.getState().getAssetFingerprint("storyboards/x.png")).toBe(999);
     });
-  });
-
-  it("updates usage store filters, pagination and result payloads", () => {
-    const usage = useUsageStore.getState();
-
-    usage.setProjects(["demo", "demo-2"]);
-    usage.setFilters({ project_name: "demo", media_type: "image", status: "ok" });
-    usage.setStats({
-      total_cost: 12.34,
-      cost_by_currency: { USD: 12.34 },
-      image_count: 5,
-      video_count: 2,
-      text_count: 0,
-      audio_count: 0,
-      failed_count: 1,
-      total_count: 8,
-    });
-    usage.setCalls(
-      [
-        {
-          id: "1",
-          project_name: "demo",
-          call_type: "image",
-          model: "model-x",
-          status: "succeeded",
-          cost_amount: 0.5,
-          currency: "USD",
-          provider: "gemini",
-          output_path: "/tmp/out.png",
-          resolution: "1080x1920",
-          duration_seconds: null,
-          duration_ms: 1200,
-          error_message: null,
-          started_at: "2026-02-01T00:00:00Z",
-          created_at: "2026-02-01T00:00:00Z",
-          usage_tokens: null,
-          input_tokens: null,
-          output_tokens: null,
-        },
-      ],
-      1,
-    );
-    usage.setPage(2);
-    usage.setLoading(true);
-
-    const state = useUsageStore.getState();
-    expect(state.projects).toEqual(["demo", "demo-2"]);
-    expect(state.filters.project_name).toBe("demo");
-    expect(state.stats?.total_cost).toBe(12.34);
-    expect(state.calls).toHaveLength(1);
-    expect(state.total).toBe(1);
-    expect(state.page).toBe(2);
-    expect(state.loading).toBe(true);
   });
 });

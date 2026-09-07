@@ -8,66 +8,11 @@ from fastapi.testclient import TestClient
 
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
-from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.providers import CallStatus
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import usage
 from tests.auth_deps import AUTH_DEPENDENCIES
-
-
-@pytest.fixture
-async def usage_env(db_factory, monkeypatch):
-    async with db_factory() as session:
-        repo = UsageRepository(session)
-        cid1 = await repo.start_call(project_name="demo", call_type="image", model="gemini-3.1-flash-image-preview")
-        await repo.finish_call(cid1, status="success", settlement=SettlementInput())
-        cid2 = await repo.start_call(project_name="demo", call_type="video", model="veo-3")
-        await repo.finish_call(cid2, status="success", settlement=SettlementInput())
-        cid3 = await repo.start_call(project_name="demo", call_type="video", model="veo-3")
-        await repo.finish_call(cid3, status="success", settlement=SettlementInput())
-        cid4 = await repo.start_call(project_name="demo2", call_type="image", model="gemini-3.1-flash-image-preview")
-        await repo.finish_call(cid4, status="success", settlement=SettlementInput())
-        cid5 = await repo.start_call(
-            project_name="demo2", call_type="text", model="doubao-seed-2-0-pro-260215", provider="ark"
-        )
-        await repo.finish_call(cid5, status="success", settlement=SettlementInput())
-        cid6 = await repo.start_call(
-            project_name="demo2", call_type="text", model="some-model", provider="not-in-registry"
-        )
-        await repo.finish_call(cid6, status="success", settlement=SettlementInput())
-
-    monkeypatch.setattr(usage, "async_session_factory", db_factory)
-
-    app = FastAPI()
-    register_error_handlers(app)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-
-    return TestClient(app)
-
-
-class TestUsageRouter:
-    def test_usage_endpoints(self, usage_env):
-        client = usage_env
-        stats = client.get("/api/v1/usage/stats?project_name=demo")
-        assert stats.status_code == 200
-        assert stats.json()["total_count"] == 3
-
-        calls = client.get("/api/v1/usage/calls?page=1&page_size=10")
-        assert calls.status_code == 200
-        assert calls.json()["page"] == 1
-        assert calls.json()["page_size"] == 10
-        assert calls.json()["total"] == 6
-
-        selected = client.get(f"/api/v1/usage/calls?call_id={calls.json()['items'][0]['id']}")
-        assert selected.status_code == 200
-        assert selected.json()["total"] == 1
-
-        projects = client.get("/api/v1/usage/projects")
-        assert projects.status_code == 200
-        assert set(projects.json()["projects"]) == {"demo", "demo2"}
-
 
 BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 

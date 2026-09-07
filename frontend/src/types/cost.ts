@@ -1,4 +1,4 @@
-/** 费用明细：货币 → 金额 映射 */
+/** 参考费用：货币 → 金额映射。 */
 export type CostBreakdown = Record<string, number>;
 
 /** 按类型拆分的费用 */

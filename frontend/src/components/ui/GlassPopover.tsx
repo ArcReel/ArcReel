@@ -11,9 +11,7 @@ interface GlassPopoverProps extends Omit<ComponentProps<typeof Popover>, "backgr
 }
 
 // GlassPopover — 在 Popover 之上套 PANEL_BG 渐变 + 顶部 hairline + 圆角。
-// 之前 TaskHud / UsageDrawer / WorkspaceNotificationsDrawer / ExportScopeDialog 等都各自
-// 手动 `<Popover backgroundColor="transparent" style={{ background: PANEL_BG, ... }}>`，
-// 现在统一收拢到这里。
+// 业务抽屉与弹窗统一复用这里的玻璃背景、hairline 与圆角。
 export function GlassPopover({
   hairlineTone = "accent",
   showHairline = true,

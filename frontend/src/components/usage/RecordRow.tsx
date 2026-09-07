@@ -40,17 +40,14 @@ function useTargetLabel(record: UsageRecordView): string {
   return "—";
 }
 
-function StatusCell({ record }: { record: UsageRecordView }) {
+function StatusCell({
+  record,
+  reason,
+}: {
+  record: UsageRecordView;
+  reason: string | null;
+}) {
   const { t } = useTranslation("dashboard");
-  const phraseKey = failurePhraseKey(record.errorCode);
-  const reason =
-    record.status === "failed"
-      ? phraseKey
-        ? t(phraseKey)
-        : record.errorMessage
-          ? truncateReason(record.errorMessage)
-          : null
-      : null;
   return (
     <span className="inline-flex items-center gap-1.5">
       <span
@@ -93,6 +90,15 @@ export function RecordRow({
   const MediaIcon = media.Icon;
   const model = record.model ?? t("usage_model_unresolved");
   const projectLabel = record.projectName || t("usage_project_untitled");
+  const phraseKey = failurePhraseKey(record.errorCode);
+  const failureReason =
+    record.status === "failed"
+      ? phraseKey
+        ? t(phraseKey)
+        : record.errorMessage
+          ? truncateReason(record.errorMessage)
+          : null
+      : null;
   const detailButton =
     trailing ??
     (record.recordId !== null && onOpenDetail ? (
@@ -110,6 +116,9 @@ export function RecordRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-[11.5px] text-text-2">
           <span className="truncate">{target}</span>
+          {!trailing && failureReason && (
+            <span className="shrink-0 text-text-3">{failureReason}</span>
+          )}
           <span className="num ml-auto shrink-0 text-[11px] text-text-3">
             {record.status === "pending" ? (
               <ElapsedCell record={record} />
@@ -123,7 +132,7 @@ export function RecordRow({
             {providerLabel(record.provider)} · {model}
           </span>
           <span className="ml-auto shrink-0">
-            <StatusCell record={record} />
+            <StatusCell record={record} reason={null} />
           </span>
         </div>
       </div>
@@ -177,7 +186,7 @@ export function RecordRow({
         {model}
       </td>
       <td className={CELL_CLS}>
-        <StatusCell record={record} />
+        <StatusCell record={record} reason={failureReason} />
       </td>
       <td className={`${CELL_CLS} num whitespace-nowrap text-text-3`}>
         {record.status === "pending" ? (

@@ -415,24 +415,6 @@ export interface TaskListFilters {
   pageSize?: number;
 }
 
-/** Filters for {@link API.getUsageStats} and {@link API.getUsageCalls}. */
-export interface UsageStatsFilters {
-  projectName?: string;
-  startDate?: string;
-  endDate?: string;
-}
-
-export interface UsageCallsFilters {
-  callId?: number;
-  projectName?: string;
-  callType?: string;
-  status?: string;
-  startDate?: string;
-  endDate?: string;
-  page?: number;
-  pageSize?: number;
-}
-
 /** {@link API.getUsageRecords} 的筛选；数组维度在查询串里逗号分隔。 */
 export interface UsageRecordsQuery {
   /** 空串筛选端点试跑记录，`undefined` 表示不按项目筛。 */
@@ -2483,12 +2465,15 @@ class API {
   // ==================== 任务取消 API ====================
 
   static async cancelPreview(
-    taskId: string
+    taskId: string,
+    options: { signal?: AbortSignal } = {},
   ): Promise<{
     task: { task_id: string; task_type: string; resource_id: string; status: string };
     cascaded: { task_id: string; task_type: string; resource_id: string }[];
   }> {
-    return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel-preview`);
+    return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel-preview`, {
+      signal: options.signal,
+    });
   }
 
   static async cancelTask(
@@ -2510,11 +2495,12 @@ class API {
   }
 
   static async cancelAllPreview(
-    projectName: string
+    projectName: string,
+    options: { signal?: AbortSignal } = {},
   ): Promise<{ queued_count: number }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/tasks/cancel-all-preview`
-    );
+    return this.request(`/projects/${encodeURIComponent(projectName)}/tasks/cancel-all-preview`, {
+      signal: options.signal,
+    });
   }
 
   static async cancelAllQueued(
@@ -2794,56 +2780,6 @@ class API {
         method: "DELETE",
       }
     );
-  }
-
-  // ==================== 费用统计 API ====================
-
-  /**
-   * 获取统计摘要
-   * @param filters - 筛选条件
-   */
-  static async getUsageStats(
-    filters: UsageStatsFilters = {},
-    options: { signal?: AbortSignal } = {}
-  ): Promise<Record<string, unknown>> {
-    const params = new URLSearchParams();
-    if (filters.projectName)
-      params.append("project_name", filters.projectName);
-    if (filters.startDate) params.append("start_date", filters.startDate);
-    if (filters.endDate) params.append("end_date", filters.endDate);
-    const query = params.toString();
-    return this.request(`/usage/stats${query ? "?" + query : ""}`, {
-      signal: options.signal,
-    });
-  }
-
-  /**
-   * 获取调用记录列表
-   * @param filters - 筛选条件
-   */
-  static async getUsageCalls(
-    filters: UsageCallsFilters = {},
-    options: { signal?: AbortSignal } = {}
-  ): Promise<Record<string, unknown>> {
-    const params = new URLSearchParams();
-    if (filters.callId) params.append("call_id", String(filters.callId));
-    if (filters.projectName)
-      params.append("project_name", filters.projectName);
-    if (filters.callType) params.append("call_type", filters.callType);
-    if (filters.status) params.append("status", filters.status);
-    if (filters.startDate) params.append("start_date", filters.startDate);
-    if (filters.endDate) params.append("end_date", filters.endDate);
-    if (filters.page) params.append("page", String(filters.page));
-    if (filters.pageSize) params.append("page_size", String(filters.pageSize));
-    const query = params.toString();
-    return this.request(`/usage/calls${query ? "?" + query : ""}`, { signal: options.signal });
-  }
-
-  /**
-   * 获取有调用记录的项目列表
-   */
-  static async getUsageProjects(): Promise<{ projects: string[] }> {
-    return this.request("/usage/projects");
   }
 
   // ==================== 使用记录读接口 ====================

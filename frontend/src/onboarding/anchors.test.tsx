@@ -37,8 +37,7 @@ vi.mock("@/components/pages/CreateProjectModal", () => ({
 }));
 
 // 顶栏与分镜画布的重子组件与锚点无关，替身挡掉它们各自的数据依赖。
-vi.mock("@/components/task-hud/TaskHud", () => ({ TaskHud: () => <div data-testid="task-hud" /> }));
-vi.mock("@/components/layout/UsageDrawer", () => ({ UsageDrawer: () => null }));
+vi.mock("@/components/usage/UsageHeaderEntry", () => ({ UsageHeaderEntry: () => null }));
 vi.mock("@/components/layout/WorkspaceNotificationsDrawer", () => ({ WorkspaceNotificationsDrawer: () => null }));
 vi.mock("@/components/canvas/timeline/ScriptReviewGate", async () => {
   const { scriptReviewGateMock } = await import("@/__mocks__/ScriptReviewGate");
