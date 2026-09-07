@@ -24,6 +24,23 @@ class FrozenImageReferences:
     visual_references: tuple[VisualReference, ...]
     _directory: Path | None
 
+    def sent(self, count: int) -> FrozenImageReferences:
+        """只把前 ``count`` 张交给供应商的视图；快照目录与本对象共享，清理任一即可。
+
+        依据与 claim 仍按完整冻结集登记，供应商按图像后端上限只收前几张：两者读同一批
+        不可变字节，编号也只指认这份视图里的图。
+        """
+
+        if count < 0 or count > len(self.visual_references):
+            raise ValueError("sent reference count must stay within the frozen references")
+        if count == len(self.visual_references):
+            return self
+        return FrozenImageReferences(
+            (self.reference_images or [])[:count] or None,
+            self.visual_references[:count],
+            self._directory,
+        )
+
     def cleanup(self) -> None:
         """Remove snapshots after the awaited provider submission completes."""
 

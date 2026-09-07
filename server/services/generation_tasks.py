@@ -699,11 +699,12 @@ def _product_visual_references(product_references: Sequence[Mapping[str, object]
 
 @dataclass(frozen=True)
 class StoryboardReferenceSet:
-    """一个分镜条目最终随请求发出的参考图列表及其证据。
+    """一个分镜条目装配出的参考图列表及其证据。
 
     ``provider_references`` 与 ``visual_references`` 严格等长同序：前者是发给供应商的
     路径条目，后者是同一序位的逻辑身份，prompt 渲染层据此声明「图N」并替换正文的
-    ``@[登记名]``。
+    ``@[登记名]``。完整列表是产物依据与 claim 的口径；随请求实发的子集经 :meth:`clamped`
+    按图像后端上限得出。
     """
 
     item: dict[str, Any]
@@ -711,9 +712,11 @@ class StoryboardReferenceSet:
     visual_references: list[VisualReference]
 
     def clamped(self, max_reference_images: int, *, backend: str) -> StoryboardReferenceSet:
-        """按图像后端的参考图上限去尾裁剪，返回裁剪后的参考图集（未超限时返回自身）。
+        """按图像后端的参考图上限去尾裁剪，返回实发的参考图集（未超限时返回自身）。
 
-        装配序不因裁剪改变。调用方须在渲染提示词前先经这一步，编号才只指认实际发出的图。
+        装配序不因裁剪改变。调用方须在渲染提示词前先经这一步，编号才只指认实际发出的图；
+        产物依据仍按裁剪前的完整列表登记——上限是供应商属性，不进 basis（ADR 0062），
+        目标态规划器也按脚本条目重建完整列表。
         """
         kept = clamped_reference_count(self.visual_references, max_reference_images, backend=backend)
         if kept == len(self.visual_references):
@@ -723,32 +726,6 @@ class StoryboardReferenceSet:
             provider_references=self.provider_references[:kept],
             visual_references=self.visual_references[:kept],
         )
-
-
-def _claims_for_sent_references(
-    claims: Sequence[ArtifactInputClaim],
-    *,
-    project_path: Path,
-    sent: Sequence[VisualReference],
-    unsent: Sequence[VisualReference],
-) -> list[ArtifactInputClaim]:
-    """裁剪后只保留仍随请求发出的参考图的 claim。
-
-    被去尾的图不是本次产物的输入，提交前的复核不该再因它变更而中止任务。不指向任何参考图的
-    claim（如剧本）以及仍有其他保留参考图指向同一产物的 claim 原样保留。
-    """
-    if not unsent:
-        return list(claims)
-
-    def _relative(reference: VisualReference) -> str | None:
-        try:
-            return reference.path.relative_to(project_path).as_posix()
-        except ValueError:
-            return None
-
-    sent_paths = {path for reference in sent if (path := _relative(reference)) is not None}
-    unsent_paths = {path for reference in unsent if (path := _relative(reference)) is not None} - sent_paths
-    return [claim for claim in claims if claim.artifact_path not in unsent_paths]
 
 
 def collect_storyboard_references(
@@ -1757,28 +1734,21 @@ async def execute_storyboard_task(
     )
 
     def _stage() -> tuple[str, FrozenImageReferences, ArtifactBasis, tuple[ArtifactInputClaim, ...]]:
-        _references = inputs.references.clamped(context.image.max_reference_images, backend=context.image.backend_model)
-        _claims = _claims_for_sent_references(
-            inputs.claims,
-            project_path=project_path,
-            sent=_references.visual_references,
-            unsent=inputs.references.visual_references[len(_references.visual_references) :],
-        )
-        _semantic_prompt = _references.item.get("image_prompt")
-        _visual_references = _references.visual_references
+        _assembled = inputs.references
+        _sent = _assembled.clamped(context.image.max_reference_images, backend=context.image.backend_model)
+        _semantic_prompt = _assembled.item.get("image_prompt")
         _prompt_text = _normalize_storyboard_prompt(
-            _semantic_prompt, inputs.style, inputs.style_description, references=_visual_references
+            _semantic_prompt, inputs.style, inputs.style_description, references=_sent.visual_references
         )
-        _frozen = freeze_image_references(_references.provider_references or None, _visual_references)
+        # 依据与 claim 按完整装配集冻结登记，供应商只收裁剪后的前几张：与目标态规划器同口径。
+        _frozen = freeze_image_references(_assembled.provider_references or None, _assembled.visual_references)
         try:
-            _claims = tuple(
-                bind_artifact_input_claims_to_frozen_visuals(
-                    project_path=project_path,
-                    resolver=inputs.currency_resolver,
-                    claims=_claims,
-                    source_references=_visual_references,
-                    frozen_references=_frozen.visual_references,
-                )
+            _claims = bind_artifact_input_claims_to_frozen_visuals(
+                project_path=project_path,
+                resolver=inputs.currency_resolver,
+                claims=inputs.claims,
+                source_references=_assembled.visual_references,
+                frozen_references=_frozen.visual_references,
             )
             _basis = build_storyboard_image_visual_basis(
                 resource_id=resource_id,
@@ -1791,7 +1761,7 @@ async def execute_storyboard_task(
         except BaseException:
             _frozen.cleanup()
             raise
-        return _prompt_text, _frozen, _basis, _claims
+        return _prompt_text, _frozen.sent(len(_sent.visual_references)), _basis, _claims
 
     prompt_text, frozen_references, storyboard_basis, formal_claims = await asyncio.to_thread(_stage)
     artifact_path = f"storyboards/scene_{resource_id}.png"
@@ -3339,19 +3309,6 @@ async def execute_grid_task(
             user_id=user_id,
             image=ImageLaneRequest(generation_type="i2i" if reference_images else "t2i"),
         )
-        kept = clamped_reference_count(
-            visual_references, ctx.image.max_reference_images, backend=ctx.image.backend_model
-        )
-        if kept < len(visual_references):
-            formal_claims = _claims_for_sent_references(
-                formal_claims,
-                project_path=project_path,
-                sent=visual_references[:kept],
-                unsent=visual_references[kept:],
-            )
-            del visual_references[kept:]
-            reference_images = (reference_images or [])[:kept] or None
-            ref_metadata = ref_metadata[:kept]
         frozen_references = await asyncio.to_thread(
             freeze_image_references,
             reference_images,
@@ -3367,7 +3324,11 @@ async def execute_grid_task(
                 frozen_references=frozen_references.visual_references,
             )
         )
-        reference_images = frozen_references.reference_images
+        # 依据与宫格记录按完整装配集登记，供应商只收裁剪后的前几张（与分镜路径同口径）。
+        sent_references = frozen_references.sent(
+            clamped_reference_count(visual_references, ctx.image.max_reference_images, backend=ctx.image.backend_model)
+        )
+        reference_images = sent_references.reference_images
         grid.reference_images = [ReferenceImage.from_dict(m) for m in ref_metadata] if ref_metadata else []
         grid_manager.save(grid)
 
@@ -3397,7 +3358,7 @@ async def execute_grid_task(
             style=str(project.get("style") or ""),
             aspect_ratio=member_aspect_ratio,
             grid_aspect_ratio=grid_aspect_ratio,
-            references=frozen_references.visual_references,
+            references=sent_references.visual_references,
         )
         grid_basis = build_grid_composite_visual_basis(
             group_id=grid.id,
