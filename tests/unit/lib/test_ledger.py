@@ -2,7 +2,8 @@
 
 特征化矩阵（tests/test_accounting_characterization.py）从生成器公开方法端到端锁落库行为；
 本文件补齐矩阵覆盖不到的 CM 契约语义：块内 call_id 可用、漏调成功声明抛 RuntimeError、
-Exception 翻 failed 后重抛、记账失败不吞原异常、CancelledError 结算 cancelled 后重抛。
+Exception 翻 failed（可识别的失败类别另落 error_code + error_params）后重抛、记账失败不吞原异常、
+CancelledError 结算 cancelled 后重抛。
 """
 
 from __future__ import annotations
@@ -14,13 +15,29 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 import pytest
+from openai import BadRequestError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.db.models.api_call import ApiCall
+from lib.http_status_errors import ArtifactDownloadError
 from lib.ledger import Ledger, _settlement_from_result
 from lib.providers import CallPurpose, CallStatus
+
+_HTTP_REQUEST = httpx.Request("POST", "https://provider.example/v1/videos")
+
+
+def _download_error_from_status(status: int) -> ArtifactDownloadError:
+    """产物下载失败：状态码在它包裹的下载异常上，分类沿 ``__cause__`` 取。"""
+    exc = ArtifactDownloadError(detail=f"{status} response")
+    exc.__cause__ = httpx.HTTPStatusError(
+        f"{status} response",
+        request=_HTTP_REQUEST,
+        response=httpx.Response(status, request=_HTTP_REQUEST),
+    )
+    return exc
 
 
 async def _only_row(db_factory: async_sessionmaker) -> ApiCall:
@@ -200,6 +217,63 @@ class TestRecordBracket:
         assert row.session_id == "s1"
         assert row.inputs == inputs
         assert row.prompt == "p" * 900  # 提示词全文入库，不截 500 字
+
+    @pytest.mark.parametrize(
+        ("exc", "expected_code", "expected_params"),
+        [
+            pytest.param(
+                httpx.HTTPStatusError(
+                    "429 response",
+                    request=_HTTP_REQUEST,
+                    response=httpx.Response(429, headers={"Retry-After": "30"}, request=_HTTP_REQUEST),
+                ),
+                "rate_limited",
+                {"retry_after_seconds": 30},
+                id="rate_limited",
+            ),
+            pytest.param(
+                BadRequestError(
+                    "rejected",
+                    response=httpx.Response(400, request=_HTTP_REQUEST),
+                    body={"code": "content_policy_violation"},
+                ),
+                "content_policy",
+                {},
+                id="content_policy",
+            ),
+            pytest.param(TimeoutError("任务超时（600秒）"), "timeout", {}, id="timeout"),
+            pytest.param(_download_error_from_status(404), "download_failed", {"status": 404}, id="download_failed"),
+        ],
+    )
+    async def test_failure_lands_error_code_and_params_beside_the_raw_message(
+        self,
+        db_factory: async_sessionmaker,
+        exc: Exception,
+        expected_code: str,
+        expected_params: dict[str, object],
+    ) -> None:
+        ledger = Ledger(session_factory=db_factory)
+        with pytest.raises(type(exc)):
+            async with ledger.record(project_name="demo", call_type="video", model="m", provider="kling"):
+                raise exc
+
+        row = await _only_row(db_factory)
+        assert row.status == "failed"
+        assert row.error_code == expected_code
+        assert row.error_params == expected_params
+        assert row.error_message == str(exc)  # 原文照落，与机器码并存
+
+    async def test_unrecognised_failure_leaves_code_and_params_empty(self, db_factory: async_sessionmaker) -> None:
+        ledger = Ledger(session_factory=db_factory)
+        with pytest.raises(ValueError, match="API 未返回图片"):
+            async with ledger.record(project_name="demo", call_type="image", model="m", provider="gemini-aistudio"):
+                raise ValueError("API 未返回图片")
+
+        row = await _only_row(db_factory)
+        assert row.status == "failed"
+        assert row.error_code is None
+        assert row.error_params is None
+        assert row.error_message == "API 未返回图片"
 
     async def test_accounting_failure_does_not_swallow_original_exception(
         self, monkeypatch: pytest.MonkeyPatch

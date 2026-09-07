@@ -18,6 +18,7 @@ from sqlalchemy.exc import InterfaceError, OperationalError
 
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.data_uri import file_to_data_uri
+from lib.http_status_errors import ArtifactDownloadError as ArtifactDownloadError
 from lib.http_status_errors import ProviderRejectedError as ProviderRejectedError
 from lib.http_status_errors import provider_rejected_error, redacted_status_error
 from lib.http_status_errors import raise_for_status_redacted as raise_for_status_redacted
@@ -198,16 +199,6 @@ class ResumeEndpointChangedError(RuntimeError):
             f"resume job {job_id} was submitted via endpoint {submitted_endpoint} on provider {provider}, "
             f"but the model row now points to {current_endpoint}"
         )
-
-
-class ArtifactDownloadError(RuntimeError):
-    """供应商任务已成功、仅产物下载耗尽，可接续原任务重试取件。"""
-
-    code = "artifact_download_failed"
-
-    def __init__(self, *, detail: str) -> None:
-        self.params = {"detail": detail}
-        super().__init__(detail)
 
 
 # 图片后缀 → MIME 类型映射（多个后端共用）
