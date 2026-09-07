@@ -13,34 +13,32 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
-## Spec 与细分 issue
+## Spec 与 ticket
 
-Spec（原 PRD）和按 Spec 拆分出的实现 issue 必须在**列表视图**就能区分与溯源，不能只靠正文：
+Spec 和按 Spec 拆出的 ticket 在**列表视图**即可区分与溯源：
 
-### Spec issue
+### Spec
 
-- 标题统一以 `Spec: ` 开头，例如 `Spec: 集成 TTS 文本转语音 —— …`
-- 打 `Spec` 标签。`to-spec` 发布时同时加 `Spec` 与 `ready-for-agent` 两个标签
+- 标题以 `Spec: ` 开头
+- 只打 `Spec` 标签；可认领的是拆出的 ticket
 
-### 细分（实现）issue
+### Ticket
 
-- 标题**末尾**加归属尾缀 `[Spec #<父编号>]`，例如 `分集账本：project.json schema 扩展与存量项目启动回填 [Spec #751]` —— 任何列表视图（`gh issue list`、Web、通知）都能直接看出归属
-- 正文保留 `## Parent` 一节引用父 Spec（既有模板不变，尾缀是补充而非替代）
-- 同时挂为父 Spec 的 **GitHub 原生 sub-issue**，让父 Spec 显示完成进度条：
+- 标题**末尾**加归属尾缀 `[Spec #<父编号>]`
+- 正文保留 `## Parent` 一节引用父 Spec
+- 挂为父 Spec 的 **GitHub 原生 sub-issue**：
 
 ```bash
-# 1. 取细分 issue 的 database id（不是 issue 编号）
-sub_id=$(gh api repos/{owner}/{repo}/issues/<细分编号> --jq .id)
+# 1. 取 ticket 的 database id（`.id`，与 issue 编号不同）
+sub_id=$(gh api repos/{owner}/{repo}/issues/<ticket 编号> --jq .id)
 # 2. 挂到父 Spec 下（-F 传整数）
 gh api repos/{owner}/{repo}/issues/<父编号>/sub_issues -F sub_issue_id=$sub_id
 ```
 
-`to-tickets` 拆分 Spec 时，每个 issue 创建后都要补这两步（标题尾缀在创建时直接写入标题）。
-
 ## 认领
 
-- 开始处理某个 issue 时，先将它 assign 给自己：`gh issue edit <n> --add-assignee @me`。triage 标签保持不变
-- 检索可认领的 issue 时排除已被认领的：`gh issue list --label ready-for-agent --state open --search "no:assignee"`
+- 开始处理前先 assign 给自己，triage 标签保持不变：`gh issue edit <n> --add-assignee @me`
+- 可认领 = `ready-for-agent` 且无 assignee：`gh issue list --label ready-for-agent --state open --search "no:assignee"`
 
 ## When a skill says "publish to the issue tracker"
 
