@@ -13,7 +13,7 @@
 | 问题 | 一行结论 |
 |---|---|
 | 1 硬约束筛选 | 七个候选都能在 React 19 + Vite 8 + TS 下跑；echarts-for-react（供应链事件 + React 19 类型 issue 未关）与 uPlot（无官方 React 封装、堆叠柱靠示例插件）在「React 生态」这一条上最弱。 |
-| 2 体积（堆叠柱 + tooltip，gzip） | visx 28.5 KB < uPlot 26.8 KB + 0.8 KB CSS < Chart.js 57.0 KB < Plot 94.6 KB < nivo 97.8 KB < Recharts 125.5 KB < ECharts 203.7 KB。 |
+| 2 体积（堆叠柱 + tooltip，gzip） | uPlot 26.8 KB + 0.8 KB CSS < visx 28.5 KB < Chart.js 57.0 KB < Plot 94.6 KB < nivo 97.8 KB < Recharts 125.5 KB < ECharts 203.7 KB。 |
 | 3 标记规范原生程度（≤ 24px / 顶端圆角 / 段间隙 / 图例四条） | visx 4/4（段间隙靠 render-prop 减高度）；Chart.js、uPlot、Plot 各 3/4；Recharts、nivo、ECharts 各 2/4。明细见 §3.3。 |
 | 4 推荐 / 备选 | 推荐 visx，备选 Recharts；若将来体积成为唯一决定因素再考虑 Chart.js（canvas，与 oklch CSS 变量体系不兼容，需手工解析色值）。 |
 | 5 迁移工作量 | 原型 → visx：0.5–1 人日；原型 → Recharts：约 1 人日；两者都要另加「表格替代」与测试，这部分与库无关。 |
