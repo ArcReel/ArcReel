@@ -21,21 +21,28 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from lib.config.registry import ProviderMeta
+    from lib.ledger import Ledger
 
     ProviderProjection = Callable[[dict[str, Any]], Awaitable[str]]
     TaskExecutor = Callable[..., Awaitable[dict[str, Any]]]
     # 启动收口：返回已翻成终态的 pending 调用行数。
-    InterruptedCallSettler = Callable[[], Awaitable[int]]
+
+    class InterruptedCallSettler(Protocol):
+        """启动收口入口：无任务身份的 pending 行只收口在 ``taskless_started_before`` 之前发起的，
+        传 ``None`` 则只收口绑定了任务的行。"""
+
+        def __call__(self, *, taskless_started_before: datetime | None) -> Awaitable[int]: ...
+
 
 logger = logging.getLogger(__name__)
 
-from datetime import UTC
+from datetime import UTC, datetime
 
 # Lease 丢失超过 ``lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT`` 才认为是真切换 owner
 # （另一个 worker 进程曾持过 lease 且写入了新 orphan），需要重扫；短 flap（续约抖动）
@@ -486,12 +493,6 @@ async def _read_video_poll_timeout_seconds() -> int:
     return await read_video_poll_timeout_seconds()
 
 
-async def _settle_interrupted_calls() -> int:
-    from lib.ledger import Ledger
-
-    return await Ledger().settle_interrupted_calls()
-
-
 class GenerationWorker:
     """Queue worker with per-provider image/video/audio/text lanes and single-active lease."""
 
@@ -507,9 +508,8 @@ class GenerationWorker:
         settle_interrupted_calls: InterruptedCallSettler | None = None,
     ):
         self.queue = queue or get_generation_queue()
-        # 启动收口入口（记账层的公开方法）。默认在首次持 lease 时现建 Ledger，与
-        # _settle_unresumable_call 一样延迟 import，避开 worker → ledger 的模块级依赖。
-        self._settle_interrupted_calls = settle_interrupted_calls or _settle_interrupted_calls
+        # 启动收口入口（记账层的公开方法）。默认经 ``_ledger`` 走队列同一处落库接线。
+        self._settle_interrupted_calls = settle_interrupted_calls or self._settle_interrupted_calls_via_ledger
         # 认领期与执行期共用的 provider 投影：限流按它的结果路由到对应容量桶。
         self._provider_projection = provider_projection
         self._executor = executor
@@ -539,6 +539,10 @@ class GenerationWorker:
         # 一次性扫描开关：单 lease 互斥架构下，进程一旦扫过 orphan 就不再重扫；
         # 配合 _lease_lost_monotonic 阈值在「真切换 owner」时清零、「短 flap」不清零。
         self._orphan_handled_once: bool = False
+        # 本 worker 的构造时刻：早于 web 层开始接受请求。首次收口只收口在此之前发起的无任务
+        # 调用行——之后发起的还在本进程里跑；后续重扫发生在进程存活期间，无任务行一律不碰。
+        self._constructed_at = datetime.now(UTC)
+        self._startup_settled: bool = False
         self._lease_lost_monotonic: float | None = None
 
     # ------------------------------------------------------------------
@@ -631,7 +635,13 @@ class GenerationWorker:
                 # 单 lease 互斥保证不会与另一个 worker 同时扫；跨进程接管由上述阈值兜底。
                 if self._owns_lease and not self._orphan_handled_once:
                     await self._handle_orphan_tasks_on_start()
-                    await self._settle_interrupted_calls_on_start()
+                    # 首次收口是进程启动：构造时刻之前发起的无任务 pending 行（文本调用、端点试跑）
+                    # 没人接续，一并翻终态。lease 长时间丢失触发的重扫发生在进程存活期间，无任务行
+                    # 可能正在本进程里跑，只收口绑定了任务的行。
+                    await self._settle_interrupted_calls_on_start(
+                        taskless_started_before=None if self._startup_settled else self._constructed_at
+                    )
+                    self._startup_settled = True
                     self._orphan_handled_once = True
 
                 if not self._owns_lease:
@@ -1125,7 +1135,21 @@ class GenerationWorker:
         except Exception:
             logger.warning("video provider media cleanup failed task_id=%s", task.get("task_id"), exc_info=True)
 
-    async def _settle_interrupted_calls_on_start(self) -> None:
+    def _ledger(self) -> Ledger:
+        """worker 侧的记账入口：与队列共用同一处 session factory，不另接全局引擎。
+
+        任务行与它的调用行必须落在同一个库里——队列注入了别的 session factory（测试库、
+        独立 schema）时，记账若仍走全局引擎，会翻错库里的行，还会跨事件循环持有连接。
+        延迟 import 避开 worker → ledger 的模块级依赖。
+        """
+        from lib.ledger import Ledger
+
+        return Ledger(session_factory=self.queue.session_factory)
+
+    async def _settle_interrupted_calls_via_ledger(self, *, taskless_started_before: datetime | None) -> int:
+        return await self._ledger().settle_interrupted_calls(taskless_started_before=taskless_started_before)
+
+    async def _settle_interrupted_calls_on_start(self, *, taskless_started_before: datetime | None) -> None:
         """孤儿任务处理之后收口没有存活任务的 pending 调用行（与孤儿扫描共用一次性开关）。
 
         顺序不能反：孤儿处理先把无法接续的任务翻成终态，收口才能按任务的结局判定它的调用行；
@@ -1133,12 +1157,16 @@ class GenerationWorker:
         不阻断认领循环——账目收尾比不上 worker 起不来。
         """
         try:
-            settled = await self._settle_interrupted_calls()
+            settled = await self._settle_interrupted_calls(taskless_started_before=taskless_started_before)
         except Exception:
             logger.warning("启动收口 pending 调用行失败", exc_info=True)
             return
         if settled:
-            logger.info("启动收口：%d 条无存活任务的 pending 调用行已结算", settled)
+            logger.info(
+                "启动收口：%d 条无存活任务的 pending 调用行已结算（%s）",
+                settled,
+                "仅绑定任务的行" if taskless_started_before is None else "含启动前发起的无任务行",
+            )
 
     async def _handle_orphan_tasks_on_start(self) -> None:
         """重启自愈：扫 running + cancelling 孤儿，按"是否可安全 resume"分流。
@@ -1380,11 +1408,10 @@ class GenerationWorker:
         task_id = task.get("task_id")
         if not isinstance(task_id, str) or not task_id:
             return
-        from lib.ledger import Ledger
 
         call_id: int | None = None
         try:
-            ledger = Ledger()
+            ledger = self._ledger()
             call_id = await ledger.pending_call_id_for_task(task_id)
             if call_id is None:
                 return

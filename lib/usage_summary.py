@@ -25,8 +25,15 @@ MIN_ATTENTION_FAILED = 2
 WILSON_Z_95 = 1.959963984540054
 # 日桶里按媒体类型分列参考费用的固定键集。
 MEDIA_TYPES = ("image", "video", "text", "audio")
+# 一次响应最多铺的日桶数（约十年）。窗口由调用方的 since / until 决定，不设上界时一对
+# 跨越数千年的时刻会让服务端同步构造几百万个桶；「全部」范围的 since 取最早记录日，不受此限。
+MAX_DAILY_BUCKETS = 3660
 # 金额与比率的输出精度，与仓储写侧的费用精度一致。
 _ROUND_DIGITS = 6
+
+
+class UsageWindowTooWideError(ValueError):
+    """请求的 since / until 展开的日桶数超过 ``MAX_DAILY_BUCKETS``。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,14 +143,30 @@ def _window(
     since: datetime | None,
     until: datetime | None,
 ) -> tuple[date, date] | None:
-    """本地日窗口 [首日, 末日]（两端含）；期间内没有可聚合的行时为 None。"""
+    """本地日窗口 [首日, 末日]（两端含）；期间内没有可聚合的行时为 None。
+
+    窗口超过 ``MAX_DAILY_BUCKETS`` 天抛 ``UsageWindowTooWideError``：桶数由调用方的两个时刻
+    直接决定，不能让它无上界地摊开。两端都显式给定时先于行校验，结果不随数据有无而变。
+    """
+    since_day = _local_date(since, tz) if since else None
+    # until 是半开区间的右端：正好落在本地日零点时不产生当天的桶。
+    until_day = _local_date(until - timedelta(microseconds=1), tz) if until else None
+    if since_day and until_day:
+        _check_bucket_count(since_day, until_day)
     if not rows:
         return None
     local_dates = [_local_date(row.started_at, tz) for row in rows]
-    first = _local_date(since, tz) if since else min(local_dates)
-    # until 是半开区间的右端：正好落在本地日零点时不产生当天的桶。
-    last = _local_date(until - timedelta(microseconds=1), tz) if until else max(local_dates)
-    return (first, last) if first <= last else None
+    first = since_day or min(local_dates)
+    last = until_day or max(local_dates)
+    if first > last:
+        return None
+    _check_bucket_count(first, last)
+    return first, last
+
+
+def _check_bucket_count(first: date, last: date) -> None:
+    if (last - first).days + 1 > MAX_DAILY_BUCKETS:
+        raise UsageWindowTooWideError(f"窗口 {first} ~ {last} 超过 {MAX_DAILY_BUCKETS} 个日桶")
 
 
 def _daily_buckets(

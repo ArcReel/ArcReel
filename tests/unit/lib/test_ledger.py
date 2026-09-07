@@ -21,7 +21,9 @@ from openai import BadRequestError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from lib.db.base import utc_now
 from lib.db.models.api_call import ApiCall
+from lib.db.repositories.usage_repo import UsageRepository
 from lib.http_status_errors import ArtifactDownloadError
 from lib.ledger import Ledger, _settlement_from_result
 from lib.providers import CallPurpose, CallStatus
@@ -168,6 +170,38 @@ class TestRecordBracket:
         assert row.cost_amount == 0.0
         assert row.finished_at is not None
         assert row.error_message is None
+
+    async def test_cancel_during_success_settlement_lands_the_write_then_reraises(
+        self, db_factory: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """取消打在成功结算的写入上：写入照常落地（真实费用），取消随后传播，行不留 pending。"""
+        ledger = Ledger(session_factory=db_factory)
+        outer = asyncio.current_task()
+        assert outer is not None
+        real_finish_call = UsageRepository.finish_call
+        write_done = False
+
+        async def _cancel_then_finish(repo: UsageRepository, *args: Any, **kwargs: Any) -> None:
+            nonlocal write_done
+            if kwargs.get("status") is CallStatus.SUCCESS:
+                outer.cancel()
+                # 让取消先送达外层，再让写入拖一拍：外层若不等写入就重抛，下面的断言会先于写入完成。
+                await asyncio.sleep(0.05)
+            await real_finish_call(repo, *args, **kwargs)
+            write_done = True
+
+        monkeypatch.setattr(UsageRepository, "finish_call", _cancel_then_finish)
+
+        with pytest.raises(asyncio.CancelledError):
+            async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
+                call.success(_TextResult(input_tokens=100, output_tokens=50))
+
+        assert write_done, "取消重抛之前写入已经落地"
+        row = await _only_row(db_factory)
+        assert row.status == "success"
+        assert row.input_tokens == 100
+        assert row.output_tokens == 50
+        assert row.finished_at is not None
 
     async def test_cancellation_settlement_failure_still_reraises_cancellation(
         self, monkeypatch: pytest.MonkeyPatch
@@ -398,6 +432,21 @@ class TestResumeAndBackfill:
         affected = await ledger.resume_success(call_id=call_id, result=_VideoResult())
         assert affected == 0
 
+    async def test_backfill_rejects_pending_status(self, db_factory: async_sessionmaker) -> None:
+        """补录只写终态行：pending 会留下一条无人结算的行，进门就拒。"""
+        ledger = Ledger(session_factory=db_factory)
+        with pytest.raises(ValueError, match="pending"):
+            await ledger.backfill(
+                project_name="demo",
+                call_type="text",
+                model="m",
+                provider="anthropic",
+                prompt=None,
+                user_id="default",
+                status=CallStatus.PENDING,
+                purpose=CallPurpose.ASSISTANT_SESSION,
+            )
+
     async def test_backfill_writes_single_terminal_row(self, db_factory: async_sessionmaker) -> None:
         ledger = Ledger(session_factory=db_factory)
         await ledger.backfill(
@@ -585,7 +634,7 @@ class TestSettleInterruptedCalls:
         second = await self._seed_pending(db_factory, project_name="demo")
         other = await self._seed_pending(db_factory, project_name="other")
 
-        assert await ledger.settle_interrupted_calls() == 3
+        assert await ledger.settle_interrupted_calls(taskless_started_before=utc_now()) == 3
 
         async with db_factory() as session:
             rows = {row.id: row for row in (await session.execute(select(ApiCall))).scalars().all()}
@@ -601,5 +650,5 @@ class TestSettleInterruptedCalls:
         publisher = _RecordingPublisher()
         ledger = Ledger(session_factory=db_factory, publish_change=publisher)
 
-        assert await ledger.settle_interrupted_calls() == 0
+        assert await ledger.settle_interrupted_calls(taskless_started_before=utc_now()) == 0
         assert publisher.batches == []

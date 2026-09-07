@@ -376,7 +376,13 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         // 一直显示切分前的分配；grid_split_done 不进 COMPLETION_ACTIONS（那是完成通知
         // 类别，切分不是一次生成），故在这里单列。
         const hasGridSplit = entityChanges.some((c) => c.action === "grid_split_done");
-        if ((hasCompletionEvent || hasBilledVoiceSampleTerminal || hasGridSplit) && projectName) {
+        // 一次供应商调用结算落库（成功/失败/取消）就是一笔费用变动；无任务的文本调用与
+        // 助手会话只有这一个信号，没有对应的任务终态或完成通知可依赖。
+        const hasUsageRecord = payload.changes.some(isUsageRecordChange);
+        if (
+          (hasCompletionEvent || hasBilledVoiceSampleTerminal || hasGridSplit || hasUsageRecord) &&
+          projectName
+        ) {
           useCostStore.getState().debouncedFetch(projectName);
         }
 

@@ -1258,6 +1258,28 @@ class TestIs413:
         assert _is_413(_WeirdErr("request entity too large")) is True
 
 
+class TestInputPath:
+    """输入素材路径归一为项目内相对路径；项目根或素材路径任一为相对路径时同样能归一。"""
+
+    def test_absolute_material_under_relative_project_root_is_relativised(self, tmp_path, monkeypatch):
+        from lib.media_generator import _input_path
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "demo" / "characters").mkdir(parents=True)
+
+        assert _input_path(Path("demo"), tmp_path / "demo" / "characters" / "a.png") == "characters/a.png"
+        assert _input_path(tmp_path / "demo", "demo/characters/a.png") == "characters/a.png"
+
+    def test_material_outside_project_keeps_its_own_form(self, tmp_path):
+        from lib.media_generator import _input_path
+
+        assert (
+            _input_path(tmp_path / "demo", tmp_path / "elsewhere" / "a.png")
+            == (tmp_path / "elsewhere" / "a.png").as_posix()
+        )
+        assert _input_path(tmp_path / "demo", object()) is None
+
+
 class TestReferenceCompressionSeam:
     async def test_backend_receives_compressed_copy_source_untouched(self, tmp_path):
         gen = _build_generator(tmp_path)

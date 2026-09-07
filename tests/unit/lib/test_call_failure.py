@@ -8,7 +8,7 @@ from openai import APITimeoutError, BadRequestError, RateLimitError
 
 from lib.call_failure import CallErrorCode, classify_call_failure
 from lib.http_status_errors import ArtifactDownloadError
-from lib.video_backends.base import VideoCapabilityError
+from lib.video_backends.base import AmbiguousSubmitError, VideoCapabilityError
 
 _REQUEST = httpx.Request("POST", "https://provider.example/v1/videos")
 
@@ -89,6 +89,22 @@ class TestTimeout:
 
         assert failure.error_code == CallErrorCode.TIMEOUT
 
+    def test_timeout_wrapped_by_an_ambiguous_submit_is_still_a_timeout(self) -> None:
+        """提交阶段的歧义态包装自身不可分类；根因超时在它包住的那一层，原文仍取外层。"""
+        exc = AmbiguousSubmitError(provider="veo")
+        exc.__cause__ = httpx.ReadTimeout("read timed out")
+
+        failure = classify_call_failure(exc)
+
+        assert failure.error_code == CallErrorCode.TIMEOUT
+        assert failure.error_message == str(exc)
+
+    def test_unclassifiable_chain_stays_unclassified(self) -> None:
+        exc = AmbiguousSubmitError(provider="veo")
+        exc.__cause__ = httpx.RemoteProtocolError("peer closed connection")
+
+        assert classify_call_failure(exc).error_code is None
+
     def test_openai_timeout_is_recognised(self) -> None:
         failure = classify_call_failure(APITimeoutError(request=_REQUEST))
 
@@ -119,6 +135,29 @@ class TestDownloadFailed:
 
         assert failure.error_code == CallErrorCode.DOWNLOAD_FAILED
         assert failure.error_params == {}
+
+    def test_declarative_backend_download_exhaustion_is_recognised_by_its_code(self) -> None:
+        """自定义声明式 backend 的取件耗尽是另一种异常类型，按同一个稳定码认出。"""
+        from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
+
+        try:
+            raise _status_error(502)
+        except httpx.HTTPStatusError as cause:
+            exc = DeclarativeRuntimeError("artifact_download_failed", detail=str(cause))
+            exc.__cause__ = cause
+
+        failure = classify_call_failure(exc)
+
+        assert failure.error_code == CallErrorCode.DOWNLOAD_FAILED
+        assert failure.error_params == {"status": 502}
+
+    def test_other_declarative_codes_stay_unclassified(self) -> None:
+        from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
+
+        failure = classify_call_failure(DeclarativeRuntimeError("poll_status_unreadable", detail="no status"))
+
+        assert failure.error_code is None
+        assert failure.error_params is None
 
     def test_download_wins_over_the_timeout_that_caused_it(self) -> None:
         # 取件耗尽的根因常是一次超时，但对用户而言这是可重试取件的「下载失败」。

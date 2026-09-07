@@ -225,6 +225,36 @@ class TestSessionManagerSdkSessionId:
         assert row.usage_tokens == 190
         assert row.cost_amount == pytest.approx(0.0123)
 
+    async def test_finalize_turn_records_interrupted_turn_as_cancelled_with_real_cost(
+        self, session_manager, meta_store
+    ):
+        """用户中断的一轮记 cancelled 而非 failed；中断前已消耗的费用按 SDK 实报保留。"""
+        meta = await meta_store.create("demo", "sdk-interrupted-usage-789")
+        managed = _make_managed(session_id=meta.id, project_name="demo")
+        managed.last_user_prompt = "interrupted turn"
+
+        await session_manager._finalize_turn(
+            managed,
+            {
+                "type": "result",
+                "session_status": "interrupted",
+                "model": "claude-sonnet-4",
+                "usage": {"input_tokens": 50, "output_tokens": 5},
+                "total_cost_usd": 0.0042,
+            },
+        )
+
+        async with meta_store._session_factory() as session:
+            row = (
+                await session.execute(
+                    select(ApiCall).where(ApiCall.project_name == "demo", ApiCall.prompt == "interrupted turn")
+                )
+            ).scalar_one()
+
+        assert row.status == "cancelled"
+        assert row.cost_amount == pytest.approx(0.0042)
+        assert row.currency == "USD"
+
     async def test_finalize_turn_usage_failure_does_not_override_status(self, session_manager, meta_store, monkeypatch):
         meta = await meta_store.create("demo", "sdk-usage-error-789")
         managed = _make_managed(session_id=meta.id, project_name="demo")

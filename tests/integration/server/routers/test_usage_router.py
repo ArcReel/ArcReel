@@ -11,6 +11,7 @@ from lib.db.models.task import Task
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.providers import CallStatus
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import usage
 from tests.auth_deps import AUTH_DEPENDENCIES
 
@@ -39,6 +40,7 @@ async def usage_env(db_factory, monkeypatch):
     monkeypatch.setattr(usage, "async_session_factory", db_factory)
 
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
@@ -105,6 +107,7 @@ def make_call(**overrides) -> ApiCall:
 def build_client(db_factory, monkeypatch) -> TestClient:
     monkeypatch.setattr(usage, "async_session_factory", db_factory)
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app)
@@ -228,8 +231,23 @@ class TestUsageRecordsList:
         assert [item["segment_id"] for item in naive["items"]] == ["taskless", "S5", "S4", "S3"]
         assert naive["items"] == aware["items"]
 
+    @pytest.mark.parametrize("query", ["since=0001-01-01T00:00:00%2B08:00", "until=9999-12-31T23:59:59-08:00"])
+    def test_unrepresentable_bound_is_rejected(self, records_client, query):
+        """带偏移的极端时刻换算到 UTC 会越过 datetime 边界；路由先拒绝，不让它溢出成 500。"""
+        response = records_client.get(f"/api/v1/usage/records?{query}")
+        assert response.status_code == 422
+        assert response.json()["detail"] == "起止时刻超出可表示的时间范围，请检查后重试"
+
     @pytest.mark.parametrize("cursor", ["not-base64!!", "e30"])
     def test_undecodable_cursor_rejected(self, records_client, cursor):
+        assert records_client.get(f"/api/v1/usage/records?cursor={cursor}").status_code == 422
+
+    def test_cursor_instant_overflowing_utc_rejected(self, records_client):
+        """游标里的时刻带极端偏移、换算 UTC 越界时同样 422，不让它溢出成 500。"""
+        cursor = base64.urlsafe_b64encode(
+            json.dumps({"started_at": "0001-01-01T00:00:00+14:00", "id": 1}).encode()
+        ).decode()
+
         assert records_client.get(f"/api/v1/usage/records?cursor={cursor}").status_code == 422
 
     def test_out_of_range_cursor_id_rejected(self, records_client):

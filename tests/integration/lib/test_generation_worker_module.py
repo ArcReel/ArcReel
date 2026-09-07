@@ -208,6 +208,13 @@ class _FakeQueue:
         self._orphans: list[dict] = []
         self.persisted_providers: list[tuple[str, str]] = []
 
+    @property
+    def session_factory(self):
+        """替身不自带库：worker 经队列取到的落库接线就是当前的全局 factory（``worker_db`` 换成内存库）。"""
+        import lib.db
+
+        return lib.db.safe_session_factory
+
     async def persist_execution_provider_id(self, task_id, provider_id):
         self.persisted_providers.append((task_id, provider_id))
 
@@ -2313,7 +2320,6 @@ class TestGenerationWorker:
         """CancelledError → task / ApiCall 都结算 cancelled，再重新抛出。"""
         from lib.db.repositories.usage_repo import UsageRepository
 
-        monkeypatch.setattr("lib.ledger.safe_session_factory", worker_db)
         async with worker_db() as session:
             older_call_id = await UsageRepository(session).start_call(
                 project_name="demo", call_type="video", model="old", task_id="rc"
@@ -2392,7 +2398,7 @@ class TestDispatcherFailFastAndPendingTracking:
         assert all("[resume_unsupported_capacity_zero]" in msg for _, msg in queue.failed)
 
     @pytest.mark.asyncio
-    async def test_capacity_zero_settles_the_pending_call(self, worker_db, monkeypatch):
+    async def test_capacity_zero_settles_the_pending_call(self, worker_db):
         """派发前就判死时那条 pending 的 ApiCall 也要翻 failed（零费用）。
 
         续跑不开新记账括号，只翻任务不结算调用会在用量报表里留一条永不终态的行；
@@ -2400,9 +2406,6 @@ class TestDispatcherFailFastAndPendingTracking:
         """
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
         from lib.db.repositories.usage_repo import UsageRepository
-
-        # Ledger 在导入期绑定 session factory，与 worker_db patch 的那个不是同一处引用。
-        monkeypatch.setattr("lib.ledger.safe_session_factory", worker_db)
 
         async with worker_db() as session:
             provider = await CustomProviderRepository(session).create_provider(
@@ -2886,7 +2889,7 @@ class TestStartupInterruptedCallSettlement:
         ]
         seen_failed_orphans: list[list[str]] = []
 
-        async def _settle() -> int:
+        async def _settle(*, taskless_started_before: datetime | None) -> int:
             seen_failed_orphans.append([task_id for task_id, _error in queue.failed])
             return 0
 
@@ -2896,13 +2899,37 @@ class TestStartupInterruptedCallSettlement:
         assert seen_failed_orphans == [["orphan-image"]], "收口只跑一次，且孤儿已先被处理"
 
     @pytest.mark.asyncio
-    async def test_default_wiring_flips_orphan_pending_call_row(self, db_factory, monkeypatch):
-        """不注入替身时走真实 Ledger：无任务身份的 pending 行被翻成 failed[interrupted]。"""
+    async def test_rescan_after_lease_loss_keeps_taskless_calls(self):
+        """首次收口只收 worker 构造之前发起的无任务行；之后的重扫只收绑定任务的行。"""
+        queue = self._CyclingQueue()
+        seen: list[datetime | None] = []
+
+        async def _settle(*, taskless_started_before: datetime | None) -> int:
+            seen.append(taskless_started_before)
+            return 0
+
+        before = datetime.now(UTC)
+        worker = GenerationWorker(queue=queue, settle_interrupted_calls=_settle)
+        after = datetime.now(UTC)
+        await self._run_until_settled(worker, queue)
+        assert len(seen) == 1
+        assert seen[0] is not None
+        assert before <= seen[0] <= after
+
+        # lease 丢失超过阈值后的重扫：进程仍存活，无任务身份的行可能正在本进程里跑。
+        worker._orphan_handled_once = False
+        queue._cycles = 0
+        queue.cycled.clear()
+        await self._run_until_settled(worker, queue)
+        assert seen[1:] == [None]
+
+    @pytest.mark.asyncio
+    async def test_default_wiring_flips_orphan_pending_call_row(self, worker_db):
+        """不注入替身时走真实 Ledger，落在队列那处接线的库里：无任务身份的 pending 行翻成 failed[interrupted]。"""
         from lib.db.models.api_call import ApiCall
         from lib.db.repositories.usage_repo import UsageRepository
 
-        monkeypatch.setattr("lib.ledger.safe_session_factory", db_factory)
-        async with db_factory() as session:
+        async with worker_db() as session:
             call_id = await UsageRepository(session).start_call(
                 project_name="demo", call_type="text", model="m", provider="anthropic"
             )
@@ -2910,6 +2937,6 @@ class TestStartupInterruptedCallSettlement:
         queue = self._CyclingQueue()
         await self._run_until_settled(GenerationWorker(queue=queue), queue)
 
-        async with db_factory() as session:
+        async with worker_db() as session:
             row = await session.get(ApiCall, call_id)
         assert (row.status, row.error_code) == ("failed", "interrupted")

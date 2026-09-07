@@ -53,6 +53,10 @@ _TIMEOUT_STATUS_CODES: frozenset[int] = frozenset({408, 504})
 
 _RATE_LIMIT_STATUS_CODE = 429
 
+# 「产物下载耗尽」的稳定码。内置 backend 抛 ``ArtifactDownloadError``，自定义声明式 backend 抛
+# 带同一 ``code`` 的 ``DeclarativeRuntimeError``——按码认而不按类型认，两条链路落同一个分类。
+_ARTIFACT_DOWNLOAD_FAILED_CODE = ArtifactDownloadError.code
+
 
 @dataclass(frozen=True, slots=True)
 class CallFailure:
@@ -67,30 +71,51 @@ def classify_call_failure(exc: BaseException) -> CallFailure:
     """把记账括号捕获的异常编码为落库三元组。
 
     顺序即优先级：产物下载失败先判——下载耗尽的根因常是一次超时或一个 HTTP 状态，但对用户而言
-    它是「下载失败」（可重试取件），不是一次超时的生成。其余三类互不重叠。
+    它是「下载失败」（可重试取件），不是一次超时的生成。其余三类互不重叠，沿 ``__cause__`` 链
+    逐层判：提交阶段的歧义态包装之类的外层异常自身不带可分类的信息，根因在它包住的那一层。
+    ``error_message`` 始终取最外层的原文。
     """
     message = str(exc)
-    if isinstance(exc, ArtifactDownloadError):
+    if _provider_error_code(exc) == _ARTIFACT_DOWNLOAD_FAILED_CODE:
         return CallFailure(message, CallErrorCode.DOWNLOAD_FAILED, _download_params(exc))
+    for candidate in _cause_chain(exc):
+        classified = _classify_single(candidate)
+        if classified is not None:
+            code, params = classified
+            return CallFailure(message, code, params)
+    return CallFailure(message)
+
+
+def _classify_single(exc: BaseException) -> tuple[CallErrorCode, dict[str, Any]] | None:
     status = _http_status(exc)
     if status == _RATE_LIMIT_STATUS_CODE:
         # 429 覆盖 openai.RateLimitError（响应挂在异常上）与 google 的 ResourceExhausted
         # （状态码挂在异常自身的 code 上），无需按各家 SDK 的类型逐一枚举。
-        return CallFailure(message, CallErrorCode.RATE_LIMITED, _retry_after_params(exc))
+        return CallErrorCode.RATE_LIMITED, _retry_after_params(exc)
     if _provider_error_code(exc) in CONTENT_POLICY_PROVIDER_CODES:
-        return CallFailure(message, CallErrorCode.CONTENT_POLICY, {})
+        return CallErrorCode.CONTENT_POLICY, {}
     if isinstance(exc, TimeoutError | httpx.TimeoutException | APITimeoutError) or status in _TIMEOUT_STATUS_CODES:
         # TimeoutError 覆盖内置与 asyncio 别名（视频轮询超时抛的就是它）；httpx 与 openai 的
         # 超时异常各有自己的基类，不继承 TimeoutError，须显式列出。
-        return CallFailure(message, CallErrorCode.TIMEOUT, {})
-    return CallFailure(message)
+        return CallErrorCode.TIMEOUT, {}
+    return None
 
 
-def _download_params(exc: ArtifactDownloadError) -> dict[str, Any]:
+def _cause_chain(exc: BaseException) -> list[BaseException]:
+    """从外到内的显式因果链（``raise ... from``）；隐式的 ``__context__`` 不算。"""
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and current not in chain:
+        chain.append(current)
+        current = current.__cause__
+    return chain
+
+
+def _download_params(exc: BaseException) -> dict[str, Any]:
     """产物下载失败的参数：能问出 HTTP 状态就带上。
 
-    ``ArtifactDownloadError`` 自身只有 detail 文本，状态码在它包裹的下载异常上
-    （``raise ... from exc``），沿 ``__cause__`` 链取。
+    下载失败异常自身只有 detail 文本，状态码在它包裹的下载异常上（``raise ... from exc``），
+    沿 ``__cause__`` 链取。
     """
     status = _http_status_in_chain(exc)
     return {} if status is None else {"status": status}

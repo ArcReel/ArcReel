@@ -432,12 +432,19 @@ class UsageRepository(BaseRepository):
         result = await self.session.execute(select(ApiCall.project_name).where(ApiCall.id == call_id))
         return result.scalar_one_or_none() or ""
 
-    async def settle_interrupted_pending_calls(self) -> list[InterruptedCallSettlement]:
+    async def settle_interrupted_pending_calls(
+        self, *, taskless_started_before: datetime | None
+    ) -> list[InterruptedCallSettlement]:
         """服务启动收口：把没有存活任务的 pending 调用行翻成终态（零费用），返回翻掉的行。
 
         进程崩溃/重启会让「已落 pending、还没结算」的调用行永远停在 pending —— 用量报表里
         它既不是成功也不是失败，只是一直悬着。启动时一次性收口：分流规则见 ``_interrupted_target``，
         有存活任务的行一律不动（它们的结算路径还在）。
+
+        无任务身份的调用（文本调用、端点试跑）由发起它的进程自己结算，只有「本进程启动之前
+        发起的」才能断定没人接续：``taskless_started_before`` 给这个时刻，只收口在它之前发起的
+        无任务行；进程启动后、收口跑起来之前发起的调用仍在跑，不碰。传 ``None`` 则完全不碰
+        无任务行（进程存活期间的重扫）。
 
         零费用是这里的口径：调用没走完结算，没有任何可信的计费维度可用，按 0 记账不给用户凭空
         补账。每行的 UPDATE 带 ``status='pending'`` 守卫，与并发的正常结算竞态时只会有一方生效。
@@ -457,6 +464,10 @@ class UsageRepository(BaseRepository):
 
         settled: list[InterruptedCallSettlement] = []
         for row in pending_rows:
+            if not row.task_id and (
+                taskless_started_before is None or as_utc(row.started_at) >= taskless_started_before
+            ):
+                continue
             target = _interrupted_target(row.task_id, task_statuses)
             if target is None:
                 continue
@@ -1139,7 +1150,8 @@ class UsageCursor:
             if not isinstance(started_at, str) or type(cursor_id) is not int or not 1 <= cursor_id <= 2**31 - 1:
                 raise ValueError("游标字段类型或范围无效")
             return cls(started_at=as_utc(datetime.fromisoformat(started_at)), id=cursor_id)
-        except (binascii.Error, LookupError, TypeError, UnicodeError, ValueError) as exc:
+        except (binascii.Error, LookupError, OverflowError, TypeError, UnicodeError, ValueError) as exc:
+            # OverflowError：时刻带极端偏移，换算到 UTC 越过 datetime 边界，与解析失败同等对待。
             raise UsageCursorError(f"无法解码的游标: {raw!r}") from exc
 
 

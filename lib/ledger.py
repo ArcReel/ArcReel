@@ -31,11 +31,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Callable, Sequence
+from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, assert_never
 
-from lib.call_failure import classify_call_failure
+from lib.call_failure import CallFailure, classify_call_failure
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
@@ -205,6 +206,11 @@ class Ledger:
                 raise RuntimeError(f"ledger.record(call_type={call_type!r}) 正常退出但未调用 call.success(result)")
             try:
                 await self._finish_success(call_id, call._settlement, output_path=output_path)
+            except asyncio.CancelledError:
+                # 取消打在成功结算的写入上：结果已经拿到、费用已经产生，写入在护盾内落地后
+                # 事件照发，取消再继续传播——这条调用是真实花费，不能按零费用取消结算。
+                self._emit_recorded(project_name, call_id, CallStatus.SUCCESS)
+                raise
             except Exception as exc:
                 # 成功结算写入本身失败：不留永久 pending，尝试翻 failed 后原样重抛。
                 if await self._finish_failed(call_id, exc):
@@ -268,6 +274,8 @@ class Ledger:
         finish_call 复用结算口径（含 SQLite 跨 session 的 duration_ms 兜底语义），调用方不需自行
         管理 pending 中间态。
         """
+        if status is CallStatus.PENDING:
+            raise ValueError("backfill 只写终态行：status 不能是 pending")
         settlement = SettlementInput(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -291,15 +299,17 @@ class Ledger:
             await UsageRepository(session).finish_call(call_id, status=status, settlement=settlement)
         self._emit_recorded(project_name, call_id, status)
 
-    async def settle_interrupted_calls(self) -> int:
+    async def settle_interrupted_calls(self, *, taskless_started_before: datetime | None) -> int:
         """服务启动收口：把没有存活任务的 pending 调用行翻成终态，返回翻掉的行数。
 
-        进程崩溃会把「已落 pending、未结算」的调用行永远留在 pending。分流规则与零费用口径
-        由仓储承担（见 ``UsageRepository.settle_interrupted_pending_calls``），这里只按项目
-        分组把结算事件发出去，让正开着的界面立刻看到这些行不再悬着。
+        进程崩溃会把「已落 pending、未结算」的调用行永远留在 pending。分流规则、零费用口径与
+        ``taskless_started_before`` 的含义由仓储承担（见 ``UsageRepository.settle_interrupted_pending_calls``），
+        这里只按项目分组把结算事件发出去，让正开着的界面立刻看到这些行不再悬着。
         """
         async with self._session_factory() as session:
-            settled = await UsageRepository(session).settle_interrupted_pending_calls()
+            settled = await UsageRepository(session).settle_interrupted_pending_calls(
+                taskless_started_before=taskless_started_before
+            )
 
         by_project: dict[str, list[dict[str, Any]]] = {}
         for item in settled:
@@ -314,7 +324,24 @@ class Ledger:
         async with self._session_factory() as session:
             return await UsageRepository(session).start_call(**kwargs)
 
+    async def _settle[T](self, write: Coroutine[Any, Any, T]) -> T:
+        """结算写入不被取消打断：取消到达时先等写入落地，再把取消继续传播。
+
+        括号内的三种终态写入都经此处。写入跑在独立 task 里，外层被取消只中断等待，
+        不中断写入；等到写入完成才重抛，行不会因取消时机停在 pending。
+        """
+        pending = asyncio.ensure_future(write)
+        try:
+            return await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            if not pending.done():
+                await asyncio.shield(pending)
+            raise
+
     async def _finish_success(self, call_id: int, settlement: SettlementInput, *, output_path: str | None) -> None:
+        await self._settle(self._write_success(call_id, settlement, output_path=output_path))
+
+    async def _write_success(self, call_id: int, settlement: SettlementInput, *, output_path: str | None) -> None:
         async with self._session_factory() as session:
             await UsageRepository(session).finish_call(
                 call_id, status=CallStatus.SUCCESS, settlement=settlement, output_path=output_path
@@ -328,19 +355,22 @@ class Ledger:
         """
         try:
             failure = classify_call_failure(exc)
-            async with self._session_factory() as session:
-                await UsageRepository(session).finish_call(
-                    call_id,
-                    status=CallStatus.FAILED,
-                    settlement=SettlementInput(),
-                    error_message=failure.error_message,
-                    error_code=failure.error_code,
-                    error_params=failure.error_params,
-                )
+            await self._settle(self._write_failed(call_id, failure))
         except Exception:
             logger.exception("ledger 失败分支记账写入自身失败 call_id=%s（原异常照常重抛）", call_id)
             return False
         return True
+
+    async def _write_failed(self, call_id: int, failure: CallFailure) -> None:
+        async with self._session_factory() as session:
+            await UsageRepository(session).finish_call(
+                call_id,
+                status=CallStatus.FAILED,
+                settlement=SettlementInput(),
+                error_message=failure.error_message,
+                error_code=failure.error_code,
+                error_params=failure.error_params,
+            )
 
     async def _finish_cancelled(self, call_id: int) -> bool:
         """翻 cancelled；返回是否真的写进去了（写失败时不发事件）。
@@ -349,14 +379,17 @@ class Ledger:
         （行留 pending，交由取消方的兜底结算或启动收口）。
         """
         try:
-            async with self._session_factory() as session:
-                await UsageRepository(session).finish_call(
-                    call_id, status=CallStatus.CANCELLED, settlement=SettlementInput(cost_amount=0.0)
-                )
+            await self._settle(self._write_cancelled(call_id))
         except Exception:
             logger.exception("ledger 取消分支记账写入自身失败 call_id=%s（取消照常重抛）", call_id)
             return False
         return True
+
+    async def _write_cancelled(self, call_id: int) -> None:
+        async with self._session_factory() as session:
+            await UsageRepository(session).finish_call(
+                call_id, status=CallStatus.CANCELLED, settlement=SettlementInput(cost_amount=0.0)
+            )
 
     async def _finalize(self, *, call_id: int, status: CallStatus, settlement: SettlementInput) -> int:
         async with self._session_factory() as session:

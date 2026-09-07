@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from typing import Any
 
 from lib.generation_worker import CapacityTable, GenerationWorker
@@ -44,12 +45,16 @@ async def test_wake_claims_task_without_waiting_for_poll_interval() -> None:
         assert claimed_provider_id == "text"
         return {"ok": True}
 
+    async def no_settle(*, taskless_started_before: datetime | None) -> int:
+        return 0
+
     worker = GenerationWorker(
         queue=queue,
         capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
         provider_projection=text_provider,
         executor=execute,
         lanes=("text",),
+        settle_interrupted_calls=no_settle,
     )
     worker.poll_interval = 60
     await worker.start()

@@ -13,8 +13,10 @@ import pytest
 from lib.providers import CallStatus
 from lib.usage_summary import (
     MAX_ATTENTION_ITEMS,
+    MAX_DAILY_BUCKETS,
     UsageFilterOptions,
     UsageSummaryRow,
+    UsageWindowTooWideError,
     build_summary,
     wilson_lower_bound,
 )
@@ -89,6 +91,28 @@ class TestWindow:
         """SQLite 取回的时刻不带 tzinfo，按 UTC 解释而不是本地时钟。"""
         body = summarize([row(started_at=datetime(2026, 3, 1, 23, 30))], tz=ZoneInfo("Asia/Shanghai"))
         assert body["range"] == {"since": "2026-03-02", "until": "2026-03-02"}
+
+    def test_window_at_the_bucket_cap_is_still_served(self):
+        since = BASE - timedelta(days=MAX_DAILY_BUCKETS - 1)
+        body = summarize([row(started_at=BASE)], since=since)
+        assert len(body["daily"]) == MAX_DAILY_BUCKETS
+
+    def test_window_beyond_the_bucket_cap_is_rejected(self):
+        """桶数由调用方的两个时刻直接决定，超过上限拒绝而不是同步铺出海量零桶。"""
+        since = BASE - timedelta(days=MAX_DAILY_BUCKETS)
+        with pytest.raises(UsageWindowTooWideError):
+            summarize([row(started_at=BASE)], since=since)
+
+    def test_explicit_window_beyond_the_cap_is_rejected_even_without_rows(self):
+        """两端显式给定的超宽窗口不随数据有无而变：没有行也一样拒绝。"""
+        with pytest.raises(UsageWindowTooWideError):
+            summarize([], since=datetime(1900, 1, 1, tzinfo=UTC), until=datetime(2100, 1, 1, tzinfo=UTC))
+
+    def test_half_open_window_without_rows_is_empty(self):
+        """只给一端时窗口由数据补齐；没有行就没有窗口，range 为 null。"""
+        body = summarize([], since=datetime(1900, 1, 1, tzinfo=UTC))
+        assert body["range"] is None
+        assert body["daily"] == []
 
 
 class TestAttentionOrdering:

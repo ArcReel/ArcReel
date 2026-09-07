@@ -11,6 +11,7 @@ from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.providers import CallStatus
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import usage
 from tests.auth_deps import AUTH_DEPENDENCIES
 
@@ -57,6 +58,7 @@ async def seed_call(
 def summary_client(db_factory, monkeypatch) -> TestClient:
     monkeypatch.setattr(usage, "async_session_factory", db_factory)
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app)
@@ -190,7 +192,29 @@ class TestSummaryDailyBuckets:
         }
 
     async def test_unknown_timezone_is_rejected(self, summary_client):
-        assert summary_client.get("/api/v1/usage/summary?tz=Mars/Olympus").status_code == 422
+        response = summary_client.get("/api/v1/usage/summary?tz=Mars/Olympus")
+        assert response.status_code == 422
+        assert response.json()["detail"] == "未知的 IANA 时区名，请检查 tz 参数"
+
+    async def test_unknown_timezone_message_follows_request_locale(self, summary_client):
+        response = summary_client.get("/api/v1/usage/summary?tz=Mars/Olympus", headers={"Accept-Language": "en"})
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Unknown IANA time zone name; check the tz parameter"
+
+    async def test_oversized_window_is_rejected(self, summary_client, db_factory):
+        """since / until 展开的日桶超过上限时 422，而不是同步铺出几百万个零桶。"""
+        async with db_factory() as session:
+            await seed_call(session)
+
+        response = summary_client.get("/api/v1/usage/summary?since=1900-01-01T00:00:00Z&until=2100-01-01T00:00:00Z")
+        assert response.status_code == 422
+        assert response.json()["detail"] == "统计时间范围过大，请缩小起止时刻后重试"
+
+    def test_unrepresentable_instant_is_rejected(self, summary_client):
+        """落在可表示区间之外的时刻 422：半开右端减一微秒不能在 datetime 的下界上溢出。"""
+        response = summary_client.get("/api/v1/usage/summary?until=0001-01-01T00:00:00Z")
+        assert response.status_code == 422
+        assert response.json()["detail"] == "起止时刻超出可表示的时间范围，请检查后重试"
 
 
 class TestSummaryCurrency:

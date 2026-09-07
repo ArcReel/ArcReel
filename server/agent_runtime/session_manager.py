@@ -1231,6 +1231,15 @@ class SessionManager:
         if input_tokens is None and output_tokens is None and total_cost_usd is None:
             return
 
+        # 用户中断的一轮记 cancelled 而非 failed，不污染失败率；费用按 SDK 实报保留——
+        # 中断前已消耗的 token 是真实花费，与记账括号里「结果未到、费用未知」的零费用取消不同。
+        if final_status == "completed":
+            status = CallStatus.SUCCESS
+        elif final_status == "interrupted":
+            status = CallStatus.CANCELLED
+        else:
+            status = CallStatus.FAILED
+
         # 事后补录：一次调用写入终态行（省掉调用方管理的 pending 中间态）。
         await self.ledger.backfill(
             project_name=managed.project_name,
@@ -1239,7 +1248,7 @@ class SessionManager:
             prompt=managed.last_user_prompt,
             provider=PROVIDER_ANTHROPIC,
             user_id=getattr(self, "_user_id", DEFAULT_USER_ID),
-            status=CallStatus.SUCCESS if final_status == "completed" else CallStatus.FAILED,
+            status=status,
             purpose=CallPurpose.ASSISTANT_SESSION,
             session_id=managed.session_id,
             input_tokens=input_tokens,

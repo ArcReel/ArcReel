@@ -4,18 +4,19 @@ API 调用统计路由
 提供调用记录查询和统计摘要接口。
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import AfterValidator, BaseModel, Field
+from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
+from lib.api_errors import NotFoundError, UnprocessableError
 from lib.db import async_session_factory
 from lib.db.repositories.usage_repo import UsageCursor, UsageCursorError, UsageFilters, UsageRepository, as_utc
-from lib.i18n import Locale, Translator, translate_or
+from lib.i18n import Locale, translate_or
 from lib.providers import CallStatus, CallType
-from lib.usage_summary import UsageFilterOptions, build_summary
+from lib.usage_summary import UsageFilterOptions, UsageWindowTooWideError, build_summary
 
 router = APIRouter()
 _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
@@ -148,6 +149,22 @@ class UsageRecordPage(BaseModel):
     total: int
 
 
+# 时间参数可表示的 UTC 区间：留出一天余量，任何时区偏移、半开右端的减一微秒与本地日折算
+# 都不会越过 datetime 的边界。
+_EARLIEST_INSTANT = datetime(1, 1, 2, tzinfo=UTC)
+_LATEST_INSTANT = datetime(9999, 12, 30, tzinfo=UTC)
+
+
+def _utc_instant(value: datetime | None) -> datetime | None:
+    """时间参数换算到 UTC；落在可表示区间之外的时刻 422，而不是在换算或折日时溢出成 500。"""
+    if value is None:
+        return None
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if not _EARLIEST_INSTANT <= aware <= _LATEST_INSTANT:
+        raise UnprocessableError("usage_time_out_of_range")
+    return as_utc(value)
+
+
 def _multi(value: str | None) -> tuple[str, ...]:
     """逗号分隔的多选参数；空串与纯空白项丢弃，整体为空表示该维度不筛。"""
     if not value:
@@ -157,7 +174,6 @@ def _multi(value: str | None) -> tuple[str, ...]:
 
 @router.get("/usage/records", response_model=UsageRecordPage)
 async def list_usage_records(
-    _t: Translator,
     project_name: str | None = Query(None, description="项目名称；端点试跑记录用空串"),
     provider: str | None = Query(None, description="供应商 id，逗号分隔多选"),
     model: str | None = Query(None, description="模型，逗号分隔多选"),
@@ -172,7 +188,7 @@ async def list_usage_records(
     try:
         decoded = UsageCursor.decode(cursor) if cursor else None
     except UsageCursorError as exc:
-        raise HTTPException(status_code=422, detail=_t("usage_cursor_invalid")) from exc
+        raise UnprocessableError("usage_cursor_invalid") from exc
 
     async with async_session_factory() as session:
         page = await UsageRepository(session).list_records(
@@ -181,8 +197,8 @@ async def list_usage_records(
                 providers=_multi(provider),
                 models=_multi(model),
                 media_types=_multi(media_type),
-                since=since,
-                until=until,
+                since=_utc_instant(since),
+                until=_utc_instant(until),
             ),
             statuses=_multi(status),
             segment_ids=_multi(segment_id),
@@ -193,26 +209,17 @@ async def list_usage_records(
 
 
 @router.get("/usage/records/{record_id}", response_model=UsageRecordDetail)
-async def get_usage_record(record_id: int, _t: Translator) -> UsageRecordDetail:
+async def get_usage_record(record_id: int) -> UsageRecordDetail:
     async with async_session_factory() as session:
         record = await UsageRepository(session).get_record(record_id)
     if record is None:
-        raise HTTPException(status_code=404, detail=_t("usage_record_not_found"))
+        raise NotFoundError("usage_record_not_found")
     return UsageRecordDetail.model_validate(record)
 
 
 # --- 汇总读接口（GET /usage/summary）---------------------------------------------------
 # 设置页总览与顶栏入口共用这一次请求：KPI、日桶趋势、三维构成、需要关注与筛选候选值。
 # 聚合规则在 lib/usage_summary.py，这里只负责取参、取行与形状声明。
-
-
-def _validated_timezone(value: str) -> str:
-    """IANA 时区名；解析不了的直接 422，不静默回落 UTC——切天口径错了整张趋势图都会错位。"""
-    try:
-        ZoneInfo(value)
-    except (KeyError, ValueError, OSError) as exc:
-        raise ValueError("未知的 IANA 时区名") from exc
-    return value
 
 
 class UsageStats(BaseModel):
@@ -333,7 +340,7 @@ class UsageSummaryResponse(BaseModel):
 @router.get("/usage/summary", response_model=UsageSummaryResponse)
 async def get_usage_summary(
     locale: Locale,
-    tz: Annotated[str, AfterValidator(_validated_timezone), Query(description="IANA 时区名，按此切天")] = "UTC",
+    tz: str = Query("UTC", description="IANA 时区名，按此切天"),
     project_name: str | None = Query(None, description="项目名称（空串筛选端点试跑）"),
     provider: str | None = Query(None, description="按供应商筛选"),
     model: str | None = Query(None, description="按模型筛选"),
@@ -345,9 +352,17 @@ async def get_usage_summary(
 
     不收 ``status``：pending 不进聚合，其余三个终态一起构成 KPI 的口径，按状态再切会让
     调用次数与成功率互相矛盾。记录表的状态筛选带上来时在此被忽略。
+
+    since / until 展开的日桶超过 ``MAX_DAILY_BUCKETS`` 返回 422：桶数由这两个时刻直接决定，
+    不设上界会让一对离谱的时刻在服务端同步铺出几百万个桶。
     """
-    since_utc = as_utc(since) if since is not None else None
-    until_utc = as_utc(until) if until is not None else None
+    # 解析不了的时区名直接 422，不静默回落 UTC——切天口径错了整张趋势图都会错位。
+    try:
+        zone = ZoneInfo(tz)
+    except (KeyError, ValueError, OSError) as exc:
+        raise UnprocessableError("usage_timezone_invalid") from exc
+    since_utc = _utc_instant(since)
+    until_utc = _utc_instant(until)
     filters = UsageFilters(
         project_name=project_name,
         providers=(provider,) if provider else (),
@@ -372,4 +387,7 @@ async def get_usage_summary(
         ],
         models=options.models,
     )
-    return build_summary(rows, tz=ZoneInfo(tz), since=since_utc, until=until_utc, filter_options=localized)
+    try:
+        return build_summary(rows, tz=zone, since=since_utc, until=until_utc, filter_options=localized)
+    except UsageWindowTooWideError as exc:
+        raise UnprocessableError("usage_range_too_wide") from exc
