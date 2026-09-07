@@ -25,7 +25,7 @@ export function UsagePrototypeA() {
       <div>
         <Kicker>Usage Records</Kicker>
         <h3 className="font-editorial mt-1" style={EDITORIAL}>使用记录</h3>
-        <p className="mt-1.5 text-[12.5px] leading-[1.6] text-text-3">每一行是一次供应商调用；费用按你配置的单价估算，只作参考。</p>
+        <p className="mt-1.5 text-[12.5px] leading-[1.6] text-text-3">按项目、供应商、模型查看每次调用的结果与参考费用。</p>
       </div>
 
       <FilterRow f={f} set={set} />

@@ -147,7 +147,7 @@ export function StatusPill({ status, compact }: { status: keyof typeof STATUS_LA
 export type RowLayout = "table" | "compact";
 
 /** 表格态列宽（grid-template-columns），表头与行共用。 */
-export const ROW_GRID = "28px minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.2fr) 72px 60px 86px 78px 40px";
+export const ROW_GRID = "28px minmax(0,0.85fr) minmax(0,0.95fr) minmax(0,1.5fr) 128px 60px 86px 78px 40px";
 
 export function RowHeader() {
   const cell = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
@@ -164,6 +164,17 @@ export function RowHeader() {
       <span />
     </div>
   );
+}
+
+/** 表格态失败行紧跟状态 pill 的一两个词，完整原因在详情面板。 */
+const ERROR_SHORT: Record<string, string> = {
+  provider_rate_limited: "限流",
+  content_policy: "内容策略",
+  provider_timeout: "超时",
+  download_failed: "下载失败",
+};
+function shortError(r: UsageRecord): string {
+  return (r.error_code && ERROR_SHORT[r.error_code]) || r.error_message || "失败";
 }
 
 function targetOf(r: UsageRecord): string {
@@ -221,8 +232,9 @@ export function RecordRow({ record: r, layout, hideProject }: RecordRowProps) {
       <span className="truncate text-[12.5px] text-text-2">{hideProject ? "" : projectLabel(r.project_name)}</span>
       <span className="truncate text-[12.5px] text-text">{targetOf(r)}</span>
       <span className="truncate text-[12px] text-text-3">{modelText}</span>
-      <span title={error ?? undefined}>
+      <span className="flex min-w-0 items-center gap-1.5" title={error ?? undefined}>
         <StatusPill status={r.status} />
+        {failed && <span className="truncate text-[11px] text-danger-2">{shortError(r)}</span>}
       </span>
       <span className="num text-right text-[11.5px] text-text-3">{pending ? <Elapsed from={r.started_at} /> : durationLabel(r.duration_ms)}</span>
       <span className="num text-right text-[11.5px] text-text-3">{shortTime(r.started_at)}</span>

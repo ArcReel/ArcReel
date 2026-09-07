@@ -1,4 +1,4 @@
-// PROTOTYPE — wayfinder #2290 记录详情面板：`record=<id>` 深链打开的右侧抽屉，字段分组对齐 #2288 的 UsageRecord
+// PROTOTYPE — wayfinder #2290 记录详情：`record=<id>` 深链打开的居中弹窗，字段分组对齐 #2288 的 UsageRecord
 //（调用 / 产出 / 用量 / 参考费用 / 失败原因；prompt 与供应商原始响应默认折叠）。列表接口不带的字段在此用假数据补齐。评审后整目录删除。
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -92,12 +92,13 @@ export function RecordDetailPanel({ record: r, onClose }: { record: UsageRecord;
 
   // 设置页内容区带 transform，fixed 会被困在里面；挂到 body 才能贴住视口
   return createPortal(
-    <>
-      <div className="fixed inset-0 z-40 bg-black/45" onClick={onClose} aria-hidden />
-      <aside
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+      <div className="absolute inset-0 bg-black/55" onClick={onClose} aria-hidden />
+      <section
         role="dialog"
+        aria-modal="true"
         aria-label={`记录 #${r.id} 详情`}
-        className="fixed inset-y-0 right-0 z-50 flex w-[30rem] max-w-full flex-col border-l border-hairline shadow-2xl shadow-black/60"
+        className="relative flex max-h-[85vh] w-[36rem] max-w-full flex-col rounded-[12px] border border-hairline shadow-2xl shadow-black/60"
         style={{ background: "linear-gradient(180deg, oklch(0.19 0.011 265), oklch(0.15 0.010 265))" }}
       >
         <header className="flex items-start gap-3 px-6 pt-5 pb-4">
@@ -187,8 +188,8 @@ export function RecordDetailPanel({ record: r, onClose }: { record: UsageRecord;
             <span className="text-[11px] text-text-4">写入筛选后关闭面板</span>
           </footer>
         )}
-      </aside>
-    </>,
+      </section>
+    </div>,
     document.body,
   );
 }
