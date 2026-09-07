@@ -112,7 +112,6 @@ describe("SystemConfigPage", () => {
       supports_base_url: false,
     } as never);
     vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    vi.spyOn(API, "getUsageStatsGrouped").mockResolvedValue({ stats: [], period: { start: "", end: "" } });
   });
 
   it("renders the page header", () => {
@@ -126,7 +125,7 @@ describe("SystemConfigPage", () => {
     expect(screen.getByRole("button", { name: /Agent/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /模型选择/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /用量统计/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /使用记录/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /API 令牌/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /关于/ })).toBeInTheDocument();
   });
@@ -156,9 +155,9 @@ describe("SystemConfigPage", () => {
     });
   });
 
-  it("clicking 用量统计 makes it the active section", async () => {
+  it("clicking 使用记录 makes it the active section", async () => {
     renderPage();
-    const usageButton = screen.getByRole("button", { name: /用量统计/ });
+    const usageButton = screen.getByRole("button", { name: /使用记录/ });
     fireEvent.click(usageButton);
     await waitFor(() => {
       expect(usageButton).toHaveAttribute("aria-current", "page");

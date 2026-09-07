@@ -559,10 +559,10 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                   ) : null}
                   {run.api_call_id !== null && (
                     <a
-                      href={`/app/settings?section=usage&call_id=${run.api_call_id}#usage-call-${run.api_call_id}`}
+                      href={`/app/settings?section=usage&record=${run.api_call_id}`}
                       className="inline-flex text-[11.5px] text-accent-2 underline decoration-accent/40 underline-offset-2 hover:text-text"
                     >
-                      {t("ce_trial_ledger", { id: run.api_call_id })}
+                      {t("ce_trial_record", { id: run.api_call_id })}
                     </a>
                   )}
                   {(["submit", "poll", "result"] as EndpointTestStage[]).map((s) => {

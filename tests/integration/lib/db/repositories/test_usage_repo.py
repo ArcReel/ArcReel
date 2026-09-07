@@ -408,8 +408,7 @@ class TestFinalizePendingByCallId:
         assert affected == 0
 
     async def test_writes_duration_ms(self, async_session):
-        """resume 完成的调用必须回写 duration_ms，否则 get_stats_grouped_by_provider 的
-        provider 级时长统计会因 NULL 系统性压低。"""
+        """resume 完成的调用必须回写 duration_ms，否则记录表的耗时列与详情都读不到这次调用的时长。"""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
 
@@ -591,70 +590,6 @@ class TestMultiProviderUsage:
         assert stats["cost_by_currency"] == {
             "CNY": pytest.approx(0.25),
         }
-
-    async def test_get_stats_grouped_by_provider_includes_cost_by_currency(self, async_session):
-        repo = UsageRepository(async_session)
-
-        gemini_id = await repo.start_call(
-            project_name="demo",
-            call_type="image",
-            model="gemini-3.1-flash-image-preview",
-            resolution="1K",
-            provider="gemini",
-        )
-        await repo.finish_call(gemini_id, status="success", settlement=SettlementInput())
-
-        vidu_id = await repo.start_call(
-            project_name="demo",
-            call_type="image",
-            model="viduq2",
-            resolution="1080p",
-            provider="vidu",
-        )
-        await repo.finish_call(vidu_id, status="success", settlement=SettlementInput(usage_tokens=8))
-
-        failed_vidu_id = await repo.start_call(
-            project_name="demo",
-            call_type="image",
-            model="viduq2",
-            resolution="1080p",
-            provider="vidu",
-        )
-        await repo.finish_call(failed_vidu_id, status="failed", settlement=SettlementInput(), error_message="boom")
-
-        failed_anthropic_id = await repo.start_call(
-            project_name="demo",
-            call_type="text",
-            model="claude-sonnet-4",
-            provider="anthropic",
-        )
-        await repo.finish_call(failed_anthropic_id, status="failed", settlement=SettlementInput(), error_message="boom")
-        await async_session.execute(
-            update(ApiCall)
-            .where(ApiCall.id == failed_anthropic_id)
-            .values(cost_amount=0.0456, currency="USD", input_tokens=100, output_tokens=20)
-        )
-        await async_session.commit()
-
-        stats = await repo.get_stats_grouped_by_provider(project_name="demo")
-        by_group = {(item["provider"], item["call_type"]): item for item in stats["stats"]}
-
-        assert set(by_group) == {
-            ("anthropic", "text"),
-            ("gemini", "image"),
-            ("vidu", "image"),
-        }
-
-        assert by_group[("anthropic", "text")]["total_cost_usd"] == pytest.approx(0)
-        assert by_group[("anthropic", "text")]["cost_by_currency"] == {}
-        assert by_group[("anthropic", "text")]["total_calls"] == 1
-        assert by_group[("anthropic", "text")]["success_calls"] == 0
-        assert by_group[("gemini", "image")]["total_cost_usd"] == pytest.approx(0.067)
-        assert by_group[("gemini", "image")]["cost_by_currency"] == {"USD": pytest.approx(0.067)}
-        assert by_group[("vidu", "image")]["total_cost_usd"] == 0
-        assert by_group[("vidu", "image")]["cost_by_currency"] == {"CNY": pytest.approx(0.25)}
-        assert by_group[("vidu", "image")]["total_calls"] == 2
-        assert by_group[("vidu", "image")]["success_calls"] == 1
 
     async def test_text_call_gemini_cost(self, async_session):
         repo = UsageRepository(async_session)

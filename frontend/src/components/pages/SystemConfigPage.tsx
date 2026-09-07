@@ -21,7 +21,7 @@ import { ApiKeysTab } from "./ApiKeysTab";
 import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { ProviderSection } from "./ProviderSection";
-import { UsageStatsSection } from "./settings/UsageStatsSection";
+import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
 import {
   SUPPORTED_LANGUAGES,
@@ -320,7 +320,7 @@ export function SystemConfigPage() {
 
               {activeSection === "agent" && <AgentConfigTab visible />}
               {activeSection === "media" && <MediaModelSection />}
-              {activeSection === "usage" && <UsageStatsSection />}
+              {activeSection === "usage" && <UsageRecordsSection />}
               {activeSection === "api-keys" && (
                 <div className="p-6">
                   <ApiKeysTab />
