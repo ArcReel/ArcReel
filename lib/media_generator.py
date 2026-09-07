@@ -883,7 +883,7 @@ class MediaGenerator:
         resolution: str | None = None,
         poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         task_id: str | None = None,
-        before_submit: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None,
+        before_submit: Callable[[], Awaitable[Mapping[str, object] | None]] | None = None,
         formal_output: bool = False,
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
@@ -1056,15 +1056,6 @@ class MediaGenerator:
                 ),
             ) as call,
         ):
-            # 拿到 call_id 后立即写入 task.payload["api_call_id"]，让 worker 崩溃重启后 resume
-            # 路径能精准翻这条 pending ApiCall 行（而不是按 segment_id+LIMIT 1 模糊匹配）。
-            # fail-fast 抛异常会被记账括号翻 pending → failed 后再重抛，避免留下永久 pending
-            # 账目（ADR 0007）；放在 backend 调用前是必须的。
-            if task_id is not None:
-                from lib.video_backends.base import persist_api_call_id
-
-                await persist_api_call_id(task_id, call.call_id)
-
             from lib.video_backends.base import VideoGenerationRequest
 
             video_backend = self._video_backend
@@ -1119,7 +1110,7 @@ class MediaGenerator:
 
             async def _before_first_submit() -> None:
                 if before_submit is not None:
-                    checkpoint_metadata = await before_submit(call.call_id)
+                    checkpoint_metadata = await before_submit()
                     if checkpoint_metadata is not None:
                         version_metadata.update(checkpoint_metadata)
 
@@ -1174,7 +1165,6 @@ class MediaGenerator:
         duration_seconds: str | int = "8",
         resolution: str | None = None,
         task_id: str | None = None,
-        api_call_id: int | None = None,
         submitted_base_url: str | None = None,
         poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         formal_output: bool = False,
@@ -1186,8 +1176,9 @@ class MediaGenerator:
 
         与 generate_video_async 的差异：
         - 不开记账括号（不落新 pending 行）—— 首次 submit 已记账；ResumeExpired / crash window
-          都不应再写 ApiCall（防双重扣费）。caller 透传 ``api_call_id`` 时经 ledger.resume_success
-          / resume_failed 按 call_id 精准翻 pending → success/failed；不透传则 logger.warning 不阻断。
+          都不应再写 ApiCall（防双重扣费）。待结算的调用行按 ``api_calls.task_id`` 反查，
+          经 ledger.resume_success / resume_failed 精准翻 pending → success/failed；
+          反查不到（无任务身份或该调用已结算）则 logger.warning 不阻断。
         - resume 成功后总是记录新版本；``formal_output=True`` 时先下载到
           同目录临时文件，再与版本历史一起提交，不提前覆盖 current。
         - prompt / start_image / reference_images 仅用于日志/版本元数据，不影响 provider 端结果。
@@ -1210,6 +1201,9 @@ class MediaGenerator:
 
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
+
+        # 待结算的调用行按任务身份反查——任务与调用的关联只有 ``api_calls.task_id`` 一个真相源。
+        api_call_id = await self.ledger.pending_call_id_for_task(task_id) if task_id is not None else None
 
         if self._config is not None:
             configured_generate_audio = await self._config.video_generate_audio(self.project_name)
@@ -1255,7 +1249,7 @@ class MediaGenerator:
             # Pending ApiCall 翻 failed 而不是留 pending：让 /api/v1/usage 报表不堆积无终态行；
             # cost_amount=0 不增加计费（resume 不重扣，符合 "不主动扣费" 红线）。
             # finalize 失败时不吞异常，让 worker finally 走 mark_failed 兜底，避免 ApiCall
-            # 永久卡 pending 导致 usage 报表/补账缺口（与 persist_api_call_id 的 fail-fast 一致）。
+            # 永久卡 pending 导致 usage 报表/补账缺口。
             async with _remove_staged_output_on_error(staged_output_path):
                 if api_call_id is not None:
                     await self.ledger.resume_failed(call_id=api_call_id)
@@ -1287,7 +1281,7 @@ class MediaGenerator:
                 )
         else:
             logger.warning(
-                "resume 缺 api_call_id task_id=%s job_id=%s (旧任务未持久化 payload)",
+                "resume 未反查到待结算调用行 task_id=%s job_id=%s",
                 task_id,
                 job_id,
             )

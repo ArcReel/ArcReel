@@ -665,10 +665,6 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             await repo.persist_provider_job_id(task_id, job_id, endpoint=endpoint, base_url=base_url)
 
-    async def persist_api_call_id(self, task_id: str, call_id: int) -> None:
-        async with self._task_repo() as repo:
-            await repo.persist_api_call_id(task_id, call_id)
-
     async def persist_execution_checkpoint(self, task_id: str, checkpoint_json: str, provider_id: str) -> None:
         async with self._task_repo() as repo:
             await repo.persist_execution_checkpoint(task_id, checkpoint_json, provider_id)

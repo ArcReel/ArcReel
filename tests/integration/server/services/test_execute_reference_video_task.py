@@ -1199,7 +1199,7 @@ async def test_execute_reference_video_task_rechecks_formal_sheet_claim_before_p
 
     async def _fake_generate_video_async(**kwargs):
         ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.asset_sheet("character", "张三"))
-        await kwargs["before_submit"](71)
+        await kwargs["before_submit"]()
         provider_submissions.append("submitted")
         raise AssertionError("provider submission must remain unreachable")
 
@@ -1313,7 +1313,7 @@ async def test_execute_reference_video_task_rejects_a_replaced_sheet_before_prov
 
     async def _fake_generate_video_async(**kwargs):
         (proj_dir / "characters" / "张三.png").write_bytes(b"replacement-sheet")
-        await kwargs["before_submit"](73)
+        await kwargs["before_submit"]()
         provider_submissions.append("submitted")
         raise AssertionError("provider submission must remain unreachable")
 
@@ -1367,7 +1367,7 @@ async def test_execute_reference_video_task_refuses_a_script_outside_the_episode
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     async def _fake_generate_video_async(**kwargs):
-        await kwargs["before_submit"](72)
+        await kwargs["before_submit"]()
         raise RuntimeError("stop after checkpoint")
 
     fake_generator = MagicMock()
@@ -1848,7 +1848,7 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
 
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
-        await kwargs["before_submit"](44)
+        await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -2180,7 +2180,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     async def _fake_generate_video_async(**kwargs):
-        await kwargs["before_submit"](31)
+        await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -2238,7 +2238,7 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     async def _fake_generate_video_async(**kwargs):
-        await kwargs["before_submit"](32)
+        await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -2295,7 +2295,7 @@ async def test_execute_reference_video_task_persists_execution_identity(
     events: list[str] = []
 
     async def _fake_generate_video_async(**kwargs):
-        await kwargs["before_submit"](33)
+        await kwargs["before_submit"]()
         events.append("provider_submit")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -2396,7 +2396,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
         expected_staged_basis = real_visual_basis(**captured_basis_kwargs)
         assert kwargs["visual_basis_digest"] == expected_staged_basis
         assert kwargs["visual_basis_digest"] != submitted["initial_live_visual_basis"]
-        submitted["checkpoint_metadata"] = await kwargs["before_submit"](73)
+        submitted["checkpoint_metadata"] = await kwargs["before_submit"]()
         events.append("provider_submit")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -2446,7 +2446,6 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     checkpoint = ReferenceSubmissionCheckpoint.from_json(persisted["raw"])
     assert persisted["task_id"] == "task-submit"
     assert persisted["provider_id"] == "ark"
-    assert checkpoint.api_call_id == 73
     assert checkpoint.script_file == "scripts/episode_1.json"
     assert checkpoint.provider_id == "ark"
     assert checkpoint.provider_model_id == "doubao-seedance-2-0-260128"
@@ -2458,7 +2457,6 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     assert checkpoint.artifact_visual_basis is not None
     assert checkpoint.artifact_visual_basis.kind == "artifact-visual/video-reference"
     metadata = submitted["checkpoint_metadata"]
-    assert metadata["execution_api_call_id"] == checkpoint.api_call_id
     assert metadata["execution_request_digest"] == checkpoint.request_digest
     assert metadata["execution_prompt_sha256"] == checkpoint.prompt_sha256
     assert metadata["execution_visual_basis_digest"] == checkpoint.visual_basis_digest
@@ -2522,7 +2520,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
 
     async def _invoke_rejected_checkpoint(**kwargs):
         assert (proj_dir / ".arcreel" / "tasks" / "task-checkpoint-failure" / "provider_media").is_dir()
-        await kwargs["before_submit"](74)
+        await kwargs["before_submit"]()
         raise AssertionError("provider submit must not run after checkpoint construction fails")
 
     fake_generator.generate_video_async = AsyncMock(side_effect=_invoke_rejected_checkpoint)

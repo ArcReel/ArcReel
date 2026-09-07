@@ -412,9 +412,9 @@ class TestMediaGenerator:
 
         gen._video_backend = _Backend()
 
-        async def _checkpoint(call_id: int) -> dict[str, object]:
-            events.append(("checkpoint", call_id))
-            return {"execution_api_call_id": call_id}
+        async def _checkpoint() -> dict[str, object]:
+            events.append("checkpoint")
+            return {"execution_task_id": "T-1"}
 
         await gen.generate_video_async(
             prompt="p",
@@ -423,15 +423,15 @@ class TestMediaGenerator:
             before_submit=_checkpoint,
         )
 
-        assert events == [("checkpoint", 1), "provider"]
+        assert events == ["checkpoint", "provider"]
         history = gen.versions.get_versions("reference_videos", "E1U1")
-        assert history["versions"][0]["execution_api_call_id"] == 1
+        assert history["versions"][0]["execution_task_id"] == "T-1"
 
     @pytest.mark.asyncio
     async def test_video_before_submit_failure_prevents_provider_call(self, tmp_path):
         gen = _build_generator(tmp_path)
 
-        async def _checkpoint(_call_id: int) -> None:
+        async def _checkpoint() -> None:
             raise RuntimeError("checkpoint unavailable")
 
         with pytest.raises(RuntimeError, match="checkpoint unavailable"):
@@ -470,10 +470,11 @@ class TestMediaGenerator:
 
         backend = _RetryBackend()
         gen._video_backend = backend
-        checkpoint_calls: list[int] = []
+        checkpoint_calls = 0
 
-        async def _checkpoint(call_id: int) -> None:
-            checkpoint_calls.append(call_id)
+        async def _checkpoint() -> None:
+            nonlocal checkpoint_calls
+            checkpoint_calls += 1
 
         await gen.generate_video_async(
             prompt="p",
@@ -484,7 +485,7 @@ class TestMediaGenerator:
         )
 
         assert backend.attempts == 2
-        assert checkpoint_calls == [1]
+        assert checkpoint_calls == 1
 
     @pytest.mark.asyncio
     async def test_video_413_after_provider_acceptance_never_resubmits(self, tmp_path):
@@ -527,7 +528,6 @@ class TestMediaGenerator:
     ):
         from lib.version_manager import VersionManager
 
-        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
         current = gen._get_output_path("reference_videos", "E1U1")
@@ -556,7 +556,6 @@ class TestMediaGenerator:
     async def test_formal_video_output_cleans_staging_when_ledger_settlement_fails(self, tmp_path, monkeypatch):
         from lib.version_manager import VersionManager
 
-        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
         current = gen._get_output_path("reference_videos", "E1U1")
@@ -588,7 +587,6 @@ class TestMediaGenerator:
     async def test_formal_video_output_commits_file_and_history_together(self, tmp_path, monkeypatch):
         from lib.version_manager import VersionManager
 
-        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
 
@@ -630,7 +628,6 @@ class TestMediaGenerator:
     ):
         from lib.version_manager import VersionManager
 
-        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
         current = gen._get_output_path("reference_videos", "E1U1")
@@ -663,7 +660,6 @@ class TestMediaGenerator:
     ):
         from lib.version_manager import VersionManager
 
-        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
         current = gen._get_output_path("reference_videos", "E1U1")
@@ -771,7 +767,6 @@ class TestMediaGenerator:
     async def test_formal_video_output_reclaims_the_same_task_path_after_interruption(self, tmp_path, monkeypatch):
         from lib.version_manager import VersionManager
 
-        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
         current = gen._get_output_path("reference_videos", "E1U1")

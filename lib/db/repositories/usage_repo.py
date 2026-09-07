@@ -327,6 +327,20 @@ class UsageRepository(BaseRepository):
             currency=currency,
         )
 
+    async def find_pending_call_id_by_task_id(self, task_id: str) -> int | None:
+        """按任务反查它那条尚未结算的调用行 id；没有则 None。
+
+        任务与调用的关联只有 ``api_calls.task_id`` 一个真相源。一个任务至多一条 pending 调用
+        （重试下载与 resume 都原地复用同一行），并发提交时按 id 取最新的那条。
+        """
+        result = await self.session.execute(
+            select(ApiCall.id)
+            .where(ApiCall.task_id == task_id, ApiCall.status == CallStatus.PENDING)
+            .order_by(ApiCall.id.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
     async def finalize_pending_by_call_id(
         self,
         *,

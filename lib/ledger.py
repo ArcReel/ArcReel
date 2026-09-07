@@ -3,8 +3,8 @@
 对外三个通道对应三种真实记账形态：
 
 1. **记账括号**（``record`` async context manager）—— image / audio / video / text 四条生成
-   路径用。进入即落 pending 行并在块内暴露 ``call_id``（视频路径先持久化 call_id 再调
-   backend）；成功以 ``call.success(result)`` 显式递交 backend 结果对象；``Exception`` 分支自动
+   路径用。进入即落 pending 行并在块内暴露 ``call_id``（任务调用以 ``api_calls.task_id``
+   关联）；成功以 ``call.success(result)`` 显式递交 backend 结果对象；``Exception`` 分支自动
    翻 failed（原文截断落 ``error_message``，可识别的失败类别另落 ``error_code`` + ``error_params``，
    见 :mod:`lib.call_failure`）后原样重抛，且记账失败不吞原异常；``CancelledError`` 先结算为
    cancelled（零费用）再原样重抛；正常退出未声明成功抛 ``RuntimeError``。
@@ -160,6 +160,11 @@ class Ledger:
                 # 成功结算写入本身失败：不留永久 pending，尝试翻 failed 后原样重抛。
                 await self._finish_failed(call_id, exc)
                 raise
+
+    async def pending_call_id_for_task(self, task_id: str) -> int | None:
+        """按任务反查它那条待结算的调用行 id，供续跑与派发终态补账定位。"""
+        async with self._session_factory() as session:
+            return await UsageRepository(session).find_pending_call_id_by_task_id(task_id)
 
     async def resume_success(self, *, call_id: int, result: Any, service_tier: str = "default") -> int:
         """resume 成功补账：按 call_id 精准翻 pending → success，返回受影响行数（幂等 0/1）。

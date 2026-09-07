@@ -97,7 +97,7 @@ class TestGenerationTasks:
                 assert isinstance(start_image, Path)
                 assert ".arcreel/tasks/task-storyboard/provider_media/" in start_image.as_posix()
                 assert start_image.read_bytes() == b"png"
-                metadata = await kwargs["before_submit"](41)
+                metadata = await kwargs["before_submit"]()
                 assert metadata is not None
                 submitted["metadata"] = metadata
                 from lib.version_manager import PaidVersionCommit
@@ -577,7 +577,7 @@ class TestGenerationTasks:
 
         class _SubmittingGenerator(FakeGenerator):
             async def generate_video_async(self, **kwargs):
-                await kwargs["before_submit"](72)
+                await kwargs["before_submit"]()
                 provider_submissions.append("submitted")
                 raise AssertionError("provider submission must remain unreachable")
 
@@ -640,7 +640,7 @@ class TestGenerationTasks:
 
         class _SubmittingGenerator(FakeGenerator):
             async def generate_video_async(self, **kwargs):
-                await kwargs["before_submit"](73)
+                await kwargs["before_submit"]()
                 provider_submissions.append("submitted")
                 raise AssertionError("provider submission must remain unreachable")
 

@@ -2557,11 +2557,11 @@ async def execute_video_task(
     provider_start_image = storyboard_file
     provider_end_image = end_image
 
-    async def _admit_before_submit(_api_call_id: int) -> Mapping[str, object] | None:
+    async def _admit_before_submit() -> Mapping[str, object] | None:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
         return None
 
-    checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = _admit_before_submit
+    checkpoint_hook: Callable[[], Awaitable[Mapping[str, object] | None]] | None = _admit_before_submit
     staged_media: tuple[StagedProviderMedia, ...] = ()
     if task_id is not None:
         artifact_speech_preparation = admit_script_unit(script_kind, item).preparation
@@ -2649,7 +2649,7 @@ async def execute_video_task(
                 actual_duration_seconds=narration.actual_duration_seconds if narration is not None else None,
             )
 
-            async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
+            async def _checkpoint_before_submit() -> Mapping[str, object]:
                 await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
                 artifact_currency = VideoArtifactCurrencyFacts(
                     episode=artifact_episode,
@@ -2673,7 +2673,6 @@ async def execute_video_task(
                     provider_model_id=ctx.video.provider_model.model_id,
                     backend_model_id=ctx.video.backend_model,
                     endpoint_guard=ctx.video.endpoint,
-                    api_call_id=api_call_id,
                     prompt=prompt_text,
                     duration_seconds=duration_seconds,
                     aspect_ratio=aspect_ratio,

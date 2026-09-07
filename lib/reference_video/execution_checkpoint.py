@@ -516,7 +516,6 @@ class _VideoSubmissionCheckpoint:
     provider_model_id: str
     backend_model_id: str
     endpoint_guard: str | None
-    api_call_id: int
     prompt: str
     prompt_sha256: str
     duration_seconds: int
@@ -546,7 +545,6 @@ class _VideoSubmissionCheckpoint:
             "provider_model_id",
             "backend_model_id",
             "endpoint_guard",
-            "api_call_id",
             "prompt",
             "prompt_sha256",
             "duration_seconds",
@@ -616,8 +614,6 @@ class _VideoSubmissionCheckpoint:
         _require_nonempty_string(self.provider_model_id, "provider_model_id")
         _require_nonempty_string(self.backend_model_id, "backend_model_id")
         _require_optional_string(self.endpoint_guard, "endpoint_guard")
-        if not is_int(self.api_call_id, minimum=1):
-            raise ValueError("api_call_id must be a positive integer")
         _require_nonempty_string(self.prompt, "prompt")
         _require_digest(self.prompt_sha256, "prompt_sha256")
         if self.prompt_sha256 != _sha256_bytes(self.prompt.encode("utf-8")):
@@ -693,7 +689,6 @@ class _VideoSubmissionCheckpoint:
             "provider_model_id": self.provider_model_id,
             "backend_model_id": self.backend_model_id,
             "endpoint_guard": self.endpoint_guard,
-            "api_call_id": self.api_call_id,
             "prompt": self.prompt,
             "prompt_sha256": self.prompt_sha256,
             "duration_seconds": self.duration_seconds,
@@ -718,10 +713,9 @@ class _VideoSubmissionCheckpoint:
         return payload
 
     def _request_digest_payload(self) -> dict[str, object]:
-        """Return frozen request facts without the local accounting coordinate."""
+        """Return the frozen provider-request facts this checkpoint hashes."""
 
         payload = self._request_payload()
-        del payload["api_call_id"]
         # Schema v2 preserved its historical provider-request digest semantics.
         # Schema v3 binds complete artifact currency evidence into the immutable
         # checkpoint so a version cannot replace typed components independently.
@@ -748,7 +742,6 @@ class _VideoSubmissionCheckpoint:
         provider_model_id: str,
         backend_model_id: str,
         endpoint_guard: str | None,
-        api_call_id: int,
         prompt: str,
         duration_seconds: int,
         aspect_ratio: str,
@@ -775,7 +768,6 @@ class _VideoSubmissionCheckpoint:
             "provider_model_id": provider_model_id,
             "backend_model_id": backend_model_id,
             "endpoint_guard": endpoint_guard,
-            "api_call_id": api_call_id,
             "prompt": prompt,
             "prompt_sha256": prompt_sha256,
             "duration_seconds": duration_seconds,
@@ -790,8 +782,7 @@ class _VideoSubmissionCheckpoint:
             "media": [item.to_dict() for item in media],
             "reference_audio_targets": list(reference_audio_targets) if reference_audio_targets is not None else None,
         }
-        digest_values = {key: value for key, value in values.items() if key != "api_call_id"}
-        request_digest = canonical_json_digest(digest_values)
+        request_digest = canonical_json_digest(values)
         return cls(
             schema_version=_SCHEMA_VERSION,
             kind=cls.CHECKPOINT_KIND,
@@ -804,7 +795,6 @@ class _VideoSubmissionCheckpoint:
             provider_model_id=provider_model_id,
             backend_model_id=backend_model_id,
             endpoint_guard=endpoint_guard,
-            api_call_id=api_call_id,
             prompt=prompt,
             prompt_sha256=prompt_sha256,
             duration_seconds=duration_seconds,
@@ -840,6 +830,10 @@ class _VideoSubmissionCheckpoint:
             _SCHEMA_VERSION,
         }:
             raise ValueError("unsupported video submission checkpoint version or kind")
+        # 任务与调用的关联只有 ``api_calls.task_id`` 一个真相源；检查点不再带调用坐标。
+        # 升级前落库的在途检查点仍带这个键，丢弃它即可继续接续——它不进 request_digest，
+        # 摘要校验不受影响。
+        raw.pop("api_call_id", None)
         _require_exact_keys(
             raw,
             (
@@ -869,7 +863,6 @@ class _VideoSubmissionCheckpoint:
             provider_model_id=raw["provider_model_id"],
             backend_model_id=raw["backend_model_id"],
             endpoint_guard=raw["endpoint_guard"],
-            api_call_id=raw["api_call_id"],
             prompt=raw["prompt"],
             prompt_sha256=raw["prompt_sha256"],
             duration_seconds=raw["duration_seconds"],
@@ -921,7 +914,6 @@ def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[s
     metadata: dict[str, object] = {
         "execution_checkpoint_schema_version": checkpoint.schema_version,
         "execution_task_id": checkpoint.task_id,
-        "execution_api_call_id": checkpoint.api_call_id,
         "execution_script_file": checkpoint.script_file,
         "execution_request_digest": checkpoint.request_digest,
         "execution_capability": checkpoint.capability,

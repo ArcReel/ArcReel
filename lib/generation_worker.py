@@ -1349,20 +1349,21 @@ class GenerationWorker:
         续跑路径不开新的记账括号——账是提交时记的。派发侧终态失败若只翻任务不结算调用，
         那条 pending 会永久留在用量报表里；重试下载尤其明显：它刚把调用重开成 pending。
         """
-        payload = task.get("payload")
-        call_id = payload.get("api_call_id") if isinstance(payload, dict) else None
-        if not isinstance(call_id, int):
+        task_id = task.get("task_id")
+        if not isinstance(task_id, str) or not task_id:
             return
         from lib.ledger import Ledger
 
+        call_id: int | None = None
         try:
             ledger = Ledger()
+            call_id = await ledger.pending_call_id_for_task(task_id)
+            if call_id is None:
+                return
             settle = ledger.resume_cancelled if cancelled else ledger.resume_failed
             await settle(call_id=call_id)
         except Exception:
-            logger.warning(
-                "pending ApiCall 结算失败 task_id=%s call_id=%s", task.get("task_id"), call_id, exc_info=True
-            )
+            logger.warning("pending ApiCall 结算失败 task_id=%s call_id=%s", task_id, call_id, exc_info=True)
 
     async def _dispatch_provider_bucket(
         self,

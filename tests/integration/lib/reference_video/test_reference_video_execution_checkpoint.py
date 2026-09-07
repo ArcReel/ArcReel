@@ -113,7 +113,6 @@ def _checkpoint(project_path: Path) -> ReferenceSubmissionCheckpoint:
         provider_model_id="cinema-v1",
         backend_model_id="cinema-v1-resolved",
         endpoint_guard="dashscope-async-video",
-        api_call_id=42,
         prompt="actual execution prompt",
         duration_seconds=8,
         aspect_ratio="9:16",
@@ -343,12 +342,16 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
         ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
 
-def test_request_digest_is_stable_across_local_ledger_call_ids(tmp_path: Path) -> None:
+def test_checkpoint_from_before_task_linkage_drops_its_stale_call_id(tmp_path: Path) -> None:
+    """升级前落库的在途检查点带 api_call_id：丢弃该键后照常接续，摘要不受影响。"""
     checkpoint = _checkpoint(tmp_path / "demo")
+    raw = json.loads(checkpoint.to_json())
+    raw["api_call_id"] = 42
 
-    replay = replace(checkpoint, api_call_id=checkpoint.api_call_id + 1)
+    restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
-    assert replay.request_digest == checkpoint.request_digest
+    assert restored == checkpoint
+    assert "execution_api_call_id" not in checkpoint_version_metadata(restored)
 
 
 def test_artifact_currency_facts_are_bound_to_execution_request_digest(tmp_path: Path) -> None:
@@ -410,7 +413,7 @@ def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tm
     raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
     raw["schema_version"] = 1
     raw.pop("artifact_currency")
-    digest_payload = {key: value for key, value in raw.items() if key not in {"api_call_id", "request_digest"}}
+    digest_payload = {key: value for key, value in raw.items() if key != "request_digest"}
     raw["request_digest"] = hashlib.sha256(
         json.dumps(
             digest_payload,
@@ -438,9 +441,7 @@ def test_visual_only_checkpoint_remains_resumable_but_cannot_claim_complete_vide
         "digest": artifact_visual_basis["digest"],
     }
     digest_payload = {
-        key: value
-        for key, value in raw.items()
-        if key not in {"api_call_id", "request_digest", "artifact_visual_basis"}
+        key: value for key, value in raw.items() if key not in {"request_digest", "artifact_visual_basis"}
     }
     raw["request_digest"] = hashlib.sha256(
         json.dumps(digest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -495,7 +496,6 @@ def test_checkpoint_rejects_noncanonical_staged_locator_and_wrong_identity(tmp_p
             provider_model_id=checkpoint.provider_model_id,
             backend_model_id=checkpoint.backend_model_id,
             endpoint_guard=checkpoint.endpoint_guard,
-            api_call_id=checkpoint.api_call_id,
             prompt=checkpoint.prompt,
             duration_seconds=checkpoint.duration_seconds,
             aspect_ratio=checkpoint.aspect_ratio,
@@ -553,7 +553,6 @@ def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path)
         provider_model_id="sora-2",
         backend_model_id="sora-2",
         endpoint_guard=None,
-        api_call_id=7,
         prompt="current script prompt",
         duration_seconds=8,
         aspect_ratio="9:16",
