@@ -686,23 +686,6 @@ describe("API", () => {
       await API.listAssistantSkills("demo");
       await API.deleteAssistantSession("demo", "session-1");
 
-      await API.getUsageStats({
-        projectName: "demo",
-        startDate: "2026-01-01",
-        endDate: "2026-02-01",
-      });
-      await API.getUsageCalls({
-        callId: 42,
-        projectName: "demo",
-        callType: "image",
-        status: "succeeded",
-        startDate: "2026-01-01",
-        endDate: "2026-02-01",
-        page: 1,
-        pageSize: 50,
-      });
-      await API.getUsageProjects();
-
       expect(requestSpy).toHaveBeenCalledWith("/tasks/task%20id");
       expect(requestSpy).toHaveBeenCalledWith(
         "/tasks?project_name=demo&status=running&task_type=video&source=webui&page=2&page_size=10",
@@ -720,15 +703,6 @@ describe("API", () => {
         { signal: undefined },
       );
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/assistant/skills", { signal: undefined });
-      expect(requestSpy).toHaveBeenCalledWith(
-        "/usage/stats?project_name=demo&start_date=2026-01-01&end_date=2026-02-01",
-        { signal: undefined },
-      );
-      expect(requestSpy).toHaveBeenCalledWith(
-        "/usage/calls?call_id=42&project_name=demo&call_type=image&status=succeeded&start_date=2026-01-01&end_date=2026-02-01&page=1&page_size=50",
-        { signal: undefined },
-      );
-      expect(requestSpy).toHaveBeenCalledWith("/usage/projects");
     });
 
     it("builds static file and stream urls", () => {

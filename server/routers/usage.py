@@ -22,61 +22,8 @@ router = APIRouter()
 _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
 
 
-@router.get("/usage/stats")
-async def get_stats(
-    project_name: str | None = Query(None, description="项目名称（可选）"),
-    provider: str | None = Query(None, description="按供应商筛选"),
-    start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
-    end_date: str | None = Query(None, description="结束日期 (YYYY-MM-DD)"),
-):
-    start = datetime.fromisoformat(start_date) if start_date else None
-    end = datetime.fromisoformat(end_date) if end_date else None
-
-    async with async_session_factory() as session:
-        return await UsageRepository(session).get_stats(
-            project_name=project_name,
-            provider=provider,
-            start_date=start,
-            end_date=end,
-        )
-
-
-@router.get("/usage/calls")
-async def get_calls(
-    call_id: int | None = Query(None, ge=1, description="调用记录 ID"),
-    project_name: str | None = Query(None, description="项目名称"),
-    call_type: CallType | None = Query(None, description="调用类型 (image/video/text)"),
-    status: CallStatus | None = Query(None, description=_CALL_STATUS_DESCRIPTION),
-    start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
-    end_date: str | None = Query(None, description="结束日期 (YYYY-MM-DD)"),
-    page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页记录数"),
-):
-    start = datetime.fromisoformat(start_date) if start_date else None
-    end = datetime.fromisoformat(end_date) if end_date else None
-
-    async with async_session_factory() as session:
-        return await UsageRepository(session).get_calls(
-            call_id=call_id,
-            project_name=project_name,
-            call_type=call_type,
-            status=status,
-            start_date=start,
-            end_date=end,
-            page=page,
-            page_size=page_size,
-        )
-
-
-@router.get("/usage/projects")
-async def get_projects_list():
-    async with async_session_factory() as session:
-        projects = await UsageRepository(session).get_projects_list()
-    return {"projects": projects}
-
-
 # ---------------------------------------------------------------------------
-# 使用记录读接口；与上面三个返回裸 dict 的旧接口并存，新接口用 Pydantic 声明响应形状。
+# 使用记录读接口；响应形状由 Pydantic 模型声明。
 # ---------------------------------------------------------------------------
 
 

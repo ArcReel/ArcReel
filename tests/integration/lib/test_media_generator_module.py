@@ -971,10 +971,11 @@ class TestMediaGenerator:
     @pytest.mark.asyncio
     async def test_video_billed_duration_lands_in_ledger(self, tmp_path):
         """端到端：真 Ledger 落库，backend 返回与请求不同的实际计费时长，ApiCall 账本记录 backend 值。"""
+        from sqlalchemy import select
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
         from lib.db.base import Base
-        from lib.db.repositories.usage_repo import UsageRepository
+        from lib.db.models.api_call import ApiCall
         from lib.ledger import Ledger
 
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -993,11 +994,11 @@ class TestMediaGenerator:
                 duration_seconds="6",
             )
 
-            # 读侧直连 UsageRepository
+            # 读侧直查落库行
             async with factory() as session:
-                item = (await UsageRepository(session).get_calls(project_name="demo"))["items"][0]
-            assert item["status"] == "success"
-            assert item["duration_seconds"] == 15
+                item = (await session.execute(select(ApiCall))).scalars().one()
+            assert item.status == "success"
+            assert item.duration_seconds == 15
         finally:
             await engine.dispose()
 

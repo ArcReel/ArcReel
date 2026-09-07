@@ -7,6 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
+import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { errMsg } from "@/utils/async";
 import type {
   ProjectChange,
@@ -245,6 +246,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         if (previousFingerprint && previousFingerprint !== payload.fingerprint) {
           void refreshProject();
         }
+        // 快照在每次建连时到达。首次之外的每一次都意味着断过一次线：断线期间的结算与
+        // 任务终态事件已经错过，顶栏用量按事件刷新，故在此补一次全量重取。
+        if (previousFingerprint) {
+          void useUsageHeaderStore.getState().refresh();
+        }
       },
       onChanges(payload: ProjectChangeBatchPayload) {
         if (disposed) return;
@@ -379,6 +385,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         // 一次供应商调用结算落库（成功/失败/取消）就是一笔费用变动；无任务的文本调用与
         // 助手会话只有这一个信号，没有对应的任务终态或完成通知可依赖。
         const hasUsageRecord = payload.changes.some(isUsageRecordChange);
+        // 顶栏用量只认这两个信号：记账结算改金额与已结束列表，任务终态改进行中列表。
+        if (hasUsageRecord || taskChanges.length > 0) {
+          void useUsageHeaderStore.getState().refresh();
+        }
         if (
           (hasCompletionEvent || hasBilledVoiceSampleTerminal || hasGridSplit || hasUsageRecord) &&
           projectName

@@ -165,8 +165,7 @@ describe("useTaskRefresh", () => {
     await act(async () => {});
     expect(useTasksStore.getState().tasks).toHaveLength(1);
 
-    // 切到只读演示项目——GlobalHeader 的任务角标/TaskHud 无条件挂载，残留的
-    // 上一项目 tasks/stats 不清空会一直展示旧数据
+    // 切到只读演示项目后，上一项目 tasks/stats 不得继续留在共享 store。
     rerender({ enabled: false });
 
     expect(useTasksStore.getState().tasks).toEqual([]);

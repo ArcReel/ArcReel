@@ -44,7 +44,7 @@ export function useTaskRefresh(projectName?: string | null, enabled = true): voi
   useEffect(() => {
     if (!enabled) {
       // 停用（如切到只读演示项目）不只是不再拉取——store 里残留的上一项目 tasks/stats
-      // 若不清空，无条件挂载的 GlobalHeader 任务角标/TaskHud 会继续展示旧项目数据。
+      // 若不清空，任务 store 的消费方会继续展示旧项目数据。
       // 作用域一并清空，让在途刷新的迟到响应写不回来。
       setRefreshScope(null);
       setTasks([]);

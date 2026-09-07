@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import select
 
 from lib.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
+from lib.db.models.api_call import ApiCall
 from lib.generation_worker import (
     _ORPHAN_RESCAN_LEASE_LOST_MULT,
     DEFAULT_PROVIDER,
@@ -19,6 +21,12 @@ from lib.generation_worker import (
 )
 from lib.script_editor import ScriptEditError
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
+
+
+async def stored_calls(session) -> list[ApiCall]:
+    """按 started_at 倒序读回 api_calls 行。"""
+    stmt = select(ApiCall).order_by(ApiCall.started_at.desc(), ApiCall.id.desc())
+    return list((await session.execute(stmt)).scalars().all())
 
 
 def _cap(limits: dict[str, dict[str, int]] | None = None, *, image: int = 5, video: int = 3) -> CapacityTable:
@@ -2340,12 +2348,12 @@ class TestGenerationWorker:
         assert queue.cancelled
         assert queue.cancelled[0][0] == "rc"
         async with worker_db() as session:
-            stored = await UsageRepository(session).get_calls(project_name="demo")
-        assert [(item["id"], item["status"]) for item in stored["items"]] == [
+            stored = await stored_calls(session)
+        assert [(row.id, row.status) for row in stored] == [
             (call_id, "cancelled"),
             (older_call_id, "pending"),
         ]
-        assert stored["items"][0]["cost_amount"] == 0
+        assert stored[0].cost_amount == 0
 
     @pytest.mark.asyncio
     async def test_process_resume_task_no_job_id_fails_fast(self):
@@ -2429,9 +2437,9 @@ class TestDispatcherFailFastAndPendingTracking:
         )
 
         async with worker_db() as session:
-            stored = await UsageRepository(session).get_calls(project_name="demo")
-        assert stored["items"][0]["status"] == "failed"
-        assert stored["items"][0]["cost_amount"] == 0
+            stored = await stored_calls(session)
+        assert stored[0].status == "failed"
+        assert stored[0].cost_amount == 0
 
     @pytest.mark.asyncio
     async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch, staged_project):

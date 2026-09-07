@@ -9,11 +9,13 @@ from pathlib import Path
 from typing import ClassVar
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.audio_backends.base import AudioCapability, AudioSynthesisResult
 from lib.data_validator import DataValidator
 from lib.db.base import Base
+from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation_worker import CapacityTable, GenerationWorker, SlotTable
 from lib.media_generator import MediaGenerator
@@ -356,10 +358,10 @@ class TestGenerateAudioAsync:
         assert (gen.project_path / history["versions"][0]["file"]).read_bytes() == b"RIFFfakewav"
 
 
-# ── 用量聚合 audio_count ────────────────────────────────────────────────────────
+# ── audio 调用记账 ────────────────────────────────────────────────────────
 
 
-class TestUsageStatsAudioCount:
+class TestAudioCallSettlement:
     async def test_audio_count(self):
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         async with engine.begin() as conn:
@@ -372,10 +374,11 @@ class TestUsageStatsAudioCount:
                     project_name="demo", call_type="audio", model="qwen3-tts-flash", provider="dashscope"
                 )
                 await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
-                stats = await repo.get_stats(project_name="demo")
-                assert stats["audio_count"] == 1
+                stored = (await session.execute(select(ApiCall))).scalars().all()
+                assert [row.call_type for row in stored] == ["audio"]
                 # audio 按字符冻结费用（非 0）
-                assert stats["cost_by_currency"].get("CNY", 0) > 0
+                assert stored[0].currency == "CNY"
+                assert stored[0].cost_amount > 0
         finally:
             await engine.dispose()
 

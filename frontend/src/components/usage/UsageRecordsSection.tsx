@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useSearch } from "wouter";
 import { useShallow } from "zustand/react/shallow";
 
+import { useTaskRefresh } from "@/hooks/useTaskRefresh";
 import { isActiveStatus, useTasksStore } from "@/stores/tasks-store";
 import {
   parseUsageFilters,
@@ -12,6 +13,7 @@ import {
 } from "@/stores/usage-records-store";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import type { TaskItem } from "@/types";
+import { CancelConfirmDialog } from "./CancelConfirmDialog";
 import { UsageAttentionCard } from "./UsageAttentionCard";
 import { UsageBreakdownCard } from "./UsageBreakdownCard";
 import { UsageFilterBar } from "./UsageFilterBar";
@@ -20,6 +22,7 @@ import { UsageRecordDetailModal } from "./UsageRecordDetailModal";
 import { UsageRecordsCard } from "./UsageRecordsCard";
 import { UsageTrendCard } from "./UsageTrendCard";
 import { providerLabelResolver } from "./usage-record-format";
+import { useTaskCancellation } from "./use-task-cancellation";
 import {
   sortByStartedDesc,
   taskToUsageRecordView,
@@ -53,6 +56,9 @@ export function UsageRecordsSection() {
     [range, project, provider, model, mediaType, segment, status],
   );
   const recordId = useMemo(() => parseUsageRecordId(search), [search]);
+
+  // 设置页不挂工作台外壳，需在这里登记任务刷新作用域，直达页面也能看到当前进行中任务。
+  useTaskRefresh(filters.project);
 
   const summary = useUsageRecordsStore((s) => s.summary);
   const records = useUsageRecordsStore((s) => s.records);
@@ -143,6 +149,24 @@ export function UsageRecordsSection() {
 
   const hasAttention = (summary?.attention.length ?? 0) > 0;
 
+  // 「全部取消」只清排队中，与顶栏悬浮层同一套确认流程。项目未固定时无从取消——
+  // 取消接口按项目作用，跨项目一次清空不是这个按钮的语义。
+  const cancellation = useTaskCancellation(
+    filters.project,
+    useCallback(
+      () => Promise.all([refresh(), useTasksStore.getState().refreshTasks()]).then(() => undefined),
+      [refresh],
+    ),
+  );
+  const cancelProject = filters.project;
+  const onCancelAll =
+    cancelProject === null ||
+    activeTasks.every(
+      (task) => task.status !== "queued" || !taskMatchesFilters(task, filters),
+    )
+      ? undefined
+      : () => void cancellation.requestAll(cancelProject);
+
   return (
     <section className="space-y-4">
       <header>
@@ -193,7 +217,17 @@ export function UsageRecordsSection() {
         onStatusChange={(status) => onFiltersChange({ status })}
         onPage={(direction) => void goToPage(direction)}
         onOpenDetail={onOpenDetail}
+        onCancelAll={onCancelAll}
       />
+
+      {cancellation.request && (
+        <CancelConfirmDialog
+          request={cancellation.request}
+          cancelling={cancellation.cancelling}
+          onConfirm={cancellation.confirm}
+          onDismiss={cancellation.dismiss}
+        />
+      )}
 
       {recordId !== null && (
         <UsageRecordDetailModal

@@ -105,8 +105,9 @@ interface AppState {
   assistantPanelWidth: number;
   setAssistantPanelWidth: (width: number) => void;
   persistAssistantPanelWidth: () => void;
-  taskHudOpen: boolean;
-  setTaskHudOpen: (open: boolean) => void;
+  /** 顶栏用量悬浮层的开合；画布侧也从这里打开面板。 */
+  usagePanelOpen: boolean;
+  setUsagePanelOpen: (open: boolean) => void;
 
   // Source files invalidation signal
   sourceFilesVersion: number;
@@ -271,8 +272,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       // localStorage 不可用（隐私模式 / quota exceeded）静默失败，内存值仍生效
     }
   },
-  taskHudOpen: false,
-  setTaskHudOpen: (open) => set({ taskHudOpen: open }),
+  usagePanelOpen: false,
+  setUsagePanelOpen: (open) => set({ usagePanelOpen: open }),
 
   sourceFilesVersion: 0,
   invalidateSourceFiles: () => set((s) => ({ sourceFilesVersion: s.sourceFilesVersion + 1 })),

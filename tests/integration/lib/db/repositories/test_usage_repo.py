@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
@@ -20,6 +20,12 @@ from lib.db.repositories.usage_repo import (
     UsageRepository,
 )
 from lib.providers import CallStatus
+
+
+async def stored_calls(session, project_name: str = "demo") -> list[ApiCall]:
+    """按 id 升序读回该项目落库的 api_calls 行。"""
+    stmt = select(ApiCall).where(ApiCall.project_name == project_name).order_by(ApiCall.id)
+    return list((await session.execute(stmt)).scalars().all())
 
 
 class TestUsageRepository:
@@ -41,62 +47,9 @@ class TestUsageRepository:
             output_path="storyboards/test.png",
         )
 
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["total"] == 1
-        assert calls["items"][0]["status"] == "success"
-
-    async def test_get_stats(self, async_session):
-        repo = UsageRepository(async_session)
-        call1 = await repo.start_call(
-            project_name="demo",
-            call_type="image",
-            model="test-model",
-        )
-        await repo.finish_call(call1, status="success", settlement=SettlementInput())
-
-        call2 = await repo.start_call(
-            project_name="demo",
-            call_type="video",
-            model="test-model",
-            duration_seconds=8,
-        )
-        await repo.finish_call(call2, status="failed", settlement=SettlementInput(), error_message="timeout")
-
-        stats = await repo.get_stats(project_name="demo")
-        assert stats["image_count"] == 1
-        assert stats["video_count"] == 1
-        assert stats["failed_count"] == 1
-        assert stats["total_count"] == 2
-
-    async def test_get_projects_list(self, async_session):
-        repo = UsageRepository(async_session)
-        await repo.start_call(project_name="project_a", call_type="image", model="m")
-        await repo.start_call(project_name="project_b", call_type="video", model="m")
-
-        projects = await repo.get_projects_list()
-        assert set(projects) == {"project_a", "project_b"}
-
-    async def test_pagination(self, async_session):
-        repo = UsageRepository(async_session)
-        for _ in range(5):
-            await repo.start_call(project_name="demo", call_type="image", model="m")
-
-        page1 = await repo.get_calls(page=1, page_size=2)
-        assert len(page1["items"]) == 2
-        assert page1["total"] == 5
-
-        page2 = await repo.get_calls(page=2, page_size=2)
-        assert len(page2["items"]) == 2
-
-    async def test_filters_calls_by_id(self, async_session):
-        repo = UsageRepository(async_session)
-        wanted = await repo.start_call(project_name="demo", call_type="video", model="wanted")
-        await repo.start_call(project_name="demo", call_type="video", model="other")
-
-        result = await repo.get_calls(call_id=wanted)
-
-        assert result["total"] == 1
-        assert result["items"][0]["id"] == wanted
+        calls = await stored_calls(async_session)
+        assert len(calls) == 1
+        assert calls[0].status == "success"
 
     async def test_last_provider_response_is_bounded(self, async_session):
         repo = UsageRepository(async_session)
@@ -104,7 +57,8 @@ class TestUsageRepository:
 
         await repo.update_last_provider_response(call_id, {"payload": "x" * (MAX_PROVIDER_RESPONSE_BYTES + 1)})
 
-        stored = (await repo.get_calls(project_name="demo"))["items"][0]["last_provider_response"]
+        stored = (await stored_calls(async_session))[0].last_provider_response
+        assert isinstance(stored, dict)
         assert stored["truncated"] is True
         assert len(json.dumps(stored, ensure_ascii=False).encode()) < MAX_PROVIDER_RESPONSE_BYTES
 
@@ -120,7 +74,8 @@ class TestUsageRepository:
         # 每个表情符号 4 字节 UTF-8，escape 成两个 \uXXXX 转义序列后是 12 字节。
         await repo.update_last_provider_response(call_id, {"payload": "🎬" * 15000})
 
-        stored = (await repo.get_calls(project_name="demo"))["items"][0]["last_provider_response"]
+        stored = (await stored_calls(async_session))[0].last_provider_response
+        assert isinstance(stored, dict)
         assert stored["truncated"] is True
         assert len(json.dumps(stored).encode()) <= MAX_PROVIDER_RESPONSE_BYTES
 
@@ -136,7 +91,7 @@ class TestUsageRepository:
         await repo.update_last_provider_response(call_id, body)
 
         assert bound_provider_response(body) == body
-        stored = (await repo.get_calls(project_name="demo"))["items"][0]["last_provider_response"]
+        stored = (await stored_calls(async_session))[0].last_provider_response
         assert stored == body
 
 
@@ -162,9 +117,9 @@ class TestFinalizePendingByCallId:
         affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
 
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["status"] == "success"
-        assert calls["items"][0]["cost_amount"] == 0.0
+        calls = await stored_calls(async_session)
+        assert calls[0].status == "success"
+        assert calls[0].cost_amount == 0.0
 
     async def test_auto_calculates_cost_when_amount_omitted(self, async_session):
         """cost_amount=None + status='success' → 按 ApiCall 行字段调 cost_calculator 算实际 cost。"""
@@ -183,10 +138,10 @@ class TestFinalizePendingByCallId:
         affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput())
         assert affected == 1
 
-        calls = await repo.get_calls(project_name="demo")
+        calls = await stored_calls(async_session)
         # auto-calc 由 cost_calculator 按 model/duration/resolution/audio 算出，应为正数
-        assert calls["items"][0]["status"] == "success"
-        assert calls["items"][0]["cost_amount"] > 0.0, "auto-calc 应算出真实 cost，不应是 0"
+        assert calls[0].status == "success"
+        assert calls[0].cost_amount > 0.0, "auto-calc 应算出真实 cost，不应是 0"
 
     async def test_service_tier_passed_to_cost_calculator(self, async_session, monkeypatch):
         """service_tier 应从 caller 透传到 cost_calculator.calculate_cost，非 default 档位才算对。"""
@@ -245,8 +200,8 @@ class TestFinalizePendingByCallId:
 
         # 同时必须写回 ApiCall.usage_tokens 列，否则用量明细/抽屉里这条记录的
         # tokens 字段永远为 null（resume 路径与正常 finish_call 路径行为不一致）。
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["usage_tokens"] == 12345, "usage_tokens 必须 UPDATE 写回 ApiCall 行"
+        calls = await stored_calls(async_session)
+        assert calls[0].usage_tokens == 12345, "usage_tokens 必须 UPDATE 写回 ApiCall 行"
 
     async def test_settlement_does_not_approximate_missing_usage_tokens(self, async_session):
         """provider 成功响应但漏报 usage（``usage_tokens`` 为 None）时，实付结算必须如实按
@@ -266,8 +221,8 @@ class TestFinalizePendingByCallId:
         affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput())
         assert affected == 1
 
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["cost_amount"] == 0.0, "usage_tokens 缺失时实付结算不得伪造近似金额"
+        calls = await stored_calls(async_session)
+        assert calls[0].cost_amount == 0.0, "usage_tokens 缺失时实付结算不得伪造近似金额"
 
     async def test_billed_duration_passed_to_cost_calculator_and_ledger(self, async_session, monkeypatch):
         """provider 回报的实际计费时长必须透传到 cost_calculator 并回写 ApiCall.duration_seconds，
@@ -297,8 +252,8 @@ class TestFinalizePendingByCallId:
         assert affected == 1
         assert captured["duration_seconds"] == 15, "实际计费时长必须从 caller 透传到 cost_calculator"
 
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["duration_seconds"] == 15, "实际计费时长必须 UPDATE 写回 ApiCall 行"
+        calls = await stored_calls(async_session)
+        assert calls[0].duration_seconds == 15, "实际计费时长必须 UPDATE 写回 ApiCall 行"
 
     async def test_billed_duration_non_positive_falls_back_to_request_duration(self, async_session, monkeypatch):
         """非正的实际计费时长视同未提供：cost_calculator 入参与账本均回落 start_call 的请求时长。"""
@@ -327,8 +282,8 @@ class TestFinalizePendingByCallId:
         assert affected == 1
         assert captured["duration_seconds"] == 6, "非正计费时长不得传给 cost_calculator，应回落请求时长"
 
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["duration_seconds"] == 6, "非正计费时长不得写回账本，应保留请求时长"
+        calls = await stored_calls(async_session)
+        assert calls[0].duration_seconds == 6, "非正计费时长不得写回账本，应保留请求时长"
 
     async def test_billed_duration_over_limit_falls_back_to_request_duration(self, async_session, monkeypatch):
         """超出合理上限（24h）的计费时长视同未提供：repo 写入层是全部 backend 的最后防线，
@@ -359,8 +314,8 @@ class TestFinalizePendingByCallId:
         assert affected == 1
         assert captured["duration_seconds"] == 6, "超限计费时长不得传给 cost_calculator，应回落请求时长"
 
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["duration_seconds"] == 6, "超限计费时长不得写回账本，应保留请求时长"
+        calls = await stored_calls(async_session)
+        assert calls[0].duration_seconds == 6, "超限计费时长不得写回账本，应保留请求时长"
 
     async def test_does_not_touch_other_pending_call(self, async_session):
         repo = UsageRepository(async_session)
@@ -371,10 +326,10 @@ class TestFinalizePendingByCallId:
         assert affected == 1
 
         # 全量查询
-        calls = await repo.get_calls(project_name="demo", page_size=100)
-        by_id = {c["id"]: c for c in calls["items"]}
-        assert by_id[cid_a]["status"] == "success"
-        assert by_id[cid_b]["status"] == "pending", "另一条 pending 不应被 touch"
+        calls = await stored_calls(async_session)
+        by_id = {c.id: c for c in calls}
+        assert by_id[cid_a].status == "success"
+        assert by_id[cid_b].status == "pending", "另一条 pending 不应被 touch"
 
     async def test_idempotent_when_already_success(self, async_session):
         repo = UsageRepository(async_session)
@@ -386,8 +341,8 @@ class TestFinalizePendingByCallId:
         )
         assert affected == 0, "已 success 行应保持不变"
 
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["cost_amount"] == 5.0, "cost 未被覆写"
+        calls = await stored_calls(async_session)
+        assert calls[0].cost_amount == 5.0, "cost 未被覆写"
 
     async def test_finalize_failed_status(self, async_session):
         repo = UsageRepository(async_session)
@@ -398,9 +353,9 @@ class TestFinalizePendingByCallId:
         )
         assert affected == 1
 
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["status"] == "failed"
-        assert calls["items"][0]["cost_amount"] == 0.0
+        calls = await stored_calls(async_session)
+        assert calls[0].status == "failed"
+        assert calls[0].cost_amount == 0.0
 
     async def test_unknown_call_id_returns_zero(self, async_session):
         repo = UsageRepository(async_session)
@@ -415,11 +370,11 @@ class TestFinalizePendingByCallId:
         affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
 
-        calls = await repo.get_calls(project_name="demo")
-        item = calls["items"][0]
+        calls = await stored_calls(async_session)
+        item = calls[0]
         # started_at 与 finished_at 同瞬间内完成；duration_ms 必须是已写入的非 None 整数
-        assert item["duration_ms"] is not None
-        assert item["duration_ms"] >= 0
+        assert item.duration_ms is not None
+        assert item.duration_ms >= 0
 
     async def test_generate_audio_override_passed_to_cost_calculator(self, async_session, monkeypatch):
         """provider 在 submit 后可能降级/关闭音频；finalize 接受 caller 透传的 generate_audio
@@ -454,8 +409,8 @@ class TestFinalizePendingByCallId:
         assert captured["generate_audio"] is False, "generate_audio 透传必须覆盖到 cost_calculator"
 
         # 并且 ApiCall.generate_audio 也回写为降级后的实际值
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["generate_audio"] is False
+        calls = await stored_calls(async_session)
+        assert calls[0].generate_audio is False
 
 
 class TestMultiProviderUsage:
@@ -478,12 +433,12 @@ class TestMultiProviderUsage:
             settlement=SettlementInput(usage_tokens=246840, service_tier="default"),
         )
 
-        calls = await repo.get_calls(project_name="demo")
-        item = calls["items"][0]
-        assert item["provider"] == "ark"
-        assert item["currency"] == "CNY"
-        assert item["usage_tokens"] == 246840
-        assert item["cost_amount"] == pytest.approx(3.9494, rel=1e-3)
+        calls = await stored_calls(async_session)
+        item = calls[0]
+        assert item.provider == "ark"
+        assert item.currency == "CNY"
+        assert item.usage_tokens == 246840
+        assert item.cost_amount == pytest.approx(3.9494, rel=1e-3)
 
     async def test_gemini_call_defaults_to_usd(self, async_session):
         repo = UsageRepository(async_session)
@@ -497,99 +452,11 @@ class TestMultiProviderUsage:
         )
         await repo.finish_call(call_id, status="success", settlement=SettlementInput())
 
-        calls = await repo.get_calls(project_name="demo")
-        item = calls["items"][0]
-        assert item["provider"] == "gemini"
-        assert item["currency"] == "USD"
-        assert item["cost_amount"] == pytest.approx(3.2)
-
-    async def test_get_stats_groups_by_currency(self, async_session):
-        repo = UsageRepository(async_session)
-
-        # Gemini call
-        c1 = await repo.start_call(
-            project_name="demo",
-            call_type="video",
-            model="veo-3.1-generate-001",
-            duration_seconds=8,
-            resolution="1080p",
-            generate_audio=True,
-        )
-        await repo.finish_call(c1, status="success", settlement=SettlementInput())
-
-        # Ark call
-        c2 = await repo.start_call(
-            project_name="demo",
-            call_type="video",
-            model="doubao-seedance-1-5-pro-251215",
-            duration_seconds=5,
-            resolution="1080p",
-            generate_audio=True,
-            provider="ark",
-        )
-        await repo.finish_call(
-            c2, status="success", settlement=SettlementInput(usage_tokens=246840, service_tier="default")
-        )
-
-        stats = await repo.get_stats(project_name="demo")
-        assert stats["total_count"] == 2
-        assert "cost_by_currency" in stats
-        assert stats["cost_by_currency"]["USD"] == pytest.approx(3.2)
-        assert stats["cost_by_currency"]["CNY"] == pytest.approx(3.9494, rel=1e-3)
-        assert stats["total_cost"] == pytest.approx(3.2)
-
-    async def test_get_stats_cost_by_currency_excludes_failed_billed_calls(self, async_session):
-        """金额维度与项目成本口径一致：只统计 success 且已扣费调用。"""
-        repo = UsageRepository(async_session)
-
-        ok = await repo.start_call(
-            project_name="demo",
-            call_type="image",
-            model="viduq2",
-            resolution="1080p",
-            provider="vidu",
-        )
-        await repo.finish_call(ok, status="success", settlement=SettlementInput(usage_tokens=8))
-
-        failed = await repo.start_call(
-            project_name="demo",
-            call_type="text",
-            model="claude-sonnet-4",
-            provider="anthropic",
-        )
-        await repo.finish_call(failed, status="failed", settlement=SettlementInput(), error_message="boom")
-        await async_session.execute(
-            update(ApiCall)
-            .where(ApiCall.id == failed)
-            .values(cost_amount=0.0456, currency="USD", input_tokens=100, output_tokens=20)
-        )
-        await async_session.commit()
-
-        failed_unbilled = await repo.start_call(
-            project_name="demo",
-            call_type="image",
-            model="viduq2",
-            resolution="1080p",
-            provider="vidu",
-        )
-        await repo.finish_call(failed_unbilled, status="failed", settlement=SettlementInput(), error_message="boom")
-
-        zero_cost = await repo.start_call(
-            project_name="demo",
-            call_type="text",
-            model="gemini-3-flash-preview",
-            provider="gemini",
-        )
-        await repo.finish_call(zero_cost, status="success", settlement=SettlementInput(input_tokens=0, output_tokens=0))
-
-        stats = await repo.get_stats(project_name="demo")
-        # failed 即使有实付记录也不计入金额；零费用/未扣费记录也不计入金额。
-        assert stats["total_count"] == 4
-        assert stats["failed_count"] == 2
-        assert stats["total_cost"] == pytest.approx(0)
-        assert stats["cost_by_currency"] == {
-            "CNY": pytest.approx(0.25),
-        }
+        calls = await stored_calls(async_session)
+        item = calls[0]
+        assert item.provider == "gemini"
+        assert item.currency == "USD"
+        assert item.cost_amount == pytest.approx(3.2)
 
     async def test_text_call_gemini_cost(self, async_session):
         repo = UsageRepository(async_session)
@@ -607,14 +474,14 @@ class TestMultiProviderUsage:
             settlement=SettlementInput(input_tokens=1000, output_tokens=500),
         )
 
-        calls = await repo.get_calls(project_name="demo")
-        item = calls["items"][0]
-        assert item["call_type"] == "text"
-        assert item["input_tokens"] == 1000
-        assert item["output_tokens"] == 500
-        assert item["currency"] == "USD"
+        calls = await stored_calls(async_session)
+        item = calls[0]
+        assert item.call_type == "text"
+        assert item.input_tokens == 1000
+        assert item.output_tokens == 500
+        assert item.currency == "USD"
         # cost = (1000 * 0.50 + 500 * 3.00) / 1_000_000 = 0.002
-        assert item["cost_amount"] == pytest.approx((1000 * 0.50 + 500 * 3.00) / 1_000_000)
+        assert item.cost_amount == pytest.approx((1000 * 0.50 + 500 * 3.00) / 1_000_000)
 
     async def test_text_call_ark_cost(self, async_session):
         repo = UsageRepository(async_session)
@@ -632,11 +499,11 @@ class TestMultiProviderUsage:
             settlement=SettlementInput(input_tokens=2000, output_tokens=1000),
         )
 
-        calls = await repo.get_calls(project_name="demo")
-        item = calls["items"][0]
-        assert item["currency"] == "CNY"
+        calls = await stored_calls(async_session)
+        item = calls[0]
+        assert item.currency == "CNY"
         # cost = (2000 * 0.60 + 1000 * 3.60) / 1_000_000 = 0.0048
-        assert item["cost_amount"] == pytest.approx((2000 * 0.60 + 1000 * 3.60) / 1_000_000)
+        assert item.cost_amount == pytest.approx((2000 * 0.60 + 1000 * 3.60) / 1_000_000)
 
     async def test_text_call_failed_zero_cost(self, async_session):
         repo = UsageRepository(async_session)
@@ -654,27 +521,9 @@ class TestMultiProviderUsage:
             error_message="API error",
         )
 
-        calls = await repo.get_calls(project_name="demo")
-        item = calls["items"][0]
-        assert item["cost_amount"] == 0.0
-
-    async def test_get_stats_includes_text_count(self, async_session):
-        repo = UsageRepository(async_session)
-        c1 = await repo.start_call(project_name="demo", call_type="image", model="m")
-        await repo.finish_call(c1, status="success", settlement=SettlementInput())
-
-        c2 = await repo.start_call(project_name="demo", call_type="video", model="m", duration_seconds=8)
-        await repo.finish_call(c2, status="failed", settlement=SettlementInput(), error_message="timeout")
-
-        c3 = await repo.start_call(project_name="demo", call_type="text", model="m", provider="gemini")
-        await repo.finish_call(c3, status="success", settlement=SettlementInput(input_tokens=100, output_tokens=50))
-
-        stats = await repo.get_stats(project_name="demo")
-        assert stats["image_count"] == 1
-        assert stats["video_count"] == 1
-        assert stats["text_count"] == 1
-        assert stats["failed_count"] == 1
-        assert stats["total_count"] == 3
+        calls = await stored_calls(async_session)
+        item = calls[0]
+        assert item.cost_amount == 0.0
 
 
 BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)

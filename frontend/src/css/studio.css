@@ -35,7 +35,7 @@
   border-color: var(--color-hairline);
 }
 
-/* 呼吸灯动画 — 用于任务雷达 */
+/* 顶栏使用记录入口的进行中呼吸态 */
 @keyframes breathe {
   0%, 100% { opacity: 0.4; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.15); }
