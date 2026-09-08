@@ -10,6 +10,7 @@ from lib.script_plan_entries import (
     SCRIPT_PLAN_REVISION_FIELD,
     ScriptPlanEntryError,
     backfill_entry_revisions,
+    compare_script_with_plan_document,
     entry_revision,
     evaluate_entry_currency,
     plan_entries_from_document,
@@ -209,6 +210,71 @@ class TestEvaluateEntryCurrency:
         assert evaluate_entry_currency(
             "drama", script=script, plan_revisions=revisions, legacy_entries_current=False
         ).stale_ids == ("E1S01",)
+
+
+class TestCompareScriptWithPlanDocument:
+    """条目时效的共用口径：只看内容指纹，不做准入判定。"""
+
+    def test_reports_only_the_changed_entry_and_returns_the_plan_revisions(self) -> None:
+        plan = [drama_plan_entry("E1S01"), drama_plan_entry("E1S02")]
+        before = plan_entry_revisions("drama", plan, episode=1)
+        script = {
+            "scenes": [
+                {"scene_id": "E1S01", SCRIPT_PLAN_ENTRY_REVISION_FIELD: before["E1S01"]},
+                {"scene_id": "E1S02", SCRIPT_PLAN_ENTRY_REVISION_FIELD: before["E1S02"]},
+            ]
+        }
+        plan[1]["source_text"] = "改了一个错别字。"
+        comparison = compare_script_with_plan_document(
+            "drama", plan_document={"scenes": plan}, script=script, episode=1, whole_plan_revision="whole-2"
+        )
+        assert comparison is not None
+        assert comparison.currency.stale_ids == ("E1S02",)
+        assert comparison.currency.new_ids == ()
+        assert comparison.currency.removed_ids == ()
+        assert comparison.plan_revisions == plan_entry_revisions("drama", plan, episode=1)
+
+    def test_legacy_script_follows_the_whole_plan_revision(self) -> None:
+        """无条目指纹的存量剧本：metadata 的整集指纹仍等于当前值即未变，否则全部失配。"""
+        document = {"scenes": [drama_plan_entry()]}
+        script = {"scenes": [{"scene_id": "E1S01"}], "metadata": {SCRIPT_PLAN_REVISION_FIELD: "whole-1"}}
+        current = compare_script_with_plan_document(
+            "drama", plan_document=document, script=script, episode=1, whole_plan_revision="whole-1"
+        )
+        assert current is not None
+        assert not current.currency.is_stale
+        drifted = compare_script_with_plan_document(
+            "drama", plan_document=document, script=script, episode=1, whole_plan_revision="whole-2"
+        )
+        assert drifted is not None
+        assert drifted.currency.stale_ids == ("E1S01",)
+
+    @pytest.mark.parametrize(
+        "document",
+        [
+            None,
+            [],
+            {"scenes": "not-a-list"},
+            {"scenes": []},
+            {"scenes": [drama_plan_entry("E1S01"), drama_plan_entry("E1S01")]},
+        ],
+        ids=["not-an-object", "list", "items-not-a-list", "no-entries", "duplicate-ids"],
+    )
+    def test_documents_without_comparable_entries_yield_none(self, document: object) -> None:
+        assert (
+            compare_script_with_plan_document(
+                "drama", plan_document=document, script={"scenes": []}, episode=1, whole_plan_revision=None
+            )
+            is None
+        )
+
+    def test_does_not_mutate_the_script(self) -> None:
+        document = {"scenes": [drama_plan_entry()]}
+        script = {"scenes": [{"scene_id": "E1S01"}], "metadata": {SCRIPT_PLAN_REVISION_FIELD: "whole-1"}}
+        compare_script_with_plan_document(
+            "drama", plan_document=document, script=script, episode=1, whole_plan_revision="whole-1"
+        )
+        assert script == {"scenes": [{"scene_id": "E1S01"}], "metadata": {SCRIPT_PLAN_REVISION_FIELD: "whole-1"}}
 
 
 class TestBackfillEntryRevisions:
