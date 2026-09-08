@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import importlib.util
 import os
 import shutil
 import sys
@@ -384,15 +385,31 @@ def _tier_from_path(item: pytest.Item) -> str | None:
     return head if head in CLASSIFICATION_MARKS else None
 
 
-def _missing_selection_paths(config: pytest.Config) -> list[str]:
-    """命令行位置参数里指向不存在文件或目录的那些（去掉 ``::`` 之后的节点段）。
+def _importable_module(name: str) -> bool:
+    """``name`` 能作为已安装模块或包解析。"""
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
 
-    ``--pyargs`` 下位置参数是模块名而非路径，交由 pytest 自己解析。
+
+def _missing_selection_paths(config: pytest.Config) -> list[str]:
+    """命令行位置参数里既不指向已有文件或目录、也解析不到模块的那些。
+
+    比较的是去掉 ``::`` 之后的节点段。``--pyargs`` 下位置参数按模块名解析，解析不到
+    时 pytest 仍会把它当路径，故两条判据都不成立才算缺失。
     """
-    if config.getoption("pyargs"):
-        return []
     base = config.invocation_params.dir
-    return [arg for arg in config.args if not (base / arg.split("::", 1)[0]).exists()]
+    pyargs = config.getoption("pyargs")
+    missing: list[str] = []
+    for arg in config.args:
+        target = arg.split("::", 1)[0]
+        if (base / target).exists():
+            continue
+        if pyargs and _importable_module(target):
+            continue
+        missing.append(arg)
+    return missing
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
