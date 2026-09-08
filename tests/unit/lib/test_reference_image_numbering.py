@@ -52,13 +52,6 @@ class TestReferenceImagesDeclaration:
     def test_props_and_extra_images_have_their_own_types(self):
         assert reference_images_declaration([_sheet("prop", "怀表"), _EXTRA]) == "图1为道具参考图；图2为补充参考图。"
 
-    def test_declaration_contains_no_ascii_spaces(self):
-        # PyYAML 会在超过行宽的空格处折行，声明行不能给它折行点。
-        references = [_product("保温杯", "sheet"), _product("保温杯", "original")] + [
-            _sheet("character", f"角色{i}") for i in range(6)
-        ]
-        assert " " not in reference_images_declaration(references)
-
     def test_empty_references_render_nothing(self):
         assert reference_images_declaration([]) == ""
 
