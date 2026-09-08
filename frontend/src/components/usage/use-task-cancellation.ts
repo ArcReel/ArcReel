@@ -25,6 +25,8 @@ export interface TaskCancellation {
   request: CancelRequest | null;
   /** 确认按钮的在途状态。 */
   cancelling: boolean;
+  /** 上一次确认的取消请求失败；确认态保留，用户可重试。 */
+  failed: boolean;
   /** 取消中的任务 id；行内把 × 换成 spinner 用它判定。 */
   cancellingTaskIds: ReadonlySet<string>;
   requestSingle: (taskId: string) => Promise<void>;
@@ -46,6 +48,7 @@ export function useTaskCancellation(
 ): TaskCancellation {
   const [request, setRequest] = useState<CancelRequest | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [cancellingTaskIds, setCancellingTaskIds] = useState<ReadonlySet<string>>(new Set());
   const previewAbort = useRef<AbortController | null>(null);
 
@@ -54,6 +57,7 @@ export function useTaskCancellation(
     previewAbort.current = null;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换项目后旧项目的确认请求必须同步消失
     setRequest(null);
+    setFailed(false);
   }, [scopeKey]);
 
   const beginPreview = useCallback(() => {
@@ -69,6 +73,7 @@ export function useTaskCancellation(
       try {
         const preview = await API.cancelPreview(taskId, { signal: controller.signal });
         if (controller.signal.aborted) return;
+        setFailed(false);
         setRequest({ kind: "single", taskId, cascaded: preview.cascaded });
       } catch {
         // 任务已不在可取消状态，或预览被更新的操作接管
@@ -85,6 +90,7 @@ export function useTaskCancellation(
           signal: controller.signal,
         });
         if (controller.signal.aborted || queued_count === 0) return;
+        setFailed(false);
         setRequest({ kind: "all", projectName, queuedCount: queued_count });
       } catch {
         // 没有排队中的任务，或预览被更新的操作接管
@@ -96,13 +102,22 @@ export function useTaskCancellation(
   const confirm = useCallback(async () => {
     if (!request) return;
     setCancelling(true);
+    setFailed(false);
     if (request.kind === "single") {
       const taskId = request.taskId;
       setCancellingTaskIds((prev) => new Set(prev).add(taskId));
     }
     try {
-      if (request.kind === "single") await API.cancelTask(request.taskId);
-      else await API.cancelAllQueued(request.projectName);
+      try {
+        if (request.kind === "single") await API.cancelTask(request.taskId);
+        else await API.cancelAllQueued(request.projectName);
+      } catch {
+        // 取消没有落到服务端：确认态留在原地并标记失败，用户看得到、也能重试。
+        setFailed(true);
+        return;
+      }
+      // 取消已落地，确认态先收起；随后的重取失败是刷新问题，不再算取消失败。
+      setRequest(null);
       await onCancelled?.();
     } finally {
       if (request.kind === "single") {
@@ -114,11 +129,22 @@ export function useTaskCancellation(
         });
       }
       setCancelling(false);
-      setRequest(null);
     }
   }, [request, onCancelled]);
 
-  const dismiss = useCallback(() => setRequest(null), []);
+  const dismiss = useCallback(() => {
+    setRequest(null);
+    setFailed(false);
+  }, []);
 
-  return { request, cancelling, cancellingTaskIds, requestSingle, requestAll, confirm, dismiss };
+  return {
+    request,
+    cancelling,
+    failed,
+    cancellingTaskIds,
+    requestSingle,
+    requestAll,
+    confirm,
+    dismiss,
+  };
 }

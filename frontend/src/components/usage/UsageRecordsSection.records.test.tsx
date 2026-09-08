@@ -254,6 +254,67 @@ describe("UsageRecordsSection records", () => {
     expect(vi.mocked(API.getUsageRecords).mock.calls.length).toBe(busy + 1);
   });
 
+  it("keeps the pending poll on schedule while more in-progress rows arrive", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    useTasksStore.setState({
+      tasks: [makeTask({ task_id: "t-a", status: "running", resource_id: "E1S01" })],
+    });
+    renderUsageRecordsSection();
+    await waitFor(() => expect(API.getUsageRecords).toHaveBeenCalled());
+    const busy = vi.mocked(API.getUsageRecords).mock.calls.length;
+
+    // 2 秒后又入队一个任务：行数变化不能把计时器重置回零。
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    await act(async () => {
+      useTasksStore.setState({
+        tasks: [
+          makeTask({ task_id: "t-a", status: "running", resource_id: "E1S01" }),
+          makeTask({ task_id: "t-b", status: "queued", resource_id: "E1S02" }),
+        ],
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(vi.mocked(API.getUsageRecords).mock.calls.length).toBe(busy + 1);
+  });
+
+  it("refetches the records and the summary once an in-progress row settles", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const pending = makeUsageRecord({ id: 9, status: "pending", task_id: null });
+    pendingPage = { items: [pending], next_cursor: null, total: 1 };
+
+    renderUsageRecordsSection();
+    await waitFor(() => expect(useUsageRecordsStore.getState().pendingRecords).toHaveLength(1));
+    const summaryCalls = vi.mocked(API.getUsageSummary).mock.calls.length;
+    const recordCalls = vi
+      .mocked(API.getUsageRecords)
+      .mock.calls.filter(([query]) => !isPendingQuery(query)).length;
+
+    // 下一次兜底轮询发现这条调用已经落账：记录表与 KPI 也要重取，它才会出现在表里。
+    pendingPage = EMPTY_PAGE;
+    const settled = makeUsageRecord({ id: 9, status: "success", task_id: null });
+    recordsPage = { items: [settled], next_cursor: null, total: 1 };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    await waitFor(() =>
+      expect(vi.mocked(API.getUsageSummary).mock.calls.length).toBe(summaryCalls + 1),
+    );
+    expect(
+      vi.mocked(API.getUsageRecords).mock.calls.filter(([query]) => !isPendingQuery(query)).length,
+    ).toBe(recordCalls + 1);
+    await waitFor(() => {
+      const state = useUsageRecordsStore.getState();
+      expect(state.pendingRecords).toEqual([]);
+      expect(state.records.map((record) => record.id)).toEqual([9]);
+    });
+  });
+
   it("coalesces overlapping pending polls into one follow-up request", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const first = createDeferred<UsageRecordPage>();

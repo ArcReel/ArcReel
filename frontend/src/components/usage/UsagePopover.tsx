@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RefObject } from "react";
 import { Activity, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,7 +17,7 @@ import { CancelConfirmDialog } from "./CancelConfirmDialog";
 import { RecordRow } from "./RecordRow";
 import { UsageActiveRow } from "./UsageActiveRow";
 import { UsageRecordDetailModal } from "./UsageRecordDetailModal";
-import { providerLabelResolver } from "./usage-record-format";
+import { formatRatio, providerLabelResolver } from "./usage-record-format";
 import {
   sortByStartedDesc,
   taskToUsageRecordView,
@@ -67,8 +67,6 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
   const { t } = useTranslation("dashboard");
   const kpi = summary?.kpi ?? null;
   const primary = summary?.primary_currency ?? null;
-  const rate =
-    kpi && kpi.success_rate !== null ? `${Math.round(kpi.success_rate * 1000) / 10}%` : "—";
   const otherCosts = Object.entries(kpi?.cost ?? {}).filter(
     ([currency, amount]) => currency !== primary && amount > 0,
   );
@@ -77,18 +75,22 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
       <KpiCell
         first
         label={t("usage_kpi_calls")}
-        value={kpi ? String(kpi.calls) : "—"}
+        value={kpi ? kpi.calls.toLocaleString() : "—"}
         sub={kpi ? t("usage_kpi_project_all") : "—"}
       />
       <KpiCell
         label={t("usage_kpi_success_rate")}
-        value={rate}
+        value={kpi ? formatRatio(kpi.success_rate) : "—"}
         sub={kpi ? t("usage_kpi_success_count", { count: kpi.success }) : "—"}
       />
       <KpiCell
         label={t("usage_kpi_failed")}
-        value={kpi ? String(kpi.failed) : "—"}
-        sub={kpi ? t("usage_kpi_cancelled_count", { count: kpi.cancelled }) : "—"}
+        value={kpi ? kpi.failed.toLocaleString() : "—"}
+        sub={
+          kpi && kpi.cancelled > 0
+            ? t("usage_kpi_cancelled_count", { count: kpi.cancelled })
+            : "—"
+        }
       />
       <KpiCell
         label={t("usage_kpi_cost")}
@@ -146,6 +148,12 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
     ),
   );
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set());
+
+  // 悬浮层常驻挂载：收起后不留确认条，下次打开不该看到上一次没做完的取消确认。
+  const dismissCancellation = cancellation.dismiss;
+  useEffect(() => {
+    if (!open) dismissCancellation();
+  }, [open, dismissCancellation]);
 
   const providerLabel = providerLabelResolver(summary);
 
@@ -342,6 +350,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
           <CancelConfirmDialog
             request={cancellation.request}
             cancelling={cancellation.cancelling}
+            failed={cancellation.failed}
             onConfirm={cancellation.confirm}
             onDismiss={cancellation.dismiss}
           />
