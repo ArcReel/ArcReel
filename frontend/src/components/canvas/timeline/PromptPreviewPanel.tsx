@@ -120,6 +120,21 @@ export function PromptPreviewPanel({ projectName, scriptFile, segmentId, side, d
               {rendered.unavailable}
             </p>
           ) : null}
+          {rendered?.warnings?.length ? (
+            <ul
+              aria-label={t("prompt_preview_warnings_label")}
+              className="space-y-1 rounded px-2 py-1.5 text-[10.5px]"
+              style={{
+                background: "oklch(0.35 0.10 70 / 0.10)",
+                color: "oklch(0.86 0.09 70)",
+                border: "1px solid oklch(0.50 0.12 70 / 0.30)",
+              }}
+            >
+              {rendered.warnings.map((warning, index) => (
+                <li key={`prompt-preview-warning-${index}`}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
           {rendered?.text ? (
             <pre
               className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border p-2 text-[11px] leading-relaxed"

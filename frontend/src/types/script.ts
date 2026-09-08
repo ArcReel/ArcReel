@@ -358,6 +358,8 @@ export interface RenderedPromptPreview {
   unavailable: string | null;
   /** 该条目的这一侧提示词当前是文本形态。 */
   is_text_form: boolean;
+  /** 渲染这份文本时产生的提示（如参考图超出后端上限被裁剪），已由后端按请求语言渲染成成品文案。 */
+  warnings: string[];
 }
 
 /** 条目最终提示词预览：与执行期同一渲染出口，逐字等于实际发给模型的文本。 */

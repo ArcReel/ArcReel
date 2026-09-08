@@ -305,6 +305,8 @@ class TestExecuteGridTask:
         assert result["resource_id"] == grid.id
         assert result["version"] == 1
         assert "grids/" in result["file_path"]
+        # 没有参考图被裁剪就没有 warning：结果不带该键
+        assert "warnings" not in result
 
         # Verify grid status was updated
         import json as json_mod
@@ -349,7 +351,7 @@ class TestExecuteGridTask:
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
 
-            await execute_grid_task(
+            result = await execute_grid_task(
                 "test-project",
                 grid_json.id,
                 {"prompt": "queued prompt", "script_file": "episode_1.json"},
@@ -357,6 +359,10 @@ class TestExecuteGridTask:
             )
 
         assert len(captured[0]["reference_images"]) == 2
+        # 丢弃了输入的参考图必须让用户与 Agent 感知：任务结果带与分镜图 / 参考生视频同形的 warning
+        assert result["warnings"] == [
+            {"key": "ref_too_many_images", "params": {"count": 3, "model": "gpt-image-2", "max_count": 2}}
+        ]
         prompt = captured[0]["prompt"]
         assert prompt.startswith("Reference_Images: 图1、图2为角色参考图。")
         assert "图1站在门口" in prompt

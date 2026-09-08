@@ -509,6 +509,7 @@ export default {
   'prompt_preview_loading': '渲染中…',
   'prompt_preview_saved_only': '预览按已保存的内容渲染，即实际发送给模型的最终提示词。',
   'prompt_preview_saved_only_dirty': '有未保存的修改，预览仍按已保存的内容渲染。',
+  'prompt_preview_warnings_label': '生成提示',
   'message_edit': '编辑此消息并从这里重新发送',
   'message_edit_title': '编辑中',
   'message_edit_attachment': '编辑中的附件 {{index}}/{{total}}',

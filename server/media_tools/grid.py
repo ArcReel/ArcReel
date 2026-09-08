@@ -33,6 +33,7 @@ from lib.generation_result import (
     GenerationTaskState,
     ProviderCheckpoint,
     artifact_state_problem,
+    generation_warnings_from_result,
     normalize_requested_ids,
     observe_artifact_status,
     problem_from_task_failure,
@@ -454,6 +455,8 @@ async def handle_generate_grid(
                 )
                 continue
             unit_results = (result.result or {}).get("unit_results") or {}
+            # 联合图一次生成，参考图裁剪之类的 warning 属于整张宫格：每个落格分镜都据此生成，逐格照录。
+            grid_warnings = generation_warnings_from_result(result.result)
             if not unit_results:
                 grid = gm.get(grid_id)
                 if grid is None:
@@ -521,6 +524,7 @@ async def handle_generate_grid(
                     task_id=result.task_id,
                     artifact_status=cell_status,
                     provider_checkpoint=provider_checkpoint_from_task(result.task or {}),
+                    warnings=grid_warnings,
                 )
         return generation_result_outcome(builder.build(), log, batch_id=submitted.batch.batch_id)
     except Exception as exc:

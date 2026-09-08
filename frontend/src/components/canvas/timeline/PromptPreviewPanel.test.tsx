@@ -11,8 +11,8 @@ function preview(overrides: Partial<ItemPromptPreview> = {}): ItemPromptPreview 
   return {
     item_id: "E1S01",
     content_mode: "narration",
-    storyboard_image: { text: "Style: Anime\n\n最终分镜图提示词", unavailable: null, is_text_form: false },
-    video: { text: null, unavailable: "该分镜还没有填写提示词", is_text_form: false },
+    storyboard_image: { text: "Style: Anime\n\n最终分镜图提示词", unavailable: null, is_text_form: false, warnings: [] },
+    video: { text: null, unavailable: "该分镜还没有填写提示词", is_text_form: false, warnings: [] },
     ...overrides,
   };
 }
@@ -50,6 +50,21 @@ describe("PromptPreviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "复制最终提示词" }));
 
     expect(copyText).toHaveBeenCalledWith("Style: Anime\n\n最终分镜图提示词");
+  });
+
+  it("渲染时的提示随文本一起展示，用户在生成前就能看到参考图会被裁剪", async () => {
+    const clamped = preview();
+    clamped.storyboard_image = {
+      ...clamped.storyboard_image,
+      warnings: ["参考图数量 8 超出 gpt-image-2 上限 7，已取前 7 张"],
+    };
+    vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue(clamped);
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /预览最终提示词/ }));
+
+    expect(await screen.findByText(/最终分镜图提示词/)).toBeInTheDocument();
+    const notices = screen.getByRole("list", { name: "生成提示" });
+    expect(notices).toHaveTextContent("参考图数量 8 超出 gpt-image-2 上限 7，已取前 7 张");
   });
 
   it("该侧不可用时展示后端给的原因，不展示复制入口", async () => {
