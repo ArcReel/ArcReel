@@ -13,6 +13,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+
+# pytest 收集期解析命令行位置参数、并对缺失项抛 UsageError 的同一入口；
+# 下方 `pytest_sessionstart` 复用它，使会话启动期的校验与收集期同源。
 from _pytest.main import resolve_collection_argument
 from sqlalchemy import event, pool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
