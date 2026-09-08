@@ -385,28 +385,38 @@ def _tier_from_path(item: pytest.Item) -> str | None:
     return head if head in CLASSIFICATION_MARKS else None
 
 
-def _importable_module(name: str) -> bool:
-    """``name`` 能作为已安装模块或包解析。"""
+def _module_not_found(name: str) -> bool:
+    """``name`` 确定解析不到模块。
+
+    ``find_spec`` 解析子模块会导入父包，父包初始化抛出的其他异常不说明模块缺失，
+    一律放行由 pytest 报出真实错误。
+    """
     try:
-        return importlib.util.find_spec(name) is not None
-    except (ImportError, ValueError):
+        return importlib.util.find_spec(name) is None
+    except ModuleNotFoundError:
+        return True
+    except Exception:
         return False
 
 
 def _missing_selection_paths(config: pytest.Config) -> list[str]:
     """命令行位置参数里既不指向已有文件或目录、也解析不到模块的那些。
 
-    比较的是去掉 ``::`` 之后的节点段。``--pyargs`` 下位置参数按模块名解析，解析不到
-    时 pytest 仍会把它当路径，故两条判据都不成立才算缺失。
+    比较的是去掉 ``::`` 之后的节点段；该段为空（``::test_x`` 之类）时选择无效。
+    ``--pyargs`` 下位置参数按模块名解析，解析不到时 pytest 仍会把它当路径，故两条
+    判据都不成立才算缺失。
     """
     base = config.invocation_params.dir
     pyargs = config.getoption("pyargs")
     missing: list[str] = []
     for arg in config.args:
         target = arg.split("::", 1)[0]
+        if not target:
+            missing.append(arg)
+            continue
         if (base / target).exists():
             continue
-        if pyargs and _importable_module(target):
+        if pyargs and not _module_not_found(target):
             continue
         missing.append(arg)
     return missing
