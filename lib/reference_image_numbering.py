@@ -70,10 +70,7 @@ def _describe(slot: ReferenceImageSlot) -> str:
 
 
 def reference_images_declaration(references: Sequence[ReferenceImageSlot]) -> str:
-    """``Reference_Images`` 行的值：按类型分组的编号声明；无参考图时为空串。
-
-    只用全角标点、不含 ASCII 空格：PyYAML 会在超过行宽的空格处折行，声明行不能给它折行点。
-    """
+    """``Reference_Images`` 行的值：按类型分组的编号声明；无参考图时为空串。"""
     groups: dict[str, list[str]] = {}
     for position, slot in enumerate(references):
         groups.setdefault(_describe(slot), []).append(_image_label(position))

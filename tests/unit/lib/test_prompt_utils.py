@@ -16,6 +16,7 @@ from lib.prompt_utils import (
     validate_camera_motion,
     validate_shot_type,
     video_prompt_to_yaml,
+    yaml_section,
 )
 
 
@@ -53,6 +54,28 @@ class TestPromptUtils:
         assert parsed["Scene"] == "夜雨中的街道"
         assert parsed["Composition"]["shot_type"] == "Medium Shot"
         assert parsed["Avoid"] == "水印、多余文字、Logo"
+
+    def test_long_values_with_ascii_spaces_stay_on_one_line(self):
+        scene = "A rain-soaked neon street at night, " * 6 + "a lone figure walks under a red umbrella."
+        declaration = "Image 1 is the character reference; " * 3 + "keep the outfit identical."
+        data = {"scene": scene, "composition": {"shot_type": "Medium Shot", "lighting": "warm", "ambiance": "mist"}}
+
+        text = image_prompt_to_yaml(data, "Anime", reference_images=declaration)
+
+        assert f"Scene: {scene}\n" in text
+        assert f"Reference_Images: {declaration}\n" in text
+        assert yaml.safe_load(text)["Scene"] == scene
+
+    def test_video_prompt_long_values_stay_on_one_line(self):
+        action = "The camera slowly pushes in while " * 5 + "the wind lifts the curtain."
+        text = video_prompt_to_yaml({"action": action, "camera_motion": "Push In", "dialogue": []})
+
+        assert f"Action: {action}\n" in text
+
+    def test_yaml_section_long_values_stay_on_one_line(self):
+        line = "Speaker one keeps a low steady voice " * 4 + "throughout the take."
+
+        assert yaml_section({"Voice_Profiles": line}) == f"Voice_Profiles: {line}"
 
     def test_image_prompt_to_yaml_places_reference_images_between_style_and_scene(self):
         data = {"scene": "x", "composition": {"shot_type": "Medium Shot", "lighting": "", "ambiance": ""}}
