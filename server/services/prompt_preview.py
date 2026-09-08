@@ -4,7 +4,8 @@
 出口（``lib.prompt_builders.render_storyboard_image_prompt`` /
 ``lib.prompt_utils.render_storyboard_video_prompt``），本模块只负责把执行期读的那些输入
 ——项目风格、参考图列表（商品 / 资产 sheet / 上一分镜图，按图像后端的参考图上限裁剪后
-决定「图N」编号）、创作类型、声音绑定——按同一口径备齐。执行期额外传入的
+决定「图N」编号）、创作类型、声音绑定——按同一口径备齐。裁剪发生时分镜图侧带上与执行期
+任务结果同形的 warning，用户在生成前就能看到有参考图不会随请求发出。执行期额外传入的
 ``extra_reference_images`` 不在预览之列。
 
 只读：不向供应商发请求、不产生费用、不写产物清单。参考生视频路径的 unit 正文本身即提示词
@@ -15,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,7 @@ from lib.artifact_input_claims import resolve_usable_episode_script_input
 from lib.project_manager import ProjectManager, get_project_manager
 from lib.prompt_builders import render_storyboard_image_prompt
 from lib.prompt_utils import render_storyboard_video_prompt
-from lib.reference_image_numbering import clamped_reference_count
+from lib.reference_image_numbering import ReferenceImageClamp, clamp_reference_images
 from lib.script_models import resolve_content_mode
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
@@ -47,11 +48,16 @@ class ScriptItemNotFound(LookupError):
 
 @dataclass(frozen=True)
 class RenderedPrompt:
-    """一侧提示词的渲染结果：``text`` 与 ``unavailable`` 恰有一个非 ``None``。"""
+    """一侧提示词的渲染结果：``text`` 与 ``unavailable`` 恰有一个非 ``None``。
+
+    ``warnings`` 是渲染这份文本时产生的非阻断提示（如参考图按后端上限裁剪），与任务
+    ``result.warnings`` 的 ``{key, params}`` 条目同形；只在 ``text`` 渲染成功时出现。
+    """
 
     text: str | None = None
     unavailable: str | None = None
     is_text_form: bool = False
+    warnings: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -81,18 +87,19 @@ def _render(prompt: object, render: Any) -> RenderedPrompt:
         return RenderedPrompt(unavailable=UNAVAILABLE_INVALID, is_text_form=is_text_form)
 
 
-async def _kept_reference_count(
+async def _reference_clamp(
     project_name: str,
     project: dict[str, Any],
     project_path: Path,
     references: list[Any],
-) -> int:
-    """按 image lane 的 backend 参考图上限算出预览该保留几张，与执行期同一裁剪。
+) -> ReferenceImageClamp | None:
+    """按 image lane 的 backend 参考图上限判定预览该保留几张，与执行期同一裁剪。
 
     解析 image lane 会构造 backend（需凭证）。预览是只读视图，凭证缺失 / 供应商未配置时
-    不该连提示词都看不到：解析失败按不裁剪处理并记一条 info——这种项目本来也跑不了生成，
-    预览与执行的逐字一致仍然成立。预览按项目当前配置解析、没有任务 payload：若入队的 payload
-    钉了别的供应商且其上限不同，编号会与那次执行不一致，这是预览不知 payload 的既有限制。
+    不该连提示词都看不到：解析失败返回 ``None``、按不裁剪处理并记一条 info——这种项目本来
+    也跑不了生成，预览与执行的逐字一致仍然成立。预览按项目当前配置解析、没有任务 payload：
+    若入队的 payload 钉了别的供应商且其上限不同，编号会与那次执行不一致，这是预览不知
+    payload 的既有限制。
     """
     try:
         ctx = await resolve_generation_context(
@@ -104,8 +111,8 @@ async def _kept_reference_count(
         )
     except Exception as exc:
         logger.info("预览无法解析 image lane，参考图不按后端上限裁剪：%s", exc)
-        return len(references)
-    return clamped_reference_count(references, ctx.image.max_reference_images, backend=ctx.image.backend_model)
+        return None
+    return clamp_reference_images(references, ctx.image.max_reference_images, model=ctx.image.backend_model)
 
 
 async def preview_item_prompts(
@@ -157,6 +164,7 @@ async def preview_item_prompts(
 
     references: list[Any] = []
     reference_failure: Exception | None = None
+    image_warnings: tuple[dict[str, Any], ...] = ()
     # 待生成 / 为空的提示词不渲染，也就不必装配参考图——装配要读产物清单，其自身故障
     # （ArtifactManifestError）沿用 fail loud，不该由一个本就渲染不出的条目引来。
     if _unavailable_before_rendering(item.get("image_prompt")) is None:
@@ -166,7 +174,11 @@ async def preview_item_prompts(
             # 装配被拒不是本函数的失败：留到渲染时再抛，由 _render 折成 UNAVAILABLE_INVALID。
             reference_failure = exc
         if references:
-            references = references[: await _kept_reference_count(project_name, project, project_path, references)]
+            clamp = await _reference_clamp(project_name, project, project_path, references)
+            if clamp is not None:
+                references = references[: clamp.kept]
+                if (warning := clamp.warning()) is not None:
+                    image_warnings = (warning,)
 
     def _storyboard_references() -> list[Any]:
         if reference_failure is not None:
@@ -185,6 +197,8 @@ async def preview_item_prompts(
                 references=_storyboard_references(),
             ),
         )
+        if image.text is not None and image_warnings:
+            image = replace(image, warnings=image_warnings)
         video = _render(
             item.get("video_prompt"),
             lambda prompt: render_storyboard_video_prompt(

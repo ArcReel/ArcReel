@@ -6,7 +6,7 @@ from pathlib import Path
 from lib.reference_image_numbering import (
     PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
     PREVIOUS_STORYBOARD_ROLE,
-    clamped_reference_count,
+    clamp_reference_images,
     mention_replacements,
     reference_images_declaration,
     render_reference_mentions,
@@ -90,24 +90,49 @@ class TestRenderReferenceMentions:
         assert render_reference_mentions(text, [_sheet("character", "林清")]) == text
 
 
-class TestClampedReferenceCount:
+class TestClampReferenceImages:
     def test_keeps_the_head_and_drops_the_tail_beyond_the_limit(self):
         references = [_sheet("character", f"角色{i}") for i in range(8)]
-        assert clamped_reference_count(references, 7, backend="viduq2") == 7
+        clamp = clamp_reference_images(references, 7, model="viduq2")
+        assert (clamp.kept, clamp.total, clamp.clamped) == (7, 8, True)
 
     def test_limit_zero_means_the_backend_does_not_clamp(self):
         references = [_sheet("character", f"角色{i}") for i in range(20)]
-        assert clamped_reference_count(references, 0, backend="gemini-image") == 20
+        clamp = clamp_reference_images(references, 0, model="gemini-image")
+        assert (clamp.kept, clamp.clamped, clamp.warning()) == (20, False, None)
 
     def test_sequence_within_the_limit_is_untouched(self):
         references = [_sheet("character", "林清"), _PREVIOUS]
-        assert clamped_reference_count(references, 7, backend="viduq2") == 2
+        clamp = clamp_reference_images(references, 7, model="viduq2")
+        assert (clamp.kept, clamp.clamped, clamp.warning()) == (2, False, None)
 
-    def test_warning_names_the_backend_the_limit_and_the_dropped_types(self, caplog):
+    def test_sequence_exactly_at_the_limit_is_not_clamped(self):
+        references = [_sheet("character", f"角色{i}") for i in range(6)] + [_PREVIOUS]
+        clamp = clamp_reference_images(references, 7, model="viduq2")
+        assert (clamp.kept, clamp.clamped, clamp.dropped, clamp.warning()) == (7, False, (), None)
+
+    def test_warning_is_the_same_shape_as_the_reference_video_route(self):
         references = [_sheet("character", f"角色{i}") for i in range(7)] + [_sheet("prop", "怀表"), _PREVIOUS]
-        with caplog.at_level(logging.WARNING, logger="lib.reference_image_numbering"):
-            assert clamped_reference_count(references, 7, backend="viduq2") == 7
-        assert "viduq2" in caplog.text
-        assert "7" in caplog.text
+        clamp = clamp_reference_images(references, 7, model="viduq2")
+        assert clamp.warning() == {
+            "key": "ref_too_many_images",
+            "params": {"count": 9, "model": "viduq2", "max_count": 7},
+        }
+
+    def test_dropped_types_are_listed_once_each_in_order(self):
+        references = [_sheet("character", f"角色{i}") for i in range(7)] + [
+            _sheet("prop", "怀表"),
+            _sheet("prop", "折扇"),
+            _PREVIOUS,
+        ]
+        clamp = clamp_reference_images(references, 7, model="viduq2")
+        assert clamp.dropped == ("道具参考图", f"上一分镜图，{PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION}")
+
+    def test_log_names_the_model_the_limit_and_the_dropped_types(self, caplog):
+        references = [_sheet("character", f"角色{i}") for i in range(7)] + [_sheet("prop", "怀表"), _PREVIOUS]
+        with caplog.at_level(logging.INFO, logger="lib.reference_image_numbering"):
+            clamp_reference_images(references, 7, model="viduq2")
+        assert "model=viduq2" in caplog.text
+        assert "上限 7" in caplog.text
         assert "道具参考图" in caplog.text
         assert "上一分镜图" in caplog.text
