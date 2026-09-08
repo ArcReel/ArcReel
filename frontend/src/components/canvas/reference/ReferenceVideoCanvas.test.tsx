@@ -534,6 +534,7 @@ describe("ReferenceVideoCanvas", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
+      script_entry_currency: null,
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
@@ -560,6 +561,7 @@ describe("ReferenceVideoCanvas", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
+      script_entry_currency: null,
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
@@ -581,6 +583,7 @@ describe("ReferenceVideoCanvas", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
+      script_entry_currency: null,
       content: { units: [] },
     });
     const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);

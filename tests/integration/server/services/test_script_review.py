@@ -27,6 +27,7 @@ from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.draft_validation import DraftViolation
+from lib.script_plan_entries import SCRIPT_PLAN_ENTRY_REVISION_FIELD, plan_entry_revisions
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 
@@ -257,6 +258,129 @@ class TestEpisodeTargetDuration:
         state = await ScriptReviewService(pm).get_state("demo", 1)
 
         assert state["episode_target_duration"] is None
+
+
+def _narration_script(*segments: dict, metadata: dict | None = None) -> dict:
+    script: dict = {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": list(segments)}
+    if metadata is not None:
+        script["metadata"] = metadata
+    return script
+
+
+def _narration_script_segment(segment_id: str, **overrides: object) -> dict:
+    segment: dict = {
+        "segment_id": segment_id,
+        "duration_seconds": 6,
+        "novel_text": "原文",
+        "characters_in_segment": [],
+        "scenes": [],
+        "props": [],
+        "image_prompt": "画面",
+        "video_prompt": "动作",
+        "generated_assets": {},
+    }
+    segment.update(overrides)
+    return segment
+
+
+def _write_script(pm: ProjectManager, script: dict) -> None:
+    atomic_write_json(pm.get_project_path("demo") / "scripts" / "episode_1.json", script)
+
+
+#: 不属于任何脚本规划条目的指纹值：条目上记着它，即表示该条目消费的内容已经不是当前那份。
+_MISMATCHED_ENTRY_REVISION = "sha256-v1:" + "0" * 64
+
+
+class TestScriptEntryCurrency:
+    """state 携带正式剧本相对 script_plan 的条目时效：无准入口径，草稿在场时照样给出。"""
+
+    @staticmethod
+    def _two_segment_plan() -> dict:
+        plan = _narration_script_plan()
+        second = dict(plan["segments"][0], segment_id="E1S02", novel_text="第二段。")
+        plan["segments"].append(second)
+        return plan
+
+    async def test_no_formal_script_yields_none(self, tmp_path):
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        assert (await ScriptReviewService(pm).get_state("demo", 1))["script_entry_currency"] is None
+
+    async def test_no_script_plan_yields_none(self, tmp_path):
+        pm = _make_project(tmp_path, "narration")
+        _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
+        state = await ScriptReviewService(pm).get_state("demo", 1)
+        assert state["status"] == "no_script_plan"
+        assert state["script_entry_currency"] is None
+
+    async def test_reports_only_the_entries_whose_content_drifted(self, tmp_path):
+        pm = _make_project(tmp_path, "narration")
+        plan = self._two_segment_plan()
+        _write_script_plan(pm, "narration", plan)
+        revisions = plan_entry_revisions("narration", plan["segments"], episode=1)
+        _write_script(
+            pm,
+            _narration_script(
+                _narration_script_segment("E1S01", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: revisions["E1S01"]}),
+                _narration_script_segment("E1S02", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: _MISMATCHED_ENTRY_REVISION}),
+                _narration_script_segment("E1S09", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: _MISMATCHED_ENTRY_REVISION}),
+            ),
+        )
+
+        state = await ScriptReviewService(pm).get_state("demo", 1)
+
+        assert state["script_entry_currency"] == {
+            "stale": ["E1S02"],
+            "added": [],
+            "removed": ["E1S09"],
+            "order_changed": False,
+        }
+
+    async def test_legacy_script_is_current_while_the_whole_revision_still_matches(self, tmp_path):
+        """存量剧本没有条目指纹：metadata 记录的整集指纹仍等于当前 script_plan 指纹即不误报。"""
+        pm = _make_project(tmp_path, "narration")
+        path = _write_script_plan(pm, "narration", _narration_script_plan())
+        whole = script_review.content_fingerprint(path)
+        _write_script(
+            pm,
+            _narration_script(
+                _narration_script_segment("E1S01"), metadata={script_review.SCRIPT_PLAN_REVISION_FIELD: whole}
+            ),
+        )
+
+        state = await ScriptReviewService(pm).get_state("demo", 1)
+
+        assert state["fingerprint"] == whole
+        assert state["script_entry_currency"] == {"stale": [], "added": [], "removed": [], "order_changed": False}
+
+    async def test_pending_draft_does_not_hide_stale_entries(self, tmp_path):
+        """待修复草稿在场时内容确认回到 pending，但条目时效仍按正式 script_plan 给出——
+        时效回答「内容是否变了」，草稿只阻断「能否确认 / 转换」。"""
+        pm = _make_project(tmp_path, "narration")
+        plan = self._two_segment_plan()
+        _write_script_plan(pm, "narration", plan)
+        revisions = plan_entry_revisions("narration", plan["segments"], episode=1)
+        _write_script(
+            pm,
+            _narration_script(
+                _narration_script_segment("E1S01", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: revisions["E1S01"]}),
+                _narration_script_segment("E1S02", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: _MISMATCHED_ENTRY_REVISION}),
+            ),
+        )
+        svc = ScriptReviewService(pm)
+        await svc.confirm("demo", 1)
+        write_quarantine(
+            pm.get_project_path("demo"),
+            1,
+            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+            content={"segments": []},
+            violations=[],
+        )
+
+        state = await svc.get_state("demo", 1)
+
+        assert state["status"] == "pending_review"
+        assert state["script_entry_currency"]["stale"] == ["E1S02"]
 
 
 class TestDramaGateFlow:
