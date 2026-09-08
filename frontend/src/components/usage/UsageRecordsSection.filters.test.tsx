@@ -1,8 +1,9 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import i18n from "@/i18n";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageRecordsStore } from "@/stores/usage-records-store";
 import { makeUsageRecord, makeUsageSummary } from "./usage-fixtures";
@@ -30,8 +31,9 @@ describe("UsageRecordsSection filters", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
+    await i18n.changeLanguage("zh");
   });
 
   it("writes the picked time range into the URL with the u_ prefix", async () => {
@@ -91,6 +93,51 @@ describe("UsageRecordsSection filters", () => {
 
     await waitFor(() => expect(recordQueries()).toContainEqual({ statuses: ["failed"] }));
     expect(API.getUsageSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the previous summary and shows a notice when the next summary request fails", async () => {
+    renderUsageRecordsSection();
+    await waitFor(() => expect(useUsageRecordsStore.getState().summary).not.toBeNull());
+    vi.mocked(API.getUsageSummary).mockRejectedValue(new Error("boom"));
+
+    await userEvent.click(screen.getByRole("button", { name: "7 天" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("加载失败");
+    // 旧筛选的 summary 不再留在界面上冒充当前筛选的结果。
+    expect(useUsageRecordsStore.getState().summary).toBeNull();
+  });
+
+  it("refetches the summary when the section is opened again with the same filters", async () => {
+    const first = renderUsageRecordsSection();
+    await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    renderUsageRecordsSection();
+
+    // store 跨挂载常驻，再次打开也要重取 summary，离开期间结束的调用才进 KPI。
+    await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows the load failure instead of the empty state when the records request fails", async () => {
+    vi.mocked(API.getUsageRecords).mockRejectedValue(new Error("boom"));
+
+    renderUsageRecordsSection();
+
+    expect(await screen.findByRole("status")).toHaveTextContent("加载失败");
+    expect(screen.queryByText(/还没有使用记录/)).not.toBeInTheDocument();
+  });
+
+  it("refetches only the summary after the language changes", async () => {
+    renderUsageRecordsSection();
+    await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(useUsageRecordsStore.getState().summary).not.toBeNull());
+    const recordCalls = vi.mocked(API.getUsageRecords).mock.calls.length;
+
+    await act(() => i18n.changeLanguage("en"));
+
+    // 供应商显示名由服务端按请求语言渲染，只有 summary 需要重取。
+    await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(API.getUsageRecords).mock.calls.length).toBe(recordCalls);
   });
 
   it("returns to the first page when a filter changes", async () => {

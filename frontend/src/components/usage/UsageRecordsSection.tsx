@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useSearch } from "wouter";
 import { useShallow } from "zustand/react/shallow";
@@ -45,7 +45,7 @@ function taskMatchesFilters(task: TaskItem, filters: UsageRecordsFilters): boole
 }
 
 export function UsageRecordsSection() {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const [location, navigate] = useLocation();
   const search = useSearch();
 
@@ -64,15 +64,19 @@ export function UsageRecordsSection() {
   const records = useUsageRecordsStore((s) => s.records);
   const pendingRecords = useUsageRecordsStore((s) => s.pendingRecords);
   const recordsLoading = useUsageRecordsStore((s) => s.recordsLoading);
+  const recordsFailed = useUsageRecordsStore((s) => s.recordsFailed);
   const summaryLoading = useUsageRecordsStore((s) => s.summaryLoading);
+  const summaryFailed = useUsageRecordsStore((s) => s.summaryFailed);
   const total = useUsageRecordsStore((s) => s.total);
   const pageIndex = useUsageRecordsStore((s) => s.pageIndex);
   const nextCursor = useUsageRecordsStore((s) => s.nextCursor);
+  const detailId = useUsageRecordsStore((s) => s.detailId);
   const detail = useUsageRecordsStore((s) => s.detail);
   const detailLoading = useUsageRecordsStore((s) => s.detailLoading);
   const detailFailed = useUsageRecordsStore((s) => s.detailFailed);
   const applyFilters = useUsageRecordsStore((s) => s.applyFilters);
   const refresh = useUsageRecordsStore((s) => s.refresh);
+  const refreshSummary = useUsageRecordsStore((s) => s.refreshSummary);
   const refreshPending = useUsageRecordsStore((s) => s.refreshPending);
   const goToPage = useUsageRecordsStore((s) => s.goToPage);
   const openDetail = useUsageRecordsStore((s) => s.openDetail);
@@ -83,8 +87,12 @@ export function UsageRecordsSection() {
   );
 
   // 打开与筛选变化时取数；URL 是筛选的真相源，刷新后从 URL 恢复走的是同一条路径。
+  // store 跨挂载常驻，打开那次要连 summary 一起重取，离开期间结束的调用才进 KPI 与图表。
+  const openedRef = useRef(false);
   useEffect(() => {
-    void applyFilters(filters);
+    const opened = openedRef.current;
+    openedRef.current = true;
+    void applyFilters(filters, { refetchSummary: !opened });
   }, [filters, applyFilters]);
 
   useEffect(() => {
@@ -94,6 +102,15 @@ export function UsageRecordsSection() {
     }
     void openDetail(recordId);
   }, [recordId, openDetail, closeDetail]);
+
+  // 供应商显示名随 summary 由服务端按请求语言渲染；切换语言后只重取 summary，
+  // 记录页与分页位置不动。挂载那次的取数由上方筛选 effect 负责。
+  const languageRef = useRef(i18n.language);
+  useEffect(() => {
+    if (languageRef.current === i18n.language) return;
+    languageRef.current = i18n.language;
+    void refreshSummary();
+  }, [i18n.language, refreshSummary]);
 
   const writeQuery = useCallback(
     (mutate: (params: URLSearchParams) => void) => {
@@ -134,13 +151,29 @@ export function UsageRecordsSection() {
     ]);
   }, [showInProgress, activeTasks, filters, pendingRecords]);
 
+  // 只看「有没有」进行中行：行数变化（任务陆续入队）不该重置计时器，否则轮询会被一直推迟。
+  const hasInProgress = inProgress.length > 0;
   useEffect(() => {
-    if (inProgress.length === 0) return;
+    if (!hasInProgress) return;
     const timer = setInterval(() => {
       void refreshPending();
     }, PENDING_POLL_MS);
     return () => clearInterval(timer);
-  }, [inProgress.length, refreshPending]);
+  }, [hasInProgress, refreshPending]);
+
+  // 进行中行消失意味着一次调用已结束（任务终态或 pending 调用落账），记录表、KPI 与图表
+  // 要接住它，整体重取一次。只认同一视图（筛选与页码不变）下的收缩：筛选与翻页引起的
+  // 消失由各自的取数路径负责。
+  const inProgressKeys = useMemo(() => inProgress.map((row) => row.key), [inProgress]);
+  const viewKey = `${JSON.stringify(filters)}|${pageIndex}`;
+  const lastInProgressRef = useRef<{ viewKey: string; keys: readonly string[] } | null>(null);
+  useEffect(() => {
+    const previous = lastInProgressRef.current;
+    lastInProgressRef.current = { viewKey, keys: inProgressKeys };
+    if (previous === null || previous.viewKey !== viewKey) return;
+    const current = new Set(inProgressKeys);
+    if (previous.keys.some((key) => !current.has(key))) void refresh();
+  }, [inProgressKeys, viewKey, refresh]);
 
   const rows = useMemo(
     () => records.filter((record) => record.status !== "pending").map(usageRecordToView),
@@ -189,6 +222,12 @@ export function UsageRecordsSection() {
         refreshing={summaryLoading || recordsLoading}
       />
 
+      {(summaryFailed || recordsFailed) && (
+        <p role="status" className="text-[12px] text-danger-2">
+          {t("usage_load_failed")}
+        </p>
+      )}
+
       <UsageKpiStrip summary={summary} />
 
       <UsageTrendCard summary={summary} />
@@ -211,6 +250,7 @@ export function UsageRecordsSection() {
         records={rows}
         inProgress={inProgress}
         loading={recordsLoading}
+        failed={recordsFailed}
         total={total}
         pageIndex={pageIndex}
         hasNext={nextCursor !== null}
@@ -224,6 +264,7 @@ export function UsageRecordsSection() {
         <CancelConfirmDialog
           request={cancellation.request}
           cancelling={cancellation.cancelling}
+          failed={cancellation.failed}
           onConfirm={cancellation.confirm}
           onDismiss={cancellation.dismiss}
         />
@@ -232,7 +273,8 @@ export function UsageRecordsSection() {
       {recordId !== null && (
         <UsageRecordDetailModal
           recordId={recordId}
-          detail={detail}
+          // URL 直接换 id 时 store 要到 effect 才切换，首帧不能把上一条的正文挂在新标题下。
+          detail={detailId === recordId ? detail : null}
           loading={detailLoading}
           failed={detailFailed}
           providerLabel={providerLabelResolver(summary)}

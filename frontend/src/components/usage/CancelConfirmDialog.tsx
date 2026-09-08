@@ -6,6 +6,7 @@ import type { CancelRequest } from "./use-task-cancellation";
 interface CancelConfirmDialogProps {
   request: CancelRequest;
   cancelling: boolean;
+  failed: boolean;
   onConfirm: () => Promise<void>;
   onDismiss: () => void;
 }
@@ -17,6 +18,7 @@ interface CancelConfirmDialogProps {
 export function CancelConfirmDialog({
   request,
   cancelling,
+  failed,
   onConfirm,
   onDismiss,
 }: CancelConfirmDialogProps) {
@@ -46,6 +48,11 @@ export function CancelConfirmDialog({
             </li>
           ))}
         </ul>
+      )}
+      {failed && (
+        <p role="alert" className="mt-1.5 text-[11px] text-danger-2">
+          {t("cancel_failed")}
+        </p>
       )}
       <div className="mt-2.5 flex gap-2">
         <button

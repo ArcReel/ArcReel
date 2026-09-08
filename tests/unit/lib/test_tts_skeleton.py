@@ -362,7 +362,7 @@ class TestGenerateAudioAsync:
 
 
 class TestAudioCallSettlement:
-    async def test_audio_count(self):
+    async def test_audio_call_settles_as_a_cny_cost_row(self):
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

@@ -122,6 +122,49 @@ describe("UsagePopover cancellation", () => {
     expect(dialog).not.toHaveTextContent("E1S99");
   });
 
+  it("keeps the confirmation open with a failure notice until a retry succeeds", async () => {
+    vi.spyOn(API, "cancelPreview").mockResolvedValue({
+      task: { task_id: "t-run", task_type: "storyboard", resource_id: "E1S10", status: "running" },
+      cascaded: [],
+    });
+    const cancelSpy = vi
+      .spyOn(API, "cancelTask")
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({ cancelled: [], cancelling: [], skipped_terminal: [] });
+    openWithTasks([runningTask()]);
+
+    fireEvent.click(screen.getByRole("button", { name: "取消此任务" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "取消确认" });
+    fireEvent.click(screen.getByRole("button", { name: "确认取消" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("取消失败，请重试");
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消此任务" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "确认取消" }));
+
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog", { name: "取消确认" })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("drops a pending confirmation when the popover is closed", async () => {
+    vi.spyOn(API, "cancelPreview").mockResolvedValue({
+      task: { task_id: "t-run", task_type: "storyboard", resource_id: "E1S10", status: "running" },
+      cascaded: [],
+    });
+    openWithTasks([runningTask()]);
+    fireEvent.click(screen.getByRole("button", { name: "取消此任务" }));
+    await screen.findByRole("alertdialog", { name: "取消确认" });
+
+    act(() => useAppStore.getState().setUsagePanelOpen(false));
+    act(() => useAppStore.getState().setUsagePanelOpen(true));
+
+    expect(screen.queryByRole("alertdialog", { name: "取消确认" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消此任务" })).toBeInTheDocument();
+  });
+
   it("cancels only the queued tasks from the section header", async () => {
     vi.spyOn(API, "cancelAllPreview").mockResolvedValue({ queued_count: 2 });
     const cancelAllSpy = vi

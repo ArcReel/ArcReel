@@ -50,16 +50,25 @@ function createMergedRefresh(run: (signal: AbortSignal) => Promise<void>) {
   const drain = async (resolvers: (() => void)[]) => {
     running = true;
     let current = resolvers;
-    for (;;) {
-      controller = new AbortController();
-      await run(controller.signal);
-      current.forEach((resolve) => resolve());
-      if (queued.length === 0) break;
-      current = queued;
+    try {
+      for (;;) {
+        controller = new AbortController();
+        try {
+          await run(controller.signal);
+        } finally {
+          current.forEach((resolve) => resolve());
+        }
+        if (queued.length === 0) break;
+        current = queued;
+        queued = [];
+      }
+    } finally {
+      // run 意外抛出时也要回到空闲并结算排队方，否则之后的每次刷新都只会排队、永不执行。
+      queued.forEach((resolve) => resolve());
       queued = [];
+      running = false;
+      controller = null;
     }
-    running = false;
-    controller = null;
   };
 
   return {
@@ -110,7 +119,11 @@ export const useUsageHeaderStore = create<UsageHeaderState>((set, get) => {
     detailFailed: false,
 
     setProject: async (projectName) => {
-      if (get().projectName === projectName) return;
+      // 同一项目再次登记是顶栏重新挂载（如从设置页返回）：离开期间的事件已错过，补一轮重取。
+      if (get().projectName === projectName) {
+        if (projectName !== null) await refresher.call();
+        return;
+      }
       refresher.abort();
       detailAbort?.abort();
       detailAbort = null;

@@ -36,6 +36,18 @@ describe("usage-header-store", () => {
     );
   });
 
+  it("refreshes again when the same project is registered after a remount", async () => {
+    vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
+    stubRecords();
+    await useUsageHeaderStore.getState().setProject("星海列车");
+
+    // 顶栏从设置页返回后重新登记同一项目：离开期间的事件已错过，要补一轮重取。
+    await useUsageHeaderStore.getState().setProject("星海列车");
+
+    expect(API.getUsageSummary).toHaveBeenCalledTimes(2);
+    expect(useUsageHeaderStore.getState().summary?.primary_currency).toBe("CNY");
+  });
+
   it("clears the previous project and issues no request for the demo project", async () => {
     vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
     stubRecords();

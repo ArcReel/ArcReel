@@ -18,6 +18,8 @@ interface UsageRecordsCardProps {
   records: UsageRecordView[];
   inProgress: UsageRecordView[];
   loading: boolean;
+  /** 记录请求失败：不渲染「还没有记录」的空态，失败提示由区块统一给出。 */
+  failed?: boolean;
   total: number;
   pageIndex: number;
   hasNext: boolean;
@@ -44,6 +46,7 @@ export function UsageRecordsCard({
   records,
   inProgress,
   loading,
+  failed = false,
   total,
   pageIndex,
   hasNext,
@@ -96,9 +99,11 @@ export function UsageRecordsCard({
       </header>
 
       {empty ? (
-        <p className="px-4 pb-5 text-[12px] leading-[1.6] text-text-3">
-          {t("usage_records_empty")}
-        </p>
+        !failed && (
+          <p className="px-4 pb-5 text-[12px] leading-[1.6] text-text-3">
+            {t("usage_records_empty")}
+          </p>
+        )
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">

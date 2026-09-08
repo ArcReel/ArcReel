@@ -184,10 +184,18 @@ interface UsageRecordsState {
   detailLoading: boolean;
   detailFailed: boolean;
 
-  /** 应用一组筛选：回第一页重取记录与 pending，仅共用维度变化时重取 summary。 */
-  applyFilters: (filters: UsageRecordsFilters) => Promise<void>;
+  /**
+   * 应用一组筛选：回第一页重取记录与 pending，仅共用维度变化时重取 summary；
+   * 区块每次打开都带 `refetchSummary`，让 KPI 与图表反映离开期间结束的调用。
+   */
+  applyFilters: (
+    filters: UsageRecordsFilters,
+    options?: { refetchSummary?: boolean },
+  ) => Promise<void>;
   /** 手动刷新：按当前筛选重取全部三项。 */
   refresh: () => Promise<void>;
+  /** 只重取 summary：供应商显示名由服务端按请求语言渲染，切换语言后要重取。 */
+  refreshSummary: () => Promise<void>;
   /** 只重取 pending 调用，供进行中区非空时的兜底轮询使用。 */
   refreshPending: () => Promise<void>;
   goToPage: (direction: "prev" | "next") => Promise<void>;
@@ -229,15 +237,25 @@ function createRefreshCoordinator<T>(
   let controller: AbortController | null = null;
 
   const drain = async () => {
-    while (active !== null) {
-      const current = active;
-      controller = new AbortController();
-      await run(current.target, controller.signal);
-      current.resolvers.forEach((resolve) => resolve());
-      active = queued;
+    try {
+      while (active !== null) {
+        const current = active;
+        controller = new AbortController();
+        try {
+          await run(current.target, controller.signal);
+        } finally {
+          current.resolvers.forEach((resolve) => resolve());
+        }
+        active = queued;
+        queued = null;
+      }
+    } finally {
+      // run 意外抛出时也要回到空闲并结算排队方，否则之后的同类请求都只会排队、永不执行。
+      queued?.resolvers.forEach((resolve) => resolve());
+      active = null;
       queued = null;
+      controller = null;
     }
-    controller = null;
   };
 
   return (key, target) =>
@@ -287,7 +305,8 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
     } catch {
       // 被接管方作废时不碰共享状态：loading 归属新一轮，复位会打断它。
       if (signal.aborted) return;
-      set({ summaryLoading: false, summaryFailed: true });
+      // 失败后不保留旧 summary：它属于上一组筛选，留着会被当成当前筛选的结果。
+      set({ summary: null, summaryLoading: false, summaryFailed: true });
     }
   };
   const scheduleSummary = createRefreshCoordinator(runSummary);
@@ -366,13 +385,15 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
   return {
     ...INITIAL,
 
-    applyFilters: async (filters) => {
+    applyFilters: async (filters, options = {}) => {
       const previous = get().filters;
       const summaryStale = sharedDimensions(previous) !== sharedDimensions(filters);
       const first = get().summary === null && !get().summaryLoading;
       set({ filters });
       await Promise.all([
-        summaryStale || first ? fetchSummary(filters) : Promise.resolve(),
+        summaryStale || first || options.refetchSummary
+          ? fetchSummary(filters)
+          : Promise.resolve(),
         // 筛选变化一律回第一页：停在旧游标上会翻到一个已经不存在的位置。
         fetchRecords(filters, null, 0, [null]),
         fetchPending(filters),
@@ -386,6 +407,10 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
         fetchRecords(filters, get().cursors[get().pageIndex] ?? null, get().pageIndex, get().cursors),
         fetchPending(filters),
       ]);
+    },
+
+    refreshSummary: async () => {
+      await fetchSummary(get().filters);
     },
 
     refreshPending: async () => {
