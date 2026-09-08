@@ -385,8 +385,13 @@ def _tier_from_path(item: pytest.Item) -> str | None:
 
 
 def _missing_selection_paths(config: pytest.Config) -> list[str]:
-    """命令行位置参数里指向不存在文件或目录的那些（去掉 ``::`` 之后的节点段）。"""
-    base = Path(config.invocation_params.dir)
+    """命令行位置参数里指向不存在文件或目录的那些（去掉 ``::`` 之后的节点段）。
+
+    ``--pyargs`` 下位置参数是模块名而非路径，交由 pytest 自己解析。
+    """
+    if config.getoption("pyargs"):
+        return []
+    base = config.invocation_params.dir
     return [arg for arg in config.args if not (base / arg.split("::", 1)[0]).exists()]
 
 

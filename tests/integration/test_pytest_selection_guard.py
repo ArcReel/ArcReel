@@ -36,3 +36,11 @@ def test_missing_selection_path_fails_before_collection(dist_args: tuple[str, ..
     assert completed.returncode == _USAGE_ERROR_EXIT, completed.stdout + completed.stderr
     assert _MISSING in completed.stderr
     assert "passed" not in completed.stdout
+
+
+def test_pyargs_module_names_are_not_checked_as_paths():
+    module = ".".join(Path(__file__).relative_to(_REPO_ROOT).with_suffix("").parts)
+
+    completed = _run_pytest("--pyargs", module, "--collect-only")
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
