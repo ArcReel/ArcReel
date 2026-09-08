@@ -56,3 +56,35 @@ def test_terminal_result_carries_the_worker_warnings_of_succeeded_items() -> Non
     assert items["E1S01"].state is GenerationItemState.SUCCEEDED
     assert items["E1S01"].warnings == [GenerationWarning(key="ref_too_many_images", params=clamp["params"])]
     assert items["E1S02"].warnings == []
+
+
+def test_terminal_result_keeps_the_worker_warnings_of_a_post_processing_failure() -> None:
+    """任务成功、后处理失败的条目同样带 worker warnings：裁剪提示不随失败一起消失。"""
+
+    clamp = {"key": "ref_too_many_images", "params": {"count": 8, "model": "viduq2", "max_count": 7}}
+    read = build_generation_batch_read_model(
+        _batch("E1S01"),
+        [
+            _succeeded(
+                "E1S01",
+                {
+                    "warnings": [clamp],
+                    "unit_results": {
+                        "E1S01": {
+                            "problem": {
+                                "code": "generation_post_processing_failed",
+                                "detail": "联合图已生成，但切分落格失败（不要重新生成）",
+                                "action": "none",
+                            }
+                        }
+                    },
+                },
+            )
+        ],
+        queue_depth={},
+    )
+
+    assert read.generation_result is not None
+    item = read.generation_result.items[0]
+    assert item.state is GenerationItemState.FAILED
+    assert item.warnings == [GenerationWarning(key="ref_too_many_images", params=clamp["params"])]

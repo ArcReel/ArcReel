@@ -455,7 +455,8 @@ async def handle_generate_grid(
                 )
                 continue
             unit_results = (result.result or {}).get("unit_results") or {}
-            # 联合图一次生成，参考图裁剪之类的 warning 属于整张宫格：每个落格分镜都据此生成，逐格照录。
+            # 联合图一次生成，参考图裁剪之类的 warning 属于整张宫格：报告里的每个分镜都据此生成，
+            # 逐格照录；切分落格失败的格子同样带上，否则提示会随失败一起消失。
             grid_warnings = generation_warnings_from_result(result.result)
             if not unit_results:
                 grid = gm.get(grid_id)
@@ -506,6 +507,7 @@ async def handle_generate_grid(
                         task_id=result.task_id,
                         task_state=GenerationTaskState.SUCCEEDED,
                         provider_checkpoint=provider_checkpoint_from_task(result.task or {}),
+                        warnings=grid_warnings,
                     )
                     continue
                 raw_cell_path = unit_result.get("file_path")

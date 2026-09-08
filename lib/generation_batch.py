@@ -250,6 +250,7 @@ def _terminal_result(
                         if unit_result.get("problem")
                         else problem_from_task_failure(task.get("error_message"), cancelled=status == "cancelled")
                     ),
+                    warnings=generation_warnings_from_result(task_result),
                 )
             )
     succeeded = [item.unit_id for item in items if item.state is GenerationItemState.SUCCEEDED]

@@ -399,6 +399,48 @@ async def test_generate_grid_reports_the_grid_warnings_on_every_cell(
     assert out["content"][0]["text"].count("参考图数量 9 超出 gpt-image-2 上限 8，已取前 8 张") == 2
 
 
+async def test_generate_grid_keeps_the_grid_warnings_when_splitting_fails(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """联合图已生成、切分落格失败时，裁剪 warning 仍随失败条目到达 Agent。"""
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.script_payload["segments"] = [
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 3)
+    ]
+    clamp_warning = {"key": "ref_too_many_images", "params": {"count": 9, "model": "gpt-image-2", "max_count": 8}}
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
+        return {"task_id": "t1"}
+
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "succeeded",
+            "provider_id": "openai",
+            "provider_job_id": "job-1",
+            "result": {"file_path": "grids/g1.png", "warnings": [clamp_warning]},
+        }
+
+    async def failing_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
+        raise RuntimeError("cannot write the split cells")
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", failing_split)
+    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
+
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
+
+    result = read_generation_result(out)
+    assert result.failed == ["E1S01", "E1S02"]
+    assert [[w.model_dump() for w in item.warnings] for item in result.items] == [[clamp_warning], [clamp_warning]]
+    assert out["content"][0]["text"].count("参考图数量 9 超出 gpt-image-2 上限 8，已取前 8 张") == 2
+
+
 async def test_generate_grid_blocks_every_scene_of_a_chunk_with_a_reference_gap(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
