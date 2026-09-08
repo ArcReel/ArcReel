@@ -20,6 +20,7 @@ from lib.generation_result import (
     GenerationTargetState,
     GenerationTaskState,
     enqueue_problem,
+    generation_warnings_from_result,
     observe_artifact_status,
     problem_from_task_failure,
     provider_checkpoint_from_task,
@@ -228,6 +229,7 @@ def _terminal_result(
                     state=GenerationItemState.SUCCEEDED,
                     task_state=GenerationTaskState.SUCCEEDED,
                     artifact_status=artifact_status,
+                    warnings=generation_warnings_from_result(task_result),
                 )
             )
         else:
