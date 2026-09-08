@@ -353,6 +353,16 @@ class TestScriptEntryCurrency:
         assert state["fingerprint"] == whole
         assert state["script_entry_currency"] == {"stale": [], "added": [], "removed": [], "order_changed": False}
 
+    async def test_non_object_script_yields_none(self, tmp_path):
+        """剧本文件顶层不是对象时返回 None：时效是两份内容的比对，缺一方就没有答案，不整个 500。"""
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        (pm.get_project_path("demo") / "scripts" / "episode_1.json").write_text("[]", encoding="utf-8")
+
+        state = await ScriptReviewService(pm).get_state("demo", 1)
+
+        assert state["script_entry_currency"] is None
+
     async def test_pending_draft_does_not_hide_stale_entries(self, tmp_path):
         """待修复草稿在场时内容确认回到 pending，但条目时效仍按正式 script_plan 给出——
         时效回答「内容是否变了」，草稿只阻断「能否确认 / 转换」。"""

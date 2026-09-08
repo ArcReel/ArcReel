@@ -321,8 +321,10 @@ class ScriptReviewService:
         script_file = entry.get("script_file") if entry is not None else None
         filename = script_file if isinstance(script_file, str) and script_file else episode_script_relpath(episode)
         try:
-            script = self.pm.load_script_readonly(project_name, filename)
+            script: Any = self.pm.load_script_readonly(project_name, filename)
         except (OSError, ValueError):
+            return None
+        if not isinstance(script, dict):
             return None
         comparison = compare_script_with_plan_document(
             kind,
