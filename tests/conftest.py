@@ -384,6 +384,24 @@ def _tier_from_path(item: pytest.Item) -> str | None:
     return head if head in CLASSIFICATION_MARKS else None
 
 
+def _missing_selection_paths(config: pytest.Config) -> list[str]:
+    """命令行位置参数里指向不存在文件或目录的那些（去掉 ``::`` 之后的节点段）。"""
+    base = Path(config.invocation_params.dir)
+    return [arg for arg in config.args if not (base / arg.split("::", 1)[0]).exists()]
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """定向选择里有不存在的路径时直接报用法错误。
+
+    不带 -n 时 pytest 自己会报「file or directory not found」并以 4 退出；xdist 下
+    controller 只从 worker 汇总结果，缺失路径连同同批的真实文件一起丢掉，只留下
+    「no tests ran」与退出码 5，没有任何错误行。两种模式统一为收集前 fail loud。
+    """
+    missing = _missing_selection_paths(session.config)
+    if missing:
+        raise pytest.UsageError("测试选择中的路径不存在: " + ", ".join(missing))
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """按目录注入分类 marker，再按 fixture 来源注入 `uses_db`，最后跑收集期校验。
 
