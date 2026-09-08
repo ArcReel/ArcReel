@@ -324,7 +324,9 @@ class GenerationItemResult(BaseModel):
     problem: GenerationProblem | None = None
     warnings: list[GenerationWarning] = Field(default_factory=list)
     """Non-blocking notices from the worker (e.g. reference images clamped to the
-    backend limit). A succeeded item can carry them; they never change ``state``."""
+    backend limit). Orthogonal to ``state``: an item carries whatever the task
+    recorded whether it succeeded or failed afterwards, and they never change
+    ``state`` themselves."""
 
     @model_validator(mode="after")
     def _problem_matches_state(self) -> Self:
@@ -796,6 +798,7 @@ class GenerationResultBuilder:
         task_state: GenerationTaskState = GenerationTaskState.FAILED,
         artifact_status: ArtifactStatus | None = None,
         provider_checkpoint: ProviderCheckpoint | None = None,
+        warnings: Sequence[GenerationWarning] = (),
     ) -> None:
         self._record(
             GenerationItemResult(
@@ -808,6 +811,7 @@ class GenerationResultBuilder:
                 artifact_status=artifact_status,
                 provider_checkpoint=provider_checkpoint,
                 problem=problem,
+                warnings=list(warnings),
             )
         )
 
@@ -961,6 +965,7 @@ def record_batch_outcomes(
             task_state=task_state,
             artifact_status=state.status,
             provider_checkpoint=provider_checkpoint_from_task(br.task),
+            warnings=generation_warnings_from_result(br.result),
         )
 
 
@@ -1026,7 +1031,9 @@ def render_generation_result(
     identifiers (``operation``, problem codes, actions, artifact statuses)
     live exclusively in the structured ``generation_result`` sibling field.
     Item warnings are rendered through ``translate`` (default locale) as their
-    own indented lines under the item.
+    own indented lines under the item, whatever the item's state — a notice about
+    the request (e.g. clamped references) still explains a task that failed in
+    post-processing.
     """
 
     operation_label = _OPERATION_LABELS.get(result.operation, _FALLBACK_OPERATION_LABEL)
@@ -1045,8 +1052,6 @@ def render_generation_result(
                 line += f" → {item.artifact_path}"
             if item.artifact_status is ArtifactStatus.STALE:
                 line += "（任务成功，但产物已不匹配当前依据）"
-            for warning in item.warnings:
-                line += f"\n    ⚠️ {translate(warning.key, **warning.params)}"
         else:
             problem = item.problem
             assert problem is not None
@@ -1056,6 +1061,8 @@ def render_generation_result(
                 line += f" → {action_label}"
             if item.provider_checkpoint is not None and item.provider_checkpoint.submitted:
                 line += "（供应商已提交，可恢复）"
+        for warning in item.warnings:
+            line += f"\n    ⚠️ {translate(warning.key, **warning.params)}"
         lines.append(line)
     for entry in result.skipped:
         label = _ARTIFACT_STATUS_LABELS.get(entry.artifact_status, "") if entry.artifact_status is not None else ""
