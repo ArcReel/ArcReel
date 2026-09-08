@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import atexit
-import importlib.util
 import os
 import shutil
 import sys
@@ -14,6 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+from _pytest.main import resolve_collection_argument
 from sqlalchemy import event, pool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
@@ -385,53 +385,34 @@ def _tier_from_path(item: pytest.Item) -> str | None:
     return head if head in CLASSIFICATION_MARKS else None
 
 
-def _module_not_found(name: str) -> bool:
-    """``name`` 确定解析不到模块。
+def _validate_selection_args(config: pytest.Config) -> None:
+    """把每个命令行位置参数交给 pytest 自身的解析器，缺失的路径或模块抛 UsageError。
 
-    ``find_spec`` 解析子模块会导入父包，父包初始化抛出的其他异常不说明模块缺失，
-    一律放行由 pytest 报出真实错误。
+    判据完全取自 ``resolve_collection_argument``：路径存在性、``--pyargs`` 的模块解析
+    （含 namespace package 是否按 ``consider_namespace_packages`` 接受）、目录不得带
+    ``::`` 选择段、``[]`` 参数化的位置，都与收集期一致。
     """
-    try:
-        return importlib.util.find_spec(name) is None
-    except ModuleNotFoundError:
-        return True
-    except Exception:
-        return False
-
-
-def _missing_selection_paths(config: pytest.Config) -> list[str]:
-    """命令行位置参数里既不指向已有文件或目录、也解析不到模块的那些。
-
-    比较的是去掉 ``::`` 之后的节点段；该段为空（``::test_x`` 之类）时选择无效。
-    ``--pyargs`` 下位置参数按模块名解析，解析不到时 pytest 仍会把它当路径，故两条
-    判据都不成立才算缺失。
-    """
-    base = config.invocation_params.dir
-    pyargs = config.getoption("pyargs")
-    missing: list[str] = []
-    for arg in config.args:
-        target = arg.split("::", 1)[0]
-        if not target:
-            missing.append(arg)
-            continue
-        if (base / target).exists():
-            continue
-        if pyargs and not _module_not_found(target):
-            continue
-        missing.append(arg)
-    return missing
+    invocation_path = config.invocation_params.dir
+    as_pypath = bool(config.getoption("pyargs"))
+    consider_namespace_packages = bool(config.getini("consider_namespace_packages"))
+    for index, arg in enumerate(config.args):
+        resolve_collection_argument(
+            invocation_path,
+            arg,
+            index,
+            as_pypath=as_pypath,
+            consider_namespace_packages=consider_namespace_packages,
+        )
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    """定向选择里有不存在的路径时直接报用法错误。
+    """定向选择里有不存在的路径或模块时直接报用法错误。
 
-    不带 -n 时 pytest 自己会报「file or directory not found」并以 4 退出；xdist 下
-    controller 只从 worker 汇总结果，缺失路径连同同批的真实文件一起丢掉，只留下
+    不带 -n 时 pytest 自己会在收集期报出同样的 UsageError 并以 4 退出；xdist 下
+    controller 只从 worker 汇总结果，缺失选择连同同批的真实文件一起丢掉，只留下
     「no tests ran」与退出码 5，没有任何错误行。两种模式统一为收集前 fail loud。
     """
-    missing = _missing_selection_paths(session.config)
-    if missing:
-        raise pytest.UsageError("测试选择中的路径不存在: " + ", ".join(missing))
+    _validate_selection_args(session.config)
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
