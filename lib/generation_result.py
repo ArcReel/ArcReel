@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import (
@@ -280,18 +280,32 @@ class ProviderCheckpoint(BaseModel):
     provider_job_id: str | None = None
 
 
+#: ``translate(key, ..., locale=...)`` 自己的形参名。``params`` 里出现同名项会让展开调用
+#: 抛 ``TypeError``，所以它们不是合法的文案参数。
+_TRANSLATE_RESERVED_PARAMS = frozenset({"key", "locale"})
+
+
 class GenerationWarning(BaseModel):
     """One non-blocking notice the worker attached to a succeeded task.
 
     Mirrors the ``{key, params}`` entries of a task row's ``result.warnings`` (the
     same channel the task API renders for the UI), so a consumer reads one shape
     across every entry point. ``key`` is an i18n key; ``params`` fill its text.
+    A constructed warning is always renderable: ``params`` never shadows a
+    translate argument, so consumers expand it without guarding the call.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     key: str
     params: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _params_are_expandable(self) -> Self:
+        shadowed = sorted(_TRANSLATE_RESERVED_PARAMS & self.params.keys())
+        if shadowed:
+            raise ValueError(f"warning params must not shadow translate arguments: {shadowed}")
+        return self
 
 
 class GenerationItemResult(BaseModel):
@@ -843,8 +857,9 @@ class GenerationResultBuilder:
 def generation_warnings_from_result(result: Mapping[str, Any] | None) -> list[GenerationWarning]:
     """Read the ``{key, params}`` warnings a worker stored in a task result.
 
-    Warnings are advisory: entries of the wrong shape are skipped rather than
-    failing the whole batch report, mirroring how the task API renders them.
+    Warnings are advisory: entries of the wrong shape, and entries whose params
+    cannot be expanded into a translate call, are skipped rather than failing the
+    whole batch report, mirroring how the task API renders them.
     """
     raw = (result or {}).get("warnings")
     if not isinstance(raw, list):
@@ -858,11 +873,14 @@ def generation_warnings_from_result(result: Mapping[str, Any] | None) -> list[Ge
         if not isinstance(key, str) or not key:
             continue
         params = entry_map.get("params")
-        warnings.append(
-            GenerationWarning(
-                key=key, params=dict(cast(Mapping[str, Any], params)) if isinstance(params, Mapping) else {}
+        try:
+            warnings.append(
+                GenerationWarning(
+                    key=key, params=dict(cast(Mapping[str, Any], params)) if isinstance(params, Mapping) else {}
+                )
             )
-        )
+        except ValidationError:
+            continue
     return warnings
 
 

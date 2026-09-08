@@ -518,6 +518,41 @@ def test_the_rendered_summary_spells_out_item_warnings() -> None:
     assert "ref_too_many_images" not in text
 
 
+def test_a_warning_cannot_carry_params_that_shadow_translate_arguments() -> None:
+    """构造出来的 warning 一定可渲染：params 撞上翻译函数形参名的直接拒绝。"""
+
+    with pytest.raises(ValidationError):
+        GenerationWarning(key="ref_too_many_images", params={"key": "x"})
+    with pytest.raises(ValidationError):
+        GenerationWarning(key="ref_too_many_images", params={"locale": "en"})
+
+
+def test_worker_warnings_whose_params_shadow_translate_arguments_are_skipped() -> None:
+    """畸形但合法的 JSON 落到 params 时只丢该条，其余提示与整批报告照常。"""
+
+    builder = GenerationResultBuilder("probe", GenerationSelectionMode.EXPLICIT)
+
+    record_batch_outcomes(
+        builder,
+        successes=[
+            _batch(
+                "A",
+                result={
+                    "file_path": "storyboards/scene_A.png",
+                    "warnings": [
+                        {"key": "ref_too_many_images", "params": {"key": "x", "locale": "en"}},
+                        {"key": "ref_sora_single_ref", "params": {}},
+                    ],
+                },
+            )
+        ],
+        failures=[],
+    )
+
+    items = {item.unit_id: item for item in builder.build().items}
+    assert items["A"].warnings == [GenerationWarning(key="ref_sora_single_ref", params={})]
+
+
 def test_a_failed_batch_item_keeps_the_old_artifact_and_its_status() -> None:
     """失败不动旧产物：报告里保留旧文件路径与旧状态，付过的钱不被抹掉。"""
 
