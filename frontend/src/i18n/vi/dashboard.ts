@@ -503,6 +503,7 @@ export default {
   'prompt_preview_loading': 'Đang kết xuất…',
   'prompt_preview_saved_only': 'Kết xuất từ nội dung đã lưu; đây chính là lời nhắc cuối cùng gửi tới mô hình.',
   'prompt_preview_saved_only_dirty': 'Bạn có thay đổi chưa lưu; bản xem trước vẫn theo nội dung đã lưu.',
+  'prompt_preview_warnings_label': 'Lưu ý khi tạo',
   'message_edit': 'Sửa tin nhắn này và gửi lại từ đây',
   'message_edit_title': 'Đang sửa',
   'message_edit_attachment': 'Tệp đính kèm {{index}}/{{total}} đang chỉnh sửa',

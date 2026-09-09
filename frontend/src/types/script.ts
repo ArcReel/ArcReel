@@ -152,6 +152,21 @@ export type ScriptReviewStatus =
   | "pending_review"
   | "confirmed";
 
+/**
+ * 正式剧本相对当前脚本规划的条目时效：无准入的「内容是否变了」，与工作流状态同一口径。
+ * 草稿在场、时长档位或发声准入不满足时照样给出；「能否转换」由 `ScriptPlanConversionPreview` 另答。
+ * 三组 id 按脚本规划顺序（`removed` 按剧本顺序）。
+ */
+export interface ScriptEntryCurrency {
+  /** 剧本里已有、内容指纹落后于脚本规划的条目。 */
+  stale: string[];
+  /** 脚本规划里有、剧本里还没有的条目。 */
+  added: string[];
+  /** 剧本里有、脚本规划里已不存在的条目。 */
+  removed: string[];
+  order_changed: boolean;
+}
+
 /** script_plan→prompt_authoring 内容确认状态（后端 server/routers/script_review.py 的 GET 响应）。 */
 export interface ScriptReviewState {
   episode: number;
@@ -178,6 +193,8 @@ export interface ScriptReviewState {
    * 超出目标只提示，不阻断确认与后续生成。
    */
   episode_target_duration: number | null;
+  /** 正式剧本相对这份脚本规划的条目时效；没有正式剧本或没有可比对的条目时 null。 */
+  script_entry_currency: ScriptEntryCurrency | null;
 }
 
 export interface Composition {
@@ -341,6 +358,8 @@ export interface RenderedPromptPreview {
   unavailable: string | null;
   /** 该条目的这一侧提示词当前是文本形态。 */
   is_text_form: boolean;
+  /** 渲染这份文本时产生的提示（如参考图超出后端上限被裁剪），已由后端按请求语言渲染成成品文案。 */
+  warnings: string[];
 }
 
 /** 条目最终提示词预览：与执行期同一渲染出口，逐字等于实际发给模型的文本。 */

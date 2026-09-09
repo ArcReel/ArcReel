@@ -21,6 +21,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     supported_durations: [4, 8],
     duration_tiers: null,
     episode_target_duration: null,
+    script_entry_currency: null,
     content: {
       units: [
         {
@@ -45,6 +46,7 @@ function quarantinedState(): ScriptReviewState {
     supported_durations: [4, 8],
     duration_tiers: null,
     episode_target_duration: null,
+    script_entry_currency: null,
     content: null,
     quarantine: {
       content: {
@@ -251,6 +253,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
+      script_entry_currency: null,
     });
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     await waitFor(() => expect(screen.getByText("暂无脚本规划结果")).toBeInTheDocument());

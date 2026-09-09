@@ -15,8 +15,12 @@ interface UseScriptEntryCurrencyOptions {
 /**
  * 正式剧本条目相对脚本规划的时效：返回内容已落后的条目 id 集合。
  *
- * 取数走机械转换的只读预演端点；请求失败或项目不适用时视为没有失效条目，时间线只是少一条
- * 提示，不阻断编辑。
+ * 取数走内容确认状态（`GET script-review`）里的 `script_entry_currency`：那是无准入的「内容是否
+ * 变了」，草稿在场、时长档位或发声准入不满足时照样给出；不走机械转换预演——预演过与生成同一组
+ * 准入断言，任一不满足即整体 422，用它驱动这里会让整条时间线的提示随草稿的出现而消失又恢复。
+ *
+ * 请求失败时保留上一次的结果并记警告，不清空：清空会把「读不出」呈现成「全部一致」。项目不适用
+ * （服务端给 null）才视为没有失效条目。
  */
 export function useScriptEntryCurrency({
   projectName,
@@ -32,12 +36,12 @@ export function useScriptEntryCurrency({
     const controller = new AbortController();
     inflight.current = controller;
     try {
-      const preview = await API.previewScriptPlanConversion(projectName, episode, { signal: controller.signal });
+      const state = await API.getScriptReview(projectName, episode, { signal: controller.signal });
       if (controller.signal.aborted || inflight.current !== controller) return;
-      setStaleIds(new Set(preview.stale));
-    } catch {
+      setStaleIds(new Set(state.script_entry_currency?.stale ?? []));
+    } catch (err) {
       if (controller.signal.aborted || inflight.current !== controller) return;
-      setStaleIds(EMPTY_IDS);
+      console.warn(`[script-entry-currency] 读取第 ${episode} 集条目时效失败，沿用上一次结果`, err);
     }
   }, [projectName, episode]);
 

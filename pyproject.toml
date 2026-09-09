@@ -197,6 +197,7 @@ DEP002 = [
 # dev 与生产文件，故逐项列出它们正当 import 的测试框架包；其余 dev 依赖仍受本规则守护。
 DEP004 = [
     "pytest",         # 测试框架
+    "_pytest",        # pytest 的内部模块，根 conftest 复用其选择参数解析器
     "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）
     "respx",          # httpx 的测试替身
 ]

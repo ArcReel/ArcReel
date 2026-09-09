@@ -31,6 +31,7 @@ from lib.generation_result import (
     GenerationSelectionMode,
     GenerationTargetState,
     GenerationTaskState,
+    GenerationWarning,
     ProviderCheckpoint,
     artifact_is_reusable,
     normalize_requested_ids,
@@ -449,6 +450,107 @@ def test_recording_a_batch_reports_task_provider_and_artifact_axes_separately() 
     assert item.artifact_status is ArtifactStatus.STALE
     assert item.artifact_path == "videos/a.mp4"
     assert item.provider_checkpoint == ProviderCheckpoint(submitted=True, provider_job_id="job-1")
+
+
+def test_a_succeeded_batch_item_carries_the_worker_warnings() -> None:
+    """worker 写进 result.warnings 的提示原样进结构化契约，Agent 与任务 API 读同一份条目。"""
+
+    clamp_warning = {"key": "ref_too_many_images", "params": {"count": 8, "model": "viduq2", "max_count": 7}}
+    builder = GenerationResultBuilder("probe", GenerationSelectionMode.EXPLICIT)
+
+    record_batch_outcomes(
+        builder,
+        successes=[_batch("A", result={"file_path": "storyboards/scene_A.png", "warnings": [clamp_warning]})],
+        failures=[],
+    )
+
+    result = builder.build()
+    item = result.items[0]
+    assert item.state is GenerationItemState.SUCCEEDED
+    assert item.warnings == [GenerationWarning(key="ref_too_many_images", params=clamp_warning["params"])]
+    assert GenerationBatchResult.model_validate(result.model_dump(mode="json")) == result
+
+
+def test_malformed_worker_warnings_are_skipped_not_fatal() -> None:
+    """warnings 是纯提示：形态不符的条目跳过，不让整批报告失败。"""
+
+    builder = GenerationResultBuilder("probe", GenerationSelectionMode.EXPLICIT)
+
+    record_batch_outcomes(
+        builder,
+        successes=[
+            _batch(
+                "A",
+                result={
+                    "file_path": "storyboards/scene_A.png",
+                    "warnings": [
+                        "not a dict",
+                        {"params": {}},
+                        {"key": "", "params": {}},
+                        {"key": "ref_sora_single_ref"},
+                    ],
+                },
+            ),
+            _batch("B", result={"file_path": "storyboards/scene_B.png", "warnings": "nope"}),
+        ],
+        failures=[],
+    )
+
+    items = {item.unit_id: item for item in builder.build().items}
+    assert items["A"].warnings == [GenerationWarning(key="ref_sora_single_ref", params={})]
+    assert items["B"].warnings == []
+
+
+def test_the_rendered_summary_spells_out_item_warnings() -> None:
+    """摘要把 warning 按 i18n 文案渲染在条目之下，不直出 key。"""
+
+    builder = GenerationResultBuilder("generate_storyboards", GenerationSelectionMode.EXPLICIT)
+    builder.succeed(
+        "E1S02",
+        task_id="t1",
+        artifact_path="storyboards/scene_E1S02.png",
+        warnings=[GenerationWarning(key="ref_too_many_images", params={"count": 8, "model": "viduq2", "max_count": 7})],
+    )
+
+    text = render_generation_result(builder.build())
+
+    assert "✓ E1S02 → storyboards/scene_E1S02.png\n    ⚠️ 参考图数量 8 超出 viduq2 上限 7，已取前 7 张" in text
+    assert "ref_too_many_images" not in text
+
+
+def test_a_warning_cannot_carry_params_that_shadow_translate_arguments() -> None:
+    """构造出来的 warning 一定可渲染：params 撞上翻译函数形参名的直接拒绝。"""
+
+    with pytest.raises(ValidationError):
+        GenerationWarning(key="ref_too_many_images", params={"key": "x"})
+    with pytest.raises(ValidationError):
+        GenerationWarning(key="ref_too_many_images", params={"locale": "en"})
+
+
+def test_worker_warnings_whose_params_shadow_translate_arguments_are_skipped() -> None:
+    """畸形但合法的 JSON 落到 params 时只丢该条，其余提示与整批报告照常。"""
+
+    builder = GenerationResultBuilder("probe", GenerationSelectionMode.EXPLICIT)
+
+    record_batch_outcomes(
+        builder,
+        successes=[
+            _batch(
+                "A",
+                result={
+                    "file_path": "storyboards/scene_A.png",
+                    "warnings": [
+                        {"key": "ref_too_many_images", "params": {"key": "x", "locale": "en"}},
+                        {"key": "ref_sora_single_ref", "params": {}},
+                    ],
+                },
+            )
+        ],
+        failures=[],
+    )
+
+    items = {item.unit_id: item for item in builder.build().items}
+    assert items["A"].warnings == [GenerationWarning(key="ref_sora_single_ref", params={})]
 
 
 def test_a_failed_batch_item_keeps_the_old_artifact_and_its_status() -> None:

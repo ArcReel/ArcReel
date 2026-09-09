@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
@@ -6,7 +6,7 @@ import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./TimelineCanvas";
-import type { NarrationEpisodeScript, ProjectData } from "@/types";
+import type { NarrationEpisodeScript, ProjectData, ScriptReviewState } from "@/types";
 
 vi.mock("./ScriptReviewGate", async () => {
   const { scriptReviewGateMock } = await import("@/__mocks__/ScriptReviewGate");
@@ -16,14 +16,17 @@ vi.mock("./ShotSplitView", () => ({
   ShotSplitView: ({
     onUpdatePrompt,
     onGenerateNarration,
+    staleEntryIds,
   }: {
     onUpdatePrompt?: unknown;
     onGenerateNarration?: unknown;
+    staleEntryIds?: ReadonlySet<string>;
   }) => (
     <div
       data-testid="shot-split-view"
       data-can-update-prompt={onUpdatePrompt ? "yes" : "no"}
       data-can-generate-narration={onGenerateNarration ? "yes" : "no"}
+      data-stale-ids={[...(staleEntryIds ?? [])].join(",")}
     />
   ),
 }));
@@ -66,10 +69,27 @@ function makeScript(): NarrationEpisodeScript {
   };
 }
 
+function makeReviewState(stale: string[]): ScriptReviewState {
+  return {
+    episode: 1,
+    content_mode: "narration",
+    status: "confirmed",
+    fingerprint: "fp1",
+    confirmed_at: "2026-06-26T00:00:00Z",
+    quarantine: null,
+    supported_durations: null,
+    duration_tiers: null,
+    episode_target_duration: null,
+    content: null,
+    script_entry_currency: { stale, added: [], removed: [], order_changed: false },
+  };
+}
+
 describe("TimelineCanvas", () => {
   beforeEach(() => {
     useCostStore.setState(useCostStore.getInitialState(), true);
     useTasksStore.setState(useTasksStore.getInitialState(), true);
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(makeReviewState([]));
     vi.spyOn(API, "getCostEstimate").mockResolvedValue({
       project_name: "demo",
       models: { image: { provider: "p", model: "m" }, video: { provider: "p", model: "m" } },
@@ -118,6 +138,26 @@ describe("TimelineCanvas", () => {
 
     expect(screen.getByText("脚本尚未生成，先在「脚本规划」中完成内容确认")).toBeInTheDocument();
     expect(screen.queryByTestId("shot-split-view")).not.toBeInTheDocument();
+  });
+
+  it("passes the stale entry ids from the review state down to the shot view", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(makeReviewState(["SEG-1"]));
+    useProjectsStore.setState({ currentProjectName: "demo" });
+
+    render(
+      <TimelineCanvas
+        projectName="demo"
+        episode={1}
+        hasDraft
+        episodeScript={makeScript()}
+        scriptFile="scripts/episode_1.json"
+        projectData={makeProjectData()}
+        onUpdatePrompt={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("shot-split-view")).toHaveAttribute("data-stale-ids", "SEG-1"));
+    expect(API.getScriptReview).toHaveBeenCalledWith("demo", 1, expect.anything());
   });
 
   it("shows the select-episode hint when there is no project data and no draft", () => {

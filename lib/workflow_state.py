@@ -47,13 +47,7 @@ from lib.project_migration_failure import (
 )
 from lib.project_migration_report import MigrationReport, load_migration_report
 from lib.script_models import get_generated_assets, script_duration_total
-from lib.script_plan_entries import (
-    ScriptPlanEntryError,
-    backfill_entry_revisions,
-    evaluate_entry_currency,
-    plan_entries_from_document,
-    plan_entry_revisions,
-)
+from lib.script_plan_entries import backfill_entry_revisions, compare_script_with_plan_document
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton, resolve_kind_items
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 from lib.version_manager import VersionManager
@@ -729,6 +723,9 @@ class WorkflowStateService:
 
         脚本规划读不出或形状不符时什么也不标注：脚本规划自身的状态由 ``artifacts["script_plan"]``
         回答，此处不重复造一类错误。
+
+        比对本身是条目时效的共用口径 ``compare_script_with_plan_document``（内容确认状态读的也是
+        它），不带任何准入判定：草稿在场、时长档位或发声准入不满足时这里照样给出失效条目。
         """
         plan_kind = script_review.script_plan_kind(project)
         if plan_kind is None:
@@ -740,23 +737,22 @@ class WorkflowStateService:
             document = json.loads(script_plan_path.read_bytes().decode("utf-8"))
         except (OSError, ValueError):
             return
-        plan_entries = plan_entries_from_document(plan_kind, document)
-        if not plan_entries:
-            return
-        try:
-            plan_revisions = plan_entry_revisions(plan_kind, plan_entries, episode=target.episode)
-        except ScriptPlanEntryError:
-            return
-        metadata = script.get("metadata")
-        generated_from = (
-            metadata.get(script_review.SCRIPT_PLAN_REVISION_FIELD) if isinstance(metadata, Mapping) else None
+        comparison = compare_script_with_plan_document(
+            plan_kind,
+            plan_document=document,
+            script=script,
+            episode=target.episode,
+            whole_plan_revision=whole_plan_revision,
         )
-        # 先在内存副本上补齐：非空即表示磁盘上那份也待补，据此决定是否为落盘取一次剧本锁——
-        # 已补齐过的剧本（绝大多数）因此不为读状态引入锁竞争。
+        if comparison is None:
+            return
+        # 在内存副本上补齐：非空即表示磁盘上那份也待补，据此决定是否为落盘取一次剧本锁——
+        # 已补齐过的剧本（绝大多数）因此不为读状态引入锁竞争。补齐不改变比对结论：无指纹条目
+        # 只在整集指纹相等时被盖章，而比对对这类条目同样按整集指纹回退判定。
         if backfill_entry_revisions(
             plan_kind,
             script=script,
-            plan_revisions=plan_revisions,
+            plan_revisions=comparison.plan_revisions,
             whole_plan_revision=whole_plan_revision,
         ):
             try:
@@ -764,7 +760,7 @@ class WorkflowStateService:
                     project_name,
                     target.script,
                     plan_kind=plan_kind,
-                    plan_revisions=plan_revisions,
+                    plan_revisions=comparison.plan_revisions,
                     whole_plan_revision=whole_plan_revision,
                 )
             except (OSError, ValueError, BaseLockException):
@@ -772,12 +768,7 @@ class WorkflowStateService:
                 # BaseLockException，不是 OSError）。补齐是纯格式收编，失败不改变本次状态的
                 # 任何结论，一次读状态不该因此整个失败。
                 logger.warning("剧本 %s 的条目指纹读时补齐未能落盘", target.script, exc_info=True)
-        currency = evaluate_entry_currency(
-            plan_kind,
-            script=script,
-            plan_revisions=plan_revisions,
-            legacy_entries_current=(whole_plan_revision is not None and generated_from == whole_plan_revision),
-        )
+        currency = comparison.currency
         script_artifact["stale_entry_ids"] = list(currency.outdated_ids)
         script_artifact["removed_entry_ids"] = list(currency.removed_ids)
         script_artifact["entry_order_changed"] = currency.order_changed

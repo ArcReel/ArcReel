@@ -510,6 +510,7 @@ export default {
   'prompt_preview_loading': 'Rendering…',
   'prompt_preview_saved_only': 'Rendered from the saved script — exactly what will be sent to the model.',
   'prompt_preview_saved_only_dirty': 'You have unsaved changes; the preview still reflects the saved script.',
+  'prompt_preview_warnings_label': 'Generation notices',
   'message_edit': 'Edit this message and resend from here',
   'message_edit_title': 'Editing',
   'message_edit_attachment': 'Attachment {{index}} of {{total}} being edited',
