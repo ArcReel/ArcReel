@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import i18n from "@/i18n";
 import { formatElapsedMs } from "@/utils/task-elapsed";
-import { formatCalendarDay, formatDurationMs, formatRatio } from "./usage-record-format";
+import {
+  formatCalendarDay,
+  formatCount,
+  formatDurationMs,
+  formatRatio,
+} from "./usage-record-format";
 
 /** 取当前语言的 dashboard 取词器，行为与组件里的 `useTranslation("dashboard")` 一致。 */
 function dashboardT() {
@@ -25,6 +30,20 @@ describe("formatRatio", () => {
     expect(formatRatio(0.5, "en")).toBe("50%");
     expect(formatRatio(0.12345, "en")).toBe("12.3%");
     expect(formatRatio(null, "en")).toBe("—");
+  });
+});
+
+describe("formatCount", () => {
+  it("renders the thousands separator by language", () => {
+    expect(formatCount(12_340, "zh")).toBe("12,340");
+    expect(formatCount(12_340, "en")).toBe("12,340");
+    // vi 用点作千分位；`toLocaleString()` 跟浏览器语言，会在越南语界面里给出 `12,340`。
+    expect(formatCount(12_340, "vi")).toBe("12.340");
+  });
+
+  it("leaves small numbers unseparated", () => {
+    expect(formatCount(0, "vi")).toBe("0");
+    expect(formatCount(73, "vi")).toBe("73");
   });
 });
 

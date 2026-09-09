@@ -130,6 +130,29 @@ describe("UsagePopover", () => {
     expect(screen.getByText("90,3%")).toBeInTheDocument();
   });
 
+  it("renders the counts with the language's thousands separator", async () => {
+    // 悬浮层 KPI 行与设置页同一条约束：调用次数、失败数跟界面语言，不跟浏览器语言。
+    for (const [language, calls, failed] of [
+      ["zh", "12,340", "1,205"],
+      ["en", "12,340", "1,205"],
+      ["vi", "12.340", "1.205"],
+    ] as const) {
+      await i18n.changeLanguage(language);
+      const base = makeUsageSummary();
+      const summary = makeUsageSummary({
+        kpi: { ...base.kpi, calls: 12_340, failed: 1_205 },
+      });
+      // 顶栏入口挂载时会重取一轮 summary，让它落回同一份计数。
+      vi.mocked(API.getUsageSummary).mockResolvedValue(summary);
+
+      const { unmount } = openPopover({ summary });
+
+      expect(screen.getByText(calls)).toBeInTheDocument();
+      expect(screen.getByText(failed)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
   it("says so when a refresh fails, and clears the notice once a retry succeeds", async () => {
     vi.mocked(API.getUsageSummary).mockRejectedValueOnce(new Error("network down"));
 
