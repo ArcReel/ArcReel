@@ -1,10 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
-import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { UsageSummary } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
+import { formatCalendarDay, formatRatio } from "./usage-record-format";
 
 const KPI_VALUE_STYLE: CSSProperties = {
   fontSize: 22,
@@ -14,13 +14,14 @@ const KPI_VALUE_STYLE: CSSProperties = {
   color: "var(--color-text)",
 };
 
-const LOCALES: Record<string, string> = {
-  zh: "zh-CN",
-  en: "en-US",
-  vi: "vi-VN",
-};
-
 const DASH = "—";
+
+/** 范围副行的日期粒度：跨度以月计，年份省不掉——筛选可以选到去年。 */
+const RANGE_DAY_OPTIONS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+};
 
 function Cell({
   label,
@@ -49,13 +50,7 @@ function Cell({
 /** KPI 只读 summary，不随状态筛选变化：口径要在整段界面里保持一致。 */
 export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
   const { t, i18n } = useTranslation("dashboard");
-  const percentFmt = useMemo(() => {
-    const lang = i18n.language.split("-")[0];
-    return new Intl.NumberFormat(LOCALES[lang] ?? "en-US", {
-      style: "percent",
-      maximumFractionDigits: 1,
-    });
-  }, [i18n.language]);
+  const language = i18n.language;
 
   const kpi = summary?.kpi;
   const primary = summary?.primary_currency ?? null;
@@ -73,15 +68,15 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
         label={t("usage_kpi_calls")}
         value={kpi ? kpi.calls.toLocaleString() : DASH}
         sub={
-          summary?.range ? `${summary.range.since} – ${summary.range.until}` : DASH
+          summary?.range
+            ? `${formatCalendarDay(summary.range.since, language, RANGE_DAY_OPTIONS)} – ${formatCalendarDay(summary.range.until, language, RANGE_DAY_OPTIONS)}`
+            : DASH
         }
       />
       <Cell
         first={false}
         label={t("usage_kpi_success_rate")}
-        value={
-          kpi && kpi.success_rate !== null ? percentFmt.format(kpi.success_rate) : DASH
-        }
+        value={kpi ? formatRatio(kpi.success_rate, language) : DASH}
         sub={kpi ? t("usage_kpi_success_count", { count: kpi.success }) : DASH}
       />
       <Cell

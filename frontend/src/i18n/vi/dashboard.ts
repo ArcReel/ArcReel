@@ -714,6 +714,7 @@ export default {
   'usage_next_page': 'Trang sau',
   'usage_records_empty': 'Chưa có bản ghi sử dụng nào. Hãy tạo nội dung, mọi lượt gọi sẽ xuất hiện ở đây.',
   'usage_load_failed': 'Tải thất bại',
+  'usage_popover_load_failed': 'Một phần dữ liệu tải thất bại, nội dung hiển thị có thể không phải kết quả mới nhất.',
   'usage_detail_close': 'Đóng',
   'usage_detail_group_failure': 'Lý do thất bại',
   'usage_detail_group_inputs': 'Đầu vào',

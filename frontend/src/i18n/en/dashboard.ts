@@ -729,6 +729,7 @@ export default {
   'usage_next_page': 'Next page',
   'usage_records_empty': 'No usage records yet. Generate something and every call will show up here.',
   'usage_load_failed': 'Failed to load',
+  'usage_popover_load_failed': 'Some data failed to load; what you see may be out of date.',
   'usage_detail_close': 'Close',
   'usage_detail_group_failure': 'Failure reason',
   'usage_detail_group_inputs': 'Inputs',

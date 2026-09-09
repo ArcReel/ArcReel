@@ -2,6 +2,8 @@ import { AudioLines, FileText, Image, Video } from "lucide-react";
 
 import type { CallType, UsageRecordStatus, UsageSummary } from "@/types";
 import { parseIsoTimestamp } from "@/utils/date-format";
+import { formatElapsedMs } from "@/utils/task-elapsed";
+import type { ElapsedTranslate } from "@/utils/task-elapsed";
 
 /** 媒体类型的字形与色调，与 Darkroom 的媒体色板一致。 */
 export const MEDIA_META: Record<
@@ -13,6 +15,9 @@ export const MEDIA_META: Record<
   text: { Icon: FileText, color: "#339c6d", labelKey: "usage_media_text" },
   audio: { Icon: AudioLines, color: "#c48225", labelKey: "usage_media_audio" },
 };
+
+/** 无值时的占位。 */
+const DASH = "—";
 
 export const STATUS_LABEL_KEYS: Record<UsageRecordStatus, string> = {
   pending: "usage_status_pending",
@@ -73,27 +78,78 @@ export function providerLabelResolver(
       option.label,
     ]),
   );
-  return (provider) => (provider ? (labels.get(provider) ?? provider) : "—");
+  return (provider) => (provider ? (labels.get(provider) ?? provider) : DASH);
 }
 
-/** 耗时列：秒以内取整秒，超过一分钟拆成 `Xm YYs`。 */
-export function formatDurationMs(durationMs: number | null): string {
-  if (durationMs === null || durationMs < 0) return "—";
-  const totalSeconds = Math.round(durationMs / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+/** i18n 语言码 → Intl locale；两者不同名，故显式映射，未知语言回落英文。 */
+const INTL_LOCALES: Record<string, string> = {
+  zh: "zh-CN",
+  en: "en-US",
+  vi: "vi-VN",
+};
+
+function intlLocale(language: string): string {
+  return INTL_LOCALES[language.split("-")[0]] ?? "en-US";
 }
 
-/** 成功率与失败率共用的百分比渲染；分母为 0 时后端给 null，显示破折号。 */
-export function formatRatio(rate: number | null): string {
-  return rate === null ? "—" : `${Math.round(rate * 1000) / 10}%`;
+const percentFormatters = new Map<string, Intl.NumberFormat>();
+
+function percentFormatter(language: string): Intl.NumberFormat {
+  const locale = intlLocale(language);
+  let formatter = percentFormatters.get(locale);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, {
+      style: "percent",
+      maximumFractionDigits: 1,
+    });
+    percentFormatters.set(locale, formatter);
+  }
+  return formatter;
+}
+
+/**
+ * 成功率与失败率共用的百分比渲染，KPI 条、构成表、趋势 tooltip、悬浮层同走这一处：
+ * 同一个数在同一页出现多次，格式必须一致。分母为 0 时后端给 null，显示破折号。
+ */
+export function formatRatio(rate: number | null, language: string): string {
+  return rate === null ? DASH : percentFormatter(language).format(rate);
+}
+
+const dayFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * 日历日 `YYYY-MM-DD` 按当前语言渲染。这个日期是后端算好的本地日，不是时刻，故按
+ * 本地时区构造 Date——交给 `new Date(string)` 会当成 UTC 午夜，东西半球各挪一天。
+ */
+export function formatCalendarDay(
+  day: string,
+  language: string,
+  options: Intl.DateTimeFormatOptions,
+): string {
+  const [year, month, date] = day.split("-").map(Number);
+  if (!year || !month || !date) return day;
+  const locale = intlLocale(language);
+  const cacheKey = `${locale}|${JSON.stringify(options)}`;
+  let formatter = dayFormatters.get(cacheKey);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    dayFormatters.set(cacheKey, formatter);
+  }
+  return formatter.format(new Date(year, month - 1, date));
+}
+
+/** 耗时列；无时长可显示时给破折号。文案与任务读数共用 `formatElapsedMs`。 */
+export function formatDurationMs(
+  durationMs: number | null,
+  t: ElapsedTranslate,
+): string {
+  if (durationMs === null || durationMs < 0) return DASH;
+  return formatElapsedMs(durationMs, t);
 }
 
 /** 进行中行的实时耗时，起点为 ISO 时刻。 */
-export function elapsedSince(startedAt: string, now: number): string {
+export function elapsedSince(startedAt: string, now: number, t: ElapsedTranslate): string {
   const start = parseIsoTimestamp(startedAt).getTime();
-  if (Number.isNaN(start)) return "—";
-  return formatDurationMs(Math.max(0, now - start));
+  if (Number.isNaN(start)) return DASH;
+  return formatDurationMs(Math.max(0, now - start), t);
 }

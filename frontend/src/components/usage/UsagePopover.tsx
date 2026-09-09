@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RefObject } from "react";
-import { Activity, Loader2, X } from "lucide-react";
+import { Activity, AlertTriangle, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { useShallow } from "zustand/react/shallow";
@@ -64,7 +64,7 @@ function KpiCell({
 
 /** KPI 一行 4 格，口径与入口按钮一致：本项目全部时间。 */
 function KpiStrip({ summary }: { summary: UsageSummary | null }) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const kpi = summary?.kpi ?? null;
   const primary = summary?.primary_currency ?? null;
   const otherCosts = Object.entries(kpi?.cost ?? {}).filter(
@@ -80,7 +80,7 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
       />
       <KpiCell
         label={t("usage_kpi_success_rate")}
-        value={kpi ? formatRatio(kpi.success_rate) : "—"}
+        value={kpi ? formatRatio(kpi.success_rate, i18n.language) : "—"}
         sub={kpi ? t("usage_kpi_success_count", { count: kpi.success }) : "—"}
       />
       <KpiCell
@@ -126,6 +126,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
   const detail = useUsageHeaderStore((s) => s.detail);
   const detailLoading = useUsageHeaderStore((s) => s.detailLoading);
   const detailFailed = useUsageHeaderStore((s) => s.detailFailed);
+  const loadFailed = useUsageHeaderStore((s) => s.loadFailed);
   const openDetail = useUsageHeaderStore((s) => s.openDetail);
   const closeDetail = useUsageHeaderStore((s) => s.closeDetail);
   const refresh = useUsageHeaderStore((s) => s.refresh);
@@ -257,6 +258,23 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
             <X aria-hidden="true" className="h-3.5 w-3.5" />
           </button>
         </header>
+
+        {loadFailed && (
+          <div
+            role="status"
+            className="flex items-center gap-2 border-b border-hairline-soft px-4 py-2 text-[11.5px] text-danger-2"
+          >
+            <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">{t("usage_popover_load_failed")}</span>
+            <button
+              type="button"
+              onClick={voidPromise(() => refresh())}
+              className="focus-ring shrink-0 rounded px-1 text-accent-2 transition-colors hover:text-accent"
+            >
+              {t("usage_refresh")}
+            </button>
+          </div>
+        )}
 
         {empty ? (
           <>
