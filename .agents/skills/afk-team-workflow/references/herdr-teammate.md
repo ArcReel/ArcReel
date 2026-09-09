@@ -4,7 +4,7 @@
 
 ## Workspace
 
-1. 为批次创建一个 label 为 `afk:<batch-id>` 的 workspace，从 JSON 响应记住 workspace、tab 与 pane ID。本批的全部 Herdr teammates 都放在该 workspace，按 issue / stage 按需建 tab。
+1. 为批次创建一个 label 为 `afk:<batch-id>` 的 workspace，从 JSON 响应记住 workspace、tab 与 pane ID。根 pane 留作锚点不关闭，否则最后一个 tab 关闭时 workspace 被回收。本批的全部 Herdr teammates 都放在该 workspace，按 issue / stage 按需建 tab。
 2. pane cwd 指向实际 worktree；native agent args 只增加 `<repo-root>/.afk/<batch-id>/` 为额外可写目录，并沿用 harness 的 permission / sandbox。
 3. 启动 prompt 只注入 batch-id、当前 agent name / pane ID 与 team-lead pane ID，不注入其他 session 或 teammates 的寻址。
 
