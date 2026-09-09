@@ -85,17 +85,6 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView {
 }
 
 /**
- * 后端 `_localize_task` 已把 `result.warnings` 渲染成当前语言的字符串数组，这里只做形态
- * 收窄：`result` 是 `Record<string, unknown>`，类型上给不出字符串数组的保证，非字符串条目
- * 一律丢弃而不是渲染成 `[object Object]`。
- */
-export function taskWarnings(task: TaskItem): string[] {
-  const warnings = task.result?.warnings;
-  if (!Array.isArray(warnings)) return [];
-  return warnings.filter((warning): warning is string => typeof warning === "string");
-}
-
-/**
  * 进行中区按开始时刻倒序：最近排队或启动的排在最前。任务与调用两侧的时间戳未必带
  * 同样的时区后缀，故按解析出的时刻比较，不按字符串。
  */

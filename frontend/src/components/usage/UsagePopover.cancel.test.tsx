@@ -200,18 +200,6 @@ describe("UsagePopover cancellation", () => {
     expect(screen.getByRole("button", { name: "正在取消…" })).toBeDisabled();
   });
 
-  it("expands the generation warnings of a running task", () => {
-    openWithTasks([runningTask({ result: { warnings: ["首帧已降级为 1K"] } })]);
-
-    const toggle = screen.getByRole("button", { name: /1 条生成警示/ });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-
-    fireEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("首帧已降级为 1K")).toBeInTheDocument();
-  });
-
   it("advances the elapsed readout of a running row every second", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-20T00:00:05Z"));
