@@ -2,9 +2,6 @@
 
 from typing import Any
 
-import pytest
-
-from lib.asset_types import ASSET_SPECS
 from lib.i18n import _ as translate_message
 from lib.task_failure import encode_failure
 from server.routers.tasks import _localize_task
@@ -61,7 +58,7 @@ class TestWarningRendering:
             result={
                 "warnings": [
                     {"key": "ref_sora_single_ref", "params": {}},
-                    {"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": "小美"}},
+                    {"key": "ref_too_many_images", "params": {"count": 8, "model": "viduq2", "max_count": 7}},
                 ]
             }
         )
@@ -70,49 +67,7 @@ class TestWarningRendering:
 
         assert len(rendered) == 2
         assert rendered[0].startswith("Sora")
-        assert "小美" in rendered[1]
-
-    def test_asset_type_in_skipped_reference_warning_is_localized(self):
-        task = _task(
-            result={"warnings": [{"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": "小美"}}]}
-        )
-
-        zh = _localize_task(task, _translator("zh"))["result"]["warnings"][0]
-        en = _localize_task(task, _translator("en"))["result"]["warnings"][0]
-        vi = _localize_task(task, _translator("vi"))["result"]["warnings"][0]
-
-        assert "商品" in zh
-        assert "merchandise" not in zh
-        assert "merchandise" in en
-        assert "product" not in en
-        assert "hàng hóa" in vi
-
-    @pytest.mark.parametrize("asset_type", sorted(ASSET_SPECS))
-    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
-    def test_every_asset_type_has_a_display_name(self, asset_type: str, locale: str):
-        """新增资产类型时若漏加 ``asset_type_*``，i18n 会回落成 key 本身，比原样透传更糟。"""
-        rendered = translate_message(f"asset_type_{asset_type}", locale=locale)
-
-        assert rendered != f"asset_type_{asset_type}"
-
-    def test_unregistered_asset_type_falls_through_unmapped(self):
-        task = _task(
-            result={"warnings": [{"key": "ref_ad_reference_skipped", "params": {"type": "widget", "name": "小美"}}]}
-        )
-
-        rendered = _localize_task(task, _translator("zh"))["result"]["warnings"][0]
-
-        assert "widget" in rendered
-
-    def test_malformed_asset_type_value_does_not_raise(self):
-        """畸形持久化值（非字符串）不该让整个任务列表 500，与本模块其余容错口径一致。"""
-        task = _task(
-            result={"warnings": [{"key": "ref_ad_reference_skipped", "params": {"type": ["product"], "name": "小美"}}]}
-        )
-
-        rendered = _localize_task(task, _translator("zh"))["result"]["warnings"][0]
-
-        assert "product" in rendered
+        assert "viduq2" in rendered[1]
 
     def test_input_task_is_not_mutated(self):
         warnings = [{"key": "ref_sora_single_ref", "params": {}}]

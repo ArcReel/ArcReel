@@ -1,16 +1,14 @@
-import { useState } from "react";
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskItem } from "@/types";
 import { useNowTick } from "@/hooks/useNowTick";
 import { MEDIA_META, elapsedSince, purposeKey } from "./usage-record-format";
 import type { UsageRecordView } from "./usage-record-view";
-import { taskWarnings } from "./usage-record-view";
 
 interface UsageActiveRowProps {
   view: UsageRecordView;
-  /** 有任务代表的行才可取消、才可能带生成警示；无任务的 pending 调用为 null。 */
+  /** 有任务代表的行才可取消；无任务的 pending 调用为 null。 */
   task: TaskItem | null;
   /** 供应商 id → 显示名，查不到回退 id。 */
   providerLabel: (provider: string | null) => string;
@@ -42,7 +40,7 @@ function ProgressPulse() {
 
 /**
  * 进行中区的一行。左栏同时容纳两种来源：任务 store 里项目内进行中的任务，以及没有
- * 任务代表的 pending 调用（剧本生成、助手会话一类）。后者不可取消，也没有警示。
+ * 任务代表的 pending 调用（剧本生成、助手会话一类）。后者不可取消。
  */
 export function UsageActiveRow({
   view,
@@ -52,12 +50,10 @@ export function UsageActiveRow({
   cancelling,
 }: UsageActiveRowProps) {
   const { t } = useTranslation("dashboard");
-  const [warningsOpen, setWarningsOpen] = useState(false);
   const now = useNowTick();
 
   const media = MEDIA_META[view.mediaType];
   const MediaIcon = media.Icon;
-  const warnings = task ? taskWarnings(task) : [];
   const running = task?.status === "running" || task?.status === "cancelling";
   const purpose = purposeKey(view.purpose);
   const target = view.segmentId
@@ -68,7 +64,6 @@ export function UsageActiveRow({
   const statusText = task
     ? (task.error_message ?? t(TASK_STATUS_KEYS[task.status]))
     : t("usage_status_pending");
-  const detailId = `usage-active-warnings-${view.key}`;
 
   return (
     <div className="px-2 py-1.5">
@@ -81,22 +76,6 @@ export function UsageActiveRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[11.5px] text-text-2">
             <span className="truncate">{target}</span>
-            {warnings.length > 0 && (
-              <button
-                type="button"
-                aria-expanded={warningsOpen}
-                aria-controls={detailId}
-                onClick={() => setWarningsOpen((open) => !open)}
-                className="focus-ring inline-flex shrink-0 items-center gap-0.5 rounded px-0.5 text-[10.5px] text-warn"
-                title={t("task_warnings_hint")}
-              >
-                <AlertTriangle aria-hidden="true" className="h-3 w-3" />
-                <span className="num">{warnings.length}</span>
-                <span className="sr-only">
-                  {t("task_warnings_count", { count: warnings.length })}
-                </span>
-              </button>
-            )}
             <span
               aria-hidden="true"
               className={
@@ -139,21 +118,6 @@ export function UsageActiveRow({
           {running && <ProgressPulse />}
         </div>
       </div>
-      {warningsOpen && warnings.length > 0 && (
-        <ul
-          id={detailId}
-          className="mt-1 space-y-1 rounded px-2 py-1.5 text-[10.5px]"
-          style={{
-            background: "oklch(0.35 0.10 70 / 0.10)",
-            color: "oklch(0.86 0.09 70)",
-            border: "1px solid oklch(0.50 0.12 70 / 0.30)",
-          }}
-        >
-          {warnings.map((warning, index) => (
-            <li key={`${view.key}-warning-${index}`}>{warning}</li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
