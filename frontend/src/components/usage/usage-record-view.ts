@@ -95,11 +95,12 @@ const SEGMENT_RESOURCE_TYPES: Record<TaskMediaType, ReadonlySet<string> | null> 
  */
 export function taskSegmentId(task: TaskItem): string | null {
   if (!task.resource_id) return null;
+  // audio 记账不看 resource_type，任务的资源种类有没有登记在这一支上都不影响结论。
+  const allowed = SEGMENT_RESOURCE_TYPES[task.media_type];
+  if (allowed === null) return task.resource_id;
   const kind = task.task_type === "image_edit" ? task.resource_type : task.task_type;
   const resourceType = kind === null ? undefined : RESOURCE_TYPE_BY_KIND[kind];
   if (resourceType === undefined) return null;
-  const allowed = SEGMENT_RESOURCE_TYPES[task.media_type];
-  if (allowed === null) return task.resource_id;
   return allowed.has(resourceType) ? task.resource_id : null;
 }
 

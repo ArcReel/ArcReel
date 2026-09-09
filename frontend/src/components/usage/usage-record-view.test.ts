@@ -60,4 +60,12 @@ describe("taskToUsageRecordView", () => {
       segmentIdOf({ task_type: "unknown_future", media_type: "image", resource_id: "x" }),
     ).toBeNull();
   });
+
+  it("keeps the label for an unmapped audio task, as the audio ledger would", () => {
+    // audio 记账无白名单：后端对任何 resource_type 都把 resource_id 记成 segment_id，
+    // 前端在这一支上也不该因为资源种类没登记就退回泛化标签。
+    expect(
+      segmentIdOf({ task_type: "unknown_future", media_type: "audio", resource_id: "E1S10" }),
+    ).toBe("E1S10");
+  });
 });
