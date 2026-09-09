@@ -1202,6 +1202,8 @@ async def preview_script_item_prompts(
             "text": rendered.text,
             "unavailable": _t(rendered.unavailable) if rendered.unavailable else None,
             "is_text_form": rendered.is_text_form,
+            # 渲染时产生的提示（如参考图超限裁剪）与任务结果的 warnings 同源，同样按请求语言渲染成成品文案
+            "warnings": [_t(warning["key"], **warning["params"]) for warning in rendered.warnings],
         }
 
     return {
