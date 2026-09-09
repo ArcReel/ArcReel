@@ -5,6 +5,7 @@ import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { UsageSummary } from "@/types";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import { SeriesSwatch, UsageTrendChart } from "./UsageTrendChart";
+import { formatCount } from "./usage-record-format";
 import type { TrendBucket, TrendMetric } from "./usage-trend";
 import { buildTrendBuckets, seriesFor, shortDay } from "./usage-trend";
 
@@ -28,9 +29,11 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
   // 图上只有主币种，其余币种在脚注里原样列出，不折算也不叠加。
   const excluded = costEntries(summary?.kpi.cost).filter(([currency]) => currency !== primary);
 
+  // 调用次数与同一 tooltip 里的成功率同走界面语言：`toLocaleString()` 跟的是浏览器语言，
+  // 两者并列时会出现两种分隔习惯。费用另有全站钉死的货币口径，不走这条。
   const formatValue = (value: number) =>
     metric === "calls"
-      ? value.toLocaleString()
+      ? formatCount(value, i18n.language)
       : formatCurrencyAmount(primary ?? "USD", value, {
           minimumFractionDigits: 0,
           maximumFractionDigits: 2,
