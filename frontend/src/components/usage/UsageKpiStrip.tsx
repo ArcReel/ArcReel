@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { UsageSummary } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
-import { formatCalendarDay, formatRatio } from "./usage-record-format";
+import { formatCalendarDay, formatCount, formatRatio } from "./usage-record-format";
 
 const KPI_VALUE_STYLE: CSSProperties = {
   fontSize: 22,
@@ -66,7 +66,7 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
       <Cell
         first
         label={t("usage_kpi_calls")}
-        value={kpi ? kpi.calls.toLocaleString() : DASH}
+        value={kpi ? formatCount(kpi.calls, language) : DASH}
         sub={
           summary?.range
             ? `${formatCalendarDay(summary.range.since, language, RANGE_DAY_OPTIONS)} – ${formatCalendarDay(summary.range.until, language, RANGE_DAY_OPTIONS)}`
@@ -82,7 +82,7 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
       <Cell
         first={false}
         label={t("usage_kpi_failed")}
-        value={kpi ? kpi.failed.toLocaleString() : DASH}
+        value={kpi ? formatCount(kpi.failed, language) : DASH}
         sub={
           kpi && kpi.cancelled > 0
             ? t("usage_kpi_cancelled_count", { count: kpi.cancelled })

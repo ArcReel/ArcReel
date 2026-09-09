@@ -17,7 +17,7 @@ import { CancelConfirmDialog } from "./CancelConfirmDialog";
 import { RecordRow } from "./RecordRow";
 import { UsageActiveRow } from "./UsageActiveRow";
 import { UsageRecordDetailModal } from "./UsageRecordDetailModal";
-import { formatRatio, providerLabelResolver } from "./usage-record-format";
+import { formatCount, formatRatio, providerLabelResolver } from "./usage-record-format";
 import {
   sortByStartedDesc,
   taskToUsageRecordView,
@@ -75,7 +75,7 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
       <KpiCell
         first
         label={t("usage_kpi_calls")}
-        value={kpi ? kpi.calls.toLocaleString() : "—"}
+        value={kpi ? formatCount(kpi.calls, i18n.language) : "—"}
         sub={kpi ? t("usage_kpi_project_all") : "—"}
       />
       <KpiCell
@@ -85,7 +85,7 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
       />
       <KpiCell
         label={t("usage_kpi_failed")}
-        value={kpi ? kpi.failed.toLocaleString() : "—"}
+        value={kpi ? formatCount(kpi.failed, i18n.language) : "—"}
         sub={
           kpi && kpi.cancelled > 0
             ? t("usage_kpi_cancelled_count", { count: kpi.cancelled })

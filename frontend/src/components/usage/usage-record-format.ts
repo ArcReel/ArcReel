@@ -115,6 +115,23 @@ export function formatRatio(rate: number | null, language: string): string {
   return rate === null ? DASH : percentFormatter(language).format(rate);
 }
 
+const countFormatters = new Map<string, Intl.NumberFormat>();
+
+/**
+ * 计数的千分位按界面语言渲染。设置页 KPI 条与悬浮层 KPI 行共用，与 `formatRatio` 同走
+ * `intlLocale`：一行里的调用次数与成功率必须是一套分隔习惯，`toLocaleString()` 跟的是
+ * 浏览器语言。
+ */
+export function formatCount(value: number, language: string): string {
+  const locale = intlLocale(language);
+  let formatter = countFormatters.get(locale);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale);
+    countFormatters.set(locale, formatter);
+  }
+  return formatter.format(value);
+}
+
 const dayFormatters = new Map<string, Intl.DateTimeFormat>();
 
 /**
