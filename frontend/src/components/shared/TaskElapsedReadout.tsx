@@ -1,28 +1,15 @@
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { useNowTick } from "@/hooks/useNowTick";
-import { elapsedDisplay, taskElapsed, totalTaskElapsed } from "@/utils/task-elapsed";
-import type { ElapsedDisplay, TaskElapsed, TaskTiming } from "@/utils/task-elapsed";
+import { formatElapsedMs, taskElapsed, totalTaskElapsed } from "@/utils/task-elapsed";
+import type { TaskElapsed, TaskTiming } from "@/utils/task-elapsed";
 import { isTerminalStatus } from "@/types";
-
-type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 const LABEL_KEYS: Record<TaskElapsed["kind"], string> = {
   running: "elapsed_running",
   queued: "elapsed_queued",
   total: "elapsed_total",
 };
-
-function formatDuration(display: ElapsedDisplay, t: Translate): string {
-  switch (display.unit) {
-    case "seconds":
-      return t("elapsed_seconds", { seconds: display.seconds });
-    case "minutes":
-      return t("elapsed_minutes", { minutes: display.minutes, seconds: display.seconds });
-    case "hours":
-      return t("elapsed_hours", { hours: display.hours, minutes: display.minutes });
-  }
-}
 
 interface Props {
   task: TaskTiming;
@@ -67,7 +54,7 @@ function ElapsedText({
   style?: CSSProperties;
 }) {
   const { t } = useTranslation("common");
-  const duration = formatDuration(elapsedDisplay(elapsed.ms), t);
+  const duration = formatElapsedMs(elapsed.ms, t);
   const label = t(LABEL_KEYS[elapsed.kind], { duration });
   return (
     <span className={`num ${className ?? ""}`} style={style} title={label} aria-label={label}>

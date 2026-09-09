@@ -205,12 +205,12 @@ describe("UsagePopover cancellation", () => {
     vi.setSystemTime(new Date("2026-04-20T00:00:05Z"));
     openWithTasks([runningTask()]);
 
-    expect(screen.getByText("5s")).toBeInTheDocument();
+    expect(screen.getByText("5秒")).toBeInTheDocument();
 
     act(() => {
       vi.advanceTimersByTime(3000);
     });
 
-    expect(screen.getByText("8s")).toBeInTheDocument();
+    expect(screen.getByText("8秒")).toBeInTheDocument();
   });
 });

@@ -1,6 +1,7 @@
 import type {
   CallType,
   TaskItem,
+  TaskMediaType,
   UsageRecord,
   UsageRecordStatus,
 } from "@/types";
@@ -59,6 +60,50 @@ export function usageRecordToView(record: UsageRecord): UsageRecordView {
 }
 
 /**
+ * 任务的后端资源类型。记账侧一律用复数桶名，`image_edit` 的单数 `resource_type` 亦在
+ * 执行时转成同一套桶名（`server/services/image_edit_tasks.py` 的
+ * `edit_version_resource_type`），故两条来源共用这一张表。
+ */
+const RESOURCE_TYPE_BY_KIND: Record<string, string> = {
+  storyboard: "storyboards",
+  grid: "grids",
+  video: "videos",
+  reference_video: "reference_videos",
+  tts: "audio",
+  voice_sample: "audio",
+  character: "characters",
+  character_derivative: "character_derivatives",
+  scene: "scenes",
+  prop: "props",
+  product: "products",
+};
+
+/**
+ * 可作 `segment_id` 的资源类型，与后端 `lib/media_generator.py` 的
+ * `segment_id_for` 白名单同口径；audio 无白名单，无条件透传。
+ */
+const SEGMENT_RESOURCE_TYPES: Record<TaskMediaType, ReadonlySet<string> | null> = {
+  image: new Set(["storyboards", "videos", "grids"]),
+  video: new Set(["storyboards", "videos", "reference_videos"]),
+  audio: null,
+};
+
+/**
+ * 进行中任务行的分镜标签口径。任务结束后落库的记录行按后端 `segment_id_for` 判定
+ * `segment_id`，进行中的行在这里用同一份白名单判定，免得角色 / 道具 / 场景图任务
+ * 进行中显示「分镜 <名字>」、结束后又变回泛化的目标类型。
+ */
+export function taskSegmentId(task: TaskItem): string | null {
+  if (!task.resource_id) return null;
+  const kind = task.task_type === "image_edit" ? task.resource_type : task.task_type;
+  const resourceType = kind === null ? undefined : RESOURCE_TYPE_BY_KIND[kind];
+  if (resourceType === undefined) return null;
+  const allowed = SEGMENT_RESOURCE_TYPES[task.media_type];
+  if (allowed === null) return task.resource_id;
+  return allowed.has(resourceType) ? task.resource_id : null;
+}
+
+/**
  * 进行中的任务投影成记录行。任务侧没有模型与调用行，模型留空由界面显示「待解析」；
  * 计时起点取 `started_at`，尚未开始时取 `queued_at`。
  */
@@ -73,7 +118,7 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView {
     model: null,
     status: "pending",
     purpose: "generation_task",
-    segmentId: task.resource_id || null,
+    segmentId: taskSegmentId(task),
     errorCode: null,
     errorMessage: null,
     startedAt: task.started_at ?? task.queued_at,

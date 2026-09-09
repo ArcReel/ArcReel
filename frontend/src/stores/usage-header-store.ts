@@ -17,6 +17,8 @@ interface UsageHeaderState {
   recent: UsageRecord[];
   /** 无任务代表的 pending 调用；有任务的那部分由任务 store 提供。 */
   pending: UsageRecord[];
+  /** 上一轮刷新里有请求失败：面板上的数据可能是旧的或缺的，界面据此给出提示与重试。 */
+  loadFailed: boolean;
 
   detailId: number | null;
   detail: UsageRecordDetail | null;
@@ -35,6 +37,7 @@ const EMPTY_DATA = {
   summary: null,
   recent: [] as UsageRecord[],
   pending: [] as UsageRecord[],
+  loadFailed: false,
 };
 
 /**
@@ -98,11 +101,13 @@ export const useUsageHeaderStore = create<UsageHeaderState>((set, get) => {
       API.getUsageRecords({ projectName, statuses: ["pending"] }, { signal }).catch(() => null),
     ]);
     // 被接管方作废时不写回：这一轮的结果属于上一个项目，或已有更新的一轮在跑。
+    // 作废在这里就返回，故三个 null 之中不含被 abort 的那种，只代表真的失败。
     if (signal.aborted || get().projectName !== projectName) return;
     set({
       summary: summary ?? get().summary,
       recent: recent?.items ?? get().recent,
       pending: pending?.items ?? get().pending,
+      loadFailed: summary === null || recent === null || pending === null,
     });
   };
 

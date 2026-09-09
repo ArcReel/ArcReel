@@ -19,7 +19,7 @@ const NAME_KEYS: Record<TrendMetric, { daily: string; weekly: string }> = {
 };
 
 export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const [metric, setMetric] = useState<TrendMetric>("calls");
 
   const daily = useMemo(() => summary?.daily ?? [], [summary]);
@@ -38,8 +38,8 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
 
   const bucketLabel = (bucket: TrendBucket) =>
     bucket.days > 1
-      ? `${shortDay(bucket.from)} – ${shortDay(bucket.to)} · ${t("usage_trend_merged_days", { count: bucket.days })}`
-      : shortDay(bucket.from);
+      ? `${shortDay(bucket.from, i18n.language)} – ${shortDay(bucket.to, i18n.language)} · ${t("usage_trend_merged_days", { count: bucket.days })}`
+      : shortDay(bucket.from, i18n.language);
 
   const name = t(NAME_KEYS[metric][weekly ? "weekly" : "daily"]);
 

@@ -320,7 +320,7 @@ export function UsageRecordDetailModal({
               />
               <Field
                 label={t("dashboard:usage_col_duration")}
-                value={formatDurationMs(detail.duration_ms)}
+                value={formatDurationMs(detail.duration_ms, t)}
               />
             </div>
           </Group>

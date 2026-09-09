@@ -84,7 +84,7 @@ export function UsageActiveRow({
               }
             />
             <span className="num shrink-0 text-[11px] text-text-3">
-              {elapsedSince(view.startedAt, now)}
+              {elapsedSince(view.startedAt, now, t)}
             </span>
             {task && onCancel && (
               <button

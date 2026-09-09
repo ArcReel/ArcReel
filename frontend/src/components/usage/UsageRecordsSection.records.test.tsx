@@ -82,7 +82,7 @@ describe("UsageRecordsSection records", () => {
     expect(cells.getByText("hailuo-02")).toBeInTheDocument();
     expect(cells.getByText("失败")).toBeInTheDocument();
     expect(cells.getByText("内容策略")).toBeInTheDocument();
-    expect(cells.getByText("41s")).toBeInTheDocument();
+    expect(cells.getByText("41秒")).toBeInTheDocument();
     expect(cells.getByText(/3\.60/)).toBeInTheDocument();
   });
 

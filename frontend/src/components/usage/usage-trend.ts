@@ -1,5 +1,5 @@
 import type { CallType, UsageDailyBucket } from "@/types";
-import { MEDIA_META } from "./usage-record-format";
+import { MEDIA_META, formatCalendarDay } from "./usage-record-format";
 
 /** 趋势图的两种指标：调用次数按结果堆叠，参考费用按媒体类型堆叠。 */
 export type TrendMetric = "calls" | "cost";
@@ -168,8 +168,7 @@ export function tickEvery(bucketCount: number, plotWidth: number): number {
   return Math.max(1, Math.ceil(bucketCount / slots));
 }
 
-/** 轴与 tooltip 的日期：只留月/日，年份在这个尺度上没有信息量。 */
-export function shortDay(date: string): string {
-  const [, month, day] = date.split("-");
-  return `${Number(month)}/${Number(day)}`;
+/** 轴与 tooltip 的日期：只留月/日，年份在这个尺度上没有信息量；月日次序按语言。 */
+export function shortDay(date: string, language: string): string {
+  return formatCalendarDay(date, language, { month: "numeric", day: "numeric" });
 }
