@@ -9,7 +9,7 @@ an individual cell.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from lib.artifact_activation import (
@@ -31,8 +31,10 @@ from lib.generation_result import (
     GenerationResultBuilder,
     GenerationSelectionMode,
     GenerationTaskState,
+    GenerationWarning,
     ProviderCheckpoint,
     artifact_state_problem,
+    generation_warnings_from_result,
     normalize_requested_ids,
     observe_artifact_status,
     problem_from_task_failure,
@@ -90,6 +92,7 @@ def _fail_scenes(
     task_state: GenerationTaskState = GenerationTaskState.FAILED,
     provider_checkpoint: ProviderCheckpoint | None = None,
     artifact_paths: Mapping[str, str] | None = None,
+    warnings: Sequence[GenerationWarning] = (),
 ) -> None:
     """一张宫格的失败落到它覆盖的每个分镜：调用方点的是分镜，不是宫格。
 
@@ -114,6 +117,7 @@ def _fail_scenes(
             task_id=task_id,
             task_state=task_state,
             provider_checkpoint=provider_checkpoint,
+            warnings=warnings,
         )
 
 
@@ -431,6 +435,9 @@ async def handle_generate_grid(
         for result in [*submitted.successes, *submitted.failures]:
             grid_id = grid_id_by_result[result.resource_id]
             report_ids = report_ids_by_grid[grid_id]
+            # 联合图一次生成，参考图裁剪之类的 warning 属于整张宫格：报告里的每个分镜都据此
+            # 生成，逐格照录；任务失败与切分落格失败的格子同样带上，否则提示会随失败一起消失。
+            grid_warnings = generation_warnings_from_result(result.result)
             if result.status != "succeeded":
                 _fail_scenes(
                     builder,
@@ -451,6 +458,7 @@ async def handle_generate_grid(
                         else GenerationTaskState.FAILED
                     ),
                     artifact_paths=scene_artifact_paths,
+                    warnings=grid_warnings,
                 )
                 continue
             unit_results = (result.result or {}).get("unit_results") or {}
@@ -503,6 +511,7 @@ async def handle_generate_grid(
                         task_id=result.task_id,
                         task_state=GenerationTaskState.SUCCEEDED,
                         provider_checkpoint=provider_checkpoint_from_task(result.task or {}),
+                        warnings=grid_warnings,
                     )
                     continue
                 raw_cell_path = unit_result.get("file_path")
@@ -521,6 +530,7 @@ async def handle_generate_grid(
                     task_id=result.task_id,
                     artifact_status=cell_status,
                     provider_checkpoint=provider_checkpoint_from_task(result.task or {}),
+                    warnings=grid_warnings,
                 )
         return generation_result_outcome(builder.build(), log, batch_id=submitted.batch.batch_id)
     except Exception as exc:

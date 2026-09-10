@@ -23,10 +23,12 @@ from lib import script_review
 from lib.config.resolver import ConfigResolver, resolve_raw_supported_durations
 from lib.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING, quarantine_path, read_quarantine, violation_entries
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
+from lib.episode_paths import episode_script_relpath
 from lib.episode_target_duration import project_episode_target_duration
 from lib.json_io import load_json_or_none
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, find_episode
 from lib.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
+from lib.script_plan_entries import compare_script_with_plan_document
 from lib.speech_composition import SpeechAdmission, admit_script_unit
 from server.media_tools.context import reference_unit_duration_tiers, resolve_video_caps
 
@@ -229,6 +231,9 @@ class ScriptReviewService:
         ``_resolve_supported_durations``），两处不同源的话，gate 里能选的档位会与迁移收编到的
         档位不一致。项目未配置视频型号而解析不到时为 None，呈现层退回只读秒数。
 
+        ``script_entry_currency`` 是正式剧本相对这份 script_plan 的条目时效（见
+        ``_script_entry_currency``）；没有正式剧本或没有可比对的条目时为 None。
+
         档位解析先于落盘读写完成，其余同步 I/O 整段卸到线程：``file_lock`` 是阻塞式文件锁，
         不能跨 await 持有，而档位解析本身要 await 视频能力查询。
         """
@@ -283,6 +288,59 @@ class ScriptReviewService:
             # 项目级「单集目标时长」偏好（秒），未设时 None。审核面板据它渲染「本集合计 / 目标」
             # 对比；随 state 一起回传而非让前端另发一次项目请求，面板拿到的合计与目标出自同一次读取。
             "episode_target_duration": project_episode_target_duration(project),
+            # 比对用的 content 与 fingerprint 取自同一把锁内的同一份落盘内容；剧本本身按其自己的
+            # 读取口径读，不在 script_plan 锁内读——两者是两份文件、两把锁。
+            "script_entry_currency": self._script_entry_currency(project_name, project, episode, content, fingerprint),
+        }
+
+    def _script_entry_currency(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        episode: int,
+        plan_content: dict[str, Any] | None,
+        plan_fingerprint: str | None,
+    ) -> dict[str, Any] | None:
+        """正式剧本相对当前 script_plan 的条目时效：``stale`` / ``added`` / ``removed`` 三组条目 id 与
+        ``order_changed``；没有可比对的两方时 None。
+
+        口径是无准入的「内容是否变了」——与工作流状态同一个 ``compare_script_with_plan_document``，
+        不是机械转换预演（``conversion-preview``）的「能否转换」：待修复草稿在场、分镜时长不在当前
+        视频型号的档位、存量混排发声都会让预演整体拒绝，而时间线上「剧本内容已更新」的提示在这些
+        期间仍须成立，否则用户让 Agent 重跑规划、规划违约进草稿的那几分钟里整条时间线的提示会消失
+        又恢复。预演仍是「转为正式脚本」对话框的数据来源，两套口径各答各的问题。
+
+        ``stale`` 只列剧本里已有、内容指纹落后于规划的条目（按规划顺序）；规划新增的条目在剧本里
+        没有对应分镜，单列在 ``added``。剧本缺失或读不成对象时 None——时效是两份内容的比对，缺一方
+        就没有答案，不把「读不出」说成「全部一致」。
+        """
+        kind = script_review.script_plan_kind(project)
+        if kind is None or plan_content is None:
+            return None
+        entry = find_episode(project, episode)
+        script_file = entry.get("script_file") if entry is not None else None
+        filename = script_file if isinstance(script_file, str) and script_file else episode_script_relpath(episode)
+        try:
+            script: Any = self.pm.load_script_readonly(project_name, filename)
+        except (OSError, ValueError):
+            return None
+        if not isinstance(script, dict):
+            return None
+        comparison = compare_script_with_plan_document(
+            kind,
+            plan_document=plan_content,
+            script=script,
+            episode=episode,
+            whole_plan_revision=plan_fingerprint,
+        )
+        if comparison is None:
+            return None
+        currency = comparison.currency
+        return {
+            "stale": list(currency.stale_ids),
+            "added": list(currency.new_ids),
+            "removed": list(currency.removed_ids),
+            "order_changed": currency.order_changed,
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:

@@ -26,6 +26,8 @@ from tests.integration.server.services.generation_tasks_support import (
 
 ITEM_ID = "E1S02"
 STORYBOARD_PAYLOAD = {"script_file": "episode_1.json", "prompt": "queued prompt"}
+#: fake_resolve_ctx 默认 image lane 的 backend_model；裁剪 warning 报的是它，不是 registry 里的 provider 名。
+FAKE_BACKEND_MODEL = "gpt-image-2"
 CLAMPED_PROMPT = (
     "Visual style: cinematic\n\n"
     "Style: Anime\n"
@@ -86,9 +88,10 @@ def _patch_execution(monkeypatch, pm: _FakePM, generator: FakeGenerator, *, limi
     monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *_a, **_kw: None)
 
 
-async def _run_storyboard(generator: FakeGenerator) -> dict:
-    await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
-    return generator.image_calls[0]
+async def _run_storyboard(generator: FakeGenerator) -> tuple[dict, dict]:
+    """返回 ``(任务结果, 供应商收到的调用)``。"""
+    result = await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
+    return result, generator.image_calls[0]
 
 
 class TestStoryboardReferenceClamping:
@@ -99,7 +102,7 @@ class TestStoryboardReferenceClamping:
         generator = FakeGenerator(project_path)
         _patch_execution(monkeypatch, pm, generator, limit=7)
 
-        call = await _run_storyboard(generator)
+        result, call = await _run_storyboard(generator)
 
         assert len(call["reference_images"]) == 7
         # 登记进清单的 basis 仍记完整的 8 张：上限是供应商属性，不进 basis，被去尾的道具仍是该产物的依据
@@ -107,6 +110,10 @@ class TestStoryboardReferenceClamping:
         assert entry is not None
         assert entry.basis_digest == _expected_basis(project_path, pm).digest
         assert call["prompt"] == CLAMPED_PROMPT
+        # 丢弃了输入的参考图必须让用户与 Agent 感知：任务结果带与参考生视频路线同形的 warning
+        assert result["warnings"] == [
+            {"key": "ref_too_many_images", "params": {"count": 8, "model": FAKE_BACKEND_MODEL, "max_count": 7}}
+        ]
 
     async def test_clamped_storyboard_is_current_against_the_target_state(self, tmp_path, monkeypatch):
         """裁剪只影响实发与编号：登记后的分镜图按规划器重建的目标态比对仍是 current，不因裁剪被判 stale。"""
@@ -133,11 +140,13 @@ class TestStoryboardReferenceClamping:
         generator = FakeGenerator(project_path)
         _patch_execution(monkeypatch, pm, generator, limit=16)
 
-        call = await _run_storyboard(generator)
+        result, call = await _run_storyboard(generator)
 
         assert len(call["reference_images"]) == 8
         assert "图7为场景参考图；图8为道具参考图。" in call["prompt"]
         assert "图1握着图8立在图7门口" in call["prompt"]
+        # 没丢图就没有 warning：结果不带该键，任务列表不会给用户空提示
+        assert "warnings" not in result
 
     async def test_backend_without_a_declared_limit_never_clamps(self, tmp_path, monkeypatch):
         """未声明上限的后端（0）：不裁剪，与上限充裕时同一文本。"""
@@ -146,7 +155,7 @@ class TestStoryboardReferenceClamping:
         generator = FakeGenerator(project_path)
         _patch_execution(monkeypatch, pm, generator, limit=0)
 
-        call = await _run_storyboard(generator)
+        _result, call = await _run_storyboard(generator)
 
         assert len(call["reference_images"]) == 8
         assert "图8为道具参考图。" in call["prompt"]
@@ -222,12 +231,12 @@ class TestLimitComesFromTheResolvedBackend:
             route = router.post("https://api.vidu.com/ent/v2/reference2image").mock(
                 return_value=httpx.Response(400, json={"code": 1013, "message": "nope"})
             )
-            with caplog.at_level(logging.WARNING), pytest.raises(httpx.HTTPStatusError):
+            with caplog.at_level(logging.INFO), pytest.raises(httpx.HTTPStatusError):
                 await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
 
         body = json.loads(route.calls.last.request.content)
         assert len(body["images"]) == 7
         assert body["prompt"] == CLAMPED_PROMPT
         # 裁剪发生在编排层，Vidu 自己的兜底截断在正常路径下不再触发
-        assert "超过 backend=viduq2 上限 7" in caplog.text
+        assert "超过 model=viduq2 上限 7" in caplog.text
         assert "Vidu 参考图数量" not in caplog.text

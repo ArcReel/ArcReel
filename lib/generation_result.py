@@ -25,9 +25,9 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import (
@@ -36,6 +36,7 @@ from lib.artifact_manifest import (
     ArtifactManifestError,
     ArtifactStatus,
 )
+from lib.i18n import _ as translate_default
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     RETRY_MIGRATION_ACTION,
@@ -279,6 +280,34 @@ class ProviderCheckpoint(BaseModel):
     provider_job_id: str | None = None
 
 
+#: ``translate(key, ..., locale=...)`` 自己的形参名。``params`` 里出现同名项会让展开调用
+#: 抛 ``TypeError``，所以它们不是合法的文案参数。
+_TRANSLATE_RESERVED_PARAMS = frozenset({"key", "locale"})
+
+
+class GenerationWarning(BaseModel):
+    """One non-blocking notice the worker attached to a succeeded task.
+
+    Mirrors the ``{key, params}`` entries of a task row's ``result.warnings`` (the
+    same channel the task API renders for the UI), so a consumer reads one shape
+    across every entry point. ``key`` is an i18n key; ``params`` fill its text.
+    A constructed warning is always renderable: ``params`` never shadows a
+    translate argument, so consumers expand it without guarding the call.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _params_are_expandable(self) -> Self:
+        shadowed = sorted(_TRANSLATE_RESERVED_PARAMS & self.params.keys())
+        if shadowed:
+            raise ValueError(f"warning params must not shadow translate arguments: {shadowed}")
+        return self
+
+
 class GenerationItemResult(BaseModel):
     """One requested ID's outcome across all three status axes."""
 
@@ -293,6 +322,11 @@ class GenerationItemResult(BaseModel):
     artifact_status: ArtifactStatus | None = None
     provider_checkpoint: ProviderCheckpoint | None = None
     problem: GenerationProblem | None = None
+    warnings: list[GenerationWarning] = Field(default_factory=list)
+    """Non-blocking notices from the worker (e.g. reference images clamped to the
+    backend limit). Orthogonal to ``state``: an item carries whatever the task
+    recorded whether it succeeded or failed afterwards, and they never change
+    ``state`` themselves."""
 
     @model_validator(mode="after")
     def _problem_matches_state(self) -> Self:
@@ -737,6 +771,7 @@ class GenerationResultBuilder:
         task_id: str | None = None,
         artifact_status: ArtifactStatus | None = None,
         provider_checkpoint: ProviderCheckpoint | None = None,
+        warnings: Sequence[GenerationWarning] = (),
     ) -> None:
         self._record(
             GenerationItemResult(
@@ -748,6 +783,7 @@ class GenerationResultBuilder:
                 task_state=GenerationTaskState.SUCCEEDED if task_id else GenerationTaskState.NOT_QUEUED,
                 artifact_status=artifact_status,
                 provider_checkpoint=provider_checkpoint,
+                warnings=list(warnings),
             )
         )
 
@@ -762,6 +798,7 @@ class GenerationResultBuilder:
         task_state: GenerationTaskState = GenerationTaskState.FAILED,
         artifact_status: ArtifactStatus | None = None,
         provider_checkpoint: ProviderCheckpoint | None = None,
+        warnings: Sequence[GenerationWarning] = (),
     ) -> None:
         self._record(
             GenerationItemResult(
@@ -774,6 +811,7 @@ class GenerationResultBuilder:
                 artifact_status=artifact_status,
                 provider_checkpoint=provider_checkpoint,
                 problem=problem,
+                warnings=list(warnings),
             )
         )
 
@@ -820,6 +858,36 @@ class GenerationResultBuilder:
         )
 
 
+def generation_warnings_from_result(result: Mapping[str, Any] | None) -> list[GenerationWarning]:
+    """Read the ``{key, params}`` warnings a worker stored in a task result.
+
+    Warnings are advisory: entries of the wrong shape, and entries whose params
+    cannot be expanded into a translate call, are skipped rather than failing the
+    whole batch report, mirroring how the task API renders them.
+    """
+    raw = (result or {}).get("warnings")
+    if not isinstance(raw, list):
+        return []
+    warnings: list[GenerationWarning] = []
+    for entry in cast(list[Any], raw):
+        if not isinstance(entry, Mapping):
+            continue
+        entry_map = cast(Mapping[str, Any], entry)
+        key = entry_map.get("key")
+        if not isinstance(key, str) or not key:
+            continue
+        params = entry_map.get("params")
+        try:
+            warnings.append(
+                GenerationWarning(
+                    key=key, params=dict(cast(Mapping[str, Any], params)) if isinstance(params, Mapping) else {}
+                )
+            )
+        except ValidationError:
+            continue
+    return warnings
+
+
 def record_batch_outcomes(
     builder: GenerationResultBuilder,
     *,
@@ -863,6 +931,7 @@ def record_batch_outcomes(
             task_id=br.task_id,
             artifact_status=status,
             provider_checkpoint=provider_checkpoint_from_task(br.task),
+            warnings=generation_warnings_from_result(br.result),
         )
     for br in failures:
         unit_id = unit_id_of(br.resource_id) if unit_id_of else br.resource_id
@@ -896,6 +965,7 @@ def record_batch_outcomes(
             task_state=task_state,
             artifact_status=state.status,
             provider_checkpoint=provider_checkpoint_from_task(br.task),
+            warnings=generation_warnings_from_result(br.result),
         )
 
 
@@ -948,13 +1018,22 @@ _OPERATION_LABELS: dict[str, str] = {
 _FALLBACK_OPERATION_LABEL = "生成"
 
 
-def render_generation_result(result: GenerationBatchResult, *, log: Iterable[str] = ()) -> str:
+def render_generation_result(
+    result: GenerationBatchResult,
+    *,
+    log: Iterable[str] = (),
+    translate: Callable[..., str] = translate_default,
+) -> str:
     """Render the agent-facing text summary (product language).
 
     The text is a human-readable projection of the structured payload — it
     carries *no* raw enum values, Python class names, or tool names. Machine
     identifiers (``operation``, problem codes, actions, artifact statuses)
     live exclusively in the structured ``generation_result`` sibling field.
+    Item warnings are rendered through ``translate`` (default locale) as their
+    own indented lines under the item, whatever the item's state — a notice about
+    the request (e.g. clamped references) still explains a task that failed in
+    post-processing.
     """
 
     operation_label = _OPERATION_LABELS.get(result.operation, _FALLBACK_OPERATION_LABEL)
@@ -982,6 +1061,8 @@ def render_generation_result(result: GenerationBatchResult, *, log: Iterable[str
                 line += f" → {action_label}"
             if item.provider_checkpoint is not None and item.provider_checkpoint.submitted:
                 line += "（供应商已提交，可恢复）"
+        for warning in item.warnings:
+            line += f"\n    ⚠️ {translate(warning.key, **warning.params)}"
         lines.append(line)
     for entry in result.skipped:
         label = _ARTIFACT_STATUS_LABELS.get(entry.artifact_status, "") if entry.artifact_status is not None else ""
@@ -1004,11 +1085,13 @@ __all__ = [
     "GenerationSkippedItem",
     "GenerationTargetState",
     "GenerationTaskState",
+    "GenerationWarning",
     "ProviderCheckpoint",
     "artifact_is_reusable",
     "artifact_state_problem",
     "encode_generation_problem",
     "enqueue_problem",
+    "generation_warnings_from_result",
     "migration_problem",
     "normalize_requested_ids",
     "observe_artifact_status",

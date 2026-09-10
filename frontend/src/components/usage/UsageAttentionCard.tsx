@@ -61,7 +61,7 @@ function AttentionItem({
   providerLabel: (provider: string | null) => string;
   onChange: (patch: Partial<UsageRecordsFilters>) => void;
 }) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const isRate = item.type === "failure_rate";
   const Icon = isRate ? AlertOctagon : Repeat2;
 
@@ -80,8 +80,8 @@ function AttentionItem({
     ? t("usage_attention_failure_rate_detail", {
         failed: item.failed,
         total: item.success + item.failed,
-        rate: formatRatio(item.failure_rate),
-        overall: formatRatio(item.overall_failure_rate),
+        rate: formatRatio(item.failure_rate, i18n.language),
+        overall: formatRatio(item.overall_failure_rate, i18n.language),
       })
     : t("usage_attention_consecutive_detail", {
         count: item.count,

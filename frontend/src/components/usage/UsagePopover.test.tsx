@@ -1,7 +1,8 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
@@ -55,6 +56,10 @@ describe("UsagePopover", () => {
     stubUsageApi();
   });
 
+  afterEach(async () => {
+    await i18n.changeLanguage("zh");
+  });
+
   it("shows only the guidance line and the records link when nothing was ever called", () => {
     openPopover({ summary: makeUsageSummary({ kpi: EMPTY_KPI, primary_currency: null }) });
 
@@ -73,6 +78,7 @@ describe("UsagePopover", () => {
           task_id: "t-1",
           project_name: HEADER_PROJECT,
           status: "running",
+          task_type: "storyboard",
           media_type: "image",
           resource_id: "E1S10",
         }),
@@ -113,6 +119,57 @@ describe("UsagePopover", () => {
     });
 
     expect(screen.getByText("分镜 E1S11").parentElement).toHaveTextContent("超时");
+  });
+
+  it("renders the success rate in the same format as the settings page", async () => {
+    await i18n.changeLanguage("vi");
+
+    openPopover({});
+
+    // 悬浮层与设置页 KPI 同走 formatRatio，vi 下都是逗号小数点。
+    expect(screen.getByText("90,3%")).toBeInTheDocument();
+  });
+
+  it("renders the counts with the language's thousands separator", async () => {
+    // 悬浮层 KPI 行与设置页同一条约束：调用次数、失败数跟界面语言，不跟浏览器语言。
+    for (const [language, calls, failed] of [
+      ["zh", "12,340", "1,205"],
+      ["en", "12,340", "1,205"],
+      ["vi", "12.340", "1.205"],
+    ] as const) {
+      await i18n.changeLanguage(language);
+      const base = makeUsageSummary();
+      const summary = makeUsageSummary({
+        kpi: { ...base.kpi, calls: 12_340, failed: 1_205 },
+      });
+      // 顶栏入口挂载时会重取一轮 summary，让它落回同一份计数。
+      vi.mocked(API.getUsageSummary).mockResolvedValue(summary);
+
+      const { unmount } = openPopover({ summary });
+
+      expect(screen.getByText(calls)).toBeInTheDocument();
+      expect(screen.getByText(failed)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("says so when a refresh fails, and clears the notice once a retry succeeds", async () => {
+    vi.mocked(API.getUsageSummary).mockRejectedValueOnce(new Error("network down"));
+
+    openPopover({});
+
+    const notice = await screen.findByText(
+      "部分数据加载失败，显示的可能不是最新结果。",
+    );
+    expect(notice).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText("部分数据加载失败，显示的可能不是最新结果。"),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("navigates to the settings records section prefilled with this project", () => {

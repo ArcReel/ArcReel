@@ -1,8 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import i18n from "@/i18n";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageRecordsStore } from "@/stores/usage-records-store";
 import type { UsageStatsBlock, UsageSummary } from "@/types";
@@ -69,6 +70,21 @@ describe("UsageRecordsSection breakdown", () => {
     vi.spyOn(API, "getUsageSummary").mockResolvedValue(
       makeUsageSummary({ breakdown: BREAKDOWN }),
     );
+  });
+
+  afterEach(async () => {
+    await i18n.changeLanguage("zh");
+  });
+
+  it("renders the success rate in the same format as the KPI strip above it", async () => {
+    await i18n.changeLanguage("vi");
+    renderUsageRecordsSection();
+    await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalled());
+
+    // 同一页上的两个成功率走同一个按语言的格式器：vi 的小数点是逗号。
+    expect(await screen.findByText("66,7%")).toBeInTheDocument();
+    expect(screen.getByText("90,3%")).toBeInTheDocument();
+    expect(screen.queryByText("66.7%")).not.toBeInTheDocument();
   });
 
   it("writes the clicked provider into the URL and marks the row pressed", async () => {
