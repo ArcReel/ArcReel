@@ -142,6 +142,7 @@ function BreakdownRow({
   primary: string | null;
   onChange: (patch: Partial<UsageRecordsFilters>) => void;
 }) {
+  const { i18n } = useTranslation("dashboard");
   const content = (
     <>
       <span
@@ -162,7 +163,7 @@ function BreakdownRow({
             : "")
         }
       >
-        {formatRatio(row.stats.success_rate)}
+        {formatRatio(row.stats.success_rate, i18n.language)}
       </span>
       <CostCell cost={row.stats.cost} primary={primary} />
     </>

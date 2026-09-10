@@ -116,8 +116,10 @@ describe("axis helpers", () => {
     expect(tickEvery(0, 0)).toBe(1);
   });
 
-  it("drops the year from bucket labels", () => {
-    expect(shortDay("2026-03-05")).toBe("3/5");
-    expect(shortDay("2026-11-20")).toBe("11/20");
+  it("drops the year from bucket labels and orders month and day by language", () => {
+    expect(shortDay("2026-03-05", "zh")).toBe("3/5");
+    expect(shortDay("2026-11-20", "en")).toBe("11/20");
+    // vi 的日期习惯是日在前，固定的 M/D 会把 3 月 5 日读成 5 月 3 日。
+    expect(shortDay("2026-03-05", "vi")).toBe("5/3");
   });
 });

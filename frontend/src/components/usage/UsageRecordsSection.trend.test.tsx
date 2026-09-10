@@ -1,8 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import i18n from "@/i18n";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageRecordsStore } from "@/stores/usage-records-store";
 import { makeUsageDaily, makeUsageSummary } from "./usage-fixtures";
@@ -26,6 +27,28 @@ describe("UsageRecordsSection trend", () => {
   function mockSummary(overrides = {}) {
     vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary(overrides));
   }
+
+  afterEach(async () => {
+    await i18n.changeLanguage("zh");
+  });
+
+  it("renders the call counts with the language's thousands separator", async () => {
+    // tooltip 与无障碍表格里，调用次数紧挨着按界面语言渲染的成功率；跟浏览器语言的
+    // `toLocaleString()` 会让同一处出现两种分隔习惯。
+    for (const [language, expected] of [
+      ["zh", "12,340"],
+      ["en", "12,340"],
+      ["vi", "12.340"],
+    ] as const) {
+      await i18n.changeLanguage(language);
+      mockSummary({ daily: makeUsageDaily(1, "2026-03-14", () => ({ success: 12_340 })) });
+      const { unmount } = renderUsageRecordsSection();
+
+      // 成功列与合计列各一个：两处都是同一个格式器的输出。
+      expect(await screen.findAllByText(expected)).toHaveLength(2);
+      unmount();
+    }
+  });
 
   it("names the chart and repeats its data as a table", async () => {
     mockSummary({

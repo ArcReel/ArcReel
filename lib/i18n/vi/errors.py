@@ -335,7 +335,6 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids không khớp với các đơn vị hiện có",
     "ref_script_missing": "Tệp kịch bản gắn với tập này không tồn tại",
     "ref_script_rebound": "Liên kết kịch bản của tập này đã thay đổi, vui lòng thử lại",
-    "ref_ad_reference_skipped": "'{name}' ({type}) không có ảnh tham chiếu khả dụng, đã bỏ qua tham chiếu này trong lần tạo này",
     # Xem trước phân tích kịch bản phân cảnh: hiển thị các trường hợp giảm cấp
     "ref_warn_unregistered_mention": (
         "@[{name}] chưa được đăng ký trong hàng hóa/nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "

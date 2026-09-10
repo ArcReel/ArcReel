@@ -17,6 +17,7 @@ function queuedTask(taskId: string, resourceId: string) {
   return makeTask({
     task_id: taskId,
     project_name: PROJECT,
+    task_type: "storyboard",
     media_type: "image",
     resource_id: resourceId,
     status: "queued",

@@ -65,8 +65,9 @@ function StatusCell({
 
 /** 进行中行订阅秒级时钟；已定格的耗时是静态文本，不为它每秒重渲染。 */
 function ElapsedCell({ record }: { record: UsageRecordView }) {
+  const { t } = useTranslation("dashboard");
   const now = useNowTick();
-  return <>{elapsedSince(record.startedAt, now)}</>;
+  return <>{elapsedSince(record.startedAt, now, t)}</>;
 }
 
 function CostCell({ record }: { record: UsageRecordView }) {
@@ -123,7 +124,7 @@ export function RecordRow({
             {record.status === "pending" ? (
               <ElapsedCell record={record} />
             ) : (
-              formatDurationMs(record.durationMs)
+              formatDurationMs(record.durationMs, t)
             )}
           </span>
         </div>
@@ -192,7 +193,7 @@ export function RecordRow({
         {record.status === "pending" ? (
           <ElapsedCell record={record} />
         ) : (
-          formatDurationMs(record.durationMs)
+          formatDurationMs(record.durationMs, t)
         )}
       </td>
       <td className={`${CELL_CLS} num whitespace-nowrap text-text-3`}>

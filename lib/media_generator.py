@@ -139,6 +139,9 @@ def _is_413(exc: BaseException) -> bool:
 
 # 记账 segment_id 判定：resource_id 可否作 segment_id 按 call_type 各自的 resource_type
 # 白名单收敛于此单点，image/video/audio 三条记账路径均经由它。
+# 前端 `frontend/src/components/usage/usage-record-view.ts` 的 `SEGMENT_RESOURCE_TYPES`
+# 持有同一份白名单，用于给进行中的任务行判定分镜标签；这里增删资源类型时一并改那一处，
+# 否则任务进行中与落库后的目标标签会对不上。
 _SEGMENT_ID_ALLOWED_RESOURCE_TYPES: dict[CallType, frozenset[str]] = {
     "image": frozenset({"storyboards", "videos", "grids"}),
     "video": frozenset({"storyboards", "videos", "reference_videos"}),
