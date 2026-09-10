@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.30.0](https://github.com/ArcReel/ArcReel/compare/v0.29.0...v0.30.0) (2026-09-10)
+
+
+### ✨ 新功能
+
+* **prompt:** 分镜图与宫格图参考图统一以图N指认，反向尾词改为 Avoid 键 ([43e48c6](https://github.com/ArcReel/ArcReel/commit/43e48c6e412575f9c7c62776b7f0a1b4538c3cb8)), closes [#2179](https://github.com/ArcReel/ArcReel/issues/2179) [#2179](https://github.com/ArcReel/ArcReel/issues/2179)
+* **reference:** 参考图裁剪改在入队前确认，移除不可达的用量警示展开 ([567b32e](https://github.com/ArcReel/ArcReel/commit/567b32e004b0fe7d9e7623042bb76d113e126639)), closes [#2427](https://github.com/ArcReel/ArcReel/issues/2427)
+* **script:** 脚本规划机械转为正式脚本，提示词待生成 ([8f336e8](https://github.com/ArcReel/ArcReel/commit/8f336e81ce0ad0b979f088603816c1f3ddfaf8e0)), closes [#2176](https://github.com/ArcReel/ArcReel/issues/2176)
+* **storyboard:** 参考图超限裁剪对用户与 Agent 可见 ([ca6a81e](https://github.com/ArcReel/ArcReel/commit/ca6a81e0fa963662fa5b924e1b21aa56cb96f71c))
+* **usage:** 一次请求拿到用量总览的 KPI、趋势、构成与需要关注 ([ed62ff9](https://github.com/ArcReel/ArcReel/commit/ed62ff9f123ceefdc4f4c879fb89a1cde1e7a7b0)), closes [#2407](https://github.com/ArcReel/ArcReel/issues/2407)
+* **usage:** 使用记录可按维度筛选并 keyset 翻页，详情返回完整输入与响应 ([d094d9c](https://github.com/ArcReel/ArcReel/commit/d094d9c3f72dd6ac266ccdf70464f819c332eb3e)), closes [#2406](https://github.com/ArcReel/ArcReel/issues/2406)
+* **usage:** 供应商调用可追溯来源、任务和输入，取消不再记为失败 ([eef3374](https://github.com/ArcReel/ArcReel/commit/eef3374231b96d01d032b3f5cd77a1df4ed61529)), closes [#2402](https://github.com/ArcReel/ArcReel/issues/2402)
+* **usage:** 失败调用落机器码与参数，原文保留 ([75e5898](https://github.com/ArcReel/ArcReel/commit/75e5898c460616a25d24dee674a4e036dfc2eab7)), closes [#2405](https://github.com/ArcReel/ArcReel/issues/2405)
+* **usage:** 记账结算发项目事件，启动收口孤儿 pending 调用行 ([c79e24c](https://github.com/ArcReel/ArcReel/commit/c79e24c0fc36356b6db2f87c5c9296c87030d8ce)), closes [#2404](https://github.com/ArcReel/ArcReel/issues/2404)
+* **usage:** 设置页改用使用记录区，逐次调用可筛选、可深链 ([b9163ec](https://github.com/ArcReel/ArcReel/commit/b9163ec3f634b58ba0e78ec9986a59d6bedfc5c6)), closes [#2408](https://github.com/ArcReel/ArcReel/issues/2408)
+* **usage:** 设置页补趋势图、构成表与需要关注 ([369b476](https://github.com/ArcReel/ArcReel/commit/369b47626a35ffb65c64fae26d372bab94e70233)), closes [#2409](https://github.com/ArcReel/ArcReel/issues/2409)
+* **usage:** 顶栏用量入口合并任务与费用，退役旧统计接口 ([433b7ce](https://github.com/ArcReel/ArcReel/commit/433b7ce423ae7de200336a39b54a41680102add6)), closes [#2410](https://github.com/ArcReel/ArcReel/issues/2410)
+
+
+### 🐛 Bug 修复
+
+* **agent-runtime:** 从 CLI init 消息解析 sdk_session_id，凭证无效时不再误报「SDK 会话创建超时」 ([#2371](https://github.com/ArcReel/ArcReel/issues/2371)) ([2a5c6fb](https://github.com/ArcReel/ArcReel/commit/2a5c6fbbd06c0fbb7e51717c89008faf915050dd))
+* **agent:** base_url 收敛为存储值即调用值 ([833c390](https://github.com/ArcReel/ArcReel/commit/833c390d5e9999509719a85d8536f1e30c0c7538)), closes [#2359](https://github.com/ArcReel/ArcReel/issues/2359)
+* **generation:** warnings 与条目状态正交，切分落格失败不再吞掉裁剪提示 ([594b69e](https://github.com/ArcReel/ArcReel/commit/594b69ee68a41b030868fbd1f129960a965ff8f7))
+* **generation:** 持久化批次终态补 warnings，并把「可渲染」立为 warning 的不变量 ([c09ee1f](https://github.com/ArcReel/ArcReel/commit/c09ee1f87a97259a8891677ba4021f30b39cb212))
+* **i18n:** 使用记录空态改用「使用记录」口径 ([c74e162](https://github.com/ArcReel/ArcReel/commit/c74e1629c93ddfaa4f4a9367469df8bb8d338a0a)), closes [#2416](https://github.com/ArcReel/ArcReel/issues/2416)
+* **migration:** 旧视频版本记录补写类型化来源，升级后视频照常显示与预览 ([#2374](https://github.com/ArcReel/ArcReel/issues/2374)) ([11f77f8](https://github.com/ArcReel/ArcReel/commit/11f77f8f43a4ce21e59674cfe5b1e3bc8e9922cb))
+* **prompt:** 提示词 YAML 序列化不再按 80 列折行 ([9009f2e](https://github.com/ArcReel/ArcReel/commit/9009f2ed50273b7632e31b32c6a0c5de9b86e479))
+* **script-review:** 剧本文件顶层不是对象时条目时效返回 None ([87da8e2](https://github.com/ArcReel/ArcReel/commit/87da8e22150c322fb5530ff08ec72659f1e03391))
+* **stage-1:** 收敛审查循环——凭证 base_url 归一迁移与端点拼接、宫格待生成分镜拒绝、机械转换并发与预演口径 ([e55b189](https://github.com/ArcReel/ArcReel/commit/e55b1893ee5edf0a4928aa5dee78cf3fd54728eb))
+* **storyboard:** 参考图上限只裁实发与编号，产物依据与宫格记录仍按完整参考图集登记 ([5e4c52d](https://github.com/ArcReel/ArcReel/commit/5e4c52d04d4725fb7cfee75cdac16759fe744d42)), closes [#2414](https://github.com/ArcReel/ArcReel/issues/2414)
+* **storyboard:** 参考图按图像后端上限裁剪后再编号，声明行不再指认没发出的图 ([d1951f7](https://github.com/ArcReel/ArcReel/commit/d1951f76313d9e8e20e46a8926127dd3653e6b92)), closes [#2414](https://github.com/ArcReel/ArcReel/issues/2414) [#2414](https://github.com/ArcReel/ArcReel/issues/2414)
+* **storyboard:** 宫格任务失败时也带上整张宫格的 warning ([1840974](https://github.com/ArcReel/ArcReel/commit/18409749594b44fe2193f118c60d5af8bc1cc3fe))
+* **timeline:** 剧本条目失效提示改读无准入的条目时效，草稿在场时不再整体消失 ([7c52e32](https://github.com/ArcReel/ArcReel/commit/7c52e32ef0eb3e1c0d87ab1d62a5d8cade4e6bde))
+* **usage:** 审查循环整合——记账结算与启动收口的接线、分类与边界修复 ([91f7db1](https://github.com/ArcReel/ArcReel/commit/91f7db1ec53ea4f9b8b2a2348d82277e72a10b1c))
+* **usage:** 审查收敛——取消可重试、加载失败与刷新时机修正、悬浮层与设置页口径对齐 ([6ccff07](https://github.com/ArcReel/ArcReel/commit/6ccff0706d4cef9acae5456a95e1d792c79e9ec1))
+* **usage:** 成功率、日期与时长按语言统一，任务行目标标签对齐记账口径，刷新失败给提示 ([c4d608f](https://github.com/ArcReel/ArcReel/commit/c4d608fca385752573de23fcdddb9659c2f43e8a)), closes [#2428](https://github.com/ArcReel/ArcReel/issues/2428)
+* **usage:** 补全续跑失败原因 ([91b5068](https://github.com/ArcReel/ArcReel/commit/91b506810f01f37661f52c10a1c7d4d31eee6c8f)), closes [#2417](https://github.com/ArcReel/ArcReel/issues/2417)
+* **usage:** 设置页与悬浮层 KPI 的调用次数与失败数按界面语言格式化 ([6ed993d](https://github.com/ArcReel/ArcReel/commit/6ed993d5433de0c93d8e10e2912e21e3d96d5d45)), closes [#2431](https://github.com/ArcReel/ArcReel/issues/2431)
+* **usage:** 进行中音频任务的分镜标签与记账口径一致，趋势图调用次数按界面语言 ([134c654](https://github.com/ArcReel/ArcReel/commit/134c65440b5d5bdc993e4a605410f438eb827dfa)), closes [#2428](https://github.com/ArcReel/ArcReel/issues/2428) [#2431](https://github.com/ArcReel/ArcReel/issues/2431)
+
+
+### ♻️ 重构
+
+* **config:** 任务类型内部标识符收敛为 generation_type ([d80bed1](https://github.com/ArcReel/ArcReel/commit/d80bed1a6eaaa3344dacee318b61c6a7ef3581f9)), closes [#1976](https://github.com/ArcReel/ArcReel/issues/1976)
+* **skills:** 以价值判断精简 AFK 复盘并保留高质量报告 ([#2376](https://github.com/ArcReel/ArcReel/issues/2376)) ([b49a12e](https://github.com/ArcReel/ArcReel/commit/b49a12e31130faa8964af6f521384b34d013a6ed))
+* **skills:** 以工程判断驱动 PR AI review 收敛 ([#2375](https://github.com/ArcReel/ArcReel/issues/2375)) ([67ec8ed](https://github.com/ArcReel/ArcReel/commit/67ec8ed0c49c25bc45be523505ac0cf7e43eb0ce))
+* **usage:** resume 补账按 api_calls.task_id 反查调用行 ([5b87802](https://github.com/ArcReel/ArcReel/commit/5b8780266cda8734dcf14613e8eb37789ead4920)), closes [#2403](https://github.com/ArcReel/ArcReel/issues/2403)
+
+
+### 📚 文档
+
+* **agents:** Spec 只打 Spec 标签，细分 issue 统一称 ticket ([6717f0b](https://github.com/ArcReel/ArcReel/commit/6717f0b73b24074fa2920b48cf1d0bf9e026cdab))
+* **research:** 修正图表库选型摘要中体积排序 ([f24136f](https://github.com/ArcReel/ArcReel/commit/f24136ff809e27b57017878e27cb6219142a7847)), closes [#2401](https://github.com/ArcReel/ArcReel/issues/2401)
+* 合入使用记录投影 ADR、计费节词条与两份调研文档 ([57070c9](https://github.com/ArcReel/ArcReel/commit/57070c9a23ffa3e4e08385068d5786136a0c9e69)), closes [#2401](https://github.com/ArcReel/ArcReel/issues/2401)
+
 ## [0.29.0](https://github.com/ArcReel/ArcReel/compare/v0.28.0...v0.29.0) (2026-09-05)
 
 
