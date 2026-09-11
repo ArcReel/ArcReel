@@ -43,6 +43,7 @@ updates:
           - "sqlalchemy*"
           - "aiosqlite"
           - "asyncpg"
+          - "aiomysql"
           - "alembic"
         update-types:
           - "minor"
