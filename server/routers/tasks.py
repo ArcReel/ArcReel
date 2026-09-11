@@ -10,7 +10,6 @@ from typing import Any, cast
 from fastapi import APIRouter, Query, Request
 
 from lib.api_errors import BadRequestError, NotFoundError
-from lib.asset_types import localize_asset_type
 from lib.generation_queue import get_generation_queue
 from lib.i18n import Translator
 from lib.task_failure import parse_failure, render_failure
@@ -20,26 +19,6 @@ router = APIRouter()
 
 def get_task_queue():
     return get_generation_queue()
-
-
-# warning key -> 其 params 中需要把内部资产类型标识替换为本地化显示名的字段名。
-_ASSET_TYPE_PARAM_BY_WARNING: dict[str, str] = {"ref_ad_reference_skipped": "type"}
-
-
-def _localize_warning_params(key: str, params: dict[str, Any], translate: Callable[..., str]) -> dict[str, Any]:
-    """把 params 中裸的资产类型标识（如 ``"product"``）替换为当前语言显示名。
-
-    只处理已登记 warning key 的已知字段；非字符串值（畸形持久化值，如 list）原样
-    透传，不做转换——``isinstance`` 守卫挡住其落进 ``localize_asset_type`` 的
-    ``in ASSET_SPECS`` 抛 ``TypeError``。
-    """
-    field = _ASSET_TYPE_PARAM_BY_WARNING.get(key)
-    if field is None:
-        return params
-    value = params.get(field)
-    if not isinstance(value, str):
-        return params
-    return {**params, field: localize_asset_type(value, translate)}
 
 
 def _render_warnings(warnings: Any, translate: Callable[..., str]) -> list[str]:
@@ -59,8 +38,6 @@ def _render_warnings(warnings: Any, translate: Callable[..., str]) -> list[str]:
         if not isinstance(key, str):
             continue
         params = entry.get("params")
-        if isinstance(params, dict):
-            params = _localize_warning_params(key, cast(dict[str, Any], params), translate)
         try:
             text = translate(key, **cast(dict[str, Any], params)) if isinstance(params, dict) else translate(key)
         except TypeError:

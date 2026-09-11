@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { API, ReferenceProjectionError, SpeechAdmissionError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
+import { advisoryProblems } from "@/components/canvas/reference/advisory-problems";
 import type { DurationConfirmItem } from "@/components/canvas/reference/ReferenceDurationConfirmDialog";
 import type { ReferenceRequestOptions } from "@/types";
 
@@ -25,6 +26,7 @@ interface Options {
 type CanEnqueue = (unitId: string) => boolean;
 
 interface PendingConfirm {
+  /** 需要用户拍板的单元：取档偏离或带非阻断问题 */
   items: DurationConfirmItem[];
   /** 通过确认的全部单元（含无需确认的），确认后按原顺序入队 */
   unitIds: string[];
@@ -34,8 +36,11 @@ type ConfirmedDurations = ReadonlyMap<string, number>;
 type Commit = (unitIds: string[], confirmedDurations: ConfirmedDurations) => Promise<void>;
 
 /**
- * 参考生视频入口的时长确认闸门：入队前预检取档，申请秒数与请求时长基准不一致时先让
- * 用户确认，取消则一个都不入队。
+ * 参考生视频入口的入队前确认闸门：预检取档，申请秒数与请求时长基准不一致、或预检报出
+ * 非阻断问题（参考图取前 N 张）时先让用户确认，取消则一个都不入队。
+ *
+ * 非阻断问题与取档偏离同权触发确认：它同样改变成片内容，而任务落库后界面上没有任何
+ * 展示面，入队前不说就永远不会被说出来。
  *
  * 批量入口聚合成一次确认（逐个弹窗会让用户为一次操作点 N 遍），单入口与批量入口共用
  * 同一条闸门——否则批量按钮会成为绕过确认的旁路。
@@ -129,7 +134,9 @@ export function useReferenceDurationGate({ projectName, episode, requestOptions 
       const available = ok.filter((item) => canEnqueue(item.unitId));
       if (available.length === 0) return;
 
-      const needsConfirmation = available.filter((item) => item.precheck.needs_confirmation);
+      const needsConfirmation = available.filter(
+        (item) => item.precheck.needs_confirmation || advisoryProblems(item.precheck).length > 0,
+      );
       const passing = available.map((item) => item.unitId);
       if (needsConfirmation.length === 0) {
         await commit(passing, new Map());
@@ -155,8 +162,12 @@ export function useReferenceDurationGate({ projectName, episode, requestOptions 
     const targets = canEnqueue ? current.unitIds.filter(canEnqueue) : current.unitIds;
     if (targets.length === 0) return;
     // commit 自身已按入口口径提示失败，这里只兜住漏出的意外异常
+    // 只为取档偏离的单元声明已确认档位：仅因非阻断问题进清单的单元没有档位要拍板，
+    // 替它声明一个等于让服务端跳过自己那道取档校验。
     const confirmedDurations = new Map(
-      current.items.map((item) => [item.unitId, item.precheck.request_duration]),
+      current.items
+        .filter((item) => item.precheck.needs_confirmation)
+        .map((item) => [item.unitId, item.precheck.request_duration]),
     );
     void commit(targets, confirmedDurations).catch((e: unknown) => {
       useAppStore
