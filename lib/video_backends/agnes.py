@@ -331,32 +331,360 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         start_image = self._single_path(request.start_image)
         end_image = self._single_path(request.end_image)
 
+        # Agnes没有开始帧结束帧的区别，只有图生视频或者关键帧生视频，所以可以合并
+        # 如果只有单图，那么就是ti2vid，如果是多图，那么就是keyframes
+        if start_image is not None:
+            reference_images.append(start_image)
+        if end_image is not None:
+            reference_images.append(end_image)
+        
+        if reference_images:
+            if len(reference_images) == 1:
+                payload["image"] = self._encode_reference(reference_images[0])
+            else:
+                payload["extra_body"] = {
+                    "image": [self._encode_reference(p) for p in reference_images],
+                    "mode": "keyframes",
+                }
+
+        # # 参考图与首/尾帧走互斥的单通道。两者同时给出时
+        # # fail-loud，而非静默走参考图分支丢掉用户的首/尾帧。
+        # if reference_images and (start_image is not None or end_image is not None):
+        #     raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
+
+        # # 尾帧仅在 keyframes（首+尾）模式下生效，无独立尾帧通道。只给尾帧时 fail-loud，而非静默
+        # # 退化为文生视频——video_capabilities.last_frame=True 表示支持首尾帧对，不含单独尾帧。
+        # if end_image is not None and start_image is None:
+        #     raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
+
+        # if reference_images:
+        #     if len(reference_images) > _MAX_REFERENCE_IMAGES:
+        #         raise VideoCapabilityError(
+        #             "video_reference_images_exceeded",
+        #             model=self._model,
+        #             count=len(reference_images),
+        #             limit=_MAX_REFERENCE_IMAGES,
+        #         )
+        #     payload["extra_body"] = {"image": [self._encode_reference(p) for p in reference_images]}
+        # elif start_image is not None and end_image is not None:
+        #     payload["extra_body"] = {
+        #         "image": [self._encode_start(start_image), self._encode_end(end_image)],
+        #         "mode": _KEYFRAMES_MODE,
+        #     }
+        # elif start_image is not None:
+        #     payload["image"] = self._encode_start(start_image)
+
+        return payload
+
+    def _reject_out_of_range_duration(self, duration_seconds: int) -> None:
+        """时长越界 [_MIN, _MAX] 时 fail-loud；上游若漏校验，避免静默截帧 + 错记计费时长。"""
+        if not _MIN_DURATION_SECONDS <= duration_seconds <= _MAX_DURATION_SECONDS:
+            raise VideoCapabilityError(
+                "video_duration_not_supported",
+                model=self._model,
+                duration=duration_seconds,
+                supported=f"{_MIN_DURATION_SECONDS}-{_MAX_DURATION_SECONDS}",
+            )
+
+    @staticmethod
+    def _single_path(value: str | Path | None) -> Path | None:
+        """把请求里的图像字段归一化成 Path；空 / 空串 / 空 Path（``Path("")`` 会塌成 ``Path(".")``）→ None。"""
+        if value is None:
+            return None
+        text = str(value)
+        if not text or text == ".":
+            return None
+        return Path(text)
+
+    @classmethod
+    def _valid_paths(cls, values: list[Path] | None) -> list[Path]:
+        """归一化参考图列表：剔除空 / 空 Path（``[Path(v) for v if v]`` 对 Path 恒真，不起过滤作用）。"""
+        return [p for v in (values or []) if (p := cls._single_path(v)) is not None]
+
+    def _encode_start(self, path: Path) -> str:
+        """裸 base64 编码首帧；缺失或不可读 fail-loud（不静默退化为文生视频）。"""
+        return self._encode_image(path, error_code="video_start_image_unreadable", name=path.name or str(path))
+
+    def _encode_end(self, path: Path) -> str:
+        """裸 base64 编码尾帧；缺失或不可读 fail-loud（错误指向尾帧而非首帧）。"""
+        return self._encode_image(path, error_code="video_end_image_unreadable", name=path.name or str(path))
+
+    def _encode_reference(self, path: Path) -> str:
+        """裸 base64 编码参考图；缺失或不可读 fail-loud（不静默丢弃后照常计费）。"""
+        return self._encode_image(path, error_code="video_reference_images_unreadable", names=path.name or str(path))
+
+    def _encode_image(self, path: Path, *, error_code: str, **err_params: str) -> str:
+        """裸 base64 编码图像；缺失或不可读时按通道 error_code / 参数名 fail-loud。"""
+        if not path.is_file():
+            raise VideoCapabilityError(error_code, model=self._model, **err_params)
+        try:
+            return _image_to_bare_base64(path)
+        except OSError as exc:
+            raise VideoCapabilityError(error_code, model=self._model, **err_params) from exc
+
+    # ── HTTP submit / poll / download ───────────────────────────────────
+
+    @with_retry_async(
+        max_attempts=DEFAULT_MAX_ATTEMPTS,
+        backoff_seconds=DEFAULT_BACKOFF_SECONDS,
+        retry_if=should_retry_submit,
+    )
+    async def _create_task(self, client: httpx.AsyncClient, payload: dict) -> str:
+        # 非幂等的「建任务 + 计费」POST：submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败，
+        # 避免重试重复建任务 + 重复计费；>=400 抛 HTTPStatusError 交 should_retry_submit 按状态码分流
+        # （5xx/408/429 重试——含上游繁忙 503；确定性 4xx 快失败）。submit 用长超时覆盖上游长阻塞。
+        resp = await submit_post(
+            lambda: client.post(
+                f"{self._base_url}{_VIDEOS_ENDPOINT}",
+                json=payload,
+                headers=agnes_headers(self._api_key),
+                timeout=_SUBMIT_TIMEOUT_SECONDS,
+            ),
+            provider=PROVIDER_AGNES,
+        )
+        return _extract_task_id(resp.json())
+
+    async def _poll_once(self, client: httpx.AsyncClient, task_id: str) -> dict:
+        resp = await client.get(
+            f"{self._base_url}{_VIDEOS_ENDPOINT}/{task_id}",
+            headers=agnes_headers(self._api_key),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    @with_retry_async(
+        max_attempts=DEFAULT_MAX_ATTEMPTS,
+        backoff_seconds=DEFAULT_BACKOFF_SECONDS,
+        retry_if=should_retry_poll,
+    )
+    async def _query_video(self, client: httpx.AsyncClient, video_id: str) -> dict:
+        """按 ``video_id`` 向成片查询端点二次查询（完成态只含 video_id、无直接 URL 字段时）。
+
+        该端点挂在网关根而非 ``/v1`` 下，且只认 video_id——拿 task_id 打它会排队异常。
+        幂等 GET，复用轮询同一套重试判定。
+        """
+        resp = await client.get(
+            f"{self._host}{_VIDEO_QUERY_ENDPOINT}",
+            params={"video_id": video_id},
+            headers=agnes_headers(self._api_key),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _resolve_video_url(self, client: httpx.AsyncClient, final: dict) -> tuple[str, dict | None]:
+        """成片 URL 两级来源：完成态直接字段命中即用；否则用 video_id 二次查询取 URL。
+
+        命中二次查询时一并返回该查询响应体（未查询则 None），供调用方从中补解析成片时长——
+        终态响应可能不带 ``seconds``，只有二次查询响应才带。
+
+        两级来源均不可用时报错信息只列字段名，不回显响应体（可能含签名 URL 等敏感字段，
+        与 _safe_body_for_log 同口径）。
+        """
+        video_url = _first_url_field(final)
+        if video_url is not None:
+            return video_url, None
+
+        video_id = final.get("video_id")
+        if isinstance(video_id, str) and video_id:
+            queried = await self._query_video(client, video_id)
+            video_url = _first_url_field(queried)
+            if video_url is not None:
+                return video_url, queried
+            raise RuntimeError(f"Agnes 任务完成但 video_id 查询响应缺少成片 URL（字段: {sorted(queried)}）")
+
+        raise RuntimeError(f"Agnes 任务完成但缺少成片 URL 与 video_id（字段: {sorted(final)}）")
+
+    async def _poll_and_build(
+        self,
+        client: httpx.AsyncClient,
+        task_id: str,
+        request: VideoGenerationRequest,
+        *,
+        is_resume: bool,
+    ) -> VideoGenerationResult:
+        # resume 路径下 404 直接转 ResumeExpiredError：should_retry_poll 把轮询 404 当「短暂未就绪」
+        # 重试，对已过期的 resume 任务会一直重到超时、永不落终态，故在此一击转终态异常。非 resume 的
+        # 4xx 原样抛出，交 should_retry_poll 按 status_code 分流。
+        async def _gated_poll() -> dict:
+            try:
+                return await self._poll_once(client, task_id)
+            except httpx.HTTPStatusError as exc:
+                if is_resume and exc.response.status_code == 404:
+                    raise ResumeExpiredError(job_id=task_id, provider=PROVIDER_AGNES) from exc
+                raise
+
+        final = await poll_with_retry(
+            poll_fn=_gated_poll,
+            is_done=lambda state: state.get("status") in ("completed", "failed"),
+            is_failed=_failure_reason,
+            poll_interval=_POLL_INTERVAL_SECONDS,
+            max_wait=self._max_wait(request.duration_seconds),
+            retry_if=should_retry_poll,
+            label="Agnes",
+            on_progress=lambda v, elapsed: logger.info(
+                "Agnes 视频生成中... status=%s progress=%s elapsed=%ds",
+                v.get("status"),
+                v.get("progress"),
+                int(elapsed),
+            ),
+        )
+
+        video_url, queried = await self._resolve_video_url(client, final)
+
+        await self._download_with_retry(video_url, request.output_path)
+        logger.info("Agnes 视频下载完成: %s", request.output_path)
+
+        return VideoGenerationResult(
+            video_path=request.output_path,
+            provider=PROVIDER_AGNES,
+            model=self._model,
+            duration_seconds=_extract_duration_seconds(final, queried, request.duration_seconds),
+            video_uri=video_url,
+            task_id=task_id,
+            seed=request.seed,
+            # Agnes 视频无音频能力（未声明 GENERATE_AUDIO、提交体不带音频字段），成片恒无声；
+            # 固定 False 与 kling/vidu 无声模型一致，避免下游（计费/版本元数据/剪映导出）误判有声。
+            generate_audio=False,
+        )
+
+    @staticmethod
+    @with_retry_async(
+        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
+        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
+        retry_if=should_retry_download,
+    )
+    async def _download_with_retry(video_url: str, output_path: Path) -> None:
+        """下载成片 URL（幂等 GET），独立的下载重试范围，不回退到重跑生成 POST。"""
+        await download_video(video_url, output_path)
+
+    @staticmethod
+    def _max_wait(duration_seconds: int) -> float:
+        return max(_MIN_POLL_TIMEOUT_SECONDS, duration_seconds * _POLL_TIMEOUT_PER_SECOND)
+
+
+class AgnesVideo_2_5_Flash_Backend(ProviderJobIdPersistenceMixin):
+    """Agnes 视频后端（异步 submit/poll，裸 base64 图像，支持 resume）。"""
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        http_timeout: float = _POLL_HTTP_TIMEOUT_SECONDS,
+    ) -> None:
+        self._api_key = resolve_agnes_api_key(api_key)
+        self._base_url = agnes_base_url(base_url)
+        self._host = agnes_host(base_url)
+        self._model = model or DEFAULT_MODEL
+        self._http_timeout = http_timeout
+
+    @property
+    def name(self) -> str:
+        return PROVIDER_AGNES
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+
+        首帧 + 尾帧（首尾关键帧）+ 多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加）。
+        当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
+        保持 backend 为单一真相源。
+
+        音轨恒无声：请求体没有音轨字段、成片不带音轨（``generate`` 结算时直接写死
+        ``generate_audio=False``），用户的开启意图无处可下发。
+        """
+        return VideoCapabilities(
+            first_frame=True,
+            last_frame=True,
+            max_reference_images=_MAX_REFERENCE_IMAGES,
+            audio_track=VideoAudioMode.ALWAYS_OFF,
+        )
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self.video_capabilities_for_model(self._model)
+
+    async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # 读盘 + base64 编码（首尾帧最多 2 张、参考图最多 4 张，可能数 MB）offload 到线程，
+        # 避免阻塞共享 worker 事件循环（与 image 后端及 grok/gemini 视频后端一致）。
+        payload = await asyncio.to_thread(self._build_payload, request)
+        logger.info(
+            "调用 %s 视频 API model=%s body=%s",
+            self.name,
+            self._model,
+            format_kwargs_for_log(_safe_body_for_log(payload)),
+        )
+        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+            task_id = await self._create_task(client, payload)
+            logger.info("Agnes 视频任务已创建: task_id=%s model=%s", task_id, self._model)
+            await self._persist_provider_job_id(request, task_id, provider=PROVIDER_AGNES)
+            return await self._poll_and_build(client, task_id, request, is_resume=False)
+
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """接续已 submit 的 Agnes task：仅轮询 + 下载，不重新提交（ADR 0007）。"""
+        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+            return await self._poll_and_build(client, job_id, request, is_resume=True)
+
+    # ── request building ────────────────────────────────────────────────
+
+    def _build_payload(self, request: VideoGenerationRequest) -> dict:
+        """构建提交体。
+
+        通道优先级（单通道，不叠加）：参考图 → ``extra_body.image=[refs]``；首+尾帧 →
+        ``extra_body.image=[s,e]`` + ``mode=keyframes``；仅起始图 → 顶层 ``image``；都无 → 文生视频。
+        """
+        self._reject_out_of_range_duration(request.duration_seconds)
+        width, height = _resolve_size(request.resolution, request.aspect_ratio)
+        payload: dict = {
+            "model": self._model,
+            "prompt": request.prompt,
+            "seconds": f"{request.duration_seconds}",
+            "size": request.resolution,
+            "aspect_ratio": request.aspect_ratio,
+            "n": 1,
+        }
+        if request.seed is not None:
+            payload["seed"] = request.seed
+
+        reference_images = self._valid_paths(request.reference_images)
+        reference_audios = self._valid_paths(request.reference_audio_files)
+        start_image = self._single_path(request.start_image)
+        end_image = self._single_path(request.end_image)
+
+        # 新版2.5的视频模型获取的参数不太一样，以下为新内容
+        if not reference_images and start_image is None and end_image is None:
+            payload["mode"] = "text"
+            return payload
+        
         # 参考图与首/尾帧走互斥的单通道。两者同时给出时
         # fail-loud，而非静默走参考图分支丢掉用户的首/尾帧。
         if reference_images and (start_image is not None or end_image is not None):
             raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
 
-        # 尾帧仅在 keyframes（首+尾）模式下生效，无独立尾帧通道。只给尾帧时 fail-loud，而非静默
-        # 退化为文生视频——video_capabilities.last_frame=True 表示支持首尾帧对，不含单独尾帧。
-        if end_image is not None and start_image is None:
-            raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
+        if start_image is not None or end_image is not None:
+            payload["mode"] = "keyframe"
+            if start_image is not None:
+                payload["first_frame"] = start_image
+            if end_image is not None:
+                payload["last_frame"] = end_image
+            return payload
 
-        if reference_images:
-            if len(reference_images) > _MAX_REFERENCE_IMAGES:
-                raise VideoCapabilityError(
-                    "video_reference_images_exceeded",
-                    model=self._model,
-                    count=len(reference_images),
-                    limit=_MAX_REFERENCE_IMAGES,
-                )
-            payload["extra_body"] = {"image": [self._encode_reference(p) for p in reference_images]}
-        elif start_image is not None and end_image is not None:
-            payload["extra_body"] = {
-                "image": [self._encode_start(start_image), self._encode_end(end_image)],
-                "mode": _KEYFRAMES_MODE,
-            }
-        elif start_image is not None:
-            payload["image"] = self._encode_start(start_image)
+        if not reference_images or len(reference_images) > 5:
+            raise VideoCapabilityError(
+                "video_reference_images_exceeded",
+                model=self._model,
+                count=len(reference_images),
+                limit=5,
+            )
+        payload["mode"] = "reference"
+        payload["images"] = [self._encode_reference(p) for p in reference_images]
+        if reference_audios:
+            payload["audios"] = [self._encode_reference(p) for p in reference_audios]
 
         return payload
 
