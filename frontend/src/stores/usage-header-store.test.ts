@@ -61,6 +61,59 @@ describe("usage-header-store", () => {
     expect(API.getUsageSummary).toHaveBeenCalledTimes(1);
   });
 
+  it("flags a failed request and keeps the data the last round had", async () => {
+    vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
+    stubRecords();
+    await useUsageHeaderStore.getState().setProject("星海列车");
+
+    vi.mocked(API.getUsageSummary).mockRejectedValueOnce(new Error("network down"));
+    await useUsageHeaderStore.getState().refresh();
+
+    // 面板宁可显示上一轮的数据加一行提示，也不该悄悄清空或停在旧数据上不作声。
+    expect(useUsageHeaderStore.getState().loadFailed).toBe(true);
+    expect(useUsageHeaderStore.getState().summary?.primary_currency).toBe("CNY");
+    expect(useUsageHeaderStore.getState().recent).toHaveLength(1);
+  });
+
+  it("clears the failure flag once a retry succeeds", async () => {
+    vi.spyOn(API, "getUsageSummary").mockRejectedValueOnce(new Error("network down"));
+    stubRecords();
+    await useUsageHeaderStore.getState().setProject("星海列车");
+    expect(useUsageHeaderStore.getState().loadFailed).toBe(true);
+
+    vi.mocked(API.getUsageSummary).mockResolvedValue(makeUsageSummary());
+    await useUsageHeaderStore.getState().refresh();
+
+    expect(useUsageHeaderStore.getState().loadFailed).toBe(false);
+    expect(useUsageHeaderStore.getState().summary?.primary_currency).toBe("CNY");
+  });
+
+  it("does not flag a request that was cancelled by a project switch", async () => {
+    const pendingSummaries: ((summary: UsageSummary) => void)[] = [];
+    vi.spyOn(API, "getUsageSummary").mockImplementation(
+      (_query, options) =>
+        new Promise((resolve, reject) => {
+          options?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+          pendingSummaries.push(resolve);
+        }),
+    );
+    stubRecords();
+
+    void useUsageHeaderStore.getState().setProject("星海列车");
+    await vi.waitFor(() => expect(pendingSummaries).toHaveLength(1));
+    void useUsageHeaderStore.getState().setProject("雨夜侦探");
+    await vi.waitFor(() => expect(pendingSummaries).toHaveLength(2));
+    pendingSummaries[1](makeUsageSummary());
+
+    await vi.waitFor(() =>
+      expect(useUsageHeaderStore.getState().summary).not.toBeNull(),
+    );
+    // 第一轮是被接管方主动作废的，不是接口失败，不该在面板上报错。
+    expect(useUsageHeaderStore.getState().loadFailed).toBe(false);
+  });
+
   it("discards a summary that resolves after the project has switched", async () => {
     const pending: {
       projectName: string | undefined;

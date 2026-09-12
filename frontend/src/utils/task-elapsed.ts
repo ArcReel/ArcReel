@@ -84,3 +84,28 @@ export function elapsedDisplay(ms: number): ElapsedDisplay {
   }
   return { unit: "hours", hours: Math.floor(totalMinutes / 60), minutes: totalMinutes % 60 };
 }
+
+/**
+ * 时长文案的取词器。只需要「按 key 取一条带插值的 `common` 文案」，故按最小形状收窄，
+ * 任意命名空间的 `t` 都能直接传进来——键名在这里一律带 `common:` 前缀。
+ */
+export type ElapsedTranslate = (key: string, params: Record<string, number>) => string;
+
+/**
+ * 时长的呈现文案。单位词与语序由 `common:elapsed_*` 模板给，全站时长共用这一处：
+ * 同一段时长在任务读数与用量表里必须是同一种写法。
+ */
+export function formatElapsedMs(ms: number, t: ElapsedTranslate): string {
+  const display = elapsedDisplay(ms);
+  switch (display.unit) {
+    case "seconds":
+      return t("common:elapsed_seconds", { seconds: display.seconds });
+    case "minutes":
+      return t("common:elapsed_minutes", {
+        minutes: display.minutes,
+        seconds: display.seconds,
+      });
+    case "hours":
+      return t("common:elapsed_hours", { hours: display.hours, minutes: display.minutes });
+  }
+}

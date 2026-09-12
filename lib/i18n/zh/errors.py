@@ -311,7 +311,6 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids 与现有单元不匹配",
     "ref_script_missing": "该集绑定的脚本文件不存在",
     "ref_script_rebound": "该集脚本绑定已变更，请重试",
-    "ref_ad_reference_skipped": "「{name}」（{type}）缺少可用参考图，本次生成已跳过该参考",
     # 分镜文稿解析预览的降级可见性提示
     "ref_warn_unregistered_mention": "@[{name}] 未在商品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
     "ref_warn_unclosed_brace": "第 {line} 行：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",

@@ -13,6 +13,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+
+# pytest 收集期解析命令行位置参数、并对缺失项抛 UsageError 的同一入口；
+# 下方 `pytest_sessionstart` 复用它，使会话启动期的校验与收集期同源。
+from _pytest.main import resolve_collection_argument
 from sqlalchemy import event, pool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
@@ -382,6 +386,36 @@ def _tier_from_path(item: pytest.Item) -> str | None:
         return None
     head = rel.parts[0] if rel.parts else ""
     return head if head in CLASSIFICATION_MARKS else None
+
+
+def _validate_selection_args(config: pytest.Config) -> None:
+    """把每个命令行位置参数交给 pytest 自身的解析器，缺失的路径或模块抛 UsageError。
+
+    判据完全取自 ``resolve_collection_argument``：路径存在性、``--pyargs`` 的模块解析
+    （含 namespace package 是否按 ``consider_namespace_packages`` 接受）、目录不得带
+    ``::`` 选择段、``[]`` 参数化的位置，都与收集期一致。
+    """
+    invocation_path = config.invocation_params.dir
+    as_pypath = bool(config.getoption("pyargs"))
+    consider_namespace_packages = bool(config.getini("consider_namespace_packages"))
+    for index, arg in enumerate(config.args):
+        resolve_collection_argument(
+            invocation_path,
+            arg,
+            index,
+            as_pypath=as_pypath,
+            consider_namespace_packages=consider_namespace_packages,
+        )
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """定向选择里有不存在的路径或模块时直接报用法错误。
+
+    不带 -n 时 pytest 自己会在收集期报出同样的 UsageError 并以 4 退出；xdist 下
+    controller 只从 worker 汇总结果，缺失选择连同同批的真实文件一起丢掉，只留下
+    「no tests ran」与退出码 5，没有任何错误行。两种模式统一为收集前 fail loud。
+    """
+    _validate_selection_args(session.config)
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

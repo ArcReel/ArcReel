@@ -337,7 +337,6 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids do not match existing units",
     "ref_script_missing": "The script file bound to this episode does not exist",
     "ref_script_rebound": "This episode's script binding changed, please retry",
-    "ref_ad_reference_skipped": "'{name}' ({type}) has no usable reference image and was skipped for this generation",
     # Shot-script parse preview: degradation visibility
     "ref_warn_unregistered_mention": (
         "@[{name}] is not registered as merchandise, a character, scene, or prop: no reference image will be "

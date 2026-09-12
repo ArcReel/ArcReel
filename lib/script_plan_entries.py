@@ -339,6 +339,54 @@ def evaluate_entry_currency(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ScriptPlanComparison:
+    """剧本与当前脚本规划中间文件的条目比对结果，附带比对所依据的规划条目指纹。"""
+
+    #: 当前脚本规划 ``{落盘后的条目 id: 内容指纹}``，保持规划顺序；调用方据它回填存量条目。
+    plan_revisions: dict[str, str]
+    currency: ScriptEntryCurrency
+
+
+def compare_script_with_plan_document(
+    kind: ScriptPlanKind,
+    *,
+    plan_document: object,
+    script: Mapping[str, object],
+    episode: int,
+    whole_plan_revision: str | None,
+) -> ScriptPlanComparison | None:
+    """按条目比对正式剧本与脚本规划中间文件，只回答「哪些条目的内容已经变了」。
+
+    这是**条目时效**的唯一口径：不做任何准入判定（待修复草稿在场、分镜时长不在当前视频型号
+    档位、发声混排）——那些回答的是「现在能否转换 / 生成」，由 ``ScriptGenerator`` 的规划加载器
+    负责；准入不满足期间时效判定仍须给出答案，否则时间线的失效提示会随草稿的出现而整体消失。
+    工作流状态与内容确认状态都经本函数比对，两处不各自摘一份指纹。
+
+    规划文件形状不符、没有条目或条目 id 不合法时返回 ``None``（没有可比对的条目），不 fail-loud：
+    脚本规划自身是否良构由它自己的产物状态回答。存量剧本（条目无指纹）按整集指纹回退：
+    ``whole_plan_revision`` 仍等于剧本 metadata 记录的整集指纹即视为未变，否则全部失配
+    （见 :func:`evaluate_entry_currency` 的 ``legacy_entries_current``）。不修改入参。
+    """
+
+    plan_entries = plan_entries_from_document(kind, plan_document)
+    if not plan_entries:
+        return None
+    try:
+        plan_revisions = plan_entry_revisions(kind, plan_entries, episode=episode)
+    except ScriptPlanEntryError:
+        return None
+    metadata = script.get("metadata")
+    generated_from = metadata.get(SCRIPT_PLAN_REVISION_FIELD) if isinstance(metadata, Mapping) else None
+    currency = evaluate_entry_currency(
+        kind,
+        script=script,
+        plan_revisions=plan_revisions,
+        legacy_entries_current=(whole_plan_revision is not None and generated_from == whole_plan_revision),
+    )
+    return ScriptPlanComparison(plan_revisions=plan_revisions, currency=currency)
+
+
 def backfill_entry_revisions(
     kind: ScriptPlanKind,
     *,
@@ -473,10 +521,12 @@ __all__ = [
     "SCRIPT_PLAN_ENTRY_REVISION_FIELD",
     "SCRIPT_PLAN_REVISION_FIELD",
     "ScriptEntryCurrency",
+    "ScriptPlanComparison",
     "ScriptPlanEntryError",
     "ScriptPlanKind",
     "ScriptPlanVariant",
     "backfill_entry_revisions",
+    "compare_script_with_plan_document",
     "entry_id_field",
     "entry_revision",
     "evaluate_entry_currency",

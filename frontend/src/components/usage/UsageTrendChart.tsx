@@ -69,7 +69,7 @@ export function UsageTrendChart({
   formatValue,
   bucketLabel,
 }: UsageTrendChartProps) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const series = seriesFor(metric);
   const tooltip = useTooltip<HoveredBucket>();
 
@@ -126,7 +126,7 @@ export function UsageTrendChart({
             <div className="flex items-center justify-between text-text-3">
               <span>{t("usage_kpi_success_rate")}</span>
               <span className="num">
-                {formatRatio(bucketSuccessRate(tooltip.tooltipData.bucket))}
+                {formatRatio(bucketSuccessRate(tooltip.tooltipData.bucket), i18n.language)}
               </span>
             </div>
           )}
@@ -195,6 +195,7 @@ function TrendPlot({
   onHover,
   onLeave,
 }: TrendPlotProps) {
+  const { i18n } = useTranslation("dashboard");
   const [hovered, setHovered] = useState<string | null>(null);
   const innerWidth = Math.max(0, width - MARGIN.left - MARGIN.right);
   const innerHeight = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
@@ -356,7 +357,7 @@ function TrendPlot({
           top={innerHeight}
           scale={xScale}
           tickValues={buckets.filter((b) => visibleDays.has(b.from)).map((b) => b.from)}
-          tickFormat={(value) => shortDay(String(value))}
+          tickFormat={(value) => shortDay(String(value), i18n.language)}
           stroke="var(--color-hairline-strong)"
           hideTicks
           tickLabelProps={() => ({ ...TICK_LABEL_PROPS, dy: 4, textAnchor: "middle" })}

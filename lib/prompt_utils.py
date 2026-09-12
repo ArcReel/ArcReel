@@ -23,6 +23,23 @@ AVOID_KEY = "Avoid"
 STORYBOARD_AVOID_ITEMS = "水印、多余文字、Logo"
 VIDEO_AVOID_ITEMS = "BGM、文字字幕、水印"
 
+# 提示词 YAML 的行宽上限。PyYAML 默认 80 列，超宽的纯量会在 ASCII 空格处折成多行——
+# 英文 / 越南语提示词几乎每个值都超 80 列，折行会把原文塞进换行再喂给供应商。取一个任何
+# 提示词都达不到的值，值内容与作者所写逐字一致。
+_PROMPT_YAML_WIDTH = 1_000_000
+
+
+def _dump_prompt_yaml(ordered: Mapping[str, Any]) -> str:
+    """提示词各段共用的 YAML 序列化：键序保持插入序、Unicode 原样、块式布局、不折行。"""
+    return yaml.dump(
+        dict(ordered),
+        allow_unicode=True,
+        default_flow_style=False,
+        sort_keys=False,
+        width=_PROMPT_YAML_WIDTH,
+    )
+
+
 # 风格值开头的「画风：」前缀（全角/半角冒号）。新版风格模版已去前缀，此处兼容存量 project.json。
 _STYLE_PREFIX_RE = re.compile(r"^画风[：:]\s*")
 
@@ -72,7 +89,7 @@ def image_prompt_to_yaml(image_prompt: dict, project_style: str, *, reference_im
         "ambiance": image_prompt["composition"]["ambiance"],
     }
     ordered[AVOID_KEY] = STORYBOARD_AVOID_ITEMS
-    return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    return _dump_prompt_yaml(ordered)
 
 
 def require_storyboard_scene(image_prompt: Mapping[str, Any]) -> str:
@@ -150,7 +167,7 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
         ordered["Dialogue"] = dialogue
     ordered[AVOID_KEY] = VIDEO_AVOID_ITEMS
 
-    return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    return _dump_prompt_yaml(ordered)
 
 
 def normalize_video_prompt(prompt: object) -> str:
@@ -257,7 +274,7 @@ def yaml_section(ordered: dict[str, Any]) -> str:
     键名与缩进沿用 ``image_prompt_to_yaml`` / ``video_prompt_to_yaml``：发声声明段、参考图类型
     声明行与 ``Avoid`` 反向约束在结构形态与文本形态下逐字同形，文本形态才能按内容判重。
     """
-    return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False).rstrip()
+    return _dump_prompt_yaml(ordered).rstrip()
 
 
 def strip_voice_profiles(video_prompt: dict[str, Any]) -> dict[str, Any]:

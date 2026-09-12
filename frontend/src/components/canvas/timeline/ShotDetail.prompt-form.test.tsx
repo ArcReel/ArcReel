@@ -45,8 +45,8 @@ function preview(): ItemPromptPreview {
   return {
     item_id: "E1S01",
     content_mode: "narration",
-    storyboard_image: { text: RENDERED_IMAGE_PROMPT, unavailable: null, is_text_form: false },
-    video: { text: "最终视频提示词", unavailable: null, is_text_form: false },
+    storyboard_image: { text: RENDERED_IMAGE_PROMPT, unavailable: null, is_text_form: false, warnings: [] },
+    video: { text: "最终视频提示词", unavailable: null, is_text_form: false, warnings: [] },
   };
 }
 
@@ -88,7 +88,7 @@ describe("ShotDetail 提示词形态切换", () => {
 
   it("渲染不出最终提示词时不切换形态，就地给出后端的不可用原因", async () => {
     const unavailable = { ...preview() };
-    unavailable.storyboard_image = { text: null, unavailable: "该分镜没有分镜图提示词", is_text_form: false };
+    unavailable.storyboard_image = { text: null, unavailable: "该分镜没有分镜图提示词", is_text_form: false, warnings: [] };
     const spy = vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue(unavailable);
     renderDetail(makeSegment());
 

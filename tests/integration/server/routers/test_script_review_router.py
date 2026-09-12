@@ -810,6 +810,43 @@ class TestScriptPlanConversionRouter:
             assert got.status_code == 404, got.text
             assert got.json()["detail"] != i18n_message("script_review_no_script_plan")
 
+    def test_state_currency_survives_a_pending_draft_that_refuses_the_preview(self, tmp_path, monkeypatch):
+        """待修复草稿在场：预演过准入链整体 422，而 ``GET script-review`` 的条目时效仍列出失效条目——
+        时间线的「剧本内容已更新」提示读后者，不随草稿的出现而消失。"""
+        from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, write_quarantine
+
+        client, pm = self._client_with_conversion(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            self._write_registered_script_plan(pm, self._admitted_drama_script_plan())
+            assert client.post(f"{base}/confirm").status_code == 200
+            assert client.post(f"{base}/convert").status_code == 200
+            synced = client.get(base).json()
+            assert synced["script_entry_currency"] == {"stale": [], "added": [], "removed": [], "order_changed": False}
+
+            # 只改原文锚：条目内容变了，剧本里那一条失效
+            edited = self._admitted_drama_script_plan()
+            edited["scenes"][0]["source_text"] = "三年后，阿离立于屋檐下，轻声道：你终于回来了。"
+            saved = client.put(f"{base}/content", params={"base_fingerprint": synced["fingerprint"]}, json=edited)
+            assert saved.status_code == 200, saved.text
+            assert saved.json()["script_entry_currency"]["stale"] == ["E1S01"]
+            assert client.get(f"{base}/conversion-preview").json()["stale"] == ["E1S01"]
+
+            write_quarantine(
+                pm.get_project_path("demo"),
+                1,
+                QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+                content={"title": "第一集", "scenes": []},
+                violations=[],
+            )
+
+            refused = client.get(f"{base}/conversion-preview")
+            assert refused.status_code == 422, refused.text
+            state = client.get(base)
+            assert state.status_code == 200, state.text
+            assert state.json()["status"] == "pending_review"
+            assert state.json()["script_entry_currency"]["stale"] == ["E1S01"]
+
     def test_adopting_a_current_entry_is_rejected(self, tmp_path, monkeypatch):
         client, pm = self._client_with_conversion(monkeypatch, tmp_path)
         with client:
