@@ -210,6 +210,37 @@ describe("单资源入队动作的乐观标记 kind / taskType", () => {
 
     expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
   });
+
+  it.each([
+    {
+      label: "character",
+      run: (overrides?: Parameters<typeof enqueueCharacter>[3]) =>
+        enqueueCharacter("demo", "Hero", "p", overrides),
+      method: "generateCharacter" as const,
+    },
+    {
+      label: "scene",
+      run: (overrides?: Parameters<typeof enqueueScene>[3]) => enqueueScene("demo", "Temple", "p", overrides),
+      method: "generateProjectScene" as const,
+    },
+    {
+      label: "prop",
+      run: (overrides?: Parameters<typeof enqueueProp>[3]) => enqueueProp("demo", "Sword", "p", overrides),
+      method: "generateProjectProp" as const,
+    },
+    {
+      label: "product",
+      run: (overrides?: Parameters<typeof enqueueProduct>[3]) => enqueueProduct("demo", "Phone", "p", overrides),
+      method: "generateProjectProduct" as const,
+    },
+  ])("$label：生成前确认弹窗产出的覆盖项原样透传给 API 层", async ({ run, method }) => {
+    const spy = vi.spyOn(API, method).mockResolvedValue(SINGLE_OK);
+    const overrides = { promptOverride: "edited", aspectRatio: "9:16", imageSize: "2K" };
+
+    await run(overrides);
+
+    expect(spy).toHaveBeenCalledWith("demo", expect.any(String), "p", overrides);
+  });
 });
 
 describe("enqueueEpisodeNarration", () => {

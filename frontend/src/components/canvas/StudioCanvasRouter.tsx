@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
 import { Route, Switch, Redirect } from "wouter";
 import {
@@ -27,11 +27,12 @@ import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
 import { ProductsPage } from "./lorebook/ProductsPage";
+import { GeneratePromptDialog, type GenerateAssetType } from "./lorebook/GeneratePromptDialog";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
-import { API, NarratedVideoDurationError } from "@/api";
+import { API, NarratedVideoDurationError, type AssetGenerationOverrides } from "@/api";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -396,18 +397,16 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateCharacter = useCallback(async (name: string) => {
-    if (!currentProjectName) return;
-    try {
-      await enqueueCharacter(
-        currentProjectName,
-        name,
-        currentProjectData?.characters?.[name]?.description ?? "",
-      );
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
-    }
-  }, [currentProjectName, currentProjectData]);
+  // 四类资产的「生成设计图」统一先弹出可编辑 prompt 的确认弹窗（见 generateDialogTarget /
+  // handleConfirmGenerateDialog），不再点击即直接入队。
+  const [generateDialogTarget, setGenerateDialogTarget] = useState<{
+    assetType: GenerateAssetType;
+    resourceName: string;
+  } | null>(null);
+
+  const handleGenerateCharacter = useCallback((name: string) => {
+    setGenerateDialogTarget({ assetType: "character", resourceName: name });
+  }, []);
 
   const handleAddCharacterSubmit = useCallback(async (
     name: string,
@@ -446,14 +445,9 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateScene = useCallback(async (name: string) => {
-    if (!currentProjectName) return;
-    try {
-      await enqueueScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
-    }
-  }, [currentProjectName, currentProjectData]);
+  const handleGenerateScene = useCallback((name: string) => {
+    setGenerateDialogTarget({ assetType: "scene", resourceName: name });
+  }, []);
 
   const handleAddSceneSubmit = useCallback(async (name: string, description: string) => {
     if (!currentProjectName) return;
@@ -478,14 +472,9 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateProp = useCallback(async (name: string) => {
-    if (!currentProjectName) return;
-    try {
-      await enqueueProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
-    }
-  }, [currentProjectName, currentProjectData]);
+  const handleGenerateProp = useCallback((name: string) => {
+    setGenerateDialogTarget({ assetType: "prop", resourceName: name });
+  }, []);
 
   const handleAddPropSubmit = useCallback(async (name: string, description: string) => {
     if (!currentProjectName) return;
@@ -510,18 +499,53 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateProduct = useCallback(async (name: string) => {
-    if (!currentProjectName) return;
-    try {
-      await enqueueProduct(
-        currentProjectName,
-        name,
-        currentProjectData?.products?.[name]?.description ?? "",
-      );
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
-    }
-  }, [currentProjectName, currentProjectData]);
+  const handleGenerateProduct = useCallback((name: string) => {
+    setGenerateDialogTarget({ assetType: "product", resourceName: name });
+  }, []);
+
+  const handleConfirmGenerateDialog = useCallback(
+    async (
+      target: { assetType: GenerateAssetType; resourceName: string },
+      overrides: AssetGenerationOverrides,
+    ) => {
+      if (!currentProjectName) return;
+      const { assetType, resourceName } = target;
+      try {
+        if (assetType === "character") {
+          await enqueueCharacter(
+            currentProjectName,
+            resourceName,
+            currentProjectData?.characters?.[resourceName]?.description ?? "",
+            overrides,
+          );
+        } else if (assetType === "scene") {
+          await enqueueScene(
+            currentProjectName,
+            resourceName,
+            currentProjectData?.scenes?.[resourceName]?.description ?? "",
+            overrides,
+          );
+        } else if (assetType === "prop") {
+          await enqueueProp(
+            currentProjectName,
+            resourceName,
+            currentProjectData?.props?.[resourceName]?.description ?? "",
+            overrides,
+          );
+        } else {
+          await enqueueProduct(
+            currentProjectName,
+            resourceName,
+            currentProjectData?.products?.[resourceName]?.description ?? "",
+            overrides,
+          );
+        }
+      } catch (err) {
+        useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
+      }
+    },
+    [currentProjectName, currentProjectData],
+  );
 
   const handleAddProductSubmit = useCallback(async (name: string, description: string, brand: string) => {
     if (!currentProjectName) return;
@@ -548,27 +572,15 @@ export function StudioCanvasRouter() {
     await refreshProject();
   }, [refreshProject]);
 
-  const handleGenerateCharacterVoid = useCallback((...args: Parameters<typeof handleGenerateCharacter>) => {
-    void handleGenerateCharacter(...args).catch(console.error);
-  }, [handleGenerateCharacter]);
   const handleUpdateSceneVoid = useCallback((...args: Parameters<typeof handleUpdateScene>) => {
     void handleUpdateScene(...args).catch(console.error);
   }, [handleUpdateScene]);
-  const handleGenerateSceneVoid = useCallback((...args: Parameters<typeof handleGenerateScene>) => {
-    void handleGenerateScene(...args).catch(console.error);
-  }, [handleGenerateScene]);
   const handleUpdatePropVoid = useCallback((...args: Parameters<typeof handleUpdateProp>) => {
     void handleUpdateProp(...args).catch(console.error);
   }, [handleUpdateProp]);
-  const handleGeneratePropVoid = useCallback((...args: Parameters<typeof handleGenerateProp>) => {
-    void handleGenerateProp(...args).catch(console.error);
-  }, [handleGenerateProp]);
   const handleUpdateProductVoid = useCallback((...args: Parameters<typeof handleUpdateProduct>) => {
     void handleUpdateProduct(...args).catch(console.error);
   }, [handleUpdateProduct]);
-  const handleGenerateProductVoid = useCallback((...args: Parameters<typeof handleGenerateProduct>) => {
-    void handleGenerateProduct(...args).catch(console.error);
-  }, [handleGenerateProduct]);
 
   // `currentProjectName` 在详情到达前就已落地（见 router.tsx 首屏加载的注释），
   // 仅查它会在深链（/characters 等）直接打开或详情较慢时把空集合渲染成可交互的
@@ -582,7 +594,21 @@ export function StudioCanvasRouter() {
   }
 
   return (
-    <Switch>
+    <>
+      {generateDialogTarget && (
+        <GeneratePromptDialog
+          assetType={generateDialogTarget.assetType}
+          projectName={currentProjectName}
+          resourceName={generateDialogTarget.resourceName}
+          onClose={() => setGenerateDialogTarget(null)}
+          onConfirm={(overrides) => {
+            const target = generateDialogTarget;
+            setGenerateDialogTarget(null);
+            void handleConfirmGenerateDialog(target, overrides);
+          }}
+        />
+      )}
+      <Switch>
       <Route path="/">
         <OverviewCanvas
           projectName={currentProjectName}
@@ -611,7 +637,7 @@ export function StudioCanvasRouter() {
           characters={currentProjectData?.characters ?? {}}
           readOnly={demoMode}
           onSaveCharacter={handleSaveCharacter}
-          onGenerateCharacter={handleGenerateCharacterVoid}
+          onGenerateCharacter={handleGenerateCharacter}
           onAddCharacter={handleAddCharacterSubmit}
           onRestoreCharacterVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
@@ -627,7 +653,7 @@ export function StudioCanvasRouter() {
           scenes={currentProjectData?.scenes ?? {}}
           readOnly={demoMode}
           onUpdateScene={handleUpdateSceneVoid}
-          onGenerateScene={handleGenerateSceneVoid}
+          onGenerateScene={handleGenerateScene}
           onAddScene={handleAddSceneSubmit}
           onRestoreSceneVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
@@ -642,7 +668,7 @@ export function StudioCanvasRouter() {
           props={currentProjectData?.props ?? {}}
           readOnly={demoMode}
           onUpdateProp={handleUpdatePropVoid}
-          onGenerateProp={handleGeneratePropVoid}
+          onGenerateProp={handleGenerateProp}
           onAddProp={handleAddPropSubmit}
           onRestorePropVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
@@ -657,7 +683,7 @@ export function StudioCanvasRouter() {
           products={currentProjectData?.products ?? {}}
           readOnly={demoMode}
           onUpdateProduct={handleUpdateProductVoid}
-          onGenerateProduct={handleGenerateProductVoid}
+          onGenerateProduct={handleGenerateProduct}
           onAddProduct={handleAddProductSubmit}
           onRestoreProductVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
@@ -809,6 +835,7 @@ export function StudioCanvasRouter() {
           );
         }}
       </Route>
-    </Switch>
+      </Switch>
+    </>
   );
 }

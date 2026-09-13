@@ -515,6 +515,25 @@ describe("API", () => {
         method: "POST",
         body: JSON.stringify({ prompt: "prompt" }),
       });
+      await API.generateCharacter("demo", "Hero", "prompt", {
+        promptOverride: "overridden prompt",
+        aspectRatio: "1:1",
+        imageSize: "2K",
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/character/Hero", {
+        method: "POST",
+        body: JSON.stringify({
+          prompt: "prompt",
+          prompt_override: "overridden prompt",
+          aspect_ratio: "1:1",
+          image_size: "2K",
+        }),
+      });
+      await API.previewAssetGenerationPrompt("demo", "scene", "Temple");
+      expect(requestSpy).toHaveBeenCalledWith(
+        "/projects/demo/generate/scene/Temple/prompt-preview",
+        { signal: undefined },
+      );
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/scripts/episode%201.json",
       );

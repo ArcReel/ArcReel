@@ -896,6 +896,22 @@ function agentMemoryBase(scope: AgentMemoryScope): string {
     : `/projects/${encodeURIComponent(scope.projectName)}/agent-memory`;
 }
 
+/** 角色/场景/道具/商品资产图生成前确认弹窗的单次请求覆盖，三者均可选、不落盘到项目配置。 */
+export interface AssetGenerationOverrides {
+  promptOverride?: string;
+  aspectRatio?: string;
+  imageSize?: string;
+}
+
+function toAssetOverridePayload(overrides?: AssetGenerationOverrides): Record<string, string> {
+  if (!overrides) return {};
+  const payload: Record<string, string> = {};
+  if (overrides.promptOverride) payload.prompt_override = overrides.promptOverride;
+  if (overrides.aspectRatio) payload.aspect_ratio = overrides.aspectRatio;
+  if (overrides.imageSize) payload.image_size = overrides.imageSize;
+  return payload;
+}
+
 class API {
   /**
    * 通用请求方法
@@ -2254,16 +2270,32 @@ class API {
     );
   }
 
+  /** 生成前确认弹窗的单次请求覆盖：编辑后的完整 prompt / 画布比例 / 画质，三者均可选，
+   *  不传的字段服务端按原行为处理（重新拼接 prompt、沿用项目默认比例与画质）。 */
+  static async previewAssetGenerationPrompt(
+    projectName: string,
+    assetType: "character" | "scene" | "prop" | "product",
+    resourceName: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ asset_type: string; resource_id: string; prompt: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/generate/${assetType}/${encodeURIComponent(resourceName)}/prompt-preview`,
+      { signal: options?.signal }
+    );
+  }
+
   /**
    * 生成角色资产图
    * @param projectName - 项目名称
    * @param charName - 角色名称
    * @param prompt - 角色描述 prompt
+   * @param overrides - 生成前确认弹窗产出的单次请求覆盖（可选）
    */
   static async generateCharacter(
     projectName: string,
     charName: string,
-    prompt: string
+    prompt: string,
+    overrides?: AssetGenerationOverrides
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2274,7 +2306,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, ...toAssetOverridePayload(overrides) }),
       }
     );
   }
@@ -2284,11 +2316,13 @@ class API {
    * @param projectName - 项目名称
    * @param sceneName - 场景名称
    * @param prompt - 场景描述 prompt
+   * @param overrides - 生成前确认弹窗产出的单次请求覆盖（可选）
    */
   static async generateProjectScene(
     projectName: string,
     sceneName: string,
-    prompt: string
+    prompt: string,
+    overrides?: AssetGenerationOverrides
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2299,7 +2333,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/scene/${encodeURIComponent(sceneName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, ...toAssetOverridePayload(overrides) }),
       }
     );
   }
@@ -2309,11 +2343,13 @@ class API {
    * @param projectName - 项目名称
    * @param propName - 道具名称
    * @param prompt - 道具描述 prompt
+   * @param overrides - 生成前确认弹窗产出的单次请求覆盖（可选）
    */
   static async generateProjectProp(
     projectName: string,
     propName: string,
-    prompt: string
+    prompt: string,
+    overrides?: AssetGenerationOverrides
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2324,7 +2360,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/prop/${encodeURIComponent(propName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, ...toAssetOverridePayload(overrides) }),
       }
     );
   }
@@ -2334,11 +2370,13 @@ class API {
    * @param projectName - 项目名称
    * @param productName - 商品名称
    * @param prompt - 商品描述 prompt
+   * @param overrides - 生成前确认弹窗产出的单次请求覆盖（可选）
    */
   static async generateProjectProduct(
     projectName: string,
     productName: string,
-    prompt: string
+    prompt: string,
+    overrides?: AssetGenerationOverrides
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2349,7 +2387,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/product/${encodeURIComponent(productName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, ...toAssetOverridePayload(overrides) }),
       }
     );
   }

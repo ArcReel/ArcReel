@@ -903,13 +903,24 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_video_provider_model(svc, session, project, payload, capability)
 
-    async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
-        """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。
+    async def resolve_resolution(
+        self,
+        project: dict,
+        provider_id: str,
+        model_id: str,
+        payload: dict | None = None,
+    ) -> str | None:
+        """按 payload（单次请求覆盖，不落盘） → project.model_settings → legacy
+        video_model_settings → 自定义供应商默认 → None。
 
-        None 代表"调用时不传 SDK resolution 参数"（见 ``docs/adr/0019``）。前两级纯读 project
+        None 代表"调用时不传 SDK resolution 参数"（见 ``docs/adr/0019``）。``payload`` 目前只有
+        资产图生成前确认弹窗这一条调用路径会传（与 ``resolve_image_backend`` 的
+        payload-最高优先级口径一致）；视频 lane 未传该参数，行为不变。前两级纯读 project
         dict、无副作用；自定义供应商默认（``CustomProviderModel.resolution``）需 DB，故本方法
         整体为 async 并在同一 session 内完成。
         """
+        if payload and (override := _clean_resolution(payload.get("image_size"), field="payload.image_size")):
+            return override
         from_project = _resolution_from_project(project, provider_id, model_id)
         if from_project:
             return from_project

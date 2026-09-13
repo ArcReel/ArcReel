@@ -352,7 +352,7 @@ async def resolve_generation_context(
                 provider_model=resolved,
                 backend_name=image_backend.name,
                 backend_model=image_backend.model,
-                resolution=await r.resolve_resolution(project, resolved.provider_id, image_backend.model),
+                resolution=await r.resolve_resolution(project, resolved.provider_id, image_backend.model, payload),
             )
 
         if video is not None:

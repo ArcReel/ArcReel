@@ -15,7 +15,7 @@
  *
  * 组件禁止绕过本层直调入队类 API 方法（ESLint no-restricted-syntax 强制）。
  */
-import { API, derivativeResourceId } from "@/api";
+import { API, derivativeResourceId, type AssetGenerationOverrides } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import type {
@@ -202,10 +202,13 @@ export async function enqueueCharacter(
   projectName: string,
   name: string,
   prompt: string,
+  overrides?: AssetGenerationOverrides,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "character", name, "character")],
-    () => API.generateCharacter(projectName, name, prompt),
+    // overrides 未传时按老签名调用（不显式带一个 undefined 位参），保持既有调用方
+    // （如 AdInitCanvas 的商品初始化流程）的 mock 断言不因新增可选参数而失配。
+    () => (overrides ? API.generateCharacter(projectName, name, prompt, overrides) : API.generateCharacter(projectName, name, prompt)),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:character_task_submitted_toast", { name }));
@@ -252,10 +255,11 @@ export async function enqueueScene(
   projectName: string,
   name: string,
   prompt: string,
+  overrides?: AssetGenerationOverrides,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "scene", name, "scene")],
-    () => API.generateProjectScene(projectName, name, prompt),
+    () => (overrides ? API.generateProjectScene(projectName, name, prompt, overrides) : API.generateProjectScene(projectName, name, prompt)),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:scene_task_submitted_toast", { name }));
@@ -266,10 +270,11 @@ export async function enqueueProp(
   projectName: string,
   name: string,
   prompt: string,
+  overrides?: AssetGenerationOverrides,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "prop", name, "prop")],
-    () => API.generateProjectProp(projectName, name, prompt),
+    () => (overrides ? API.generateProjectProp(projectName, name, prompt, overrides) : API.generateProjectProp(projectName, name, prompt)),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:prop_task_submitted_toast", { name }));
@@ -280,10 +285,14 @@ export async function enqueueProduct(
   projectName: string,
   name: string,
   prompt: string,
+  overrides?: AssetGenerationOverrides,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "product", name, "product")],
-    () => API.generateProjectProduct(projectName, name, prompt),
+    () =>
+      overrides
+        ? API.generateProjectProduct(projectName, name, prompt, overrides)
+        : API.generateProjectProduct(projectName, name, prompt),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:product_task_submitted_toast", { name }));

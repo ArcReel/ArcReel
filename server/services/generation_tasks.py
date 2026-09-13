@@ -247,9 +247,14 @@ def compensable_formal_task_result(
     return CompensableGenerationResult(result, cancel_compensation=receipt.compensate_cancelled)
 
 
-def get_aspect_ratio(project: dict, resource_type: str) -> str:
+def get_aspect_ratio(project: dict, resource_type: str, payload: dict[str, Any] | None = None) -> str:
     if resource_type in ("characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE):
-        # 资产图生成必须显式指定宽高比；四类资产与角色衍生当前均固定为 16:9。
+        # 资产图生成前确认弹窗允许单次请求覆盖比例（不落盘）；未覆盖时四类资产与角色衍生
+        # 仍固定 16:9。
+        if payload:
+            override = payload.get("aspect_ratio")
+            if isinstance(override, str) and override.strip():
+                return override.strip()
         return "16:9"
     return resolve_video_aspect_ratio(project, resource_type)
 
@@ -1320,7 +1325,7 @@ async def _run_asset_sheet_image_task(
             resource_id=resource_id,
             artifact_path=sheet_path,
             prompt=full_prompt,
-            aspect_ratio=get_aspect_ratio(project, bucket_key),
+            aspect_ratio=get_aspect_ratio(project, bucket_key, payload),
             build_commit_callback=_build_commit,
             finalize=_finalize,
         ),
@@ -2818,7 +2823,14 @@ async def execute_character_task(
         _char_data = _project["characters"][_char_key]
         _style = _project.get("style", "")
         _style_desc = _project.get("style_description", "")
-        _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc)
+        # 生成前确认弹窗允许用户直接编辑最终 prompt；非空 override 优先于服务端重新拼接，
+        # 未覆盖时保持原行为。
+        _override = payload.get("prompt_override")
+        _full_prompt = (
+            _override.strip()
+            if isinstance(_override, str) and _override.strip()
+            else build_character_prompt(resource_id, prompt, _style, _style_desc)
+        )
         _ref_images = None
         _ref_path = _char_data.get("reference_image")
         if _ref_path:
@@ -2924,7 +2936,14 @@ async def execute_design_task(
             raise ValueError(f"{kind} not found: {resource_id}")
         style = project.get("style", "")
         style_desc = project.get("style_description", "")
-        full_prompt = prompt_builder(resource_id, prompt, style, style_desc)
+        # 生成前确认弹窗允许用户直接编辑最终 prompt；非空 override 优先于服务端重新拼接，
+        # 未覆盖时保持原行为。
+        override = payload.get("prompt_override")
+        full_prompt = (
+            override.strip()
+            if isinstance(override, str) and override.strip()
+            else prompt_builder(resource_id, prompt, style, style_desc)
+        )
         refs = reference_collector(project, project_path, resource_id) if reference_collector else None
         visual_references = tuple(
             VisualReference(

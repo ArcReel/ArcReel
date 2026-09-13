@@ -12,6 +12,7 @@
 import asyncio
 import logging
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -58,6 +59,7 @@ from lib.storyboard_sequence import (
 )
 from server.auth import CurrentUser
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
+from server.services.asset_prompt_preview import AssetNotFound, preview_asset_prompt
 from server.services.cost_estimation import quote_video_request
 from server.services.derivative_sheet_tasks import build_derivative_sheet_instruction
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
@@ -161,18 +163,32 @@ async def _localized_narrated_video_payload(
 
 class GenerateCharacterRequest(BaseModel):
     prompt: str
+    # 生成前确认弹窗允许用户直接编辑最终 prompt / 覆盖画布比例与画质；三者均为单次请求覆盖，
+    # 不落盘到项目配置。None 时保持原行为（服务端按 description 重新拼接、沿用项目默认档位）。
+    prompt_override: str | None = None
+    aspect_ratio: str | None = None
+    image_size: str | None = None
 
 
 class GenerateSceneRequest(BaseModel):
     prompt: str
+    prompt_override: str | None = None
+    aspect_ratio: str | None = None
+    image_size: str | None = None
 
 
 class GeneratePropRequest(BaseModel):
     prompt: str
+    prompt_override: str | None = None
+    aspect_ratio: str | None = None
+    image_size: str | None = None
 
 
 class GenerateProductRequest(BaseModel):
     prompt: str
+    prompt_override: str | None = None
+    aspect_ratio: str | None = None
+    image_size: str | None = None
 
 
 class EditImageRequest(BaseModel):
@@ -796,6 +812,19 @@ _ASSET_GENERATE_I18N: dict[str, dict[str, str]] = {
 }
 
 
+def _asset_override_payload(
+    req: GenerateCharacterRequest | GenerateSceneRequest | GeneratePropRequest | GenerateProductRequest,
+) -> dict[str, Any] | None:
+    """把生成前确认弹窗的可选覆盖字段收拢成 extra_payload；全部未传时返回 None（不占位空 dict）。"""
+    overrides = {
+        "prompt_override": req.prompt_override,
+        "aspect_ratio": req.aspect_ratio,
+        "image_size": req.image_size,
+    }
+    payload = {key: value for key, value in overrides.items() if value is not None}
+    return payload or None
+
+
 async def _enqueue_asset_generation(
     *,
     asset_type: str,
@@ -804,8 +833,14 @@ async def _enqueue_asset_generation(
     prompt: str,
     user_id: str,
     _t: Translator,
+    extra_payload: dict[str, Any] | None = None,
 ) -> dict:
-    """项目级资产（character / scene / prop / product）资产图生成共用入队逻辑。"""
+    """项目级资产（character / scene / prop / product）资产图生成共用入队逻辑。
+
+    ``extra_payload`` 携带生成前确认弹窗产出的单次请求覆盖（prompt_override / aspect_ratio /
+    image_size），原样透传进队列 payload，由执行层（``execute_character_task`` /
+    ``execute_design_task``）读取，本函数不解读其内容。
+    """
     spec = ASSET_SPECS[asset_type]
     keys = _ASSET_GENERATE_I18N[asset_type]
 
@@ -825,6 +860,7 @@ async def _enqueue_asset_generation(
         media_type="image",
         resource_id=resource_key,
         prompt=prompt,
+        extra_payload=extra_payload,
     )
 
     queue = get_generation_queue()
@@ -846,6 +882,30 @@ async def _enqueue_asset_generation(
     }
 
 
+async def _preview_asset_generation_prompt(
+    asset_type: str,
+    project_name: str,
+    resource_name: str,
+    _t: Translator,
+) -> dict:
+    """项目级资产（character / scene / prop / product）prompt 预览共用实现。
+
+    只读：不入队、不产生费用。与执行路径共用同一份 ``lib.prompt_builders`` 出口
+    （见 ``server.services.asset_prompt_preview``），预览文本逐字等于不带覆盖时实际会
+    发出的 prompt。
+    """
+    keys = _ASSET_GENERATE_I18N[asset_type]
+    try:
+        preview = await preview_asset_prompt(project_name, asset_type, resource_name)
+    except AssetNotFound as exc:
+        raise NotFoundError(keys["not_found"], name=resource_name) from exc
+    return {
+        "asset_type": preview.asset_type,
+        "resource_id": preview.resource_id,
+        "prompt": preview.prompt,
+    }
+
+
 @router.post("/projects/{project_name}/generate/character/{char_name}")
 async def generate_character(
     project_name: str,
@@ -862,7 +922,14 @@ async def generate_character(
         prompt=req.prompt,
         user_id=user.id,
         _t=_t,
+        extra_payload=_asset_override_payload(req),
     )
+
+
+@router.get("/projects/{project_name}/generate/character/{char_name}/prompt-preview")
+async def preview_character_generation_prompt(project_name: str, char_name: str, _t: Translator):
+    """渲染该角色现在生成会送进图像模型的最终提示词文本，供生成前确认弹窗预填。"""
+    return await _preview_asset_generation_prompt("character", project_name, char_name, _t)
 
 
 @router.post("/projects/{project_name}/generate/character/{char_name}/derivatives/{derivative_name}")
@@ -931,7 +998,14 @@ async def generate_scene(
         prompt=req.prompt,
         user_id=user.id,
         _t=_t,
+        extra_payload=_asset_override_payload(req),
     )
+
+
+@router.get("/projects/{project_name}/generate/scene/{scene_name}/prompt-preview")
+async def preview_scene_generation_prompt(project_name: str, scene_name: str, _t: Translator):
+    """渲染该场景现在生成会送进图像模型的最终提示词文本，供生成前确认弹窗预填。"""
+    return await _preview_asset_generation_prompt("scene", project_name, scene_name, _t)
 
 
 @router.post("/projects/{project_name}/generate/prop/{prop_name}")
@@ -950,7 +1024,14 @@ async def generate_prop(
         prompt=req.prompt,
         user_id=user.id,
         _t=_t,
+        extra_payload=_asset_override_payload(req),
     )
+
+
+@router.get("/projects/{project_name}/generate/prop/{prop_name}/prompt-preview")
+async def preview_prop_generation_prompt(project_name: str, prop_name: str, _t: Translator):
+    """渲染该道具现在生成会送进图像模型的最终提示词文本，供生成前确认弹窗预填。"""
+    return await _preview_asset_generation_prompt("prop", project_name, prop_name, _t)
 
 
 @router.post("/projects/{project_name}/generate/product/{product_name}")
@@ -969,7 +1050,14 @@ async def generate_product(
         prompt=req.prompt,
         user_id=user.id,
         _t=_t,
+        extra_payload=_asset_override_payload(req),
     )
+
+
+@router.get("/projects/{project_name}/generate/product/{product_name}/prompt-preview")
+async def preview_product_generation_prompt(project_name: str, product_name: str, _t: Translator):
+    """渲染该商品现在生成会送进图像模型的最终提示词文本，供生成前确认弹窗预填。"""
+    return await _preview_asset_generation_prompt("product", project_name, product_name, _t)
 
 
 # ==================== 图片指令式编辑（image edit） ====================

@@ -136,6 +136,34 @@ async def test_dirty_model_settings_falls_through_to_legacy(resolver: ConfigReso
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") == "1080p"
 
 
+# --- payload 覆盖（生成前确认弹窗的单次请求覆盖，恒最高优先级） ---
+
+
+@pytest.mark.asyncio
+async def test_payload_override_wins_over_project_settings(resolver: ConfigResolver):
+    project = {"model_settings": {"gemini-aistudio/m": {"resolution": "1K"}}}
+    assert await resolver.resolve_resolution(project, "gemini-aistudio", "m", {"image_size": "2K"}) == "2K"
+
+
+@pytest.mark.asyncio
+async def test_payload_without_image_size_falls_through_to_project(resolver: ConfigResolver):
+    project = {"model_settings": {"gemini-aistudio/m": {"resolution": "1K"}}}
+    assert await resolver.resolve_resolution(project, "gemini-aistudio", "m", {}) == "1K"
+    assert await resolver.resolve_resolution(project, "gemini-aistudio", "m", None) == "1K"
+
+
+@pytest.mark.asyncio
+async def test_payload_empty_image_size_treated_as_unset(resolver: ConfigResolver):
+    project = {"model_settings": {"gemini-aistudio/m": {"resolution": "1K"}}}
+    assert await resolver.resolve_resolution(project, "gemini-aistudio", "m", {"image_size": ""}) == "1K"
+    assert await resolver.resolve_resolution(project, "gemini-aistudio", "m", {"image_size": "  "}) == "1K"
+
+
+@pytest.mark.asyncio
+async def test_payload_override_with_nothing_else_configured(resolver: ConfigResolver):
+    assert await resolver.resolve_resolution({}, "gemini-aistudio", "m", {"image_size": "4K"}) == "4K"
+
+
 # --- 自定义供应商默认（真实 DB） ---
 
 

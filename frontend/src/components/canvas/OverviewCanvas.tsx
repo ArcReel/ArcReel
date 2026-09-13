@@ -337,7 +337,12 @@ export function OverviewCanvas({
           />
         ) : (
           <>
-            {isAd && <AdAssetPlanGate projectName={projectName} onConfirmed={refreshProject} />}
+            <AdAssetPlanGate
+              projectName={projectName}
+              projectData={projectData}
+              isAd={isAd}
+              onConfirmed={refreshProject}
+            />
 
             {/* Synopsis / overview card */}
             <section

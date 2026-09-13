@@ -286,6 +286,36 @@ vi.mock("./lorebook/ProductsPage", () => ({
   ),
 }));
 
+// 弹窗自身的行为（预览拉取、编辑、重试）在 GeneratePromptDialog.test.tsx 覆盖；
+// 这里只关心路由层传给它哪些 props，以及它的 onConfirm 是否正确接到 enqueueXxx。
+vi.mock("./lorebook/GeneratePromptDialog", () => ({
+  GeneratePromptDialog: ({
+    assetType,
+    projectName,
+    resourceName,
+    onClose,
+    onConfirm,
+  }: {
+    assetType: string;
+    projectName: string;
+    resourceName: string;
+    onClose: () => void;
+    onConfirm: (overrides: { promptOverride: string; aspectRatio: string; imageSize?: string }) => void;
+  }) => (
+    <div
+      data-testid="generate-prompt-dialog"
+      data-asset-type={assetType}
+      data-project-name={projectName}
+      data-resource-name={resourceName}
+    >
+      <button onClick={() => onConfirm({ promptOverride: "edited prompt", aspectRatio: "16:9" })}>
+        confirm-generate-dialog
+      </button>
+      <button onClick={onClose}>close-generate-dialog</button>
+    </div>
+  ),
+}));
+
 /** 服务端 video-capabilities 应答：时长收窄结果由服务端按项目分辨率与生成模式算好回传。 */
 function fakeVideoCapabilities(allowed: number[], raw: number[] = allowed) {
   return {
@@ -655,11 +685,16 @@ describe("StudioCanvasRouter", () => {
     });
 
     fireEvent.click(screen.getByText("generate-character"));
+    const dialog = screen.getByTestId("generate-prompt-dialog");
+    expect(dialog).toHaveAttribute("data-asset-type", "character");
+    expect(dialog).toHaveAttribute("data-resource-name", "Hero");
+    fireEvent.click(screen.getByText("confirm-generate-dialog"));
     await waitFor(() => {
       expect(API.generateCharacter).toHaveBeenCalledWith(
         "demo",
         "Hero",
         "hero description",
+        { promptOverride: "edited prompt", aspectRatio: "16:9" },
       );
       expect(useAppStore.getState().toast?.text).toContain("生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
@@ -728,8 +763,14 @@ describe("StudioCanvasRouter", () => {
     });
 
     fireEvent.click(screen.getByText("generate-scene"));
+    fireEvent.click(screen.getByText("confirm-generate-dialog"));
     await waitFor(() => {
-      expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple", "ancient temple");
+      expect(API.generateProjectScene).toHaveBeenCalledWith(
+        "demo",
+        "Temple",
+        "ancient temple",
+        { promptOverride: "edited prompt", aspectRatio: "16:9" },
+      );
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
     });
   });
@@ -760,8 +801,14 @@ describe("StudioCanvasRouter", () => {
     });
 
     fireEvent.click(screen.getByText("generate-prop"));
+    fireEvent.click(screen.getByText("confirm-generate-dialog"));
     await waitFor(() => {
-      expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword", "rusty sword");
+      expect(API.generateProjectProp).toHaveBeenCalledWith(
+        "demo",
+        "Sword",
+        "rusty sword",
+        { promptOverride: "edited prompt", aspectRatio: "16:9" },
+      );
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
     });
   });
@@ -781,8 +828,14 @@ describe("StudioCanvasRouter", () => {
 
     renderAt("/scenes");
     fireEvent.click(screen.getByText("generate-scene"));
+    fireEvent.click(screen.getByText("confirm-generate-dialog"));
     await waitFor(() => {
-      expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple", "ancient temple");
+      expect(API.generateProjectScene).toHaveBeenCalledWith(
+        "demo",
+        "Temple",
+        "ancient temple",
+        { promptOverride: "edited prompt", aspectRatio: "16:9" },
+      );
       const { tasks, optimisticActive } = useTasksStore.getState();
       expect(selectActiveResourceIds(tasks, "scene", "demo", optimisticActive).has("Temple")).toBe(true);
     });
@@ -803,8 +856,14 @@ describe("StudioCanvasRouter", () => {
 
     renderAt("/props");
     fireEvent.click(screen.getByText("generate-prop"));
+    fireEvent.click(screen.getByText("confirm-generate-dialog"));
     await waitFor(() => {
-      expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword", "rusty sword");
+      expect(API.generateProjectProp).toHaveBeenCalledWith(
+        "demo",
+        "Sword",
+        "rusty sword",
+        { promptOverride: "edited prompt", aspectRatio: "16:9" },
+      );
       const { tasks, optimisticActive } = useTasksStore.getState();
       expect(selectActiveResourceIds(tasks, "prop", "demo", optimisticActive).has("Sword")).toBe(true);
     });
@@ -842,8 +901,14 @@ describe("StudioCanvasRouter", () => {
     });
 
     fireEvent.click(screen.getByText("generate-product"));
+    fireEvent.click(screen.getByText("confirm-generate-dialog"));
     await waitFor(() => {
-      expect(generateSpy).toHaveBeenCalledWith("demo", "Phone", "sleek phone");
+      expect(generateSpy).toHaveBeenCalledWith(
+        "demo",
+        "Phone",
+        "sleek phone",
+        { promptOverride: "edited prompt", aspectRatio: "16:9" },
+      );
       expect(useAppStore.getState().toast?.text).toContain("资产图生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
       const { tasks, optimisticActive } = useTasksStore.getState();
@@ -889,6 +954,7 @@ describe("StudioCanvasRouter", () => {
     });
 
     fireEvent.click(screen.getByText("generate-product"));
+    fireEvent.click(screen.getByText("confirm-generate-dialog"));
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
     });
@@ -1397,8 +1463,14 @@ describe("StudioCanvasRouter", () => {
     renderAt("/characters");
 
     fireEvent.click(screen.getByText("generate-character"));
+    fireEvent.click(screen.getByText("confirm-generate-dialog"));
     await waitFor(() => {
-      expect(API.generateCharacter).toHaveBeenCalledWith("demo", "Hero", "hero description");
+      expect(API.generateCharacter).toHaveBeenCalledWith(
+        "demo",
+        "Hero",
+        "hero description",
+        { promptOverride: "edited prompt", aspectRatio: "16:9" },
+      );
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });

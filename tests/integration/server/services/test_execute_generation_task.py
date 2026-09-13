@@ -260,6 +260,46 @@ class TestGenerationTasks:
         with pytest.raises(ValueError, match=r"prompt is required for prop task"):
             await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": ""})
 
+    async def test_asset_generation_prompt_and_aspect_ratio_overrides(self, tmp_path, monkeypatch):
+        """生成前确认弹窗产出的 prompt_override / aspect_ratio 单次请求覆盖：覆盖时直达 image
+        backend，跳过服务端重新拼接；未覆盖时保持原行为（16:9 + build_*_prompt 拼接结果）。"""
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        register_asset_sheet_claims(fake_pm)
+        fake_generator = FakeGenerator(project_path)
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+
+        await generation_tasks.execute_character_task(
+            "demo",
+            "Alice",
+            {"prompt": "角色描述", "prompt_override": "  自定义完整 prompt  ", "aspect_ratio": "1:1"},
+        )
+        character_call = fake_generator.image_calls[-1]
+        assert character_call["prompt"] == "自定义完整 prompt"
+        assert character_call["aspect_ratio"] == "1:1"
+
+        await generation_tasks.execute_scene_task(
+            "demo",
+            "祠堂",
+            {"prompt": "场景描述", "prompt_override": "自定义场景 prompt"},
+        )
+        scene_call = fake_generator.image_calls[-1]
+        assert scene_call["prompt"] == "自定义场景 prompt"
+        assert scene_call["aspect_ratio"] == "16:9"  # 未传 aspect_ratio 时保持原行为
+
+        from lib.prompt_builders import build_prop_prompt
+
+        await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": "道具描述"})
+        prop_call = fake_generator.image_calls[-1]
+        # 未传 prompt_override（空白串同等对待）时保持原行为：服务端按 description 重新拼接。
+        assert prop_call["prompt"] == build_prop_prompt("玉佩", "道具描述", "Anime", "cinematic")
+        assert prop_call["aspect_ratio"] == "16:9"
+
+        await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": "道具描述", "prompt_override": "   "})
+        assert fake_generator.image_calls[-1]["prompt"] == build_prop_prompt("玉佩", "道具描述", "Anime", "cinematic")
+
     async def test_tasks_declare_only_needed_lanes(self, monkeypatch, tmp_path):
         """任务只声明自己用到的 lane：图片类任务不声明 video/audio（只配置图片供应商的项目
         不因视频供应商缺配置失败，未声明 lane 不解析见 tests/server/test_generation_context.py），

@@ -16,6 +16,7 @@ from lib.speech_composition import admit_script_unit
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
+from server.services.asset_prompt_preview import AssetNotFound, AssetPromptPreview
 from server.services.narration_delivery_tasks import CurrentTtsSettingsResolver
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import wav_bytes
@@ -311,6 +312,97 @@ class TestGenerateRouter:
             assert call["media_type"] == "image"
             assert call["resource_id"] == "E1S02"
             assert call["source"] == "webui"
+
+    def test_character_enqueue_without_overrides_omits_extra_fields(self, tmp_path, monkeypatch):
+        """生成前确认弹窗的三个可选覆盖字段全部不传时，payload 里不出现这些键（不占位空值）。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice",
+                json={"prompt": "hero"},
+            )
+            assert resp.status_code == 200
+
+        call = fake_queue.calls[0]
+        assert call["payload"]["prompt"] == "hero"
+        assert "prompt_override" not in call["payload"]
+        assert "aspect_ratio" not in call["payload"]
+        assert "image_size" not in call["payload"]
+
+    def test_character_enqueue_passes_overrides_through_to_payload(self, tmp_path, monkeypatch):
+        """确认弹窗编辑后的 prompt_override / aspect_ratio / image_size 原样落进任务 payload。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice",
+                json={
+                    "prompt": "hero",
+                    "prompt_override": "自定义完整 prompt",
+                    "aspect_ratio": "1:1",
+                    "image_size": "2K",
+                },
+            )
+            assert resp.status_code == 200
+
+        call = fake_queue.calls[0]
+        assert call["payload"]["prompt_override"] == "自定义完整 prompt"
+        assert call["payload"]["aspect_ratio"] == "1:1"
+        assert call["payload"]["image_size"] == "2K"
+
+    @pytest.mark.parametrize(
+        ("segment", "path"),
+        [
+            ("character", "generate/character/Alice/prompt-preview"),
+            ("scene", "generate/scene/祠堂/prompt-preview"),
+            ("prop", "generate/prop/玉佩/prompt-preview"),
+            ("product", "generate/product/保温杯/prompt-preview"),
+        ],
+    )
+    def test_asset_prompt_preview_wires_service_result(self, tmp_path, monkeypatch, segment, path):
+        """路由层只负责把 preview_asset_prompt 的结果原样映射成 JSON，供确认弹窗预填。"""
+
+        async def _preview(project_name, asset_type, resource_name):
+            assert (project_name, asset_type) == ("demo", segment)
+            return AssetPromptPreview(asset_type=segment, resource_id=resource_name, prompt="渲染出的完整 prompt")
+
+        monkeypatch.setattr(generate, "preview_asset_prompt", _preview)
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.get(f"/api/v1/projects/demo/{path}")
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "asset_type": segment,
+            "resource_id": path.split("/")[2],
+            "prompt": "渲染出的完整 prompt",
+        }
+
+    def test_asset_prompt_preview_404_for_unknown_resource(self, tmp_path, monkeypatch):
+        async def _preview(project_name, asset_type, resource_name):
+            raise AssetNotFound(resource_name)
+
+        monkeypatch.setattr(generate, "preview_asset_prompt", _preview)
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.get("/api/v1/projects/demo/generate/character/不存在/prompt-preview")
+
+        assert resp.status_code == 404
 
     def test_video_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
