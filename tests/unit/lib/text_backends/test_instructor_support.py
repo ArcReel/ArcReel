@@ -507,6 +507,24 @@ class TestInstructorFallbackSync:
         assert call_kwargs["max_completion_tokens"] == 500
         assert "max_tokens" not in call_kwargs
 
+    def test_dict_schema_strips_leading_think_block(self):
+        """json_object 路径与原生路径同口径：content 开头的思考块不进结果。"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='<think>想一想。</think>\n{"key": "value"}'))],
+            usage=None,
+        )
+
+        result = instructor_fallback_sync(
+            client=mock_client,
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="test-provider",
+        )
+
+        assert result.text == '{"key": "value"}'
+
     def test_dict_schema_truncation_raises(self):
         """dict schema（response_schema 非空，无 Pydantic 模型）截断同样升级为硬错误。"""
         mock_client = MagicMock()
@@ -1238,6 +1256,24 @@ class TestInstructorFallbackAsync:
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["max_completion_tokens"] == 600
         assert "max_tokens" not in call_kwargs
+
+    async def test_dict_schema_strips_leading_think_block_async(self):
+        """异步 json_object 路径同样剥掉 content 开头的思考块。"""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='<think>想一想。</think>\n{"k": "v"}'))],
+            usage=None,
+        )
+
+        result = await instructor_fallback_async(
+            client=mock_client,
+            model="async-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="async-provider",
+        )
+
+        assert result.text == '{"k": "v"}'
 
     async def test_dict_schema_truncation_raises_async(self):
         """异步 dict schema 截断同样升级为硬错误。"""

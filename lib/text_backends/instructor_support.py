@@ -29,6 +29,7 @@ from lib.text_backends.base import (
     TokenParam,
     check_truncation,
     merge_billed_tokens,
+    strip_leading_think_block,
     truncate_for_log,
 )
 
@@ -455,7 +456,9 @@ def instructor_fallback_sync(
     response = client.chat.completions.create(**create_kwargs)
     usage = getattr(response, "usage", None)
     choice = response.choices[0]
-    text = choice.message.content or ""
+    content = choice.message.content or ""
+    # 与原生路径同口径：思考模型内嵌在 content 开头的思考块不进结果。
+    text = strip_leading_think_block(content) if isinstance(content, str) else str(content)
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
     # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
     # Instructor 通道），截断同样升级为硬错误。
@@ -467,7 +470,7 @@ def instructor_fallback_sync(
         structured=True,
     )
     return TextGenerationResult(
-        text=text.strip() if isinstance(text, str) else str(text),
+        text=text.strip(),
         provider=provider,
         model=model,
         input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
@@ -538,7 +541,9 @@ async def instructor_fallback_async(
     response = await client.chat.completions.create(**create_kwargs)
     usage = getattr(response, "usage", None)
     choice = response.choices[0]
-    text = choice.message.content or ""
+    content = choice.message.content or ""
+    # 与原生路径同口径：思考模型内嵌在 content 开头的思考块不进结果。
+    text = strip_leading_think_block(content) if isinstance(content, str) else str(content)
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
     # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
     # Instructor 通道），截断同样升级为硬错误。
@@ -550,7 +555,7 @@ async def instructor_fallback_async(
         structured=True,
     )
     return TextGenerationResult(
-        text=text.strip() if isinstance(text, str) else str(text),
+        text=text.strip(),
         provider=provider,
         model=model,
         input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
