@@ -127,12 +127,22 @@ def _reask_crashed_on_absent_tool_call(exc: InstructorRetryException) -> bool:
     顶替了终止原因（``__cause__``），原本的解析异常只留在 ``failed_attempts`` 末条。判据若只看
     ``__cause__``，会把这种「上游这条通道不产 tool call」当成与结构化输出无关的异常原样冒泡。
 
-    ``TypeError`` 不会来自 API 调用层，再叠加末条尝试须是「没有 tool call」的解析异常，足以与
-    「解析失败一次后再撞上 API 错误」的形态区分开。
+    只认末条尝试的响应里 ``tool_calls`` 恰为 ``None``：这种响应让 reask 必然在发出下一次请求前
+    崩掉，终止运行的 ``TypeError`` 只可能来自那里。``tool_calls=[]`` 同样解析失败，但 reask 能
+    正常构造并再发一次请求，之后再撞上的 ``TypeError`` 属客户端错误，须原样冒泡，不归此形态。
     """
     if not isinstance(exc.__cause__, TypeError) or not exc.failed_attempts:
         return False
-    return _tool_call_absent(exc.failed_attempts[-1].exception)
+    last = exc.failed_attempts[-1].exception
+    if not isinstance(last, ResponseParsingError):
+        return False
+    choices = getattr(getattr(last, "raw_response", None), "choices", None) or []
+    if not choices:
+        return False
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        return False
+    return hasattr(message, "tool_calls") and message.tool_calls is None
 
 
 def _tool_call_absent(exc: BaseException | None) -> bool:
@@ -206,8 +216,8 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
 
     只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常，须由错误文本指名
     tools / functions 才算数），或收下了却不回 tool call（见 :func:`_tool_call_absent`）。后者
-    在 Instructor 里有两种落点：终止原因直接是解析异常，或 reask 阶段在空 tool_calls 上崩成
-    ``TypeError``（见 :func:`_reask_crashed_on_absent_tool_call`），两者同判降档。
+    在 Instructor 里有两种落点：终止原因直接是解析异常，或 reask 阶段在 ``tool_calls=None`` 上
+    崩成 ``TypeError``（见 :func:`_reask_crashed_on_absent_tool_call`），两者同判降档。
 
     API 调用异常一律走关键字判据，400 也不例外：无 ``STRUCTURED_OUTPUT`` 能力位的 Ark 模型
     不经原生档直接进本链，此处的 400 同样可能是模型名无效、上下文超限或策略拒绝。把这些无差别

@@ -86,6 +86,15 @@ def _no_tool_call_error() -> ResponseParsingError:
     )
 
 
+def _empty_tool_calls_error() -> ResponseParsingError:
+    """上游以 tool_calls=[] 表示没回 tool call：同样解析失败，但 Instructor 的 reask 能正常构造。"""
+    return ResponseParsingError(
+        "No tool calls or function call found in response",
+        mode="TOOLS",
+        raw_response=_completion("", tool_calls=[]),
+    )
+
+
 def _reask_crashed_on_no_tool_call_error() -> InstructorRetryException:
     """上游没回 tool call 且 Instructor 的 reask 在空 tool_calls 上崩成 TypeError 的真实形态。
 
@@ -594,8 +603,8 @@ class TestInstructorExceptionShape:
     def test_absent_tool_call_terminates_in_reask_type_error(self):
         """TOOLS 档下上游不回 tool call：reask 在 tool_calls=None 上崩掉，TypeError 顶替终止原因。
 
-        判据据此在 failed_attempts 末条找回「没有 tool call」的解析异常；Instructor 若修好 reask，
-        终止原因会变回 ResponseParsingError，本用例即红，届时收敛回只看 __cause__ 的判据。
+        钉住判据依赖的三点形态：终止原因是 TypeError、失败尝试末条是 tool_calls=None 的解析异常、
+        崩溃发生在第二次请求之前（只发出一次请求）。
         """
         from openai import OpenAI
         from openai.types.chat import ChatCompletionMessage
@@ -690,6 +699,24 @@ class TestStructuredModeChainSync:
 
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
         assert result.text == sample.model_dump_json()
+
+    def test_type_error_after_empty_tool_calls_propagates(self):
+        """tool_calls=[] 时 reask 能再发请求，之后撞上的 TypeError 是客户端错误：原样冒泡，不当成 reask 崩溃。"""
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[
+                    _retry_exhausted(
+                        TypeError("unexpected keyword argument"),
+                        earlier_attempts=[_empty_tool_calls_error()],
+                    )
+                ],
+            ) as mock_gen,
+            pytest.raises(TypeError),
+        ):
+            self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_reask_crash_on_no_tool_call_at_last_mode_is_terminal(self):
         """末档也撞上 reask 崩溃：无档可退，终局原因指向模型输出而非误报「上游拒收」。"""
