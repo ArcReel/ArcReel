@@ -1026,6 +1026,75 @@ class TestStructuredModeChainAsync:
         assert result.output_tokens == 35
 
 
+class TestStructuredModeChainThroughInstructor:
+    """降级链经真实 Instructor 驱动，只在 SDK 边界打桩：上游整条通道只回正文、从不回 tool call。"""
+
+    @staticmethod
+    def _content_only_completion(*, prompt_tokens: int, completion_tokens: int) -> SimpleNamespace:
+        from openai.types import CompletionUsage
+        from openai.types.chat import ChatCompletionMessage
+
+        message = ChatCompletionMessage(role="assistant", content='<think>…</think>{"name": "Bob", "age": 1}')
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason="stop")],
+            usage=CompletionUsage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
+            ),
+        )
+
+    def test_sync_content_only_response_lands_on_md_json(self):
+        """TOOLS 档在 reask 崩掉后降档，MD_JSON 档从同样的正文解析出结果；两档各发一次请求，计费合并。"""
+        from openai import OpenAI
+
+        client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
+        client.chat.completions.create = MagicMock(
+            side_effect=[
+                self._content_only_completion(prompt_tokens=11, completion_tokens=7),
+                self._content_only_completion(prompt_tokens=13, completion_tokens=5),
+            ]
+        )
+
+        result = instructor_fallback_sync(
+            client=client,
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema=SampleModel,
+            provider="test-provider",
+        )
+
+        assert result.text == SampleModel(name="Bob", age=1).model_dump_json()
+        assert client.chat.completions.create.call_count == 2
+        assert result.input_tokens == 24
+        assert result.output_tokens == 12
+
+    async def test_async_content_only_response_lands_on_md_json(self):
+        """异步入口同口径：这是 OpenAI 兼容后端走结构化降级链的生产路径。"""
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
+        client.chat.completions.create = AsyncMock(
+            side_effect=[
+                self._content_only_completion(prompt_tokens=11, completion_tokens=7),
+                self._content_only_completion(prompt_tokens=13, completion_tokens=5),
+            ]
+        )
+
+        result = await instructor_fallback_async(
+            client=client,
+            model="async-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema=SampleModel,
+            provider="async-provider",
+        )
+
+        assert result.text == SampleModel(name="Bob", age=1).model_dump_json()
+        assert client.chat.completions.create.await_count == 2
+        assert result.input_tokens == 24
+        assert result.output_tokens == 12
+
+
 class TestInstructorFallbackAsync:
     """instructor_fallback_async 高层函数测试。"""
 
