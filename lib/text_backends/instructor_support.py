@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from enum import Enum
 from json import JSONDecodeError
+from typing import Any
 
 import instructor
 from instructor import Mode
@@ -108,41 +109,52 @@ def _api_call_failure(exc: InstructorRetryException) -> BaseException | None:
     Instructor 把终止原因挂在 ``__cause__`` 上（``raise ... from last_exception``），判据必须
     穿过这层包装才认得出「上游拒收 tools 参数」。
 
-    只能看 ``__cause__``，不能拿 ``failed_attempts`` 是否为空当代理：解析 / 校验类失败会逐次
-    累积进 ``failed_attempts`` 且不清空，因此「先解析失败一次、再撞上代理 503」这条路径下
-    ``failed_attempts`` 非空而终止原因是 503。按前者判会把瞬态错误当成模型输出不合规，吞掉
-    调用方的重试。
+    不能拿 ``failed_attempts`` 是否为空当代理：解析 / 校验类失败会逐次累积进 ``failed_attempts``
+    且不清空，因此「先解析失败一次、再撞上代理 503」这条路径下 ``failed_attempts`` 非空而终止
+    原因是 503。按前者判会把瞬态错误当成模型输出不合规，吞掉调用方的重试。终止原因是否落在
+    模型输出上由 :func:`_model_output_failure` 按响应结构判定。
+    """
+    if exc.__cause__ is None or _model_output_failure(exc) is not None:
+        return None
+    return exc.__cause__
+
+
+def _model_output_failure(exc: InstructorRetryException) -> BaseException | None:
+    """这一档若折在模型输出的解析 / 校验上，返回那条解析 / 校验异常；折在 API 调用上返回 None。
+
+    Instructor 有两种落点。常态是终止原因（``__cause__``）本身就是解析 / 校验异常。另一种是
+    TOOLS 档下响应的 ``tool_calls`` 为 ``None``：Instructor 先把解析异常记进 ``failed_attempts``，
+    再构造 reask 消息时对 ``message.tool_calls`` 逐项遍历、撞上 ``None`` 抛 ``TypeError``，该
+    ``TypeError`` 顶替了终止原因，真正的失败只留在 ``failed_attempts`` 末条。
+
+    后者只认末条尝试的响应里 ``tool_calls`` 恰为 ``None``：这种响应让 reask 必然在发出下一次
+    请求前崩掉，终止运行的 ``TypeError`` 只可能来自那里。``tool_calls=[]`` 同样解析失败，但 reask
+    能正常构造并再发一次请求，之后再撞上的 ``TypeError`` 属客户端错误，须原样冒泡。
+
+    这里只回答「折在模型输出上」，不回答「值得换档」：末条响应带 legacy ``function_call`` 而
+    arguments 缺失时同样走到 reask 崩溃，但上游确实回了调用，换不换档仍由
+    :func:`_tool_call_absent` 按同一套响应结构判据决定。
     """
     cause = exc.__cause__
-    if cause is None or isinstance(cause, _PARSE_FAILURE_TYPES) or _reask_crashed_on_absent_tool_call(exc):
+    if isinstance(cause, _PARSE_FAILURE_TYPES):
+        return cause
+    if not isinstance(cause, TypeError) or not exc.failed_attempts:
         return None
-    return cause
-
-
-def _reask_crashed_on_absent_tool_call(exc: InstructorRetryException) -> bool:
-    """TOOLS 档下上游不回 tool call，且 Instructor 的 reask 在遍历 ``tool_calls=None`` 时崩掉。
-
-    这条路径上 Instructor 先把 ``ResponseParsingError`` 记进 ``failed_attempts``，再构造 reask
-    消息时对 ``message.tool_calls`` 逐项遍历、撞上 ``None`` 抛 ``TypeError``；该 ``TypeError``
-    顶替了终止原因（``__cause__``），原本的解析异常只留在 ``failed_attempts`` 末条。判据若只看
-    ``__cause__``，会把这种「上游这条通道不产 tool call」当成与结构化输出无关的异常原样冒泡。
-
-    只认末条尝试的响应里 ``tool_calls`` 恰为 ``None``：这种响应让 reask 必然在发出下一次请求前
-    崩掉，终止运行的 ``TypeError`` 只可能来自那里。``tool_calls=[]`` 同样解析失败，但 reask 能
-    正常构造并再发一次请求，之后再撞上的 ``TypeError`` 属客户端错误，须原样冒泡，不归此形态。
-    """
-    if not isinstance(exc.__cause__, TypeError) or not exc.failed_attempts:
-        return False
     last = exc.failed_attempts[-1].exception
-    if not isinstance(last, ResponseParsingError):
-        return False
-    choices = getattr(getattr(last, "raw_response", None), "choices", None) or []
+    message = _first_choice_message(last)
+    if message is None or not hasattr(message, "tool_calls") or message.tool_calls is not None:
+        return None
+    return last
+
+
+def _first_choice_message(exc: BaseException | None) -> Any | None:
+    """取解析异常携带的原始响应里首个 choice 的 message；不是解析异常、无响应或无 choice 时为 None。"""
+    if not isinstance(exc, ResponseParsingError):
+        return None
+    choices = getattr(getattr(exc, "raw_response", None), "choices", None) or []
     if not choices:
-        return False
-    message = getattr(choices[0], "message", None)
-    if message is None:
-        return False
-    return hasattr(message, "tool_calls") and message.tool_calls is None
+        return None
+    return getattr(choices[0], "message", None)
 
 
 def _tool_call_absent(exc: BaseException | None) -> bool:
@@ -155,10 +167,7 @@ def _tool_call_absent(exc: BaseException | None) -> bool:
     """
     if not isinstance(exc, ResponseParsingError):
         return False
-    choices = getattr(getattr(exc, "raw_response", None), "choices", None) or []
-    if not choices:
-        return True
-    message = getattr(choices[0], "message", None)
+    message = _first_choice_message(exc)
     if getattr(message, "tool_calls", None):
         return False
     return getattr(message, "function_call", None) is None
@@ -216,8 +225,8 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
 
     只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常，须由错误文本指名
     tools / functions 才算数），或收下了却不回 tool call（见 :func:`_tool_call_absent`）。后者
-    在 Instructor 里有两种落点：终止原因直接是解析异常，或 reask 阶段在 ``tool_calls=None`` 上
-    崩成 ``TypeError``（见 :func:`_reask_crashed_on_absent_tool_call`），两者同判降档。
+    的解析异常在 Instructor 里有两种落点（见 :func:`_model_output_failure`），先取回那条异常
+    再按响应结构判是否值得换档。
 
     API 调用异常一律走关键字判据，400 也不例外：无 ``STRUCTURED_OUTPUT`` 能力位的 Ark 模型
     不经原生档直接进本链，此处的 400 同样可能是模型名无效、上下文超限或策略拒绝。把这些无差别
@@ -234,7 +243,7 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
         return _ModeFailure.PROPAGATE
     api_failure = _api_call_failure(exc)
     if api_failure is None:
-        if _tool_call_absent(exc.__cause__) or _reask_crashed_on_absent_tool_call(exc):
+        if _tool_call_absent(_model_output_failure(exc)):
             return _ModeFailure.DOWNGRADE
         return _ModeFailure.TERMINAL
     if any(kw in str(api_failure).lower() for kw in _TOOLS_UNSUPPORTED_KEYWORDS):

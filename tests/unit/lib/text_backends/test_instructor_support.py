@@ -30,10 +30,14 @@ class SampleModel(BaseModel):
     age: int
 
 
-def _completion(content: str, *, tool_calls=None) -> SimpleNamespace:
+def _completion(content: str, *, tool_calls=None, function_call=None) -> SimpleNamespace:
     """构造一个 completion，供诊断日志断言取原始输出、供判据看有无 tool call。"""
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=tool_calls, function_call=None))]
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content, tool_calls=tool_calls, function_call=function_call)
+            )
+        ]
     )
 
 
@@ -104,6 +108,16 @@ def _reask_crashed_on_no_tool_call_error() -> InstructorRetryException:
     return _retry_exhausted(
         TypeError("'NoneType' object is not iterable"),
         earlier_attempts=[_no_tool_call_error()],
+    )
+
+
+def _function_call_args_missing_error() -> ResponseParsingError:
+    """上游走 legacy function_call 回了调用但 arguments 缺失：tool_calls 仍为 None，属校验类。"""
+    function_call = SimpleNamespace(name="SampleModel", arguments=None)
+    return ResponseParsingError(
+        "Tool call arguments missing in response",
+        mode="TOOLS",
+        raw_response=_completion("", function_call=function_call),
     )
 
 
@@ -717,6 +731,27 @@ class TestStructuredModeChainSync:
             self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
+
+    def test_reask_crash_after_function_call_with_missing_args_is_terminal(self):
+        """legacy function_call 回了调用但 arguments 缺失、随后 reask 崩溃：上游确实回了调用，判终局不降档。"""
+        sample = SampleModel(name="Eve", age=29)
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[
+                    _retry_exhausted(
+                        TypeError("'NoneType' object is not iterable"),
+                        earlier_attempts=[_function_call_args_missing_error()],
+                    ),
+                    (sample.model_dump_json(), 10, 5),
+                ],
+            ) as mock_gen,
+            pytest.raises(StructuredOutputExhaustedError) as exc_info,
+        ):
+            self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+        assert "模型输出仍不合规" in str(exc_info.value)
 
     def test_reask_crash_on_no_tool_call_at_last_mode_is_terminal(self):
         """末档也撞上 reask 崩溃：无档可退，终局原因指向模型输出而非误报「上游拒收」。"""
