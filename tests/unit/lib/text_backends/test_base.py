@@ -272,6 +272,39 @@ class TestStructuredFallbackReason:
         assert structured_fallback_reason("", None) is None
 
 
+class TestStripLeadingThinkBlock:
+    """思考模型内嵌在 content 开头的 <think> 块：只剥开头一个闭合块，其余形态原样返回。"""
+
+    def test_strips_leading_block_and_surrounding_whitespace(self):
+        from lib.text_backends.base import strip_leading_think_block
+
+        text = '  <think>\n先想一想。\n</think>\n\n{"name": "A", "age": 30}'
+        assert strip_leading_think_block(text) == '{"name": "A", "age": 30}'
+
+    def test_text_without_block_unchanged(self):
+        from lib.text_backends.base import strip_leading_think_block
+
+        assert strip_leading_think_block('{"name": "A"}') == '{"name": "A"}'
+        assert strip_leading_think_block("") == ""
+
+    def test_unclosed_block_unchanged(self):
+        from lib.text_backends.base import strip_leading_think_block
+
+        truncated = "<think>\n想到一半就被截断了"
+        assert strip_leading_think_block(truncated) == truncated
+
+    def test_block_not_at_start_unchanged(self):
+        from lib.text_backends.base import strip_leading_think_block
+
+        text = '{"name": "A"}<think>x</think>'
+        assert strip_leading_think_block(text) == text
+
+    def test_only_first_block_stripped(self):
+        from lib.text_backends.base import strip_leading_think_block
+
+        assert strip_leading_think_block("<think>a</think>正文<think>b</think>") == "正文<think>b</think>"
+
+
 class TestMergeBilledTokens:
     """降级路径的原生调用计量并账：仅在至少一侧有值时相加，两侧皆 None 保持 None。"""
 

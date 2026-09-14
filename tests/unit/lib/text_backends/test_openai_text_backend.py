@@ -223,6 +223,80 @@ class TestInstructorFallback:
         # 降级路径的唯一入口是 instructor 客户端：未构造即证明没走降级
         from_openai.assert_not_called()
 
+    async def test_think_prefixed_json_passes_native_channel(self):
+        """思考模型把 <think> 块内嵌在 content 开头、JSON 跟在其后：剥掉思考块后原生通道直接采用。"""
+        schema_json = json.dumps({"name": "Alice", "age": 30})
+        content = f"<think>\n用户要抽取人物信息，年龄是整数。\n</think>\n\n{schema_json}"
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(content, 100, 60))
+
+        with (
+            captured_openai_clients(mock_client),
+            patch("instructor.from_openai") as from_openai,
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
+
+        assert result.text == schema_json
+        assert result.input_tokens == 100
+        assert result.output_tokens == 60
+        mock_client.chat.completions.create.assert_awaited_once()
+        from_openai.assert_not_called()
+
+    async def test_think_block_stripped_from_free_text(self):
+        """自由文本同样只返回思考块之后的正文。"""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=_make_mock_response("<think>先想想。</think>\n\n你好！")
+        )
+
+        with captured_openai_clients(mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            result = await backend.generate(TextGenerationRequest(prompt="Hi"))
+
+        assert result.text == "你好！"
+
+    async def test_think_prefixed_non_json_still_falls_back(self, caplog):
+        """剥掉思考块后正文仍不合规：照常降级，降级日志记录的是剥离后的正文而非思考内容。"""
+        import logging
+
+        instructor_result = _PersonSchema(name="Bob", age=25)
+        instructor_completion = MagicMock()
+        instructor_completion.usage = MagicMock()
+        instructor_completion.usage.prompt_tokens = 50
+        instructor_completion.usage.completion_tokens = 20
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=_make_mock_response("<think>想一想。</think>\n\n主角是张三。", 100, 60)
+        )
+        mock_patched = AsyncMock()
+        mock_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            captured_openai_clients(mock_client),
+            patch("instructor.from_openai", return_value=mock_patched),
+            caplog.at_level(logging.WARNING, logger="lib.text_backends.openai"),
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
+
+        assert result.text == instructor_result.model_dump_json()
+        assert result.input_tokens == 150
+        assert result.output_tokens == 80
+        fallback_logs = [r.message for r in caplog.records if "降级到带校验的 Instructor 路径" in r.message]
+        assert len(fallback_logs) == 1
+        assert "主角是张三。" in fallback_logs[0]
+        assert "想一想" not in fallback_logs[0]
+
     async def test_non_json_response_triggers_instructor_fallback_pydantic(self):
         """原生返回 200 但内容非 JSON（OpenAI 兼容代理静默忽略 response_format），应降级到 Instructor。"""
         markdown_text = "## 小说关键信息提取\n\n- 主角: 张三\n- 题材: 都市悬疑\n开放式续集铺垫"
