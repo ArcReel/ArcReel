@@ -254,6 +254,25 @@ def _classify_mode_failure(exc: BaseException, mode: Mode) -> _ModeFailure:
     return _ModeFailure.PROPAGATE
 
 
+def _strip_think_block_in_response(response: Any) -> None:
+    """Instructor ``completion:response`` 钩子：解析前就地剥掉响应正文开头的思考块。
+
+    Instructor 的 MD_JSON 档取正文里第一段能解析的 JSON；思考块里若出现草稿 JSON，会被当成
+    结果采用。钩子在解析前改写 ``message.content``，解析、reask 与 ``failed_attempts`` 看到的
+    都是正文，与原生路径同口径。
+    """
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", None)
+    if message is None or not isinstance(content, str):
+        return
+    stripped = strip_leading_think_block(content)
+    if stripped != content:
+        message.content = stripped
+
+
 def generate_structured_via_instructor(
     client,
     model: str,
@@ -273,6 +292,7 @@ def generate_structured_via_instructor(
     与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
     patched = instructor.from_openai(client, mode=mode)
+    patched.on("completion:response", _strip_think_block_in_response)
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
     try:
         result, completion = patched.chat.completions.create_with_completion(
@@ -316,6 +336,7 @@ async def generate_structured_via_instructor_async(
     与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
     patched = instructor.from_openai(client, mode=mode)
+    patched.on("completion:response", _strip_think_block_in_response)
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
     try:
         result, completion = await patched.chat.completions.create_with_completion(  # type: ignore[misc]

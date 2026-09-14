@@ -176,7 +176,7 @@ def _recorded_instructor(
                 return _await_result()
             return result
 
-    patched = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()))
+    patched = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()), on=lambda hook_name, handler: None)
 
     def _from_openai(client: Any, **kwargs: Any) -> Any:
         patched_with.append({"client": client, **kwargs})
@@ -1060,14 +1060,21 @@ class TestStructuredModeChainAsync:
 
 
 class TestStructuredModeChainThroughInstructor:
-    """降级链经真实 Instructor 驱动，只在 SDK 边界打桩：上游整条通道只回正文、从不回 tool call。"""
+    """降级链经真实 Instructor 驱动，只在 SDK 边界打桩：上游整条通道只回正文、从不回 tool call。
+
+    正文开头的思考块里带一段草稿 JSON：MD_JSON 档取正文里第一段能解析的 JSON，只有先剥掉
+    思考块，解析出的才是 ``</think>`` 之后的最终答案。
+    """
 
     @staticmethod
     def _content_only_completion(*, prompt_tokens: int, completion_tokens: int) -> SimpleNamespace:
         from openai.types import CompletionUsage
         from openai.types.chat import ChatCompletionMessage
 
-        message = ChatCompletionMessage(role="assistant", content='<think>…</think>{"name": "Bob", "age": 1}')
+        message = ChatCompletionMessage(
+            role="assistant",
+            content='<think>先草拟 {"name": "Draft", "age": 99}，年龄不对，改掉。</think>\n{"name": "Bob", "age": 1}',
+        )
         return SimpleNamespace(
             choices=[SimpleNamespace(message=message, finish_reason="stop")],
             usage=CompletionUsage(

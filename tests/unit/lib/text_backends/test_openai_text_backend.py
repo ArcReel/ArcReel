@@ -39,6 +39,11 @@ def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
     return response
 
 
+def _make_instructor_client() -> AsyncMock:
+    """instructor patched client 替身：create_with_completion 是协程，钩子注册（on）是同步调用。"""
+    return AsyncMock(on=MagicMock())
+
+
 class TestOpenAITextBackend:
     def test_name_and_model(self):
         with captured_openai_clients() as created:
@@ -274,7 +279,7 @@ class TestInstructorFallback:
         mock_client.chat.completions.create = AsyncMock(
             return_value=_make_mock_response("<think>想一想。</think>\n\n主角是张三。", 100, 60)
         )
-        mock_patched = AsyncMock()
+        mock_patched = _make_instructor_client()
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )
@@ -310,7 +315,7 @@ class TestInstructorFallback:
         # 原生调用返回 200 + markdown 文本（无异常）
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(markdown_text, 100, 60))
 
-        mock_patched = AsyncMock()
+        mock_patched = _make_instructor_client()
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )
@@ -354,7 +359,7 @@ class TestInstructorFallback:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json, 100, 60))
 
-        mock_patched = AsyncMock()
+        mock_patched = _make_instructor_client()
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )
@@ -393,7 +398,7 @@ class TestInstructorFallback:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(coercible_json, 100, 60))
 
-        mock_patched = AsyncMock()
+        mock_patched = _make_instructor_client()
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )
@@ -429,7 +434,7 @@ class TestInstructorFallback:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json, 90, 40))
 
-        mock_patched = AsyncMock()
+        mock_patched = _make_instructor_client()
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )
@@ -491,7 +496,7 @@ class TestInstructorFallback:
         instructor_completion.usage.prompt_tokens = 20
         instructor_completion.usage.completion_tokens = 10
 
-        mock_patched = AsyncMock()
+        mock_patched = _make_instructor_client()
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )
@@ -528,7 +533,7 @@ class TestInstructorFallback:
         instructor_result = _PersonSchema(name="Dana", age=31)
         instructor_completion = MagicMock()
         instructor_completion.usage = None
-        mock_patched = AsyncMock()
+        mock_patched = _make_instructor_client()
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )
@@ -554,12 +559,12 @@ class TestInstructorFallback:
         instructor_completion = MagicMock()
         instructor_completion.usage = None
 
-        tools_patched = AsyncMock()
+        tools_patched = _make_instructor_client()
         # 上游拒收 tools 参数时，Instructor 会把这次 API 调用异常包起来后才交给降级链。
         tools_patched.chat.completions.create_with_completion = AsyncMock(
             side_effect=instructor_api_call_exhausted(_make_bad_request_error("tools is not supported"))
         )
-        md_json_patched = AsyncMock()
+        md_json_patched = _make_instructor_client()
         md_json_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )
@@ -777,7 +782,7 @@ class TestMaxOutputTokens:
         instructor_completion = MagicMock()
         instructor_completion.usage = None
 
-        mock_patched = AsyncMock()
+        mock_patched = _make_instructor_client()
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )

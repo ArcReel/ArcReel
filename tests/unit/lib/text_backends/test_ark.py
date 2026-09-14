@@ -49,7 +49,7 @@ def _recorded_instructor_wire(result: tuple[Any, Any]) -> Generator[list[dict[st
             calls.append(kwargs)
             return result
 
-    client = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()), on=lambda hook_name, handler: None)
     with patch("instructor.from_openai", return_value=client):
         yield calls
 
