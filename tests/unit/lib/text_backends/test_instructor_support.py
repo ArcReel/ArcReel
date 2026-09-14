@@ -111,6 +111,15 @@ def _reask_crashed_on_no_tool_call_error() -> InstructorRetryException:
     )
 
 
+def _md_json_parse_error() -> ResponseParsingError:
+    """MD_JSON 档解析失败：该档响应本来就没有 tool call，响应结构与 TOOLS 档缺 tool call 无法区分。"""
+    return ResponseParsingError(
+        "Failed to extract JSON from response",
+        mode="MD_JSON",
+        raw_response=_completion("not json"),
+    )
+
+
 def _function_call_args_missing_error() -> ResponseParsingError:
     """上游走 legacy function_call 回了调用但 arguments 缺失：tool_calls 仍为 None，属校验类。"""
     function_call = SimpleNamespace(name="SampleModel", arguments=None)
@@ -732,6 +741,25 @@ class TestStructuredModeChainSync:
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
 
+    def test_client_type_error_after_md_json_parse_failure_propagates(self):
+        """MD_JSON 档解析失败一次后撞上客户端 TypeError：该档 reask 不会崩，TypeError 原样冒泡而非判终局。"""
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[
+                    _tools_rejected_error(),
+                    _retry_exhausted(
+                        TypeError("unexpected keyword argument"),
+                        earlier_attempts=[_md_json_parse_error()],
+                    ),
+                ],
+            ) as mock_gen,
+            pytest.raises(TypeError),
+        ):
+            self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+
     def test_reask_crash_after_function_call_with_missing_args_is_terminal(self):
         """legacy function_call 回了调用但 arguments 缺失、随后 reask 崩溃：上游确实回了调用，判终局不降档。"""
         sample = SampleModel(name="Eve", age=29)
@@ -751,19 +779,6 @@ class TestStructuredModeChainSync:
             self._call()
 
         assert self._modes(mock_gen) == [Mode.TOOLS]
-        assert "模型输出仍不合规" in str(exc_info.value)
-
-    def test_reask_crash_on_no_tool_call_at_last_mode_is_terminal(self):
-        """末档也撞上 reask 崩溃：无档可退，终局原因指向模型输出而非误报「上游拒收」。"""
-        with (
-            patch(
-                "lib.text_backends.instructor_support.generate_structured_via_instructor",
-                side_effect=[_tools_rejected_error(), _reask_crashed_on_no_tool_call_error()],
-            ),
-            pytest.raises(StructuredOutputExhaustedError) as exc_info,
-        ):
-            self._call()
-
         assert "模型输出仍不合规" in str(exc_info.value)
         assert "ResponseParsingError" in str(exc_info.value)
 
