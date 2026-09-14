@@ -86,6 +86,18 @@ def _no_tool_call_error() -> ResponseParsingError:
     )
 
 
+def _reask_crashed_on_no_tool_call_error() -> InstructorRetryException:
+    """上游没回 tool call 且 Instructor 的 reask 在空 tool_calls 上崩成 TypeError 的真实形态。
+
+    终止原因（__cause__）是 TypeError，原本的解析异常只留在 failed_attempts 末条
+    （由 TestInstructorExceptionShape 对真实 Instructor 钉住）。
+    """
+    return _retry_exhausted(
+        TypeError("'NoneType' object is not iterable"),
+        earlier_attempts=[_no_tool_call_error()],
+    )
+
+
 def _tool_call_args_invalid_error() -> ResponseParsingError:
     """上游回了 tool call 但 arguments 不可用：属校验类，不是 wire 层不兼容。"""
     tool_call = SimpleNamespace(function=SimpleNamespace(arguments=None))
@@ -579,6 +591,39 @@ class TestInstructorExceptionShape:
 
         assert exc_info.value.failed_attempts != []
 
+    def test_absent_tool_call_terminates_in_reask_type_error(self):
+        """TOOLS 档下上游不回 tool call：reask 在 tool_calls=None 上崩掉，TypeError 顶替终止原因。
+
+        判据据此在 failed_attempts 末条找回「没有 tool call」的解析异常；Instructor 若修好 reask，
+        终止原因会变回 ResponseParsingError，本用例即红，届时收敛回只看 __cause__ 的判据。
+        """
+        from openai import OpenAI
+        from openai.types.chat import ChatCompletionMessage
+
+        content_only = ChatCompletionMessage(role="assistant", content='<think>…</think>{"name": "Bob", "age": 1}')
+        completion = SimpleNamespace(
+            choices=[SimpleNamespace(message=content_only, finish_reason="stop")],
+            usage=None,
+        )
+        client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
+        client.chat.completions.create = MagicMock(return_value=completion)
+        patched = instructor.from_openai(client, mode=Mode.TOOLS)
+
+        with pytest.raises(InstructorRetryException) as exc_info:
+            patched.chat.completions.create_with_completion(
+                model="test-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_model=SampleModel,
+                max_retries=2,
+            )
+
+        exc = exc_info.value
+        assert isinstance(exc.__cause__, TypeError)
+        last = exc.failed_attempts[-1].exception
+        assert isinstance(last, ResponseParsingError)
+        assert last.raw_response.choices[0].message.tool_calls is None
+        assert client.chat.completions.create.call_count == 1
+
 
 class TestStructuredModeChainSync:
     """TOOLS → MD_JSON 降级链（同步版）。"""
@@ -633,6 +678,32 @@ class TestStructuredModeChainSync:
 
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
         assert result.text == sample.model_dump_json()
+
+    def test_reask_crash_on_no_tool_call_falls_back_to_md_json(self):
+        """上游不回 tool call 且 Instructor 的 reask 崩成 TypeError → 仍判 wire 层不兼容、降档到 MD_JSON。"""
+        sample = SampleModel(name="Dave", age=41)
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[_reask_crashed_on_no_tool_call_error(), (sample.model_dump_json(), 10, 5)],
+        ) as mock_gen:
+            result = self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+        assert result.text == sample.model_dump_json()
+
+    def test_reask_crash_on_no_tool_call_at_last_mode_is_terminal(self):
+        """末档也撞上 reask 崩溃：无档可退，终局原因指向模型输出而非误报「上游拒收」。"""
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[_tools_rejected_error(), _reask_crashed_on_no_tool_call_error()],
+            ),
+            pytest.raises(StructuredOutputExhaustedError) as exc_info,
+        ):
+            self._call()
+
+        assert "模型输出仍不合规" in str(exc_info.value)
+        assert "ResponseParsingError" in str(exc_info.value)
 
     def test_tools_validation_exhaustion_is_terminal(self):
         """TOOLS 档校验类耗尽不降档：上游确实回了 tool call，换更弱的档只会更差。"""

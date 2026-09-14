@@ -114,9 +114,25 @@ def _api_call_failure(exc: InstructorRetryException) -> BaseException | None:
     调用方的重试。
     """
     cause = exc.__cause__
-    if cause is None or isinstance(cause, _PARSE_FAILURE_TYPES):
+    if cause is None or isinstance(cause, _PARSE_FAILURE_TYPES) or _reask_crashed_on_absent_tool_call(exc):
         return None
     return cause
+
+
+def _reask_crashed_on_absent_tool_call(exc: InstructorRetryException) -> bool:
+    """TOOLS 档下上游不回 tool call，且 Instructor 的 reask 在遍历 ``tool_calls=None`` 时崩掉。
+
+    这条路径上 Instructor 先把 ``ResponseParsingError`` 记进 ``failed_attempts``，再构造 reask
+    消息时对 ``message.tool_calls`` 逐项遍历、撞上 ``None`` 抛 ``TypeError``；该 ``TypeError``
+    顶替了终止原因（``__cause__``），原本的解析异常只留在 ``failed_attempts`` 末条。判据若只看
+    ``__cause__``，会把这种「上游这条通道不产 tool call」当成与结构化输出无关的异常原样冒泡。
+
+    ``TypeError`` 不会来自 API 调用层，再叠加末条尝试须是「没有 tool call」的解析异常，足以与
+    「解析失败一次后再撞上 API 错误」的形态区分开。
+    """
+    if not isinstance(exc.__cause__, TypeError) or not exc.failed_attempts:
+        return False
+    return _tool_call_absent(exc.failed_attempts[-1].exception)
 
 
 def _tool_call_absent(exc: BaseException | None) -> bool:
@@ -189,7 +205,9 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
     """判定某一档的失败该降档、判终局，还是原样冒泡。
 
     只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常，须由错误文本指名
-    tools / functions 才算数），或收下了却不回 tool call（见 :func:`_tool_call_absent`）。
+    tools / functions 才算数），或收下了却不回 tool call（见 :func:`_tool_call_absent`）。后者
+    在 Instructor 里有两种落点：终止原因直接是解析异常，或 reask 阶段在空 tool_calls 上崩成
+    ``TypeError``（见 :func:`_reask_crashed_on_absent_tool_call`），两者同判降档。
 
     API 调用异常一律走关键字判据，400 也不例外：无 ``STRUCTURED_OUTPUT`` 能力位的 Ark 模型
     不经原生档直接进本链，此处的 400 同样可能是模型名无效、上下文超限或策略拒绝。把这些无差别
@@ -206,7 +224,7 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
         return _ModeFailure.PROPAGATE
     api_failure = _api_call_failure(exc)
     if api_failure is None:
-        if _tool_call_absent(exc.__cause__):
+        if _tool_call_absent(exc.__cause__) or _reask_crashed_on_absent_tool_call(exc):
             return _ModeFailure.DOWNGRADE
         return _ModeFailure.TERMINAL
     if any(kw in str(api_failure).lower() for kw in _TOOLS_UNSUPPORTED_KEYWORDS):
