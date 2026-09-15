@@ -59,6 +59,16 @@
       🎁 <a href="https://metaso.cn/minimax-h3/?s=arc">Sign up via ArcReel's exclusive link</a> to claim bonus credits and an exclusive discount.
     </td>
   </tr>
+  <tr>
+    <td width="200" align="center" valign="top">
+      <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL"><img src="docs/assets/sponsors/fluxion-ai.png" alt="Fluxion AI" width="180"></a>
+    </td>
+    <td valign="top">
+      <strong>One Gateway to Access and Manage the World's Leading AI Models | Fluxion AI</strong><br>
+      Fluxion AI serves individual developers, engineering teams, and enterprises with a <strong>unified API</strong> to access and manage the world's leading AI models. <strong>Dynamic multi-route scheduling</strong> improves availability, while model performance, response times, and costs stay transparent. Depending on the model and route, API costs can be <strong>40%–98% lower</strong> than official or benchmark pricing.<br>
+      🎁 <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL">Sign up via ArcReel's exclusive link</a> to receive <strong>$3 in API credits</strong>.
+    </td>
+  </tr>
 </table>
 
 ## What ArcReel is
