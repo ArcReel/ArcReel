@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.30.1](https://github.com/ArcReel/ArcReel/compare/v0.30.0...v0.30.1) (2026-09-15)
+
+
+### 🐛 Bug 修复
+
+* **text_backends:** 降级链识别 Instructor reask 崩溃并剥离 think 思考块 ([#2446](https://github.com/ArcReel/ArcReel/issues/2446)) ([93f1464](https://github.com/ArcReel/ArcReel/commit/93f14642506f13a6ee78c4b7c6d54ce3dfa8ad7c))
+
+
+### 📚 文档
+
+* **readme:** add Fluxion AI to sponsors ([#2458](https://github.com/ArcReel/ArcReel/issues/2458)) ([79f6970](https://github.com/ArcReel/ArcReel/commit/79f697026ccf981c44f3650c29fbf8faa1e4463d))
+
 ## [0.30.0](https://github.com/ArcReel/ArcReel/compare/v0.29.0...v0.30.0) (2026-09-10)
 
 ### 🌟 版本亮点
