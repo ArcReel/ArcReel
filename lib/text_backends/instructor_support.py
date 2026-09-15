@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from enum import Enum
 from json import JSONDecodeError
+from typing import Any
 
 import instructor
 from instructor import Mode
@@ -28,6 +29,7 @@ from lib.text_backends.base import (
     TokenParam,
     check_truncation,
     merge_billed_tokens,
+    strip_leading_think_block,
     truncate_for_log,
 )
 
@@ -102,21 +104,60 @@ def _raw_output_from_exception(exc: BaseException) -> str:
     return "<无响应>"
 
 
-def _api_call_failure(exc: InstructorRetryException) -> BaseException | None:
+def _api_call_failure(exc: InstructorRetryException, mode: Mode) -> BaseException | None:
     """取终止这一档的原始异常；若终止在模型输出的解析 / 校验上则返回 None。
 
     Instructor 把终止原因挂在 ``__cause__`` 上（``raise ... from last_exception``），判据必须
     穿过这层包装才认得出「上游拒收 tools 参数」。
 
-    只能看 ``__cause__``，不能拿 ``failed_attempts`` 是否为空当代理：解析 / 校验类失败会逐次
-    累积进 ``failed_attempts`` 且不清空，因此「先解析失败一次、再撞上代理 503」这条路径下
-    ``failed_attempts`` 非空而终止原因是 503。按前者判会把瞬态错误当成模型输出不合规，吞掉
-    调用方的重试。
+    不能拿 ``failed_attempts`` 是否为空当代理：解析 / 校验类失败会逐次累积进 ``failed_attempts``
+    且不清空，因此「先解析失败一次、再撞上代理 503」这条路径下 ``failed_attempts`` 非空而终止
+    原因是 503。按前者判会把瞬态错误当成模型输出不合规，吞掉调用方的重试。终止原因是否落在
+    模型输出上由 :func:`_model_output_failure` 按响应结构判定。
+    """
+    if exc.__cause__ is None or _model_output_failure(exc, mode) is not None:
+        return None
+    return exc.__cause__
+
+
+def _model_output_failure(exc: InstructorRetryException, mode: Mode) -> BaseException | None:
+    """这一档若折在模型输出的解析 / 校验上，返回那条解析 / 校验异常；折在 API 调用上返回 None。
+
+    Instructor 有两种落点。常态是终止原因（``__cause__``）本身就是解析 / 校验异常。另一种是
+    TOOLS 档下响应的 ``tool_calls`` 为 ``None``：Instructor 先把解析异常记进 ``failed_attempts``，
+    再构造 reask 消息时对 ``message.tool_calls`` 逐项遍历、撞上 ``None`` 抛 ``TypeError``，该
+    ``TypeError`` 顶替了终止原因，真正的失败只留在 ``failed_attempts`` 末条。
+
+    后者是 TOOLS 档 reask 处理器的行为，只在该档识别，并只认末条尝试的响应里 ``tool_calls``
+    恰为 ``None``：这种响应让 reask 必然在发出下一次请求前崩掉，终止运行的 ``TypeError`` 只可能
+    来自那里。``tool_calls=[]`` 同样解析失败，但 reask 能正常构造并再发一次请求；MD_JSON 档的
+    reask 不碰 ``tool_calls``，其响应本来就没有 tool call。这两种情形下之后再撞上的
+    ``TypeError`` 属客户端错误，须原样冒泡。
+
+    这里只回答「折在模型输出上」，不回答「值得换档」：末条响应带 legacy ``function_call`` 而
+    arguments 缺失时同样走到 reask 崩溃，但上游确实回了调用，换不换档仍由
+    :func:`_tool_call_absent` 按同一套响应结构判据决定。
     """
     cause = exc.__cause__
-    if cause is None or isinstance(cause, _PARSE_FAILURE_TYPES):
+    if isinstance(cause, _PARSE_FAILURE_TYPES):
+        return cause
+    if mode is not Mode.TOOLS or not isinstance(cause, TypeError) or not exc.failed_attempts:
         return None
-    return cause
+    last = exc.failed_attempts[-1].exception
+    message = _first_choice_message(last)
+    if message is None or not hasattr(message, "tool_calls") or message.tool_calls is not None:
+        return None
+    return last
+
+
+def _first_choice_message(exc: BaseException | None) -> Any | None:
+    """取解析异常携带的原始响应里首个 choice 的 message；不是解析异常、无响应或无 choice 时为 None。"""
+    if not isinstance(exc, ResponseParsingError):
+        return None
+    choices = getattr(getattr(exc, "raw_response", None), "choices", None) or []
+    if not choices:
+        return None
+    return getattr(choices[0], "message", None)
 
 
 def _tool_call_absent(exc: BaseException | None) -> bool:
@@ -129,20 +170,17 @@ def _tool_call_absent(exc: BaseException | None) -> bool:
     """
     if not isinstance(exc, ResponseParsingError):
         return False
-    choices = getattr(getattr(exc, "raw_response", None), "choices", None) or []
-    if not choices:
-        return True
-    message = getattr(choices[0], "message", None)
+    message = _first_choice_message(exc)
     if getattr(message, "tool_calls", None):
         return False
     return getattr(message, "function_call", None) is None
 
 
-def _failure_reason(exc: BaseException) -> str:
+def _failure_reason(exc: BaseException, mode: Mode) -> str:
     """把某一档的失败压成一句可读原因，供 StructuredOutputExhaustedError 携带。"""
     if not isinstance(exc, InstructorRetryException):
         return f"降级链失败（{type(exc).__name__}: {exc}）"
-    api_failure = _api_call_failure(exc)
+    api_failure = _api_call_failure(exc, mode)
     if api_failure is not None:
         return f"降级链各档传递 schema 的方式均被上游拒收（{api_failure}）"
     last = exc.failed_attempts[-1].exception if exc.failed_attempts else None
@@ -163,10 +201,10 @@ def _billed_usage(exc: BaseException) -> tuple[int | None, int | None]:
     return prompt, completion
 
 
-def _propagated_cause(exc: Exception) -> Exception:
+def _propagated_cause(exc: Exception, mode: Mode) -> Exception:
     """冒泡时该抛的异常：API 调用失败抛原异常本身，其余抛原样。"""
     if isinstance(exc, InstructorRetryException):
-        api_failure = _api_call_failure(exc)
+        api_failure = _api_call_failure(exc, mode)
         if isinstance(api_failure, Exception):
             return api_failure
     return exc
@@ -185,11 +223,13 @@ class _ModeFailure(Enum):
     """与结构化输出能力无关，交调用方判定。"""
 
 
-def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
+def _classify_mode_failure(exc: BaseException, mode: Mode) -> _ModeFailure:
     """判定某一档的失败该降档、判终局，还是原样冒泡。
 
     只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常，须由错误文本指名
-    tools / functions 才算数），或收下了却不回 tool call（见 :func:`_tool_call_absent`）。
+    tools / functions 才算数），或收下了却不回 tool call（见 :func:`_tool_call_absent`）。后者
+    的解析异常在 Instructor 里有两种落点（见 :func:`_model_output_failure`），先取回那条异常
+    再按响应结构判是否值得换档。
 
     API 调用异常一律走关键字判据，400 也不例外：无 ``STRUCTURED_OUTPUT`` 能力位的 Ark 模型
     不经原生档直接进本链，此处的 400 同样可能是模型名无效、上下文超限或策略拒绝。把这些无差别
@@ -204,14 +244,33 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
     """
     if not isinstance(exc, InstructorRetryException):
         return _ModeFailure.PROPAGATE
-    api_failure = _api_call_failure(exc)
+    api_failure = _api_call_failure(exc, mode)
     if api_failure is None:
-        if _tool_call_absent(exc.__cause__):
+        if _tool_call_absent(_model_output_failure(exc, mode)):
             return _ModeFailure.DOWNGRADE
         return _ModeFailure.TERMINAL
     if any(kw in str(api_failure).lower() for kw in _TOOLS_UNSUPPORTED_KEYWORDS):
         return _ModeFailure.DOWNGRADE
     return _ModeFailure.PROPAGATE
+
+
+def _strip_think_block_in_response(response: Any) -> None:
+    """Instructor ``completion:response`` 钩子：解析前就地剥掉响应正文开头的思考块。
+
+    Instructor 的 MD_JSON 档取正文里第一段能解析的 JSON；思考块里若出现草稿 JSON，会被当成
+    结果采用。钩子在解析前改写 ``message.content``，解析、reask 与 ``failed_attempts`` 看到的
+    都是正文，与原生路径同口径。
+    """
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", None)
+    if message is None or not isinstance(content, str):
+        return
+    stripped = strip_leading_think_block(content)
+    if stripped != content:
+        message.content = stripped
 
 
 def generate_structured_via_instructor(
@@ -233,6 +292,7 @@ def generate_structured_via_instructor(
     与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
     patched = instructor.from_openai(client, mode=mode)
+    patched.on("completion:response", _strip_think_block_in_response)
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
     try:
         result, completion = patched.chat.completions.create_with_completion(
@@ -276,6 +336,7 @@ async def generate_structured_via_instructor_async(
     与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
     patched = instructor.from_openai(client, mode=mode)
+    patched.on("completion:response", _strip_think_block_in_response)
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
     try:
         result, completion = await patched.chat.completions.create_with_completion(  # type: ignore[misc]
@@ -330,11 +391,11 @@ def _handle_mode_failure(
 
     正常返回即「调用方应继续下一档」，返回值是这一档已计费、需并入最终结果的 token。
     """
-    failure = _classify_mode_failure(exc)
+    failure = _classify_mode_failure(exc, mode)
     if failure is _ModeFailure.PROPAGATE:
         # 冒泡时剥掉 Instructor 的包装：调用方的 @with_retry_async 先按异常类型判瞬态
         # （ConnectionError / TimeoutError），包着一层就只剩消息文本匹配，漏判连接类错误。
-        raise _propagated_cause(exc)
+        raise _propagated_cause(exc, mode)
     if failure is _ModeFailure.DOWNGRADE and next_mode is not None:
         logger.warning(
             "Instructor %s 档 wire 层不兼容（%s），降档到 %s 档；模型原始输出：%s",
@@ -350,7 +411,7 @@ def _handle_mode_failure(
         mode.value,
         _raw_output_from_exception(exc),
     )
-    raise StructuredOutputExhaustedError(provider=provider, model=model, reason=_failure_reason(exc)) from exc
+    raise StructuredOutputExhaustedError(provider=provider, model=model, reason=_failure_reason(exc, mode)) from exc
 
 
 def instructor_fallback_sync(
@@ -416,7 +477,9 @@ def instructor_fallback_sync(
     response = client.chat.completions.create(**create_kwargs)
     usage = getattr(response, "usage", None)
     choice = response.choices[0]
-    text = choice.message.content or ""
+    content = choice.message.content or ""
+    # 与原生路径同口径：思考模型内嵌在 content 开头的思考块不进结果。
+    text = strip_leading_think_block(content) if isinstance(content, str) else str(content)
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
     # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
     # Instructor 通道），截断同样升级为硬错误。
@@ -428,7 +491,7 @@ def instructor_fallback_sync(
         structured=True,
     )
     return TextGenerationResult(
-        text=text.strip() if isinstance(text, str) else str(text),
+        text=text.strip(),
         provider=provider,
         model=model,
         input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
@@ -499,7 +562,9 @@ async def instructor_fallback_async(
     response = await client.chat.completions.create(**create_kwargs)
     usage = getattr(response, "usage", None)
     choice = response.choices[0]
-    text = choice.message.content or ""
+    content = choice.message.content or ""
+    # 与原生路径同口径：思考模型内嵌在 content 开头的思考块不进结果。
+    text = strip_leading_think_block(content) if isinstance(content, str) else str(content)
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
     # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
     # Instructor 通道），截断同样升级为硬错误。
@@ -511,7 +576,7 @@ async def instructor_fallback_async(
         structured=True,
     )
     return TextGenerationResult(
-        text=text.strip() if isinstance(text, str) else str(text),
+        text=text.strip(),
         provider=provider,
         model=model,
         input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
