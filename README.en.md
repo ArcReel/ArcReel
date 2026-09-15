@@ -64,9 +64,9 @@
       <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL"><img src="docs/assets/sponsors/fluxion-ai.png" alt="Fluxion AI" width="180"></a>
     </td>
     <td valign="top">
-      <strong>One Gateway to Access and Manage the World's Leading AI Models | Fluxion AI</strong><br>
-      Fluxion AI serves individual developers, engineering teams, and enterprises with a <strong>unified API</strong> to access and manage the world's leading AI models. <strong>Dynamic multi-route scheduling</strong> improves availability, while model performance, response times, and costs stay transparent. Depending on the model and route, API costs can be <strong>40%–98% lower</strong> than official or benchmark pricing.<br>
-      🎁 <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL">Sign up via ArcReel's exclusive link</a> to receive <strong>$3 in API credits</strong>.
+      <strong>One Entry Point to Access and Manage the World's Leading AI Models</strong><br>
+      Fluxion AI is built for individual developers, technical teams, and enterprises, providing access to and management of the world's leading AI models through a unified API. Dynamic multi-route scheduling improves availability, with model performance, response times, and costs transparent and easy to review. Depending on the model and route, API costs can be 40%–98% lower than official or benchmark prices.<br>
+      <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL">Visit and sign up now</a> to receive $3 in API credits.
     </td>
   </tr>
 </table>
