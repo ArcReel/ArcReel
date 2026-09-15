@@ -19,6 +19,7 @@ from lib.text_backends.base import (
     check_truncation,
     merge_billed_tokens,
     resolve_schema,
+    strip_leading_think_block,
     structured_fallback_reason,
     truncate_for_log,
 )
@@ -152,7 +153,17 @@ class OpenAITextBackend:
         usage = response.usage
         choice = response.choices[0]
         output_tokens = usage.completion_tokens if usage else None
-        text = choice.message.content or ""
+        raw_text = choice.message.content or ""
+        # 思考模型默认把思考块内嵌在 content 开头，正文（结构化输出即 JSON）跟在其后；
+        # 复验与返回都只看正文，思考块不进结果。
+        text = strip_leading_think_block(raw_text)
+        if text != raw_text:
+            logger.info(
+                "%s/%s 输出开头带思考块，已剥离（%d 字符）",
+                self._provider_name,
+                self._model,
+                len(raw_text) - len(text),
+            )
 
         check_truncation(
             getattr(choice, "finish_reason", None),
