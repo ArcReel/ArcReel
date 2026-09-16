@@ -155,7 +155,8 @@ class TestGenerate:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(markdown_text, 100, 60))
 
-        mock_patched = AsyncMock()
+        # 钩子注册（on）是同步调用，不能落到 AsyncMock 上
+        mock_patched = AsyncMock(on=MagicMock())
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
         )

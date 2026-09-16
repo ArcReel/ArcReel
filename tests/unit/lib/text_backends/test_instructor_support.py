@@ -30,10 +30,14 @@ class SampleModel(BaseModel):
     age: int
 
 
-def _completion(content: str, *, tool_calls=None) -> SimpleNamespace:
+def _completion(content: str, *, tool_calls=None, function_call=None) -> SimpleNamespace:
     """构造一个 completion，供诊断日志断言取原始输出、供判据看有无 tool call。"""
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=tool_calls, function_call=None))]
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content, tool_calls=tool_calls, function_call=function_call)
+            )
+        ]
     )
 
 
@@ -86,6 +90,46 @@ def _no_tool_call_error() -> ResponseParsingError:
     )
 
 
+def _empty_tool_calls_error() -> ResponseParsingError:
+    """上游以 tool_calls=[] 表示没回 tool call：同样解析失败，但 Instructor 的 reask 能正常构造。"""
+    return ResponseParsingError(
+        "No tool calls or function call found in response",
+        mode="TOOLS",
+        raw_response=_completion("", tool_calls=[]),
+    )
+
+
+def _reask_crashed_on_no_tool_call_error() -> InstructorRetryException:
+    """上游没回 tool call 且 Instructor 的 reask 在空 tool_calls 上崩成 TypeError 的真实形态。
+
+    终止原因（__cause__）是 TypeError，原本的解析异常只留在 failed_attempts 末条
+    （由 TestInstructorExceptionShape 对真实 Instructor 钉住）。
+    """
+    return _retry_exhausted(
+        TypeError("'NoneType' object is not iterable"),
+        earlier_attempts=[_no_tool_call_error()],
+    )
+
+
+def _md_json_parse_error() -> ResponseParsingError:
+    """MD_JSON 档解析失败：该档响应本来就没有 tool call，响应结构与 TOOLS 档缺 tool call 无法区分。"""
+    return ResponseParsingError(
+        "Failed to extract JSON from response",
+        mode="MD_JSON",
+        raw_response=_completion("not json"),
+    )
+
+
+def _function_call_args_missing_error() -> ResponseParsingError:
+    """上游走 legacy function_call 回了调用但 arguments 缺失：tool_calls 仍为 None，属校验类。"""
+    function_call = SimpleNamespace(name="SampleModel", arguments=None)
+    return ResponseParsingError(
+        "Tool call arguments missing in response",
+        mode="TOOLS",
+        raw_response=_completion("", function_call=function_call),
+    )
+
+
 def _tool_call_args_invalid_error() -> ResponseParsingError:
     """上游回了 tool call 但 arguments 不可用：属校验类，不是 wire 层不兼容。"""
     tool_call = SimpleNamespace(function=SimpleNamespace(arguments=None))
@@ -132,7 +176,7 @@ def _recorded_instructor(
                 return _await_result()
             return result
 
-    patched = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()))
+    patched = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()), on=lambda hook_name, handler: None)
 
     def _from_openai(client: Any, **kwargs: Any) -> Any:
         patched_with.append({"client": client, **kwargs})
@@ -463,6 +507,24 @@ class TestInstructorFallbackSync:
         assert call_kwargs["max_completion_tokens"] == 500
         assert "max_tokens" not in call_kwargs
 
+    def test_dict_schema_strips_leading_think_block(self):
+        """json_object 路径与原生路径同口径：content 开头的思考块不进结果。"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='<think>想一想。</think>\n{"key": "value"}'))],
+            usage=None,
+        )
+
+        result = instructor_fallback_sync(
+            client=mock_client,
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="test-provider",
+        )
+
+        assert result.text == '{"key": "value"}'
+
     def test_dict_schema_truncation_raises(self):
         """dict schema（response_schema 非空，无 Pydantic 模型）截断同样升级为硬错误。"""
         mock_client = MagicMock()
@@ -579,6 +641,39 @@ class TestInstructorExceptionShape:
 
         assert exc_info.value.failed_attempts != []
 
+    def test_absent_tool_call_terminates_in_reask_type_error(self):
+        """TOOLS 档下上游不回 tool call：reask 在 tool_calls=None 上崩掉，TypeError 顶替终止原因。
+
+        钉住判据依赖的三点形态：终止原因是 TypeError、失败尝试末条是 tool_calls=None 的解析异常、
+        崩溃发生在第二次请求之前（只发出一次请求）。
+        """
+        from openai import OpenAI
+        from openai.types.chat import ChatCompletionMessage
+
+        content_only = ChatCompletionMessage(role="assistant", content='<think>…</think>{"name": "Bob", "age": 1}')
+        completion = SimpleNamespace(
+            choices=[SimpleNamespace(message=content_only, finish_reason="stop")],
+            usage=None,
+        )
+        client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
+        client.chat.completions.create = MagicMock(return_value=completion)
+        patched = instructor.from_openai(client, mode=Mode.TOOLS)
+
+        with pytest.raises(InstructorRetryException) as exc_info:
+            patched.chat.completions.create_with_completion(
+                model="test-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_model=SampleModel,
+                max_retries=2,
+            )
+
+        exc = exc_info.value
+        assert isinstance(exc.__cause__, TypeError)
+        last = exc.failed_attempts[-1].exception
+        assert isinstance(last, ResponseParsingError)
+        assert last.raw_response.choices[0].message.tool_calls is None
+        assert client.chat.completions.create.call_count == 1
+
 
 class TestStructuredModeChainSync:
     """TOOLS → MD_JSON 降级链（同步版）。"""
@@ -633,6 +728,77 @@ class TestStructuredModeChainSync:
 
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
         assert result.text == sample.model_dump_json()
+
+    def test_reask_crash_on_no_tool_call_falls_back_to_md_json(self):
+        """上游不回 tool call 且 Instructor 的 reask 崩成 TypeError → 仍判 wire 层不兼容、降档到 MD_JSON。"""
+        sample = SampleModel(name="Dave", age=41)
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[_reask_crashed_on_no_tool_call_error(), (sample.model_dump_json(), 10, 5)],
+        ) as mock_gen:
+            result = self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+        assert result.text == sample.model_dump_json()
+
+    def test_type_error_after_empty_tool_calls_propagates(self):
+        """tool_calls=[] 时 reask 能再发请求，之后撞上的 TypeError 是客户端错误：原样冒泡，不当成 reask 崩溃。"""
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[
+                    _retry_exhausted(
+                        TypeError("unexpected keyword argument"),
+                        earlier_attempts=[_empty_tool_calls_error()],
+                    )
+                ],
+            ) as mock_gen,
+            pytest.raises(TypeError),
+        ):
+            self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+
+    def test_client_type_error_after_md_json_parse_failure_propagates(self):
+        """MD_JSON 档解析失败一次后撞上客户端 TypeError：该档 reask 不会崩，TypeError 原样冒泡而非判终局。"""
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[
+                    _tools_rejected_error(),
+                    _retry_exhausted(
+                        TypeError("unexpected keyword argument"),
+                        earlier_attempts=[_md_json_parse_error()],
+                    ),
+                ],
+            ) as mock_gen,
+            pytest.raises(TypeError),
+        ):
+            self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+
+    def test_reask_crash_after_function_call_with_missing_args_is_terminal(self):
+        """legacy function_call 回了调用但 arguments 缺失、随后 reask 崩溃：上游确实回了调用，判终局不降档。"""
+        sample = SampleModel(name="Eve", age=29)
+        with (
+            patch(
+                "lib.text_backends.instructor_support.generate_structured_via_instructor",
+                side_effect=[
+                    _retry_exhausted(
+                        TypeError("'NoneType' object is not iterable"),
+                        earlier_attempts=[_function_call_args_missing_error()],
+                    ),
+                    (sample.model_dump_json(), 10, 5),
+                ],
+            ) as mock_gen,
+            pytest.raises(StructuredOutputExhaustedError) as exc_info,
+        ):
+            self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+        assert "模型输出仍不合规" in str(exc_info.value)
+        assert "ResponseParsingError" in str(exc_info.value)
 
     def test_tools_validation_exhaustion_is_terminal(self):
         """TOOLS 档校验类耗尽不降档：上游确实回了 tool call，换更弱的档只会更差。"""
@@ -893,6 +1059,82 @@ class TestStructuredModeChainAsync:
         assert result.output_tokens == 35
 
 
+class TestStructuredModeChainThroughInstructor:
+    """降级链经真实 Instructor 驱动，只在 SDK 边界打桩：上游整条通道只回正文、从不回 tool call。
+
+    正文开头的思考块里带一段草稿 JSON：MD_JSON 档取正文里第一段能解析的 JSON，只有先剥掉
+    思考块，解析出的才是 ``</think>`` 之后的最终答案。
+    """
+
+    @staticmethod
+    def _content_only_completion(*, prompt_tokens: int, completion_tokens: int) -> SimpleNamespace:
+        from openai.types import CompletionUsage
+        from openai.types.chat import ChatCompletionMessage
+
+        message = ChatCompletionMessage(
+            role="assistant",
+            content='<think>先草拟 {"name": "Draft", "age": 99}，年龄不对，改掉。</think>\n{"name": "Bob", "age": 1}',
+        )
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason="stop")],
+            usage=CompletionUsage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
+            ),
+        )
+
+    def test_sync_content_only_response_lands_on_md_json(self):
+        """TOOLS 档在 reask 崩掉后降档，MD_JSON 档从同样的正文解析出结果；两档各发一次请求，计费合并。"""
+        from openai import OpenAI
+
+        client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
+        client.chat.completions.create = MagicMock(
+            side_effect=[
+                self._content_only_completion(prompt_tokens=11, completion_tokens=7),
+                self._content_only_completion(prompt_tokens=13, completion_tokens=5),
+            ]
+        )
+
+        result = instructor_fallback_sync(
+            client=client,
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema=SampleModel,
+            provider="test-provider",
+        )
+
+        assert result.text == SampleModel(name="Bob", age=1).model_dump_json()
+        assert client.chat.completions.create.call_count == 2
+        assert result.input_tokens == 24
+        assert result.output_tokens == 12
+
+    async def test_async_content_only_response_lands_on_md_json(self):
+        """异步入口同口径：这是 OpenAI 兼容后端走结构化降级链的生产路径。"""
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
+        client.chat.completions.create = AsyncMock(
+            side_effect=[
+                self._content_only_completion(prompt_tokens=11, completion_tokens=7),
+                self._content_only_completion(prompt_tokens=13, completion_tokens=5),
+            ]
+        )
+
+        result = await instructor_fallback_async(
+            client=client,
+            model="async-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema=SampleModel,
+            provider="async-provider",
+        )
+
+        assert result.text == SampleModel(name="Bob", age=1).model_dump_json()
+        assert client.chat.completions.create.await_count == 2
+        assert result.input_tokens == 24
+        assert result.output_tokens == 12
+
+
 class TestInstructorFallbackAsync:
     """instructor_fallback_async 高层函数测试。"""
 
@@ -1021,6 +1263,24 @@ class TestInstructorFallbackAsync:
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["max_completion_tokens"] == 600
         assert "max_tokens" not in call_kwargs
+
+    async def test_dict_schema_strips_leading_think_block_async(self):
+        """异步 json_object 路径同样剥掉 content 开头的思考块。"""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='<think>想一想。</think>\n{"k": "v"}'))],
+            usage=None,
+        )
+
+        result = await instructor_fallback_async(
+            client=mock_client,
+            model="async-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="async-provider",
+        )
+
+        assert result.text == '{"k": "v"}'
 
     async def test_dict_schema_truncation_raises_async(self):
         """异步 dict schema 截断同样升级为硬错误。"""
