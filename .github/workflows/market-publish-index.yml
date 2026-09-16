@@ -1,0 +1,103 @@
+# 市场源索引发布（可复用工作流）。
+#
+# 调用方：ArcReel/arcreel-market 及其 fork，在默认分支 push 后触发：
+#
+#   on:
+#     push:
+#       branches: [main]
+#   jobs:
+#     publish-index:
+#       uses: ArcReel/ArcReel/.github/workflows/market-publish-index.yml@main
+#       permissions:
+#         contents: write
+#
+# 参数：无。权限：调用方须授予 contents: write，用于以 github-actions[bot] 提交重生成的索引。
+# 可选 secret INDEX_PUSH_TOKEN：默认分支受保护、GITHUB_TOKEN 无法直推时，传入可绕过保护的
+# GitHub App token（调用方加 `secrets: inherit` 或显式映射）；缺省使用 GITHUB_TOKEN。
+# 用 GITHUB_TOKEN 推送的提交不会再次触发工作流；用 App token 时会再跑一次，索引无变化即不提交。
+#
+# 同一分支的运行按 concurrency 串行；每次运行检出分支最新提交，因而排队的运行看得到上一次的 bot 提交。
+name: Market publish index
+
+on:
+  workflow_call:
+    secrets:
+      INDEX_PUSH_TOKEN:
+        description: 推送索引提交用的令牌；缺省使用 GITHUB_TOKEN
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: market-publish-index-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # 提交并推送重生成的 arcreel-market.json
+    steps:
+      - name: Require a branch ref
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          case "$REF" in
+            refs/heads/*) ;;
+            *) echo "::error::market-publish-index must run on a branch push, got ${REF}"; exit 1 ;;
+          esac
+
+      - name: Checkout market source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: market
+          ref: ${{ github.ref }}
+          persist-credentials: false
+
+      - name: Checkout ArcReel
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ArcReel/ArcReel
+          ref: main
+          path: arcreel
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.12"
+          enable-cache: false
+
+      - name: Install market tooling
+        working-directory: arcreel
+        run: uv sync --locked --no-dev
+
+      - name: Generate index
+        working-directory: arcreel
+        run: |
+          # 没有既有索引时，顶层 name 取仓库名而不是检出目录名
+          name_args=()
+          if [ ! -f "${GITHUB_WORKSPACE}/market/arcreel-market.json" ]; then
+            name_args=(--name "${GITHUB_REPOSITORY#*/}")
+          fi
+          uv run --no-sync python -m lib.market generate "${GITHUB_WORKSPACE}/market" "${name_args[@]}"
+
+      - name: Check index
+        working-directory: arcreel
+        run: uv run --no-sync python -m lib.market check "${GITHUB_WORKSPACE}/market"
+
+      - name: Commit index
+        working-directory: market
+        env:
+          PUSH_TOKEN: ${{ secrets.INDEX_PUSH_TOKEN || github.token }}
+        run: |
+          git add arcreel-market.json
+          if git diff --cached --quiet; then
+            echo "arcreel-market.json is up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: regenerate index"
+          git push "https://x-access-token:${PUSH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git" "HEAD:${GITHUB_REF}"

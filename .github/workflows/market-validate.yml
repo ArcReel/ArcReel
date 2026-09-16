@@ -1,0 +1,90 @@
+# 市场源校验（可复用工作流）。
+#
+# 调用方：ArcReel/arcreel-market 及其 fork，在 PR 上触发：
+#
+#   on:
+#     pull_request:
+#   jobs:
+#     validate:
+#       uses: ArcReel/ArcReel/.github/workflows/market-validate.yml@main
+#
+# 参数：无。权限：contents: read（读调用方仓库与公开的 ArcReel/ArcReel）。
+# 校验规则来自 ArcReel/ArcReel main 分支的 lib/market，调用方不维护任何校验逻辑。
+#
+# 仓内的 arcreel-market.json 是合并后由 market-publish-index 重生成的投影，PR 中通常是旧的；
+# 因此判定对象是按 PR 目录重新生成的候选索引：在临时副本里 generate 后 check，不提交。
+# 候选与仓内索引的差异只写进 job summary 供审阅，不作为失败条件。
+name: Market validate
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: market-validate-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout market source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: market
+          persist-credentials: false
+
+      - name: Checkout ArcReel
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ArcReel/ArcReel
+          ref: main
+          path: arcreel
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: arcreel/uv.lock
+
+      - name: Install market tooling
+        working-directory: arcreel
+        run: uv sync --locked --no-dev
+
+      - name: Generate candidate index (dry run)
+        working-directory: arcreel
+        run: |
+          candidate="${RUNNER_TEMP}/market-candidate"
+          mkdir -p "$candidate"
+          cp -R "${GITHUB_WORKSPACE}/market/." "$candidate/"
+          rm -rf "$candidate/.git"
+          # 没有既有索引时，顶层 name 取仓库名而不是临时目录名
+          name_args=()
+          if [ ! -f "$candidate/arcreel-market.json" ]; then
+            name_args=(--name "${GITHUB_REPOSITORY#*/}")
+          fi
+          uv run --no-sync python -m lib.market generate "$candidate" "${name_args[@]}"
+
+      - name: Check candidate
+        working-directory: arcreel
+        run: uv run --no-sync python -m lib.market check "${RUNNER_TEMP}/market-candidate"
+
+      - name: Summarize index changes
+        run: |
+          {
+            if [ ! -f market/arcreel-market.json ]; then
+              echo "arcreel-market.json will be created after merge."
+            elif diff -u --label committed --label candidate market/arcreel-market.json "${RUNNER_TEMP}/market-candidate/arcreel-market.json" > "${RUNNER_TEMP}/index.diff" 2>&1; then
+              echo "arcreel-market.json is up to date."
+            else
+              echo "arcreel-market.json will be regenerated after merge:"
+              echo
+              echo '```diff'
+              cat "${RUNNER_TEMP}/index.diff"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
