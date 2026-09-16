@@ -18,8 +18,8 @@ from lib.prompt_builders_script import (
     _LIGHTING_WRITING_GUIDE,
     _SCENE_WRITING_GUIDE,
     _format_aspect_ratio_desc,
-    _format_names,
     format_duration_constraint,
+    format_names,
 )
 from lib.prompt_rules.asset_appearance import asset_reference_names
 from lib.reference_video.writing_syntax import writing_syntax_spec
@@ -235,15 +235,15 @@ def build_ad_prompt(
 </brief>
 
 <characters>
-{_format_names(characters, "character")}
+{format_names(characters, "character")}
 </characters>
 
 <scenes>
-{_format_names(scenes, "scene")}
+{format_names(scenes, "scene")}
 </scenes>
 
 <props>
-{_format_names(props, "prop")}
+{format_names(props, "prop")}
 </props>"""
 
     common_constraints = f"""<episode_constraints>

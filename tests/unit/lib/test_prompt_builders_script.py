@@ -2,12 +2,12 @@ import pytest
 
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_script import (
-    _format_names,
     build_drama_prompt,
     build_narration_prompt,
     build_narration_split_prompt,
     build_normalize_prompt,
     build_overview_prompt,
+    format_names,
     render_drama_content_for_prompt_authoring,
 )
 from lib.speech_rate import speech_rate_units_per_second
@@ -15,9 +15,9 @@ from lib.speech_rate import speech_rate_units_per_second
 
 class TestPromptBuildersScript:
     def test_format_names_emits_bullet_lists(self):
-        assert _format_names({"A": {}, "B": {}}, "character") == "- A\n- B"
-        assert _format_names({"玉佩": {}, "祠堂": {}}, "prop") == "- 玉佩\n- 祠堂"
-        assert _format_names({}, "scene") == "（暂无）"
+        assert format_names({"A": {}, "B": {}}, "character") == "- A\n- B"
+        assert format_names({"玉佩": {}, "祠堂": {}}, "prop") == "- 玉佩\n- 祠堂"
+        assert format_names({}, "scene") == "（暂无）"
 
     def test_build_narration_prompt_renders_script_plan_segments_as_context(self):
         prompt = build_narration_prompt(
@@ -258,7 +258,7 @@ class TestScreenplaySourceKind:
         assert "提取" in prompt
         assert "逐字" in prompt
         assert "画外音" in prompt
-        assert "剧本原文" in prompt
+        assert "<screenplay>\n【第1集】角色甲：「你好」\n</screenplay>" in prompt
         assert "utterances" in prompt
         assert "source_text" in prompt
         assert "改编" not in prompt
@@ -297,6 +297,91 @@ class TestScreenplaySourceKind:
         assert "她推开门" in prompt
         assert "她推开门" not in self._normalize_prompt("novel")
 
+    def test_normalize_source_block_has_one_heading_and_kind_tag(self):
+        for source_kind, other in (("novel", "screenplay"), ("screenplay", "novel")):
+            prompt = self._normalize_prompt(source_kind)
+            assert f"## 源文\n\n<{source_kind}>\n【第1集】角色甲：「你好」\n</{source_kind}>" in prompt
+            assert f"<{other}>" not in prompt
+            assert "## 小说原文" not in prompt
+            assert "## 剧本原文" not in prompt
+
+    def test_normalize_segment_break_rule_for_both_source_kinds(self):
+        novel = self._normalize_prompt("novel")
+        screenplay = self._normalize_prompt("screenplay")
+        assert "\n- **segment_break**：改编时自行判断：地点 / 时间跳转或场景切换后的第一个分镜标「是」" in novel
+        assert "\n- **segment_break**：沿用剧本自带的场次 / 场景切换" in screenplay
+        assert "不要重新切碎作者的场次" not in novel
+
+    def test_normalize_duration_rule_splits_into_three_sub_items(self):
+        prompt = self._normalize_prompt("novel", episode_target_duration=90)
+        section = prompt.split("- **duration_seconds**：\n", 1)[1].split("\n- **segment_break**", 1)[0]
+        lines = section.split("\n")
+        assert [line.split("：", 1)[0] for line in lines] == ["  - 档位", "  - 口播下界", "  - 单集目标"]
+        assert "默认 8 秒" in lines[0]
+        assert "不低于" in lines[1]
+        assert "本集成片目标时长约 90 秒" in lines[2]
+        assert "保存时会另有提示" not in prompt
+
+        without_target = self._normalize_prompt("novel")
+        assert "  - 单集目标：" not in without_target
+        assert "  - 口播下界：" in without_target
+
+    def test_normalize_output_language_keeps_main_clause_for_both_source_kinds(self):
+        for source_kind in ("novel", "screenplay"):
+            prompt = self._normalize_prompt(source_kind, target_language="English")
+            assert (
+                "**输出语言**：自然语言字符串值必须使用 English；JSON 键名 / 枚举值保持英文。例外（逐字保留" in prompt
+            )
+
+    def test_normalize_mentions_extras_exclusion_once(self):
+        for source_kind in ("novel", "screenplay"):
+            prompt = self._normalize_prompt(source_kind)
+            assert prompt.count("老人甲") == 1
+            assert "不登记为角色资产" not in prompt
+        assert "是否产出由你依语境创作判断" not in self._normalize_prompt("novel")
+
+    def test_normalize_lists_every_asset_type_when_multiple_are_empty(self):
+        prompt = self._normalize_prompt(
+            "novel",
+            characters={"姜月茴": {}},
+            scenes={},
+            props={},
+        )
+        assert "<characters>\n- 姜月茴\n</characters>" in prompt
+        assert "<scenes>\n（暂无）\n</scenes>" in prompt
+        assert "<props>\n（暂无）\n</props>" in prompt
+        assert "  - 候选 scenes：[（暂无）]" in prompt
+        assert "  - 候选 props：[（暂无）]" in prompt
+
+    def test_normalize_renders_both_outlines_with_their_beats(self):
+        prompt = self._normalize_prompt(
+            "novel",
+            episode_outline={"title": "归家", "story_beats": ["踏进祖宅"], "hook": "信纸落下"},
+            next_episode_outline={"title": "族谱", "story_beats": ["族谱缺页"]},
+        )
+        assert (
+            "<episode_outline>\n本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：\n本集标题：归家\n"
+            "故事节点：\n- 踏进祖宅\n集尾钩子：信纸落下\n</episode_outline>"
+        ) in prompt
+        assert "末场（最后一个或几个分镜）的画面与对白须实际呈现集尾钩子" in prompt
+        assert (
+            "<next_episode_outline>\n下集大纲（仅用于设计本集结尾的衔接，不要把下集情节提前写进本集）：\n"
+            "下集标题：族谱\n故事节点：\n- 族谱缺页\n</next_episode_outline>"
+        ) in prompt
+
+    def test_normalize_omits_hook_landing_without_hook_or_teaser(self):
+        prompt = self._normalize_prompt("novel", episode_outline={"title": "归家", "story_beats": ["踏进祖宅"]})
+        assert "<episode_outline>" in prompt
+        assert "末场（最后一个或几个分镜）" not in prompt
+
+    def test_normalize_appends_instructions_after_single_blank_line(self):
+        for source_kind in ("novel", "screenplay"):
+            prompt = self._normalize_prompt(source_kind, instructions="多用近景。\n少用旁白。")
+            assert prompt.endswith("画面切换。\n\n# 附加指令\n多用近景。\n少用旁白。")
+            plain = self._normalize_prompt(source_kind)
+            assert "# 附加指令" not in plain
+            assert plain == self._normalize_prompt(source_kind, instructions="")
+
     def test_normalize_injects_pacing(self):
         # script_plan 无条件提供开篇节奏建议。
         assert "开篇~4秒承担钩子职能" in self._squash(self._normalize_prompt("novel"))
@@ -313,6 +398,20 @@ class TestOverviewPrompt:
     def test_screenplay_keeps_source_text(self):
         prompt = build_overview_prompt("剧本正文", source_kind="screenplay")
         assert "剧本正文" in prompt
+
+    def test_prompt_has_task_language_and_source_in_order(self):
+        prompt = build_overview_prompt("正文内容", source_kind="novel", target_language="English")
+        assert prompt == (
+            "请分析以下小说内容，提取关键信息：\n\n"
+            "**输出语言**：所有字符串值必须使用 English；JSON 键名 / 枚举值保持英文。\n\n"
+            "正文内容"
+        )
+
+    def test_screenplay_prefers_author_creative_plan(self):
+        prompt = build_overview_prompt("剧本正文", source_kind="screenplay")
+        assert prompt.startswith("请分析以下成品剧本，提炼项目概述")
+        assert "优先照用作者已写下的设定" in prompt
+        assert "请分析以下小说内容" not in prompt
 
     def test_screenplay_differs_from_novel(self):
         content = "同一段源文本"
