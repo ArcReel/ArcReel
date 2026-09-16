@@ -110,6 +110,26 @@ def truncate_for_log(text: str | None, limit: int = RAW_OUTPUT_LOG_LIMIT) -> str
     return text
 
 
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
+
+
+def strip_leading_think_block(text: str) -> str:
+    """剥掉输出开头的 ``<think>…</think>`` 思考块，返回其后的正文。
+
+    走 OpenAI 兼容接口的思考模型（如 MiniMax M2 / M3）默认把思考过程直接写进 ``content``，
+    用 ``<think>`` 标签包住，正式回答跟在 ``</think>`` 之后；结构化输出的 JSON 也在其后。
+    只认开头的一个块：块不在开头，或闭合标签缺失（多为输出被截断）时原样返回，不做猜测。
+    """
+    body = text.lstrip()
+    if not body.startswith(_THINK_OPEN):
+        return text
+    end = body.find(_THINK_CLOSE, len(_THINK_OPEN))
+    if end < 0:
+        return text
+    return body[end + len(_THINK_CLOSE) :].lstrip()
+
+
 # 文本输出上限：非约束安全阀，仅防模型退化性 runaway，不是功能预算——分集规划、剧本生成、
 # drama script_plan 规范化三处的正常输出体量由各自 schema/内容天然约束，永远不会触碰这个高位值；
 # 只有病态超大批量，或用户配置了输出能力偏低的模型时才会命中。三处共用同一常量，调整只改
