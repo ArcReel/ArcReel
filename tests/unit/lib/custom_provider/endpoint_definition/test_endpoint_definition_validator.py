@@ -137,6 +137,21 @@ class TestStructuralIssues:
             definition["meta"]["version"] = "0.1.0\n"
         assert validate_definition(definition).errors
 
+    def test_min_app_version_is_an_accepted_meta_field(self):
+        definition = custom_endpoint_definition()
+        definition["meta"]["min_app_version"] = "0.31.0"
+        assert validate_definition(definition).valid
+
+    def test_prior_format_version_without_min_app_version_stays_valid(self):
+        definition = custom_endpoint_definition(schema_version="1.0.0")
+        assert validate_definition(definition).valid
+
+    @pytest.mark.parametrize("value", ["0.31", "v0.31.0", "0.31.0-rc1", 31])
+    def test_min_app_version_must_be_semver(self, value: object):
+        definition = custom_endpoint_definition()
+        definition["meta"]["min_app_version"] = value
+        assert {issue.path for issue in validate_definition(definition).errors} == {"meta.min_app_version"}
+
     def test_unknown_kind_is_rejected(self):
         definition = custom_endpoint_definition()
         definition["kind"] = "python"

@@ -1987,6 +1987,7 @@ export default {
   'ce_import_relation_older': 'Phiên bản tệp mới hơn',
   'ce_import_schema_mismatch': 'Tệp dùng định dạng phiên bản {{file}}; sẽ được đọc theo {{current}}.',
   'ce_import_schema_unknown': 'không ghi rõ',
+  'ce_import_requires_newer_app': 'Định nghĩa này cần ArcReel ≥ {{required}} (hiện tại: {{current}}); có thể không hoạt động đúng sau khi nhập.',
   'ce_import_hint_base_url': 'Địa chỉ giao diện đề xuất: {{url}}',
   'ce_import_hint_models': 'Mô hình đề xuất: {{models}}',
   'ce_export': 'Xuất',

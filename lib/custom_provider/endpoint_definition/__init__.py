@@ -33,6 +33,7 @@ from .validator import (
 from .versioning import (
     SchemaVersionLevel,
     VersionRelation,
+    meets_min_app_version,
     parse_semver,
     schema_version_level,
     version_relation,
@@ -59,6 +60,7 @@ __all__ = [
     "extract_value",
     "load_schema",
     "map_status",
+    "meets_min_app_version",
     "message_key",
     "normalize_extract_spec",
     "parse_json_path",

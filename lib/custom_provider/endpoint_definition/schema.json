@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://arcreel.dev/schemas/custom-endpoint/1.0.0.json",
+  "$id": "https://arcreel.dev/schemas/custom-endpoint/1.1.0.json",
   "title": "ArcReel 自定义调用端点 · 声明式定义",
   "description": "「JSON in/out + 提交/轮询」流派的完整协议描述。JSON Schema 只管结构；占位符引用、JSONPath 子集、api_key 作用域、能力一致性等语义规则由 lib.custom_provider.endpoint_definition.validator 检查——两者合起来才是完整闸门。",
   "type": "object",
@@ -150,6 +150,10 @@
         "name": { "type": "string", "minLength": 1, "maxLength": 80 },
         "author": { "type": "string", "minLength": 1, "maxLength": 80 },
         "version": { "$ref": "#/$defs/semver" },
+        "min_app_version": {
+          "description": "运行这份定义所需的最低 ArcReel 版本（semver）。当前应用版本低于它时，导入确认给出提示，市场安装拒绝。",
+          "$ref": "#/$defs/semver"
+        },
         "description": { "type": "string", "maxLength": 2000 },
         "homepage": { "type": "string", "format": "uri", "pattern": "^https?://[^\\s/?#]+\\S*$" },
         "hints": {

@@ -8,6 +8,7 @@ from lib.custom_provider.endpoint_definition import (
     CURRENT_SCHEMA_VERSION,
     SchemaVersionLevel,
     VersionRelation,
+    meets_min_app_version,
     parse_semver,
     schema_version_level,
     version_relation,
@@ -65,3 +66,18 @@ class TestVersionRelation:
     def test_unreadable_version_reports_same(self, existing: object, file: object):
         """判不出新旧时只说重复、不谈方向——凭空猜一个方向会把用户导向错误的处置。"""
         assert version_relation(existing, file) is VersionRelation.SAME
+
+
+class TestMeetsMinAppVersion:
+    @pytest.mark.parametrize(("required", "app"), [("0.30.0", "0.30.0"), ("0.9.0", "0.30.0"), ("0.30.0", "1.0.0")])
+    def test_app_at_or_above_requirement_is_satisfied(self, required: str, app: str):
+        assert meets_min_app_version(required, app) is True
+
+    @pytest.mark.parametrize(("required", "app"), [("0.31.0", "0.30.0"), ("0.30.0", "0.30.0rc1"), ("1.0.0", "0.99.9")])
+    def test_app_below_requirement_is_not_satisfied(self, required: str, app: str):
+        assert meets_min_app_version(required, app) is False
+
+    @pytest.mark.parametrize(("required", "app"), [("0.30", "0.30.0"), (None, "0.30.0"), ("0.30.0", "not-a-version")])
+    def test_unreadable_versions_are_not_satisfied(self, required: object, app: str):
+        """判不出高低就不该当作满足。"""
+        assert meets_min_app_version(required, app) is False

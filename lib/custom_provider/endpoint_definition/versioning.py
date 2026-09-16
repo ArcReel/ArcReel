@@ -1,4 +1,4 @@
-"""``schema_version`` 的比对与档位判定。
+"""``schema_version`` 的比对与档位判定，以及 ``meta.min_app_version`` 的门槛判定。
 
 档位只是给用户的提示信号，**不是闸门**：任何档位的定义都须过当前 schema 才能保存，过不了即
 普通校验错误，与版本无关。判定同时服务两处——导入前确认（文件版本 vs 当前版本）与重复血统的
@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
+
+from packaging.version import InvalidVersion, Version
 
 _SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
@@ -66,3 +68,17 @@ def version_relation(existing_version: object, file_version: object) -> VersionR
     if existing_parsed is None or file_parsed is None or existing_parsed == file_parsed:
         return VersionRelation.SAME
     return VersionRelation.NEWER if existing_parsed > file_parsed else VersionRelation.OLDER
+
+
+def meets_min_app_version(required: object, app_version: str) -> bool:
+    """应用版本是否达到定义声明的 ``meta.min_app_version``。
+
+    门槛只认严格 semver；应用版本按 PEP 440 解析，预发布版低于同号正式版。任一侧判不出高低即
+    视为不满足。
+    """
+    if parse_semver(required) is None:
+        return False
+    try:
+        return Version(app_version) >= Version(str(required))
+    except InvalidVersion:
+        return False

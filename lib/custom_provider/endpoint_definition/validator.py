@@ -31,7 +31,7 @@ from .template_engine import enum_map_key
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
 
 #: 定义格式自身的版本；写入时不改写文件里的 ``schema_version``，校验器也不做定义迁移。
-CURRENT_SCHEMA_VERSION = "1.0.0"
+CURRENT_SCHEMA_VERSION = "1.1.0"
 
 #: 请求模板里随时可用的保留变量。``width`` / ``height`` 由比例与分辨率派生，不接受参数。
 BASE_VARIABLES = frozenset(

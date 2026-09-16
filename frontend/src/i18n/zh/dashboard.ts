@@ -1988,6 +1988,7 @@ export default {
   'ce_import_relation_older': '文件版本较新',
   'ce_import_schema_mismatch': '文件的格式版本为 {{file}}，将按 {{current}} 读取。',
   'ce_import_schema_unknown': '未标注',
+  'ce_import_requires_newer_app': '该定义需要 ArcReel ≥ {{required}}，当前为 {{current}}，导入后可能无法正常使用。',
   'ce_import_hint_base_url': '建议的接口地址：{{url}}',
   'ce_import_hint_models': '建议的模型：{{models}}',
   'ce_export': '导出',

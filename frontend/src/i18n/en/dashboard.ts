@@ -1989,6 +1989,7 @@ export default {
   'ce_import_relation_older': 'File version is newer',
   'ce_import_schema_mismatch': 'The file uses format version {{file}}; it will be read as {{current}}.',
   'ce_import_schema_unknown': 'unspecified',
+  'ce_import_requires_newer_app': 'This definition requires ArcReel ≥ {{required}} (current: {{current}}); it may not work correctly after import.',
   'ce_import_hint_base_url': 'Suggested base URL: {{url}}',
   'ce_import_hint_models': 'Suggested models: {{models}}',
   'ce_export': 'Export',

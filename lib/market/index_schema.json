@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arcreel.dev/schemas/market-index/1.0.0.json",
+  "title": "ArcReel 市场源索引",
+  "description": "市场源仓根的 arcreel-market.json。兼容口径：任何层级都不设 additionalProperties: false，旧客户端忽略未知可选字段；未知 type 的条目只要求是带 type 的对象，由客户端静默跳过；主版本高于客户端时整份拒读（由 lib.market.index 在 schema 之前判定）。加字段走 minor，改语义走 major。",
+  "type": "object",
+  "required": ["schema_version", "name", "entries"],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/semver" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "description": { "type": "string", "maxLength": 2000 },
+    "homepage": { "$ref": "#/$defs/httpUrl" },
+    "entries": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "$comment": "与定义 schema 同一写法：[0-9] 而非 \\d，另加禁换行的 not（Python 的 $ 放过末尾换行）。not 内带 type，非字符串只报类型错。",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "not": { "type": "string", "pattern": "\\n" }
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "not": { "type": "string", "pattern": "\\n" }
+    },
+    "relativePath": {
+      "type": "string",
+      "$comment": "仓内相对路径：不以 / 或 scheme 开头、不含 ..、不含反斜杠与空白。相对 index_url 所在目录解析。",
+      "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!/)(?!.*\\.\\.)[^\\\\\\s]+$",
+      "not": { "type": "string", "pattern": "\\n" }
+    },
+    "httpUrl": { "type": "string", "format": "uri", "pattern": "^https?://[^\\s/?#]+\\S*$" },
+    "entry": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "endpoint" } } },
+          "then": { "$ref": "#/$defs/endpointEntry" }
+        }
+      ]
+    },
+    "endpointEntry": {
+      "description": "调用端点条目：定义 meta 的投影 + 旁置资产。",
+      "type": "object",
+      "required": ["type", "slug", "path", "name", "author", "version", "media_type"],
+      "properties": {
+        "type": { "const": "endpoint" },
+        "slug": { "$ref": "#/$defs/slug" },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "author": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "version": { "$ref": "#/$defs/semver" },
+        "description": { "type": "string", "maxLength": 2000 },
+        "homepage": { "$ref": "#/$defs/httpUrl" },
+        "media_type": { "type": "string", "minLength": 1 },
+        "icon": { "$ref": "#/$defs/relativePath" },
+        "min_app_version": { "$ref": "#/$defs/semver" }
+      }
+    }
+  }
+}

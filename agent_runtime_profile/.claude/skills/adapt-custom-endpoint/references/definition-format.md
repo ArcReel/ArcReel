@@ -9,7 +9,7 @@
 ```json
 {
   "kind": "declarative",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "meta": {"name": "Demo Video", "author": "user", "version": "1.0.0"},
   "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
   "submit": {

@@ -254,4 +254,28 @@ MESSAGES = {
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} 含通配：对象通配只取首个，键序在前端预览与后端执行之间可能不同"
     ),
+    # ---- 市场源校验 ----
+    "val_market_index_unreadable": "无法读取索引文件：{detail}",
+    "val_market_unsupported_schema_version": "索引格式版本 {version} 高于本工具支持的 {supported}",
+    "val_market_missing_field": "缺少必填字段：{field}",
+    "val_market_invalid_type": "类型错误，应为 {expected}",
+    "val_market_invalid_value": "取值不符合约束 {keyword}：{constraint}",
+    "val_market_slug_invalid": "slug「{value}」不合规：只允许小写字母、数字与连字符，以字母或数字开头，最长 64 个字符",
+    "val_market_slug_duplicate": "slug「{slug}」在本市场源内重复",
+    "val_market_slug_directory_mismatch": "slug「{slug}」与定义所在目录名「{directory}」不一致",
+    "val_market_path_not_relative": "「{value}」必须是市场源内的相对路径：不能以 / 或协议开头，不能含 ..，不能指向源外",
+    "val_market_file_missing": "引用的文件不存在：{value}",
+    "val_market_icon_format_invalid": "图标必须是可读取的 PNG、WebP 或 SVG，且扩展名与内容一致",
+    "val_market_icon_too_large": "图标 {size} 字节，超过上限 {limit} 字节",
+    "val_market_icon_not_square": "图标必须是正方形，当前 {width}×{height}",
+    "val_market_icon_ambiguous": "条目目录里只能有一个图标文件，发现：{icons}",
+    "val_market_definition_unreadable": "无法读取定义：{detail}",
+    "val_market_definition_invalid": "定义未通过校验（{code}）：{detail}",
+    "val_market_projection_mismatch": "索引字段 {field} 为「{index_value}」，与定义 meta 的「{definition_value}」不一致",
+    "val_market_min_app_version_invalid": "min_app_version「{value}」不是 semver（x.y.z）",
+    "val_market_detail_meta_not_object": "定义缺少 meta 对象",
+    "val_market_cli_check_passed": "市场源校验通过：{directory}",
+    "val_market_cli_check_failed": "市场源校验未通过，共 {count} 个问题",
+    "val_market_cli_generate_written": "已写入 {path}（{count} 个条目）",
+    "val_market_cli_generate_failed": "无法生成索引，共 {count} 个问题",
 }
