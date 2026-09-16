@@ -15,6 +15,7 @@ from lib.custom_provider.declarative_backend import (
     extract_provider_state,
 )
 from lib.custom_provider.endpoint_definition import validate_definition
+from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.generation_worker import _encode_task_failure_message
 from lib.video_backends.base import (
@@ -50,6 +51,50 @@ def _request(tmp_path: Path, **overrides) -> VideoGenerationRequest:
 
 
 class TestDeclarativeVideoBackend:
+    async def test_muapi_definition_submits_and_polls_with_documented_contract(self, tmp_path: Path):
+        frame = tmp_path / "first.png"
+        frame.write_bytes(b"png-bytes")
+        definition = ENDPOINT_REGISTRY["muapi-video"].definition
+        assert definition is not None
+
+        with capture_http() as router, bounded_poll_clock():
+            submit = router.post("https://api.muapi.ai/api/v1/kling-master").mock(
+                return_value=httpx.Response(200, json={"request_id": "muapi-job-42"})
+            )
+            router.get("https://api.muapi.ai/api/v1/predictions/muapi-job-42/result").mock(
+                side_effect=[
+                    httpx.Response(200, json={"status": "processing"}),
+                    httpx.Response(
+                        200,
+                        json={
+                            "status": "completed",
+                            "outputs": ["https://cdn.muapi.ai/videos/muapi-job-42.mp4"],
+                        },
+                    ),
+                ]
+            )
+            download = router.get("https://cdn.muapi.ai/videos/muapi-job-42.mp4").mock(
+                return_value=httpx.Response(200, content=b"video")
+            )
+
+            result = await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://api.muapi.ai/api/v1",
+                model="kling-master",
+                definition=definition,
+                provider="muapi-provider",
+            ).generate(_request(tmp_path, start_image=frame))
+
+        assert result.task_id == "muapi-job-42"
+        assert result.video_path.read_bytes() == b"video"
+        assert request_json(submit.calls.last.request) == {
+            "prompt": "paper boat on a river",
+            "duration": 5,
+            "image_url": "data:image/png;base64," + base64.b64encode(b"png-bytes").decode(),
+        }
+        assert submit.calls.last.request.headers["x-api-key"] == "secret"
+        assert "x-api-key" not in download.calls.last.request.headers
+
     async def test_definition_drives_submit_poll_download_and_usage(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock():
             submit = router.post("https://relay.test/v1/video/create").mock(

@@ -1,0 +1,57 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "MuAPI Video",
+    "author": "ArcReel",
+    "version": "1.0.0",
+    "description": "MuAPI's unified asynchronous video-generation API.",
+    "homepage": "https://muapi.ai/docs/video-generation",
+    "hints": {
+      "base_url": "https://api.muapi.ai/api/v1",
+      "suggested_models": [
+        {"id": "kling-master", "label": "Kling Master"},
+        {"id": "veo3", "label": "Veo 3"},
+        {"id": "seedance-pro", "label": "Seedance Pro"}
+      ]
+    }
+  },
+  "auth": {"headers": {"x-api-key": "{{ api_key }}"}},
+  "inputs": {
+    "first_frame": {"source": "start_image", "encoding": "data_uri"}
+  },
+  "defaults": {"duration": 5},
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/{{ model }}",
+    "body": {
+      "prompt": "{{ prompt }}",
+      "duration": "{{ duration }}",
+      "image_url": "{{ inputs.first_frame }}"
+    },
+    "extract": {
+      "task_id": ["$.request_id"],
+      "error": ["$.error", "$.message"]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/predictions/{{ task_id }}/result",
+    "extract": {
+      "status": ["$.status"],
+      "video_url": ["$.outputs[0]"],
+      "error": ["$.error", "$.message"]
+    }
+  },
+  "status_map": {
+    "queued": "queued",
+    "processing": "running",
+    "completed": "succeeded",
+    "failed": "failed"
+  },
+  "capabilities": {
+    "first_frame": true,
+    "max_reference_images": 0,
+    "audio_track": "always_off"
+  }
+}
