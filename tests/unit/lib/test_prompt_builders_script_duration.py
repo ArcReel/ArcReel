@@ -9,16 +9,12 @@ from lib.prompt_builders_script import (
     build_normalize_prompt,
     format_duration_constraint,
 )
-from lib.prompt_rules.episode_target_duration import (
-    EPISODE_TARGET_DURATION_RULE_TEMPLATE,
-    render_episode_target_duration_rule,
-)
 
 #: 规则句的固定开头：未设目标时整段不注入，该开头不应出现在提示词中。
-_RULE_HEAD = EPISODE_TARGET_DURATION_RULE_TEMPLATE.split("{seconds}")[0]
+_RULE_HEAD = "本集成片目标时长约 "
 
-#: drama 脚本规划渲染的目标时长句（软目标后的两个方向合并为一句）。
-_DRAMA_TARGET_RULE = (
+#: 共享片段渲染的目标时长句（软目标后的两个方向合并为一句）。
+_SHARED_TARGET_RULE = (
     "本集成片目标时长约 {seconds} 秒：据此决定本集的单元数与拆分粒度，让各单元时长合计向该目标靠拢。"
     "这是软目标、不是硬上限：不要靠注水 / 切碎凑满，也不要为压进目标删减必要情节。"
 )
@@ -97,11 +93,11 @@ class TestEpisodeTargetDurationInjection:
 
     def test_drama_prompt_carries_the_shared_rule(self):
         prompt = _drama_prompt(episode_target_duration=120)
-        assert _DRAMA_TARGET_RULE.format(seconds=120) in prompt
+        assert _SHARED_TARGET_RULE.format(seconds=120) in prompt
 
     def test_narration_prompt_carries_the_shared_rule(self):
         prompt = _narration_prompt(episode_target_duration=120)
-        assert render_episode_target_duration_rule(120) in prompt
+        assert _SHARED_TARGET_RULE.format(seconds=120) in prompt
 
     def test_drama_prompt_omits_the_rule_without_a_target(self):
         assert _RULE_HEAD not in _drama_prompt()
@@ -112,7 +108,7 @@ class TestEpisodeTargetDurationInjection:
     def test_the_rule_coexists_with_the_default_duration_preference(self):
         """两条约束尺度不同（整集体量 vs 单场秒数），须同时呈现而非互相取代。"""
         prompt = _drama_prompt(default_duration=8, episode_target_duration=120)
-        assert _DRAMA_TARGET_RULE.format(seconds=120) in prompt
+        assert _SHARED_TARGET_RULE.format(seconds=120) in prompt
         assert "默认 8 秒" in prompt
 
 

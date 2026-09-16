@@ -961,8 +961,8 @@ class ReferenceScriptPlanDraft(BaseModel):
 # 参考生视频扁平草稿结构：两级 LLM 产出的形状
 # ---------------------------------------------------------------------------
 #
-# script_plan / prompt_authoring 的 LLM 产出与人在编辑器里写的是同一种格式（见 lib/reference_video/
-# writing_syntax.py），故 schema 退化为一层扁平：正文是一段文本，unit_id / 参考图 /
+# script_plan / prompt_authoring 的 LLM 产出与人在编辑器里写的是同一种格式（见内置共享模版片段
+# shared/writing_syntax），故 schema 退化为一层扁平：正文是一段文本，unit_id / 参考图 /
 # utterances / 音频编号一律机器派生，不让 LLM 写。schema 只承担「枚举与
 # 外层结构」这一层约束（backend 的约束解码重试也只保得住这一层），文本内的语法交
 # parser 后校验（lib/reference_video/draft_validation.py）。

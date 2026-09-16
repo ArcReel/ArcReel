@@ -655,10 +655,10 @@ class ScriptGenerator:
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
                 target_language=self.project_json.get("source_language") or "中文",
+                instructions=instructions,
             )
             # prompt_authoring 只产引用语法正文：unit_id / 时长机械沿用 script_plan，参考图执行期从正文派生，
             # 不进 LLM 输出——没让模型写的字段就没有漂移可校验，故此处无需按能力收窄的动态 schema。
-            prompt = append_user_instructions(prompt, instructions)
             schema: type = ReferencePromptAuthoringFlatScript
         else:
             # narration 两段式：script_plan 透传内容层（novel_text 等），prompt_authoring 仅产视觉层、按 segment_id 合并回 script_plan。
@@ -1318,7 +1318,7 @@ class ScriptGenerator:
             if entries_to_rewrite is None:
                 return _NO_ENTRY_TO_REWRITE_NOTE
             script_plan_units = entries_to_rewrite
-            prompt = build_reference_video_prompt(
+            return build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
                 style_description=self.project_json.get("style_description", ""),
@@ -1330,8 +1330,8 @@ class ScriptGenerator:
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
                 target_language=self.project_json.get("source_language") or "中文",
+                instructions=instructions,
             )
-            return append_user_instructions(prompt, instructions)
         # narration 两段式：script_plan 透传内容层（novel_text 等），prompt_authoring 仅产视觉层。
         # drama / ad 已在前面早返回，reference 走上面分支，故此处必为 narration。
         narration_entries = self._dry_run_entries_to_rewrite(
