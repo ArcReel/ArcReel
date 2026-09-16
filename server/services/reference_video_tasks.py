@@ -111,7 +111,7 @@ def _render_unit_prompt(
 ) -> RenderedUnitPrompt:
     """把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.reference_video.prompt_render``）。
 
-    画质/字幕/水印约束由渲染的第三段承担，本路径不追加反向尾词；
+    负向约束由 ``reference_video/unit`` 模版第三段的 ``Avoid`` 行承担，本路径不追加反向尾词；
     ``storyboard/video`` 模版的 ``Avoid`` 行只服务图生视频路径。
 
     空提示词的*结构校验*已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径

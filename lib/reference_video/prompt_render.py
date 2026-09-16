@@ -1,7 +1,8 @@
 """参考生视频路径的三段论渲染：unit 内容 + 资产表 + 能力档 → 发给视频模型的 prompt。
 
-第一段（主体绑定 + 声音声明）与第三段（风格锚定 + 画质/稳定/字幕/水印约束包）由本模块在
-渲染期机械生成，不依赖 LLM 自觉。渲染是纯函数、结果不落盘，存量内容无需迁移即获得新渲染。
+第一段（主体绑定 + 声音声明）与第三段（风格块 + 负向约束）在渲染期机械生成，不依赖 LLM 自觉；
+整段提示词由内置模版 ``reference_video/unit`` 渲染，前两段由本模块产出槽位值。渲染是纯函数、
+结果不落盘，存量内容无需迁移即获得新渲染。
 
 三段分工：
 
@@ -10,8 +11,8 @@
   两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入
 - **第二段**：单元正文 + 角色台词记号（``<X>说 {台词}``）；无归属旁白（裸 ``{台词}``）
   不下发视频模型，由 TTS / 后期配音承担
-- **第三段**：风格锚定 + 画质/稳定/字幕/水印约束包（本路径的反向约束全部由它承担，不另加
-  尾词）；画面里有两个及以上角色时补双胞胎兜底
+- **第三段**：共享风格块 + ``Avoid`` 行（视频负向提示词，本路径的反向约束全部由它承担）；
+  画面里有两个及以上不同角色时追加分身或双胞胎排除项。带商品参考图时其后再接商品高保真声明
 
 所有创作类型的输入均是 unit 正文这一段自由文本，正文只写第二段；主体绑定与参考图顺序都经
 ``@[X]`` mention 解析派生（:func:`render_unit_prompt`）。文本不含绝对秒数，时长走请求字段。
@@ -20,13 +21,13 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.audio_utils import resolve_audio_ref_path
-from lib.prompt_builders import PRODUCT_FIDELITY_CORE
+from lib.prompt_templates.builtin import builtin_templates
 from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
@@ -46,17 +47,6 @@ from lib.script_models import ReferenceResource
 
 #: 角色参考音频的项目内固定目录（与上传 / TTS 样本落盘口径一致）。
 ASSET_AUDIO_SUBDIR = "characters/refs_audio"
-
-#: 第三段约束包。面向视频模型的提示词文本（非用户可见文案），按仓库口径豁免 i18n。
-_QUALITY_PACK = "高清，细节丰富，电影质感，色彩自然，光影柔和。"
-_STABILITY_PACK = "人物面部稳定不变形、五官清晰、动作连贯自然，不僵硬，无穿模无卡顿。"
-_SUBTITLE_PACK = "保持无字幕，避免生成任何文字或字幕。"
-_WATERMARK_PACK = "不要生成水印；不要生成 Logo。"
-_NO_BGM_PACK = "禁止出现背景音乐。"
-_TWIN_PACK = (
-    "视频全程禁止出现外形、着装、配饰完全一致的人物，禁止生成同款分身、"
-    "双胞胎效果，同一画面中仅保留单个对应人物，不出现人物重复复刻。"
-)
 
 
 def _character_bucket(project: dict) -> dict[str, Any]:
@@ -99,8 +89,6 @@ def render_unit_prompt(
     project: dict,
     references: list[ReferenceResource],
     settings: VoiceRenderSettings,
-    *,
-    style: str | None = None,
 ) -> RenderedUnitPrompt:
     """把一个 unit 的书写文稿渲染成三段论 backend prompt。
 
@@ -122,6 +110,11 @@ def render_unit_prompt(
     台词渲染不看这一位——无声视频里台词文本照常下发，供应商可用作口型参考。
 
     warning 与解析预览面板同一批 ``{key, params}`` 条目，由调用方并入任务 ``result.warnings``。
+
+    第三段的风格块取 ``project`` 的 ``style`` 与 ``style_description``。分身排除项按正文中已登记的
+    完整角色列表判断，不随供应商参考图上限裁剪；同一角色的本体与衍生仍合并计一个（见 ``docs/adr/0072``）。
+    商品高保真声明只在商品参考图实际随请求发出时注入——声明指向「商品参考图」，参考缺席时
+    注入只会误导模型。
     """
     mentions = extract_mentions(text)
     utterances, warnings = derive_utterances(text)
@@ -152,15 +145,24 @@ def render_unit_prompt(
 
     audio_no, audio_speaker_reference_index = _number_audio_speakers(bindings.audio_speakers, character_image_no)
 
-    character_forms = _character_forms_by_entity(references, catalog)
-    segments = [
-        _render_segment_one(
-            [ref.name for ref in references], bindings.speakers, audio_no, characters, settings, character_forms
+    request_character_forms = _character_forms_by_entity(references, catalog)
+    co_present_characters = list(_character_forms_by_entity(registered, catalog))
+    prompt = builtin_templates.render(
+        "reference_video/unit",
+        declarations=_render_segment_one(
+            [ref.name for ref in references],
+            bindings.speakers,
+            audio_no,
+            characters,
+            settings,
+            request_character_forms,
         ),
-        _render_segment_two(text, subjects, characters, catalog),
-        _render_segment_three(len(character_forms), style),
-    ]
-    prompt = "\n\n".join(seg for seg in segments if seg)
+        body=_render_segment_two(text, subjects, characters, catalog),
+        style=_project_text(project, "style"),
+        style_description=_project_text(project, "style_description"),
+        co_present_characters=co_present_characters if len(co_present_characters) >= 2 else [],
+        products=list(dict.fromkeys(ref.name for ref in references if ref.type == "product" and ref.name)),
+    )
     return RenderedUnitPrompt(
         prompt=prompt,
         audio_speakers=list(bindings.audio_speakers),
@@ -185,40 +187,13 @@ def render_video_unit_prompt(
     references = request_references
     if references is None:
         references, _missing = derive_references_from_text(text, project)
-    rendered = render_unit_prompt(
-        text,
-        project,
-        references,
-        settings,
-        style=project.get("style"),
-    )
-    product_names = list(dict.fromkeys(reference.name for reference in references if reference.type == "product"))
-    return replace(rendered, prompt=_append_product_fidelity_tail(rendered.prompt, product_names))
+    return render_unit_prompt(text, project, references, settings)
 
 
-def _append_product_fidelity_tail(prompt: str, product_names: list[str]) -> str:
-    """给带商品参考的单元 prompt 追加高保真还原指令。
-
-    仅在商品参考图实际随请求发出时调用——指令指向「商品参考图」，参考缺席时追加只会误导模型。
-    ``product_names`` 为空返回原 prompt；重复调用幂等。显式声明优先于第三段约束包里的文字 / Logo
-    禁止项（``_WATERMARK_PACK`` 等）：那些约束防的是画面里凭空多出的水印 / Logo，与「商品参考图
-    本身自带的品牌标识须原样保留」并不矛盾，但两条指令的字面文本在同一 prompt 里共存时对模型是
-    冲突信号，需要显式排出优先级。
-    """
-    names = "".join(f"「{name}」" for name in product_names if name)
-    if not names:
-        return prompt
-    tail = (
-        f"商品高保真还原（最高优先级，优先于前述文字/Logo 禁止项）：画面中的商品{names}"
-        f"必须与商品参考图完全一致——{PRODUCT_FIDELITY_CORE}，不得重新设计或美化商品本身；"
-        "前述文字/Logo 禁止项仅指画面中不得凭空新增文字或 Logo，商品参考图自带的文字与 Logo"
-        "须原样保留；项目画风只作用于商品以外的画面元素。"
-    )
-    if not prompt or not prompt.strip():
-        return tail
-    if tail in prompt:
-        return prompt
-    return f"{prompt.rstrip()}\n\n{tail}"
+def _project_text(project: dict, key: str) -> str:
+    """项目上的风格文本字段；外部编辑写坏成非字符串时按空处理，与角色表的软降级口径一致。"""
+    value = project.get(key)
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _warning_unregistered(name: str) -> dict[str, Any]:
@@ -294,6 +269,8 @@ def _render_segment_one(
 
     ``character_forms`` 是 :func:`_character_forms_by_entity` 的分组，用来声明同一角色的
     多个形态；它按资产条目分组，与按位置编号的 ``labels`` 不同源。
+
+    返回 ``reference_video/unit`` 模版的 ``declarations`` 槽位值。
     """
     lines: list[str] = []
     bindings = "、".join(f"<{label}>@图片{i}" for i, label in enumerate(labels, start=1) if label)
@@ -307,9 +284,9 @@ def _render_segment_one(
 def _character_forms_by_entity(references: list[ReferenceResource], catalog: ReferenceCatalog) -> dict[str, list[str]]:
     """角色参考图按承载它的资产条目分组：``本体名 → [该条目出现的形态记号]``，顺序随参考图顺序。
 
-    衍生与本体是两个引用名、两张参考图，指的却是同一个人（见 ``docs/adr/0072``）。第一段据此
-    声明形态归属，第三段的双胞胎兜底据此数「画面里有几个人」——两处问的是同一个问题，故只分组
-    一次。未登记的名字自成一条：它指不到任何条目，与别的名字不该合并。
+    衍生与本体是两个引用名、两张参考图，指的却是同一个人（见 ``docs/adr/0072``）。第一段对实际
+    随请求发出的参考图调用本函数，第三段对正文中完整的已登记引用调用；两处都按同一项目目录合并
+    角色身份。未登记的名字自成一条：它指不到任何条目，与别的名字不该合并。
 
     只看 ``character`` 类型的引用：跨类型重名的存量项目里，同名场景按名字查角色表会查出条目，
     把两张毫无关系的图说成同一角色的两套外观。
@@ -425,23 +402,6 @@ def _join_line_pieces(pieces: list[str | None]) -> str:
     if dropped:
         rendered = rendered.rstrip(_MARK_JOINERS + _MARK_SPACES)
     return rendered
-
-
-def _render_segment_three(character_count: int, style: str | None) -> str:
-    """风格锚定 + 画质/稳定/字幕/水印约束包；画面里有两个及以上角色时补双胞胎兜底。
-
-    ``character_count`` 数的是不同角色，不是角色参考图张数：同一角色的本体与衍生同现时是两张
-    参考图、一个人（见 ``docs/adr/0072``），此时注入「同一画面中仅保留单个对应人物」会与第一段
-    「这是同一个人的两套外观、都要出现」直接对立。
-    """
-    lines: list[str] = []
-    if style:
-        lines.append(f"整体视觉风格：{style}。")
-    lines.append(_QUALITY_PACK + _STABILITY_PACK)
-    lines.append(_SUBTITLE_PACK + _WATERMARK_PACK + _NO_BGM_PACK)
-    if character_count >= 2:
-        lines.append(_TWIN_PACK)
-    return "\n".join(lines)
 
 
 def resolve_reference_audio_paths(project: dict, project_path: Path) -> dict[str, Path]:

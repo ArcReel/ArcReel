@@ -52,6 +52,7 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
                 "style": "唐风水墨",
+                "style_description": "墨色晕染，留白构图",
                 "characters": {
                     "张三": {"description": "主角", "character_sheet": "characters/张三.png"},
                 },
@@ -217,7 +218,8 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     assert "@酒馆" not in rendered
     assert "@长剑" not in rendered
     assert "[图" not in rendered  # 对照表编号已废除
-    assert "保持无字幕" in rendered  # 第三段约束包
+    assert "Style: 唐风水墨\nVisual style: 墨色晕染，留白构图\n" in rendered  # 第三段风格块
+    assert "Avoid: " in rendered  # 第三段视频负向提示词
 
     # 6) 断言 reference_images 传了 3 个临时文件
     ref_images = captured_backend_kwargs["reference_images"]

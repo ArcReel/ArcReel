@@ -25,11 +25,6 @@ from lib.reference_image_numbering import (
 )
 from lib.schema_guards import is_str
 
-# 商品保真核心句由资产图模版与参考视频渲染入口共用，正文只存在于共享片段这一份；
-# 「参考图中的出镜人物一律不保留」只对资产图成立，留在 product 守卫变体里，不并进这一句。
-_, _ASSET_SHEET_PARTIALS = builtin_templates.read_source("asset/sheet")
-PRODUCT_FIDELITY_CORE = _ASSET_SHEET_PARTIALS["shared/product_fidelity"].rstrip("\n")
-
 
 def _asset_prompt(asset_type: str, name: str, description: str, style: str = "", style_description: str = "") -> str:
     return builtin_templates.render(
