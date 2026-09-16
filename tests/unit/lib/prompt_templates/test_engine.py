@@ -160,7 +160,7 @@ def test_sandbox_blocks_private_attributes(tmp_path):
 
 
 def test_partial_in_body_is_not_injected_twice(tmp_path):
-    write_template(tmp_path, '{{ partial("shared/style") }}\n\n{{ name }}')
+    write_template(tmp_path, '{{ partial("shared/style") }}\n\n{{ name }}', idempotent=True)
     write_partial(tmp_path, "shared/style", "Style: 电影感\n")
     templates = PromptTemplates(tmp_path)
     once = templates.render("text/example", name="人物走进房间。")
@@ -178,7 +178,7 @@ def test_nested_partial_sees_caller_context(tmp_path):
 
 def test_inline_partial_is_injected_even_when_body_repeats_it(tmp_path):
     """行内片段常是短措辞，正文里偶然同形的字串不得把它吞掉。"""
-    write_template(tmp_path, '排除：{{ partial("shared/people") }}水印\n\n{{ name }}')
+    write_template(tmp_path, '排除：{{ partial("shared/people") }}水印\n\n{{ name }}', idempotent=True)
     write_partial(tmp_path, "shared/people", "出镜人物、")
     templates = PromptTemplates(tmp_path)
     rendered = templates.render("text/example", name="昏暗古朴，无出镜人物、无声响。")
@@ -186,7 +186,7 @@ def test_inline_partial_is_injected_even_when_body_repeats_it(tmp_path):
 
 
 def test_block_partial_is_skipped_only_on_a_full_line_match(tmp_path):
-    write_template(tmp_path, '{{ partial("shared/avoid") }}\n\n{{ name }}')
+    write_template(tmp_path, '{{ partial("shared/avoid") }}\n\n{{ name }}', idempotent=True)
     write_partial(tmp_path, "shared/avoid", "Avoid: 水印")
     templates = PromptTemplates(tmp_path)
     assert templates.render("text/example", name="Avoid: 水印") == "Avoid: 水印"
@@ -208,7 +208,7 @@ def test_filters_apply_to_rendered_partial_text(tmp_path):
 
 
 def test_trailing_partial_does_not_accumulate_blank_lines(tmp_path):
-    write_template(tmp_path, '{{ name }}\n\n{{ partial("shared/avoid") }}')
+    write_template(tmp_path, '{{ name }}\n\n{{ partial("shared/avoid") }}', idempotent=True)
     write_partial(tmp_path, "shared/avoid", "Avoid: 水印")
     templates = PromptTemplates(tmp_path)
     once = templates.render("text/example", name="主体")
@@ -223,6 +223,67 @@ def test_empty_block_partial_in_contiguous_list_removes_its_line(tmp_path):
 
 
 def test_skipped_block_partial_in_contiguous_list_removes_its_line(tmp_path):
-    write_template(tmp_path, '{{ name }}\n{{ partial("shared/rule") }}\n- 丙')
+    write_template(tmp_path, '{{ name }}\n{{ partial("shared/rule") }}\n- 丙', idempotent=True)
     write_partial(tmp_path, "shared/rule", "- 乙")
     assert PromptTemplates(tmp_path).render("text/example", name="- 甲\n- 乙") == "- 甲\n- 乙\n- 丙"
+
+
+def test_block_partial_lines_are_deduplicated_one_by_one(tmp_path):
+    """风格块的一行已在正文里时只补缺的那行，取值变化的那行照常注入。"""
+    write_template(tmp_path, '{{ partial("shared/style") }}\n\n{{ name }}', idempotent=True)
+    write_partial(tmp_path, "shared/style", "Style: 水墨\nVisual style: 留白写意")
+    templates = PromptTemplates(tmp_path)
+    rendered = templates.render("text/example", name="Style: 水墨\n\n人物走进房间。")
+    assert rendered == "Visual style: 留白写意\n\nStyle: 水墨\n\n人物走进房间。"
+    assert templates.render("text/example", name=rendered) == rendered
+
+
+def test_templates_without_idempotent_never_skip_partials(tmp_path):
+    write_template(
+        tmp_path,
+        '角色：{{ name }}\n{{ partial("shared/lists/names") }}\n场景：\n{{ partial("shared/lists/names") }}\n'
+        '道具：\n{{ partial("shared/lists/names") }}\n\n{{ partial("shared/avoid") }}',
+    )
+    write_partial(tmp_path, "shared/lists/names", "（暂无）")
+    write_partial(tmp_path, "shared/avoid", "Avoid: 水印")
+    rendered = PromptTemplates(tmp_path).render("text/example", name="\nAvoid: 水印")
+    assert rendered == "角色：\nAvoid: 水印\n（暂无）\n场景：\n（暂无）\n道具：\n（暂无）\n\nAvoid: 水印"
+
+
+def test_list_partials_are_never_skipped_even_in_idempotent_templates(tmp_path):
+    write_template(
+        tmp_path,
+        '本集：\n{{ partial("shared/lists/outline") }}\n\n下集：\n{{ partial("shared/lists/outline") }}\n\n{{ name }}',
+        idempotent=True,
+    )
+    write_partial(tmp_path, "shared/lists/outline", "故事节点：\n- 相遇")
+    rendered = PromptTemplates(tmp_path).render("text/example", name="故事节点：")
+    assert rendered == "本集：\n故事节点：\n- 相遇\n\n下集：\n故事节点：\n- 相遇\n\n故事节点："
+
+
+def test_idempotent_must_be_a_boolean(tmp_path):
+    write_template(tmp_path, "{{ name }}", idempotent="yes")
+    with pytest.raises(TemplateError, match="idempotent"):
+        PromptTemplates(tmp_path)
+
+
+def test_slot_values_keep_their_blank_lines_verbatim(tmp_path):
+    """空行塌缩只作用于模版自身的空白，源文窗口一类槽位值逐字保留。"""
+    write_template(tmp_path, '\n\n{{ partial("shared/head") }}\n\n\n\n{{ name }}\n\n\n')
+    write_partial(tmp_path, "shared/head", "开头：{{ name }}")
+    source = "\n\n第一段\n\n\n\n第二段\n\n\n"
+    rendered = PromptTemplates(tmp_path).render("text/example", name=source)
+    assert rendered == f"开头：{source}\n\n{source}"
+
+
+def test_empty_block_variant_in_a_list_leaves_no_blank_line(tmp_path):
+    write_template(
+        tmp_path,
+        '- 甲\n{{ variant("text/example/extra", source_kind) }}\n{{ variant("text/example/more", source_kind) }}\n- {{ name }}',
+        applies_to={"source_kind": ["novel"]},
+        slots={"source_kind": "源文类型", "name": "名称"},
+    )
+    write_partial(tmp_path, "text/example/extra/novel", "")
+    write_partial(tmp_path, "text/example/more/novel", "- 乙")
+    rendered = PromptTemplates(tmp_path).render("text/example", source_kind="novel", name="丙")
+    assert rendered == "- 甲\n- 乙\n- 丙"

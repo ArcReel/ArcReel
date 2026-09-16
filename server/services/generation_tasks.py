@@ -93,6 +93,7 @@ from lib.prompt_builders import (
     build_scene_prompt,
     render_storyboard_image_prompt,
 )
+from lib.prompt_style import normalize_style_value
 from lib.prompt_utils import render_storyboard_video_prompt
 from lib.reference_catalog import build_reference_catalog
 from lib.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, ReferenceImageSlot, clamp_reference_images
@@ -3368,8 +3369,8 @@ async def execute_grid_task(
             id_field=id_field,
             rows=grid.rows,
             cols=grid.cols,
-            style=str(project.get("style") or ""),
-            style_description=str(project.get("style_description") or ""),
+            style=normalize_style_value(project.get("style")),
+            style_description=normalize_style_value(project.get("style_description")),
             aspect_ratio=member_aspect_ratio,
             grid_aspect_ratio=grid_aspect_ratio,
             references=sent_references.visual_references,

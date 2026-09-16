@@ -1,4 +1,4 @@
-"""内置目录扫描通过加载接口执行语法、槽位与变体族完整性约束。"""
+"""内置目录扫描通过加载接口执行语法、槽位、变体族完整性与判重开启范围约束。"""
 
 from lib.prompt_templates import PromptTemplates
 from lib.prompt_templates.builtin import BUILTIN_DIRECTORY
@@ -13,6 +13,8 @@ def test_builtin_directory_has_valid_slots_variants_and_template_syntax():
         assert body.strip()
         # 行距写在引用处，片段只写措辞本身。
         assert not [name for name, source in partials.items() if source.startswith("\n")]
+    # 判重只给存在纯文本回贴形态的模版开启，其余模版多处引用同一数据片段时不能被吞掉。
+    assert {entry.id for entry in metadata if entry.idempotent} == {"storyboard/image", "storyboard/video"}
     asset = next(entry for entry in metadata if entry.id == "asset/sheet")
     assert set(asset.applies_to["asset_type"]) == {"character", "character_derivative", "scene", "prop", "product"}
     for asset_type in asset.applies_to["asset_type"]:

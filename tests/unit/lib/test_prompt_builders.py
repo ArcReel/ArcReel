@@ -193,6 +193,32 @@ class TestRenderStoryboardImagePrompt:
         )
 
 
+class TestTextFormRerenderAfterStyleFieldsChange:
+    """纯文本形态回贴后项目风格字段才补齐，再渲染时每条风格声明仍只出现一次。"""
+
+    @pytest.mark.parametrize(
+        ("first", "then"),
+        [
+            ({"style": "水墨"}, {"style": "水墨", "style_description": "留白写意"}),
+            ({"style_description": "留白写意"}, {"style": "水墨", "style_description": "留白写意"}),
+        ],
+        ids=["description-added", "style-added"],
+    )
+    def test_each_style_declaration_appears_once(self, first, then):
+        once = render_storyboard_image_prompt("林清坐在窗边木桌前", **first)
+        again = render_storyboard_image_prompt(once, **then)
+        lines = again.split("\n")
+        assert lines.count("Style: 水墨") == 1
+        assert lines.count("Visual style: 留白写意") == 1
+        assert lines.count("Avoid: 水印、多余文字、Logo") == 1
+        assert render_storyboard_image_prompt(again, **then) == again
+
+    def test_legacy_text_with_description_first_is_not_stacked(self):
+        legacy = "Visual style: 留白写意\n\nStyle: 水墨\n\n林清坐在窗边木桌前\n\nAvoid: 水印、多余文字、Logo"
+        rendered = render_storyboard_image_prompt(legacy, style="水墨", style_description="留白写意")
+        assert rendered == legacy
+
+
 def test_product_sheet_preserves_product_and_ignores_project_style():
     prompt = build_product_prompt("护手霜", "白色管装", "水彩", "柔和笔触")
     assert "商品「护手霜」的标准资产图。" in prompt

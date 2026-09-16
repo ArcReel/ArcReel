@@ -232,7 +232,8 @@ class TestBuildGridPrompt:
         ):
             assert dropped not in prompt
 
-    def test_existing_avoid_line_is_not_appended_again(self):
+    def test_avoid_line_still_closes_the_prompt_when_a_cell_repeats_it(self):
+        """宫格没有纯文本回贴形态，模版不开启判重：画格正文里的同形行不吞掉收尾的 Avoid 行。"""
         avoid = "Avoid: 水印、多余文字、Logo、边框、画格间隙或留白、合并 / 缺失 / 错位的画格、连续全景（非分格）"
         scenes = [{"scene_id": "S1", "image_prompt": f"主体描述\n{avoid}", "video_prompt": "a1"}]
 
@@ -240,7 +241,7 @@ class TestBuildGridPrompt:
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
         )
 
-        assert prompt.count(avoid) == 1
+        assert prompt.endswith(f"\n\n{avoid}")
 
     def test_single_scene_chunk_lists_cells_without_blank_lines(self):
         scenes = [self._scene("S1", "s1", "a1")]

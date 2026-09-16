@@ -27,6 +27,7 @@ from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.audio_utils import resolve_audio_ref_path
+from lib.prompt_style import normalize_style_value
 from lib.prompt_templates.builtin import builtin_templates
 from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.reference_video.script_preview import (
@@ -158,8 +159,8 @@ def render_unit_prompt(
             request_character_forms,
         ),
         body=_render_segment_two(text, subjects, characters, catalog),
-        style=_project_text(project, "style"),
-        style_description=_project_text(project, "style_description"),
+        style=normalize_style_value(project.get("style")),
+        style_description=normalize_style_value(project.get("style_description")),
         co_present_characters=co_present_characters if len(co_present_characters) >= 2 else [],
         products=list(dict.fromkeys(ref.name for ref in references if ref.type == "product" and ref.name)),
     )
@@ -188,12 +189,6 @@ def render_video_unit_prompt(
     if references is None:
         references, _missing = derive_references_from_text(text, project)
     return render_unit_prompt(text, project, references, settings)
-
-
-def _project_text(project: dict, key: str) -> str:
-    """项目上的风格文本字段；外部编辑写坏成非字符串时按空处理，与角色表的软降级口径一致。"""
-    value = project.get(key)
-    return value.strip() if isinstance(value, str) else ""
 
 
 def _warning_unregistered(name: str) -> dict[str, Any]:

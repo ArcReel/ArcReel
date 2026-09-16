@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from math import gcd
 
+from lib.prompt_style import normalize_style_value
 from lib.prompt_templates.builtin import builtin_templates
 from lib.reference_image_numbering import (
     ReferenceImageSlot,
@@ -172,8 +173,8 @@ def build_grid_prompt(
         },
         transitions=transitions,
         placeholders=placeholders,
-        style=style,
-        style_description=style_description,
+        style=normalize_style_value(style),
+        style_description=normalize_style_value(style_description),
     )
 
 

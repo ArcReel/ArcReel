@@ -11,6 +11,7 @@ from typing import Any, get_args
 import yaml
 
 from lib.asset_types import normalize_asset_bucket, normalize_asset_name
+from lib.prompt_style import normalize_style_value
 from lib.prompt_templates.builtin import builtin_templates
 from lib.reference_image_numbering import REFERENCE_IMAGES_KEY
 from lib.script_models import CameraMotion, ShotType
@@ -33,6 +34,10 @@ def _dump_prompt_yaml(ordered: Mapping[str, Any]) -> str:
         width=_PROMPT_YAML_WIDTH,
     )
 
+
+# 兼容纯文本回贴中不含 Logo 的视频 Avoid 行：只按整行精确识别并移除，由模版
+# 注入完整声明；不做前缀或键匹配，用户手写的 Avoid 行原样保留。
+_LEGACY_VIDEO_AVOID_LINE = "Avoid: BGM、文字字幕、水印"
 
 # 预设选项：真相源是 lib.script_models 的 Literal 词表，此处派生避免双写漂移
 SHOT_TYPES: list[str] = list(get_args(ShotType))
@@ -72,8 +77,8 @@ def image_prompt_to_yaml(
     return (
         builtin_templates.render(
             "storyboard/image",
-            style=project_style,
-            style_description=style_description.strip(),
+            style=normalize_style_value(project_style),
+            style_description=normalize_style_value(style_description),
             reference_images=yaml_section({REFERENCE_IMAGES_KEY: reference_images}) if reference_images else "",
             structured_body=_dump_prompt_yaml(ordered).rstrip(),
             text_body="",
@@ -163,7 +168,8 @@ def normalize_video_prompt(prompt: object) -> str:
     if isinstance(prompt, str):
         if not prompt.strip():
             raise ValueError("prompt must not be empty")
-        return builtin_templates.render("storyboard/video", body=prompt.rstrip())
+        body = "\n".join(line for line in prompt.split("\n") if line != _LEGACY_VIDEO_AVOID_LINE)
+        return builtin_templates.render("storyboard/video", body=body.rstrip())
     if not isinstance(prompt, dict):
         raise ValueError("prompt must be a string or object")
     if not is_structured_video_prompt(prompt):

@@ -46,6 +46,7 @@ from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
 from lib.grid_manager import GridManager
 from lib.project_manager import grid_storyboard_enabled
+from lib.prompt_style import normalize_style_value
 from lib.reference_admission import admit_storyboard_items
 from lib.reference_catalog import build_reference_catalog
 from lib.resource_paths import resource_relative_path
@@ -201,8 +202,8 @@ async def handle_generate_grid(
         project_path = ctx.project_path
         items, id_field, _, _, _ = get_storyboard_items(script)
         aspect_ratio = video_aspect_ratio_of(project)
-        style = project.get("style", "")
-        style_description = str(project.get("style_description") or "")
+        style = normalize_style_value(project.get("style"))
+        style_description = normalize_style_value(project.get("style_description"))
         resolver = active_artifact_currency_resolver(project_path, project)
         groups = group_scenes_by_segment_break(items, id_field)
         # 失败落回分镜时用来带上旧图路径与状态（见 ``_fail_scenes`` docstring）；

@@ -1,13 +1,15 @@
 """以目录为依赖的整段提示词模版。
 
 换行由引用处决定：片段文件只写措辞本身，不带前导空行，也不带尾换行（引擎按 ``rstrip``
-去尾）。块与块之间的行距写在模版正文的引用处。块级引用渲染为空或被判重跳过时，所在行连同
-行尾换行一起去掉，连续列表里的空变体因此不留空行；整段渲染完成后，连续三个及以上的换行塌缩为
-两个、首尾换行去掉，块与块之间多出的空行由此消失。
+去尾）。块与块之间的行距写在模版正文的引用处。块级引用（表达式独占一行）渲染为空或判重后无剩余
+内容时，这一行连同行尾换行一起消失，连续列表里的空变体因此不留空行；整段渲染完成后，模版自身产生的连续三个
+及以上换行塌缩为两个、首尾换行去掉。槽位值不参与塌缩，其中的空行与首尾换行逐字保留。
 
-幂等去重只认块级引用——表达式独占一行的那种。片段的渲染结果以完整行的形式已经出现在正文
-里时跳过注入，保住纯文本形态重复渲染不叠加。行内引用（同一行还有别的文本或片段）一律注入，
-短措辞因此不会被正文里偶然同形的字串吞掉。
+幂等去重由 frontmatter ``idempotent: true`` 显式开启，只给存在纯文本回贴形态的模版用；未开启
+的模版从不跳过任何片段。开启后只有块级引用参与判重，且逐行判定：片段渲染结果中已在正文或
+先前注入的片段里以完整行出现的行跳过，其余行照常注入，风格块里一行取值变化不会让另一行重复。
+行内引用一律注入，短措辞不会被正文里偶然同形的字串吞掉；``lists/`` 目录下的列表片段承载数据，
+在任何模版里都不判重。
 """
 
 import re
@@ -20,7 +22,7 @@ from jinja2 import StrictUndefined, Template, meta, nodes, pass_context
 from jinja2.exceptions import TemplateError as JinjaError
 from jinja2.runtime import Context
 from jinja2.sandbox import SandboxedEnvironment
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 class TemplateError(ValueError):
@@ -38,6 +40,7 @@ class TemplateMeta(BaseModel):
     slots: dict[str, str]
     protected: bool
     output_schema: str | None = None
+    idempotent: bool = Field(default=False, exclude=True)
 
 
 class PromptTemplates:
@@ -48,9 +51,11 @@ class PromptTemplates:
             lstrip_blocks=True,
             keep_trailing_newline=True,
             autoescape=False,
+            finalize=self._protect_newlines,
         )
         self._env.filters = {name: self._env.filters[name] for name in ("join", "indent", "trim")}
         self._env.globals = {"partial": None, "variant": None}
+        self._newline_marker = f"\x00{uuid4().hex}\x00"
         self._partials_dir = (directory / "partials").resolve()
         self._partials: dict[str, Template] = {}
         self._sources: dict[str, dict[str, str]] = {}
@@ -104,7 +109,10 @@ class PromptTemplates:
             finally:
                 depth -= 1
             # 嵌套片段就地展开，只有正文里的引用带标记参与块级判定。
-            return text if depth else f"{opening}{text}{closing}"
+            if depth:
+                return _Fragment(text)
+            dedupe = _DEDUPE if metadata.idempotent and "lists" not in name.split("/") else _INJECT
+            return _Fragment(f"{opening}{dedupe}{text}{closing}")
 
         @pass_context
         def variant(context: Context, family: str, axis_value: str, **kwargs: Any) -> str:
@@ -116,7 +124,14 @@ class PromptTemplates:
             rendered = template.render({**slots, "partial": partial, "variant": variant})
         except JinjaError as exc:
             raise TemplateError(f"{template_id}: 渲染失败: {exc}") from exc
-        return _collapse_blank_lines(_inject_fragments(rendered, opening, closing, body))
+        injected = _inject_fragments(
+            rendered,
+            opening,
+            closing,
+            body.replace(self._newline_marker, "\n"),
+            self._newline_marker,
+        )
+        return _collapse_blank_lines(injected).replace(self._newline_marker, "\n")
 
     def list_templates(self) -> list[TemplateMeta]:
         return [metadata.model_copy(deep=True) for metadata, _, _ in self._registry.values()]
@@ -124,6 +139,12 @@ class PromptTemplates:
     def read_source(self, template_id: str) -> tuple[str, dict[str, str]]:
         _, body, _ = self._get(template_id)
         return body, dict(self._sources[template_id])
+
+    def _protect_newlines(self, value: Any) -> Any:
+        """槽位值里的换行换成占位符，塌缩与块级判定只看模版自身的换行，渲染末尾再还原。"""
+        if isinstance(value, str) and not isinstance(value, _Fragment):
+            return value.replace("\n", self._newline_marker)
+        return value
 
     def _get(self, template_id: str) -> tuple[TemplateMeta, str, Template]:
         try:
@@ -215,36 +236,60 @@ class PromptTemplates:
                 raise TemplateError(f"{metadata.id}: 循环只允许在 lists/ 列表片段中展开列表槽位")
 
 
+class _Fragment(str):
+    """片段的渲染结果，已由片段内部保护过槽位换行，输出时不再处理。"""
+
+
+_DEDUPE = "+"
+_INJECT = "-"
+
+
 def _blank(*_args: Any, **_kwargs: Any) -> str:
     """第一遍渲染里片段一律为空，只留槽位投影出的正文。"""
     return ""
 
 
-def _inject_fragments(rendered: str, opening: str, closing: str, body: str) -> str:
-    """去掉片段标记，沿途按块级引用判重。
+def _inject_fragments(rendered: str, opening: str, closing: str, body: str, newline_marker: str) -> str:
+    """去掉片段标记，块级引用按需逐行判重，渲染为空的块级引用整行删去。
 
-    ``seen`` 从正文起步并累积已注入的片段，同一段措辞在一次渲染里因此只出现一次。
+    ``seen`` 是还原了槽位换行的正文，并累积已注入的片段；判重只对照本片段之前的内容，
+    片段内部的同形行不互相吞掉。
     """
     parts: list[str] = []
     seen = body
     cursor = 0
     while (start := rendered.find(opening, cursor)) != -1:
         end = rendered.index(closing, start)
-        text = rendered[start + len(opening) : end]
+        dedupe = rendered[start + len(opening)] == _DEDUPE
+        text = rendered[start + len(opening) + 1 : end]
         after = end + len(closing)
         parts.append(rendered[cursor:start])
         block = (start == 0 or rendered[start - 1] == "\n") and (after == len(rendered) or rendered[after] == "\n")
-        if block and (not text or _holds_full_lines(seen, text)):
-            # 空的或已在正文里的块级片段连同所在行一起去掉，连续列表里不留空行。
-            if after < len(rendered):
-                after += 1
-        else:
+        if block and dedupe:
+            text = _unseen_lines(seen, text, newline_marker)
+        if text:
             parts.append(text)
-            if text:
-                seen = f"{seen}\n{text}"
+            restored = text.replace(newline_marker, "\n")
+            seen = f"{seen}\n{restored}"
+        elif block and after < len(rendered):
+            after += 1
         cursor = after
     parts.append(rendered[cursor:])
     return "".join(parts)
+
+
+def _unseen_lines(seen: str, text: str, newline_marker: str) -> str:
+    """去掉 *text* 中已以完整行出现在 *seen* 里的行；空白行保留作行距，首尾空行去掉。"""
+    kept = [
+        line
+        for line in text.split("\n")
+        if not (restored := line.replace(newline_marker, "\n")).strip() or not _holds_full_lines(seen, restored)
+    ]
+    while kept and not kept[0]:
+        kept.pop(0)
+    while kept and not kept[-1]:
+        kept.pop()
+    return "\n".join(kept)
 
 
 def _holds_full_lines(haystack: str, needle: str) -> bool:
@@ -259,7 +304,7 @@ def _holds_full_lines(haystack: str, needle: str) -> bool:
 
 
 def _collapse_blank_lines(rendered: str) -> str:
-    """空片段与被跳过的块级片段留下的空行在这里消失。"""
+    """模版行距里多余的空行在这里消失；槽位换行此时仍是占位符，不受影响。"""
     return re.sub(r"\n{3,}", "\n\n", rendered).strip("\n")
 
 

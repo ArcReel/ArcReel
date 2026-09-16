@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from lib.prompt_style import normalize_style_value
 from lib.prompt_templates.builtin import builtin_templates
 from lib.prompt_utils import (
     image_prompt_to_yaml,
@@ -23,7 +24,6 @@ from lib.reference_image_numbering import (
     reference_images_declaration,
     render_reference_mentions,
 )
-from lib.schema_guards import is_str
 
 
 def _asset_prompt(asset_type: str, name: str, description: str, style: str = "", style_description: str = "") -> str:
@@ -32,8 +32,8 @@ def _asset_prompt(asset_type: str, name: str, description: str, style: str = "",
         asset_type=asset_type,
         name=name,
         description=description,
-        style=style,
-        style_description=style_description,
+        style=normalize_style_value(style),
+        style_description=normalize_style_value(style_description),
     )
 
 
@@ -83,9 +83,9 @@ def render_storyboard_image_prompt(
     的渲染为裸名；没有参考图就没有声明行。商品参考图的保真要求并入声明行。
     """
 
-    if not is_str(style_description):
-        raise TypeError("style_description must be a string")
-    projected, normalized_style = project_storyboard_image_prompt(image_prompt, style)
+    projected, projected_style = project_storyboard_image_prompt(image_prompt, style)
+    normalized_style = normalize_style_value(projected_style)
+    normalized_description = normalize_style_value(style_description)
     declaration = reference_images_declaration(references)
 
     if isinstance(projected, dict):
@@ -94,12 +94,12 @@ def render_storyboard_image_prompt(
             projected,
             normalized_style,
             reference_images=declaration,
-            style_description=style_description,
+            style_description=normalized_description,
         ).rstrip()
     return builtin_templates.render(
         "storyboard/image",
         style=normalized_style,
-        style_description=style_description.strip(),
+        style_description=normalized_description,
         reference_images=yaml_section({REFERENCE_IMAGES_KEY: declaration}) if declaration else "",
         structured_body="",
         text_body=render_reference_mentions(projected, references),

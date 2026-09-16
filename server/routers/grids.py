@@ -31,6 +31,7 @@ from lib.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_s
 from lib.json_io import domain_error_on_value_error
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
+from lib.prompt_style import normalize_style_value
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
@@ -64,7 +65,7 @@ class GenerateGridResponse(BaseModel):
     # 逐宫格给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每一张
     # 宫格都等到全批落库为止；未产出宫格的分组不进映射，调用方据此不给它们打标。
     task_ids_by_grid: dict[str, str]
-    # 批量语义：全部入队都命中既有任务（本次一个新任务都没建）才为 True
+    # 批量语义：全部入队都命中既有任务（一个新任务都没建）才为 True
     deduped: bool
     message: str
 
@@ -116,10 +117,8 @@ async def generate_grid(
 
     items, id_field, _, _, _ = get_storyboard_items(script)
     aspect_ratio = video_aspect_ratio_of(project)
-    # style 同样允许显式 null，须显式判空而非依赖 dict.get 的默认值
-    raw_style = project.get("style")
-    style = raw_style if raw_style is not None else ""
-    style_description = str(project.get("style_description") or "")
+    style = normalize_style_value(project.get("style"))
+    style_description = normalize_style_value(project.get("style_description"))
 
     # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；判定与费用估算、前端预览同源
     allow_large_grid = await resolve_large_grid_allowed(project)

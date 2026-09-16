@@ -7,6 +7,7 @@ applies_to: {}
 slots:
   body: 已序列化或纯文本的视频正文，含按门控派生的发声声明
 protected: false
+idempotent: true
 ---
 {{ body }}
 

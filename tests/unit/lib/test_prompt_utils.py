@@ -295,6 +295,21 @@ class TestRenderStoryboardVideoPrompt:
         assert self._render(rendered) == rendered
         assert rendered.count("Avoid:") == 1
 
+    @pytest.mark.parametrize(
+        "legacy",
+        [
+            "镜头缓缓推近\n\nAvoid: BGM、文字字幕、水印",
+            "Action: 起身\nCamera_Motion: Static\nAmbiance_Audio: ''\nAvoid: BGM、文字字幕、水印\n",
+        ],
+        ids=["text", "structured-preview"],
+    )
+    def test_legacy_avoid_line_without_logo_is_upgraded_on_rerender(self, legacy):
+        """纯文本回贴中不含 Logo 的 Avoid 行由模版完整声明替换，不叠出第二行。"""
+        rendered = self._render(legacy, content_mode="narration")
+        assert rendered.count("Avoid:") == 1
+        assert rendered.endswith("Avoid: BGM、文字字幕、水印、Logo")
+        assert self._render(rendered, content_mode="narration") == rendered
+
     def test_speech_sections_already_in_body_are_not_appended_twice(self):
         """结构化 → 文本以当前渲染结果为初值：正文已带发声声明段时不叠出第二份。"""
         seed = self._render({"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"})

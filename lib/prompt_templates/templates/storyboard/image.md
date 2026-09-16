@@ -11,6 +11,7 @@ slots:
   structured_body: 已序列化的 Scene 与 Composition，纯文本形态为空
   text_body: 纯文本正文，结构化形态为空
 protected: false
+idempotent: true
 ---
 {{ partial("shared/style") }}
 {% if reference_images %}
