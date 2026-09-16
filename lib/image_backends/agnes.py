@@ -116,9 +116,15 @@ class AgnesImageBackend:
             "size": f"{width}x{height}",
         }
         if request.reference_images:
-            # I2I 参考图随同一请求体下发 data-URI 列表（image 字段）。读盘 + base64 编码
-            # （可能数 MB）offload 到线程，避免阻塞事件循环。
-            payload["image"] = await asyncio.to_thread(self._build_reference_images, request)
+            # I2I 参考图放在 extra_body.image（data-URI 列表），与视频后端同一约定：
+            # lib/video_backends/agnes.py 里参考图/首尾帧走 extra_body.image，只有「单张起始图」
+            # 才落顶层 image。本后端此前把「参考图列表」放顶层 image，上游以
+            # 403 PermissionDeniedError("Model is blocked") 拒绝——不带参考图的 T2I 反而正常，
+            # 所以这个失败只在 I2I 路径上出现。
+            # 读盘 + base64 编码（可能数 MB）offload 到线程，避免阻塞事件循环。
+            payload["extra_body"] = {
+                "image": await asyncio.to_thread(self._build_reference_images, request),
+            }
 
         data = await self._submit(payload)
         image_uri = await self._persist_image(data, request.output_path)

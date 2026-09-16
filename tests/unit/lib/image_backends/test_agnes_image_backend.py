@@ -165,10 +165,12 @@ class TestImageToImage:
             )
 
         body = request_json(only_request(route))
-        images = body["image"]
+        images = body["extra_body"]["image"]
         assert isinstance(images, list)
         assert len(images) == 2
         assert all(item.startswith("data:image/png;base64,") for item in images)
+        # 参考图必须落 extra_body；顶层 "image" 会被上游拒（403）。
+        assert "image" not in body
         # I2I 仍显式下发 size
         assert "size" in body
 
