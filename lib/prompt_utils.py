@@ -61,7 +61,7 @@ def image_prompt_to_yaml(
         style_description: 项目风格描述
 
     Returns:
-        YAML 格式字符串，键序 Style / Reference_Images / Scene / Composition / Avoid
+        YAML 格式字符串，键序 Style / Visual style / Reference_Images / Scene / Composition / Avoid
     """
     ordered: dict[str, Any] = {"Scene": image_prompt["scene"]}
     ordered["Composition"] = {

@@ -64,9 +64,18 @@ function resolve(prop: JsonSchemaNode, defs: Record<string, JsonSchemaNode>): Re
   if (prop.anyOf) {
     const options = prop.anyOf.map((option) => resolve(option, defs));
     const nonNull = options.filter((option) => option.node.type !== "null");
-    const picked = nonNull[0] ?? options[0];
-    if (!picked) return { node: prop, type: "object", enumValues: [], nullable: false, refs: [] };
-    return { ...picked, nullable: picked.nullable || nonNull.length < options.length };
+    const branches = nonNull.length > 0 ? nonNull : options;
+    const nullable = nonNull.length < options.length || branches.some((option) => option.nullable);
+    if (branches.length === 1) return { ...branches[0], nullable };
+    // 多个分支合并为一行且不向下展开：展开任一分支的字段都会把其余分支的形状藏起来。
+    const types = [...new Set(branches.map((option) => option.type))];
+    return {
+      node: prop,
+      type: types.length > 0 ? types.join(" | ") : "object",
+      enumValues: [...new Set(branches.flatMap((option) => option.enumValues))],
+      nullable,
+      refs: [],
+    };
   }
   if (prop.type === "array") {
     const items = resolve(prop.items ?? {}, defs);

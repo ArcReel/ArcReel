@@ -37,6 +37,27 @@ describe("flattenOutputSchema", () => {
     ]);
   });
 
+  it("keeps every non-null branch of a union instead of the first one", () => {
+    const rows = flattenOutputSchema({
+      type: "object",
+      properties: {
+        value: { anyOf: [{ type: "string" }, { type: "integer" }, { type: "null" }] },
+        mode: { anyOf: [{ enum: ["a"], type: "string" }, { enum: ["b"], type: "string" }] },
+        shape: { anyOf: [{ $ref: "#/$defs/Circle" }, { $ref: "#/$defs/Square" }] },
+      },
+      $defs: {
+        Circle: { type: "object", properties: { radius: { type: "number" } } },
+        Square: { type: "object", properties: { side: { type: "number" } } },
+      },
+    });
+
+    expect(rows).toEqual([
+      { path: "value", type: "string | integer", enumValues: [], nullable: true, description: "" },
+      { path: "mode", type: "enum", enumValues: ["a", "b"], nullable: false, description: "" },
+      { path: "shape", type: "object", enumValues: [], nullable: false, description: "" },
+    ]);
+  });
+
   it("stops descending into a self-referencing definition", () => {
     const rows = flattenOutputSchema({
       $defs: {
