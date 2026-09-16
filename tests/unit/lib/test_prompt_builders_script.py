@@ -7,18 +7,12 @@ from lib.prompt_builders_script import (
     build_narration_split_prompt,
     build_normalize_prompt,
     build_overview_prompt,
-    format_names,
     render_drama_content_for_prompt_authoring,
 )
 from lib.speech_rate import speech_rate_units_per_second
 
 
 class TestPromptBuildersScript:
-    def test_format_names_emits_bullet_lists(self):
-        assert format_names({"A": {}, "B": {}}, "character") == "- A\n- B"
-        assert format_names({"玉佩": {}, "祠堂": {}}, "prop") == "- 玉佩\n- 祠堂"
-        assert format_names({}, "scene") == "（暂无）"
-
     def test_build_narration_prompt_renders_script_plan_segments_as_context(self):
         prompt = build_narration_prompt(
             project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},

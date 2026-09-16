@@ -10,30 +10,9 @@
 """
 
 from lib.prompt_rules.asset_appearance import asset_reference_names, iter_asset_appearances
-from lib.prompt_templates.builtin import BUILTIN_DIRECTORY, builtin_templates
+from lib.prompt_templates.builtin import builtin_templates
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
-
-# 附加指令（instructions）注入分节的统一标题：五个分集生成入口（plan / script_plan 三工具 / prompt_authoring）
-# 共用，措辞保持中性——遵循强度由附加指令正文自行表达，注入模板不添加任何强度限定词。
-_ADDITIONAL_INSTRUCTIONS = (BUILTIN_DIRECTORY / "partials/shared/additional_instructions.md").read_text(
-    encoding="utf-8"
-)
-USER_INSTRUCTIONS_HEADER = _ADDITIONAL_INSTRUCTIONS.split("\n", 1)[0]
-
-
-def append_user_instructions(prompt: str, instructions: str | None) -> str:
-    """把附加指令以中性分节追加到 prompt 末尾；空 / None 时原样返回。"""
-    if not instructions:
-        return prompt
-    return prompt + "\n\n" + _ADDITIONAL_INSTRUCTIONS.replace("{{ instructions }}", instructions)
-
-
-def format_names(items: dict, asset_type: str) -> str:
-    names = asset_reference_names(asset_type, items)
-    if not names:
-        return "（暂无）"
-    return "\n".join(f"- {name}" for name in names)
 
 
 def format_duration_constraint(supported_durations: list[int], default_duration: int | None) -> str:
@@ -77,18 +56,6 @@ def _outline_slot(outline: dict | None) -> dict | None:
     if not outline:
         return None
     return {key: outline.get(key) for key in ("title", "story_beats", "hook", "next_episode_teaser")}
-
-
-# 广告 builder 的兼容导出；正文来自与文本模版共用的片段。
-_SCENE_WRITING_GUIDE = (BUILTIN_DIRECTORY / "partials/shared/scene_writing_guide.md").read_text(encoding="utf-8")
-
-_ACTION_WRITING_GUIDE = (BUILTIN_DIRECTORY / "partials/shared/action_writing_guide.md").read_text(encoding="utf-8")
-
-_LIGHTING_WRITING_GUIDE = (BUILTIN_DIRECTORY / "partials/shared/lighting_writing_guide.md").read_text(encoding="utf-8")
-_AMBIANCE_WRITING_GUIDE = (BUILTIN_DIRECTORY / "partials/shared/ambiance_writing_guide.md").read_text(encoding="utf-8")
-_AMBIANCE_AUDIO_WRITING_GUIDE = (BUILTIN_DIRECTORY / "partials/shared/ambiance_audio_writing_guide.md").read_text(
-    encoding="utf-8"
-)
 
 
 # ---------------------------------------------------------------------------

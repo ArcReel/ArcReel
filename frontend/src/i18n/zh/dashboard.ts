@@ -101,6 +101,7 @@ export default {
   'prompt_templates_axis_generation_mode': '生成模式',
   'prompt_templates_axis_source_kind': '源文件类型',
   'prompt_templates_axis_asset_type': '资产类型',
+  'prompt_templates_axis_ad_duration_tier': '广告时长档位',
   'prompt_templates_slots': '槽位',
   'prompt_templates_slots_desc': '生成时由项目数据填入。',
   'prompt_templates_slots_empty': '无槽位，措辞固定。',

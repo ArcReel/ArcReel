@@ -101,6 +101,7 @@ export default {
   'prompt_templates_axis_generation_mode': 'Chế độ tạo',
   'prompt_templates_axis_source_kind': 'Loại nguồn',
   'prompt_templates_axis_asset_type': 'Loại tài sản',
+  'prompt_templates_axis_ad_duration_tier': 'Mức thời lượng quảng cáo',
   'prompt_templates_slots': 'Vị trí dữ liệu',
   'prompt_templates_slots_desc': 'Được điền bằng dữ liệu dự án khi tạo.',
   'prompt_templates_slots_empty': 'Không có vị trí dữ liệu; nội dung cố định.',

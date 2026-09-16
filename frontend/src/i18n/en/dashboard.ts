@@ -100,6 +100,7 @@ export default {
   'prompt_templates_axis_generation_mode': 'Generation mode',
   'prompt_templates_axis_source_kind': 'Source type',
   'prompt_templates_axis_asset_type': 'Asset type',
+  'prompt_templates_axis_ad_duration_tier': 'Ad duration tier',
   'prompt_templates_slots': 'Slots',
   'prompt_templates_slots_desc': 'Filled with project data at generation time.',
   'prompt_templates_slots_empty': 'No slots; the wording is fixed.',

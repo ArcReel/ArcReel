@@ -143,3 +143,77 @@ class TestEpisodeConstraint:
     def test_episode_number_is_injected(self):
         prompt = _build(episode=37)
         assert "E37S" in prompt
+
+
+def _build_reference(**overrides):
+    kwargs = {
+        "project_overview": {"synopsis": "速干杯带货短片", "genre": "带货", "theme": "便捷"},
+        "style": "实拍",
+        "style_description": "真实质感",
+        "characters": {"小美": {"description": "都市白领"}},
+        "scenes": {},
+        "props": {},
+        "products": {"速干杯": {"description": "30 秒速干的随行杯"}},
+        "brief": "突出速干卖点",
+        "target_duration": 30,
+    }
+    kwargs.update(overrides)
+    return ad_prompts.build_ad_reference_prompt(**kwargs)
+
+
+class TestPacingTiers:
+    @pytest.mark.parametrize("build", [_build, _build_reference])
+    @pytest.mark.parametrize("tier", [15, 30, 60, 90])
+    def test_tier_target_renders_its_table_without_adaptation_note(self, build, tier):
+        prompt = build(target_duration=tier)
+        assert "通用规则（适用于全部档位）" in prompt
+        assert f"\n{tier} 秒档（" in prompt
+        assert [t for t in (15, 30, 60, 90) if f"\n{t} 秒档（" in prompt] == [tier]
+        assert "不在审定档位内" not in prompt
+
+    @pytest.mark.parametrize("build", [_build, _build_reference])
+    def test_off_tier_target_adapts_nearest_table(self, build):
+        prompt = build(target_duration=45)
+        assert "\n30 秒档（" in prompt
+        assert "目标总时长 45 秒不在审定档位内，按距离最小的档位 30 秒的配比模板按比例适配到 45 秒：" in prompt
+
+    def test_generic_reference_prompt_drops_pacing_tables(self):
+        prompt = _build_reference(products={}, target_duration=45)
+        assert "按开场、发展、高潮、收束组织内容。" in prompt
+        assert "通用规则（适用于全部档位）" not in prompt
+        assert "（无商品，按通用短片创作）" in prompt
+
+
+class TestSharedWording:
+    def test_reference_route_uses_shared_writing_syntax(self):
+        prompt = _build_reference()
+        assert "同一地点的连续单元**逐条重复引用**同一个场景资产" in prompt
+
+    @pytest.mark.parametrize("build", [_build, _build_reference])
+    def test_both_routes_use_converged_action_guide(self, build):
+        prompt = build()
+        assert "带这些词会把参考生视频误判成视频编辑或视频延长。" in prompt
+        assert "任务已排队、已计费" not in prompt
+
+    @pytest.mark.parametrize("products", [{}, {"速干杯": {"description": "x"}}])
+    @pytest.mark.parametrize("instructions", [None, "", "全片用第一人称口播"])
+    def test_storyboard_instructions_are_an_optional_section(self, products, instructions):
+        prompt = _build(products=products, instructions=instructions)
+        if instructions:
+            assert prompt.endswith("\n\n# 附加指令\n全片用第一人称口播")
+            assert "\n\n\n# 附加指令" not in prompt
+            assert prompt.count("# 附加指令") == 1
+        else:
+            assert "# 附加指令" not in prompt
+            assert not prompt.endswith("\n")
+        assert "None" not in prompt
+
+    @pytest.mark.parametrize("instructions", [None, "", "节奏再快一点"])
+    def test_reference_instructions_are_an_optional_section(self, instructions):
+        prompt = _build_reference(instructions=instructions)
+        if instructions:
+            assert prompt.endswith("\n\n# 附加指令\n节奏再快一点")
+            assert "\n\n\n# 附加指令" not in prompt
+        else:
+            assert "# 附加指令" not in prompt
+        assert "None" not in prompt

@@ -7,7 +7,6 @@ from lib.prompt_builders_reference import (
     build_reference_video_prompt,
     render_reference_units_for_prompt_authoring,
 )
-from lib.reference_video.writing_syntax import writing_syntax_spec
 
 _SCENE_REFERENCE_RULE = "同一地点的连续单元**逐条重复引用**同一个场景资产，不能只在第一个单元写一次。"
 
@@ -166,18 +165,8 @@ def test_build_reference_units_split_prompt_without_outline_leaves_no_empty_bloc
     assert "<next_episode_outline>" not in prompt
 
 
-def test_both_prompt_levels_share_one_syntax_template():
-    """语法规范唯一真相源：两级 prompt 注入同一份规范，仓库里没有第二份语法全文。"""
-    split = _split_prompt()
-    prompt_authoring = _prompt_authoring_prompt()
-    assert writing_syntax_spec() in split
-    assert writing_syntax_spec() in prompt_authoring
-
-
 def test_scene_reference_rule_reaches_both_prompt_levels():
     """场景引用规则的措辞集中在共享语法规范里，两级 prompt 各再补一条本阶段的落地口径。"""
-    assert _SCENE_REFERENCE_RULE in writing_syntax_spec()
-
     split = _split_prompt()
     assert _SCENE_REFERENCE_RULE in split
     assert "每个 unit 的正文都要 `@` 引用它发生地的场景资产" in split

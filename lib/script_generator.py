@@ -68,7 +68,6 @@ from lib.project_manager import ProjectManager, ScriptWriteConflict
 from lib.prompt_builders_ad import build_ad_prompt, build_ad_reference_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
-    append_user_instructions,
     build_drama_prompt,
     build_narration_prompt,
     render_drama_content_for_prompt_authoring,
@@ -566,8 +565,7 @@ class ScriptGenerator:
 
         # ad 两种生成模式都一键生成、不走 script_plan；参考生视频直接产出自包含 video_units。
         if self.content_mode == "ad":
-            prompt, schema = await self._compose_ad(episode, gen_mode)
-            prompt = append_user_instructions(prompt, instructions)
+            prompt, schema = await self._compose_ad(episode, gen_mode, instructions)
             self._freeze_ad_artifact_basis(episode)
             return await self._generate_and_save(
                 prompt,
@@ -1216,7 +1214,7 @@ class ScriptGenerator:
         logger.info("剧本已保存至 %s", output_path)
         return output_path
 
-    async def _compose_ad(self, episode: int, gen_mode: str | None) -> tuple[str, type]:
+    async def _compose_ad(self, episode: int, gen_mode: str | None, instructions: str | None) -> tuple[str, type]:
         """ad 分支的 (prompt, response_schema) 构造，generate/build_prompt 共用。
 
         reference 路径不消费供应商能力（unit 编排时长不按供应商档位量化），跳过能力查询；
@@ -1229,9 +1227,11 @@ class ScriptGenerator:
             caps = await self._fetch_video_capabilities()
             supported = self._resolve_supported_durations(caps, gen_mode=gen_mode)
             schema = build_episode_script_model("ad", supported)
-        return self._build_ad_prompt(episode, gen_mode, supported), schema
+        return self._build_ad_prompt(episode, gen_mode, supported, instructions), schema
 
-    def _build_ad_prompt(self, episode: int, gen_mode: str | None, supported: list[int] | None) -> str:
+    def _build_ad_prompt(
+        self, episode: int, gen_mode: str | None, supported: list[int] | None, instructions: str | None
+    ) -> str:
         """构建广告/短片 prompt：brief + 商品信息 + 审定配比表，不读 script_plan 中间文件。
 
         storyboard 路径把 supported_durations 作为单分镜时长枚举写进 prompt；参考生视频
@@ -1251,6 +1251,7 @@ class ScriptGenerator:
             "episode": direct_inputs["episode"],
             "aspect_ratio": direct_inputs["aspect_ratio"],
             "target_language": direct_inputs["target_language"],
+            "instructions": instructions,
         }
         if gen_mode == "reference_video":
             return build_ad_reference_prompt(**common)
@@ -1280,8 +1281,8 @@ class ScriptGenerator:
 
         # 见 generate() 同位置说明：ad 先于 generation_mode 分派，且不读 script_plan。
         if self.content_mode == "ad":
-            prompt, _schema = await self._compose_ad(episode, gen_mode)
-            return append_user_instructions(prompt, instructions)
+            prompt, _schema = await self._compose_ad(episode, gen_mode, instructions)
+            return prompt
 
         # 剧情演绎的分镜图生视频（含宫格装配）dry-run 走 prompt_authoring 视觉层 prompt：读 script_plan 结构化内容并渲染
         # （见 generate() 的两段式说明）。reference_video / narration 不入此分支。
