@@ -1678,8 +1678,8 @@ async def generate_narration_script_plan(
             episode=episode,
             target_language=cast(str, prompt_inputs["target_language"]),
             episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
+            instructions=instructions,
         )
-        prompt = append_user_instructions(prompt, instructions)
 
         if request.dry_run:
             return TextGenerationResult(

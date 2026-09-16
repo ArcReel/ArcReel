@@ -658,6 +658,7 @@ class ScriptGenerator:
             )
             # prompt_authoring 只产引用语法正文：unit_id / 时长机械沿用 script_plan，参考图执行期从正文派生，
             # 不进 LLM 输出——没让模型写的字段就没有漂移可校验，故此处无需按能力收窄的动态 schema。
+            prompt = append_user_instructions(prompt, instructions)
             schema: type = ReferencePromptAuthoringFlatScript
         else:
             # narration 两段式：script_plan 透传内容层（novel_text 等），prompt_authoring 仅产视觉层、按 segment_id 合并回 script_plan。
@@ -689,6 +690,7 @@ class ScriptGenerator:
                 episode=episode,
                 # 输出语言与 script_plan 同取项目 source_language，避免非中文项目 script_plan 透传内容与 prompt_authoring 视觉割裂（同 drama）
                 target_language=self.project_json.get("source_language") or "中文",
+                instructions=instructions,
             )
             # prompt_authoring 只产视觉层（image_prompt/video_prompt），按 segment_id 对齐 script_plan 合并；
             # novel_text/时长/break 由 script_plan 透传，不进 LLM 输出，从工程上根除扩写漂移。
@@ -701,8 +703,6 @@ class ScriptGenerator:
         # 这里只传未取档的原始确认值：取档按哪套档位算取决于「这个 unit 最终是否带参考图」，
         # 而正文里的 `@[名称]` 由 LLM 在 prompt_authoring 输出时决定、可能与 script_plan 的不同。取档统一放在
         # _add_metadata，按落地后的最终正文逐 unit 重算。
-        prompt = append_user_instructions(prompt, instructions)
-
         reference_unit_durations = None
         if script_plan_units is not None:
             assert authoring_scope is not None  # reference 路径必已解析重写范围
@@ -949,9 +949,8 @@ class ScriptGenerator:
         )
         result = await self._generate_text(
             TextGenerationRequest(
-                prompt=append_user_instructions(
-                    self._build_drama_prompt_authoring_prompt(authoring_scope.entries_to_rewrite, episode),
-                    instructions,
+                prompt=self._build_drama_prompt_authoring_prompt(
+                    authoring_scope.entries_to_rewrite, episode, instructions
                 ),
                 response_schema=DramaVisualScript,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
@@ -1015,7 +1014,9 @@ class ScriptGenerator:
                 "当前分辨率与型号下这些时长不可用，请调用 generate_script_plan 按当前能力规范化"
             )
 
-    def _build_drama_prompt_authoring_prompt(self, content_scenes: list, episode: int) -> str:
+    def _build_drama_prompt_authoring_prompt(
+        self, content_scenes: list, episode: int, instructions: str | None = None
+    ) -> str:
         """构建 drama prompt_authoring（视觉层）prompt：把 script_plan 内容渲染为输入，仅求 image_prompt / video_prompt。"""
         characters = self.project_json.get("characters")
         characters = characters if isinstance(characters, dict) else {}
@@ -1035,6 +1036,7 @@ class ScriptGenerator:
             characters=characters,
             scenes=scenes,
             props=props,
+            instructions=instructions,
         )
 
     def _parse_drama_visual(self, response_text: str) -> list[dict]:
@@ -1292,9 +1294,7 @@ class ScriptGenerator:
             )
             if drama_entries is None:
                 return _NO_ENTRY_TO_REWRITE_NOTE
-            return append_user_instructions(
-                self._build_drama_prompt_authoring_prompt(drama_entries, episode), instructions
-            )
+            return self._build_drama_prompt_authoring_prompt(drama_entries, episode, instructions)
 
         caps = await self._fetch_video_capabilities()
         characters = self.project_json.get("characters")
@@ -1344,7 +1344,7 @@ class ScriptGenerator:
         )
         if narration_entries is None:
             return _NO_ENTRY_TO_REWRITE_NOTE
-        prompt = build_narration_prompt(
+        return build_narration_prompt(
             project_overview=self.project_json.get("overview", {}),
             style=self.project_json.get("style", ""),
             style_description=self.project_json.get("style_description", ""),
@@ -1355,8 +1355,8 @@ class ScriptGenerator:
             aspect_ratio=self._resolve_aspect_ratio(),
             episode=episode,
             target_language=self.project_json.get("source_language") or "中文",
+            instructions=instructions,
         )
-        return append_user_instructions(prompt, instructions)
 
     async def _fetch_video_capabilities(self) -> dict | None:
         """从 ConfigResolver 解析视频模型能力；失败时返 None，由 _resolve_* fallback 到 project.json 直读。

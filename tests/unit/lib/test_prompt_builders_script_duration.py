@@ -108,3 +108,17 @@ class TestEpisodeTargetDurationInjection:
         prompt = _drama_prompt(default_duration=8, episode_target_duration=120)
         assert render_episode_target_duration_rule(120) in prompt
         assert "默认 8 秒" in prompt
+
+
+@pytest.mark.parametrize("target", [None, 120])
+@pytest.mark.parametrize("instructions", [None, "", "保留末尾停顿。"])
+def test_narration_optional_target_and_instructions(target, instructions):
+    prompt = _narration_prompt(episode_target_duration=target, instructions=instructions)
+    assert ("本集成片目标时长约 120 秒" in prompt) is bool(target)
+    assert ("# 附加指令" in prompt) is bool(instructions)
+    if target:
+        assert "不要靠注水 / 切碎凑满，也不要为压进目标删减必要情节" in prompt
+        assert "内容不足以支撑目标" not in prompt
+    if instructions:
+        assert prompt.endswith("\n\n# 附加指令\n保留末尾停顿。")
+    assert "None" not in prompt

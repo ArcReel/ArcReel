@@ -10,7 +10,6 @@ from lib.prompt_builders_script import (
     build_overview_prompt,
     render_drama_content_for_prompt_authoring,
 )
-from lib.prompt_rules.episode_pacing import render_pacing_section
 from lib.speech_rate import speech_rate_units_per_second
 
 
@@ -107,8 +106,13 @@ class TestPromptBuildersScript:
         assert "天台追逐" in prompt
         # prompt_authoring 不再产出口播：不含「口播序列（utterances）」写作章节
         assert "口播序列（utterances）" not in prompt
-        # 视觉专责角色：明确不改写口播 / 不改动内容
-        assert "不要改写或重述口播" in prompt
+        # 视觉层不复制口播；ID 对齐约束只在集约束中说明。
+        assert "不要复制进视觉字段" in prompt
+        assert "不要改写或重述口播" not in prompt
+        assert "**对齐约束**" not in prompt
+        assert "你的任务：基于下方" not in prompt
+        assert "**video_prompt.camera_motion**" not in prompt
+        assert "任务已排队、已计费" not in prompt
 
     @staticmethod
     def _content_scene_with_passthrough() -> dict:
@@ -200,7 +204,7 @@ class TestPromptBuildersScript:
         # 仍是视觉专责输出
         assert "image_prompt" in prompt
         assert "video_prompt" in prompt
-        assert "不要改写或重述口播" in prompt
+        assert "不要改动分镜内容" in prompt
 
 
 class TestScreenplaySourceKind:
@@ -294,8 +298,8 @@ class TestScreenplaySourceKind:
         assert "她推开门" not in self._normalize_prompt("novel")
 
     def test_normalize_injects_pacing(self):
-        # script_plan（normalize）与 prompt_authoring 一样无条件注入节奏建议，二者共享同一份 render_pacing_section("drama")
-        assert self._squash(render_pacing_section("drama")) in self._squash(self._normalize_prompt("novel"))
+        # script_plan 无条件提供开篇节奏建议。
+        assert "开篇~4秒承担钩子职能" in self._squash(self._normalize_prompt("novel"))
 
 
 class TestOverviewPrompt:
@@ -437,7 +441,7 @@ class TestPromptAuthoringPromptGuards:
         """去除全部空白字符，用于跨缩进比较。"""
         return "".join(text.split())
 
-    def _narration_prompt(self) -> str:
+    def _narration_prompt(self, **overrides) -> str:
         return build_narration_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="动漫",
@@ -449,6 +453,7 @@ class TestPromptAuthoringPromptGuards:
                 {"segment_id": "E2S01", "novel_text": "原文", "duration_seconds": 4, "segment_break": False}
             ],
             episode=2,
+            **overrides,
         )
 
     def _drama_prompt(self) -> str:
@@ -460,11 +465,25 @@ class TestPromptAuthoringPromptGuards:
             episode=2,
         )
 
-    def test_drama_prompt_injects_pacing(self):
-        assert self._squash(render_pacing_section("drama")) in self._squash(self._drama_prompt())
+    def test_drama_prompt_injects_pacing(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
+        assert "开篇~4秒承担钩子职能" in self._squash(self._drama_prompt())
 
-    def test_narration_prompt_injects_pacing(self):
-        assert self._squash(render_pacing_section("narration")) in self._squash(self._narration_prompt())
+    @pytest.mark.parametrize("instructions", [None, "", "末镜保留雨声。"])
+    def test_narration_instructions_are_an_optional_section(self, instructions):
+        text = self._narration_prompt(instructions=instructions)
+        if instructions:
+            assert text.endswith("\n\n# 附加指令\n末镜保留雨声。")
+            assert text.count("# 附加指令") == 1
+        else:
+            assert "# 附加指令" not in text
+        assert "任务已排队、已计费" not in text
+        assert "**video_prompt.action**" in text
+        assert "None" not in text
+
+    def test_narration_prompt_injects_pacing(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
+        assert "首段画面（朗读前~4秒）服务于钩子" in self._squash(self._narration_prompt())
 
     def test_drama_no_enum_dump_in_prompt(self):
         """schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。"""
@@ -580,9 +599,10 @@ class TestBuildNarrationSplitPrompt:
         assert "4, 6, 8" in text
         assert "默认取 4 秒" in text
 
-    def test_mirrors_narration_pacing_rules(self):
+    def test_mirrors_narration_pacing_rules(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
         text = self._prompt()
-        assert render_pacing_section("narration")[:40] in text
+        assert "旁白/解说节奏建议：" in text
 
     def test_drifted_default_treated_as_null_not_raised(self):
         """default 漂移到 supported_durations 之外时按 null 处理、不 fail-loud（软偏好口径）。"""
