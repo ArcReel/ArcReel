@@ -64,6 +64,7 @@ from server.routers import (
     products,
     project_events,
     projects,
+    prompt_templates,
     props,
     providers,
     reference_videos,
@@ -663,6 +664,9 @@ app.include_router(
     tags=["Agent 记忆"],
 )
 app.include_router(onboarding.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["首次使用引导"])
+app.include_router(
+    prompt_templates.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["提示词模版"]
+)
 
 # 公开端点：匿名可达。登录入口是拿 token 的前提，静态媒体经 <img src> / <video src> 加载。
 app.include_router(auth_router.public_router, prefix="/api/v1", tags=["认证"])

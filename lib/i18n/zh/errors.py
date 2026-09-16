@@ -2,6 +2,7 @@ MESSAGES = {
     "project_migration_failed": "项目 '{name}' 的数据升级未完成，暂时无法生成内容。原因：{reason}。请在 Agent 对话中修复后重试升级",
     "project_not_found": "项目 '{name}' 不存在或未初始化",
     "resource_not_found": "请求的资源不存在",
+    "prompt_template_not_found": "提示词模版 '{id}' 不存在",
     "overview_ai_response_invalid": "AI 返回内容无法解析为项目概述，请重试或更换模型/供应商",
     "overview_generation_failed": "概述生成失败，请稍后重试或更换模型/供应商",
     "video_capabilities_unresolved": "无法解析项目 '{name}' 的视频模型能力，请检查供应商配置",

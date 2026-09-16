@@ -28,6 +28,8 @@ import type {
   ProjectDeletedPayload,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
+  PromptTemplateDetail,
+  PromptTemplateListResponse,
   ModelCandidatesResponse,
   OnboardingStatus,
   SystemConfigPatch,
@@ -980,6 +982,23 @@ class API {
 
   static async getSystemVersion(): Promise<GetSystemVersionResponse> {
     return this.request("/system/version");
+  }
+
+  // ==================== 提示词模版 ====================
+
+  static async listPromptTemplates(
+    options: { signal?: AbortSignal } = {}
+  ): Promise<PromptTemplateListResponse> {
+    return this.request("/prompt-templates", { signal: options.signal });
+  }
+
+  /** 模版 id 自带 `/` 分层，逐段编码后保留分隔符。 */
+  static async getPromptTemplate(
+    templateId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<PromptTemplateDetail> {
+    const path = templateId.split("/").map(encodeURIComponent).join("/");
+    return this.request(`/prompt-templates/${path}`, { signal: options.signal });
   }
 
   // ==================== 首次使用引导 ====================
