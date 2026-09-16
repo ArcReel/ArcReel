@@ -149,3 +149,17 @@ def test_default_dependency_serves_builtin_templates():
         detail = client.get("/api/v1/prompt-templates/asset/sheet").json()
     assert "asset/sheet" in {item["id"] for item in listed}
     assert "shared/image_avoid" in {partial["name"] for partial in detail["partials"]}
+
+
+def test_builtin_style_templates_listed_as_one_group_with_whole_prompt_as_source():
+    app = make_app()
+    override_auth(app)
+    with TestClient(app) as client:
+        listed = client.get("/api/v1/prompt-templates").json()["templates"]
+        detail = client.get("/api/v1/prompt-templates/style/live_premium_drama").json()
+    style_positions = [index for index, item in enumerate(listed) if item["category"] == "style"]
+    assert len(style_positions) == 36
+    assert style_positions == list(range(style_positions[0], style_positions[0] + 36))
+    assert listed[style_positions[0]]["id"] == "style/live_cinematic_ancient"
+    assert detail["source"].strip() == "真人电视剧风格，精品短剧画风，大师级构图"
+    assert detail["partials"] == []
