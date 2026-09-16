@@ -214,3 +214,15 @@ def test_trailing_partial_does_not_accumulate_blank_lines(tmp_path):
     once = templates.render("text/example", name="主体")
     assert once == "主体\n\nAvoid: 水印"
     assert templates.render("text/example", name=once) == once
+
+
+def test_empty_block_partial_in_contiguous_list_removes_its_line(tmp_path):
+    write_template(tmp_path, '- 甲\n{{ partial("shared/rule") }}\n- {{ name }}')
+    write_partial(tmp_path, "shared/rule", "")
+    assert PromptTemplates(tmp_path).render("text/example", name="乙") == "- 甲\n- 乙"
+
+
+def test_skipped_block_partial_in_contiguous_list_removes_its_line(tmp_path):
+    write_template(tmp_path, '{{ name }}\n{{ partial("shared/rule") }}\n- 丙')
+    write_partial(tmp_path, "shared/rule", "- 乙")
+    assert PromptTemplates(tmp_path).render("text/example", name="- 甲\n- 乙") == "- 甲\n- 乙\n- 丙"

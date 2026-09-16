@@ -1,8 +1,9 @@
 """以目录为依赖的整段提示词模版。
 
 换行由引用处决定：片段文件只写措辞本身，不带前导空行，也不带尾换行（引擎按 ``rstrip``
-去尾）。块与块之间的行距写在模版正文的引用处；整段渲染完成后，连续三个及以上的换行塌缩为
-两个、首尾换行去掉，渲染为空的变体与被跳过的块级片段留下的空行由此消失。
+去尾）。块与块之间的行距写在模版正文的引用处。块级引用渲染为空或被判重跳过时，所在行连同
+行尾换行一起去掉，连续列表里的空变体因此不留空行；整段渲染完成后，连续三个及以上的换行塌缩为
+两个、首尾换行去掉，块与块之间多出的空行由此消失。
 
 幂等去重只认块级引用——表达式独占一行的那种。片段的渲染结果以完整行的形式已经出现在正文
 里时跳过注入，保住纯文本形态重复渲染不叠加。行内引用（同一行还有别的文本或片段）一律注入，
@@ -233,7 +234,11 @@ def _inject_fragments(rendered: str, opening: str, closing: str, body: str) -> s
         after = end + len(closing)
         parts.append(rendered[cursor:start])
         block = (start == 0 or rendered[start - 1] == "\n") and (after == len(rendered) or rendered[after] == "\n")
-        if not (text and block and _holds_full_lines(seen, text)):
+        if block and (not text or _holds_full_lines(seen, text)):
+            # 空的或已在正文里的块级片段连同所在行一起去掉，连续列表里不留空行。
+            if after < len(rendered):
+                after += 1
+        else:
             parts.append(text)
             if text:
                 seen = f"{seen}\n{text}"
