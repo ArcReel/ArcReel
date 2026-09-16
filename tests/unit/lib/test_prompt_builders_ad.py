@@ -70,6 +70,12 @@ class TestProductsInjection:
         assert "小美" in prompt
         assert "厨房" in prompt
 
+    @pytest.mark.parametrize("products", [{}, {"速干杯": {"description": "x"}}])
+    def test_every_empty_asset_block_is_kept(self, products):
+        prompt = _build(characters={}, scenes={}, props={}, products=products)
+        for tag in ("characters", "scenes", "props"):
+            assert f"<{tag}>\n（暂无）\n</{tag}>" in prompt
+
     def test_brief_injected(self):
         prompt = _build()
         assert "突出速干卖点，面向通勤人群" in prompt
@@ -159,6 +165,14 @@ def _build_reference(**overrides):
     }
     kwargs.update(overrides)
     return ad_prompts.build_ad_reference_prompt(**kwargs)
+
+
+class TestCandidateNames:
+    @pytest.mark.parametrize("build", [_build, _build_reference])
+    def test_both_routes_list_registered_derivatives(self, build):
+        characters = {"小美": {"description": "都市白领", "derivatives": {"运动装": {"description": "换上运动装"}}}}
+        prompt = build(characters=characters)
+        assert "小美, 小美/运动装" in prompt
 
 
 class TestPacingTiers:

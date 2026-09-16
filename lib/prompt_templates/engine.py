@@ -14,7 +14,7 @@
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import yaml
@@ -29,6 +29,10 @@ class TemplateError(ValueError):
     """模版加载或渲染失败。"""
 
 
+#: 模版可声明的全部轴；设置页按轴名取显示文案，未列出的键在加载期 fail loud。
+TemplateAxis = Literal["content_mode", "generation_mode", "source_kind", "asset_type", "ad_duration_tier"]
+
+
 class TemplateMeta(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -36,7 +40,7 @@ class TemplateMeta(BaseModel):
     category: str
     title: str
     description: str
-    applies_to: dict[str, list[str]]
+    applies_to: dict[TemplateAxis, list[str]]
     slots: dict[str, str]
     protected: bool
     output_schema: str | None = None

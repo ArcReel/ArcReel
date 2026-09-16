@@ -16,7 +16,6 @@ applies_to:
   - drama
   generation_mode:
   - storyboard
-  - grid
   source_kind:
   - novel
   - screenplay
@@ -24,7 +23,7 @@ output_schema: lib.script_models:DramaNormalizedScript
 slots:
   source_kind: 源文类型
   target_language: 输出语言，取项目源语言
-  project_overview: 项目概述（synopsis、genre、theme、world_setting）
+  project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
   style: 项目画风
   character_names: 可引用的角色名，衍生写作「本体/衍生」
   scene_names: 可引用的场景名
@@ -52,28 +51,18 @@ protected: false
 ## 项目信息
 
 <overview>
-{{ project_overview.synopsis }}
+{{ project_overview.synopsis or "" }}
 
-题材类型：{{ project_overview.genre }}
-核心主题：{{ project_overview.theme }}
-世界观设定：{{ project_overview.world_setting }}
+题材类型：{{ project_overview.genre or "" }}
+核心主题：{{ project_overview.theme or "" }}
+世界观设定：{{ project_overview.world_setting or "" }}
 </overview>
 
 <style>
 {{ style }}
 </style>
 
-<characters>
-{{ partial("shared/lists/asset_names", names=character_names) }}
-</characters>
-
-<scenes>
-{{ partial("shared/lists/asset_names", names=scene_names) }}
-</scenes>
-
-<props>
-{{ partial("shared/lists/asset_names", names=prop_names) }}
-</props>
+{{ partial("shared/asset_name_blocks") }}
 
 ## 源文
 

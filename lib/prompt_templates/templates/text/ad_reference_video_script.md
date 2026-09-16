@@ -50,11 +50,7 @@ unit_id、references、generated_assets、needs_replan 均由系统派生，不�
 主题：{{ project_overview.theme or "" }}
 </overview>
 
-<style>
-风格：{{ style }}
-描述：{{ style_description }}
-画面比例：{{ aspect_ratio }}（{{ aspect_ratio_label }}）
-</style>
+{{ partial("shared/style_block") }}
 
 <brief>
 {{ brief or "（未提供，按资产信息与常识自行设计）" }}

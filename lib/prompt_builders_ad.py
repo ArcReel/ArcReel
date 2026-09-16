@@ -9,7 +9,7 @@
 商品信息块与候选名单。通用规则与四档配比表是 ``shared/ad_pacing`` 片段，按档位解析命名变体。
 """
 
-from lib.prompt_builders_script import _format_aspect_ratio_desc, format_duration_constraint
+from lib.prompt_builders_script import _format_aspect_ratio_desc, _overview_slot, format_duration_constraint
 from lib.prompt_rules.asset_appearance import asset_reference_names
 from lib.prompt_templates.builtin import builtin_templates
 from lib.schema_guards import is_int
@@ -121,7 +121,7 @@ def build_ad_prompt(
     return builtin_templates.render(
         "text/ad_storyboard_script",
         target_language=target_language,
-        project_overview={key: project_overview.get(key) for key in ("synopsis", "genre", "theme", "world_setting")},
+        project_overview=_overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
@@ -163,7 +163,7 @@ def build_ad_reference_prompt(
     return builtin_templates.render(
         "text/ad_reference_video_script",
         target_language=target_language,
-        project_overview={key: project_overview.get(key) for key in ("synopsis", "genre", "theme")},
+        project_overview=_overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
@@ -171,9 +171,9 @@ def build_ad_reference_prompt(
         brief=brief or None,
         products=_format_products(products) if products else None,
         product_names=list(products),
-        character_names=list(characters),
-        scene_names=list(scenes),
-        prop_names=list(props),
+        character_names=asset_reference_names("character", characters),
+        scene_names=asset_reference_names("scene", scenes),
+        prop_names=asset_reference_names("prop", props),
         min_unit_duration=min_unit_duration,
         max_unit_duration=max_unit_duration,
         episode=episode,

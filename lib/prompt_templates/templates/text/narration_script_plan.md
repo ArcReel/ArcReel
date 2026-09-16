@@ -4,9 +4,9 @@ category: text
 title: 旁白解说 · 片段切分
 description: 按朗读节奏切分逐字原文并登记资产与时长。单集目标是软约束，允许内容所需的偏离；避免用对称展开重复说明注水与删减。
 applies_to:
-  content_modes:
+  content_mode:
   - narration
-  generation_modes:
+  generation_mode:
   - storyboard
 output_schema: lib.script_models:NarrationScriptPlanDraft
 slots:
@@ -39,25 +39,9 @@ protected: false
 
 # 上下文
 
-<overview>
-{{ project_overview.synopsis or "" }}
+{{ partial("shared/overview_block") }}
 
-题材：{{ project_overview.genre or "" }}
-主题：{{ project_overview.theme or "" }}
-世界观：{{ project_overview.world_setting or "" }}
-</overview>
-
-<characters>
-{{ partial("shared/lists/asset_names", names=character_names) }}
-</characters>
-
-<scenes>
-{{ partial("shared/lists/asset_names", names=scene_names) }}
-</scenes>
-
-<props>
-{{ partial("shared/lists/asset_names", names=prop_names) }}
-</props>
+{{ partial("shared/asset_name_blocks") }}
 
 ## 小说原文
 

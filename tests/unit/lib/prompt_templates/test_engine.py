@@ -47,6 +47,12 @@ def test_duplicate_id_rejected_at_load(tmp_path):
         PromptTemplates(tmp_path)
 
 
+def test_unknown_axis_key_rejected_at_load(tmp_path):
+    write_template(tmp_path, "{{ name }}", applies_to={"content_modes": ["drama"]})
+    with pytest.raises(TemplateError, match="content_modes"):
+        PromptTemplates(tmp_path)
+
+
 @pytest.mark.parametrize(
     ("body", "slots", "message"),
     [

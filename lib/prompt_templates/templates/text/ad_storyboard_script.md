@@ -52,35 +52,15 @@ protected: false
 
 # 上下文
 
-<overview>
-{{ project_overview.synopsis or "" }}
+{{ partial("shared/overview_block") }}
 
-题材：{{ project_overview.genre or "" }}
-主题：{{ project_overview.theme or "" }}
-世界观：{{ project_overview.world_setting or "" }}
-</overview>
-
-<style>
-风格：{{ style }}
-描述：{{ style_description }}
-画面比例：{{ aspect_ratio }}（{{ aspect_ratio_label }}）
-</style>
+{{ partial("shared/style_block") }}
 
 <brief>
 {{ brief or "（未提供，按商品信息与常识自行设计）" }}
 </brief>
 
-<characters>
-{{ partial("shared/lists/asset_names", names=character_names) }}
-</characters>
-
-<scenes>
-{{ partial("shared/lists/asset_names", names=scene_names) }}
-</scenes>
-
-<props>
-{{ partial("shared/lists/asset_names", names=prop_names) }}
-</props>
+{{ partial("shared/asset_name_blocks") }}
 
 {% if products %}
 <products>
@@ -135,12 +115,7 @@ protected: false
 - **products_in_shot**：本项目无商品，所有分镜一律填空数组。
 {% endif %}
 
-## 图片提示词（image_prompt）——切换到「摄影师」视角
-
-- **image_prompt.scene**：{{ partial("shared/scene_writing_guide") }}
-- **image_prompt.composition.shot_type**：从枚举中按画面内容选择，不强加倾向。
-- **image_prompt.composition.lighting**：{{ partial("shared/lighting_writing_guide") }}
-- **image_prompt.composition.ambiance**：{{ partial("shared/ambiance_writing_guide") }}
+{{ partial("shared/image_prompt_writing_guide") }}
 
 ## 视频提示词（video_prompt）——切换到「动作设计师」视角
 

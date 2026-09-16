@@ -347,6 +347,51 @@ class TestScreenplaySourceKind:
         assert "  - 候选 scenes：[（暂无）]" in prompt
         assert "  - 候选 props：[（暂无）]" in prompt
 
+    def test_normalize_renders_null_overview_fields_as_blank(self):
+        prompt = self._normalize_prompt(
+            "novel",
+            project_overview={"synopsis": None, "genre": None, "theme": "真相", "world_setting": None},
+        )
+        assert "<overview>\n\n题材类型：\n核心主题：真相\n世界观设定：\n</overview>" in prompt
+
+    def test_narration_prompts_keep_every_empty_asset_block(self):
+        empty_assets = {"characters": {}, "scenes": {}, "props": {}}
+        overview = {"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"}
+        prompts = [
+            build_narration_prompt(
+                project_overview=overview,
+                style="古风",
+                style_description="",
+                script_plan_segments=[],
+                episode=1,
+                **empty_assets,
+            ),
+            build_narration_split_prompt(
+                novel_text="原文",
+                project_overview=overview,
+                default_duration=None,
+                supported_durations=[4],
+                episode=1,
+                **empty_assets,
+            ),
+        ]
+        for prompt in prompts:
+            for tag in ("characters", "scenes", "props"):
+                assert f"<{tag}>\n（暂无）\n</{tag}>" in prompt
+
+    def test_normalize_omits_blank_or_non_text_outline_fields(self):
+        prompt = self._normalize_prompt(
+            "novel",
+            episode_outline={"title": 42, "story_beats": ["  ", "踏进祖宅"], "hook": "  ", "next_episode_teaser": None},
+        )
+        assert (
+            "<episode_outline>\n本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：\n故事节点：\n- 踏进祖宅\n</episode_outline>"
+            in prompt
+        )
+        assert "末场（最后一个或几个分镜）" not in prompt
+        blank = {"title": " ", "story_beats": [""], "hook": " ", "next_episode_teaser": " "}
+        assert self._normalize_prompt("novel", episode_outline=blank) == self._normalize_prompt("novel")
+
     def test_normalize_renders_both_outlines_with_their_beats(self):
         prompt = self._normalize_prompt(
             "novel",

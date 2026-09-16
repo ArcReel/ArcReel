@@ -42,25 +42,9 @@ protected: false
 
 # 上下文
 
-<overview>
-{{ project_overview.synopsis or "" }}
+{{ partial("shared/overview_block") }}
 
-题材：{{ project_overview.genre or "" }}
-主题：{{ project_overview.theme or "" }}
-世界观：{{ project_overview.world_setting or "" }}
-</overview>
-
-<characters>
-{{ partial("shared/lists/asset_appearances", entries=assets.characters) }}
-</characters>
-
-<scenes>
-{{ partial("shared/lists/asset_appearances", entries=assets.scenes) }}
-</scenes>
-
-<props>
-{{ partial("shared/lists/asset_appearances", entries=assets.props) }}
-</props>
+{{ partial("shared/asset_appearance_blocks") }}
 
 ## 小说原文
 

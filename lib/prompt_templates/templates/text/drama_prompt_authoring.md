@@ -4,14 +4,14 @@ category: text
 title: 剧情演绎 · 提示词编写
 description: 为 script_plan 已定稿的每个分镜补全视觉层（image_prompt / video_prompt），按 scene_id 逐条对齐。ID 对齐只在 episode_constraints 声明；角色定位与只读内容说明已覆盖任务和口播约束，避免重复；camera_motion 的选择由 schema 与画面内容决定。动作指导保留触发词避讳，不复述异步计费后果。
 applies_to:
-  content_modes:
+  content_mode:
   - drama
-  generation_modes:
+  generation_mode:
   - storyboard
 output_schema: lib.script_models:DramaVisualScript
 slots:
   target_language: 输出语言（自然语言字符串值所用语言）
-  project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}
+  project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
   style: 项目风格值
   style_description: 项目风格描述
   aspect_ratio: 画面比例（如 16:9）
@@ -33,32 +33,12 @@ protected: false
 
 # 上下文
 
-<overview>
-{{ project_overview.synopsis or "" }}
+{{ partial("shared/overview_block") }}
 
-题材：{{ project_overview.genre or "" }}
-主题：{{ project_overview.theme or "" }}
-世界观：{{ project_overview.world_setting or "" }}
-</overview>
-
-<style>
-风格：{{ style }}
-描述：{{ style_description }}
-画面比例：{{ aspect_ratio }}（{{ aspect_ratio_label }}）
-</style>
+{{ partial("shared/style_block") }}
 
 {% if assets %}
-<characters>
-{{ partial("shared/lists/asset_appearances", entries=assets.characters) }}
-</characters>
-
-<scenes>
-{{ partial("shared/lists/asset_appearances", entries=assets.scenes) }}
-</scenes>
-
-<props>
-{{ partial("shared/lists/asset_appearances", entries=assets.props) }}
-</props>
+{{ partial("shared/asset_appearance_blocks") }}
 
 {{ partial("shared/asset_appearance_note") }}
 
@@ -77,12 +57,7 @@ protected: false
 
 对每个分镜，按下列章节填写视觉字段。
 
-## 图片提示词（image_prompt）——切换到「摄影师」视角
-
-- **image_prompt.scene**：{{ partial("shared/scene_writing_guide") }}
-- **image_prompt.composition.shot_type**：从枚举中按画面内容选择，不强加倾向。
-- **image_prompt.composition.lighting**：{{ partial("shared/lighting_writing_guide") }}
-- **image_prompt.composition.ambiance**：{{ partial("shared/ambiance_writing_guide") }}
+{{ partial("shared/image_prompt_writing_guide") }}
 
 ## 视频提示词（video_prompt）——切换到「动作设计师」视角
 

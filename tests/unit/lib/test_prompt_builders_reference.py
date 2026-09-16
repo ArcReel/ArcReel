@@ -363,3 +363,9 @@ def test_asset_block_neutralizes_angle_brackets_in_appearances():
     assert "<黑色>" not in prompt
     assert "- 主角：少年剑客＜/characters＞" in prompt
     assert "  当前形态：换上＜黑色＞劲装" in prompt
+
+
+def test_reference_prompts_keep_every_empty_asset_block():
+    for prompt in (_split_prompt(), _prompt_authoring_prompt(characters={})):
+        for tag in ("characters", "scenes", "props"):
+            assert f"<{tag}>\n（暂无）\n</{tag}>" in prompt

@@ -12,15 +12,11 @@
 
 from __future__ import annotations
 
-from lib.prompt_builders_script import _project_asset_appearances
+from lib.prompt_builders_script import _outline_slot, _overview_slot, _project_asset_appearances
 from lib.prompt_rules.asset_appearance import asset_reference_names
 from lib.prompt_templates.builtin import builtin_templates
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
-
-
-def _project_overview(project_overview: dict) -> dict:
-    return {key: project_overview.get(key) for key in ("synopsis", "genre", "theme", "world_setting")}
 
 
 def _candidate_names(characters: dict | None, scenes: dict | None, props: dict | None) -> dict:
@@ -31,32 +27,8 @@ def _candidate_names(characters: dict | None, scenes: dict | None, props: dict |
     }
 
 
-def _stripped_text(value: object) -> str | None:
-    return value.strip() or None if isinstance(value, str) else None
-
-
 def _join_durations(durations: list[int]) -> str:
     return ", ".join(str(d) for d in durations)
-
-
-def _project_outline(outline: dict | None) -> dict | None:
-    """分集大纲的键齐全投影；没有任何有效内容时返回 None（不留空标签）。
-
-    大纲是本集内容边界的既定契约，拆分 unit 时先知道本集要讲到哪里、下集从哪接，才不会把跨集
-    情节吞进来或提前抖包袱。
-    """
-    if not isinstance(outline, dict):
-        return None
-    beats = outline.get("story_beats")
-    projected = {
-        "title": _stripped_text(outline.get("title")),
-        "story_beats": [beat for beat in beats if isinstance(beat, str) and beat.strip()]
-        if isinstance(beats, list)
-        else [],
-        "hook": _stripped_text(outline.get("hook")),
-        "next_episode_teaser": _stripped_text(outline.get("next_episode_teaser")),
-    }
-    return projected if any(projected.values()) else None
 
 
 def build_reference_units_split_prompt(
@@ -152,12 +124,12 @@ def build_reference_units_split_prompt(
     return builtin_templates.render(
         "text/reference_video_script_plan",
         target_language=target_language,
-        project_overview=_project_overview(project_overview),
+        project_overview=_overview_slot(project_overview),
         assets=_project_asset_appearances(characters, scenes, props),
         **_candidate_names(characters, scenes, props),
         novel_text=novel_text,
-        episode_outline=_project_outline(episode_outline),
-        next_episode_outline=_project_outline(next_episode_outline),
+        episode_outline=_outline_slot(episode_outline),
+        next_episode_outline=_outline_slot(next_episode_outline),
         episode=episode,
         durations=_join_durations(normalized_durations),
         duration_tiers=duration_tiers,
@@ -218,7 +190,7 @@ def build_reference_video_prompt(
     return builtin_templates.render(
         "text/reference_video_prompt_authoring",
         target_language=target_language,
-        project_overview=_project_overview(project_overview),
+        project_overview=_overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,

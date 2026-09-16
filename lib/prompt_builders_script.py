@@ -46,16 +46,33 @@ def _format_aspect_ratio_desc(aspect_ratio: str) -> str:
     return f"{aspect_ratio} 构图"
 
 
-def _overview_slot(project_overview: dict) -> dict[str, str]:
-    """项目概述投影为键齐全的槽位值，缺键渲染为空。"""
-    return {key: project_overview.get(key, "") for key in ("synopsis", "genre", "theme", "world_setting")}
+def _overview_slot(project_overview: dict) -> dict[str, object]:
+    """项目概述投影为键齐全的槽位值，缺键传 None，模版按空渲染。"""
+    return {key: project_overview.get(key) for key in ("synopsis", "genre", "theme", "world_setting")}
 
 
-def _outline_slot(outline: dict | None) -> dict | None:
-    """分集大纲投影为键齐全的槽位值；无规划数据时为 ``None``，模版不渲染该块。"""
-    if not outline:
+def _stripped_text(value: object) -> str | None:
+    return value.strip() or None if isinstance(value, str) else None
+
+
+def _outline_slot(outline: object) -> dict | None:
+    """分集大纲的键齐全投影；空白与非字符串字段按缺失处理，没有任何有效内容时为 ``None``，模版不渲染该块。
+
+    大纲是本集内容边界的既定契约，拆分时先知道本集要讲到哪里、下集从哪接，才不会把跨集
+    情节吞进来或提前抖包袱。
+    """
+    if not isinstance(outline, dict):
         return None
-    return {key: outline.get(key) for key in ("title", "story_beats", "hook", "next_episode_teaser")}
+    beats = outline.get("story_beats")
+    projected = {
+        "title": _stripped_text(outline.get("title")),
+        "story_beats": [beat for beat in beats if isinstance(beat, str) and beat.strip()]
+        if isinstance(beats, list)
+        else [],
+        "hook": _stripped_text(outline.get("hook")),
+        "next_episode_teaser": _stripped_text(outline.get("next_episode_teaser")),
+    }
+    return projected if any(projected.values()) else None
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +141,7 @@ def build_narration_prompt(
     """
     return builtin_templates.render(
         "text/narration_prompt_authoring",
-        project_overview={key: project_overview.get(key) for key in ("synopsis", "genre", "theme", "world_setting")},
+        project_overview=_overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
@@ -234,7 +251,7 @@ def build_drama_prompt(
     """
     return builtin_templates.render(
         "text/drama_prompt_authoring",
-        project_overview={key: project_overview.get(key) for key in ("synopsis", "genre", "theme", "world_setting")},
+        project_overview=_overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
@@ -350,7 +367,7 @@ def build_narration_split_prompt(
 
     return builtin_templates.render(
         "text/narration_script_plan",
-        project_overview={key: project_overview.get(key) for key in ("synopsis", "genre", "theme", "world_setting")},
+        project_overview=_overview_slot(project_overview),
         novel_text=novel_text,
         character_names=asset_reference_names("character", characters),
         scene_names=asset_reference_names("scene", scenes),
