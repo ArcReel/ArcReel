@@ -59,6 +59,7 @@ MODULES = [
     "lib.db.repositories",
     "lib.grid",
     "lib.image_backends",
+    "lib.prompt_templates",
     "lib.text_backends",
     "lib.video_backends",
     # server

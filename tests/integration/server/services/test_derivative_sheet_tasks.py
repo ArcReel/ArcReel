@@ -1,7 +1,7 @@
 """角色衍生资产图的生成任务：出站请求形态、准入拒绝、产物坐标与过期判定。
 
 判据落在真实发出去的那次请求上（respx 在 transport 层拦截），断言它是**以本体资产图为
-输入**的图像编辑请求；指令文本属于提示词工程，随时可调，不进断言。
+输入**的图像编辑请求，且守卫与反向约束经过资产图模版渲染。
 """
 
 from __future__ import annotations
@@ -78,6 +78,11 @@ class TestDerivativeSheetGeneration:
             submit = _routes(router, result_bytes=solid_png_bytes(RESULT_IMAGE_RGB))
             await execute_character_derivative_task("demo", "阿岚/战斗装", {}, task_id="task-1")
 
+        content = request_json(only_request(submit))["input"]["messages"][0]["content"]
+        prompt = next(item["text"] for item in content if "text" in item)
+        assert "保持原图的三视图版式" in prompt
+        assert prompt.endswith("Avoid: 水印、多余文字、Logo")
+        assert "Style:" not in prompt
         images = _sent_images(submit)
         assert len(images) == 1
         sent = decode_data_url_image(images[0])

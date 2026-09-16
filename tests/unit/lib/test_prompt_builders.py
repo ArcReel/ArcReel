@@ -3,6 +3,7 @@ from pathlib import Path
 from lib.prompt_builders import (
     append_image_negative_tail,
     append_video_negative_tail,
+    build_character_derivative_prompt,
     build_character_prompt,
     build_product_prompt,
     build_prop_prompt,
@@ -23,7 +24,9 @@ class TestCharacterPrompt:
         )
         assert "姜月茴" in prompt
         assert "黑发，冷静神态。" in prompt
-        assert "古风" in prompt
+        assert "Style: 古风" in prompt
+        assert "Visual style: Cinematic, low-key lighting" in prompt
+        assert prompt.endswith("Avoid: 水印、多余文字、Logo")
         assert "Cinematic, low-key lighting" in prompt
 
 
@@ -46,15 +49,18 @@ class TestFigureExclusion:
     """展示环境或物件的图种排除人物；画面主体本身是人物的图种不排除。"""
 
     # 断言完整片段而非「人物」二字：正文里的普通描述也可能出现该词，按关键词断言会误判。
-    _EXCLUSION = "画面避免：出镜人物"
+    _EXCLUSION = "Avoid: 出镜人物"
 
     def test_environment_and_object_sheets_exclude_people(self):
         assert self._EXCLUSION in build_scene_prompt("祠堂", "昏暗古朴")
         assert self._EXCLUSION in build_prop_prompt("玉佩", "古朴温润")
         assert self._EXCLUSION in build_product_prompt("护手霜", "白色管装，哑光质感")
 
+    def test_exclusion_survives_a_description_that_repeats_it(self):
+        prompt = build_scene_prompt("祠堂", "昏暗古朴，无出镜人物、无声响。")
+        assert prompt.endswith("Avoid: 出镜人物、水印、多余文字、Logo")
+
     def test_character_and_storyboard_keep_people(self):
-        # 四类资产的反向提示词各自定义而非共用，避免把人物排除项误加到主体为人物的图种上。
         assert self._EXCLUSION not in build_character_prompt("张三", "短发青年")
         assert self._EXCLUSION not in append_image_negative_tail("林清坐在窗边木桌前")
 
@@ -204,3 +210,21 @@ class TestRenderStoryboardImagePrompt:
             render_storyboard_image_prompt(once, style="Anime", style_description="cinematic", references=references)
             == once
         )
+
+
+def test_product_sheet_preserves_product_and_ignores_project_style():
+    prompt = build_product_prompt("护手霜", "白色管装", "水彩", "柔和笔触")
+    assert "商品「护手霜」的标准资产图。" in prompt
+    assert "logo、文字、配色、材质、比例与结构不得改变或臆造" in prompt
+    assert "包装上印刷的人像图案属于商品外观，须原样保留。" in prompt
+    assert "水彩" not in prompt
+    assert "柔和笔触" not in prompt
+    assert prompt.endswith("Avoid: 出镜人物、水印、多余文字、Logo")
+
+
+def test_derivative_keeps_reference_layout_and_has_no_style_block():
+    prompt = build_character_derivative_prompt("衣服变为黑色")
+    assert prompt.startswith("衣服变为黑色")
+    assert "保持原图的三视图版式" in prompt
+    assert "Style:" not in prompt
+    assert prompt.endswith("Avoid: 水印、多余文字、Logo")

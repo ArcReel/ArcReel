@@ -89,6 +89,7 @@ updates:
           - "patch"
       backend-core:
         patterns:
+          - "Jinja2"
           - "PyYAML"
           - "httpx"
           - "jsonpath-rfc9535"

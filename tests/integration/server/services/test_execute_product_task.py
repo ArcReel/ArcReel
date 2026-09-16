@@ -35,7 +35,10 @@ class TestGenerationTasks:
         assert call["reference_images"][0].name == "0000-保温杯_1.jpg"
         assert not call["reference_images"][0].is_relative_to(project_path)
         assert fake_generator.image_reference_bytes[0] == [b"jpg"]
-        assert "保温杯" in call["prompt"]
+        assert "商品「保温杯」的标准资产图。" in call["prompt"]
+        assert "不锈钢保温杯，银色磨砂" in call["prompt"]
+        assert call["prompt"].endswith("Avoid: 出镜人物、水印、多余文字、Logo")
+        assert "Style:" not in call["prompt"]
 
     async def test_execute_product_task_without_refs_is_t2i(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)
