@@ -119,6 +119,7 @@ async def generate_grid(
     # style 同样允许显式 null，须显式判空而非依赖 dict.get 的默认值
     raw_style = project.get("style")
     style = raw_style if raw_style is not None else ""
+    style_description = str(project.get("style_description") or "")
 
     # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；判定与费用估算、前端预览同源
     allow_large_grid = await resolve_large_grid_allowed(project)
@@ -182,6 +183,7 @@ async def generate_grid(
                 rows=chunk_layout.rows,
                 cols=chunk_layout.cols,
                 style=style,
+                style_description=style_description,
                 aspect_ratio=aspect_ratio,
                 grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
             )

@@ -3369,6 +3369,7 @@ async def execute_grid_task(
             rows=grid.rows,
             cols=grid.cols,
             style=str(project.get("style") or ""),
+            style_description=str(project.get("style_description") or ""),
             aspect_ratio=member_aspect_ratio,
             grid_aspect_ratio=grid_aspect_ratio,
             references=sent_references.visual_references,

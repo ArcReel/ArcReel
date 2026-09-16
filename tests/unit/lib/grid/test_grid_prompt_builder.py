@@ -132,14 +132,18 @@ class TestBuildGridPrompt:
 
     def test_basic_4_scenes(self):
         scenes = [self._scene(f"S{i}", f"scene{i}", f"action{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
         assert "2×2" in prompt
         assert "scene1" in prompt
         assert "scene4" in prompt
 
     def test_includes_placeholders(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 6)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=3, cols=2, style="anime")
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=3, cols=2, style="anime", style_description=""
+        )
         assert "空占位" in prompt
 
     def test_references_lead_with_a_numbered_declaration_and_replace_mentions(self):
@@ -155,7 +159,9 @@ class TestBuildGridPrompt:
             ),
             VisualReference(path=Path("scenes/酒馆.png"), role="asset_sheet", logical_type="scene", logical_id="酒馆"),
         ]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="x", references=references)
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="x", style_description="", references=references
+        )
         assert prompt.startswith("Reference_Images: 图1为角色参考图；图2为场景参考图。\n\n你是一位专业的分镜画师。")
         assert "图1在s1" in prompt
         assert "图1与路人对视" in prompt
@@ -164,12 +170,16 @@ class TestBuildGridPrompt:
 
     def test_string_prompts(self):
         scenes = [{"scene_id": f"S{i}", "image_prompt": f"text{i}", "video_prompt": f"vid{i}"} for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
         assert "text1" in prompt
 
     def test_without_references_there_is_no_declaration_and_mentions_fall_back_to_names(self):
         scenes = [self._scene(f"S{i}", f"@[角色Z]在s{i}", f"a{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
         assert "Reference_Images" not in prompt
         assert prompt.startswith("你是一位专业的分镜画师。")
         assert "角色Z在s1" in prompt
@@ -177,40 +187,106 @@ class TestBuildGridPrompt:
 
     def test_grid_dimensions_in_header(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=3, style="realistic")
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=3, style="realistic", style_description=""
+        )
         assert "2×3" in prompt
 
-    def test_style_in_prompt(self):
+    def test_style_and_style_description_render_as_style_lines(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="cyberpunk neon")
-        assert "cyberpunk neon" in prompt
+        prompt = build_grid_prompt(
+            scenes=scenes,
+            id_field="scene_id",
+            rows=2,
+            cols=2,
+            style="cyberpunk neon",
+            style_description="冷色霓虹，湿润街面",
+        )
+        lines = prompt.splitlines()
+        assert lines.count("Style: cyberpunk neon") == 1
+        assert lines.count("Visual style: 冷色霓虹，湿润街面") == 1
 
-    def test_negative_constraints_present(self):
+    def test_blank_style_leaves_no_style_lines_or_gaps(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
-        assert "禁止出现以下任何元素" in prompt
-        assert "合并的画格" in prompt
-        assert "缺失的画格" in prompt
-        assert "白色边框" in prompt
-        assert "画格大小不一致" in prompt
+        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="", style_description="")
+        assert "Style:" not in prompt
+        assert "\n\n\n" not in prompt
+
+    def test_avoid_line_is_image_negative_prompt_plus_grid_exclusions(self):
+        scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
+        assert prompt.splitlines()[-1] == (
+            "Avoid: 水印、多余文字、Logo、边框、画格间隙或留白、合并 / 缺失 / 错位的画格、连续全景（非分格）"
+        )
+        for dropped in (
+            "禁止出现以下任何元素",
+            "模糊",
+            "低画质",
+            "噪点",
+            "拼贴感",
+            "纯色背景条",
+            "画格大小不一致",
+            "画格比例不一致",
+        ):
+            assert dropped not in prompt
+
+    def test_existing_avoid_line_is_not_appended_again(self):
+        avoid = "Avoid: 水印、多余文字、Logo、边框、画格间隙或留白、合并 / 缺失 / 错位的画格、连续全景（非分格）"
+        scenes = [{"scene_id": "S1", "image_prompt": f"主体描述\n{avoid}", "video_prompt": "a1"}]
+
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
+
+        assert prompt.count(avoid) == 1
+
+    def test_single_scene_chunk_lists_cells_without_blank_lines(self):
+        scenes = [self._scene("S1", "s1", "a1")]
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
+        cells = prompt.split("【各格内容】\n", 1)[1].split("\n\n", 1)[0].splitlines()
+        assert cells == [
+            "格0（row1 col1）— S1开场：",
+            "  s1；ambiance: calm，lighting: natural，shot_type: medium",
+            "格1（row1 col2）— 空占位：纯灰色背景，无任何内容",
+            "格2（row2 col1）— 空占位：纯灰色背景，无任何内容",
+            "格3（row2 col2）— 空占位：纯灰色背景，无任何内容",
+        ]
 
     def test_no_placeholders_when_exact_fit(self):
         # 4 scenes, 2x2 grid -> no placeholders needed (4 content cells: open, trans, trans, close)
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
         assert "空占位" not in prompt
 
     def test_grid_aspect_ratio_in_layout(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
         prompt = build_grid_prompt(
-            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", grid_aspect_ratio="16:9"
+            scenes=scenes,
+            id_field="scene_id",
+            rows=2,
+            cols=2,
+            style="realistic",
+            style_description="",
+            grid_aspect_ratio="16:9",
         )
         assert "16:9" in prompt
 
     def test_non_square_layout_panel_aspect_ratio(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 7)]
         prompt = build_grid_prompt(
-            scenes=scenes, id_field="scene_id", rows=3, cols=2, style="realistic", grid_aspect_ratio="4:3"
+            scenes=scenes,
+            id_field="scene_id",
+            rows=3,
+            cols=2,
+            style="realistic",
+            style_description="",
+            grid_aspect_ratio="4:3",
         )
         assert "4:3" in prompt
         assert _compute_panel_aspect("4:3", 3, 2) in prompt
@@ -224,6 +300,7 @@ class TestBuildGridPrompt:
             rows=side,
             cols=side,
             style="realistic",
+            style_description="",
             grid_aspect_ratio="16:9",
         )
         total = side * side
@@ -239,11 +316,15 @@ class TestBuildGridPrompt:
         # 超员场景在成图中没有对应画格，调用方应先按 max_cell_count 切块
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 13)]
         with pytest.raises(ValueError, match="切块"):
-            build_grid_prompt(scenes=scenes, id_field="scene_id", rows=3, cols=3, style="realistic")
+            build_grid_prompt(
+                scenes=scenes, id_field="scene_id", rows=3, cols=3, style="realistic", style_description=""
+            )
 
     def test_anti_structural_constraints(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
         assert "不得合并画格" in prompt
         assert "不得遗漏画格" in prompt
         assert "不得错位排列" in prompt

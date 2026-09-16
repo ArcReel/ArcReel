@@ -202,6 +202,7 @@ async def handle_generate_grid(
         items, id_field, _, _, _ = get_storyboard_items(script)
         aspect_ratio = video_aspect_ratio_of(project)
         style = project.get("style", "")
+        style_description = str(project.get("style_description") or "")
         resolver = active_artifact_currency_resolver(project_path, project)
         groups = group_scenes_by_segment_break(items, id_field)
         # 失败落回分镜时用来带上旧图路径与状态（见 ``_fail_scenes`` docstring）；
@@ -364,6 +365,7 @@ async def handle_generate_grid(
                     rows=layout.rows,
                     cols=layout.cols,
                     style=style,
+                    style_description=style_description,
                     aspect_ratio=aspect_ratio,
                     grid_aspect_ratio=layout.grid_aspect_ratio,
                 )
