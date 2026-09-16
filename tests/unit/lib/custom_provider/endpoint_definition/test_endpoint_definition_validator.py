@@ -146,7 +146,7 @@ class TestStructuralIssues:
         definition = custom_endpoint_definition(schema_version="1.0.0")
         assert validate_definition(definition).valid
 
-    @pytest.mark.parametrize("value", ["0.31", "v0.31.0", "0.31.0-rc1", 31])
+    @pytest.mark.parametrize("value", ["0.31", "v0.31.0", "0.31.0-rc1", "9" * 5000 + ".0.0", 31])
     def test_min_app_version_must_be_semver(self, value: object):
         definition = custom_endpoint_definition()
         definition["meta"]["min_app_version"] = value

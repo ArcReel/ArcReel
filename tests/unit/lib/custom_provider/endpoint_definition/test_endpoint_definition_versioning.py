@@ -27,7 +27,9 @@ class TestParseSemver:
     def test_parses_semver(self, value: str, expected: tuple[int, int, int]):
         assert parse_semver(value) == expected
 
-    @pytest.mark.parametrize("value", ["1.0", "1.0.0-beta", "01.0.0", "v1.0.0", "", None, 1])
+    @pytest.mark.parametrize(
+        "value", ["1.0", "1.0.0-beta", "01.0.0", "v1.0.0", "1.0.0\n", "9" * 5000 + ".0.0", "", None, 1]
+    )
     def test_rejects_non_semver(self, value: object):
         assert parse_semver(value) is None
 
@@ -77,7 +79,10 @@ class TestMeetsMinAppVersion:
     def test_app_below_requirement_is_not_satisfied(self, required: str, app: str):
         assert meets_min_app_version(required, app) is False
 
-    @pytest.mark.parametrize(("required", "app"), [("0.30", "0.30.0"), (None, "0.30.0"), ("0.30.0", "not-a-version")])
+    @pytest.mark.parametrize(
+        ("required", "app"),
+        [("0.30", "0.30.0"), (None, "0.30.0"), ("9" * 5000 + ".0.0", "0.30.0"), ("0.30.0", "not-a-version")],
+    )
     def test_unreadable_versions_are_not_satisfied(self, required: object, app: str):
         """判不出高低就不该当作满足。"""
         assert meets_min_app_version(required, app) is False

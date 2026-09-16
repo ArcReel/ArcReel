@@ -62,12 +62,8 @@ jobs:
           mkdir -p "$candidate"
           cp -R "${GITHUB_WORKSPACE}/market/." "$candidate/"
           rm -rf "$candidate/.git"
-          # 没有既有索引时，顶层 name 取仓库名而不是临时目录名
-          name_args=()
-          if [ ! -f "$candidate/arcreel-market.json" ]; then
-            name_args=(--name "${GITHUB_REPOSITORY#*/}")
-          fi
-          uv run --no-sync python -m lib.market generate "$candidate" "${name_args[@]}"
+          # 既有索引给不出 name 时取仓库名，而不是临时目录名
+          uv run --no-sync python -m lib.market generate "$candidate" --default-name "${GITHUB_REPOSITORY#*/}"
 
       - name: Check candidate
         working-directory: arcreel
@@ -76,7 +72,10 @@ jobs:
       - name: Summarize index changes
         run: |
           {
-            if [ ! -f market/arcreel-market.json ]; then
+            # 符号链接不跟随：diff 会把链接目标的内容写进 summary
+            if [ -L market/arcreel-market.json ]; then
+              echo "arcreel-market.json is a symbolic link; it will be replaced by a regular file after merge."
+            elif [ ! -f market/arcreel-market.json ]; then
               echo "arcreel-market.json will be created after merge."
             elif diff -u --label committed --label candidate market/arcreel-market.json "${RUNNER_TEMP}/market-candidate/arcreel-market.json" > "${RUNNER_TEMP}/index.diff" 2>&1; then
               echo "arcreel-market.json is up to date."

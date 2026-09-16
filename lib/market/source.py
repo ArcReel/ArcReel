@@ -17,17 +17,27 @@ from .issues import INDEX_FILENAME, ROOT_PATH, MarketIssue, MarketIssueCode, joi
 
 
 def read_json_file(path: Path) -> Any:
-    """读一份 UTF-8 JSON 文件；读不到或解析不了时抛 ``ValueError``，消息即原因。"""
+    """读一份 UTF-8 JSON 文件；读不到或解析不了（含嵌套过深）时抛 ``ValueError``，消息即原因。"""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(str(exc)) from exc
+    except RecursionError as exc:
+        raise ValueError("JSON nesting is too deep") from exc
+
+
+def read_index_document(root: Path) -> Any:
+    """读 ``root`` 下的索引。索引是生成物、应为普通文件：符号链接不跟随，否则会读入链接指向的任意文件。"""
+    path = root / INDEX_FILENAME
+    if path.is_symlink():
+        raise ValueError(f"{INDEX_FILENAME} is a symbolic link")
+    return read_json_file(path)
 
 
 def check_source(root: Path) -> list[MarketIssue]:
     """校验 ``root`` 下的市场源，返回全部诊断；空列表即合规。"""
     try:
-        document = read_json_file(root / INDEX_FILENAME)
+        document = read_index_document(root)
     except ValueError as exc:
         return [MarketIssue(INDEX_FILENAME, ROOT_PATH, MarketIssueCode.INDEX_UNREADABLE, {"detail": str(exc)})]
     return _check_source_document(root, document)
@@ -88,8 +98,12 @@ def _check_source_document(root: Path, document: object) -> list[MarketIssue]:
 def _referenced_file(
     root: Path, root_resolved: Path, relative: str, location: str, issues: list[MarketIssue]
 ) -> Path | None:
-    """解析索引引用的仓内文件；越出市场源（含经符号链接）或不存在时记诊断并返回 None。"""
-    resolved = (root / relative).resolve()
+    """解析索引引用的仓内文件；越出市场源（含经符号链接）、不存在或解析不了（如符号链接成环）时记诊断并返回 None。"""
+    try:
+        resolved = (root / relative).resolve()
+    except (OSError, RuntimeError):
+        issues.append(_index_issue(location, MarketIssueCode.FILE_MISSING, value=relative))
+        return None
     if not resolved.is_relative_to(root_resolved):
         issues.append(_index_issue(location, MarketIssueCode.PATH_NOT_RELATIVE, value=relative))
         return None

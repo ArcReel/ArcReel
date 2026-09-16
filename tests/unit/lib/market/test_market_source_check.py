@@ -21,8 +21,30 @@ def _png(width: int = 64, height: int = 64, fmt: str = "PNG") -> bytes:
     return buffer.getvalue()
 
 
+def _png_with_bad_crc() -> bytes:
+    data = bytearray(_png())
+    chunk = data.find(b"IDAT")
+    length = int.from_bytes(data[chunk - 4 : chunk], "big")
+    data[chunk + 4 + length] ^= 0xFF
+    return bytes(data)
+
+
+def _png_with_empty_ihdr() -> bytes:
+    data = bytearray(_png())
+    data[8:12] = (0).to_bytes(4, "big")
+    return bytes(data)
+
+
 def _svg(attributes: str) -> bytes:
     return f'<svg xmlns="http://www.w3.org/2000/svg" {attributes}><rect width="1" height="1"/></svg>'.encode()
+
+
+def _svg_with_dtd(encoding: str) -> bytes:
+    document = (
+        f'<?xml version="1.0" encoding="{encoding}"?><!DOCTYPE svg [<!ENTITY a "b">]>'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><title>&a;</title></svg>'
+    )
+    return document.encode(encoding)
 
 
 def _definition(**meta: Any) -> dict[str, Any]:
@@ -117,6 +139,21 @@ class TestIndexRule:
 
         assert _codes(tmp_path) == [(INDEX_FILENAME, "$", "index_unreadable")]
 
+    def test_deeply_nested_index_is_reported(self, tmp_path: Path):
+        nested = "[" * 100_000 + "]" * 100_000
+        (tmp_path / INDEX_FILENAME).write_text(
+            f'{{"schema_version": "1.0.0", "name": "x", "entries": [], "extra": {nested}}}', encoding="utf-8"
+        )
+
+        assert _codes(tmp_path) == [(INDEX_FILENAME, "$", "index_unreadable")]
+
+    def test_symlinked_index_is_not_followed(self, source: _Source, tmp_path_factory: pytest.TempPathFactory):
+        outside = tmp_path_factory.mktemp("outside") / INDEX_FILENAME
+        outside.write_text(json.dumps({"schema_version": "1.0.0", "name": "外部", "entries": []}), encoding="utf-8")
+        (source.root / INDEX_FILENAME).symlink_to(outside)
+
+        assert _codes(source.root) == [(INDEX_FILENAME, "$", "index_unreadable")]
+
     def test_higher_major_schema_is_reported(self, source: _Source):
         assert _codes(source.write(schema_version="2.0.0")) == [
             (INDEX_FILENAME, "schema_version", "unsupported_schema_version")
@@ -157,6 +194,14 @@ class TestReferencedFilesRule:
         target.symlink_to(outside)
 
         assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].path", "path_not_relative")]
+
+    def test_symlink_loop_is_reported_as_missing(self, source: _Source):
+        source.add("demo")
+        target = source.root / "endpoints" / "demo" / "definition.json"
+        target.unlink()
+        target.symlink_to(target)
+
+        assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].path", "file_missing")]
 
     def test_missing_icon_is_reported(self, source: _Source):
         source.add("demo")
@@ -200,6 +245,14 @@ class TestReferencedFilesRule:
             ("icon.png", _png(fmt="WEBP")),
             ("icon.png", b"not an image"),
             ("icon.png", _png()[:50]),
+            ("icon.png", _png_with_bad_crc()),
+            ("icon.png", _png_with_empty_ihdr()),
+            ("icon.png", b"P6 " + b"1" * 100),
+            ("icon.svg", _svg('viewBox="0 0 inf inf"')),
+            ("icon.svg", _svg('width="0" height="0"')),
+            ("icon.svg", _svg(f'width="{"9" * 400}" height="{"9" * 400}"')),
+            ("icon.svg", _svg_with_dtd("utf-16")),
+            ("icon.svg", _svg_with_dtd("utf-8")),
             ("icon.svg", b"<html></html>"),
             ("icon.svg", _svg("")),
         ],

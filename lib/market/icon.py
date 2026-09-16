@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import re
 from io import BytesIO
 from pathlib import PurePosixPath
-from xml.etree import ElementTree
+from xml.parsers import expat
 
 from PIL import Image, UnidentifiedImageError
 
@@ -18,8 +19,12 @@ ICON_FORMATS: dict[str, str | None] = {".png": "PNG", ".webp": "WEBP", ".svg": N
 
 _SVG_LENGTH = re.compile(r"^\s*([0-9]*\.?[0-9]+)\s*(px)?\s*$")
 
-#: SVG 里出现 DTD 即拒：实体展开是 XML 解析的放大面，正常图标用不到。
-_DTD_MARKERS = (b"<!DOCTYPE", b"<!ENTITY")
+#: 根元素的合法名字：无命名空间，或 SVG 命名空间（expat 以空格连接命名空间与本地名）。
+_SVG_ROOT_NAMES = frozenset({"svg", "http://www.w3.org/2000/svg svg"})
+
+
+class _DtdDeclared(Exception):
+    """SVG 声明了 DTD：实体展开是 XML 解析的放大面，正常图标用不到，出现即拒。"""
 
 
 def inspect_icon(file: str, data: bytes) -> list[MarketIssue]:
@@ -29,7 +34,8 @@ def inspect_icon(file: str, data: bytes) -> list[MarketIssue]:
         return [_issue(file, MarketIssueCode.ICON_FORMAT_INVALID)]
     if len(data) > ICON_MAX_BYTES:
         return [_issue(file, MarketIssueCode.ICON_TOO_LARGE, size=len(data), limit=ICON_MAX_BYTES)]
-    size = _svg_size(data) if suffix == ".svg" else _raster_size(data, ICON_FORMATS[suffix])
+    raster_format = ICON_FORMATS[suffix]
+    size = _svg_size(data) if raster_format is None else _raster_size(data, raster_format)
     if size is None:
         return [_issue(file, MarketIssueCode.ICON_FORMAT_INVALID)]
     width, height = size
@@ -40,42 +46,60 @@ def inspect_icon(file: str, data: bytes) -> list[MarketIssue]:
     return []
 
 
-def _raster_size(data: bytes, expected_format: str | None) -> tuple[float, float] | None:
+def _raster_size(data: bytes, expected_format: str) -> tuple[float, float] | None:
     try:
-        with Image.open(BytesIO(data)) as image:
-            if image.format != expected_format:
-                return None
+        # 只让扩展名对应的解码器读这份数据，其余格式一律判为不识别。
+        with Image.open(BytesIO(data), formats=[expected_format]) as image:
             width, height = image.size
             image.verify()
-    except (Image.DecompressionBombError, UnidentifiedImageError, OSError):
+    # 解码器以 SyntaxError / ValueError 报告结构损坏（如 chunk 校验和不符、头部字段过长），verify() 会原样抛出。
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, SyntaxError, ValueError):
         return None
     return float(width), float(height)
 
 
 def _svg_size(data: bytes) -> tuple[float, float] | None:
-    """SVG 的宽高：优先 ``width`` / ``height`` 属性（无单位或 px），否则取 ``viewBox``。"""
-    if any(marker in data for marker in _DTD_MARKERS):
+    """SVG 的宽高：优先 ``width`` / ``height`` 属性（无单位或 px），否则取 ``viewBox``；须为正的有限数。"""
+    attributes = _svg_root_attributes(data)
+    if attributes is None:
         return None
+    width = _svg_length(attributes.get("width"))
+    height = _svg_length(attributes.get("height"))
+    if width is None or height is None:
+        parts = (attributes.get("viewBox") or "").replace(",", " ").split()
+        if len(parts) != 4:
+            return None
+        try:
+            width, height = float(parts[2]), float(parts[3])
+        except ValueError:
+            return None
+    if not all(math.isfinite(length) and length > 0 for length in (width, height)):
+        return None
+    return width, height
+
+
+def _svg_root_attributes(data: bytes) -> dict[str, str] | None:
+    """解析整份 SVG 并返回根 ``<svg>`` 的属性；不良构、根元素不是 svg 或声明了 DTD 时返回 None。
+
+    DTD 在解析器回调里拒绝，与文件编码无关（UTF-16 文件里按字节找不到 ``<!DOCTYPE``）。
+    """
+    parser = expat.ParserCreate(namespace_separator=" ")
+    elements: list[tuple[str, dict[str, str]]] = []
+
+    def start_element(name: str, attributes: dict[str, str]) -> None:
+        elements.append((name, attributes))
+
+    def start_doctype(*_: object) -> None:
+        raise _DtdDeclared
+
+    parser.StartElementHandler = start_element
+    parser.StartDoctypeDeclHandler = start_doctype
     try:
-        root = ElementTree.fromstring(data)
-    except ElementTree.ParseError:
+        parser.Parse(data, True)
+    except (expat.ExpatError, _DtdDeclared):
         return None
-    if root.tag not in ("svg", "{http://www.w3.org/2000/svg}svg"):
-        return None
-    width = _svg_length(root.get("width"))
-    height = _svg_length(root.get("height"))
-    if width is not None and height is not None:
-        return width, height
-    parts = (root.get("viewBox") or "").replace(",", " ").split()
-    if len(parts) != 4:
-        return None
-    try:
-        view_width, view_height = float(parts[2]), float(parts[3])
-    except ValueError:
-        return None
-    if view_width <= 0 or view_height <= 0:
-        return None
-    return view_width, view_height
+    root_name, attributes = elements[0]
+    return attributes if root_name in _SVG_ROOT_NAMES else None
 
 
 def _svg_length(value: str | None) -> float | None:

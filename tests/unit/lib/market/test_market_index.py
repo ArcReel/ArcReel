@@ -129,16 +129,29 @@ class TestInvalidIndexes:
             "endpoints/../secrets/definition.json",
             "..\\definition.json",
             "endpoints/demo/definition.json\n",
+            "endpoints/demo\x00/definition.json",
+            "endpoints/demo\x7f/definition.json",
         ],
     )
     @pytest.mark.parametrize("field", ["path", "icon"])
     def test_asset_references_must_stay_inside_the_source(self, field: str, path: str):
         assert _issues(_index(_entry(**{field: path}))) == [(f"entries[0].{field}", "path_not_relative")]
 
+    def test_oversized_schema_version_is_invalid_rather_than_unsupported(self):
+        assert _issues(_index(schema_version="9" * 5000 + ".0.0")) == [("schema_version", "invalid_value")]
+
     @pytest.mark.parametrize("value", ["0.31", "v0.31.0", "0.31.0-rc1", "0.31.0\n"])
     def test_min_app_version_must_be_semver(self, value: str):
         assert _issues(_index(_entry(min_app_version=value))) == [
             ("entries[0].min_app_version", "min_app_version_invalid")
+        ]
+
+    def test_homepage_with_trailing_newline_is_invalid(self):
+        homepage = "https://example.com/demo\n"
+
+        assert _issues(_index(_entry(homepage=homepage), homepage=homepage)) == [
+            ("entries[0].homepage", "invalid_value"),
+            ("homepage", "invalid_value"),
         ]
 
     def test_all_entries_are_judged_together(self):

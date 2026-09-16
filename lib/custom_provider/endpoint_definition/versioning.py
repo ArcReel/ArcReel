@@ -38,14 +38,17 @@ class VersionRelation(StrEnum):
 
 
 def parse_semver(value: object) -> tuple[int, int, int] | None:
-    """把 ``"1.2.3"`` 解析成可比较的三元组；不是 semver 串时返回 None。"""
+    """把 ``"1.2.3"`` 解析成可比较的三元组；不是 semver 串、或分量位数超出整数转换上限时返回 None。"""
     if not isinstance(value, str):
         return None
-    match = _SEMVER.match(value)
+    match = _SEMVER.fullmatch(value)
     if match is None:
         return None
     major, minor, patch = match.groups()
-    return int(major), int(minor), int(patch)
+    try:
+        return int(major), int(minor), int(patch)
+    except ValueError:
+        return None
 
 
 def schema_version_level(file_version: object, current_version: str) -> SchemaVersionLevel:

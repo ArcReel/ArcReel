@@ -49,6 +49,14 @@ def test_check_failure_prints_one_located_line_per_issue(tmp_path: Path, capsys:
     assert lines[-1] == "Market source check failed with 1 issue(s)"
 
 
+def test_generate_default_name_replaces_an_unreadable_index(tmp_path: Path):
+    source = _source_with_entry(tmp_path)
+    (source / INDEX_FILENAME).write_text("{", encoding="utf-8")
+
+    assert main(["generate", str(source), "--default-name", "arcreel-market"]) == 0
+    assert json.loads((source / INDEX_FILENAME).read_text(encoding="utf-8"))["name"] == "arcreel-market"
+
+
 def test_generate_dry_run_prints_without_writing(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     source = _source_with_entry(tmp_path)
 

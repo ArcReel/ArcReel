@@ -82,6 +82,18 @@ class TestRoundTrip:
 
         assert build_index(tmp_path)["entries"] == []
 
+    def test_symlinked_index_is_replaced_by_a_regular_file(self, tmp_path: Path):
+        stale = tmp_path / "docs" / "index.json"
+        stale.parent.mkdir()
+        stale.write_text("{}", encoding="utf-8")
+        (tmp_path / INDEX_FILENAME).symlink_to(stale)
+
+        write_index(tmp_path, build_index(tmp_path, name="空市场"))
+
+        assert not (tmp_path / INDEX_FILENAME).is_symlink()
+        assert stale.read_text(encoding="utf-8") == "{}"
+        assert check_source(tmp_path) == []
+
     def test_source_without_endpoints_directory_yields_an_empty_index(self, tmp_path: Path):
         write_index(tmp_path, build_index(tmp_path, name="空市场"))
 
@@ -116,6 +128,25 @@ class TestTopLevelFields:
         source.mkdir()
 
         assert build_index(source)["name"] == "my-market"
+
+    @pytest.mark.parametrize("existing", [None, "{", json.dumps({"name": 42, "entries": []}), json.dumps([])])
+    def test_default_name_fills_in_when_no_existing_name_is_readable(self, tmp_path: Path, existing: str | None):
+        if existing is not None:
+            (tmp_path / INDEX_FILENAME).write_text(existing, encoding="utf-8")
+
+        assert build_index(tmp_path, default_name="arcreel-market")["name"] == "arcreel-market"
+
+    def test_symlinked_index_header_is_not_read(self, tmp_path: Path, tmp_path_factory: pytest.TempPathFactory):
+        outside = tmp_path_factory.mktemp("outside") / INDEX_FILENAME
+        outside.write_text(json.dumps({"name": "外部文件里的名字", "entries": []}), encoding="utf-8")
+        (tmp_path / INDEX_FILENAME).symlink_to(outside)
+
+        assert build_index(tmp_path, default_name="arcreel-market")["name"] == "arcreel-market"
+
+    def test_default_name_does_not_replace_the_existing_name(self, tmp_path: Path):
+        (tmp_path / INDEX_FILENAME).write_text(json.dumps({"name": "官方市场", "entries": []}), encoding="utf-8")
+
+        assert build_index(tmp_path, default_name="arcreel-market")["name"] == "官方市场"
 
 
 class TestGenerateErrors:

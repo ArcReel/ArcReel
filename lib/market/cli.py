@@ -27,6 +27,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     generate.add_argument("directory", type=Path)
     generate.add_argument("--dry-run", action="store_true", help="print the index instead of writing it")
     generate.add_argument("--name")
+    generate.add_argument(
+        "--default-name", help="name to use when neither --name nor a readable existing index provides one"
+    )
     generate.add_argument("--description")
     generate.add_argument("--homepage")
 
@@ -49,7 +52,13 @@ def _check(directory: Path, translate: Callable[..., str]) -> int:
 
 def _generate(args: argparse.Namespace, translate: Callable[..., str]) -> int:
     try:
-        index = build_index(args.directory, name=args.name, description=args.description, homepage=args.homepage)
+        index = build_index(
+            args.directory,
+            name=args.name,
+            description=args.description,
+            homepage=args.homepage,
+            default_name=args.default_name,
+        )
     except GenerateError as exc:
         _report(exc.issues, translate)
         print(translate("val_market_cli_generate_failed", count=len(exc.issues)), file=sys.stderr)

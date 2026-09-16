@@ -19,7 +19,8 @@
   "$defs": {
     "semver": {
       "type": "string",
-      "$comment": "与定义 schema 同一写法：[0-9] 而非 \\d，另加禁换行的 not（Python 的 $ 放过末尾换行）。not 内带 type，非字符串只报类型错。",
+      "maxLength": 64,
+      "$comment": "与定义 schema 同一写法：[0-9] 而非 \\d，另加禁换行的 not（Python 的 $ 放过末尾换行）。not 内带 type，非字符串只报类型错。长度上限让分量不超出整数转换上限。",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
       "not": { "type": "string", "pattern": "\\n" }
     },
@@ -30,11 +31,16 @@
     },
     "relativePath": {
       "type": "string",
-      "$comment": "仓内相对路径：不以 / 或 scheme 开头、不含 ..、不含反斜杠与空白。相对 index_url 所在目录解析。",
-      "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!/)(?!.*\\.\\.)[^\\\\\\s]+$",
+      "$comment": "仓内相对路径：不以 / 或 scheme 开头、不含 ..、不含反斜杠、空白与控制字符。相对 index_url 所在目录解析。",
+      "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!/)(?!.*\\.\\.)[^\\\\\\s\\u0000-\\u001f\\u007f]+$",
       "not": { "type": "string", "pattern": "\\n" }
     },
-    "httpUrl": { "type": "string", "format": "uri", "pattern": "^https?://[^\\s/?#]+\\S*$" },
+    "httpUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://[^\\s/?#]+\\S*$",
+      "not": { "type": "string", "pattern": "\\n" }
+    },
     "entry": {
       "type": "object",
       "required": ["type"],

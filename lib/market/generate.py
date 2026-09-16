@@ -16,7 +16,7 @@ from .entry import project_meta
 from .icon import ICON_FORMATS
 from .index import ENDPOINT_ENTRY_TYPE, INDEX_SCHEMA_VERSION
 from .issues import INDEX_FILENAME, ROOT_PATH, MarketIssue, MarketIssueCode
-from .source import _check_source_document, read_json_file
+from .source import _check_source_document, read_index_document, read_json_file
 
 ENDPOINTS_DIR = "endpoints"
 DEFINITION_FILENAME = "definition.json"
@@ -40,13 +40,18 @@ def build_index(
     name: str | None = None,
     description: str | None = None,
     homepage: str | None = None,
+    default_name: str | None = None,
 ) -> dict[str, Any]:
-    """生成 ``root`` 的索引。顶层字段优先取参数，其次沿用既有索引，``name`` 最后退到目录名。"""
+    """生成 ``root`` 的索引。
+
+    顶层字段优先取参数，其次沿用既有索引；``name`` 两者都取不到时（无索引、索引不可读或其 ``name``
+    不是字符串）用 ``default_name``，再退到目录名。
+    """
     header = _existing_header(root)
     for field, value in (("name", name), ("description", description), ("homepage", homepage)):
         if value is not None:
             header[field] = value
-    header.setdefault("name", root.resolve().name)
+    header.setdefault("name", default_name if default_name is not None else root.resolve().name)
 
     entries: list[dict[str, Any]] = []
     issues: list[MarketIssue] = []
@@ -73,13 +78,16 @@ def render_index(index: dict[str, Any]) -> str:
 
 def write_index(root: Path, index: dict[str, Any]) -> Path:
     path = root / INDEX_FILENAME
+    # 索引是生成物：被换成符号链接时替换链接本身，否则写入会落到链接目标，索引文件在 git 里不变。
+    if path.is_symlink():
+        path.unlink()
     path.write_text(render_index(index), encoding="utf-8")
     return path
 
 
 def _existing_header(root: Path) -> dict[str, Any]:
     try:
-        document = read_json_file(root / INDEX_FILENAME)
+        document = read_index_document(root)
     except ValueError:
         return {}
     if not isinstance(document, dict):

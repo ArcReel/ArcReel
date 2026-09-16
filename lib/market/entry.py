@@ -10,7 +10,7 @@ from lib.custom_provider.endpoint_definition import validate_definition
 from .index import ENDPOINT_ENTRY_TYPE, MarketIndexEntry
 from .issues import INDEX_FILENAME, ROOT_PATH, MarketIssue, MarketIssueCode, join_path
 
-#: 首期调用端点条目的媒体类型写死为视频（定义格式本身只描述视频端点）。
+#: 调用端点条目的媒体类型固定为视频（定义格式本身只描述视频端点）。
 ENDPOINT_MEDIA_TYPE = "video"
 
 #: 从定义 ``meta`` 投影进索引条目的字段，顺序即生成器写出的顺序。

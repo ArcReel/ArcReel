@@ -25,7 +25,7 @@ INDEX_SCHEMA_PATH = Path(__file__).parent / "index_schema.json"
 #: 本客户端实现的索引格式版本。主版本更高的索引整份拒读，同主版本的更高 minor 照常读。
 INDEX_SCHEMA_VERSION = "1.0.0"
 
-#: 首期唯一的条目类型；其余类型读索引时静默跳过。
+#: 本客户端识别的唯一条目类型；其余类型读索引时静默跳过。
 ENDPOINT_ENTRY_TYPE = "endpoint"
 
 #: 字段名 → 该字段格式不合规（pattern / 禁换行）时的专用码，其余格式问题报 ``invalid_value``。

@@ -76,12 +76,8 @@ jobs:
       - name: Generate index
         working-directory: arcreel
         run: |
-          # 没有既有索引时，顶层 name 取仓库名而不是检出目录名
-          name_args=()
-          if [ ! -f "${GITHUB_WORKSPACE}/market/arcreel-market.json" ]; then
-            name_args=(--name "${GITHUB_REPOSITORY#*/}")
-          fi
-          uv run --no-sync python -m lib.market generate "${GITHUB_WORKSPACE}/market" "${name_args[@]}"
+          # 既有索引给不出 name 时取仓库名，而不是检出目录名
+          uv run --no-sync python -m lib.market generate "${GITHUB_WORKSPACE}/market" --default-name "${GITHUB_REPOSITORY#*/}"
 
       - name: Check index
         working-directory: arcreel
