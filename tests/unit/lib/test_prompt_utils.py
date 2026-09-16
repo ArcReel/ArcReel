@@ -89,7 +89,7 @@ class TestPromptUtils:
         # 反向约束以 Avoid 键收尾：有对话时置于 Dialogue 之后
         assert list(parsed_a)[-2:] == ["Dialogue", "Avoid"]
         assert list(parsed_b)[-1] == "Avoid"
-        assert parsed_a["Avoid"] == "BGM、文字字幕、水印"
+        assert parsed_a["Avoid"] == "BGM、文字字幕、水印、Logo"
 
     def test_structured_checks(self):
         assert is_structured_image_prompt({"scene": "x"})
@@ -287,6 +287,13 @@ class TestRenderStoryboardVideoPrompt:
         assert rendered.startswith("镜头缓缓推近")
         assert "Voice_Style: 低沉沙哑" in rendered
         assert "Line: 你来了。" in rendered
+
+    @pytest.mark.parametrize("prompt", ["镜头缓缓推近", {"action": "起身", "camera_motion": "Static"}])
+    def test_both_forms_exclude_logos_and_keep_one_avoid_line_on_rerender(self, prompt):
+        rendered = self._render(prompt)
+        assert rendered.endswith("Avoid: BGM、文字字幕、水印、Logo")
+        assert self._render(rendered) == rendered
+        assert rendered.count("Avoid:") == 1
 
     def test_speech_sections_already_in_body_are_not_appended_twice(self):
         """结构化 → 文本以当前渲染结果为初值：正文已带发声声明段时不叠出第二份。"""

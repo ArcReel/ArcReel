@@ -224,7 +224,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
         # 3. 构建配置
         # 反向提示词不再走参数通道——caller 在 request.prompt 末尾文本化注入
-        # （prompt_builders.append_video_negative_tail），跨 backend 一致。
+        # （lib.prompt_utils.render_storyboard_video_prompt 渲染的 storyboard/video 模版），跨 backend 一致。
         config_params: dict = {
             "aspect_ratio": request.aspect_ratio,
             "duration_seconds": duration_str,

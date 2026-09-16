@@ -11,16 +11,11 @@ from typing import Any, get_args
 import yaml
 
 from lib.asset_types import normalize_asset_bucket, normalize_asset_name
+from lib.prompt_templates.builtin import builtin_templates
 from lib.reference_image_numbering import REFERENCE_IMAGES_KEY
 from lib.script_models import CameraMotion, ShotType
 
 logger = logging.getLogger(__name__)
-
-#: 反向约束的 YAML 键：分镜图置于 ``Composition`` 之后，视频置于 ``Dialogue`` 之后。
-AVOID_KEY = "Avoid"
-#: 分镜图与视频的反向条目各自定义，内容相同也不合并（同 ``lib.prompt_builders`` 的资产图反向提示词）。
-STORYBOARD_AVOID_ITEMS = "水印、多余文字、Logo"
-VIDEO_AVOID_ITEMS = "BGM、文字字幕、水印"
 
 # 提示词 YAML 的行宽上限。PyYAML 默认 80 列，超宽的纯量会在 ASCII 空格处折成多行——
 # 英文 / 越南语提示词几乎每个值都超 80 列，折行会把原文塞进换行再喂给供应商。取一个任何
@@ -44,7 +39,9 @@ SHOT_TYPES: list[str] = list(get_args(ShotType))
 CAMERA_MOTIONS: list[str] = list(get_args(CameraMotion))
 
 
-def image_prompt_to_yaml(image_prompt: dict, project_style: str, *, reference_images: str = "") -> str:
+def image_prompt_to_yaml(
+    image_prompt: dict, project_style: str, *, reference_images: str = "", style_description: str = ""
+) -> str:
     """
     将 imagePrompt 结构转换为 YAML 格式字符串
 
@@ -60,22 +57,29 @@ def image_prompt_to_yaml(image_prompt: dict, project_style: str, *, reference_im
             }
         project_style: 项目级风格设置（从 project.json 读取）
         reference_images: 参考图类型声明行的值（``lib.reference_image_numbering``），非空时作为
-            ``Reference_Images`` 键插在 ``Style`` 与 ``Scene`` 之间
+            ``Reference_Images`` 键插在风格块与 ``Scene`` 之间
+        style_description: 项目风格描述
 
     Returns:
         YAML 格式字符串，键序 Style / Reference_Images / Scene / Composition / Avoid
     """
-    ordered: dict[str, Any] = {"Style": project_style}
-    if reference_images:
-        ordered[REFERENCE_IMAGES_KEY] = reference_images
-    ordered["Scene"] = image_prompt["scene"]
+    ordered: dict[str, Any] = {"Scene": image_prompt["scene"]}
     ordered["Composition"] = {
         "shot_type": image_prompt["composition"]["shot_type"],
         "lighting": image_prompt["composition"]["lighting"],
         "ambiance": image_prompt["composition"]["ambiance"],
     }
-    ordered[AVOID_KEY] = STORYBOARD_AVOID_ITEMS
-    return _dump_prompt_yaml(ordered)
+    return (
+        builtin_templates.render(
+            "storyboard/image",
+            style=project_style,
+            style_description=style_description.strip(),
+            reference_images=yaml_section({REFERENCE_IMAGES_KEY: reference_images}) if reference_images else "",
+            structured_body=_dump_prompt_yaml(ordered).rstrip(),
+            text_body="",
+        )
+        + "\n"
+    )
 
 
 def require_storyboard_scene(image_prompt: Mapping[str, Any]) -> str:
@@ -150,20 +154,16 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     # 仅在有对话时添加 Dialogue 字段
     if dialogue:
         ordered["Dialogue"] = dialogue
-    ordered[AVOID_KEY] = VIDEO_AVOID_ITEMS
-
-    return _dump_prompt_yaml(ordered)
+    return builtin_templates.render("storyboard/video", body=_dump_prompt_yaml(ordered).rstrip()) + "\n"
 
 
 def normalize_video_prompt(prompt: object) -> str:
     """Normalize the exact text sent to a video provider."""
 
-    from lib.prompt_builders import append_video_negative_tail
-
     if isinstance(prompt, str):
         if not prompt.strip():
             raise ValueError("prompt must not be empty")
-        return append_video_negative_tail(prompt)
+        return builtin_templates.render("storyboard/video", body=prompt.rstrip())
     if not isinstance(prompt, dict):
         raise ValueError("prompt must be a string or object")
     if not is_structured_video_prompt(prompt):
@@ -194,7 +194,7 @@ def normalize_video_prompt(prompt: object) -> str:
         "dialogue": normalized_dialogue,
         "voice_profiles": prompt.get("voice_profiles") or [],
     }
-    return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt).rstrip())
+    return video_prompt_to_yaml(normalized_prompt).rstrip()
 
 
 def render_storyboard_video_prompt(
@@ -210,7 +210,7 @@ def render_storyboard_video_prompt(
     成立，而非各写一份靠约定对齐。``prompt`` 取条目当前的 ``video_prompt``（结构形态或文本
     形态），``item`` 供 drama 取分镜级 ``utterances``（``None`` 视同无 utterances 字段）。
 
-    文本形态下条目正文即提示词主体，不套结构模板；drama 的发声序列仍由脚本规划的
+    文本形态下条目正文即模版的正文槽位；drama 的发声序列仍由脚本规划的
     ``utterances`` 决定——正文不承载台词，台词与声音风格由本函数按同一门控追加到正文之后。
     """
 
@@ -257,7 +257,7 @@ def yaml_section(ordered: dict[str, Any]) -> str:
     """渲染一个可独立追加到文本形态提示词的 YAML 段（无尾随换行）。
 
     键名与缩进沿用 ``image_prompt_to_yaml`` / ``video_prompt_to_yaml``：发声声明段、参考图类型
-    声明行与 ``Avoid`` 反向约束在结构形态与文本形态下逐字同形，文本形态才能按内容判重。
+    声明行在结构形态与文本形态下逐字同形，文本形态才能按内容判重。
     """
     return _dump_prompt_yaml(ordered).rstrip()
 

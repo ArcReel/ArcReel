@@ -1,8 +1,8 @@
 from pathlib import Path
 
+import pytest
+
 from lib.prompt_builders import (
-    append_image_negative_tail,
-    append_video_negative_tail,
     build_character_derivative_prompt,
     build_character_prompt,
     build_product_prompt,
@@ -62,53 +62,18 @@ class TestFigureExclusion:
 
     def test_character_and_storyboard_keep_people(self):
         assert self._EXCLUSION not in build_character_prompt("张三", "短发青年")
-        assert self._EXCLUSION not in append_image_negative_tail("林清坐在窗边木桌前")
+        assert self._EXCLUSION not in render_storyboard_image_prompt("林清坐在窗边木桌前")
 
 
-class TestVideoNegativeTail:
-    def test_appends_when_missing(self):
-        result = append_video_negative_tail("林清缓缓抬头")
-        assert result.startswith("林清缓缓抬头")
-        assert result != "林清缓缓抬头"
-
-    def test_idempotent(self):
-        once = append_video_negative_tail("林清缓缓抬头")
-        twice = append_video_negative_tail(once)
-        assert once == twice
-
-    def test_handles_empty_input(self):
-        assert append_video_negative_tail("")
-
-    def test_handles_whitespace_only_input(self):
-        expected = append_video_negative_tail("")
-        for blank in ("   ", "\n\n", "\t \n"):
-            assert append_video_negative_tail(blank) == expected
-
-
-class TestImageNegativeTail:
-    def test_appends_when_missing(self):
-        result = append_image_negative_tail("林清坐在窗边木桌前")
-        assert result.startswith("林清坐在窗边木桌前")
-        assert result != "林清坐在窗边木桌前"
+class TestStoryboardImageAvoidLine:
+    def test_text_form_ends_with_one_image_avoid_line(self):
+        assert (
+            render_storyboard_image_prompt("林清坐在窗边木桌前") == "林清坐在窗边木桌前\n\nAvoid: 水印、多余文字、Logo"
+        )
 
     def test_idempotent(self):
-        once = append_image_negative_tail("林清坐在窗边木桌前")
-        twice = append_image_negative_tail(once)
-        assert once == twice
-
-    def test_handles_empty_and_whitespace_input(self):
-        expected = append_image_negative_tail("")
-        for blank in ("", "   ", "\n\n", "\t \n"):
-            assert append_image_negative_tail(blank) == expected
-
-
-class TestNegativeTailsAreAvoidKeys:
-    def test_image_and_video_tails_are_avoid_lines(self):
-        assert append_image_negative_tail("") == "Avoid: 水印、多余文字、Logo"
-        assert append_video_negative_tail("") == "Avoid: BGM、文字字幕、水印"
-
-    def test_text_form_appends_one_avoid_line(self):
-        assert append_video_negative_tail("林清缓缓抬头") == "林清缓缓抬头\n\nAvoid: BGM、文字字幕、水印"
+        once = render_storyboard_image_prompt("林清坐在窗边木桌前")
+        assert render_storyboard_image_prompt(once) == once
 
 
 def _sheet(asset_type: str, name: str) -> VisualReference:
@@ -133,6 +98,22 @@ _STRUCTURED = {
 
 class TestRenderStoryboardImagePrompt:
     """图N 编号由实际发出的参考图列表机械派生，对全部图像后端同一口径。"""
+
+    @pytest.mark.parametrize("prompt", [_STRUCTURED, _SCENE])
+    def test_both_forms_share_style_block_and_wrappers_survive_text_roundtrip(self, prompt):
+        references = [_sheet("character", "林清")]
+        rendered = render_storyboard_image_prompt(
+            prompt, style="Anime", style_description="cinematic", references=references
+        )
+        assert rendered.startswith("Style: Anime\nVisual style: cinematic\nReference_Images:")
+        assert (
+            render_storyboard_image_prompt(
+                rendered, style="Anime", style_description="cinematic", references=references
+            )
+            == rendered
+        )
+        for label in ("Style:", "Visual style:", "Reference_Images:", "Avoid:"):
+            assert rendered.count(label) == 1
 
     def test_structured_prompt_declares_types_between_style_and_scene_and_numbers_mentions(self):
         references = [

@@ -112,7 +112,7 @@ def _render_unit_prompt(
     """把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.reference_video.prompt_render``）。
 
     画质/字幕/水印约束由渲染的第三段承担，本路径不追加反向尾词；
-    ``append_video_negative_tail`` 只服务图生视频路径。
+    ``storyboard/video`` 模版的 ``Avoid`` 行只服务图生视频路径。
 
     空提示词的*结构校验*已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径
     （WebUI / SDK）在入队时即拒绝空提示词。此处保留一道防御性空检查，因为参考生视频的
