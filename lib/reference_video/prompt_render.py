@@ -27,7 +27,6 @@ from typing import Any
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.audio_utils import resolve_audio_ref_path
 from lib.prompt_builders import PRODUCT_FIDELITY_CORE
-from lib.prompt_utils import normalize_style
 from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
@@ -436,9 +435,8 @@ def _render_segment_three(character_count: int, style: str | None) -> str:
     「这是同一个人的两套外观、都要出现」直接对立。
     """
     lines: list[str] = []
-    normalized = normalize_style(style)
-    if normalized:
-        lines.append(f"整体视觉风格：{normalized}。")
+    if style:
+        lines.append(f"整体视觉风格：{style}。")
     lines.append(_QUALITY_PACK + _STABILITY_PACK)
     lines.append(_SUBTITLE_PACK + _WATERMARK_PACK + _NO_BGM_PACK)
     if character_count >= 2:

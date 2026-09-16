@@ -118,20 +118,15 @@ class TestUpdateProjectAtomicity:
         result = pm.load_project(name)
         assert result["metadata"]["updated_at"] != "2025-01-01"
 
-    def test_update_project_returns_migrated_dict(self, tmp_path: Path):
-        """update_project 应在单次调用内应用读时迁移并返回最终 dict（无需二次 load_project）。
-
-        覆盖读时迁移 _migrate_legacy_style（持久化）。image_backend → 双字段拆分已下沉到
-        启动期 v1→v2 项目迁移，不再走读时网。
-        """
-        project_name = "migrate-proj"
+    def test_update_project_returns_the_persisted_dict(self, tmp_path: Path):
+        """update_project 在单次调用内返回写回后的 dict，无需二次 load_project。"""
+        project_name = "returned-proj"
         project_dir = tmp_path / project_name
         project_dir.mkdir()
         (project_dir / "project.json").write_text(
             json.dumps(
                 {
                     "characters": {"a": {"character_sheet": ""}},
-                    "style": "Anime",  # legacy 值，应迁移为 style_template_id
                     "metadata": {"created_at": "2025-01-01", "updated_at": "2025-01-01"},
                 },
                 ensure_ascii=False,
@@ -144,10 +139,5 @@ class TestUpdateProjectAtomicity:
             project_name, lambda p: p["characters"]["a"].__setitem__("character_sheet", "x.png")
         )
 
-        # 返回值即迁移后的 dict
-        assert returned["style_template_id"] == "anim_kyoto"
         assert returned["characters"]["a"]["character_sheet"] == "x.png"
-
-        # 与随后 load_project 的结果一致（持久化迁移已落盘）
-        reloaded = pm.load_project(project_name)
-        assert reloaded["style_template_id"] == returned["style_template_id"]
+        assert pm.load_project(project_name) == returned

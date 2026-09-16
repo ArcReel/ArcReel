@@ -5,7 +5,6 @@ Prompt 工具函数
 """
 
 import logging
-import re
 from collections.abc import Mapping
 from typing import Any, get_args
 
@@ -40,19 +39,6 @@ def _dump_prompt_yaml(ordered: Mapping[str, Any]) -> str:
     )
 
 
-# 风格值开头的「画风：」前缀（全角/半角冒号）。新版风格模版已去前缀，此处兼容存量 project.json。
-_STYLE_PREFIX_RE = re.compile(r"^画风[：:]\s*")
-
-
-def normalize_style(style: str | None) -> str:
-    """去掉风格值开头的「画风：」前缀并 strip 两端空白；幂等（已无前缀则原样返回）。
-
-    存量项目的 style 取自旧版风格模版（值以「画风：」开头），叠加英文 ``Style:`` 标签会渲染成
-    ``Style: 画风：...`` 的中英混叠。新版模版已去前缀，本函数在注入前兜底清理存量值。
-    """
-    return _STYLE_PREFIX_RE.sub("", (style or "").strip())
-
-
 # 预设选项：真相源是 lib.script_models 的 Literal 词表，此处派生避免双写漂移
 SHOT_TYPES: list[str] = list(get_args(ShotType))
 CAMERA_MOTIONS: list[str] = list(get_args(CameraMotion))
@@ -79,7 +65,7 @@ def image_prompt_to_yaml(image_prompt: dict, project_style: str, *, reference_im
     Returns:
         YAML 格式字符串，键序 Style / Reference_Images / Scene / Composition / Avoid
     """
-    ordered: dict[str, Any] = {"Style": normalize_style(project_style)}
+    ordered: dict[str, Any] = {"Style": project_style}
     if reference_images:
         ordered[REFERENCE_IMAGES_KEY] = reference_images
     ordered["Scene"] = image_prompt["scene"]
@@ -109,12 +95,11 @@ def require_storyboard_scene(image_prompt: Mapping[str, Any]) -> str:
 def project_storyboard_image_prompt(image_prompt: object, project_style: str) -> tuple[str | dict[str, Any], str]:
     """Project one script prompt into the canonical semantics shared by rendering and currency."""
 
-    style = normalize_style(project_style)
     if isinstance(image_prompt, str):
         prompt = image_prompt.strip()
         if not prompt:
             raise ValueError("image_prompt must not be empty")
-        return prompt, style
+        return prompt, project_style
     if not isinstance(image_prompt, Mapping):
         raise ValueError("image_prompt must be a string or object")
     scene = require_storyboard_scene(image_prompt)
@@ -129,7 +114,7 @@ def project_storyboard_image_prompt(image_prompt: object, project_style: str) ->
                 "ambiance": str(composition.get("ambiance") or ""),
             },
         },
-        style,
+        project_style,
     )
 
 

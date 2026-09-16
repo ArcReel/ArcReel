@@ -3,8 +3,8 @@
 模版 id 命名规则：{category}_{slug}，category ∈ {live, anim}。
 prompt 文本来自 docs/生图画风前置提示词4.10.docx，去掉了开头冗余的「画风：」前缀——它会与
 注入分镜 prompt 时的英文 `Style:` 标签叠加成「Style: 画风：…」。anim_arcane 的「画风」是复合词
-「油画三渲二画风」的一部分、非可删前缀，保留原样（存量 project.json 的旧值由
-lib.prompt_utils.normalize_style 在注入前兜底清理）。
+「油画三渲二画风」的一部分、非可删前缀，保留原样（存量 project.json 里带前缀的旧值由
+lib.project_migrations.v13_to_v14_legacy_style_values 一次性剥除）。
 """
 
 from __future__ import annotations
@@ -109,13 +109,6 @@ STYLE_TEMPLATES: dict[str, dict] = {
         "category": "anim",
         "prompt": "参考渡边信一郎作品风格，参考神山健治作品，90年代日本复古动漫风格，上世纪九十年代日漫风格的动漫，层次感，线条清晰，迷人氛围",
     },
-}
-
-
-LEGACY_STYLE_MAP: dict[str, str] = {
-    "Photographic": "live_premium_drama",
-    "Anime": "anim_kyoto",
-    "3D Animation": "anim_3d_cg",
 }
 
 

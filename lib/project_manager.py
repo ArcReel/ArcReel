@@ -89,7 +89,6 @@ from lib.schema_guards import is_int, is_shape, is_str
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets
 from lib.script_plan_entries import ScriptPlanKind, backfill_entry_revisions
-from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 from lib.validation_messages import ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -864,7 +863,6 @@ class ProjectManager:
                             ensure_project_asset_namespace(project)
                         self._apply_episode_sync(project, script, filename)
                         self._migrate_legacy_resolution_on_save(project)
-                        self._migrate_legacy_style(project)
                         self._touch_metadata(project)
                         if self._requires_unique_asset_namespace(project):
                             ensure_project_asset_namespace(project)
@@ -1024,7 +1022,6 @@ class ProjectManager:
         norm = self.normalize_script_filename(script_filename)
         with self._script_lock(project_name, norm), self._project_lock(project_name):
             project = self._read_project_raw_unlocked(project_name)
-            self._migrate_legacy_style(project)
             script, _migrated = self._read_script_unlocked(project_name, norm)
             yield project, script
 
@@ -1034,7 +1031,6 @@ class ProjectManager:
 
         with self._project_lock(project_name):
             project = self._read_project_raw_unlocked(project_name)
-            self._migrate_legacy_style(project)
             yield project
 
     def _read_project_raw_unlocked(self, project_name: str) -> dict:
@@ -1104,7 +1100,6 @@ class ProjectManager:
                 if isinstance(script.get("episode"), int):
                     self._apply_episode_sync(project, script, norm)
                 self._migrate_legacy_resolution_on_save(project)
-                self._migrate_legacy_style(project)
                 self._touch_metadata(project)
                 if self._requires_unique_asset_namespace(project):
                     ensure_project_asset_namespace(project)
@@ -1683,7 +1678,6 @@ class ProjectManager:
 
                 if changed:
                     self._migrate_legacy_resolution_on_save(project)
-                    self._migrate_legacy_style(project)
                     self._touch_metadata(project)
                     if self._requires_unique_asset_namespace(project):
                         ensure_project_asset_namespace(project)
@@ -1856,24 +1850,6 @@ class ProjectManager:
         except FileNotFoundError:
             return False
 
-    @staticmethod
-    def _migrate_legacy_style(project: dict) -> bool:
-        """检测旧 style 值并就地迁移。返回是否发生了变更。"""
-        if "style_template_id" in project:
-            return False  # 已迁移
-        legacy_value = project.get("style", "")
-        if legacy_value not in LEGACY_STYLE_MAP:
-            return False
-        if project.get("style_image"):
-            # 参考图优先：清空旧 style、template_id 置 None
-            project["style_template_id"] = None
-            project["style"] = ""
-        else:
-            new_id = LEGACY_STYLE_MAP[legacy_value]
-            project["style_template_id"] = new_id
-            project["style"] = resolve_template_prompt(new_id)
-        return True
-
     def load_project(self, project_name: str) -> dict:
         """
         加载项目元数据
@@ -1889,34 +1865,16 @@ class ProjectManager:
         if not project_file.exists():
             raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
 
-        migrated = False
-        with self._project_lock(project_name):
-            # 读-改-写放在同一把锁内，避免并发 save_project 在读与写之间完成
-            # 更新后，迁移写回又把更新覆盖掉。
-            with open(project_file, encoding="utf-8") as f:
-                project = json.load(f)
-            if self._migrate_legacy_style(project):
-                # 不走 save_project 以避免触发 _touch_metadata 污染 updated_at。
-                if self._requires_unique_asset_namespace(project):
-                    ensure_project_asset_namespace(project)
-                atomic_write_json(project_file, project)
-                migrated = True
-        if migrated:
-            emit_project_change_hint(
-                project_name,
-                changed_paths=[self.PROJECT_FILE],
-            )
-        return project
+        with open(project_file, encoding="utf-8") as f:
+            return json.load(f)
 
     def load_project_readonly(self, project_name: str) -> dict:
-        """Load an in-memory migrated project snapshot without locking or persisting it."""
+        """Load an in-memory project snapshot without locking it."""
         project_file = self._get_project_file_path(project_name)
         if not project_file.exists():
             raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
         with open(project_file, encoding="utf-8") as f:
-            project = json.load(f)
-        self._migrate_legacy_style(project)
-        return project
+            return json.load(f)
 
     @contextmanager
     def _project_lock(self, project_name: str):
@@ -2041,15 +1999,14 @@ class ProjectManager:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
         避免并发任务（如同时生成多张角色图片）之间的 lost-update 竞态。
-        在同一持锁窗口内统一应用读时迁移（_migrate_legacy_style），返回迁移后的项目元数据 dict，
-        调用方无需再 load_project 一次。
+        返回写回后的项目元数据 dict，调用方无需再 load_project 一次。
 
         Args:
             project_name: 项目名称
             mutate_fn: 接收 project dict 并就地修改的回调函数
 
         Returns:
-            迁移后的项目元数据字典（与 load_project 返回结构一致）
+            写回后的项目元数据字典（与 load_project 返回结构一致）
         """
         project_file = self._get_project_file_path(project_name)
 
@@ -2209,7 +2166,6 @@ class ProjectManager:
         if self._requires_unique_asset_namespace(project):
             ensure_project_asset_namespace(project)
         self._migrate_legacy_resolution_on_save(project)
-        self._migrate_legacy_style(project)
         self._touch_metadata(project)
 
     def update_project_with_file_copies(
@@ -2265,7 +2221,6 @@ class ProjectManager:
                 if self._requires_unique_asset_namespace(project):
                     ensure_project_asset_namespace(project)
                 self._migrate_legacy_resolution_on_save(project)
-                self._migrate_legacy_style(project)
                 self._touch_metadata(project)
 
                 # mutate_fn 可在锁内完成最终名称规划并填充 copies；因此目标唯一性也必须

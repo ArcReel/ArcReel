@@ -3,7 +3,6 @@
 import pytest
 
 from lib.style_templates import (
-    LEGACY_STYLE_MAP,
     STYLE_TEMPLATES,
     list_templates_by_category,
     resolve_template_prompt,
@@ -26,14 +25,6 @@ def test_template_ids_unique_and_slug_shaped():
         assert data["category"] in ("live", "anim")
 
 
-def test_legacy_map_targets_exist():
-    for legacy, tpl_id in LEGACY_STYLE_MAP.items():
-        assert tpl_id in STYLE_TEMPLATES, f"{legacy} -> {tpl_id} 不在 registry"
-    assert LEGACY_STYLE_MAP["Photographic"] == "live_premium_drama"
-    assert LEGACY_STYLE_MAP["Anime"] == "anim_kyoto"
-    assert LEGACY_STYLE_MAP["3D Animation"] == "anim_3d_cg"
-
-
 def test_no_preset_starts_with_huafeng_prefix():
     # 预设值不再以「画风：」开头（避免叠加英文 Style: 标签渲染成 "Style: 画风："）。
     # anim_arcane 是唯一例外：其「画风」是复合词「油画三渲二画风」的一部分，非可删前缀。
@@ -41,7 +32,7 @@ def test_no_preset_starts_with_huafeng_prefix():
         if tpl_id == "anim_arcane":
             assert data["prompt"].startswith("油画三渲二画风：")
             continue
-        # 全角/半角冒号都要排除，与 normalize_style 的清理口径（画风： / 画风:）一致
+        # 全角/半角冒号都要排除，与 v13→v14 迁移的剥离口径（画风： / 画风:）一致
         assert not data["prompt"].startswith(("画风：", "画风:")), tpl_id
 
 

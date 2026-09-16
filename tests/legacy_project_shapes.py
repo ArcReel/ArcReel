@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from lib.grid.models import GridGeneration, build_frame_chain
 from lib.project_migrations.runner import MIGRATORS
 from lib.source_revision import SourceScope, compute_source_revision
 
@@ -230,6 +231,126 @@ def write_legacy_reference_video_project(
     return project_dir
 
 
+def write_legacy_style_project(
+    root: Path,
+    name: str = "legacy-style",
+    *,
+    schema_version: int = 7,
+    style: str = "画风：写实电影感",
+    style_template_id: str | None = None,
+) -> Path:
+    """风格值还是遗留形态的旧项目：资产图、宫格与单张分镜图齐全，四类视觉依据都在场。
+
+    ``style`` 收「画风：」前缀值或 ``Photographic`` 这类短标签；``style_template_id`` 为 None
+    时不写该字段，正是短标签解析的前置条件。宫格与单张分镜图同时存在，因为风格值只在其中
+    两类依据里归一化，两边都要能被断言。
+    """
+
+    project_dir = root / name
+    project_dir.mkdir(parents=True)
+    project: dict[str, Any] = {
+        "schema_version": schema_version,
+        "title": "旧风格项目",
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "source_kind": "novel",
+        "source_language": "中文",
+        "style": style,
+        "style_description": "淡彩",
+        "aspect_ratio": "9:16",
+        "grid_storyboard": True,
+        "characters": {"阿离": {"description": "银发旅人", "character_sheet": "characters/阿离.png"}},
+        "scenes": {"雨巷": {"description": "湿漉石板路", "scene_sheet": "scenes/雨巷.png"}},
+        "props": {},
+        "products": {},
+        "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+    }
+    if style_template_id is not None:
+        project["style_template_id"] = style_template_id
+    _write_json(project_dir / "project.json", project)
+
+    grid_id = "grid_123456789abc"
+    grid_members = ("E1S01", "E1S02")
+    segments: list[dict[str, Any]] = [
+        {
+            "segment_id": resource_id,
+            "episode": 1,
+            "duration_seconds": 4,
+            "novel_text": f"{resource_id} 的旁白。",
+            "characters_in_segment": [],
+            "scenes": [],
+            "props": [],
+            "image_prompt": {"scene": f"{resource_id} 的画面", "composition": {"shot_type": "Medium Shot"}},
+            "video_prompt": {"action": f"{resource_id} 的动作"},
+            "generated_assets": {
+                "storyboard_image": f"storyboards/scene_{resource_id}.png",
+                "grid_id": grid_id,
+                "grid_cell_index": index,
+            },
+        }
+        for index, resource_id in enumerate(grid_members)
+    ]
+    segments.append(
+        {
+            "segment_id": "E1S03",
+            "episode": 1,
+            "duration_seconds": 4,
+            "novel_text": "第三段旁白。",
+            "segment_break": True,
+            "characters_in_segment": [],
+            "scenes": [],
+            "props": [],
+            "image_prompt": {
+                "scene": "巷口回望",
+                "composition": {"shot_type": "Wide Shot", "lighting": "夜色", "ambiance": "清冷"},
+            },
+            "video_prompt": {"action": "回望"},
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S03.png", "status": "completed"},
+        }
+    )
+    _write_json(
+        project_dir / "scripts" / "episode_1.json",
+        {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": segments},
+    )
+    _write_json(
+        project_dir / "drafts" / "episode_1" / "script_plan_segments.json", {"segments": [{"novel_text": "雨夜"}]}
+    )
+    (project_dir / "source").mkdir()
+    (project_dir / "source" / "episode_1.txt").write_text("雨夜", encoding="utf-8")
+
+    grid = GridGeneration(
+        id=grid_id,
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=list(grid_members),
+        grid_image_path=f"grids/{grid_id}.png",
+        rows=2,
+        cols=2,
+        cell_count=4,
+        frame_chain=build_frame_chain(list(grid_members), 2, 2),
+        status="completed",
+        prompt="grid",
+        provider="provider",
+        model="model",
+        grid_size="grid_4",
+        created_at="2026-01-01T00:00:00Z",
+        split_at="2026-01-01T00:01:00Z",
+        video_aspect_ratio="9:16",
+    )
+    _write_json(project_dir / "grids" / f"{grid.id}.json", grid.to_dict())
+    (project_dir / "grids" / f"{grid.id}.png").write_bytes(b"composite")
+    (project_dir / "storyboards").mkdir()
+    for resource_id in (*grid_members, "E1S03"):
+        (project_dir / "storyboards" / f"scene_{resource_id}.png").write_bytes(resource_id.encode())
+    (project_dir / "characters").mkdir()
+    (project_dir / "characters" / "阿离.png").write_bytes(b"character-sheet")
+    (project_dir / "scenes").mkdir()
+    (project_dir / "scenes" / "雨巷.png").write_bytes(b"scene-sheet")
+    _write_versions(project_dir, {})
+    _mark_asset_inventory_current(project_dir)
+    return project_dir
+
+
 def _mark_asset_inventory_current(project_dir: Path) -> None:
     """旧项目都跑过资产分析：清点标记与当前源文一致，制作状态越过资产清点门。"""
 
@@ -256,4 +377,5 @@ __all__ = [
     "advance_project_schema",
     "write_legacy_reference_video_project",
     "write_legacy_storyboard_project",
+    "write_legacy_style_project",
 ]

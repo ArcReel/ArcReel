@@ -28,21 +28,19 @@ class TestBuildPrompt:
                 "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
             },
         }
-        out = _build_prompt(segment, "画风：真人电视剧风格", "Soft light", "segment_id")
+        out = _build_prompt(segment, "真人电视剧风格", "Soft light", "segment_id")
 
         assert out.count("Style:") == 1
-        assert "画风：" not in out
         assert "Style: 真人电视剧风格" in out
         assert out.startswith("Visual style: Soft light")
 
-    def test_unstructured_keeps_style_prefix_normalized(self) -> None:
+    def test_unstructured_prompt_keeps_one_style_line(self) -> None:
         from server.media_tools.storyboards import _build_prompt
 
         segment = {"segment_id": "E1S02", "image_prompt": "村口黄昏的长镜头"}
-        out = _build_prompt(segment, "画风：真人电视剧风格", "", "segment_id")
+        out = _build_prompt(segment, "真人电视剧风格", "", "segment_id")
 
         assert out.count("Style:") == 1
-        assert "画风：" not in out
         assert out.startswith("Style: 真人电视剧风格")
         assert "\n\n村口黄昏的长镜头\n\n" in out
         assert out.endswith("\n\nAvoid: 水印、多余文字、Logo")

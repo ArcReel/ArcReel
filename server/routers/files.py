@@ -780,8 +780,7 @@ _SCRIPT_PLAN_CANDIDATES = list(
 def _load_project_modes(project_name: str) -> tuple[str, str | None]:
     """走 ProjectManager.load_project，读出 (content_mode, generation_mode) 两轴。
 
-    复用 load_project 以获得文件锁和 _migrate_legacy_style 迁移；两轴都是项目级字段，
-    草稿文件名不随集号变化。项目不存在时返回 ("drama", None)，由调用方走 content_mode-only 分支。
+    两轴都是项目级字段，草稿文件名不随集号变化。项目不存在时返回 ("drama", None)，由调用方走 content_mode-only 分支。
     """
     try:
         data = get_project_manager().load_project(project_name)

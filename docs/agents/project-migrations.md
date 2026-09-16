@@ -18,10 +18,13 @@
 | 脚本规划草稿是 `.md`（`step1_*.md` / `script_plan_*.md`），没有 JSON 正式计划 | ≤ 0.26 | `drafts/episode_N/script_plan_*.json` | 剧本按无计划依据登记（`build_planless_episode_script_basis`） |
 | 源文用上传原名，没有 `source/episode_N.txt` | ≤ 0.26 | `source/episode_N.txt` | 不改文件；与 `.md` 草稿同时出现时剧本走无计划登记，若 JSON 计划在场而源文缺席则剧本不登记 |
 | 剧本顶层没有 `episode` 字段 | 未见于真实项目 | 顶层 `episode == 绑定集号` | 激活预检拒绝并点名文件 |
+| 风格值以「画风：」开头（当时的风格模版带该前缀） | 0.9 – 0.15 | 已剥前缀的风格值 | v13→v14 就地剥离 |
+| 风格值是 `Photographic` / `Anime` / `3D Animation` 短标签 | ≤ 0.8 | `style_template_id` + 展开后的模版快照 | v13→v14 解析并展开；已有 `style_template_id` 时不动 |
 
 ## 约定
 
 - 升级路径常常跨多个版本：迁移要处理的是更早版本留下的全部变体，不只上一版写出的标准形态。
 - 备份走 `lib/project_migrations/backups.py`；自行备份输入的迁移器登记到 runner 的 `_MIGRATORS_WITH_OWNED_BACKUP`。
 - 改写清单的迁移用 `activate_artifact_target_state(bump_schema=True, target_schema_version=...)`，先做只读预检再落盘。
+- 整份激活会把在场产物一律登记为时新。改的只是某个依据输入、既有产物本不该因此过期时，改前改后各规划一次目标态，只把「改前正是时新、且目标登记变了」的条目改写过去（先例：v13→v14 的风格值归一），本就过期的条目不被伪造成时新。
 - 「投影不出来」不等于「不存在」，也不等于「整项目失败」：依据从当前项目状态投影不出的目标不登记，进报告，读时报 missing。

@@ -107,7 +107,7 @@ def activate_artifact_target_state(
 
     ``backup_file`` 与 ``commit_schema`` 是临界区内两个落盘步骤的注入点，缺省即生产实现。
     ``plan`` 供调用方把只读预检提到自身写盘段之前完成；缺省即在此就地预检。传入的计划仍要
-    过 ``_assert_preflight_unchanged``，它对着盘上事实自证，晚于预检的改动一律拒绝。
+    过 ``assert_artifact_target_state_plan_unchanged``，它对着盘上事实自证，晚于预检的改动一律拒绝。
     ``target_schema_version`` 是 ``bump_schema`` 时提交的版本：项目必须正停在它的前一版，
     备份按那一版命名（``*.bak.v<前一版>-*``）。
     """
@@ -121,16 +121,16 @@ def activate_artifact_target_state(
     if not bump_schema and not project_schema_is_current(plan.project):
         raise ValueError("schema-preserving activation requires a current-schema project")
 
-    _assert_preflight_unchanged(project_dir, plan)
+    assert_artifact_target_state_plan_unchanged(project_dir, plan)
     adapter = ProjectArtifactManifestAdapter(project_dir)
     if bump_schema:
         with project_metadata_lock(project_dir):
-            _assert_preflight_unchanged(project_dir, plan)
+            assert_artifact_target_state_plan_unchanged(project_dir, plan)
             _backup_activation_inputs(project_dir, plan, backup_file=backup_file, from_version=from_version)
             previous_entries = adapter.snapshot_entries()
             changed = adapter.replace_entries_atomically(plan.entries)
             try:
-                _assert_preflight_unchanged(project_dir, plan)
+                assert_artifact_target_state_plan_unchanged(project_dir, plan)
             except BaseException as original_error:
                 if changed:
                     try:
@@ -192,7 +192,7 @@ def ensure_imported_artifact_target_state(
             invalid = [key.encode() for key, archived in preserved_entries.items() if rebased[key] != archived]
             if invalid:
                 raise ValueError(f"archive Artifact Manifest contains unprovable formal claims: {sorted(invalid)}")
-            _assert_preflight_unchanged(project_dir, plan)
+            assert_artifact_target_state_plan_unchanged(project_dir, plan)
             adapter = ProjectArtifactManifestAdapter(project_dir)
             restored: dict[ArtifactKey, ArtifactManifestEntry] = {}
             replaced: list[str] = []
@@ -212,7 +212,7 @@ def ensure_imported_artifact_target_state(
                 raise ValueError(
                     f"archive Artifact Manifest formal artifact content does not match its claims: {sorted(replaced)}"
                 )
-            _assert_preflight_unchanged(project_dir, plan)
+            assert_artifact_target_state_plan_unchanged(project_dir, plan)
             return adapter.replace_entries_atomically(restored)
     return activate_artifact_target_state(project_dir, bump_schema=False)
 
@@ -226,12 +226,12 @@ def snapshot_preserved_artifact_manifest(
     with project_metadata_lock(project_dir):
         plan = _plan_preserved_artifact_target_state(project_dir)
         rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
-        _assert_preflight_unchanged(project_dir, plan)
+        assert_artifact_target_state_plan_unchanged(project_dir, plan)
         adapter = ProjectArtifactManifestAdapter(project_dir)
         content_digests = {
             key: read_artifact_content_digest(adapter, entry.artifact_path) for key, entry in rebased.items()
         }
-        _assert_preflight_unchanged(project_dir, plan)
+        assert_artifact_target_state_plan_unchanged(project_dir, plan)
     return ArtifactManifestArchiveSnapshot(entries=rebased, content_digests=content_digests)
 
 
@@ -309,7 +309,7 @@ def reconcile_artifact_target_claims(
     replacements, plan = _plan_artifact_claim_reconciliation(project_dir, claimed)
     if not replacements:
         return False
-    _assert_preflight_unchanged(project_dir, plan)
+    assert_artifact_target_state_plan_unchanged(project_dir, plan)
     return register_artifact_entries_atomically(
         project_dir,
         replacements,
@@ -434,7 +434,7 @@ def prepare_episode_script_manifest_commit(
         replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = dict.fromkeys(orphaned_keys)
         if grid_claims:
             grid_replacements, grid_plan = _plan_artifact_claim_reconciliation(project_dir, grid_claims)
-            _assert_preflight_unchanged(project_dir, grid_plan)
+            assert_artifact_target_state_plan_unchanged(project_dir, grid_plan)
             replacements.update(grid_replacements)
         replacements[script_key] = frozen_entry or resolve_current_artifact_target(project_dir, script_key)
         register_artifact_entries_atomically(
@@ -448,8 +448,17 @@ def prepare_episode_script_manifest_commit(
     return commit
 
 
-def _assert_preflight_unchanged(project_dir: Path, plan: ArtifactTargetStatePlan) -> None:
-    _assert_project_unchanged(project_dir, plan.project_bytes)
+def assert_artifact_target_state_plan_unchanged(
+    project_dir: Path,
+    plan: ArtifactTargetStatePlan,
+    *,
+    expected_project_bytes: bytes | None = None,
+) -> None:
+    """Reject a target-state plan when any project input has drifted since planning."""
+    _assert_project_unchanged(
+        project_dir,
+        plan.project_bytes if expected_project_bytes is None else expected_project_bytes,
+    )
     for path, expected in plan.dependency_bytes.items():
         try:
             current = path.read_bytes()
@@ -534,6 +543,7 @@ __all__ = [
     "artifact_is_usable",
     "artifact_key_for_resource",
     "assert_artifact_input_claims_usable",
+    "assert_artifact_target_state_plan_unchanged",
     "assert_current_artifact_input_claims_usable",
     "bind_artifact_input_claims_to_content_digests",
     "bind_artifact_input_claims_to_frozen_visuals",

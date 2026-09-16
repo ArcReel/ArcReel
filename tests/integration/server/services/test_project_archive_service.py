@@ -100,7 +100,7 @@ def _create_project(
     *,
     name: str = "demo",
     title: str = "Demo",
-    style: str = "Anime",
+    style: str = "水墨风格，淡彩",
     video_uri: str | None = None,
 ) -> Path:
     pm.create_project(name)

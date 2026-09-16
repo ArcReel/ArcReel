@@ -61,6 +61,7 @@ def test_legacy_storyboard_videos_become_current_after_provenance_backfill(tmp_p
     assert outcome is not None
     assert outcome.registered["episode-video"] == 2
     assert outcome.skipped == ()
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION)
     for resource_id in ("E1S1", "E1S2"):
         record = _selected_record(project_dir, "videos", resource_id)
         target = parse_typed_media_version_target("videos", record)
@@ -79,6 +80,7 @@ def test_legacy_reference_videos_become_current_and_legacy_audio_is_reported(tmp
 
     assert outcome is not None
     assert outcome.registered["episode-video"] == 2
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION)
     for resource_id in ("E1U01", "E1U02"):
         assert _video_state(project_dir, "reference_videos", resource_id) == ArtifactStatus.CURRENT.value
     skipped = {(item.kind, item.resource_id): item.reason for item in outcome.skipped}
@@ -93,6 +95,7 @@ def test_summary_counts_legacy_videos_and_reports_the_script_generated(tmp_path:
     project_dir = write_legacy_reference_video_project(root)
     advance_project_schema(project_dir, to_version=12)
     migrate_v12_to_v13(project_dir)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION)
 
     summary = WorkflowStateService(ProjectManager(root)).get_project_summary(project_dir.name)
 
@@ -108,6 +111,7 @@ def test_status_passes_the_script_plan_gate_for_a_registered_planless_script(tmp
     project_dir = write_legacy_storyboard_project(root)
     advance_project_schema(project_dir, to_version=12)
     migrate_v12_to_v13(project_dir)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION)
 
     status = WorkflowStateService(ProjectManager(root)).get_status(project_dir.name, 1)
 
@@ -120,6 +124,7 @@ def test_planless_script_stays_current_until_a_formal_plan_appears(tmp_path: Pat
     project_dir = write_legacy_storyboard_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=12)
     migrate_v12_to_v13(project_dir)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION)
     assert _script_state(project_dir) == ArtifactStatus.CURRENT.value
 
     (project_dir / "source" / "episode_1.txt").write_text("第一段旁白。第二段旁白。", encoding="utf-8")

@@ -150,7 +150,7 @@ def test_storyboard_image_basis_projects_content_canvas_and_actual_references(tm
     def build(
         *,
         image_prompt: object | None = None,
-        style: str = "画风：水墨",
+        style: str = "水墨",
         aspect_ratio: str = "16:9",
         sheet: Path = character_sheet,
     ):
@@ -179,7 +179,7 @@ def test_storyboard_image_basis_projects_content_canvas_and_actual_references(tm
 
     baseline = build()
 
-    assert build(style="水墨").digest == baseline.digest
+    assert build(style="写实").digest != baseline.digest
     assert build(sheet=changed_sheet).digest != baseline.digest
     assert build(aspect_ratio="9:16").digest != baseline.digest
     assert (
@@ -530,7 +530,7 @@ def test_reference_video_visual_basis_uses_unit_visual_text_and_actual_request_a
         *,
         current_unit: dict[str, object] = unit,
         current_assets: tuple[ResolvedReferenceAsset, ...] = request_assets,
-        style: str = "画风：水墨",
+        style: str = "水墨",
         aspect_ratio: str = "9:16",
     ):
         return build_reference_video_artifact_visual_basis(

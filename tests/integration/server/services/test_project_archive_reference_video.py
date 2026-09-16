@@ -93,7 +93,7 @@ def _create_reference_video_project(
     write_thumbnail: bool = True,
 ) -> Path:
     pm.create_project(name)
-    pm.create_project_metadata(name, "RefDemo", "Anime", "narration")
+    pm.create_project_metadata(name, "RefDemo", "水墨风格，淡彩", "narration")
 
     project_dir = pm.get_project_path(name)
     project = pm.load_project(name)
