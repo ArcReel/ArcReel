@@ -193,7 +193,7 @@ uv run basedpyright --warnings
 uv run lint-imports
 ```
 
-- 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，是 CI backend-static 的必过步骤
+- 校验 `lib.config < lib.*_backends < lib.custom_provider < lib.market` 分层契约，是 CI backend-static 的必过步骤
 - 新增 ignore 条目前先确认该依赖边无法直接消除（约定见 `pyproject.toml`）
 
 **依赖卫生（deptry）：**

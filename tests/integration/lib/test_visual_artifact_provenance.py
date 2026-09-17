@@ -216,6 +216,48 @@ def test_storyboard_text_basis_tracks_the_style_sent_to_the_request(tmp_path: Pa
 
 
 @pytest.mark.parametrize(
+    ("image_prompt", "video_prompt", "image_digest", "video_digest"),
+    [
+        (
+            "雨中街道",
+            "人物起身",
+            "sha256-v1:0e573ee810f39f19d7c6e05fcfa9ef80b9a90fc728e756caa4786c9f0c1480b3",
+            "sha256-v1:add7a26ec062bc2eff5f7e0294f4d26aaf23412eb7f47b7c21fdd495461ac07d",
+        ),
+        (
+            {"scene": "雨中街道"},
+            {"action": "人物起身", "camera_motion": "Static"},
+            "sha256-v1:fa09211c127b7370deb2de5f700375776a690f988fa3576942cccbad8e30c85d",
+            "sha256-v1:8ab3fec948727d862f38788fae4faf9546344dd36421d46af8d3d6ebd8080d89",
+        ),
+    ],
+    ids=["text", "structured"],
+)
+def test_storyboard_artifact_basis_is_stable_across_template_wording(
+    tmp_path: Path, image_prompt: object, video_prompt: object, image_digest: str, video_digest: str
+) -> None:
+    """正式内容摘要的固定样本不含渲染器的风格块、参考声明与 Avoid 包装。"""
+    start = tmp_path / "start.png"
+    start.write_bytes(b"start-frame")
+    image = build_storyboard_image_visual_basis(
+        resource_id="E1S01",
+        image_prompt=image_prompt,
+        style="水彩",
+        style_description="柔和笔触",
+        aspect_ratio="16:9",
+    )
+    video = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S01",
+        visual_prompt=video_prompt,
+        storyboard_image=start,
+        end_frame_image=None,
+        aspect_ratio="16:9",
+    )
+    assert image.digest == image_digest
+    assert video.digest == video_digest
+
+
+@pytest.mark.parametrize(
     "image_prompt",
     [
         "Style: 手绘\n\n阿黎站在雨中",

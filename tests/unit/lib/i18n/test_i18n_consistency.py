@@ -20,7 +20,7 @@ from lib.i18n.zh import errors as zh_errors
 from lib.i18n.zh import events as zh_events
 from lib.i18n.zh import system as zh_system
 from lib.i18n.zh import templates as zh_templates
-from lib.style_templates import STYLE_TEMPLATES
+from lib.style_templates import list_template_ids
 
 
 def test_all_locales_have_same_keys():
@@ -68,9 +68,9 @@ def test_templates_module_keys_match():
 
 
 def test_templates_cover_all_style_template_ids():
-    """STYLE_TEMPLATES 的每个 id 都必须在 zh/en/vi templates 里有 name 与 tagline key。"""
-    required_name_keys = {f"template_name_{tid}" for tid in STYLE_TEMPLATES}
-    required_tagline_keys = {f"template_tagline_{tid}" for tid in STYLE_TEMPLATES}
+    """每个风格模版 id 都必须在 zh/en/vi templates 里有 name 与 tagline key。"""
+    required_name_keys = {f"template_name_{tid}" for tid in list_template_ids()}
+    required_tagline_keys = {f"template_tagline_{tid}" for tid in list_template_ids()}
     for module_name, msgs in (
         ("zh", zh_templates.MESSAGES),
         ("en", en_templates.MESSAGES),

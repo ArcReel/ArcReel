@@ -58,6 +58,7 @@ def project_with_script(tmp_path):
                 "schema_version": 7,
                 "content_mode": "narration",
                 "style": "realistic",
+                "style_description": "胶片颗粒，低饱和",
                 "generation_mode": "storyboard",
                 "grid_storyboard": True,
                 "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
@@ -595,9 +596,11 @@ class TestExecuteGridTask:
             rows=2,
             cols=2,
             style="realistic",
+            style_description="胶片颗粒，低饱和",
             aspect_ratio="9:16",
             grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
         )
+        assert "Visual style: 胶片颗粒，低饱和" in expected.splitlines()
         assert captured_prompt == [expected]
         assert GridManager(project_with_script).get(grid_json.id).prompt == expected
         expected_basis = build_grid_composite_visual_basis(

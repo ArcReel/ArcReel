@@ -1,0 +1,1 @@
+Avoid: {{ partial("shared/video_avoid") }}{% if co_present_characters %}、外形着装完全一致的分身或双胞胎{% endif %}

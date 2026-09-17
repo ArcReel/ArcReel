@@ -66,8 +66,8 @@ class TestGenerationTasks:
         )
         assert fake_generator.image_reference_bytes[0] == [b"png"] * 5
         assert fake_generator.image_calls[0]["prompt"] == (
-            "Visual style: cinematic\n\n"
             "Style: Anime\n"
+            "Visual style: cinematic\n"
             "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图；图4为补充参考图；"
             "图5为上一分镜图，只参考构图与色调。\n"
             "Scene: 在雨夜街道\n"

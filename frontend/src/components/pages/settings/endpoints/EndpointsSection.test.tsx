@@ -96,6 +96,7 @@ function validation(overrides?: Partial<EndpointValidateResponse>): EndpointVali
     duplicates: [],
     hints: null,
     schema_version: { file: "1.0.0", current: "1.0.0", level: "direct" },
+    min_app_version: null,
     ...overrides,
   };
 }
