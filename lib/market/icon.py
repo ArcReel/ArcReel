@@ -14,8 +14,12 @@ from .issues import ROOT_PATH, MarketIssue, MarketIssueCode
 
 ICON_MAX_BYTES = 64 * 1024
 
-#: 扩展名 → Pillow 识别出的格式；SVG 不经 Pillow，记 None。
-ICON_FORMATS: dict[str, str | None] = {".png": "PNG", ".webp": "WEBP", ".svg": None}
+#: 扩展名 → (Pillow 识别出的格式, HTTP media type)；SVG 不经 Pillow，格式记 None。
+ICON_FORMATS: dict[str, tuple[str | None, str]] = {
+    ".png": ("PNG", "image/png"),
+    ".webp": ("WEBP", "image/webp"),
+    ".svg": (None, "image/svg+xml"),
+}
 
 _SVG_LENGTH = re.compile(r"^\s*([0-9]*\.?[0-9]+)\s*(px)?\s*$")
 
@@ -34,7 +38,7 @@ def inspect_icon(file: str, data: bytes) -> list[MarketIssue]:
         return [_issue(file, MarketIssueCode.ICON_FORMAT_INVALID)]
     if len(data) > ICON_MAX_BYTES:
         return [_issue(file, MarketIssueCode.ICON_TOO_LARGE, size=len(data), limit=ICON_MAX_BYTES)]
-    raster_format = ICON_FORMATS[suffix]
+    raster_format, _media_type = ICON_FORMATS[suffix]
     size = _svg_size(data) if raster_format is None else _raster_size(data, raster_format)
     if size is None:
         return [_issue(file, MarketIssueCode.ICON_FORMAT_INVALID)]

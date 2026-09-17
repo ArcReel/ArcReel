@@ -50,6 +50,10 @@ class MarketPayloadTooLargeError(Exception):
     """响应体超过上限。"""
 
 
+class MarketPayloadNotJsonError(Exception):
+    """响应体不是可用的 JSON：解码失败或容器嵌套过深。消息即原因。"""
+
+
 class MarketFetchError(Exception):
     """抓取索引失败；``status`` 是该失败应落的源状态，``detail`` 是记入 ``last_error`` 的原因。"""
 
@@ -151,7 +155,10 @@ async def fetch_index(
             raise MarketFetchError(SourceStatus.UNREACHABLE, "HTTP 304 without If-None-Match")
         return FetchedIndex(not_modified=True, etag=etag)
 
-    document = _decode_json(response.content)
+    try:
+        document = decode_json_payload(response.content)
+    except MarketPayloadNotJsonError as exc:
+        raise MarketFetchError(SourceStatus.INVALID_INDEX, f"index {exc}") from exc
     try:
         index = parse_index(document)
     except UnsupportedIndexSchemaError as exc:
@@ -182,20 +189,25 @@ def _with_cache_bust(url: str, token: int) -> str:
     return f"{url}{separator}{CACHE_BUST_PARAM}={token}"
 
 
-def _decode_json(content: bytes) -> Any:
+def decode_json_payload(content: bytes) -> Any:
+    """按 UTF-8 解码并解析 JSON，容器嵌套不超过 :data:`MAX_JSON_DEPTH`。
+
+    Raises:
+        MarketPayloadNotJsonError: 不是 JSON 或嵌套过深。
+    """
     try:
         document = json.loads(content.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise MarketFetchError(SourceStatus.INVALID_INDEX, f"index is not valid JSON: {exc}") from exc
+        raise MarketPayloadNotJsonError(f"is not valid JSON: {exc}") from exc
     except RecursionError as exc:
-        raise MarketFetchError(SourceStatus.INVALID_INDEX, _too_deep()) from exc
+        raise MarketPayloadNotJsonError(_too_deep()) from exc
     if _nesting_exceeds(document, MAX_JSON_DEPTH):
-        raise MarketFetchError(SourceStatus.INVALID_INDEX, _too_deep())
+        raise MarketPayloadNotJsonError(_too_deep())
     return document
 
 
 def _too_deep() -> str:
-    return f"JSON nesting deeper than {MAX_JSON_DEPTH} levels"
+    return f"has JSON nesting deeper than {MAX_JSON_DEPTH} levels"
 
 
 def _nesting_exceeds(document: Any, limit: int) -> bool:

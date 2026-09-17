@@ -242,6 +242,11 @@ MESSAGES = {
     "market_source_order_duplicate_ids": "Danh sách sắp xếp có nguồn chợ bị trùng",
     "market_source_order_ids_mismatch": "Danh sách sắp xếp không khớp với các nguồn chợ hiện có",
     "market_github_proxy_prefix_invalid": "Tiền tố proxy GitHub raw phải là địa chỉ bắt đầu bằng https://",
+    "market_source_disabled": "Nguồn chợ này đã bị tắt; hãy bật lại để lấy các mục của nó",
+    "market_entry_not_found": "Không tìm thấy mục trong chợ",
+    "market_entry_icon_not_found": "Mục chợ này không có biểu tượng",
+    "market_entry_fetch_failed": "Không thể tải tệp của mục từ nguồn chợ ({reason})",
+    "market_entry_asset_invalid": "Tệp của mục do nguồn chợ cung cấp không dùng được ({reason})",
     # ---- Kiểm thử endpoint ----
     "endpoint_test_payload_required": "Thiếu trường payload: khi tải tệp lên, hãy đặt JSON của yêu cầu vào trường biểu mẫu payload",
     "endpoint_test_payload_invalid": "Không phân tích được nội dung yêu cầu, hãy kiểm tra định dạng JSON và kiểu dữ liệu",

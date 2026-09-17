@@ -229,6 +229,11 @@ MESSAGES = {
     "market_source_order_duplicate_ids": "排序列表中有重复的市场源",
     "market_source_order_ids_mismatch": "排序列表与现有市场源不一致",
     "market_github_proxy_prefix_invalid": "GitHub raw 代理前缀必须是 https:// 开头的地址",
+    "market_source_disabled": "市场源已禁用，启用后才能获取其中的条目",
+    "market_entry_not_found": "市场条目不存在",
+    "market_entry_icon_not_found": "该市场条目没有图标",
+    "market_entry_fetch_failed": "无法从市场源取回条目文件（{reason}）",
+    "market_entry_asset_invalid": "市场源提供的条目文件不可用（{reason}）",
     # ---- 端点测试 ----
     "endpoint_test_payload_required": "缺少 payload 字段：带素材时请把请求 JSON 放在 payload 表单字段里",
     "endpoint_test_payload_invalid": "请求内容无法解析，请检查 JSON 格式与字段类型",

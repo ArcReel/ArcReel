@@ -1,12 +1,15 @@
-"""市场 API：市场源的登记、排序与刷新。
+"""市场 API：市场源的登记、排序与刷新，以及条目的浏览。
 
 只服务前端、走现有会话鉴权。添加即抓取一次，抓取失败或索引无效即 422 不落库；官方市场源
 可禁用、可排序、可改名，删除返回 409。刷新失败不算请求失败：结果落在源的 ``status`` 与
-``last_error`` 上。
+``last_error`` 上。条目列表与详情只读缓存快照；定义原文与 icon 按需经抓取边界取回，上游取不回
+或内容不可用时返回 502。
 """
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -14,20 +17,50 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
+from lib.api_errors import BadGatewayError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
+from lib.custom_provider.endpoint_definition import meets_min_app_version
 from lib.db import get_async_session
 from lib.db.models.market_source import MarketSource
 from lib.db.repositories.market_source_repo import OFFICIAL_KIND, MarketSourceRepository
 from lib.i18n import Translator
 from lib.market import ENDPOINT_ENTRY_TYPE
 from lib.market.address import SourceAddressError
+from lib.market.entries import (
+    MarketAssetFetchError,
+    MarketAssetInvalidError,
+    MarketEntryNotFoundError,
+    MarketEntryService,
+    MarketSourceDisabledError,
+    MissingTarget,
+    SourcedEntry,
+    find_entry,
+    get_market_entry_service,
+    merge_entries,
+)
 from lib.market.fetch import MarketFetchError
+from lib.market.index import MarketIndexEntry
 from lib.market.sources import DuplicateSourceError, MarketSourceService, get_market_source_service
 from server.routers._reorder import full_permutation_error
+from server.routers.system_config import get_app_version_reader
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/market", tags=["Market"])
 
 Service = Annotated[MarketSourceService, Depends(get_market_source_service)]
+EntryService = Annotated[MarketEntryService, Depends(get_market_entry_service)]
+AppVersionReader = Annotated[Callable[[], str], Depends(get_app_version_reader)]
+
+#: icon 地址由前端带上条目版本作查询参数，版本变了地址就变，故浏览器可缓存较久。
+ICON_CACHE_CONTROL = "private, max-age=86400"
+#: SVG 可内嵌脚本：直接打开 icon 地址时也不让它执行、不让它加载外部资源。
+ICON_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
+_MISSING_KEYS = {
+    MissingTarget.SOURCE: "market_source_not_found",
+    MissingTarget.ENTRY: "market_entry_not_found",
+    MissingTarget.ICON: "market_entry_icon_not_found",
+}
 
 _ORDER_ERROR_KEYS = {
     "length": "market_source_order_length_mismatch",
@@ -71,6 +104,53 @@ class MarketSourceListResponse(BaseModel):
     sources: list[MarketSourceResponse]
 
 
+class MarketEntryResponse(BaseModel):
+    source_id: int
+    source_display_name: str
+    type: str
+    slug: str
+    path: str
+    name: str
+    author: str
+    version: str
+    media_type: str
+    description: str | None
+    homepage: str | None
+    #: 索引里的 icon 相对路径；非 null 时经 ``/market/sources/{id}/entries/{slug}/icon`` 取图。
+    icon: str | None
+    min_app_version: str | None
+    #: 当前应用版本满足 ``min_app_version``；无要求或读不到应用版本时为 true。
+    min_app_version_satisfied: bool
+
+
+class MarketEntryListResponse(BaseModel):
+    entries: list[MarketEntryResponse]
+    #: 当前应用版本；读不到时为 null。
+    app_version: str | None
+
+
+class MarketEntrySourceSummary(BaseModel):
+    id: int
+    kind: str
+    display_name: str
+    canonical_key: str
+    is_enabled: bool
+    status: str
+    fetched_at: str | None
+    index: MarketIndexSummary | None
+
+
+class MarketEntryDetailResponse(BaseModel):
+    entry: MarketEntryResponse
+    source: MarketEntrySourceSummary
+    app_version: str | None
+
+
+class MarketEntryDefinitionResponse(BaseModel):
+    #: 市场源里的定义文件按 JSON 解析后的原文，未经定义校验。
+    definition: Any
+
+
 class AddMarketSourceRequest(BaseModel):
     address: str = Field(max_length=2048)
     display_name: str | None = Field(default=None, max_length=128)
@@ -87,14 +167,9 @@ class ReorderMarketSourcesRequest(BaseModel):
 
 def _to_response(source: MarketSource) -> MarketSourceResponse:
     document: Any = source.cached_index
-    summary: MarketIndexSummary | None = None
+    summary = _index_summary(source)
     entry_count = 0
     if isinstance(document, dict):
-        summary = MarketIndexSummary(
-            name=document.get("name", ""),
-            description=document.get("description"),
-            homepage=document.get("homepage"),
-        )
         entries = document.get("entries")
         if isinstance(entries, list):
             entry_count = sum(1 for e in entries if isinstance(e, dict) and e.get("type") == ENDPOINT_ENTRY_TYPE)
@@ -115,6 +190,59 @@ def _to_response(source: MarketSource) -> MarketSourceResponse:
         entry_count=entry_count,
         index=summary,
     )
+
+
+def _index_summary(source: MarketSource) -> MarketIndexSummary | None:
+    document: Any = source.cached_index
+    if not isinstance(document, dict):
+        return None
+    return MarketIndexSummary(
+        name=document.get("name", ""), description=document.get("description"), homepage=document.get("homepage")
+    )
+
+
+def _entry_response(sourced: SourcedEntry, app_version: str | None) -> MarketEntryResponse:
+    entry: MarketIndexEntry = sourced.entry
+    satisfied = (
+        entry.min_app_version is None
+        or app_version is None
+        or meets_min_app_version(entry.min_app_version, app_version)
+    )
+    return MarketEntryResponse(
+        source_id=sourced.source.id,
+        source_display_name=sourced.source.display_name,
+        type=entry.type,
+        slug=entry.slug,
+        path=entry.path,
+        name=entry.name,
+        author=entry.author,
+        version=entry.version,
+        media_type=entry.media_type,
+        description=entry.description,
+        homepage=entry.homepage,
+        icon=entry.icon,
+        min_app_version=entry.min_app_version,
+        min_app_version_satisfied=satisfied,
+    )
+
+
+def _app_version(read_app_version: Callable[[], str]) -> str | None:
+    try:
+        return read_app_version()
+    except Exception:
+        logger.exception("Failed to read app version")
+        return None
+
+
+def _entry_api_error(
+    exc: MarketEntryNotFoundError | MarketSourceDisabledError | MarketAssetFetchError | MarketAssetInvalidError,
+) -> NotFoundError | ConflictError | BadGatewayError:
+    if isinstance(exc, MarketEntryNotFoundError):
+        return NotFoundError(_MISSING_KEYS[exc.target])
+    if isinstance(exc, MarketSourceDisabledError):
+        return ConflictError("market_source_disabled")
+    key = "market_entry_fetch_failed" if isinstance(exc, MarketAssetFetchError) else "market_entry_asset_invalid"
+    return BadGatewayError(key, reason=str(exc)).with_diagnostic({"reason": str(exc)})
 
 
 def _iso_utc(value: datetime | None) -> str | None:
@@ -218,3 +346,73 @@ async def refresh_sources(
     """刷新全部启用源，逐源返回刷新后的行；禁用源不刷新、不出现在结果里。"""
     sources = await service.refresh_all(stale_only=stale_only)
     return MarketSourceListResponse(sources=[_to_response(s) for s in sources])
+
+
+@router.get("/entries", response_model=MarketEntryListResponse)
+async def list_entries(
+    read_app_version: AppVersionReader,
+    session: AsyncSession = Depends(get_async_session),
+    entry_type: Annotated[str, Query(alias="type", description="条目类型；首期只有 endpoint")] = ENDPOINT_ENTRY_TYPE,
+) -> MarketEntryListResponse:
+    """所有启用源缓存快照里的条目：按源顺序、源内按名称排列，不分页、不发请求。"""
+    sources = await MarketSourceRepository(session).list_ordered()
+    app_version = _app_version(read_app_version)
+    return MarketEntryListResponse(
+        entries=[_entry_response(item, app_version) for item in merge_entries(sources, entry_type=entry_type)],
+        app_version=app_version,
+    )
+
+
+@router.get("/sources/{source_id}/entries/{slug}", response_model=MarketEntryDetailResponse)
+async def get_entry(
+    source_id: int,
+    slug: str,
+    read_app_version: AppVersionReader,
+    session: AsyncSession = Depends(get_async_session),
+) -> MarketEntryDetailResponse:
+    """索引条目与源摘要，只读缓存快照、不抓定义；禁用源的条目同样可查。"""
+    source = await _require_source(MarketSourceRepository(session), source_id)
+    entry = find_entry(source, slug)
+    if entry is None:
+        raise NotFoundError("market_entry_not_found")
+    app_version = _app_version(read_app_version)
+    return MarketEntryDetailResponse(
+        entry=_entry_response(SourcedEntry(source=source, entry=entry), app_version),
+        source=MarketEntrySourceSummary(
+            id=source.id,
+            kind=source.kind,
+            display_name=source.display_name,
+            canonical_key=source.canonical_key,
+            is_enabled=source.is_enabled,
+            status=source.status,
+            fetched_at=_iso_utc(source.fetched_at),
+            index=_index_summary(source),
+        ),
+        app_version=app_version,
+    )
+
+
+@router.get("/sources/{source_id}/entries/{slug}/definition", response_model=MarketEntryDefinitionResponse)
+async def get_entry_definition(source_id: int, slug: str, service: EntryService) -> MarketEntryDefinitionResponse:
+    try:
+        definition = await service.fetch_definition(source_id, slug)
+    except (MarketEntryNotFoundError, MarketSourceDisabledError, MarketAssetFetchError, MarketAssetInvalidError) as exc:
+        raise _entry_api_error(exc) from exc
+    return MarketEntryDefinitionResponse(definition=definition)
+
+
+@router.get("/sources/{source_id}/entries/{slug}/icon", response_class=Response)
+async def get_entry_icon(source_id: int, slug: str, service: EntryService) -> Response:
+    try:
+        icon = await service.fetch_icon(source_id, slug)
+    except (MarketEntryNotFoundError, MarketSourceDisabledError, MarketAssetFetchError, MarketAssetInvalidError) as exc:
+        raise _entry_api_error(exc) from exc
+    return Response(
+        content=icon.content,
+        media_type=icon.media_type,
+        headers={
+            "Cache-Control": ICON_CACHE_CONTROL,
+            "Content-Security-Policy": ICON_CONTENT_SECURITY_POLICY,
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

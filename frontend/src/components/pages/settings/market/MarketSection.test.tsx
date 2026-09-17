@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import type { MarketSourceInfo } from "@/types";
+import { createDeferred } from "@/test/deferred";
+import type { MarketEntry, MarketSourceInfo } from "@/types";
 import { MarketSection } from "./MarketSection";
 
 const RECENT = new Date(Date.now() - 13 * 60_000).toISOString();
@@ -57,6 +58,43 @@ const DISABLED = makeSource({
   index: null,
 });
 
+function makeEntry(overrides: Partial<MarketEntry> = {}): MarketEntry {
+  return {
+    source_id: 1,
+    source_display_name: "ArcReel Market",
+    type: "endpoint",
+    slug: "alpha",
+    path: "endpoints/alpha/definition.json",
+    name: "Alpha Video",
+    author: "ArcReel",
+    version: "1.2.0",
+    media_type: "video",
+    description: "官方的 Alpha 视频接口。",
+    homepage: null,
+    icon: null,
+    min_app_version: null,
+    min_app_version_satisfied: true,
+    ...overrides,
+  };
+}
+
+const ENTRIES: MarketEntry[] = [
+  makeEntry(),
+  makeEntry({ slug: "zeta", name: "Zeta Gateway", author: "Kaze Studio", description: "通用网关协议。" }),
+  makeEntry({
+    source_id: 2,
+    source_display_name: "团队市场",
+    name: "Alpha 团队版",
+    author: "someone",
+    version: "0.3.0",
+    description: "经内网转发。",
+  }),
+];
+
+function cardNames(): string[] {
+  return screen.queryAllByRole("article").map((card) => card.getAttribute("aria-label") ?? "");
+}
+
 async function openManager() {
   await userEvent.click(await screen.findByRole("button", { name: "管理市场源" }));
   return screen.findByRole("dialog", { name: "管理市场源" });
@@ -75,23 +113,178 @@ describe("MarketSection", () => {
     vi.restoreAllMocks();
     vi.spyOn(API, "listMarketSources").mockResolvedValue({ sources: [OFFICIAL, TEAM, DISABLED] });
     vi.spyOn(API, "refreshMarketSources").mockResolvedValue({ sources: [] });
+    vi.spyOn(API, "listMarketEntries").mockResolvedValue({ entries: ENTRIES, app_version: "0.30.0" });
+    vi.spyOn(API, "getMarketEntryIcon").mockRejectedValue(new Error("no icon"));
   });
 
-  it("counts entries and sources of enabled sources in the hero kicker", async () => {
+  it("counts listed entries and enabled sources in the hero kicker", async () => {
     render(<MarketSection />);
 
-    expect(await screen.findByText("Market · 5 endpoints from 2 sources")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "市场" })).toBeInTheDocument();
+    expect(await screen.findByText("Market · 3 endpoints from 2 sources")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "市场", level: 2 })).toBeInTheDocument();
   });
 
-  it("renders the cached list first, then applies the stale-only background refresh", async () => {
-    const refreshed = makeSource({ fetched_at: new Date().toISOString(), entry_count: 7 });
-    vi.mocked(API.refreshMarketSources).mockResolvedValue({ sources: [refreshed] });
+  it("renders cached entries first, then reloads them after the stale-only background refresh", async () => {
+    const refreshed = makeSource({ fetched_at: new Date().toISOString() });
+    const deferredRefresh = createDeferred<{ sources: MarketSourceInfo[] }>();
+    vi.mocked(API.refreshMarketSources).mockReturnValue(deferredRefresh.promise);
+    vi.mocked(API.listMarketEntries)
+      .mockResolvedValueOnce({ entries: ENTRIES.slice(0, 1), app_version: "0.30.0" })
+      .mockResolvedValue({ entries: ENTRIES, app_version: "0.30.0" });
+
+    const { unmount } = render(<MarketSection />);
+
+    expect(await screen.findByText("Market · 1 endpoints from 2 sources")).toBeInTheDocument();
+    expect(API.refreshMarketSources).toHaveBeenCalledWith({
+      staleOnly: true,
+      signal: expect.any(AbortSignal),
+    });
+    const signal = vi.mocked(API.refreshMarketSources).mock.calls[0][0]?.signal;
+
+    deferredRefresh.resolve({ sources: [refreshed] });
+    expect(await screen.findByText("Market · 3 endpoints from 2 sources")).toBeInTheDocument();
+    expect(API.listMarketEntries).toHaveBeenCalledTimes(2);
+
+    unmount();
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("lays out entries of all sources ungrouped in API order with author, version and source chip", async () => {
+    render(<MarketSection />);
+
+    await screen.findAllByRole("article");
+    expect(cardNames()).toEqual(["Alpha Video", "Zeta Gateway", "Alpha 团队版"]);
+
+    const team = screen.getByRole("article", { name: "Alpha 团队版" });
+    expect(within(team).getByRole("heading", { name: "Alpha 团队版" })).toBeInTheDocument();
+    expect(within(team).getByText("someone · v0.3.0")).toBeInTheDocument();
+    expect(within(team).getByText("经内网转发。")).toBeInTheDocument();
+    expect(within(team).getByText("团队市场")).toBeInTheDocument();
+    expect(within(screen.getByRole("article", { name: "Alpha Video" })).getByText("ArcReel Market")).toBeInTheDocument();
+  });
+
+  it("filters entries by name, author or description as the user types", async () => {
+    render(<MarketSection />);
+    await screen.findAllByRole("article");
+    const search = screen.getByRole("searchbox", { name: "搜索市场条目" });
+
+    await userEvent.type(search, "kaze");
+    expect(cardNames()).toEqual(["Zeta Gateway"]);
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "内网");
+    expect(cardNames()).toEqual(["Alpha 团队版"]);
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "nothing-like-this");
+    expect(screen.getByText("没有匹配的条目")).toBeInTheDocument();
+  });
+
+  it("offers one pressed source chip per enabled source and hides entries of deselected sources", async () => {
+    render(<MarketSection />);
+    await screen.findAllByRole("article");
+    const group = screen.getByRole("group", { name: "按来源筛选" });
+
+    const chips = within(group).getAllByRole("button");
+    expect(chips.map((chip) => chip.textContent)).toEqual(["ArcReel Market", "团队市场"]);
+    expect(chips.every((chip) => chip.getAttribute("aria-pressed") === "true")).toBe(true);
+    expect(within(chips[1]).getByRole("img", { name: "无法访问" })).toBeInTheDocument();
+
+    await userEvent.click(chips[0]);
+    expect(chips[0]).toHaveAttribute("aria-pressed", "false");
+    expect(cardNames()).toEqual(["Alpha 团队版"]);
+
+    await userEvent.click(chips[0]);
+    expect(cardNames()).toHaveLength(3);
+  });
+
+  it("shows endpoint as the only available entry type and keeps the installed-only switch inert", async () => {
+    render(<MarketSection />);
+    const types = within(await screen.findByRole("group", { name: "条目类型" })).getAllByRole("button");
+
+    expect(types.map((type) => type.textContent)).toEqual(["调用端点", "提示词soon", "风格模板soon"]);
+    expect(types[0]).toHaveAttribute("aria-pressed", "true");
+    expect(types[1]).toBeDisabled();
+    expect(types[2]).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "仅已安装" })).toBeDisabled();
+  });
+
+  it("warns about each failing enabled source with its status, error and snapshot age", async () => {
+    const broken = makeSource({
+      id: 4,
+      kind: "custom",
+      display_name: "坏索引",
+      status: "invalid_index",
+      last_error: null,
+      fetched_at: null,
+    });
+    const disabledFailing = makeSource({ ...DISABLED, id: 5, display_name: "停用且失败", status: "unreachable" });
+    vi.mocked(API.listMarketSources).mockResolvedValue({ sources: [OFFICIAL, TEAM, DISABLED, broken, disabledFailing] });
 
     render(<MarketSection />);
 
-    expect(await screen.findByText("Market · 9 endpoints from 2 sources")).toBeInTheDocument();
-    expect(API.refreshMarketSources).toHaveBeenCalledWith({ staleOnly: true });
+    const banner = await screen.findByRole("status");
+    const lines = within(banner)
+      .getAllByText((_, element) => element?.parentElement === banner)
+      .map((line) => line.textContent);
+    expect(lines).toEqual(["团队市场：无法访问 · HTTP 404，显示上次成功刷新（13分钟前）的快照", "坏索引：索引无效"]);
+  });
+
+  it("shows no banner when every enabled source is fine", async () => {
+    vi.mocked(API.listMarketSources).mockResolvedValue({ sources: [OFFICIAL, DISABLED] });
+    render(<MarketSection />);
+
+    await screen.findAllByRole("article");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("says so when enabled sources have no entries at all", async () => {
+    vi.mocked(API.listMarketEntries).mockResolvedValue({ entries: [], app_version: "0.30.0" });
+    render(<MarketSection />);
+
+    expect(await screen.findByText("启用的市场源里还没有条目")).toBeInTheDocument();
+  });
+
+  it("links the contribute card to the official contribution guide", async () => {
+    render(<MarketSection />);
+
+    expect(await screen.findByRole("link", { name: "阅读投稿指引" })).toHaveAttribute(
+      "href",
+      "https://github.com/ArcReel/arcreel-market/blob/main/CONTRIBUTING.md",
+    );
+  });
+
+  it("reloads entries after a source is disabled in the manager", async () => {
+    vi.spyOn(API, "updateMarketSource").mockImplementation(async (id, patch) => ({
+      ...TEAM,
+      id,
+      ...patch,
+      updated_at: new Date().toISOString(),
+    }));
+    render(<MarketSection />);
+    await screen.findAllByRole("article");
+    vi.mocked(API.listMarketEntries).mockResolvedValue({ entries: ENTRIES.slice(0, 2), app_version: "0.30.0" });
+    const dialog = await openManager();
+
+    await userEvent.click(within(dialog).getByRole("switch", { name: "启用 团队市场" }));
+
+    await waitFor(() => expect(cardNames()).toEqual(["Alpha Video", "Zeta Gateway"]));
+  });
+
+  it("hides a disabled source from cached entries when reloading entries fails", async () => {
+    vi.spyOn(API, "updateMarketSource").mockResolvedValue({
+      ...TEAM,
+      is_enabled: false,
+      updated_at: new Date().toISOString(),
+    });
+    render(<MarketSection />);
+    await screen.findAllByRole("article");
+    vi.mocked(API.listMarketEntries).mockRejectedValue(new Error("reload failed"));
+    const dialog = await openManager();
+
+    await userEvent.click(within(dialog).getByRole("switch", { name: "启用 团队市场" }));
+
+    await waitFor(() => expect(cardNames()).toEqual(["Alpha Video", "Zeta Gateway"]));
   });
 
   it("lists sources in order with status, last refresh, error and official marking", async () => {

@@ -69,6 +69,13 @@ class ConflictError(ApiError):
         super().__init__(key, status_code=409, **params)
 
 
+class BadGatewayError(ApiError):
+    """上游返回的内容不可用或没有取回（HTTP 502）。"""
+
+    def __init__(self, key: str, **params: object) -> None:
+        super().__init__(key, status_code=502, **params)
+
+
 class ServiceUnavailableError(ApiError):
     """服务暂时不可用（HTTP 503）。"""
 

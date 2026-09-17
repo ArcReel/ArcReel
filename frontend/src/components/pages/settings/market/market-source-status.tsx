@@ -5,6 +5,8 @@ import type { MarketSourceInfo, MarketSourceStatus } from "@/types";
 export const KICKER_ACCENT_CLS =
   "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2";
 
+export const KICKER_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
+
 const STATUS_DOT_CLS: Record<MarketSourceStatus, string> = {
   ok: "bg-good",
   never_fetched: "bg-text-4",

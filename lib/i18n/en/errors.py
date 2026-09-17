@@ -244,6 +244,11 @@ MESSAGES = {
     "market_source_order_duplicate_ids": "The order list contains duplicate market sources",
     "market_source_order_ids_mismatch": "The order list does not match the existing market sources",
     "market_github_proxy_prefix_invalid": "The GitHub raw proxy prefix must be an address starting with https://",
+    "market_source_disabled": "This market source is disabled; enable it to fetch its entries",
+    "market_entry_not_found": "Market entry not found",
+    "market_entry_icon_not_found": "This market entry has no icon",
+    "market_entry_fetch_failed": "Could not fetch the entry file from the market source ({reason})",
+    "market_entry_asset_invalid": "The entry file provided by the market source is unusable ({reason})",
     # ---- Endpoint tests ----
     "endpoint_test_payload_required": "Missing payload field: when uploading assets, put the request JSON in the payload form field",
     "endpoint_test_payload_invalid": "Could not parse the request. Check the JSON format and field types",

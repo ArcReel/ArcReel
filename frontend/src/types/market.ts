@@ -38,3 +38,29 @@ export interface MarketSourceInfo {
 export interface MarketSourceListResponse {
   sources: MarketSourceInfo[];
 }
+
+/** 合并条目列表里的一条：索引条目字段加所在源。 */
+export interface MarketEntry {
+  source_id: number;
+  source_display_name: string;
+  type: string;
+  slug: string;
+  path: string;
+  name: string;
+  author: string;
+  version: string;
+  media_type: string;
+  description: string | null;
+  homepage: string | null;
+  /** 索引里的 icon 相对路径；非 null 时经 icon 代理取图。 */
+  icon: string | null;
+  min_app_version: string | null;
+  /** 无版本要求或读不到应用版本时为 true。 */
+  min_app_version_satisfied: boolean;
+}
+
+export interface MarketEntryListResponse {
+  entries: MarketEntry[];
+  /** 当前应用版本；读不到时为 null。 */
+  app_version: string | null;
+}
