@@ -12,6 +12,7 @@ import {
   Languages,
   Plug,
   ScrollText,
+  Store,
   Waypoints,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -25,6 +26,7 @@ import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
+import { MarketSection } from "./settings/market/MarketSection";
 import {
   SUPPORTED_LANGUAGES,
   LANGUAGE_DISPLAY_LABELS,
@@ -42,6 +44,7 @@ type SettingsSection =
   | "agent"
   | "providers"
   | "endpoints"
+  | "market"
   | "media"
   | "usage"
   | "api-keys"
@@ -76,6 +79,7 @@ const SECTION_GROUPS: SectionGroup[] = [
       { id: "providers", labelKey: "dashboard:providers", Icon: Plug },
       { id: "agent", labelKey: "dashboard:agents", Icon: Bot },
       { id: "endpoints", labelKey: "dashboard:ce_section_title", Icon: Waypoints },
+      { id: "market", labelKey: "dashboard:market_section_title", Icon: Store },
       { id: "media", labelKey: "dashboard:models", Icon: Film },
     ],
   },
@@ -108,6 +112,7 @@ export function SystemConfigPage() {
     const section = new URLSearchParams(search).get("section");
     if (section === "agent") return "agent";
     if (section === "endpoints") return "endpoints";
+    if (section === "market") return "market";
     if (section === "media") return "media";
     if (section === "usage") return "usage";
     if (section === "api-keys") return "api-keys";
@@ -289,6 +294,8 @@ export function SystemConfigPage() {
             <ProviderSection />
           ) : activeSection === "endpoints" ? (
             <EndpointsSection />
+          ) : activeSection === "market" ? (
+            <MarketSection />
           ) : (
             <div className="mx-auto max-w-4xl px-8 py-8">
               {/* Quick alert for config issues */}

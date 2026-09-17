@@ -158,6 +158,7 @@ class TestGetSystemConfig:
             "default_audio_backend",
             "narration_voice",
             "narration_speed",
+            "market_github_proxy_prefix",
         }
         assert set(settings.keys()) == expected_keys
 
@@ -465,6 +466,29 @@ class TestPatchSystemConfig:
         assert settings["default_audio_backend"] == "dashscope/qwen3-tts-flash"
         assert settings["narration_voice"] == "Cherry"
         assert settings["narration_speed"] == 1.5
+
+    def test_patch_sets_and_clears_market_github_proxy_prefix(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"market_github_proxy_prefix": "  https://proxy.example.net/  "},
+            )
+            assert res.status_code == 200
+            assert res.json()["settings"]["market_github_proxy_prefix"] == "https://proxy.example.net/"
+
+            res = client.patch("/api/v1/system/config", json={"market_github_proxy_prefix": ""})
+            assert res.status_code == 200
+            assert res.json()["settings"]["market_github_proxy_prefix"] == ""
+
+    def test_patch_rejects_non_https_market_github_proxy_prefix(self):
+        mock_svc = _make_mock_svc(settings={"market_github_proxy_prefix": "https://proxy.example.net/"})
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            for raw in ("http://proxy.example.net/", "proxy.example.net", "https://"):
+                res = client.patch("/api/v1/system/config", json={"market_github_proxy_prefix": raw})
+                assert res.status_code == 422, raw
+            res = client.get("/api/v1/system/config")
+        assert res.json()["settings"]["market_github_proxy_prefix"] == "https://proxy.example.net/"
 
     def test_patch_rejects_non_positive_narration_speed(self):
         mock_svc = _make_mock_svc()

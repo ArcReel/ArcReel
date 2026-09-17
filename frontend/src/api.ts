@@ -50,6 +50,8 @@ import type {
   DiscoveredModel,
   EndpointDescriptor,
   CustomEndpointInfo,
+  MarketSourceInfo,
+  MarketSourceListResponse,
   EndpointDefinition,
   EndpointValidateResponse,
   EndpointTestParameters,
@@ -3080,6 +3082,55 @@ class API {
       body: JSON.stringify(data),
       signal: options.signal,
     });
+  }
+
+  // ==================== 市场 API ====================
+
+  static async listMarketSources(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<MarketSourceListResponse> {
+    return this.request("/market/sources", { signal: options.signal });
+  }
+
+  /** 添加即抓取一次；地址不被接受、已添加或抓取失败时抛错，不落库。 */
+  static async addMarketSource(body: {
+    address: string;
+    display_name?: string;
+  }): Promise<MarketSourceInfo> {
+    return this.request("/market/sources", { method: "POST", body: JSON.stringify(body) });
+  }
+
+  static async updateMarketSource(
+    id: number,
+    patch: { display_name?: string; is_enabled?: boolean },
+  ): Promise<MarketSourceInfo> {
+    return this.request(`/market/sources/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  }
+
+  /** 官方市场源返回 409。 */
+  static async deleteMarketSource(id: number): Promise<void> {
+    return this.request(`/market/sources/${id}`, { method: "DELETE" });
+  }
+
+  /** ids 须是全部市场源 id 的全排列。 */
+  static async reorderMarketSources(ids: number[]): Promise<MarketSourceListResponse> {
+    return this.request("/market/sources/order", { method: "PUT", body: JSON.stringify({ ids }) });
+  }
+
+  /** 刷新失败不抛错：结果落在返回行的 status / last_error 上。 */
+  static async refreshMarketSource(id: number): Promise<MarketSourceInfo> {
+    return this.request(`/market/sources/${id}/refresh`, { method: "POST" });
+  }
+
+  /**
+   * 刷新全部启用源，逐源返回刷新过的行。
+   * @param staleOnly - 打开市场页时的自动刷新：只刷距上次成功刷新超过 1 小时的源。
+   */
+  static async refreshMarketSources(
+    options: { staleOnly?: boolean } = {},
+  ): Promise<MarketSourceListResponse> {
+    const query = options.staleOnly ? "?stale_only=true" : "";
+    return this.request(`/market/refresh${query}`, { method: "POST" });
   }
 
   // ==================== 自定义调用端点 API ====================

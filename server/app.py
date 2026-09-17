@@ -59,6 +59,7 @@ from server.routers import (
     files,
     generate,
     grids,
+    market,
     onboarding,
     presentations,
     products,
@@ -426,6 +427,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("text tier settings migration failed (non-fatal): %s", exc)
 
+    # 官方市场源 seed：不存在则插入，地址常量变了就同步；不抓取
+    try:
+        from lib.market.sources import seed_official_source
+
+        async with async_session_factory() as session:
+            await seed_official_source(session)
+    except Exception as exc:
+        logger.warning("official market source seed failed (non-fatal): %s", exc)
+
     # 把 agent_runtime_profile 物化到存量项目（文件 I/O → worker 线程）
     from lib.project_manager import get_project_manager
 
@@ -638,6 +648,7 @@ app.include_router(
 app.include_router(
     custom_endpoints.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义调用端点"]
 )
+app.include_router(market.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["市场"])
 app.include_router(
     cost_estimation.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用估算"]
 )

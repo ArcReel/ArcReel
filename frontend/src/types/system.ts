@@ -22,6 +22,8 @@ export interface SystemConfigSettings {
   claude_code_subagent_model: string;
   agent_session_cleanup_delay_seconds: number;
   agent_max_concurrent_sessions: number;
+  /** 市场源 GitHub raw 代理前缀；空串即直连。 */
+  market_github_proxy_prefix?: string;
 }
 
 export interface SystemConfigOptions {
@@ -103,4 +105,5 @@ export interface SystemConfigPatch {
   claude_code_subagent_model?: string;
   agent_session_cleanup_delay_seconds?: number;
   agent_max_concurrent_sessions?: number;
+  market_github_proxy_prefix?: string;
 }

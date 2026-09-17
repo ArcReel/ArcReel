@@ -198,6 +198,21 @@ describe("SystemConfigPage", () => {
     expect(link).toHaveAttribute("href", "/app/projects");
   });
 
+  it("places the market section right after endpoints and opens it full width", async () => {
+    vi.spyOn(API, "listMarketSources").mockResolvedValue({ sources: [] });
+    vi.spyOn(API, "refreshMarketSources").mockResolvedValue({ sources: [] });
+    renderPage("/app/settings?section=market");
+
+    const labels = screen
+      .getAllByRole("button")
+      .map((button) => button.textContent?.trim())
+      .filter((label) => label === "调用端点" || label === "市场");
+    expect(labels).toEqual(["调用端点", "市场"]);
+    expect(screen.getByRole("button", { name: "市场" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("heading", { name: "市场" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "管理市场源" })).toBeInTheDocument();
+  });
+
   it("loads version info when entering the about section", async () => {
     renderPage("/app/settings?section=about");
 

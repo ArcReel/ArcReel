@@ -10,6 +10,7 @@ export * from "./provider";
 export * from "./usage-record";
 export * from "./custom-provider";
 export * from "./custom-endpoint";
+export * from "./market";
 export * from "./cost";
 export * from "./reference-video";
 export * from "./workflow";
