@@ -1774,7 +1774,7 @@ export default {
   'detail_dialogue_empty': '（暂无对话）',
   'detail_dialogue_add': '+ 添加对话',
   'detail_pending_authoring_hint': '待编写：该分镜的提示词尚未编写，可让 Agent 补充提示词，或直接在下方填写',
-  'shot_prompt_pending': '提示词待生成',
+  'shot_pending_authoring': '待编写',
   'detail_image_prompt_title': 'Image Prompt · 分镜图',
   'detail_video_prompt_title': 'Video Prompt · 视频',
   'detail_image_prompt_placeholder': '描述这一镜的画面：环境、人物、动作、构图细节…',

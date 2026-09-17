@@ -90,7 +90,7 @@ export function makePlan(overrides: Partial<WorkflowPlan> = {}): WorkflowPlan {
   };
 }
 
-/** 一条旁白分镜；默认两侧提示词都是文本形态，各用例按需覆盖为结构化或待生成（null）。 */
+/** 一条旁白分镜；默认两侧提示词都是文本形态，各用例按需覆盖为结构化或待编写（null）。 */
 export function makeNarrationSegment(overrides: Partial<NarrationSegment> = {}): NarrationSegment {
   return {
     segment_id: "E1S01",

@@ -60,7 +60,7 @@ type DetailContentMode = "narration" | "drama" | "ad";
 
 /** 提示词形态切换与预览按分镜图 / 视频两侧分别作用。 */
 type PromptSide = "image" | "video";
-/** `null` = 待生成：机械转换落盘的条目还没有这一侧提示词。 */
+/** `null` = 待编写：机械转换落盘的条目还没有这一侧提示词。 */
 type ImagePromptValue = ImagePrompt | string | null;
 type VideoPromptValue = VideoPrompt | string | null;
 
@@ -604,7 +604,7 @@ export function ShotDetail({
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
     const patch: Record<string, unknown> = {};
-    // 待生成（上游 null）的一侧，空文本不算改动：既没有内容可保存，PATCH 也不接受清空提示词。
+    // 尚无提示词（上游 null）的一侧，空文本不算改动：既没有内容可保存，PATCH 也不接受清空提示词。
     if (
       draft.image_prompt !== ip &&
       stableSig(draft.image_prompt) !== stableSig(ip) &&

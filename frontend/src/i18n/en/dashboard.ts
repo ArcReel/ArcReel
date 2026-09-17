@@ -1775,7 +1775,7 @@ export default {
   'detail_dialogue_empty': '(no dialogue yet)',
   'detail_dialogue_add': '+ Add dialogue',
   'detail_pending_authoring_hint': 'Pending authoring: this shot\'s prompts haven\'t been authored yet. Ask the agent to fill them in, or write them below',
-  'shot_prompt_pending': 'Prompts pending',
+  'shot_pending_authoring': 'Pending authoring',
   'detail_image_prompt_title': 'Image Prompt · Storyboard',
   'detail_video_prompt_title': 'Video Prompt · Clip',
   'detail_image_prompt_placeholder': 'Describe the frame: setting, characters, actions, composition…',

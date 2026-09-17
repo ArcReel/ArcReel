@@ -230,7 +230,7 @@ export interface NarrationSegment {
   characters_in_segment: string[];
   scenes?: string[];
   props?: string[];
-  /** `null` = 待生成：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
+  /** `null` = 待编写：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
   transition_to_next: TransitionType;
@@ -253,7 +253,7 @@ export interface DramaScene {
   characters_in_scene: string[];
   scenes?: string[];
   props?: string[];
-  /** `null` = 待生成：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
+  /** `null` = 待编写：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
   /**

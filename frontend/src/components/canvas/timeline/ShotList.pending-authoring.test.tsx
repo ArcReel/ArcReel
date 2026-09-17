@@ -27,18 +27,18 @@ function renderList(segments: NarrationSegment[]) {
   );
 }
 
-describe("ShotList 待生成提示词", () => {
-  it("任一侧提示词为 null 的条目标「提示词待生成」", () => {
+describe("ShotList 待编写徽标", () => {
+  it("pending_authoring 为真的条目标「待编写」", () => {
     renderList([
       makeNarrationSegment(),
-      makeNarrationSegment({ segment_id: "E1S02", image_prompt: null }),
-      makeNarrationSegment({ segment_id: "E1S03", video_prompt: null }),
+      makeNarrationSegment({ segment_id: "E1S02", pending_authoring: true }),
+      makeNarrationSegment({ segment_id: "E1S03", pending_authoring: false }),
     ]);
-    expect(screen.getAllByText("提示词待生成")).toHaveLength(2);
+    expect(screen.getAllByText("待编写")).toHaveLength(1);
   });
 
-  it("提示词齐全时不标记", () => {
-    renderList([makeNarrationSegment()]);
-    expect(screen.queryByText("提示词待生成")).not.toBeInTheDocument();
+  it("提示词为 null 但 pending_authoring 为假的历史形态不标记", () => {
+    renderList([makeNarrationSegment({ image_prompt: null, video_prompt: null })]);
+    expect(screen.queryByText("待编写")).not.toBeInTheDocument();
   });
 });

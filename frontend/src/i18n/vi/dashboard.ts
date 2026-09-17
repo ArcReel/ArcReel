@@ -1610,7 +1610,7 @@ export default {
   'detail_field_chars_count': '{{count}} ký tự',
   'detail_image_prompt_placeholder': 'Mô tả khung hình: bối cảnh, nhân vật, hành động, bố cục…',
   'detail_pending_authoring_hint': 'Chờ biên soạn: prompt của phân cảnh này chưa được biên soạn. Hãy nhờ Agent bổ sung hoặc tự điền bên dưới',
-  'shot_prompt_pending': 'Prompt chờ tạo',
+  'shot_pending_authoring': 'Chờ biên soạn',
   'detail_image_prompt_title': 'Image Prompt · Phân cảnh',
   'detail_section_dialogue': 'DIALOGUE',
   'detail_section_utterances': 'LỜI NÓI',
