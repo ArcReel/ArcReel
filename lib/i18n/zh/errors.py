@@ -271,6 +271,20 @@ MESSAGES = {
     "endpoint_media_type_mismatch": "模型 endpoint 与媒体类型不一致: {detail}",
     "backend_creation_failed": "Backend 创建失败: {err_msg}",
     "connectivity_check_unsupported_format": "发现格式 {discovery_format} 暂不支持连通性检查",
+    "connectivity_check_comfyui_ok": "ComfyUI 可达，版本 {version}",
+    "connectivity_check_comfyui_ok_unknown_version": "ComfyUI 可达，未回传版本号",
+    "discovery_not_applicable_comfyui": (
+        "ComfyUI 协议没有可发现的模型列表：能调用什么由 workflow 自身决定，请改为导入 ComfyUI 端点并挂到模型行上"
+    ),
+    "comfyui_endpoint_requires_comfyui_provider": (
+        "模型 {model_id} 挂的 ComfyUI 端点 {endpoint} 只能用在 ComfyUI 协议的供应商上"
+    ),
+    "comfyui_provider_requires_comfyui_endpoint": (
+        "ComfyUI 协议的供应商只能挂 ComfyUI 端点，模型 {model_id} 的 {endpoint} 不是"
+    ),
+    "capability_overrides_not_supported_for_comfyui": (
+        "模型 {model_id} 挂的是 ComfyUI 端点，能力只从节点绑定推导，不支持能力覆盖"
+    ),
     "capability_overrides_video_only": "模型 {model_id} 的 endpoint {endpoint} 不是视频类，不支持能力覆盖",
     "capability_override_invalid_value": "模型 {model_id} 的能力项 {capability} 取值类型不正确，应为 {expected}",
     "capability_override_last_frame_unsupported": "模型 {model_id} 的 endpoint {endpoint} 不支持尾帧生成，无法覆盖 last_frame 为开启",

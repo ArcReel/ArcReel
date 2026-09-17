@@ -284,6 +284,21 @@ MESSAGES = {
     "endpoint_media_type_mismatch": "media_type của endpoint không khớp: {detail}",
     "backend_creation_failed": "Tạo backend thất bại: {err_msg}",
     "connectivity_check_unsupported_format": "Không hỗ trợ kiểm tra kết nối với {discovery_format}",
+    "connectivity_check_comfyui_ok": "ComfyUI có thể truy cập, phiên bản {version}",
+    "connectivity_check_comfyui_ok_unknown_version": "ComfyUI có thể truy cập; không trả về số phiên bản",
+    "discovery_not_applicable_comfyui": (
+        "Giao thức ComfyUI không có danh sách mô hình để phát hiện: gọi được gì là do chính workflow quyết định. "
+        "Hãy nhập một endpoint ComfyUI và gắn nó vào một dòng mô hình"
+    ),
+    "comfyui_endpoint_requires_comfyui_provider": (
+        "Endpoint ComfyUI {endpoint} của mô hình {model_id} chỉ dùng được trên nhà cung cấp giao thức ComfyUI"
+    ),
+    "comfyui_provider_requires_comfyui_endpoint": (
+        "Nhà cung cấp giao thức ComfyUI chỉ nhận endpoint ComfyUI; {endpoint} của mô hình {model_id} thì không"
+    ),
+    "capability_overrides_not_supported_for_comfyui": (
+        "Mô hình {model_id} dùng endpoint ComfyUI, năng lực chỉ suy ra từ liên kết node; không hỗ trợ ghi đè năng lực"
+    ),
     "capability_overrides_video_only": (
         "Endpoint {endpoint} của mô hình {model_id} không phải loại video; không hỗ trợ ghi đè năng lực"
     ),

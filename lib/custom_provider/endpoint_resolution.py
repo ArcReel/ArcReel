@@ -7,8 +7,9 @@
 
 定义本体是唯一真相源，spec 与镜像列都是它的投影，两者都按定义的 ``kind`` 分派到该 kind 的投影
 实现：媒体类型一律由定义决定，端点键不蕴含任何媒体类型。某一种 kind 的投影实现本身不在本模块——
-用户定义与随版定义是同一种东西，声明式共用 ``endpoints.declarative_endpoint_spec`` 那一份实现，
-本模块只管「读库取行 → 按 kind 找投影」。装载走 async（读库）、构造是纯函数，两段分明
+两种 kind 各有一份，都落在 ``endpoints``（``EndpointSpec`` 与它的不变式在那里），声明式的那份
+另与随版定义共用，用户定义与随版定义本就是同一种东西；本模块只管「读库取行 → 按 kind 找投影」。
+装载走 async（读库）、构造是纯函数，两段分明
 （``docs/adr/0039``）；不做启动时全量加载进内存注册表——定义原地更新须立即对新任务生效。
 """
 
@@ -21,7 +22,12 @@ from typing import TYPE_CHECKING, Any
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key, parse_endpoint_key
 from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
 from lib.custom_provider.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
-from lib.custom_provider.endpoints import EndpointSpec, declarative_endpoint_spec, get_endpoint_spec
+from lib.custom_provider.endpoints import (
+    EndpointSpec,
+    comfyui_endpoint_spec,
+    declarative_endpoint_spec,
+    get_endpoint_spec,
+)
 
 if TYPE_CHECKING:
     from lib.db.models.custom_endpoint import CustomEndpoint
@@ -47,6 +53,7 @@ _MEDIA_TYPE_BY_KIND: Mapping[str, Callable[[Mapping[str, Any]], str]] = {
 #: ``kind`` → 把定义投影成 spec 的实现。
 _SPEC_BY_KIND: Mapping[str, Callable[[str, Mapping[str, Any]], EndpointSpec]] = {
     DECLARATIVE_KIND: lambda key, definition: declarative_endpoint_spec(key, definition, source="custom"),
+    COMFYUI_KIND: comfyui_endpoint_spec,
 }
 
 

@@ -165,6 +165,10 @@ def _try_encode_failure(code: str, params: dict[str, Any]) -> str | None:
     return None
 
 
+#: ComfyUI 协议供应商每条 lane 的缺省并发：一台 ComfyUI 服务后面通常只有一张显卡。
+COMFYUI_LANE_DEFAULT = 1
+
+
 def _parse_lane_max(config: dict[str, str], key: str, default: int, provider_id: str) -> int:
     """逐 key 容错解析单条 lane 的并发上限。
 
@@ -231,6 +235,23 @@ class CapacityTable:
         （key 是合法 lane、值为 >=1 整数）由 ProviderMeta.__post_init__ 在 import 期保证。
         """
         return meta.default_concurrency.get(lane, global_default)
+
+    @staticmethod
+    def _custom_lane_default(provider: Any, column: int | None, global_default: int) -> int:
+        """自定义供应商某条 lane 的上限：列有值取列值，列为 NULL 取协议默认。
+
+        ComfyUI 协议的供应商是用户自己的一张显卡，图像与视频各开 1 条即占满；全局默认（视频 3、
+        图像 5）会让几个任务同时抢同一张卡，排队都排在远端、本地看不见。用户仍可把列显式调高。
+        其余协议面向的是商业 API，按全局默认走。
+
+        与 :meth:`_lane_default` 分开：那一条读的是内置供应商注册表的声明默认，自定义供应商没有
+        注册表条目，声明来源只有协议本身。
+        """
+        from lib.custom_provider.discovery_formats import is_comfyui_protocol
+
+        if column is not None:
+            return column
+        return COMFYUI_LANE_DEFAULT if is_comfyui_protocol(provider.discovery_format) else global_default
 
     @classmethod
     def from_env(cls) -> CapacityTable:
@@ -308,10 +329,11 @@ class CapacityTable:
                         media_type_by_endpoint[m.endpoint] = media_type
                     media_types.add(media_type)
                 # 自定义供应商不在内置注册表，无声明默认层 → 两层回退：列有值取列值，
-                # 列为 NULL 走全局默认。投影仍交给 _lane_limits 统一处理不支持的 lane。
-                image_max = provider.image_max_workers if provider.image_max_workers is not None else default_image
-                video_max = provider.video_max_workers if provider.video_max_workers is not None else default_video
-                audio_max = provider.audio_max_workers if provider.audio_max_workers is not None else default_audio
+                # 列为 NULL 取协议默认（见 _custom_lane_default）。投影仍交给 _lane_limits
+                # 统一处理不支持的 lane。
+                image_max = cls._custom_lane_default(provider, provider.image_max_workers, default_image)
+                video_max = cls._custom_lane_default(provider, provider.video_max_workers, default_video)
+                audio_max = cls._custom_lane_default(provider, provider.audio_max_workers, default_audio)
                 limits[pid] = cls._lane_limits(media_types, image_max, video_max, audio_max)
 
         logger.info("从 DB 加载供应商容量表: %s", limits)

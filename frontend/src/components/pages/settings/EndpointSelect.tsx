@@ -3,7 +3,8 @@ import { ChevronDown, Type, Image as ImageIcon, Film, AudioLines, Settings2 } fr
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Popover } from "@/components/ui/Popover";
-import type { EndpointKey, ImageCap, MediaType } from "@/types";
+import type { DiscoveryFormat, EndpointKey, ImageCap, MediaType } from "@/types";
+import { isComfyuiEndpoint, isComfyuiProtocol } from "./customProviderHelpers";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,12 @@ const MEDIA_ORDER = Object.keys(MEDIA_META) as MediaType[];
 interface EndpointSelectProps {
   value: EndpointKey;
   onChange: (next: EndpointKey) => void;
+  /**
+   * 宿主供应商的模型发现协议。ComfyUI 端点与 ComfyUI 协议供应商互为对方的唯一对手方
+   * （服务端双向校验，见 docs/adr/0081），选择器据此只列得上的那一半——否则用户要撞上
+   * 保存时的 422 才知道这条挂不上去。必填：选择器只出现在模型行上，那里总有一个宿主协议。
+   */
+  protocol: DiscoveryFormat;
   /** Accessible label, e.g. t("endpoint_label") */
   ariaLabel?: string;
   /** Disable interaction */
@@ -49,7 +56,14 @@ interface EndpointSelectProps {
   onManageNavigate?: (proceed: () => void) => void;
 }
 
-export function EndpointSelect({ value, onChange, ariaLabel, disabled, onManageNavigate }: EndpointSelectProps) {
+export function EndpointSelect({
+  value,
+  onChange,
+  protocol,
+  ariaLabel,
+  disabled,
+  onManageNavigate,
+}: EndpointSelectProps) {
   const { t } = useTranslation("dashboard");
   const [, navigate] = useLocation();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -71,8 +85,10 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled, onManageN
   // 把 catalog 数据投影成 EndpointOption[]，按 MEDIA_ORDER 顺序排列以获得稳定的键盘导航。
   const options = useMemo<EndpointOption[]>(() => {
     const ordered: EndpointOption[] = [];
+    const wantsComfyui = isComfyuiProtocol(protocol);
     for (const media of MEDIA_ORDER) {
       for (const e of endpoints) {
+        if (isComfyuiEndpoint(e) !== wantsComfyui) continue;
         if (e.media_type === media) {
           ordered.push({
             value: e.key,
@@ -87,7 +103,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled, onManageN
       }
     }
     return ordered;
-  }, [endpoints]);
+  }, [endpoints, protocol]);
 
   const grouped = useMemo(() => {
     return MEDIA_ORDER.map((m) => ({

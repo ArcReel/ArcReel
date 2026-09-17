@@ -121,12 +121,21 @@ class TestCapacityTable:
         monkeypatch.setattr("lib.db.repositories.custom_endpoint_repo.CustomEndpointRepository.get", _get_endpoint)
 
     @staticmethod
-    def _fake_custom_provider(pid: str, *, image=None, video=None, audio=None, endpoints=("openai-images",)):
+    def _fake_custom_provider(
+        pid: str,
+        *,
+        image=None,
+        video=None,
+        audio=None,
+        endpoints=("openai-images",),
+        discovery_format="openai",
+    ):
         """构造 ``(provider, models)`` 元组，供 list_providers_with_models 返回。"""
         from types import SimpleNamespace
 
         provider = SimpleNamespace(
             provider_id=pid,
+            discovery_format=discovery_format,
             image_max_workers=image,
             video_max_workers=video,
             audio_max_workers=audio,
@@ -180,6 +189,74 @@ class TestCapacityTable:
 
         assert table.get("custom-2", "video") == 4
         assert table.get("custom-2", "image") == 0
+
+    async def test_from_db_comfyui_provider_defaults_each_lane_to_one(self, monkeypatch):
+        """comfyui 协议、并发列为 NULL：图像与视频各 1，而不是全局默认的 5 / 3。
+
+        一台 ComfyUI 后面通常只有一张显卡，多开只是在远端排队。
+        """
+        from types import SimpleNamespace
+
+        from tests.factories import comfyui_endpoint_definition
+
+        image_definition = comfyui_endpoint_definition(media_type="image")
+        del image_definition["bindings"]["fps"]
+        self._stub_from_db_sources(
+            monkeypatch,
+            {},
+            custom_providers=[
+                self._fake_custom_provider(
+                    "custom-9",
+                    endpoints=("ce-1", "ce-2"),
+                    discovery_format="comfyui",
+                )
+            ],
+            custom_endpoints={
+                1: SimpleNamespace(id=1, definition=comfyui_endpoint_definition()),
+                2: SimpleNamespace(id=2, definition=image_definition),
+            },
+        )
+
+        table = await CapacityTable.from_db()
+
+        assert table.get("custom-9", "video") == 1
+        assert table.get("custom-9", "image") == 1
+
+    async def test_from_db_comfyui_provider_keeps_an_explicit_column(self, monkeypatch):
+        """用户显式调高的列值优先于协议默认——默认只是列为 NULL 时的回退。"""
+        from types import SimpleNamespace
+
+        from tests.factories import comfyui_endpoint_definition
+
+        self._stub_from_db_sources(
+            monkeypatch,
+            {},
+            custom_providers=[
+                self._fake_custom_provider(
+                    "custom-9",
+                    video=3,
+                    endpoints=("ce-1",),
+                    discovery_format="comfyui",
+                )
+            ],
+            custom_endpoints={1: SimpleNamespace(id=1, definition=comfyui_endpoint_definition())},
+        )
+
+        table = await CapacityTable.from_db()
+
+        assert table.get("custom-9", "video") == 3
+
+    async def test_from_db_other_protocols_keep_the_global_default(self, monkeypatch):
+        """协议默认只属于 comfyui：别的自定义供应商列为 NULL 时仍走全局默认。"""
+        self._stub_from_db_sources(
+            monkeypatch,
+            {},
+            custom_providers=[self._fake_custom_provider("custom-4", endpoints=("newapi-video",))],
+        )
+
+        table = await CapacityTable.from_db()
+
+        assert table.get("custom-4", "video") == 3
 
     async def test_from_db_skips_a_model_row_whose_endpoint_is_gone(self, monkeypatch):
         """端点解析不出来：不凭该行开 lane，其余供应商的容量照常刷新。"""

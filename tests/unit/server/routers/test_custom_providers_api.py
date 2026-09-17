@@ -16,9 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.service import ConfigService
 from lib.custom_provider.endpoints import (
@@ -27,11 +26,7 @@ from lib.custom_provider.endpoints import (
     declarative_endpoint_spec,
     get_endpoint_spec,
 )
-from lib.db import get_async_session
-from server.auth import CurrentUserInfo, get_current_user
-from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
-from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import custom_endpoint_definition
 from tests.http_capture import capture_http, only_request
 
@@ -51,29 +46,8 @@ def _example_template_definition() -> dict[str, Any]:
 
 
 @pytest.fixture
-async def app_session_factory(db_engine):
-    return async_sessionmaker(db_engine, expire_on_commit=False)
-
-
-@pytest.fixture
-def app(app_session_factory) -> FastAPI:
-    """创建绑定内存数据库的 FastAPI 应用。"""
-    _app = FastAPI()
-
-    async def _override_session():
-        async with app_session_factory() as db_session:
-            yield db_session
-
-    _app.dependency_overrides[get_async_session] = _override_session
-    _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
-    _app.include_router(custom_providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    register_error_handlers(_app)
-    return _app
-
-
-@pytest.fixture
-def custom_providers_client(app) -> Generator[TestClient, None, None]:
-    with TestClient(app) as c:
+def custom_providers_client(custom_providers_app) -> Generator[TestClient, None, None]:
+    with TestClient(custom_providers_app) as c:
         yield c
 
 

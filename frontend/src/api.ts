@@ -47,7 +47,7 @@ import type {
   CustomProviderCreateRequest,
   CustomProviderFullUpdateRequest,
   CustomProviderModelInput,
-  DiscoveredModel,
+  DiscoverModelsResponse,
   EndpointDescriptor,
   CustomEndpointInfo,
   MarketEntryListResponse,
@@ -3071,11 +3071,11 @@ class API {
     return this.request(`/custom-providers/${id}/models`, { method: "PUT", body: JSON.stringify({ models }) });
   }
 
-  static async discoverModels(data: { discovery_format: string; base_url: string; api_key: string }): Promise<{ models: DiscoveredModel[] }> {
+  static async discoverModels(data: { discovery_format: string; base_url: string; api_key: string }): Promise<DiscoverModelsResponse> {
     return this.request("/custom-providers/discover", { method: "POST", body: JSON.stringify(data) });
   }
 
-  static async discoverModelsForProvider(id: number): Promise<{ models: DiscoveredModel[] }> {
+  static async discoverModelsForProvider(id: number): Promise<DiscoverModelsResponse> {
     return this.request(`/custom-providers/${id}/discover`, { method: "POST" });
   }
 

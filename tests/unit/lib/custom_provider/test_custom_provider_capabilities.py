@@ -12,10 +12,13 @@ from lib.custom_provider.capabilities import (
     capability_value_matches,
     filter_valid_overrides,
     synthesize_video_capabilities,
+    synthesize_video_capabilities_with_overrides,
     system_video_capabilities,
     video_capabilities_from_definition,
 )
+from lib.custom_provider.endpoints import EndpointSpec, comfyui_endpoint_spec
 from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
+from tests.factories import comfyui_endpoint_definition
 
 
 class TestOverrideFieldSchema:
@@ -316,6 +319,41 @@ class TestTolerance:
             )
         assert applied == {}
         assert "last_frame" in caplog.text
+
+
+class TestComfyuiOverridesAreIgnored:
+    """ComfyUI 端点的能力只从节点绑定推导，存量覆盖在读取侧一律丢弃。
+
+    忽略落在 :func:`filter_valid_overrides`——API 回显与运行时能力合成共读这一个接缝，
+    只在路由里拦写入的话，库里已有的一条覆盖仍会在执行时被读到。
+    """
+
+    @staticmethod
+    def _spec() -> EndpointSpec:
+        return comfyui_endpoint_spec("ce-7", comfyui_endpoint_definition())
+
+    def test_a_stored_override_is_dropped_with_a_warning(self, caplog: pytest.LogCaptureFixture):
+        with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
+            applied = filter_valid_overrides(
+                endpoint="ce-7",
+                model_id="wan-t2v",
+                overrides={"last_frame": True},
+                endpoint_spec=self._spec(),
+            )
+        assert applied == {}
+        assert "ce-7" in caplog.text
+
+    def test_the_runtime_synthesis_path_drops_it_too(self):
+        """执行层读到的能力不得因一条覆盖而与设置页的回显分叉。"""
+        caps, applied = synthesize_video_capabilities_with_overrides(
+            endpoint="ce-7",
+            model_id="wan-t2v",
+            overrides={"last_frame": True, "max_reference_images": 4},
+            endpoint_spec=self._spec(),
+        )
+        assert applied == {}
+        assert caps.last_frame is False
+        assert caps.max_reference_images == 0
 
 
 class TestReferenceAudioOverrideGuards:

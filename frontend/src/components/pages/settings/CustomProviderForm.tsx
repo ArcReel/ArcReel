@@ -23,6 +23,8 @@ import {
   withLastFrameOverride,
   capabilityFieldsFor,
   globalBucketRefsFor,
+  isComfyuiEndpoint,
+  isComfyuiProtocol,
   type DiscoveryFormat,
 } from "./customProviderHelpers";
 import { EndpointSelect } from "./EndpointSelect";
@@ -61,6 +63,7 @@ const COMPACT_INPUT_CLS =
 const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] = [
   { value: "openai", labelKey: "discovery_format_openai" },
   { value: "google", labelKey: "discovery_format_google" },
+  { value: "comfyui", labelKey: "discovery_format_comfyui" },
 ];
 
 interface ModelRow {
@@ -318,6 +321,7 @@ export function CustomProviderForm({
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const endpointToImageCapabilities = useEndpointCatalogStore((s) => s.endpointToImageCapabilities);
   const endpointToEndImageCapable = useEndpointCatalogStore((s) => s.endpointToEndImageCapable);
+  const catalogEndpoints = useEndpointCatalogStore((s) => s.endpoints);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
   useEffect(() => {
     void fetchEndpointCatalog();
@@ -338,6 +342,8 @@ export function CustomProviderForm({
         ? [newModelRow({ endpoint: initialEndpoint })]
         : [],
   );
+  // ComfyUI 协议：凭证可留空、没有模型发现、能力不接受覆盖、端点选择器只列 ComfyUI 端点。
+  const isComfyui = isComfyuiProtocol(discoveryFormat);
   const [imageMaxWorkers, setImageMaxWorkers] = useState(workersToStr(existing?.image_max_workers));
   const [videoMaxWorkers, setVideoMaxWorkers] = useState(workersToStr(existing?.video_max_workers));
   const [audioMaxWorkers, setAudioMaxWorkers] = useState(workersToStr(existing?.audio_max_workers));
@@ -443,6 +449,14 @@ export function CustomProviderForm({
   // 创建模式或 base_url 变更时必须明文 api_key。勾选「无需密钥」后保存写入的是空密钥，
   // 测试与发现须同样走明文空密钥路径，否则测试结果代表不了待保存的配置。
   const useStoredCredential = !!existing && !apiKey && !baseUrlChanged && !noApiKey;
+  // 凭证是否可以为空。ComfyUI 本体零鉴权，反向代理的凭据模板写在端点定义的 auth 节
+  // （docs/adr/0081），供应商行的 api_key 留空是常态，不该被必填校验堵住。
+  const keyOptional = noApiKey || isComfyui;
+  // 新建的模型行默认挂哪个端点：ComfyUI 协议下只有 ComfyUI 端点挂得上去。
+  const comfyuiEndpoints = useMemo(
+    () => catalogEndpoints.filter(isComfyuiEndpoint),
+    [catalogEndpoints],
+  );
 
   // --- Discover models ---
   const handleDiscover = useCallback(async () => {
@@ -450,7 +464,7 @@ export function CustomProviderForm({
       showError(t("fill_base_url_first"));
       return;
     }
-    if (!useStoredCredential && !noApiKey && !apiKey) {
+    if (!useStoredCredential && !keyOptional && !apiKey) {
       showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
       return;
     }
@@ -459,6 +473,12 @@ export function CustomProviderForm({
       const res = useStoredCredential
         ? await API.discoverModelsForProvider(existing.id)
         : await API.discoverModels({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
+      if (res.not_applicable) {
+        // 该协议本就没有模型发现。按钮在 comfyui 下已被说明取代，走到这里只可能是协议
+        // 刚被切换而按钮尚未重渲染；照样按说明提示，不把空列表合进模型表。
+        showError(res.reason ?? t("discovery_not_applicable"));
+        return;
+      }
       const discovered = res.models.map(discoveredToRow);
       // 用 getState 读最新 catalog 映射，而非 handleDiscover 闭包捕获的渲染期值：catalog 在
       // mount 时异步拉取，若用户在其就绪前点「获取模型」，闭包里仍是空 map，合并会跳过默认
@@ -472,7 +492,7 @@ export function CustomProviderForm({
     } finally {
       setDiscovering(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, noApiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, keyOptional, useStoredCredential, baseUrlChanged, existing, showError, t]);
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {
@@ -482,7 +502,7 @@ export function CustomProviderForm({
       showError(t("fill_base_url_first"));
       return;
     }
-    if (!useStoredCredential && !noApiKey && !apiKey) {
+    if (!useStoredCredential && !keyOptional && !apiKey) {
       showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
       return;
     }
@@ -497,7 +517,7 @@ export function CustomProviderForm({
     } finally {
       setTesting(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, noApiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, keyOptional, useStoredCredential, baseUrlChanged, existing, showError, t]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -510,7 +530,7 @@ export function CustomProviderForm({
       showError(t("fill_base_url"));
       return;
     }
-    if (!isEdit && !noApiKey && !apiKey.trim()) {
+    if (!isEdit && !keyOptional && !apiKey.trim()) {
       showError(t("fill_api_key"));
       return;
     }
@@ -585,6 +605,7 @@ export function CustomProviderForm({
     displayName,
     discoveryFormat,
     noApiKey,
+    keyOptional,
     baseUrl,
     apiKey,
     models,
@@ -607,8 +628,12 @@ export function CustomProviderForm({
     setModels((prev) => prev.filter((m) => m.key !== key));
   };
 
+  // ComfyUI 协议下新行必须挂 ComfyUI 端点：默认的 openai-chat 挂不上去，保存时会被服务端
+  // 双向校验拒掉。没有可挂的端点时按钮禁用并给出去处，不放一行注定保存失败的草稿。
+  const noComfyuiEndpointYet = isComfyui && comfyuiEndpoints.length === 0;
   const addManualModel = () => {
-    setModels((prev) => [...prev, newModelRow()]);
+    const endpoint = isComfyui ? comfyuiEndpoints[0]?.key : undefined;
+    setModels((prev) => [...prev, endpoint ? newModelRow({ endpoint }) : newModelRow()]);
   };
 
   // --- Base URL preview (effective models endpoint) ---
@@ -676,7 +701,7 @@ export function CustomProviderForm({
 
         {/* API Key */}
         <div>
-          <FieldLabel htmlFor="cp-key" required={!isEdit && !noApiKey}>
+          <FieldLabel htmlFor="cp-key" required={!isEdit && !keyOptional}>
             {t("api_key_label")}
           </FieldLabel>
           {!noApiKey && (
@@ -741,24 +766,33 @@ export function CustomProviderForm({
           <span className="font-mono text-[10.5px] text-text-4">{t("discovery_format_help")}</span>
         </div>
 
-        {/* Discover button */}
-        <div>
-          <button
-            type="button"
-            onClick={() => void handleDiscover()}
-            disabled={discovering}
-            className={GHOST_BTN_CLS}
-          >
-            {discovering ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
-                {t("discovering_models")}
-              </>
-            ) : (
-              t("discover_models")
-            )}
-          </button>
-        </div>
+        {/* ComfyUI 协议下探针可能被反向代理的自定义头鉴权挡住，据此提前说明判据。 */}
+        {isComfyui && (
+          <p className="text-[12px] leading-[1.55] text-text-4">{t("cp_comfyui_connectivity_hint")}</p>
+        )}
+
+        {/* Discover models —— comfyui 没有这一步，用说明替代按钮 */}
+        {isComfyui ? (
+          <p className="text-[12px] leading-[1.55] text-text-3">{t("discovery_not_applicable")}</p>
+        ) : (
+          <div>
+            <button
+              type="button"
+              onClick={() => void handleDiscover()}
+              disabled={discovering}
+              className={GHOST_BTN_CLS}
+            >
+              {discovering ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                  {t("discovering_models")}
+                </>
+              ) : (
+                t("discover_models")
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Model list */}
         {models.length > 0 && (
@@ -849,6 +883,7 @@ export function CustomProviderForm({
                             ...capabilityFieldsFor(m, m.model_id, next),
                           })
                         }
+                        protocol={discoveryFormat}
                         ariaLabel={t("endpoint_label")}
                         onManageNavigate={handleManageNavigate}
                       />
@@ -964,8 +999,9 @@ export function CustomProviderForm({
                       />
                     )}
 
-                    {/* 能力覆盖行（仅 video endpoint；首批只开放 last_frame） */}
-                    {media === "video" && (
+                    {/* 能力覆盖行（仅 video endpoint；首批只开放 last_frame）。ComfyUI 端点的
+                        能力只从节点绑定推导，服务端对该协议的覆盖写入一律 422，故不给入口。 */}
+                    {media === "video" && !isComfyui && (
                       <CapabilityOverrideRow
                         override={m.capability_overrides?.last_frame}
                         systemValue={m.system_capabilities?.last_frame ?? null}
@@ -986,7 +1022,8 @@ export function CustomProviderForm({
             <button
               type="button"
               onClick={addManualModel}
-              className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              disabled={noComfyuiEndpointYet}
+              className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" />
               {t("add_model_manually")}
@@ -997,14 +1034,20 @@ export function CustomProviderForm({
         {/* Empty model hint */}
         {models.length === 0 && (
           <div className="rounded-[10px] border border-dashed border-hairline-strong bg-bg-grad-a/45 p-4 text-center text-[12.5px] text-text-3">
-            {t("discover_or_add_hint")}
-            <button
-              type="button"
-              onClick={addManualModel}
-              className="ml-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              {t("add_model_manually")}
-            </button>
+            {noComfyuiEndpointYet ? (
+              t("cp_comfyui_no_endpoint_hint")
+            ) : (
+              <>
+                {isComfyui ? t("cp_comfyui_add_model_hint") : t("discover_or_add_hint")}
+                <button
+                  type="button"
+                  onClick={addManualModel}
+                  className="ml-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {t("add_model_manually")}
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -1013,28 +1056,30 @@ export function CustomProviderForm({
           <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
             {t("cp_concurrency_label")}
           </div>
-          <p className="mb-3 text-[11px] text-text-4">{t("cp_concurrency_help")}</p>
+          <p className="mb-3 text-[11px] text-text-4">
+            {isComfyui ? t("cp_concurrency_help_comfyui") : t("cp_concurrency_help")}
+          </p>
           <div className="flex flex-wrap gap-4">
             <WorkersInput
               id="cp-image-workers"
               label={t("cp_image_max_workers_label")}
               value={imageMaxWorkers}
               onChange={setImageMaxWorkers}
-              placeholder={t("cp_max_workers_placeholder")}
+              placeholder={isComfyui ? t("cp_max_workers_placeholder_comfyui") : t("cp_max_workers_placeholder")}
             />
             <WorkersInput
               id="cp-video-workers"
               label={t("cp_video_max_workers_label")}
               value={videoMaxWorkers}
               onChange={setVideoMaxWorkers}
-              placeholder={t("cp_max_workers_placeholder")}
+              placeholder={isComfyui ? t("cp_max_workers_placeholder_comfyui") : t("cp_max_workers_placeholder")}
             />
             <WorkersInput
               id="cp-audio-workers"
               label={t("cp_audio_max_workers_label")}
               value={audioMaxWorkers}
               onChange={setAudioMaxWorkers}
-              placeholder={t("cp_max_workers_placeholder")}
+              placeholder={isComfyui ? t("cp_max_workers_placeholder_comfyui") : t("cp_max_workers_placeholder")}
             />
           </div>
         </div>

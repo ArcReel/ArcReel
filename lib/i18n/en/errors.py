@@ -286,6 +286,22 @@ MESSAGES = {
     "endpoint_media_type_mismatch": "Endpoint media_type mismatch: {detail}",
     "backend_creation_failed": "Backend creation failed: {err_msg}",
     "connectivity_check_unsupported_format": "Connectivity checks are not supported for {discovery_format}",
+    "connectivity_check_comfyui_ok": "ComfyUI is reachable, version {version}",
+    "connectivity_check_comfyui_ok_unknown_version": "ComfyUI is reachable; it did not report a version",
+    "discovery_not_applicable_comfyui": (
+        "The ComfyUI protocol has no model list to discover: what can be called is decided by the workflow "
+        "itself. Import a ComfyUI endpoint and attach it to a model row instead"
+    ),
+    "comfyui_endpoint_requires_comfyui_provider": (
+        "ComfyUI endpoint {endpoint} on model {model_id} can only be used on a ComfyUI protocol provider"
+    ),
+    "comfyui_provider_requires_comfyui_endpoint": (
+        "A ComfyUI protocol provider only accepts ComfyUI endpoints; {endpoint} on model {model_id} is not one"
+    ),
+    "capability_overrides_not_supported_for_comfyui": (
+        "Model {model_id} uses a ComfyUI endpoint, whose capabilities are derived from node bindings alone; "
+        "capability overrides are not supported"
+    ),
     "capability_overrides_video_only": (
         "Endpoint {endpoint} of model {model_id} is not a video endpoint; capability overrides are not supported"
     ),

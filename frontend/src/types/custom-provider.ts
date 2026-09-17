@@ -7,6 +7,10 @@ export type MediaType = "text" | "image" | "video" | "audio";
 
 export type ImageCap = "text_to_image" | "image_to_image";
 
+/** 模型发现协议：决定「模型发现」与「连通性检查」按哪套接口进行，不决定模型的调用协议。
+ *  comfyui 取值下模型发现不适用，只做连通性检查。 */
+export type DiscoveryFormat = "openai" | "google" | "comfyui";
+
 export interface EndpointDescriptor {
   key: string;
   media_type: MediaType;
@@ -29,7 +33,7 @@ export interface EndpointDescriptor {
 export interface CustomProviderInfo {
   id: number;
   display_name: string;
-  discovery_format: "openai" | "google";
+  discovery_format: DiscoveryFormat;
   base_url: string;
   api_key_masked: string;
   models: CustomProviderModelInfo[];
@@ -80,6 +84,14 @@ export interface VideoCapabilityFlags {
  *  当前后端开放 last_frame / reference_audio_mode / max_reference_audio_count。 */
 export type CapabilityOverrides = Partial<VideoCapabilityFlags>;
 
+/** 模型发现的返回。``not_applicable`` 为真时 ``models`` 恒空，``reason`` 是可直接展示的说明：
+ *  该协议本就没有这一步，不是一次「什么都没发现」的失败。 */
+export interface DiscoverModelsResponse {
+  models: DiscoveredModel[];
+  not_applicable: boolean;
+  reason: string | null;
+}
+
 export interface DiscoveredModel {
   model_id: string;
   display_name: string;
@@ -90,7 +102,7 @@ export interface DiscoveredModel {
 
 export interface CustomProviderCreateRequest {
   display_name: string;
-  discovery_format: "openai" | "google";
+  discovery_format: DiscoveryFormat;
   base_url: string;
   api_key: string;
   models: CustomProviderModelInput[];

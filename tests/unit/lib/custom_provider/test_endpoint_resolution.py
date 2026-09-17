@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,12 +105,40 @@ class TestKindDispatch:
         assert mirror.kind == "comfyui"
         assert mirror.media_type == media_type
 
-    def test_spec_from_a_comfyui_row_is_refused_until_the_runtime_lands(self):
-        """ComfyUI 定义已能入库，但投影层还没有它的实现：端点目录据此跳过该行而不是整份失败。"""
+    def test_spec_from_a_comfyui_row_reads_the_definition(self):
+        """ComfyUI 行投影成 spec：键由行 id 派生，媒体类型与 kind 读定义，来源标为 custom。"""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
-        with pytest.raises(ValueError, match="unsupported endpoint definition kind"):
-            endpoint_spec_from_row(cast("CustomEndpoint", row))
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+
+        assert spec.key == "ce-7"
+        assert spec.kind == "comfyui"
+        assert spec.media_type == "video"
+        assert spec.source == "custom"
+        assert spec.display_name == "示例 ComfyUI 端点"
+
+    def test_a_comfyui_spec_declares_no_capabilities_yet(self):
+        """能力由节点绑定推导，推导未落地时一位都不宣称——宽松默认会让设置页展示执行层兑现不了的声明。"""
+        row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+        caps = spec.video_caps_for_model("wan-t2v") if spec.video_caps_for_model else None
+
+        assert caps is not None
+        assert caps.text_to_video is False
+        assert caps.first_frame is False
+        assert caps.max_reference_images == 0
+        assert spec.end_image_capable is False
+        assert spec.reference_audio_capable is False
+
+    def test_building_a_backend_for_a_comfyui_spec_says_the_runtime_is_missing(self):
+        """端点合法、只是还没有能执行它的 backend：抛 NotImplementedError，不与「端点不认识」混同。"""
+        row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+
+        with pytest.raises(NotImplementedError, match="ComfyUI"):
+            spec.build_backend(cast("Any", SimpleNamespace(provider_id="custom-1")), "wan-t2v")
 
     def test_media_type_of_an_unsupported_kind_is_refused(self):
         definition = custom_endpoint_definition(kind="unregistered")

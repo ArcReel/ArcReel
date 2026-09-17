@@ -11,6 +11,18 @@ import { formatDurationsLabel } from "@/utils/duration_format";
 import { formatDate } from "@/utils/date-format";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { CustomProviderForm } from "./CustomProviderForm";
+import { isComfyuiProtocol } from "./customProviderHelpers";
+
+//: 模型发现协议 → 展示名。协议是专有名词，不进 i18n；名录外的取值原样显示大写形态。
+const PROTOCOL_LABELS: Record<string, string> = {
+  openai: "OpenAI",
+  google: "Google",
+  comfyui: "ComfyUI",
+};
+
+function protocolLabel(format: string): string {
+  return PROTOCOL_LABELS[format] ?? format;
+}
 
 const MEDIA_LABELS: Record<string, string> = {
   text: "media_type_text",
@@ -171,7 +183,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
                 </span>
               </div>
               <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-text-4">
-                {provider.discovery_format === "openai" ? "OPENAI" : "GOOGLE"} ·{" "}
+                {protocolLabel(provider.discovery_format).toUpperCase()} ·{" "}
                 <span className="normal-case tracking-normal">{provider.base_url}</span>
               </p>
             </div>
@@ -185,9 +197,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
             <div className="space-y-2 text-[12.5px]">
               <div className="flex justify-between gap-4">
                 <span className="text-text-3">{t("discovery_format_label")}</span>
-                <span className="text-text">
-                  {provider.discovery_format === "openai" ? "OpenAI" : "Google"}
-                </span>
+                <span className="text-text">{protocolLabel(provider.discovery_format)}</span>
               </div>
               <div className="flex justify-between gap-4">
                 <span className="text-text-3">{t("base_url")}</span>
@@ -260,6 +270,11 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
                 ))}
               </div>
             </div>
+          )}
+
+          {/* ComfyUI：反向代理用自定义头鉴权时探针本就打不通，提前说明以什么为准 */}
+          {isComfyuiProtocol(provider.discovery_format) && (
+            <p className="text-[12px] leading-[1.55] text-text-4">{t("cp_comfyui_connectivity_hint")}</p>
           )}
 
           {/* Test result */}

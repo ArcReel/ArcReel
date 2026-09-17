@@ -30,6 +30,7 @@ from lib.custom_provider.capabilities import (
     strip_incoherent_audio_overrides,
     system_video_capabilities,
 )
+from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
@@ -43,6 +44,8 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.http_status_errors import raise_for_status_redacted
+from lib.httpx_shared import get_http_client
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
 from lib.video_backends.base import ReferenceAudioMode, audio_capability_pair_is_coherent
@@ -58,7 +61,7 @@ def _validate_endpoint(value: str) -> str:
 # 写入路径上的 endpoint 字段统一走运行时校验，键集合自动跟随 ENDPOINT_REGISTRY；
 # 响应路径不需校验，直接 str。
 EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
-DiscoveryFormatLiteral = Literal["openai", "google"]
+DiscoveryFormatLiteral = Literal["openai", "google", "comfyui"]
 
 # 并发上限定型字段：可空正整数（≥1）；None = 未设置 → 容量装载回退全局默认。
 MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
@@ -96,6 +99,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/custom-providers", tags=["Custom Providers"])
 
 _CONNECTIVITY_CHECK_TIMEOUT = 15  # 秒
+
+#: ComfyUI 的连通性探针路径。零鉴权的本体上它也可匿名访问，故它同时是「地址对不对」的判据。
+_COMFYUI_SYSTEM_STATS_PATH = "/system_stats"
 
 # 全局 DB settings 中可能引用自定义供应商的键（删除 provider / 删除 model 时清理悬空引用）
 _BACKEND_SETTING_KEYS = (
@@ -280,7 +286,12 @@ class ConnectivityCheckResponse(BaseModel):
 
 
 class DiscoverResponse(BaseModel):
-    models: list[dict]
+    models: list[dict] = []
+    # 该协议没有可枚举的模型列表。ComfyUI 的「模型」是 workflow 里的节点选择，服务端给不出
+    # 与模型行对应的清单——回一个空列表会被读成「一个都没发现」，前端据此显示「请检查凭证」。
+    # 前端据本位用一段说明替代「发现模型」按钮。
+    not_applicable: bool = False
+    reason: str | None = None
 
 
 class DiscoverAnthropicRequest(BaseModel):
@@ -299,8 +310,9 @@ class EndpointDescriptor(BaseModel):
     key: str
     media_type: str
     family: str
-    # 实现形态："python"（backend 代码）| "declarative"（声明式定义）。前端据此决定
-    # 「复制为我的 / 查看定义」是否可见——这两项只对声明式端点成立。
+    # 实现形态："python"（backend 代码）| "declarative"（声明式定义）| "comfyui"（workflow
+    # 与节点绑定）。前端据此决定「复制为我的 / 查看定义」是否可见（只对声明式端点成立），并
+    # 按供应商协议过滤端点选择器的选项。
     kind: str
     # 端点来源：内置（随版发布，不可编辑删除）或用户自定义（落 custom_endpoint 表）。
     # 前端据此分组，并只对 custom 开放编辑与删除。
@@ -611,6 +623,44 @@ def _check_model_capability_overrides(
         )
 
 
+def _check_protocol_constraints(
+    models: list[ModelInput],
+    discovery_format: str,
+    specs: Mapping[str, EndpointSpec],
+    _t: Callable[..., str],
+) -> None:
+    """ComfyUI 协议特有的两条写入约束：端点挂接双向配对，能力覆盖关闭。
+
+    挂接配对是双向的（``docs/adr/0081``）：ComfyUI 端点的运行时只对 ComfyUI 服务有意义，声明式
+    端点对 ComfyUI 服务同样无意义。错挂在保存期毫无征兆，要等发起生成才在传输层露出来，故两个
+    方向都在写入侧拒。判定本身在 :func:`endpoint_attachment_holds`，此处只负责挑出违规的那个方向。
+
+    本判定须排在 :func:`_check_model_capability_overrides` 之前：ComfyUI 端点的能力位全空，
+    它的覆盖同样过不了通用校验，先判协议才给得出「该协议不支持覆盖」这条专用文案，而不是
+    「endpoint 不支持尾帧」。
+
+    能力覆盖对该协议关闭：ComfyUI 端点的能力由节点绑定推导，覆盖值在执行层没有对应物。回显侧
+    的对应处置是忽略存量值（见 :func:`lib.custom_provider.capabilities.filter_valid_overrides`）。
+
+    只对 comfyui 协议生效，其余协议的自由挂接与覆盖编辑一概不变。
+    """
+    comfyui_provider = is_comfyui_protocol(discovery_format)
+    for m in models:
+        spec = specs[m.endpoint]
+        if not endpoint_attachment_holds(endpoint_kind=spec.kind, discovery_format=discovery_format):
+            key = (
+                "comfyui_provider_requires_comfyui_endpoint"
+                if comfyui_provider
+                else "comfyui_endpoint_requires_comfyui_provider"
+            )
+            raise HTTPException(status_code=422, detail=_t(key, model_id=m.model_id, endpoint=m.endpoint))
+        if comfyui_provider and m.capability_overrides:
+            raise HTTPException(
+                status_code=422,
+                detail=_t("capability_overrides_not_supported_for_comfyui", model_id=m.model_id),
+            )
+
+
 async def _resolve_model_endpoint_specs(
     session: AsyncSession,
     models: list[ModelInput],
@@ -754,6 +804,7 @@ async def create_provider(
         _check_duplicate_model_ids(body.models, _t)
         specs = await _resolve_model_endpoint_specs(session, body.models, _t)
         _check_unique_defaults(body.models, specs, _t)
+        _check_protocol_constraints(body.models, body.discovery_format, specs, _t)
         _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models] if body.models else None
@@ -869,8 +920,15 @@ async def full_update_provider(
     _check_duplicate_model_ids(body.models, _t)
     specs = await _resolve_model_endpoint_specs(session, body.models, _t)
     _check_unique_defaults(body.models, specs, _t)
-    _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
+    # 协议是创建时定下、之后不可改的，故读库里这一行而非请求体。取行排在写入之前：协议约束要
+    # 先于覆盖校验判定，comfyui 行才拿得到「该协议不支持覆盖」这条专用文案，而不是被通用的
+    # 「endpoint 不支持尾帧」抢先拒掉。
+    provider = await repo.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    _check_protocol_constraints(body.models, provider.discovery_format, specs, _t)
+    _check_model_capability_overrides(body.models, _t, specs)
     kwargs: dict = {
         "display_name": body.display_name,
         "base_url": body.base_url,
@@ -943,11 +1001,12 @@ async def replace_models(
     _check_duplicate_model_ids(body.models, _t)
     specs = await _resolve_model_endpoint_specs(session, body.models, _t)
     _check_unique_defaults(body.models, specs, _t)
-    _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    _check_protocol_constraints(body.models, provider.discovery_format, specs, _t)
+    _check_model_capability_overrides(body.models, _t, specs)
     # 记录旧模型 ID，用于清理悬空引用
     old_model_ids = {m.model_id for m in await repo.list_models(provider_id)}
     new_model_ids = {m.model_id for m in body.models}
@@ -1089,6 +1148,9 @@ async def _run_discover(
     from lib.config.url_utils import InvalidAnthropicBaseUrlError
     from lib.custom_provider.discovery import UnsupportedDiscoveryFormatError, discover_models
 
+    if is_comfyui_protocol(discovery_format):
+        # 结构化的「不适用」而非 422：这不是一次失败的发现，是该协议本就没有这一步。
+        return DiscoverResponse(not_applicable=True, reason=_t("discovery_not_applicable_comfyui"))
     try:
         discover = discover_models_fn or discover_models
         models = await discover(
@@ -1129,6 +1191,12 @@ async def _run_connectivity_check(
         elif discovery_format == "google":
             result = await asyncio.wait_for(
                 asyncio.to_thread(google_probe or _check_google, base_url, api_key, _t),
+                timeout=_CONNECTIVITY_CHECK_TIMEOUT,
+            )
+        elif is_comfyui_protocol(discovery_format):
+            # 不进 to_thread：ComfyUI 探针走 httpx 直调，本就是协程，另外两条是同步 SDK 调用。
+            result = await asyncio.wait_for(
+                _check_comfyui(base_url, api_key, _t),
                 timeout=_CONNECTIVITY_CHECK_TIMEOUT,
             )
         else:
@@ -1197,3 +1265,41 @@ def _check_google(
         message=_t("connectivity_check_ok"),
         model_count=count,
     )
+
+
+def _comfyui_probe_headers(api_key: str) -> dict[str, str]:
+    """ComfyUI 探针的请求头：``api_key`` 作 Bearer 裸打，留空则完全不带凭证。
+
+    端点定义里的 ``auth`` 节在此不渲染（``docs/adr/0081``）：那是端点级的凭据模板，供应商级
+    探针拿不到，也不该替某一个端点猜。用自定义请求头做反向代理鉴权的部署因此可能探不通，
+    前端为此标注「以测试连接为准」。
+    """
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
+async def _check_comfyui(
+    base_url: str,
+    api_key: str,
+    _t: Callable[..., str],
+) -> ConnectivityCheckResponse:
+    """通过 ``GET {base_url}/system_stats`` 验证 ComfyUI 可达，并回显 ``comfyui_version``。
+
+    ``model_count`` 不填：ComfyUI 没有可枚举的模型列表，填 0 会被读成「一个模型都没有」。
+    """
+    url = base_url.strip().rstrip("/") + _COMFYUI_SYSTEM_STATS_PATH
+    resp = await get_http_client().get(
+        url,
+        headers=_comfyui_probe_headers(api_key),
+        timeout=_CONNECTIVITY_CHECK_TIMEOUT,
+    )
+    raise_for_status_redacted(resp)
+    payload = resp.json()
+    system = payload.get("system") if isinstance(payload, dict) else None
+    version = system.get("comfyui_version") if isinstance(system, dict) else None
+    # 版本缺失仍算可达：老版本与部分代理不回这一字段，据此判失败会把能用的部署拦在外面。
+    message = (
+        _t("connectivity_check_comfyui_ok", version=str(version))
+        if version
+        else _t("connectivity_check_comfyui_ok_unknown_version")
+    )
+    return ConnectivityCheckResponse(success=True, message=message)

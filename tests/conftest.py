@@ -314,6 +314,41 @@ async def db_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]
 
 
 @pytest.fixture
+async def custom_providers_app_session_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """``custom_providers_app`` 绑定的 session factory；用例也直接用它预置端点与模型行。"""
+    return async_sessionmaker(db_engine, expire_on_commit=False)
+
+
+@pytest.fixture
+def custom_providers_app(custom_providers_app_session_factory):
+    """只挂自定义供应商路由、绑内存库、以管理员身份免鉴权的 FastAPI 应用。
+
+    三个测试文件（协议无关的 CRUD、能力覆盖、ComfyUI 协议）按行为域分文件，共用的是同一个
+    被测应用。import 放在函数体内：根 conftest 由整个测试会话加载，不该为三个文件把 server
+    包拉进每一次收集。
+    """
+    from fastapi import FastAPI
+
+    from lib.db import get_async_session
+    from server.auth import CurrentUserInfo, get_current_user
+    from server.error_handlers import register_error_handlers
+    from server.routers import custom_providers
+    from tests.auth_deps import AUTH_DEPENDENCIES
+
+    app = FastAPI()
+
+    async def _override_session():
+        async with custom_providers_app_session_factory() as db_session:
+            yield db_session
+
+    app.dependency_overrides[get_async_session] = _override_session
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
+    app.include_router(custom_providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    register_error_handlers(app)
+    return app
+
+
+@pytest.fixture
 async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """方言敏感的 session factory：PG 下走 per-test schema，否则内存 SQLite。"""
     async with make_test_engine() as engine:

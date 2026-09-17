@@ -1,6 +1,14 @@
-import type { CapabilityOverrides, EndpointKey, ImageCap, MediaType, VideoCapabilityFlags } from "@/types";
+import type {
+  CapabilityOverrides,
+  DiscoveryFormat,
+  EndpointDescriptor,
+  EndpointKey,
+  ImageCap,
+  MediaType,
+  VideoCapabilityFlags,
+} from "@/types";
 
-export type DiscoveryFormat = "openai" | "google";
+export type { DiscoveryFormat };
 export type ModelLike = { key: string; endpoint: EndpointKey; is_default: boolean };
 
 /** 价格行标签 —— mediaType 由调用方从 endpoint-catalog-store 读出注入。 */
@@ -16,10 +24,22 @@ export function priceLabel(
   return { input: t("price_per_m_input"), output: t("price_per_m_output") };
 }
 
-/** /models URL 预览。 */
+/** 模型发现协议是否为 ComfyUI。判据只此一处，界面各处不各写一遍字面量比较。 */
+export function isComfyuiProtocol(format: DiscoveryFormat): boolean {
+  return format === "comfyui";
+}
+
+/** 一个调用端点是否为 ComfyUI 端点。与 isComfyuiProtocol 同理：字面量只在这里出现一次。 */
+export function isComfyuiEndpoint(endpoint: Pick<EndpointDescriptor, "kind">): boolean {
+  return endpoint.kind === "comfyui";
+}
+
+/** 连通性检查将打到的 URL 预览。 */
 export function urlPreviewFor(format: DiscoveryFormat, rawBaseUrl: string): string | null {
   const trimmed = rawBaseUrl.trim().replace(/\/+$/, "");
   if (!trimmed) return null;
+  // ComfyUI 没有 /models，探针打的是 /system_stats；预览跟着探针走才有指认价值。
+  if (isComfyuiProtocol(format)) return `${trimmed}/system_stats`;
   if (format === "openai") {
     const base = trimmed.match(/\/v\d+$/) ? trimmed : `${trimmed}/v1`;
     return `${base}/models`;

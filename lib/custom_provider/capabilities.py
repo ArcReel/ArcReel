@@ -15,7 +15,7 @@ from enum import Enum
 from types import UnionType
 from typing import TYPE_CHECKING, get_args, get_type_hints
 
-from lib.custom_provider.endpoint_definition import requires_image_input
+from lib.custom_provider.endpoint_definition import COMFYUI_KIND, requires_image_input
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, audio_capability_pair_is_coherent
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,13 @@ def filter_valid_overrides(
     from lib.custom_provider.endpoints import get_endpoint_spec
 
     if overrides is None:
+        return {}
+    # ComfyUI 端点的能力全部由节点绑定推导（``docs/adr/0082``）：能改变执行形态的只有 workflow
+    # 本身，覆盖值在执行层没有对应物。写入侧已拒绝新的覆盖，这里丢掉存量值——回显与执行同走
+    # 本函数，忽略落在这一处，两侧就不会一个显示「已生效」一个照旧不认。
+    if endpoint_spec is not None and endpoint_spec.kind == COMFYUI_KIND:
+        if overrides:
+            logger.warning("忽略 %s/%s 的能力覆盖：ComfyUI 端点的能力只从节点绑定推导", endpoint, model_id)
         return {}
     if not isinstance(overrides, dict):
         logger.warning(

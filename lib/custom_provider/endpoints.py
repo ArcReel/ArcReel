@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 from urllib.parse import urlsplit
 
 from lib.audio_backends.openai import OpenAIAudioBackend
@@ -534,6 +534,50 @@ def declarative_endpoint_spec(
     )
     # 内置注册表在 import 期逐条过同一条不变式（见 _validate_registry）；用户定义现构造、没有
     # import 期可依托，故在构造处就过——两种来源的 spec 因此不必被能力判定层区分对待。
+    validate_video_caps_declaration(spec)
+    return spec
+
+
+def _build_comfyui_runtime(_provider: CustomProvider, _model_id: str) -> NoReturn:
+    """ComfyUI 端点的 backend 构造占位：运行时尚未落地，构造即抛。
+
+    抛 ``NotImplementedError`` 而非 ``ValueError``：后者是本层「端点不认识」的既有含义，沿途
+    多处 ``except ValueError`` 会把它降级成「端点已不在」，而这里的实情是端点合法、只是还没有
+    能执行它的 backend。
+    """
+    raise NotImplementedError("ComfyUI 端点的运行时尚未落地，无法构造 backend")
+
+
+def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSpec:
+    """把一份 ComfyUI 定义派生成 EndpointSpec。纯函数：不读库、不发请求。
+
+    媒体类型读定义自身声明的 ``media_type``——一份 workflow 产图还是产视频只有它自己知道。能力
+    位一律留空而不是沿用 :class:`VideoCapabilities` 的宽松默认：能力由节点绑定推导，推导尚未
+    落地时宣称「支持文生视频、支持首帧」会让设置页展示一份执行层兑现不了的声明。
+
+    实现落在本模块而非 ``comfyui`` 子包：子包受「不依赖声明式运行时」的 import 契约约束，而
+    ``EndpointSpec`` 与它的不变式都在这里，子包够到本模块即间接够到声明式 backend。
+    """
+    media_type = str(definition["media_type"])
+    is_video = media_type == "video"
+    # 能力对每个 model 是同一份：workflow 只有一份，模型行换名字不改它能做什么。
+    caps = VideoCapabilities(text_to_video=False, first_frame=False)
+    spec = EndpointSpec(
+        key=key,
+        media_type=media_type,
+        family=CUSTOM_ENDPOINT_FAMILY,
+        # 显示名取 meta.name，与声明式端点同处理（见 EndpointSpec.display_name）。
+        display_name_key="",
+        source="custom",
+        # 提交形态固定：一份 workflow 整体 POST 给 /prompt，没有随模型变化的路径段，也没有
+        # 可配的方法——两者都不是定义里的可取值，故写在投影处而非读自定义。
+        request_method="POST",
+        request_path_template="/prompt",
+        build_backend=_build_comfyui_runtime,
+        image_capabilities=None if is_video else frozenset(),
+        video_caps_for_model=(lambda _model_id: caps) if is_video else None,
+        definition=definition,
+    )
     validate_video_caps_declaration(spec)
     return spec
 

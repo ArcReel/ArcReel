@@ -18,11 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import synthesize_video_capabilities, system_video_capabilities
 from lib.custom_provider.loader import load_custom_backend
-from lib.db import get_async_session
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import custom_providers
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 # 系统判定 last_frame=False、max_reference_images=1 —— 覆盖前后差异可断言
@@ -39,28 +37,8 @@ LAST_FRAME_MODEL = "doubao-seedance-1-0-pro-fast-251015"
 
 
 @pytest.fixture
-async def app_session_factory(db_engine):
-    return async_sessionmaker(db_engine, expire_on_commit=False)
-
-
-@pytest.fixture
-def app(app_session_factory) -> FastAPI:
-    _app = FastAPI()
-
-    async def _override_session():
-        async with app_session_factory() as db_session:
-            yield db_session
-
-    _app.dependency_overrides[get_async_session] = _override_session
-    _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
-    _app.include_router(custom_providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    register_error_handlers(_app)
-    return _app
-
-
-@pytest.fixture
-def capability_client(app) -> Generator[TestClient, None, None]:
-    with TestClient(app) as c:
+def capability_client(custom_providers_app) -> Generator[TestClient, None, None]:
+    with TestClient(custom_providers_app) as c:
         yield c
 
 
@@ -83,9 +61,9 @@ def _create_provider(capability_client: TestClient, models: list[dict]) -> int:
     return resp.json()["id"]
 
 
-async def _seed_provider_with_raw_models(app_session_factory, models: list[dict]) -> int:
+async def _seed_provider_with_raw_models(custom_providers_app_session_factory, models: list[dict]) -> int:
     """绕过 API 直接落库：模拟手工改库产生的、界面无从产生的覆盖字典。"""
-    async with app_session_factory() as db_session:
+    async with custom_providers_app_session_factory() as db_session:
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="Relay",
@@ -175,14 +153,14 @@ class TestModelListExposesCapabilities:
         assert models[0]["system_capabilities"]["last_frame"] is False
 
     async def test_stale_incompatible_override_filtered_from_response(
-        self, capability_client: TestClient, app_session_factory
+        self, capability_client: TestClient, custom_providers_app_session_factory
     ):
         """存量行 / 非 API 写入可能留下已不兼容的覆盖（如 openai-video 上的 last_frame=True，
         endpoint 不 end_image_capable）：写入侧挡不住这条已落库的数据，回显前须过滤，
         不能让界面呈现"覆盖已生效"而执行层其实静默忽略——原样回显还会让下次普通保存被
         写入校验拒为 422，堵住与该覆盖无关的编辑。"""
         pid = await _seed_provider_with_raw_models(
-            app_session_factory,
+            custom_providers_app_session_factory,
             [
                 {
                     "model_id": VIDEO_MODEL,
@@ -199,7 +177,7 @@ class TestModelListExposesCapabilities:
         assert models[0]["capability_overrides"] is None
 
     async def test_stale_incoherent_audio_override_filtered_from_response(
-        self, capability_client: TestClient, app_session_factory
+        self, capability_client: TestClient, custom_providers_app_session_factory
     ):
         """存量行的 direct ⊕ 上限 0：两维各自合法，故过得了逐键过滤，但执行层会降级到 none。
 
@@ -208,7 +186,7 @@ class TestModelListExposesCapabilities:
         把整次保存拒成 422。
         """
         pid = await _seed_provider_with_raw_models(
-            app_session_factory,
+            custom_providers_app_session_factory,
             [
                 {
                     "model_id": LAST_FRAME_MODEL,
@@ -226,14 +204,14 @@ class TestModelListExposesCapabilities:
         assert models[0]["capability_overrides"] == {"last_frame": True}
 
     async def test_corrupted_non_dict_override_does_not_500_response(
-        self, capability_client: TestClient, app_session_factory
+        self, capability_client: TestClient, custom_providers_app_session_factory
     ):
         """存量行 / 手工 SQL 可能让 JSON 列存了非字典值（字符串、列表等）：执行层的
         synthesize_video_capabilities 按容错设计忽略它，响应边界须同样容错，不能把原值
         直接塞进只接受 dict | None 的 ModelResponse 触发 Pydantic 校验错误，让整个列表/详情
         请求 500——用户也就无法进入设置页清理这条坏值。"""
         pid = await _seed_provider_with_raw_models(
-            app_session_factory,
+            custom_providers_app_session_factory,
             [
                 {
                     "model_id": VIDEO_MODEL,
@@ -251,12 +229,12 @@ class TestModelListExposesCapabilities:
         assert resp.json()["models"][0]["capability_overrides"] is None
 
     async def test_retired_endpoint_override_does_not_500_response(
-        self, capability_client: TestClient, app_session_factory
+        self, capability_client: TestClient, custom_providers_app_session_factory
     ):
         """endpoint 已从注册表下线（升级移除）时，get_endpoint_spec 会抛 ValueError；响应边界
         过滤 last_frame 覆盖时须容错这条查表失败，不能让存量脏配置把列表/详情请求也炸成 500。"""
         pid = await _seed_provider_with_raw_models(
-            app_session_factory,
+            custom_providers_app_session_factory,
             [
                 {
                     "model_id": "retired-model",
@@ -273,12 +251,14 @@ class TestModelListExposesCapabilities:
         assert resp.status_code == 200
         assert resp.json()["models"][0]["capability_overrides"] is None
 
-    async def test_unallowlisted_key_dropped_from_response(self, capability_client: TestClient, app_session_factory):
+    async def test_unallowlisted_key_dropped_from_response(
+        self, capability_client: TestClient, custom_providers_app_session_factory
+    ):
         """DB 遗留的白名单外键（如 first_frame，语义合法但未开放给用户覆盖）不该在回显中
         原样带出：否则界面呈现"覆盖已生效"，而写入侧一保存这条键就会被剔除——GET 与 PUT
         的键集合必须一致，调用方不该额外知道"回显可能含脏键但写回会被剔除"这条隐藏知识。"""
         pid = await _seed_provider_with_raw_models(
-            app_session_factory,
+            custom_providers_app_session_factory,
             [
                 {
                     "model_id": VIDEO_MODEL,
@@ -295,12 +275,12 @@ class TestModelListExposesCapabilities:
         assert models[0]["capability_overrides"] is None
 
     async def test_allowlisted_key_kept_when_mixed_with_unallowlisted(
-        self, capability_client: TestClient, app_session_factory
+        self, capability_client: TestClient, custom_providers_app_session_factory
     ):
         """混合了白名单内外键的存量行：白名单内键（last_frame）回显不变，白名单外键
         （first_frame）被剔除，回显集合与写入落库集合一致。"""
         pid = await _seed_provider_with_raw_models(
-            app_session_factory,
+            custom_providers_app_session_factory,
             [
                 {
                     "model_id": LAST_FRAME_MODEL,
@@ -338,11 +318,11 @@ class TestSaveDropsUnlistedOverrides:
         assert models[0]["capability_overrides"] is None
 
     async def test_legacy_key_stripped_while_editing_last_frame(
-        self, capability_client: TestClient, app_session_factory
+        self, capability_client: TestClient, custom_providers_app_session_factory
     ):
         """AC：含遗留键的行改动 last_frame 后保存不再 422，落库覆盖字典只剩白名单内的键。"""
         pid = await _seed_provider_with_raw_models(
-            app_session_factory,
+            custom_providers_app_session_factory,
             [
                 {
                     "model_id": LAST_FRAME_MODEL,
@@ -374,11 +354,13 @@ class TestSaveDropsUnlistedOverrides:
         models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] == {"last_frame": True}
 
-    async def test_legacy_key_stripped_on_full_update(self, capability_client: TestClient, app_session_factory):
+    async def test_legacy_key_stripped_on_full_update(
+        self, capability_client: TestClient, custom_providers_app_session_factory
+    ):
         """同上，覆盖 PUT /{provider_id}（原子更新 provider 元数据 + 模型列表）这条写入路径：
         只改 display_name 时，历史脏值既不该挡住保存，也不该被原样写回去。"""
         pid = await _seed_provider_with_raw_models(
-            app_session_factory,
+            custom_providers_app_session_factory,
             [
                 {
                     "model_id": VIDEO_MODEL,
@@ -403,10 +385,11 @@ class TestSaveDropsUnlistedOverrides:
         assert resp.json()["display_name"] == "Relay Renamed"
         assert resp.json()["models"][0]["capability_overrides"] is None
 
-    def test_patch_endpoint_absent_from_openapi(self, app):
+    def test_patch_endpoint_absent_from_openapi(self, custom_providers_app):
         """单模型覆盖 PATCH 端点已删除：按 (provider_id, model_id, endpoint) 定位够不着新建
         provider / 新增模型行 / 改过 model_id 的行，覆盖编辑统一走表单的整表保存。"""
-        assert not [path for path in app.openapi()["paths"] if "capability-overrides" in path]
+        paths = custom_providers_app.openapi()["paths"]
+        assert not [path for path in paths if "capability-overrides" in path]
 
 
 class TestSaveValidatesOpenOverrides:
@@ -667,13 +650,13 @@ class TestReplaceModelsOverrideSemantics:
         assert reloaded.json()["models"][0]["capability_overrides"] is None
 
     async def test_endpoint_change_validated_even_when_override_dict_unchanged(
-        self, capability_client: TestClient, app_session_factory
+        self, capability_client: TestClient, custom_providers_app_session_factory
     ):
         """每行都按提交上来的 (endpoint, 覆盖值) 校验：model_id 与覆盖字典原样不动、只切 endpoint
         时，校验结果天然随新 endpoint 变化（last_frame=True 是否合法依赖 endpoint 的
         end_image_capable），须针对新 endpoint 拒绝。"""
         pid = await _seed_provider_with_raw_models(
-            app_session_factory,
+            custom_providers_app_session_factory,
             [
                 {
                     "model_id": LAST_FRAME_MODEL,
@@ -921,8 +904,9 @@ class TestVideoCapabilitiesEndpoint:
     """
 
     @staticmethod
-    def _client(monkeypatch, app_session_factory, provider_id: str, model_id: str = VIDEO_MODEL) -> TestClient:
-        from fastapi import FastAPI
+    def _client(
+        monkeypatch, custom_providers_app_session_factory, provider_id: str, model_id: str = VIDEO_MODEL
+    ) -> TestClient:
 
         from lib.config import resolver as resolver_mod
         from server.routers import projects as projects_mod
@@ -931,7 +915,7 @@ class TestVideoCapabilitiesEndpoint:
             def load_project(self, name: str) -> dict:
                 return {"name": name, "video_backend": f"{provider_id}/{model_id}"}
 
-        monkeypatch.setattr(projects_mod, "async_session_factory", app_session_factory)
+        monkeypatch.setattr(projects_mod, "async_session_factory", custom_providers_app_session_factory)
         monkeypatch.setattr(resolver_mod, "get_project_manager", lambda: _FakePM())
 
         app = FastAPI()
@@ -940,25 +924,27 @@ class TestVideoCapabilitiesEndpoint:
         register_error_handlers(app)
         return TestClient(app)
 
-    async def test_endpoint_returns_effective_boolean_caps(self, app_session_factory, monkeypatch):
-        async with app_session_factory() as db_session:
+    async def test_endpoint_returns_effective_boolean_caps(self, custom_providers_app_session_factory, monkeypatch):
+        async with custom_providers_app_session_factory() as db_session:
             pid = await TestResolverReturnsEffectiveCapabilities._seed(db_session, overrides=None)
 
-        with self._client(monkeypatch, app_session_factory, pid) as capability_client:
+        with self._client(monkeypatch, custom_providers_app_session_factory, pid) as capability_client:
             body = capability_client.get("/api/v1/projects/demo/video-capabilities").json()
 
         system = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
         assert body["first_frame"] is system.first_frame
         assert body["last_frame"] is system.last_frame is False
 
-    async def test_endpoint_follows_written_override(self, app_session_factory, monkeypatch):
+    async def test_endpoint_follows_written_override(self, custom_providers_app_session_factory, monkeypatch):
         """AC：对自定义模型写入覆盖后，该接口返回值随之变化。"""
-        async with app_session_factory() as db_session:
+        async with custom_providers_app_session_factory() as db_session:
             pid = await TestResolverReturnsEffectiveCapabilities._seed(
                 db_session, overrides={"last_frame": True}, endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL
             )
 
-        with self._client(monkeypatch, app_session_factory, pid, model_id=LAST_FRAME_MODEL) as capability_client:
+        with self._client(
+            monkeypatch, custom_providers_app_session_factory, pid, model_id=LAST_FRAME_MODEL
+        ) as capability_client:
             body = capability_client.get("/api/v1/projects/demo/video-capabilities").json()
 
         assert system_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
