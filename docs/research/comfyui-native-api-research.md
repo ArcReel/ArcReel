@@ -15,8 +15,20 @@
 | `comfy-org/docs` 官方文档仓库 | 即 docs.comfy.org 的源文件，经 context7 library `/comfy-org/docs` 读取 |
 | GitHub Releases / commit 历史 | `repos/comfyanonymous/ComfyUI` 的 tag 与 commit，用于版本差异定位 |
 | `Kosinkadink/ComfyUI-VideoHelperSuite` 源码 | VHS 节点输出形状的唯一权威来源（第三方插件，非 ComfyUI 本体） |
+| ComfyUI 仓库的 `openapi.yaml` | 官方 OpenAPI 3.0.3 规格（`title: ComfyUI API`，5489 行），PR #13397 于 v0.20.1（2026-04-27）引入 |
 
 本报告中的文件行号均指上述 `master` 快照。次级来源（博客、教程、逆向整理的 API 文档）一律不采信。
+
+### 0.1 `openapi.yaml` 与自建实现存在系统性偏差
+
+`openapi.yaml` 是官方一手规格，但**它描述的是偏 Cloud 的服务面，不能当作自建 ComfyUI 的准确契约**。实测偏差：
+
+- 规格里 `PromptRequest` 的属性只有 `extra_data` / `front` / `number` / `partial_execution_targets` / `prompt` / `workflow_id` / `workflow_version_id`，**没有 `prompt_id`**（`openapi.yaml:1045-1075`），而 `server.py:1094-1107` 明确支持客户端自带 `prompt_id`。
+- 规格根本没有记录 `GET /api/history/{prompt_id}`（只有 `POST /api/history`、`GET /api/history_v2`、`GET /api/history_v2/{prompt_id}`），而自建实例上 `GET /history/{prompt_id}` 是可用的核心端点。
+- 规格说 `/api/interrupt` "Cancels the first active job for **the authenticated user**" 且 "**Takes no body** and cannot target a specific job"（`openapi.yaml:3114-3117`），而 `server.py:1165-1180` 实际会读 body 里的 `prompt_id` 做定向中断，且自建实例没有"authenticated user"这个概念。
+- 规格里出现 `workflow_id`（"UUID identifying the **cloud** workflow entity"）、`cloud_version` 等自建不存在的字段。
+
+**结论：涉及自建行为时，一律以 `server.py` / `execution.py` 为准，`openapi.yaml` 只用来读取上传限制、参数枚举这类实现里不直接体现的约束，以及官方的废弃意向。** 下文凡引用规格处都会标明。
 
 不在调研范围：ArcReel 代码层面的适配层设计、数据库 schema、前端改动、实施时间线。
 
@@ -499,6 +511,7 @@ return {"ui": {"gifs": [preview]}, "result": ((save_output, output_files),)}
 | `subfolder` | 可选。会做 `commonpath` 校验，越界返回 403 |
 | `channel` | `rgba`（默认）/ `rgb` / `a`，只对图像有意义 |
 | `preview` | 形如 `webp;90` 或 `jpeg;85`，服务端转码缩略图。非 `webp`/`jpeg` 一律回落 `webp` |
+| `res` | 仅见于 `openapi.yaml:4755+`，取值 64–1024，返回 JPEG 缩略图 |
 
 产物 URL 的拼法就是把 history 里那三个字段原样塞进 query：
 
@@ -555,7 +568,26 @@ queue_info['queue_pending'] = _remove_sensitive_from_queue(current_queue[1])
 
 `interrupt_if_running` 的原子性注释（`execution.py:1350-1360`）值得引用：全局 interrupt flag 在每个 prompt 开始时被重置（`execute_async` 里的 `nodes.interrupt_processing(False)`，`execution.py:733`），所以一个在消费 flag 前就结束的任务不会把中断泄漏给下一个任务。裸 `/interrupt` 没有这层保护。
 
-**接入含义：取消必须用 `/api/jobs/{id}/cancel`（需要 ComfyUI ≥ v0.26，见 §7）。要兼容老版本就得自己先查 `/queue` 分类，再分别调 `/interrupt` 或 `/queue delete`，并接受这中间存在竞态。**
+**接入含义：取消必须用 `/api/jobs/{id}/cancel`（需要 ComfyUI ≥ v0.26.0，见 §9）。要兼容老版本就得自己先查 `/queue` 分类，再分别调 `/interrupt` 或 `/queue delete`，并接受这中间存在竞态。**
+
+### 5.3.1 官方已标注的废弃意向
+
+`openapi.yaml` 把下列端点标为 `deprecated: true`，理由都是"被 `/api/jobs` 取代"：
+
+| 端点 | 规格位置 | 规格原文要点 |
+|---|---|---|
+| `POST /api/interrupt` | `openapi.yaml:3106-3117` | "Prefer the jobs-namespace cancel endpoints" |
+| `POST /api/queue` | `openapi.yaml:3692+` | 同上 |
+| `POST /api/history` | `openapi.yaml:2960-2966` | "Superseded by the job-management endpoints under `/api/jobs`. Planned for removal no earlier than a future major release; sunset timeline TBD." |
+| `GET /api/history_v2`、`GET /api/history_v2/{prompt_id}` | `openapi.yaml:3001+` / `3046+` | "Superseded by `GET /api/jobs` / `GET /api/jobs/{job_id}`" |
+| `GET /api/job/{job_id}/status` | `openapi.yaml:3139+` | "Superseded by `GET /api/jobs/{job_id}` (plural path)" |
+
+两点重要限定：
+
+1. **`GET /history/{prompt_id}` 本身没有被标废弃**，它甚至没被规格收录（见 §0.1）。被标废弃的是 `POST /api/history` 和 `history_v2` 系列。
+2. 官方另有明确表态，新的 v2 API **不废弃**这些老路由：`comfy-org/docs` 的 `development/api-development/sdks-design.mdx` 原文说 Comfy API v2 "operates alongside existing endpoints without deprecating legacy routes like `/prompt`, `/history`, or `/ws`"。
+
+**所以这些标记是方向性信号而非迁移最后通牒。** ArcReel 可以继续用 `/prompt` + `/history` + `/queue`，但取消路径应当优先 `/api/jobs/{id}/cancel`，且不宜在新代码里依赖 `POST /api/history` 与 `history_v2`。
 
 ### 5.4 `POST /upload/image`
 
@@ -567,6 +599,16 @@ multipart/form-data 字段（`server.py:397-460`）：
 | `type` | `input`（默认）/ `output` / `temp`，决定落盘目录 |
 | `subfolder` | 子目录，做 `commonpath` 越界校验 |
 | `overwrite` | 字符串 `"true"` 或 `"1"` 才生效，其余值视为不覆盖 |
+
+官方规格声明的上传限制（`openapi.yaml:4118-4120`，`/upload/mask` 同样，`4191-4193`）：
+
+```
+- Maximum file size: 50 MB
+- Maximum width/height per edge: 16384 px
+- Maximum total pixel count: 64 megapixels (67108864 pixels)
+```
+
+自建实例上真正的硬限制是 aiohttp 的 `client_max_size=max_upload_size`（`server.py:249`），由 `--max-upload-size` 控制，并通过 `GET /features` 的 `max_upload_size` 字段暴露给客户端。**上面那三条像素级限制在自建 `image_upload` 的代码路径里看不到对应实现，应视为 Cloud 侧约束或规格前瞻，不能假定自建会拒绝超限文件。**
 
 不覆盖时的行为很特别：先比对 SHA 哈希，**内容相同则直接复用已有文件并返回原名**（`compare_image_hash`，`server.py:383-395`）；内容不同才改名为 `原名 (1).ext`、`原名 (2).ext` 递增。
 
@@ -639,6 +681,8 @@ multipart/form-data 字段（`server.py:397-460`）：
 | `execution_cached` | `execution.py:769-772` | `nodes`, `prompt_id`, `timestamp` |
 | `executing` | `execution.py` 逐节点 / `main.py:374` | `{"node": "<id>", "prompt_id": "..."}`；**`node` 为 `null` 表示整个 prompt 跑完** |
 | `progress_state` | `progress.py:184-185` | `{"prompt_id": "...", "nodes": {node_id: {...}}}` |
+| `progress` | 节点实现进度钩子时 | `node`, `prompt_id`, `value`, `max`（官方 comms_messages 页列出） |
+| `notification` | 面向用户的状态文案 | `value` 为文本，如 "Executing workflow..."（仅 Cloud 文档列出） |
 | `executed` | `execution.py:576` | `{"node", "display_node", "output", "prompt_id"}`，`output` 就是该节点的 `outputs` 片段 |
 | `execution_success` | `execution.py:824` | `prompt_id`, `timestamp` |
 | `execution_error` | `execution.py:712` | 见 §3.3 |
@@ -656,7 +700,33 @@ if self.server.client_id is not None or broadcast:
 
 **结论：提交 `POST /prompt` 时不带 `client_id`，或带的 `client_id` 与 WebSocket 的 `clientId` 不一致，你就收不到 `executed` / `execution_error` / `execution_success`。** 只有中断事件会广播给所有连接。这是接入时最隐蔽的一个坑。
 
-二进制帧的类型码在 `protocol.py`：`PREVIEW_IMAGE = 1`、`UNENCODED_PREVIEW_IMAGE = 2`、`TEXT = 3`、`PREVIEW_IMAGE_WITH_METADATA = 4`。采样中间预览图走这条通道（`server.py:1336`/`1373`），与产物无关，接入时可以直接丢弃。
+### 6.1 二进制帧格式
+
+类型码在 `protocol.py`：`PREVIEW_IMAGE = 1`、`UNENCODED_PREVIEW_IMAGE = 2`、`TEXT = 3`、`PREVIEW_IMAGE_WITH_METADATA = 4`。采样中间预览图走这条通道（`server.py:1336`/`1373`），与产物无关，接入时可以直接丢弃。
+
+帧布局（官方文档中唯一给出完整格式的是 Cloud 那页，https://docs.comfy.org/development/cloud/api-reference ，形状与自建一致；整数均为大端）：
+
+| 类型 | 布局 |
+|---|---|
+| `PREVIEW_IMAGE` (1) | `[0..4)` type=`0x00000001`；`[4..8)` image_type（**1=JPEG, 2=PNG**）；`[8..)` 图片字节 |
+| `TEXT` (3) | `[0..4)` type=`0x00000003`；`[4..8)` node_id 长度 N；`[8..8+N)` node_id (UTF-8)；`[8+N..)` 文本 (UTF-8) |
+| `PREVIEW_IMAGE_WITH_METADATA` (4) | `[0..4)` type=`0x00000004`；`[4..8)` metadata 长度 N；`[8..8+N)` metadata JSON；`[8+N..)` 图片字节 |
+
+类型 4 的 metadata JSON 形如：
+
+```json
+{"node_id": "3", "display_node_id": "3", "real_node_id": "3", "prompt_id": "abc-123", "parent_node_id": null}
+```
+
+官方原生文档页（https://docs.comfy.org/development/comfyui-server/comms_messages ）**没有**记录二进制格式，也没有记录 `progress_state`、`notification` 与 feature_flags；`api-examples` 页里"see the Server Messages page for the binary format"的交叉引用指向一个并不存在的小节。这是官方原生文档的一处缺口。
+
+### 6.2 feature_flags 握手
+
+握手发生在连接建立之后（`server.py:296-315`）：服务端先发 `status`（含 `sid`），随后**只有当客户端的第一条文本消息是 `{"type": "feature_flags", "data": {...}}` 时**，服务端才存下客户端能力并回发同名消息带服务端能力。只认第一条消息（`first_message` 标志），错过就没有第二次机会。
+
+服务端能力也可以用 `GET /features` 直接拿到（`server.py:742-748`），不必走 WebSocket。`comfy_api/feature_flags.py` 的 `_CORE_FEATURE_FLAGS` 含 `supports_preview_metadata`、`supports_model_type_tags`、`max_upload_size`（字节）、`node_replacements`、`assets` 等；CLI 可设的只有 `show_signin_button`、`enable_telemetry`、`partner_run_gate_enabled` 三个，且不能覆盖 core 标志。
+
+**ArcReel 用不到这个握手**：它只影响服务端是否发送带 metadata 的预览帧等增强行为，不影响 `/prompt`、`/history`、`executed` 这些核心路径。需要探测能力时用 `GET /features` 更简单。
 
 官方文档的推荐用法（`comfy-org/docs` 仓库 `development/comfyui-server/api-examples.mdx`，即 https://docs.comfy.org/development/comfyui-server/api-examples ）是 **WebSocket 等 `executing` 且 `node is None` 且 `prompt_id` 匹配，然后再去 `GET /history/{prompt_id}` 取产物**，原文注释就是 `# Execution done`。注意这个官方示例**不处理失败与中断**：`execution_error` 到来时不会有 `node: null` 的 `executing`，示例会永远阻塞。生产代码必须同时监听 `execution_error` / `execution_interrupted`。
 
@@ -720,29 +790,65 @@ ComfyUI 内置的 Partner / API Nodes 调用 Comfy Org 的托管模型服务，�
 
 ---
 
-## 8. Comfy Cloud 与自建 API 的差异
+## 8. Comfy Cloud、Comfy API v2 与自建 API 的差异
 
-来源：`comfy-org/docs` 仓库的 `development/cloud/api-reference.mdx`、`development/cloud/overview.mdx`、`snippets/cloud/complete-example.mdx`、`snippets/cloud/poll-job-completion.mdx`，即 https://docs.comfy.org/development/cloud/api-reference 等页面。
+来源：`comfy-org/docs` 仓库的 `development/cloud/api-reference.mdx`、`development/cloud/overview.mdx`、`development/cloud/openapi.mdx`、`development/comfy-api/overview.mdx`、`api-reference/v2/overview.mdx`、`development/api-development/sdks.mdx`、`development/api-development/sdks-design.mdx`、`snippets/cloud/*.mdx`。
 
-Base URL 是 `https://cloud.comfy.org`，鉴权是 `X-API-Key: <COMFY_CLOUD_API_KEY>`。
+### 8.1 官方现在有三套 API，别搞混
+
+`development/comfy-api/overview` 原文：
+
+> The public API for running ComfyUI headlessly has evolved over time. For new integrations, use **Comfy API v2**. It is supported on open-source ComfyUI (during the beta, via the API Proxy), Comfy Cloud, and Comfy API deployments... Older versions include the **v1 Cloud API**, which is deprecated.
+
+| | 自建原生 server API | v1 Cloud API | Comfy API v2 |
+|---|---|---|---|
+| 形态 | `/prompt`、`/history`、`/view`、`/ws`（含 `/api/` 别名） | `cloud.comfy.org/api/*`，**刻意与原生同名同形状** | `/api/v2/jobs`、`/api/v2/assets`，全新形状 |
+| 状态 | 现役 | **已标 Deprecated** | Beta（0.1.x） |
+| 鉴权 | 无内建 | `X-API-Key` | `Authorization: Bearer <api-key>` |
+
+v1 Cloud API 页顶部 Warning 原文：
+
+> **Deprecated:** The v1 Cloud API is deprecated in favor of Comfy API v2. ... Some endpoints are maintained for compatibility with local ComfyUI but may have different semantics (e.g., ignored fields).
+
+Comfy API v2 的三个接入面（`api-reference/v2/overview`）：
+
+| Surface | URL | Authentication |
+|---|---|---|
+| Comfy Cloud | `https://cloud.comfy.org` | `Authorization: Bearer <api-key>` |
+| Comfy API deployment | `https://{deployment}.run.comfy.app` | `Authorization: Bearer <api-key>` |
+| Self-hosted, via comfy-api-proxy | `http://127.0.0.1:8189` | None by default, optional static bearer token |
+
+**关键限定：v2 不废弃自建的老路由。** `development/api-development/sdks-design.mdx` 原文说 v2 "operates alongside existing endpoints **without deprecating legacy routes** like `/prompt`, `/history`, or `/ws`"。自建场景下 v2 还得靠一个独立进程 `comfy-api-proxy` 提供（`pip install comfy-api-proxy`，代理 8188、自身监听 8189），官方自己称它是 "a stopgap: once v2 stabilizes it moves into ComfyUI core"。
+
+### 8.2 自建 vs Comfy Cloud（v1 形状）逐项对照
 
 | 维度 | 自建原生 ComfyUI | Comfy Cloud |
 |---|---|---|
 | Base URL | `http://<host>:8188` | `https://cloud.comfy.org` |
-| 鉴权 | 无内建，靠前置层 | `X-API-Key` 头 |
+| 鉴权 | 无内建，靠前置层 | `X-API-Key` 头（v2 是 Bearer） |
 | 提交 | `POST /prompt`，可带 `client_id` / `prompt_id` / `number` / `front` | `POST /api/prompt`，文档示例只有 `{"prompt": ...}` |
 | 提交响应 | `{prompt_id, number, node_errors}` | `{prompt_id}` |
 | 查状态 | 无专用端点；`/history/{id}` 跑完前返回 `{}`，要靠 `/queue` 或 WS | `GET /api/job/{prompt_id}/status` → `{"status": "..."}` |
 | 状态取值 | `status_str` 只有 `success` / `error` | 终态 `success` / `error` / `non_retryable_error` / `lost` / `cancelled`；在途 `submitted` / `queued_waiting` / `preparing` / `executing` / `cancel_requested` |
 | 中断与失败的区分 | 都是 `status_str: "error"`，靠 `messages` 里的事件名区分 | 直接是两个不同的 status 值 |
-| 取产物 | `GET /history/{id}` 的 `outputs` | `GET /api/jobs/{prompt_id}` 的 `job.outputs`（形状与本地 `outputs` 一致，示例同样读 `nodeOutputs.images`） |
-| 下载 | `GET /view?...` 直接流式返回文件字节 | `GET /api/view?...` 返回 **302 重定向到对象存储签名 URL**，需 `redirect: "manual"` 读 `Location` |
-| 实时推送 | WebSocket `/ws` | 文档推荐的路径是轮询 status（示例 2 秒一次）。**未找到一手来源**确认 Cloud 提供 WebSocket 或 webhook |
-| 节点枚举 | `GET /object_info` | `GET /api/object_info`（带 `X-API-Key`），形状一致 |
-| 自定义节点 | 任意安装 | 只能用预装的，用户不能装任意自定义节点代码（`get_started/cloud.mdx`） |
+| 取产物 | `GET /history/{id}` 的 `outputs` | `GET /api/jobs/{prompt_id}` 的 `job.outputs` |
+| **产物里的视频键** | 只有 `images`（`SaveVideo` 也走 `images`） | 官方下载示例遍历 `["images", "video", "audio"]`，**Cloud 侧存在 `video` 键** |
+| 下载 | `GET /view?...` 直接流式返回文件字节 | `GET /api/view?...` 返回 **302 重定向到对象存储签名 URL** |
+| 实时推送 | WebSocket `/ws?clientId=...` | WebSocket `wss://cloud.comfy.org/ws?clientId={uuid}&token={api_key}`，**token 走 query 不是 header** |
+| webhook | 无 | 无。v2 明确把 `webhook_url` 列为 "Reserved for post-MVP and rejected if present today" |
+| 上传的 `subfolder` | 真实子目录 | "accepted for API compatibility but **ignored** in cloud storage. All files are stored in a flat, content-addressed namespace." |
+| 取消 | `/api/jobs/{id}/cancel` 或 `/interrupt` + `/queue delete` | `POST /api/queue {"delete": [id]}` 按 ID 取消 |
+| 错误码 | 只有 200 / 400 | 另有 401（key 无效/缺失）、**429（订阅未激活）**、402（额度不足） |
+| 执行错误类型 | Python 异常类型字符串 | `ValidationError` / `ModelDownloadError` / `ImageDownloadError` / `OOMError` / `InsufficientFundsError` / `InactiveSubscriptionError` |
+| Partner Nodes 凭据 | `extra_data.api_key_comfy_org` | 同样要在 body 里再带一次 |
+| 自定义节点 | 任意安装 | 只能用预装的（`get_started/cloud.mdx`） |
 | 模型 | 任意本地模型 | 预装模型 + 从 Civitai 导入 LoRA |
 
-官方 Python 示例里有一句值得单独摘出来的安全注记（`snippets/cloud/complete-example.mdx`）：
+**Cloud 的 WebSocket 事件与自建同形**（`status` / `notification` / `execution_start` / `executing` / `progress` / `progress_state` / `executed` / `execution_cached` / `execution_success` / `execution_error` / `execution_interrupted`），这也是本报告 §6.1 二进制帧格式的来源。Cloud 文档注明 "The `clientId` parameter is currently ignored—all connections for a user receive the same messages."，与自建按 `client_id` 定向推送的语义相反。
+
+### 8.3 签名 URL 与 API key 泄漏
+
+官方 Python 示例的注释（`snippets/cloud/complete-example.mdx`）：
 
 ```python
 # Read the redirect instead of following it. requests keeps custom
@@ -750,15 +856,17 @@ Base URL 是 `https://cloud.comfy.org`，鉴权是 `X-API-Key: <COMFY_CLOUD_API_
 view_res = requests.get(..., headers={"X-API-Key": API_KEY}, allow_redirects=False)
 ```
 
-即**跟随重定向会把 API key 泄漏给对象存储主机**，必须手动取 `Location` 再无头请求。
+对应的 curl 版原文是 "Step 1: read the 302 target. Do not use `-L` here: following the redirect would resend your API key to the storage host."
 
-另外需要澄清三个容易混淆的 Comfy Org 服务面：
+**跟随重定向会把 API key 泄漏给对象存储主机，必须手动取 `Location` 再发无头请求。** v2 的 `GET /api/v2/assets/{id}/content` 同理：自建直接返回字节，Cloud 与 serverless 返回 302 到新签名 URL。
 
-- `https://cloud.comfy.org` — Comfy Cloud，跑工作流的托管服务，`X-API-Key`。
-- `https://api.comfy.org` — Comfy Org 平台 API（节点 registry、API Nodes 计费），与跑工作流不是一回事。
-- `comfy-api-proxy` — 官方 SDK 的 v2 API 在自建场景下由这个独立进程提供（`pip install comfy-api-proxy`，默认代理 8188、自身监听 8189），**默认绑定 loopback 且不需要鉴权**，除非配置静态 bearer token（`development/api-development/sdks.mdx`）。官方 SDK `Comfy(api_key=...)` 通过 `COMFY_BASE_URL` 切换目标，自建时指向 `http://127.0.0.1:8189`。
+### 8.4 三个容易混淆的服务面
 
-**接入含义：Cloud 与自建的差异大到无法用同一个客户端实现覆盖。提交体、状态查询、下载三处全都不同。若两者都要支持，必须在适配层分叉，而不是靠 base URL 切换。**
+- `https://cloud.comfy.org` — Comfy Cloud，跑工作流的托管服务。
+- `https://api.comfy.org` — Comfy Org 平台 API：节点 registry、API/Partner Nodes 的上游与计费、Comfy Router（`POST /v2/models/{provider}/{model}` 直接调模型）。**与跑工作流不是一回事**，尽管 API key 是同一把（platform.comfy.org 生成）。它也是 ComfyUI `--comfy-api-base` 的默认值。
+- `http://127.0.0.1:8189` — 自建场景下 `comfy-api-proxy` 暴露的 v2 API。
+
+**接入含义：Cloud 与自建的差异大到无法用同一个客户端实现覆盖。提交体、状态查询、产物键名、下载方式、WebSocket 鉴权五处全都不同。若两者都要支持，必须在适配层分叉，而不是靠 base URL 切换。若未来要统一，正确的方向是 Comfy API v2 而不是 v1 Cloud 形状，但 v2 目前是 Beta 且自建需额外部署 proxy。**
 
 ---
 
@@ -770,7 +878,11 @@ view_res = requests.get(..., headers={"X-API-Key": API_KEY}, allow_redirects=Fal
 |---|---|---|
 | `/api/` 前缀 | **远早于一年前**，2023-02-21 commit `a52aa9f4` "Moved api out to server" 起就在 | `server.py` 提交历史。近一年无变化，新老路径都支持 |
 | `POST /interrupt` 接受 `prompt_id` | commit `464ba1d6`（2025-09-02，PR #9607） | 之前只有全局中断 |
-| 统一 jobs API `/api/jobs` | commit `1ca89b81`（2025-12-18，PR #11054），首个含该文件的发布在 v0.10.0 之前 | `comfy_execution/jobs.py` 的首个提交 |
+| 统一 jobs API `/api/jobs` | commit `1ca89b81`（2025-12-18，PR #11054），**首个发布是 v0.6.0（2025-12-24）**，release body 原文 "Unified jobs API with /api/jobs endpoints for workflow monitoring" | `comfy_execution/jobs.py` 的首个提交 + release notes |
+| `openapi.yaml` 官方规格引入 | PR #13397，**v0.20.1（2026-04-27）**，"Add OpenAPI 3.1 specification for ComfyUI API"（文件里实际写的是 `openapi: 3.0.3`） | release notes |
+| `/api/jobs` 增加文本预览支持 | v0.16.0（2026-03-05，PR #12169） | release notes |
+| assets 哈希改为选择性开启 `--enable-asset-hashing`（默认关） | v0.27.0（2026-06-30，PR #14663） | release notes |
+| 通用 `--feature-flag` 与 `--list-feature-flags` | v0.21.0（2026-05-11，PR #13685） | release notes |
 | `/history` 与 `/queue` 的 `prompt` 字段加 `create_time` | commit `2fde9597`（2025-11-13，PR #10741） | 老版本的 `extra_data` 里没有 `create_time` |
 | 从 queue API 移除 Comfy API key | commit `8cf2ba4b`（2025-10-28，PR #10502） | 即现在的 `SENSITIVE_EXTRA_DATA_KEYS` 剥离机制 |
 | `/jobs` 增加 `cancelled` 过滤 | commit `04c49a29`（2026-01-09，PR #11680） | |
@@ -822,18 +934,28 @@ view_res = requests.get(..., headers={"X-API-Key": API_KEY}, allow_redirects=Fal
 
 11. **连通检查用 `GET /system_stats`**，无副作用且 `system.comfyui_version` 直接给版本号，正好用来驱动上面第 6、7 条的能力门限。**模型枚举用 `GET /models/{folder}` 而不是 `GET /object_info`**，后者在装了大量自定义节点的实例上响应可达数 MB 且会触发 asset 扫描。
 
-12. **Comfy Cloud 与自建不能共用一套客户端。** 提交体、状态查询（Cloud 有专用 `/api/job/{id}/status` 且状态是五个终态枚举）、产物下载（Cloud 的 `/api/view` 返回 302 到签名 URL，跟随重定向会泄漏 API key）三处全都不同。若两者都要支持，必须在适配层分叉。
+12. **Comfy Cloud 与自建不能共用一套客户端。** 差异有五处：提交体、状态查询（Cloud 有专用 `/api/job/{id}/status`，五个终态枚举）、**产物键名（Cloud 有 `video` 键，自建没有）**、下载（Cloud 的 `/api/view` 返回 302 到签名 URL，跟随重定向会泄漏 API key）、WebSocket 鉴权（Cloud 的 token 走 query 且 `clientId` 被忽略，所有连接收到同一用户的全部消息）。必须在适配层分叉。另外注意 **v1 Cloud API 已被官方标为 deprecated**，新接入的推荐方向是 Comfy API v2（Bearer 鉴权、`/api/v2/jobs`），但 v2 目前是 Beta，自建要用还得额外跑 `comfy-api-proxy` 进程。
 
 13. **子图场景下 `outputs` 的键是内部节点 id。** 要按用户画布上看到的节点取产物，必须经 `history[id]["meta"][node_id]["display_node"]` 映射。
 
 14. **不要依赖 WebSocket 消息里的 `workflow_id`。** 该字段 2026-05-14 加入当天就被回滚了。
 
+15. **官方规格 `openapi.yaml` 不能当自建契约用。** 它偏 Cloud 形状：没收录 `GET /api/history/{prompt_id}`、`PromptRequest` 里没有 `prompt_id`、把 `/api/interrupt` 描述成"取消当前认证用户的第一个活跃任务且不接受 body"（自建实现明明读 body 里的 `prompt_id`）。涉及自建行为一律以 `server.py` / `execution.py` 为准。规格的价值在于两点：上传限制等实现里不直接体现的约束，以及官方的废弃意向。
+
+16. **废弃标记是方向性信号，不是最后通牒。** `POST /api/interrupt`、`POST /api/queue`、`POST /api/history`、`history_v2` 系列、`GET /api/job/{id}/status` 都被标 `deprecated: true`，理由是被 `/api/jobs` 取代；但 `GET /history/{prompt_id}` 本身没有被标废弃，且官方明确说 v2 "operates alongside existing endpoints without deprecating legacy routes like `/prompt`, `/history`, or `/ws`"。ArcReel 继续用 `/prompt` + `/history` + `/queue` 是安全的，只是取消路径应优先 `/api/jobs/{id}/cancel`，新代码不要依赖 `POST /api/history` 与 `history_v2`。
+
+17. **上传限制以 `GET /features` 的 `max_upload_size` 为准。** 自建的真实硬限制是 aiohttp 的 `client_max_size`（由 `--max-upload-size` 控制，`server.py:248-249`），并通过 feature flags 暴露。规格里那三条像素级限制（50 MB / 16384 px / 64 MP）在自建代码路径里没有对应实现，不要假定服务端会替你挡住超限文件。
+
+18. **`asset` 字段与 blake3 能力都是选择性开启的。** upload 响应里的 `asset` 子对象只在 `--enable-assets` 时出现（默认关闭），而 asset 哈希自 v0.27.0 起还要额外的 `--enable-asset-hashing`（也默认关闭）。解析上传响应必须按可选字段处理，不能依赖 `asset.asset_hash` 存在。
+
 ---
 
 ## 11. 未能核实的问题
 
-- **Comfy Cloud 是否提供 WebSocket 或 webhook 回调。** 官方文档的全部示例都是轮询 `GET /api/job/{prompt_id}/status`，未找到一手来源提及推送机制。
 - **Comfy Cloud 的 `POST /api/prompt` 是否接受 `client_id` / `prompt_id` / `number` / `front`。** 文档示例的请求体只有 `{"prompt": ...}`，未列出其他字段，也未说明不支持。
+- **`openapi.yaml` 里那三条上传像素限制（50 MB / 16384 px / 64 MP）在自建实例上是否真的生效。** 自建 `image_upload` 的代码路径里看不到对应校验，只有 aiohttp 的 `client_max_size`。倾向于是 Cloud 侧约束，但没有明确的一手表述把两者分开。
+- **官方原生文档缺口**：`comms_messages` 页没有记录二进制帧格式、`progress_state`、`notification` 与 feature_flags 握手；`api-examples` 页指向的 "Server Messages page 的 binary format 小节"并不存在。本报告 §6.1 的帧布局取自 Cloud API Reference 页，与自建 `protocol.py` 的类型码一致，但**自建侧的逐字节布局没有官方文档背书**。
+- **docs.comfy.org 上没有原生 API 的逐端点 request / response JSON 示例页。** 本报告 §2、§3 的 JSON 示例是依据 `server.py` / `execution.py` 的实际构造代码推出的，不是抄自官方示例。`GET /history/{prompt_id}`、`GET /object_info`、`GET /queue`、`GET /system_stats` 的官方响应示例均未找到一手来源。
 - **Comfy Cloud 产物签名 URL 的有效期。** 文档只说是重定向到存储，未给 TTL。
 - **`POST /prompt` 重复使用同一个 `prompt_id` 的官方语义。** §2.3 的结论是从源码推出的（无去重逻辑、后完成者覆盖 history），没有文档或测试背书。
 - **社区登录插件的具体头名。** §7.3 的表格是按部署惯例归纳的，除 Cloudflare Access 外没有 ComfyUI 官方来源，实现时必须做成配置项而不是内置预设。
