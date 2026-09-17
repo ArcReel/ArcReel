@@ -220,8 +220,16 @@ def is_derived_episode_name(name: str) -> bool:
 
 
 def _is_candidate_source(path: Path) -> bool:
-    """``source/`` 直下扩展名合法、非点/下划线前缀的普通文件（含派生集文件名）。"""
-    return path.is_file() and not path.name.startswith((".", "_")) and path.suffix.lower() in SOURCE_TEXT_SUFFIXES
+    """``source/`` 直下扩展名合法、非点/下划线前缀的普通文件（含派生集文件名）。
+
+    符号链接条目（含悬空链接）不进候选；是否越出项目的检查与报告归 ``lib.source_revision``。
+    """
+    return (
+        not path.is_symlink()
+        and path.is_file()
+        and not path.name.startswith((".", "_"))
+        and path.suffix.lower() in SOURCE_TEXT_SUFFIXES
+    )
 
 
 def episode_files_are_derived(entries: Iterable[Path]) -> bool:
@@ -229,8 +237,8 @@ def episode_files_are_derived(entries: Iterable[Path]) -> bool:
 
     由目录整体决定：目录里另有候选源文时，集文件是分集规划按账本派生出来的（改动原文即改动
     源文，派生文件不重复计入）；目录里只有 ``episode_N.txt`` 时没有任何原文能派生出它们——那是
-    用户自行拆好上传的分集，它们本身就是源文（见 ``docs/adr/0031``）。源文枚举与源文修订
-    共用这一个判定，两边的源文口径不会分裂。
+    用户自行拆好上传的分集，它们本身就是源文（见 ``docs/adr/0031``）。符号链接条目不算候选源文，
+    不计入「另有原文」。源文枚举与源文修订共用这一个判定，两边的源文口径不会分裂。
     """
     return any(not is_derived_episode_name(path.name) and _is_candidate_source(path) for path in entries)
 
@@ -240,9 +248,12 @@ def discover_sources(project_dir: Path) -> list[SourceDoc]:
 
     排除下划线/点前缀文件（_remaining.txt 等）与子目录（source/raw/ 原格式备份天然不进
     候选）；派生集文件（episode_N.txt）只在目录另有原文时排除（见 ``episode_files_are_derived``）。
+    符号链接不进候选：``source/`` 目录本身是符号链接或 junction 时视为无源文，直下的符号链接
+    条目静默跳过。
     """
     source_dir = project_dir / "source"
-    if not source_dir.is_dir():
+    # is_junction() POSIX 上恒为 False，与 lib.episode_reset 对 source/ 目录的检查一致
+    if source_dir.is_symlink() or source_dir.is_junction() or not source_dir.is_dir():
         return []
     entries = sorted(source_dir.iterdir())
     skip_episode_files = episode_files_are_derived(entries)

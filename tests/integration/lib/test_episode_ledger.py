@@ -8,6 +8,7 @@ from pathlib import Path
 from lib.episode_ledger import (
     compute_source_fingerprints,
     discover_sources,
+    episode_files_are_derived,
     episodes_without_source_range,
     mismatched_source_fingerprints,
     normalize_source_text,
@@ -185,6 +186,45 @@ class TestDiscoverSources:
         _write_episode(d, 1, NOVEL[:CUT_1])
 
         assert [doc.rel_path for doc in discover_sources(d)] == ["source/novel.md"]
+
+    def test_symlinked_source_dir_yields_no_sources(self, tmp_path: Path):
+        """source/ 目录本身是符号链接：视为无源文，不读取目标目录。"""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "novel.txt").write_text(NOVEL, encoding="utf-8")
+        d = tmp_path / "demo"
+        d.mkdir()
+        (d / "source").symlink_to(outside, target_is_directory=True)
+
+        assert discover_sources(d) == []
+
+    def test_symlinked_source_file_is_not_a_candidate(self, tmp_path: Path):
+        """指向项目外文件的符号链接条目不进候选，旁边的普通源文照常返回。"""
+        outside = tmp_path / "outside.txt"
+        outside.write_text(NOVEL, encoding="utf-8")
+        d = _project(tmp_path, novel=None)
+        (d / "source" / "novel.txt").symlink_to(outside)
+        (d / "source" / "other.txt").write_text(NOVEL, encoding="utf-8")
+
+        assert [doc.rel_path for doc in discover_sources(d)] == ["source/other.txt"]
+
+    def test_symlinked_markdown_does_not_make_episode_files_derived(self, tmp_path: Path):
+        """符号链接不算「另有原文」：只有 episode_N.txt 加符号链接 .md 时，集文件仍是源文。"""
+        outside = tmp_path / "outside.md"
+        outside.write_text(NOVEL, encoding="utf-8")
+        d = _project(tmp_path, novel=None)
+        _write_episode(d, 1, NOVEL[:CUT_1])
+        (d / "source" / "linked.md").symlink_to(outside)
+
+        assert episode_files_are_derived(sorted((d / "source").iterdir())) is False
+        assert [doc.rel_path for doc in discover_sources(d)] == ["source/episode_1.txt"]
+
+    def test_dangling_symlink_is_not_a_candidate(self, tmp_path: Path):
+        """悬空符号链接不进候选，也不让枚举报错。"""
+        d = _project(tmp_path)
+        (d / "source" / "ghost.md").symlink_to(tmp_path / "missing.md")
+
+        assert [doc.rel_path for doc in discover_sources(d)] == ["source/novel.txt"]
 
 
 class TestSourceFingerprints:

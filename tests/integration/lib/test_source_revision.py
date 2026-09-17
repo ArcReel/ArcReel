@@ -202,3 +202,32 @@ def test_all_scope_reports_candidate_symlink_instead_of_skipping_it(tmp_path: Pa
 
     assert result.revision is None
     assert [(b.code, b.path) for b in result.blockers] == [("source_symlink", "source/novel.txt")]
+
+
+def test_all_scope_reports_symlinked_source_dir(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "novel.txt").write_text("outside source", encoding="utf-8")
+    project = tmp_path / "demo"
+    project.mkdir()
+    (project / "source").symlink_to(outside, target_is_directory=True)
+
+    result = compute_source_revision(project, _project(), SourceScope(kind="all"))
+
+    assert result.revision is None
+    assert [(b.code, b.path) for b in result.blockers] == [("source_symlink", "source")]
+
+
+def test_all_scope_reports_symlink_beside_manual_episode_files(tmp_path: Path) -> None:
+    """符号链接不算原文，episode_N.txt 仍是源文；符号链接本身照常以阻塞项报出。"""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "episode_1.txt").write_text("第一集", encoding="utf-8")
+    target = tmp_path / "target.md"
+    target.write_text("outside source", encoding="utf-8")
+    (source / "linked.md").symlink_to(target)
+
+    result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+
+    assert result.revision is None
+    assert [(b.code, b.path) for b in result.blockers] == [("source_symlink", "source/linked.md")]
