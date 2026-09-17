@@ -1012,11 +1012,14 @@ class DataValidator:
             # 时仅提示「说不完」，不阻塞、不改写 duration（duration 由画面驱动）。
             self._warn_scene_speech_overflow(scene, prefix, language, speech_rate_override, warnings)
 
-            # source_text：逐字原文锚（best-effort，由 script_plan 脚本规划填入、prompt_authoring 透传）。镜像共享模型
-            # 的 source_text: str（extra=forbid 下显式 null 同样被拒）——键存在则须为字符串，显式 null
+            # source_text（逐字原文锚）与 scene_description（视觉改编描述）由脚本规划填入、转换透传。镜像
+            # 共享模型的 str 字段（extra=forbid 下显式 null 同样被拒）——键存在则须为字符串，显式 null
             # 一并拒绝；键缺失放行（默认空串，存量数据无此字段）。用 in 判定以区分缺失与显式 null。
-            if "source_text" in scene and not isinstance(scene["source_text"], str):
-                errors.append(_m("val_field_must_be_string", field=f"{prefix}: source_text"))
+            errors.extend(
+                _m("val_field_must_be_string", field=f"{prefix}: {text_field}")
+                for text_field in ("source_text", "scene_description")
+                if text_field in scene and not isinstance(scene[text_field], str)
+            )
 
             if project_dir is not None:
                 self._validate_generated_assets(

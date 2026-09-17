@@ -24,7 +24,7 @@ from typing import Literal
 from pydantic import BaseModel, ValidationError
 
 from lib.artifact_manifest import ArtifactBasis
-from lib.script_models import DRAMA_CONTENT_ONLY_FIELDS, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
+from lib.script_models import NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.script_skeleton import SKELETONS, rewrite_episode_prefix
 
 #: script_plan 变体：drama / narration（按 content_mode）+ reference_video（按项目生成模式，
@@ -88,8 +88,6 @@ class ScriptPlanVariant:
     draft_model: type[BaseModel] | None
     #: 规划条目投影到剧本条目内容层时**只保留**的字段；``None`` 表示整条透传。
     script_fields: tuple[str, ...] | None = None
-    #: 规划条目投影到剧本条目内容层时**剔除**的、只属于脚本规划的字段。
-    plan_only_fields: frozenset[str] = frozenset()
 
 
 #: 脚本规划变体表，是变体分叉的唯一真相源。
@@ -108,7 +106,6 @@ PLAN_VARIANTS: dict[str, ScriptPlanVariant] = {
             "source_text",
         ),
         draft_model=None,
-        plan_only_fields=DRAMA_CONTENT_ONLY_FIELDS,
     ),
     "narration": ScriptPlanVariant(
         skeleton_kind="segments",
@@ -162,15 +159,15 @@ def entry_id_field(kind: ScriptPlanKind) -> str:
 def plan_entry_content(kind: ScriptPlanKind, entry: Mapping[str, object]) -> dict[str, object]:
     """脚本规划条目 → 剧本条目的内容层（不含视觉层）。
 
-    三条路线的视觉合并与机械转换共用这一份投影：drama 剔除只属于规划的 ``scene_description``，
-    narration 整条透传，参考生视频只取 ``unit_id`` / ``text`` / ``duration_seconds`` / ``source_text``。返回新 dict，
+    三条路线的视觉合并与机械转换共用这一份投影：drama / narration 整条透传（drama 的
+    ``scene_description`` 随之进入正式脚本，作为提示词编写的视觉基底），参考生视频只取 ``unit_id`` / ``text`` / ``duration_seconds`` / ``source_text``。返回新 dict，
     不就地修改入参。
     """
 
     variant = plan_variant(kind)
     if variant.script_fields is not None:
         return {field: entry[field] for field in variant.script_fields if field in entry}
-    return {key: value for key, value in entry.items() if key not in variant.plan_only_fields}
+    return dict(entry)
 
 
 def entry_revision(kind: ScriptPlanKind, entry: Mapping[str, object]) -> str:

@@ -187,7 +187,7 @@ def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
             f"出场资产：角色 [{_neutralize_tags(', '.join(chars) or '无')}]、"
             f"场景 [{_neutralize_tags(', '.join(scenes_ref) or '无')}]、道具 [{_neutralize_tags(', '.join(props_ref) or '无')}]"
         )
-        # 视觉改编描述只在脚本规划里有；正式脚本的分镜不带它，缺席时不渲染这一行。
+        # 视觉改编描述由内容确认转换透传进正式脚本；存量正式脚本可能不带它，缺席时不渲染这一行。
         raw_scene_desc = scene.get("scene_description")
         if raw_scene_desc:
             scene_desc = _neutralize_tags(str(raw_scene_desc)).replace("\n", "\n  ")

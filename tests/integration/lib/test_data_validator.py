@@ -720,11 +720,17 @@ class TestDataValidator:
         result = self._drama_episode_with_scene(tmp_path, {})
         assert result.valid
 
-    def test_validate_episode_drama_rejects_non_string_source_text(self, tmp_path):
-        # source_text 非字符串（如数字）→ 校验失败：镜像 Pydantic 的 source_text: str 类型约束
-        result = self._drama_episode_with_scene(tmp_path, {"source_text": 123})
+    @pytest.mark.parametrize("field", ["source_text", "scene_description"])
+    def test_validate_episode_drama_rejects_non_string_text_field(self, tmp_path, field):
+        # 非字符串（如数字）→ 校验失败：镜像 Pydantic 的 str 类型约束
+        result = self._drama_episode_with_scene(tmp_path, {field: 123})
         assert not result.valid
-        assert any("source_text" in error for error in result.errors)
+        assert any(field in error for error in result.errors)
+
+    def test_validate_episode_drama_accepts_scene_description(self, tmp_path):
+        # 转换透传的视觉改编描述为字符串 → 通过（正式分镜 extra=forbid 也接受）
+        result = self._drama_episode_with_scene(tmp_path, {"scene_description": "雨夜天台，阿离背身而立"})
+        assert result.valid
 
     def test_validate_episode_drama_rejects_null_source_text(self, tmp_path):
         # source_text 显式 null → 校验失败：区分「键缺失」（放行、默认空串）与「显式 null」（拒绝），

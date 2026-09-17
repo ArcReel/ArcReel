@@ -1769,7 +1769,7 @@ export default {
   'detail_dialogue_add': '+ Add dialogue',
   'detail_prompt_pending': 'Pending',
   'detail_prompts_stale_hint': 'Content changed; the prompts may no longer match',
-  'detail_pending_authoring_hint': 'Pending authoring: this shot\'s prompts haven\'t been authored yet. Ask the agent to fill them in',
+  'detail_pending_authoring_hint': 'Pending authoring: this shot\'s prompts haven\'t been authored yet. Ask the agent to fill them in, or write them below',
   'detail_adopt_plan_content': 'Adopt new content',
   'detail_adopt_plan_content_done': 'Adopted the new content for {{id}}',
   'detail_adopt_plan_content_failed': 'Could not adopt the new content: {{message}}',

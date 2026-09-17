@@ -279,7 +279,7 @@ class NarrationSegment(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
-    # 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回该条目时清除；
+    # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
     # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
     # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
@@ -529,6 +529,9 @@ class DramaScene(BaseModel):
     # 逐字原文摘录（追溯锚，类比旁白/解说 novel_text，但纯作追溯、不被朗读、不出音、best-effort）。
     # 由 script_plan（脚本规划）填入，prompt_authoring（视觉）透传不改；存量数据缺失时默认空串（不更坏守卫放行）。
     source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
+    # 视觉改编描述：内容确认转换时由脚本规划透传，作为提示词编写的视觉基底；对 LLM 隐藏。
+    # 存量正式脚本无此字段时为空串。
+    scene_description: SkipJsonSchema[str] = Field(default="", description="视觉改编描述")
     # 见 NarrationSegment.transition_to_next 说明
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
@@ -538,7 +541,7 @@ class DramaScene(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
-    # 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回该条目时清除；
+    # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
     # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
     # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
@@ -644,11 +647,6 @@ class DramaVisualScript(BaseModel):
     scenes: list[DramaSceneVisual] = Field(description="各分镜视觉层（按 scene_id 对齐 script_plan 内容）")
 
 
-#: 转为正式脚本时从内容层剔除的、不属于最终 ``DramaScene`` 的 script_plan-only 字段。
-#: ``lib.script_plan_entries`` 的内容投影读这份清单。
-DRAMA_CONTENT_ONLY_FIELDS = frozenset({"scene_description"})
-
-
 # ============ 广告/短片（Ad） ============
 
 
@@ -694,7 +692,7 @@ class AdShot(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
-    # 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回该条目时清除；
+    # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
     # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
 
@@ -847,7 +845,7 @@ class ReferenceVideoUnit(BaseModel):
     # 对应原文：内容确认时从脚本规划单元透传，供创作者对照来源。对 LLM 隐藏，不在 web PATCH
     # 白名单内；Agent 可经批量编辑改写，项目有源文时须是本集源文的逐字子串。手动新增的单元为空。
     source_text: SkipJsonSchema[str] = Field(default="", description="该单元所依据的逐字原文摘录")
-    # 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回该条目时清除；
+    # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
     # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
     # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，

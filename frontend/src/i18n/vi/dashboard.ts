@@ -1618,7 +1618,7 @@ export default {
   'detail_image_prompt_placeholder': 'Mô tả khung hình: bối cảnh, nhân vật, hành động, bố cục…',
   'detail_prompt_pending': 'Chờ tạo',
   'detail_prompts_stale_hint': 'Nội dung đã thay đổi, prompt có thể không còn khớp',
-  'detail_pending_authoring_hint': 'Chờ biên soạn: prompt của phân cảnh này chưa được biên soạn. Hãy nhờ Agent bổ sung',
+  'detail_pending_authoring_hint': 'Chờ biên soạn: prompt của phân cảnh này chưa được biên soạn. Hãy nhờ Agent bổ sung hoặc tự điền bên dưới',
   'detail_adopt_plan_content': 'Áp dụng nội dung mới',
   'detail_adopt_plan_content_done': 'Đã áp dụng nội dung mới cho {{id}}',
   'detail_adopt_plan_content_failed': 'Không thể áp dụng nội dung mới: {{message}}',

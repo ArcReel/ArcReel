@@ -125,8 +125,10 @@ from lib.script_review import (
     content_fingerprint,
     content_fingerprint_of_data,
     formal_script_overwrite,
+    formal_script_plan_lock,
     gate_blocks_prompt_authoring,
     migrate_script_plan_draft_in_place,
+    script_plan_path,
 )
 from lib.script_skeleton import resolve_declared_kind, resolve_kind_items, rewrite_episode_prefix
 from lib.speech_composition import admit_script_unit, require_script_unit_admitted, video_unit_replan_problems
@@ -227,7 +229,7 @@ class ScriptPlanConversionReceipt:
 
     episode: int
     script_filename: str
-    #: 这一次转换新加进剧本、提示词为待生成的条目（参考生视频的单元正文即提示词，加入即算已编写）。
+    #: 这一次转换新加进剧本、带待编写标记的条目（参考生视频单元的正文待改写）。
     added: tuple[str, ...]
     #: 这一次转换「采用新内容」的失效条目：内容层按脚本规划重取、提示词保留、盖新指纹。
     refreshed: tuple[str, ...]
@@ -753,8 +755,8 @@ class ScriptGenerator:
         """把脚本规划机械转为正式剧本：只同步内容层，从不写视觉层。
 
         无正式剧本时整集投影，drama / narration 条目的 ``image_prompt`` / ``video_prompt`` 以 ``None``
-        落盘（待生成），参考生视频的单元正文逐字复制即算已编写。已有正式剧本时做集合同步：
-        脚本规划新增的条目以待生成态加入，规划里已不存在的条目移出，顺序跟随规划；失效条目的
+        落盘，参考生视频的单元正文逐字复制；新增条目带待编写标记。已有正式剧本时做集合同步：
+        脚本规划新增的条目以待编写态加入，规划里已不存在的条目移出，顺序跟随规划；失效条目的
         内容、提示词与指纹三样原样保留、继续报失效；未变条目逐字节不变。``entry_ids`` 点名的
         失效条目「采用新内容」：内容层按脚本规划重取、提示词保留、盖当前指纹；点名了非失效条目
         即报错、不落盘。剧本与规划逐条一致时不写盘，回执三组为空。
@@ -914,22 +916,36 @@ class ScriptGenerator:
         entry_ids = tuple(str(item[id_field]) for item in script_data[items_key])
         previous = await asyncio.to_thread(formal_script_overwrite, self.project_path, episode)
         previous_ids = tuple(entry.entry_id for entry in previous.entries) if previous is not None else ()
-        if self._script_plan_input_claim is not None:
-            await asyncio.to_thread(
-                assert_current_artifact_input_claims_usable, self.project_path, (self._script_plan_input_claim,)
-            )
+        plan_path = script_plan_path(self.project_path, self.project_json, episode)
+        if plan_path is None:
+            raise FileNotFoundError(f"第 {episode} 集不适用脚本规划")
+        claim = self._script_plan_input_claim
+        artifact_basis = self._artifact_basis
         pm = ProjectManager(str(self.project_path.parent))
-        await run_sync_transaction(
-            pm.save_script,
-            self.project_path.name,
-            script_data,
-            filename,
-            validate=True,
-            artifact_basis=self._artifact_basis,
-            expected_fingerprint=expected_script_fingerprint,
-            replaced_resource_ids=tuple(entry_id for entry_id in previous_ids if entry_id in entry_ids),
-            project_update=project_update,
-        )
+
+        def _commit() -> None:
+            # 持脚本规划锁复核指纹后落盘：加载之后被保存、重跑或晋升改写的脚本规划不能以旧内容物化，
+            # 也不能让确认记录记下已被替换的指纹。
+            with formal_script_plan_lock(self.project_path, episode, plan_path):
+                current_revision = content_fingerprint(plan_path)
+                if current_revision != expected_plan_revision:
+                    raise ScriptPlanWriteConflict(
+                        expected=expected_plan_revision, actual=current_revision, current_content=None
+                    )
+                if claim is not None:
+                    assert_current_artifact_input_claims_usable(self.project_path, (claim,))
+                pm.save_script(
+                    self.project_path.name,
+                    script_data,
+                    filename,
+                    validate=True,
+                    artifact_basis=artifact_basis,
+                    expected_fingerprint=expected_script_fingerprint,
+                    replaced_resource_ids=tuple(entry_id for entry_id in previous_ids if entry_id in entry_ids),
+                    project_update=project_update,
+                )
+
+        await run_sync_transaction(_commit)
         removed = tuple(entry_id for entry_id in previous_ids if entry_id not in entry_ids)
         logger.info(
             "第 %d 集已在内容确认时按脚本规划整份转为正式剧本（%d 条，移出旧条目 %d 条）",

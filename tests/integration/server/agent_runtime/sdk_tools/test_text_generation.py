@@ -380,12 +380,24 @@ async def test_generate_episode_script_rejects_removed_scope_with_migration_note
     assert "entry_ids" in text
 
 
-async def test_generate_episode_script_does_not_wait_for_script_plan_review(fake_ctx: ToolContext, monkeypatch) -> None:
-    """编写只读正式脚本：脚本规划重跑后尚未确认（或缺失）都不阻塞编写。"""
-    from server import text_generation as mod
-
+async def test_generate_episode_script_does_not_wait_for_script_plan_review(fake_ctx: ToolContext) -> None:
+    """编写只读正式脚本：脚本规划重跑后尚未确认也不阻塞编写，真实生成器按正式脚本渲染编写 prompt。"""
     project_path = fake_ctx.project_path
-    _write_formal_script(project_path)
+    scripts = project_path / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    pending_segment = {
+        "segment_id": "E1S01",
+        "duration_seconds": 4,
+        "novel_text": "张三推门走进酒馆。",
+        "characters_in_segment": [],
+        "image_prompt": None,
+        "video_prompt": None,
+        "pending_authoring": True,
+    }
+    (scripts / "episode_1.json").write_text(
+        json.dumps({"episode": 1, "content_mode": "narration", "segments": [pending_segment]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
     drafts = project_path / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
     (drafts / "script_plan_segments.json").write_text("rerun script_plan", encoding="utf-8")
@@ -398,22 +410,10 @@ async def test_generate_episode_script_does_not_wait_for_script_plan_review(fake
     (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     assert script_review.review_status(project_path, project, 1) == "pending_review"
 
-    class _FakeGenerator:
-        content_mode = "narration"
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
 
-        @classmethod
-        async def create(cls, _path, **_kwargs):
-            return cls()
-
-        async def generate(self, **kwargs) -> Path:
-            kwargs["rewritten_entry_ids"].append("E1S01")
-            return project_path / "scripts" / "episode_1.json"
-
-    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
-
-    assert out.get("is_error") is not True
-    assert "E1S01" in out["content"][0]["text"]
+    assert out.get("is_error") is not True, out
+    assert "张三推门走进酒馆。" in out["content"][0]["text"]
 
 
 def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:

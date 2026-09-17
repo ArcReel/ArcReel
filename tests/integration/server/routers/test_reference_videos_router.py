@@ -109,7 +109,7 @@ def test_add_unit_creates_minimal_entry(reference_videos_client: TestClient):
     assert payload["unit"]["text"] == "镜头1：@张三 推门"
 
 
-def test_added_unit_is_pending_authoring(reference_videos_client: TestClient):
+def test_added_unit_written_by_the_user_is_not_pending_authoring(reference_videos_client: TestClient):
     resp = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={"prompt": "镜头1：@张三 推门", "duration_seconds": 3},
@@ -117,7 +117,7 @@ def test_added_unit_is_pending_authoring(reference_videos_client: TestClient):
     assert resp.status_code == 201, resp.text
 
     units = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"]
-    assert [unit["pending_authoring"] for unit in units] == [True]
+    assert [unit.get("pending_authoring", False) for unit in units] == [False]
 
 
 def test_add_unit_refuses_a_blank_body(reference_videos_client: TestClient):

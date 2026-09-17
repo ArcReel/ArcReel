@@ -1,7 +1,7 @@
 """script_plan→prompt_authoring web 内容确认路由。
 
 暴露脚本规划的审阅 / 编辑 / 确认：script_plan 产出后在 web 可见可改，用户显式确认时整份转为
-正式脚本并放行 prompt_authoring 视觉生成（prompt_authoring 由 Agent 的 generate_episode_script 执行，读时经内容确认校验阻塞到确认）。
+正式脚本（条目带待编写标记），之后由 Agent 的 generate_episode_script 按正式脚本补写视觉层。
 drama（utterances + source_text）与 narration（结构化 novel_text）共用本机制。
 """
 

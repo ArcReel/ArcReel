@@ -14,7 +14,8 @@ interface SourceTextReadonlyProps {
 export function SourceTextReadonly({ text, className }: SourceTextReadonlyProps) {
   const { t } = useTranslation("dashboard");
   const labelId = useId();
-  const content = text?.trim() ?? "";
+  const content = text ?? "";
+  const hasContent = content.trim().length > 0;
   return (
     <section aria-labelledby={labelId} className={className}>
       <div className="mb-2 flex items-baseline gap-2">
@@ -33,12 +34,12 @@ export function SourceTextReadonly({ text, className }: SourceTextReadonlyProps)
         className="m-0 whitespace-pre-wrap border-l-2 pl-3 text-[12px]"
         style={{
           borderColor: "var(--color-hairline)",
-          color: content ? "var(--color-text-3)" : "var(--color-text-4)",
+          color: hasContent ? "var(--color-text-3)" : "var(--color-text-4)",
           lineHeight: 1.65,
-          fontStyle: content ? undefined : "italic",
+          fontStyle: hasContent ? undefined : "italic",
         }}
       >
-        {content || t("detail_source_text_empty")}
+        {hasContent ? content : t("detail_source_text_empty")}
       </p>
     </section>
   );

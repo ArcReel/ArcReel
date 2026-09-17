@@ -432,12 +432,11 @@ class TestScriptEntriesById:
 
 
 class TestPlanEntryContent:
-    def test_drama_drops_plan_only_fields_and_keeps_the_rest(self) -> None:
-        entry = drama_plan_entry("E1S01", scene_description="仅脚本规划可见")
+    def test_drama_passes_every_field_through_including_scene_description(self) -> None:
+        entry = drama_plan_entry("E1S01", scene_description="雨夜天台，阿离背身而立")
         content = plan_entry_content("drama", entry)
-        assert "scene_description" not in content
-        assert content["utterances"] == entry["utterances"]
-        assert content["source_text"] == entry["source_text"]
+        assert content == entry
+        assert content["scene_description"] == "雨夜天台，阿离背身而立"
         assert content is not entry
 
     def test_narration_passes_every_field_through(self) -> None:

@@ -159,8 +159,17 @@ describe("ShotDetail 剧情演绎", () => {
     expect(within(region).queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("手动新增的分镜没有对应原文时显示空态", () => {
-    render(detailElement(makeScene({ source_text: undefined })));
+  it("对应原文按逐字原样展示，不裁掉首尾空白", () => {
+    render(detailElement(makeScene({ source_text: "  阿离推门而入。\n" })));
+
+    const region = screen.getByRole("region", { name: "对应原文" });
+    expect(within(region).getByText("阿离推门而入。")).toHaveTextContent("  阿离推门而入。\n", {
+      normalizeWhitespace: false,
+    });
+  });
+
+  it.each([undefined, "  \n"])("没有对应原文时显示空态（%j）", (sourceText) => {
+    render(detailElement(makeScene({ source_text: sourceText })));
 
     const region = screen.getByRole("region", { name: "对应原文" });
     expect(within(region).getByText("（无对应原文）")).toBeInTheDocument();

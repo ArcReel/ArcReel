@@ -645,8 +645,10 @@ class TestConfirmMaterializesScript:
             assert scene["pending_authoring"] is True
             assert scene["image_prompt"] is None
             assert scene["video_prompt"] is None
-            assert "scene_description" not in scene
             assert scene[SCRIPT_PLAN_ENTRY_REVISION_FIELD]
+        assert [scene["scene_description"] for scene in script["scenes"]] == [
+            entry["scene_description"] for entry in plan["scenes"]
+        ]
         assert script["scenes"][0]["utterances"] == plan["scenes"][0]["utterances"]
         assert script["metadata"][script_review.SCRIPT_PLAN_REVISION_FIELD] == state["fingerprint"]
 
@@ -783,6 +785,30 @@ class TestConfirmMaterializesScript:
         assert exc.value.code == "speech_admission"
         assert not (pm.get_project_path("demo") / "scripts" / "episode_1.json").exists()
         assert (await _service(pm).get_state("demo", 1))["status"] == "pending_review"
+
+    async def test_script_plan_rewritten_during_materialization_is_a_conflict(self, tmp_path, monkeypatch):
+        import lib.script_generator as script_generator_module
+
+        pm = _make_project(tmp_path, "narration")
+        plan = _narration_script_plan()
+        plan_path = _write_script_plan(pm, "narration", plan)
+        rewritten = json.loads(json.dumps(plan, ensure_ascii=False))
+        rewritten["segments"][0]["novel_text"] = "确认途中被改写的正文。"
+        read_overwrite = script_generator_module.formal_script_overwrite
+
+        def rewrite_plan_then_read_overwrite(project_path: Path, episode: int):
+            # 物化已加载并核对过规划、尚未落盘时，另一入口写入了新规划。
+            atomic_write_json(plan_path, rewritten)
+            return read_overwrite(project_path, episode)
+
+        monkeypatch.setattr(script_generator_module, "formal_script_overwrite", rewrite_plan_then_read_overwrite)
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await _service(pm).confirm("demo", 1)
+
+        assert exc.value.code == "conversion_conflict"
+        assert not (pm.get_project_path("demo") / "scripts" / "episode_1.json").exists()
+        assert script_review.stored_review(pm.load_project("demo"), 1) == {}
 
 
 # ---------------------------------------------------------------------------

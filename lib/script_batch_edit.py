@@ -48,6 +48,14 @@ from lib.validation_messages import ValidationMessage
 
 _REVISION_PATTERN = r"^sha256-v1:[0-9a-f]{64}$"
 
+#: 各条目形态的视觉层字段。参考生视频单元的正文即其视觉层。
+_VISUAL_LAYER_FIELDS: dict[str, tuple[str, ...]] = {
+    "segments": ("image_prompt", "video_prompt"),
+    "scenes": ("image_prompt", "video_prompt"),
+    "shots": ("image_prompt", "video_prompt"),
+    "video_units": ("text",),
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -599,6 +607,15 @@ def _filename_episode(script_file: str) -> int | None:
     return int(match.group(1)) if match is not None else None
 
 
+def _visual_layer_complete(kind: str, item: dict[str, Any]) -> bool:
+    """条目的视觉层字段都已写入非空值。"""
+    for field in _VISUAL_LAYER_FIELDS[kind]:
+        value = item.get(field)
+        if not (value.strip() if isinstance(value, str) else value):
+            return False
+    return True
+
+
 def _find_index(items: list[Any], id_field: str, item_id: str) -> int:
     for index, item in enumerate(items):
         if isinstance(item, dict) and str(item.get(id_field)) == item_id:
@@ -640,6 +657,9 @@ def _apply_operation(
                     location=("fields", *_parse_path(field)),
                 ) from exc
         roots = {field.split(".", 1)[0] for field in operation.fields}
+        # 手写视觉层等同编写完成：写入后视觉层齐备即清除待编写，默认编写不再覆盖它。
+        if roots & set(_VISUAL_LAYER_FIELDS[kind]) and _visual_layer_complete(kind, item):
+            item.pop(PENDING_AUTHORING_FIELD, None)
         if kind == "video_units":
             if roots & {"text", "duration_seconds"}:
                 refresh_video_unit_replan_state(item)
@@ -673,12 +693,14 @@ def _apply_operation(
         removed = removed_items.pop(item_id, None)
         if not preserve_removed_assets:
             removed = None
-        # 待编写标记不接受调用方自带的值：新增条目一律置位，同 id 重插（拆分锚点、先删后插）沿用被删条目的状态。
+        # 待编写标记不接受调用方自带的值，只看插入的条目是否带齐视觉层；同 id 重插（拆分锚点、
+        # 先删后插）同样按此判定。
         item.pop(PENDING_AUTHORING_FIELD, None)
+        if not _visual_layer_complete(kind, item):
+            item[PENDING_AUTHORING_FIELD] = True
         if removed is None:
             item["generated_assets"] = {}
             item.pop("end_frame_image", None)
-            item[PENDING_AUTHORING_FIELD] = True
         else:
             assets = removed.get("generated_assets")
             item["generated_assets"] = copy.deepcopy(assets) if isinstance(assets, dict) else {}
@@ -686,8 +708,6 @@ def _apply_operation(
                 item.pop("end_frame_image", None)
             else:
                 item["end_frame_image"] = removed["end_frame_image"]
-            if removed.get(PENDING_AUTHORING_FIELD) is True:
-                item[PENDING_AUTHORING_FIELD] = True
         if kind == "video_units":
             refresh_video_unit_replan_state(item)
         items.insert(insert_at, item)

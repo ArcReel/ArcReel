@@ -1768,7 +1768,7 @@ export default {
   'detail_dialogue_add': '+ 添加对话',
   'detail_prompt_pending': '待生成',
   'detail_prompts_stale_hint': '内容已更新，提示词可能不符',
-  'detail_pending_authoring_hint': '待编写：该分镜的提示词尚未编写，可让 Agent 补充提示词',
+  'detail_pending_authoring_hint': '待编写：该分镜的提示词尚未编写，可让 Agent 补充提示词，或直接在下方填写',
   'detail_adopt_plan_content': '采用新内容',
   'detail_adopt_plan_content_done': '已采用 {{id}} 的新内容',
   'detail_adopt_plan_content_failed': '采用新内容失败：{{message}}',

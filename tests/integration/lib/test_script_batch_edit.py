@@ -910,26 +910,32 @@ def test_remove_then_reinsert_same_id_preserves_anchor_media(
     assert {key: snapshot[key] for key in anchor_claims} == anchor_claims
 
 
-def test_inserted_item_is_pending_authoring_regardless_of_supplied_flag(
+_UNAUTHORED = {"image_prompt": None, "video_prompt": None}
+_AUTHORED = {field: _segment("E1S00")[field] for field in _UNAUTHORED}
+
+
+@pytest.mark.parametrize(
+    ("visual_layer", "expected"),
+    [(_UNAUTHORED, True), (_AUTHORED, False)],
+    ids=["without-visual-layer", "with-full-visual-layer"],
+)
+def test_inserted_item_is_pending_authoring_unless_it_brings_its_visual_layer(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+    visual_layer: dict[str, Any],
+    expected: bool,
 ) -> None:
     pm, service, _project_dir = editor
+    item = _segment("E1S04") | visual_layer | {"pending_authoring": not expected}
 
-    result = service.execute(
-        "demo",
-        _command(
-            pm,
-            [{"op": "insert_after", "after_id": "E1S01", "item": _segment("E1S04") | {"pending_authoring": False}}],
-        ),
-    )
+    result = service.execute("demo", _command(pm, [{"op": "insert_after", "after_id": "E1S01", "item": item}]))
 
     assert result.success is True
     saved = {segment["segment_id"]: segment for segment in pm.load_script("demo", "episode_1.json")["segments"]}
-    assert saved["E1S04"]["pending_authoring"] is True
+    assert saved["E1S04"].get("pending_authoring", False) is expected
     assert all("pending_authoring" not in saved[segment_id] for segment_id in ("E1S01", "E1S02", "E1S03"))
 
 
-def test_reinserted_same_id_keeps_its_authoring_state(
+def test_reinserted_same_id_is_pending_authoring_unless_it_brings_its_visual_layer(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
 ) -> None:
     pm, service, _project_dir = editor
@@ -942,7 +948,7 @@ def test_reinserted_same_id_keeps_its_authoring_state(
             pm,
             [
                 {"op": "remove", "id": "E1S01"},
-                {"op": "insert_after", "after_id": None, "item": _segment("E1S01") | {"pending_authoring": True}},
+                {"op": "insert_after", "after_id": None, "item": _segment("E1S01") | _UNAUTHORED},
                 {"op": "remove", "id": "E1S02"},
                 {"op": "insert_after", "after_id": "E1S01", "item": _segment("E1S02")},
             ],
@@ -951,8 +957,8 @@ def test_reinserted_same_id_keeps_its_authoring_state(
 
     assert result.success is True
     saved = {segment["segment_id"]: segment for segment in pm.load_script("demo", "episode_1.json")["segments"]}
-    assert "pending_authoring" not in saved["E1S01"]
-    assert saved["E1S02"]["pending_authoring"] is True
+    assert saved["E1S01"]["pending_authoring"] is True
+    assert "pending_authoring" not in saved["E1S02"]
 
 
 def test_fresh_insert_reusing_a_removed_id_is_pending_authoring(
@@ -966,7 +972,7 @@ def test_fresh_insert_reusing_a_removed_id_is_pending_authoring(
             pm,
             [
                 {"op": "remove", "id": "E1S01"},
-                {"op": "insert_after", "after_id": None, "item": _segment("E1S01")},
+                {"op": "insert_after", "after_id": None, "item": _segment("E1S01") | _UNAUTHORED},
             ],
         ),
         fresh_insert_indexes=frozenset({1}),
@@ -974,6 +980,31 @@ def test_fresh_insert_reusing_a_removed_id_is_pending_authoring(
 
     assert result.success is True
     assert pm.load_script("demo", "episode_1.json")["segments"][0]["pending_authoring"] is True
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        (_AUTHORED, False),
+        ({"image_prompt": "雨夜天台"}, True),
+        ({"novel_text": "新的旁白正文"}, True),
+    ],
+    ids=["writes-full-visual-layer", "writes-part-of-visual-layer", "writes-content-only"],
+)
+def test_update_clears_pending_authoring_once_the_visual_layer_is_written(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+    fields: dict[str, Any],
+    expected: bool,
+) -> None:
+    pm, service, _project_dir = editor
+    with pm.locked_script("demo", "episode_1.json", validate=False) as script:
+        script["segments"][1].update(_UNAUTHORED | {"pending_authoring": True})
+
+    result = service.execute("demo", _command(pm, [{"op": "update", "id": "E1S02", "fields": fields}]))
+
+    assert result.success is True
+    saved = pm.load_script("demo", "episode_1.json")["segments"][1]
+    assert saved.get("pending_authoring", False) is expected
 
 
 def test_structural_edit_preserves_existing_paid_media(

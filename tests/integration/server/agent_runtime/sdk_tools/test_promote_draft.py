@@ -983,27 +983,23 @@ def _write_prompt_authoring_draft(fake_ctx: ToolContext, violations: list[DraftV
     )
 
 
-async def _author_with_fake_generator(fake_ctx: ToolContext, monkeypatch) -> dict[str, Any]:
-    """正式剧本在场时调用编写工具；生成器替身只回报编写了 E1S01，用于观察预检是否放行。"""
-    from server import text_generation as mod
-
+async def _dry_run_authoring(fake_ctx: ToolContext, content_mode: str, items_key: str, entry: dict) -> str:
+    """正式剧本里放一条待编写条目后预演编写：预检放行时真实生成器按正式剧本渲染出编写 prompt。"""
     scripts = fake_ctx.project_path / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
-    (scripts / "episode_1.json").write_text(json.dumps({"episode": 1}), encoding="utf-8")
+    script = {
+        "episode": 1,
+        "content_mode": content_mode,
+        "title": "第1集",
+        items_key: [entry | {"pending_authoring": True}],
+    }
+    (scripts / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    assert out.get("is_error") is not True, out
+    return out["content"][0]["text"]
 
-    class _FakeGenerator:
-        content_mode = "narration"
 
-        @classmethod
-        async def create(cls, _path, **_kwargs):
-            return cls()
-
-        async def generate(self, **kwargs):
-            kwargs["rewritten_entry_ids"].append("E1S01")
-            return scripts / "episode_1.json"
-
-    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    return await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+_UNAUTHORED_PROMPTS = {"image_prompt": None, "video_prompt": None}
 
 
 def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
@@ -1028,17 +1024,17 @@ async def test_generate_episode_script_blocked_by_prompt_authoring_draft(fake_ct
     assert "promote_draft" in out["content"][0]["text"]
 
 
-async def test_generate_episode_script_not_blocked_by_reference_script_plan_draft(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_generate_episode_script_not_blocked_by_reference_script_plan_draft(fake_ctx: ToolContext) -> None:
     """编写只读正式剧本：参考生视频脚本规划的待修复草稿在场不阻塞编写，草稿原样保留。"""
     rv_project(fake_ctx)
     _write_rv_quarantine(fake_ctx)
 
-    out = await _author_with_fake_generator(fake_ctx, monkeypatch)
+    prompt = await _dry_run_authoring(
+        fake_ctx, "narration", "video_units", {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 8}
+    )
 
-    assert out.get("is_error") is not True, out
-    assert "E1S01" in out["content"][0]["text"]
+    assert "DRY RUN" in prompt
+    assert "张三] 起身" in prompt
     assert rv_quarantine_path(fake_ctx).exists()
 
 
@@ -1157,17 +1153,16 @@ async def test_promote_drama_script_plan_aborts_on_concurrent_write(fake_ctx: To
     assert drama_quarantine_path(fake_ctx).exists()
 
 
-async def test_generate_episode_script_not_blocked_by_drama_script_plan_draft(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_generate_episode_script_not_blocked_by_drama_script_plan_draft(fake_ctx: ToolContext) -> None:
     """drama 脚本规划的待修复草稿在场不阻塞编写：编写的输入是正式剧本，草稿原样保留。"""
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
     await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
 
-    out = await _author_with_fake_generator(fake_ctx, monkeypatch)
+    prompt = await _dry_run_authoring(fake_ctx, "drama", "scenes", drama_scene() | _UNAUTHORED_PROMPTS)
 
-    assert out.get("is_error") is not True, out
+    assert "DRY RUN" in prompt
+    assert "E1S01" in prompt
     assert drama_quarantine_path(fake_ctx).exists()
 
 
@@ -1562,9 +1557,7 @@ async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(f
     assert "segment_break 标记" in message
 
 
-async def test_generate_episode_script_not_blocked_by_narration_script_plan_draft(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_generate_episode_script_not_blocked_by_narration_script_plan_draft(fake_ctx: ToolContext) -> None:
     """narration 脚本规划的待修复草稿在场不阻塞编写：编写的输入是正式剧本，草稿原样保留。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -1576,7 +1569,10 @@ async def test_generate_episode_script_not_blocked_by_narration_script_plan_draf
         violations=[],
     )
 
-    out = await _author_with_fake_generator(fake_ctx, monkeypatch)
+    prompt = await _dry_run_authoring(
+        fake_ctx, "narration", "segments", nr_segment("E1S01", 4, _RV_NOVEL) | _UNAUTHORED_PROMPTS
+    )
 
-    assert out.get("is_error") is not True, out
+    assert "DRY RUN" in prompt
+    assert "E1S01" in prompt
     assert nr_quarantine_path(fake_ctx).exists()

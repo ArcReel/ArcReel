@@ -480,8 +480,9 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
-        # 正式剧本的内容字段透传进 prompt：scene_id + 对应原文 + 口播（仅供理解）
+        # 正式剧本的内容字段透传进 prompt：scene_id + 视觉改编 + 对应原文 + 口播（仅供理解）
         assert "E1S01" in prompt
+        assert "视觉改编：姜月茴立于庭院，目光沉静，晨光斜照。" in prompt
         assert "姜月茴缓步走进庭院" in prompt
         assert "你来了。" in prompt
 

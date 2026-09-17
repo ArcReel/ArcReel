@@ -666,7 +666,8 @@ class TestScriptPlanConversion:
                 assert entry["image_prompt"] is None
                 assert entry["video_prompt"] is None
                 assert "needs_replan" not in entry
-                assert "scene_description" not in entry
+                if variant is DRAMA:
+                    assert entry["scene_description"] == plan_entries[entry_id]["scene_description"]
                 assert entry[_plan_text_field(variant)] == plan_entries[entry_id][_plan_text_field(variant)]
         assert not _currency(project_dir, plan_path, variant).is_stale
 

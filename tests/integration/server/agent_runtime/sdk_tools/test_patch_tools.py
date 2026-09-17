@@ -74,6 +74,9 @@ def _drama_script() -> dict[str, Any]:
     }
 
 
+_UNAUTHORED = {"image_prompt": None, "video_prompt": None}
+
+
 def _unit(unit_id: str) -> dict[str, Any]:
     return {
         "unit_id": unit_id,
@@ -759,22 +762,43 @@ class TestPatchEpisodeScriptStructuralOperations:
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
 
-    async def test_insert_marks_new_entry_pending_authoring(self, ctx: ToolContext) -> None:
-        out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN")}])
+    @pytest.mark.parametrize(("prompts", "expected"), [(_UNAUTHORED, True), ({}, False)])
+    async def test_insert_marks_new_entry_pending_authoring_unless_prompts_are_supplied(
+        self, ctx: ToolContext, prompts: dict[str, Any], expected: bool
+    ) -> None:
+        out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN") | prompts}])
 
         assert out.get("is_error") is not True
         segments = {s["segment_id"]: s for s in _load(ctx)["segments"]}
-        assert segments["E1S01_1"]["pending_authoring"] is True
+        assert segments["E1S01_1"].get("pending_authoring", False) is expected
         assert "pending_authoring" not in segments["E1S01"]
 
-    async def test_split_marks_only_new_parts_pending_authoring(self, ctx: ToolContext) -> None:
-        out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}])
+    async def test_split_marks_parts_without_prompts_pending_authoring(self, ctx: ToolContext) -> None:
+        parts = [_segment("a") | _UNAUTHORED, _segment("b") | _UNAUTHORED, _segment("c")]
+        out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": parts}])
 
         assert out.get("is_error") is not True
         segments = _load(ctx)["segments"]
         assert segments[0]["segment_id"] == "E1S01"
-        assert "pending_authoring" not in segments[0]
-        assert segments[1]["pending_authoring"] is True
+        assert [segment.get("pending_authoring", False) for segment in segments[:3]] == [True, True, False]
+
+    async def test_writing_unit_text_clears_pending_authoring(self, ref_ctx: ToolContext) -> None:
+        with ref_ctx.pm.locked_script("demo", "episode_1.json", validate=False) as script:
+            for unit in script["video_units"]:
+                unit["pending_authoring"] = True
+
+        out = await _patch(
+            ref_ctx,
+            [
+                {"op": "update", "id": "E1U1", "fields": {"text": "推门进屋\n抬头望向窗外"}},
+                {"op": "update", "id": "E1U2", "fields": {"duration_seconds": 8}},
+            ],
+        )
+
+        assert out.get("is_error") is not True, out
+        units = {u["unit_id"]: u for u in _load(ref_ctx)["video_units"]}
+        assert "pending_authoring" not in units["E1U1"]
+        assert units["E1U2"]["pending_authoring"] is True
 
     async def test_insert_mixed_speech_is_structured_and_atomic(self, ctx: ToolContext) -> None:
         before = _load(ctx)
