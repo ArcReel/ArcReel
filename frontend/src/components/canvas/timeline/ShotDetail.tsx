@@ -38,6 +38,7 @@ import { NotesDrawer } from "./NotesDrawer";
 import { PromptPreviewPanel } from "./PromptPreviewPanel";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
+import { ShotStructureActions } from "./ShotStructureActions";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Popover } from "@/components/ui/Popover";
 import { API, NarratedVideoDurationError } from "@/api";
@@ -87,6 +88,12 @@ interface ShotDetailProps {
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => void | Promise<void>;
   /** 分镜重排请求在途，移动按钮禁用 */
   movePending?: boolean;
+  /** 在当前分镜之后新增分镜（旁白带正文），resolve 为是否成功；缺省时不渲染入口。 */
+  onInsertShot?: (afterId: string, novelText?: string) => Promise<boolean>;
+  /** 移除当前分镜，resolve 为是否成功；缺省时不渲染入口。 */
+  onRemoveShot?: (itemId: string) => Promise<boolean>;
+  /** 分镜新增 / 移除请求在途，切镜与增删入口禁用 */
+  structurePending?: boolean;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (
     segmentId: string,
@@ -460,6 +467,9 @@ export function ShotDetail({
   onUpdatePrompt,
   onMoveShot,
   movePending,
+  onInsertShot,
+  onRemoveShot,
+  structurePending,
   onGenerateStoryboard,
   onGenerateVideo,
   onGenerateNarration,
@@ -1336,9 +1346,15 @@ export function ShotDetail({
 
   // 重排在途也要锁定切镜：ShotSplitView 在移动完成回调里按当前 selectedIndex 偏移，
   // 在途切换分镜会让偏移作用到新选中项，选中态跳到错误分镜。
-  const navDisabled = dirty || saving || !!movePending;
-  // 禁用原因提示与禁用条件同源：重排在途与未保存修改分别给出对应说明
-  const navDisabledHint = movePending ? t("shot_move_pending") : dirty || saving ? dirtyHint : undefined;
+  const navDisabled = dirty || saving || !!movePending || !!structurePending;
+  // 禁用原因提示与禁用条件同源：重排在途、增删在途与未保存修改分别给出对应说明
+  const navDisabledHint = movePending
+    ? t("shot_move_pending")
+    : structurePending
+      ? t("shot_structure_pending")
+      : dirty || saving
+        ? dirtyHint
+        : undefined;
 
   return (
     <div
@@ -1412,6 +1428,15 @@ export function ShotDetail({
               </button>
             </>
           )}
+          <ShotStructureActions
+            segmentId={segmentId}
+            contentMode={contentMode}
+            disabled={navDisabled}
+            disabledHint={navDisabledHint}
+            removeBlocked={!!generatingStoryboard || !!generatingVideo || !!generatingNarration}
+            onInsert={onInsertShot}
+            onRemove={onRemoveShot}
+          />
           <button
             type="button"
             onClick={onPrev}

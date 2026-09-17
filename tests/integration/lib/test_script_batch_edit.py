@@ -20,8 +20,10 @@ from lib.project_manager import ProjectManager
 from lib.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditor,
+    blank_item_after,
     script_revision,
 )
+from lib.script_editor import ScriptEditError
 
 
 def _segment(segment_id: str, *, text: str = "风吹过旷野。") -> dict[str, Any]:
@@ -1177,3 +1179,100 @@ def test_source_text_falls_back_to_project_sources_without_an_episode_source(tmp
     assert accepted.success is True
     assert rejected.success is False
     assert rejected.problems[0].code == "source_text_not_verbatim"
+
+
+_STORYBOARD_VISUAL = {
+    "image_prompt": {
+        "scene": "荒野",
+        "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+    },
+    "video_prompt": {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声"},
+}
+
+
+def _storyboard_script(content_mode: str, ids: list[str]) -> dict[str, Any]:
+    if content_mode == "narration":
+        items_key, entries = "segments", [_segment(item_id) for item_id in ids]
+    elif content_mode == "drama":
+        items_key = "scenes"
+        entries = [
+            {
+                "scene_id": item_id,
+                "duration_seconds": 6,
+                "characters_in_scene": [],
+                "utterances": [{"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"}],
+                **_STORYBOARD_VISUAL,
+                "generated_assets": {},
+            }
+            for item_id in ids
+        ]
+    else:
+        items_key = "shots"
+        entries = [
+            {
+                "shot_id": item_id,
+                "section": "hook",
+                "duration_seconds": 4,
+                "voiceover_text": "轻装出发。",
+                **_STORYBOARD_VISUAL,
+                "generated_assets": {},
+            }
+            for item_id in ids
+        ]
+    return {"episode": 1, "title": "第一集", "content_mode": content_mode, items_key: entries}
+
+
+def _storyboard_project(tmp_path: Path, content_mode: str, ids: list[str]) -> tuple[ProjectManager, ScriptBatchEditor]:
+    pm = ProjectManager(str(tmp_path))
+    pm.create_project("demo", content_mode=content_mode)
+    pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+    pm.save_script("demo", _storyboard_script(content_mode, ids), "episode_1.json")
+    return pm, ScriptBatchEditor(pm)
+
+
+@pytest.mark.parametrize(
+    ("content_mode", "items_key", "id_field"),
+    [("narration", "segments", "segment_id"), ("drama", "scenes", "scene_id"), ("ad", "shots", "shot_id")],
+)
+def test_blank_item_inserted_after_anchor_is_committed_as_pending_authoring(
+    tmp_path: Path, content_mode: str, items_key: str, id_field: str
+) -> None:
+    pm, service = _storyboard_project(tmp_path, content_mode, ["E1S01", "E1S03_1", "E1S02"])
+    item = blank_item_after(pm.load_script("demo", "episode_1.json"), "E1S01")
+    if content_mode == "narration":
+        # 旁白正文即配音内容，为空的分镜过不了发声准入；新增旁白分镜由调用方先带上正文。
+        rejected = service.execute("demo", _command(pm, [{"op": "insert_after", "after_id": "E1S01", "item": item}]))
+        assert rejected.problems[0].reason == "speech_input_unparseable"
+        item["novel_text"] = "风停了。"
+
+    result = service.execute("demo", _command(pm, [{"op": "insert_after", "after_id": "E1S01", "item": item}]))
+
+    assert result.success is True, result.problems
+    saved = pm.load_script("demo", "episode_1.json")[items_key]
+    assert [entry[id_field] for entry in saved] == ["E1S01", "E1S04", "E1S03_1", "E1S02"]
+    inserted = saved[1]
+    assert inserted["pending_authoring"] is True
+    assert inserted["image_prompt"] is None
+    assert inserted["video_prompt"] is None
+    assert inserted["duration_seconds"] == saved[0]["duration_seconds"]
+    assert all("pending_authoring" not in saved[index] for index in (0, 2, 3))
+
+
+def test_blank_item_id_skips_past_the_highest_number_without_reusing_gaps(tmp_path: Path) -> None:
+    pm, service = _storyboard_project(tmp_path, "narration", ["E1S01", "E1S02", "E1S05"])
+    removed = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S05"}]))
+    assert removed.success is True
+
+    script = pm.load_script("demo", "episode_1.json")
+
+    assert blank_item_after(script, "E1S02")["segment_id"] == "E1S03"
+    assert blank_item_after(_storyboard_script("narration", ["E1S01", "E1S04"]), "E1S01")["segment_id"] == "E1S05"
+
+
+def test_blank_item_rejects_unknown_anchor_and_reference_units(tmp_path: Path) -> None:
+    pm, _service = _reference_project(tmp_path, sources={})
+
+    with pytest.raises(ScriptEditError):
+        blank_item_after(_storyboard_script("drama", ["E1S01"]), "E1S09")
+    with pytest.raises(ScriptEditError):
+        blank_item_after(pm.load_script("demo", "episode_1.json"), "E1U1")

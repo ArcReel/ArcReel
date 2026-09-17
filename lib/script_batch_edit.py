@@ -591,6 +591,64 @@ class ScriptBatchEditor:
         )
 
 
+#: 分镜图生视频各条目形态的空条目内容字段；时长沿用锚点分镜，视觉层留空待编写。
+_BLANK_ITEM_FIELDS: dict[str, dict[str, Any]] = {
+    "segments": {
+        "segment_break": False,
+        "novel_text": "",
+        "characters_in_segment": [],
+        "scenes": [],
+        "props": [],
+    },
+    "scenes": {
+        "segment_break": False,
+        "characters_in_scene": [],
+        "scenes": [],
+        "props": [],
+        "utterances": [],
+    },
+    "shots": {
+        "section": "",
+        "voiceover_text": "",
+        "characters_in_shot": [],
+        "scenes": [],
+        "props": [],
+        "products_in_shot": [],
+    },
+}
+
+
+def blank_item_after(script: dict[str, Any], after_id: str) -> dict[str, Any]:
+    """构造紧随 ``after_id`` 插入的空分镜（分镜图生视频的 segments / scenes / shots）。
+
+    id 为 ``E{集}S{序号}``，序号取本集现存主序号的最大值顺延，不回填中间空缺；只看现存条目，
+    因此末尾分镜被移除后再新增会取回其序号。集号取剧本 ``episode``，缺失时取锚点 id 的集号前缀。
+    视觉层留空，由批量编辑 insert 置待编写。
+    """
+    items, id_field, kind = resolve_items(script)
+    if kind not in _BLANK_ITEM_FIELDS:
+        raise ScriptEditError(f"{kind} does not support blank item insertion")
+    anchor = items[_find_index(items, id_field, after_id)]
+    episode = script.get("episode")
+    if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
+        match = re.match(r"^E(\d+)S", after_id)
+        episode = int(match.group(1)) if match is not None else 1
+    existing = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
+    pattern = re.compile(rf"^E{episode}S(\d+)(?:_\d+)?$")
+    numbers = [int(match.group(1)) for item_id in existing if (match := pattern.match(item_id)) is not None]
+    number = max(numbers, default=0) + 1
+    while (item_id := f"E{episode}S{number:02d}") in existing:
+        number += 1
+    duration = anchor.get("duration_seconds")
+    return {
+        id_field: item_id,
+        "duration_seconds": duration if isinstance(duration, int) and not isinstance(duration, bool) else 8,
+        **copy.deepcopy(_BLANK_ITEM_FIELDS[kind]),
+        "image_prompt": None,
+        "video_prompt": None,
+    }
+
+
 def _operation_id(operation: ScriptBatchOperation) -> str | None:
     if isinstance(operation, InsertAfterOperation):
         _items = operation.item
@@ -962,5 +1020,6 @@ __all__ = [
     "ScriptBatchEditor",
     "ScriptBatchOperation",
     "UpdateOperation",
+    "blank_item_after",
     "script_revision",
 ]

@@ -54,7 +54,8 @@ from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
-from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, script_revision
+from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
+from lib.script_editor import resolve_items
 from lib.script_references import annotate_derivative_references
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.style_templates import is_known_template, resolve_template_prompt
@@ -1212,6 +1213,123 @@ async def preview_script_item_prompts(
         "storyboard_image": _side(preview.storyboard_image),
         "video": _side(preview.video),
     }
+
+
+#: 可在时间线手动新增 / 移除的分镜条目形态；参考生视频单元走视频单元路由。
+_STORYBOARD_ITEM_KINDS = frozenset({"segments", "scenes", "shots"})
+
+
+def _require_storyboard_items(script: dict, item_id: str) -> tuple[list, str, str]:
+    """返回分镜图生视频剧本的条目数组；形态不支持或 id 未命中时抛对应 API 错误。"""
+    items, id_field, kind = resolve_items(script)
+    if kind not in _STORYBOARD_ITEM_KINDS:
+        raise BadRequestError("storyboard_script_required")
+    if not any(isinstance(item, dict) and item.get(id_field) == item_id for item in items):
+        raise NotFoundError("script_item_not_found", id=item_id)
+    return items, id_field, kind
+
+
+class InsertScriptItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    script_file: str
+    #: 旁白 / 解说分镜的正文即配音内容，新增时必填；其余形态插入空条目、忽略此字段。
+    novel_text: str | None = None
+
+
+@router.post(
+    "/projects/{name}/script-items/{item_id}/insert-after",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def insert_script_item_after(
+    name: str,
+    item_id: str,
+    req: InsertScriptItemRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
+    """在分镜 ``item_id`` 之后新增一条待编写分镜，按当前剧本 revision 执行 ``insert_after``。"""
+    try:
+
+        def _sync():
+            manager = get_project_manager()
+            current = manager.load_script(name, req.script_file)
+            _items, id_field, kind = _require_storyboard_items(current, item_id)
+            item = blank_item_after(current, item_id)
+            if kind == "segments":
+                if req.novel_text is None or not req.novel_text.strip():
+                    raise UnprocessableError("narration_segment_text_required")
+                item["novel_text"] = req.novel_text
+            with project_change_source("webui"):
+                result = execute_current_script_edit(
+                    manager,
+                    name,
+                    req.script_file,
+                    [{"op": "insert_after", "after_id": item_id, "item": item}],
+                    editor=make_script_batch_editor(manager),
+                    current_script=current,
+                )
+            require_script_edit_result(result, operation_not_found=True)
+            saved_items, _id_field, _kind = resolve_items(manager.load_script(name, req.script_file))
+            # 提交后到回读之间条目可能已被并发移除，此时 item 为 null。
+            inserted = next(
+                (entry for entry in saved_items if isinstance(entry, dict) and entry.get(id_field) == item[id_field]),
+                None,
+            )
+            return {"success": True, "item": inserted, "edit_result": result.model_dump(mode="json")}
+
+        return await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=req.script_file) from exc
+    except ValueError as exc:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    except (HTTPException, ApiError):
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+@router.delete(
+    "/projects/{name}/script-items/{item_id}",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def remove_script_item(
+    name: str,
+    item_id: str,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+    script_file: str = Query(..., description="剧本文件名"),
+):
+    """移除分镜 ``item_id``，按当前剧本 revision 执行 ``remove``；其产物随分镜一并移除。"""
+    try:
+
+        def _sync():
+            manager = get_project_manager()
+            current = manager.load_script(name, script_file)
+            _require_storyboard_items(current, item_id)
+            with project_change_source("webui"):
+                result = execute_current_script_edit(
+                    manager,
+                    name,
+                    script_file,
+                    [{"op": "remove", "id": item_id}],
+                    editor=make_script_batch_editor(manager),
+                    current_script=current,
+                )
+            require_script_edit_result(result, operation_not_found=True)
+            return {"success": True, "edit_result": result.model_dump(mode="json")}
+
+        return await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=script_file) from exc
+    except ValueError as exc:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    except (HTTPException, ApiError):
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 class UpdateSceneRequest(BaseModel):

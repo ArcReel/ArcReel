@@ -45,6 +45,10 @@ interface TimelineCanvasProps {
   ) => void | Promise<void>;
   /** 广告/短片分镜顺序调整（向前/向后移动一位），resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => Promise<boolean>;
+  /** 在分镜之后新增分镜（旁白带正文），resolve 为是否成功 */
+  onInsertShot?: (afterId: string, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
+  /** 移除分镜，resolve 为是否成功 */
+  onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (
     segmentId: string,
@@ -69,6 +73,8 @@ interface TimelineCanvasProps {
 const DEMO_READ_ONLY_PROPS = {
   onUpdatePrompt: undefined,
   onMoveShot: undefined,
+  onInsertShot: undefined,
+  onRemoveShot: undefined,
   onGenerateNarration: undefined,
   onGenerateEpisodeNarration: undefined,
   onSaveTitle: undefined,
@@ -90,6 +96,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     durationWarningReason,
     onUpdatePrompt,
     onMoveShot,
+    onInsertShot,
+    onRemoveShot,
     onGenerateStoryboard,
     onGenerateVideo,
     onGenerateNarration,
@@ -239,6 +247,12 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const handleMoveShot = onMoveShot
     ? (shotId: string, direction: "earlier" | "later") => onMoveShot(shotId, direction, scriptFile)
     : undefined;
+  const handleInsertShot = onInsertShot
+    ? (afterId: string, novelText?: string) => onInsertShot(afterId, novelText, scriptFile)
+    : undefined;
+  const handleRemoveShot = onRemoveShot
+    ? (itemId: string) => onRemoveShot(itemId, scriptFile)
+    : undefined;
   // 生成回调保持可选透传：未提供时编辑器隐藏对应生成入口，
   // 而非渲染一个点了没反应的按钮。
   const handleGenSb = onGenerateStoryboard
@@ -382,6 +396,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                 isGridMode={false}
                 onUpdatePrompt={handleUpdatePrompt}
                 onMoveShot={handleMoveShot}
+                onInsertShot={handleInsertShot}
+                onRemoveShot={handleRemoveShot}
                 onGenerateStoryboard={handleGenSb}
                 onGenerateVideo={handleGenVid}
                 onGenerateNarration={handleGenNarration}

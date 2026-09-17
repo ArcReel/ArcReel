@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
@@ -16,18 +16,27 @@ vi.mock("./ShotSplitView", () => ({
   ShotSplitView: ({
     onUpdatePrompt,
     onGenerateNarration,
+    onInsertShot,
+    onRemoveShot,
     staleEntryIds,
   }: {
     onUpdatePrompt?: unknown;
     onGenerateNarration?: unknown;
+    onInsertShot?: (afterId: string, novelText?: string) => Promise<boolean>;
+    onRemoveShot?: (itemId: string) => Promise<boolean>;
     staleEntryIds?: ReadonlySet<string>;
   }) => (
     <div
       data-testid="shot-split-view"
       data-can-update-prompt={onUpdatePrompt ? "yes" : "no"}
       data-can-generate-narration={onGenerateNarration ? "yes" : "no"}
+      data-can-insert-shot={onInsertShot ? "yes" : "no"}
+      data-can-remove-shot={onRemoveShot ? "yes" : "no"}
       data-stale-ids={[...(staleEntryIds ?? [])].join(",")}
-    />
+    >
+      <button type="button" onClick={() => void onInsertShot?.("SEG-1", "风停了。")}>insert</button>
+      <button type="button" onClick={() => void onRemoveShot?.("SEG-1")}>remove</button>
+    </div>
   ),
 }));
 vi.mock("./EpisodeHeader", async () => {
@@ -161,6 +170,29 @@ describe("TimelineCanvas", () => {
     expect(API.getScriptReview).toHaveBeenCalledWith("demo", 1, expect.anything());
   });
 
+  it("forwards shot insert and remove with the active episode script file", () => {
+    const onInsertShot = vi.fn().mockResolvedValue(true);
+    const onRemoveShot = vi.fn().mockResolvedValue(true);
+    render(
+      <TimelineCanvas
+        projectName="demo"
+        episode={1}
+        hasDraft
+        episodeScript={makeScript()}
+        scriptFile="scripts/episode_1.json"
+        projectData={makeProjectData()}
+        onInsertShot={onInsertShot}
+        onRemoveShot={onRemoveShot}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "insert" }));
+    fireEvent.click(screen.getByRole("button", { name: "remove" }));
+
+    expect(onInsertShot).toHaveBeenCalledWith("SEG-1", "风停了。", "scripts/episode_1.json");
+    expect(onRemoveShot).toHaveBeenCalledWith("SEG-1", "scripts/episode_1.json");
+  });
+
   it("shows the select-episode hint when there is no project data and no draft", () => {
     render(
       <TimelineCanvas
@@ -191,6 +223,8 @@ describe("TimelineCanvas", () => {
           projectData={makeProjectData()}
           onUpdatePrompt={vi.fn()}
           onMoveShot={vi.fn()}
+          onInsertShot={vi.fn()}
+          onRemoveShot={vi.fn()}
           onGenerateNarration={vi.fn()}
           onGenerateEpisodeNarration={vi.fn()}
           onSaveTitle={vi.fn()}
@@ -206,6 +240,8 @@ describe("TimelineCanvas", () => {
 
       const shotView = screen.getByTestId("shot-split-view");
       expect(shotView).toHaveAttribute("data-can-update-prompt", "no");
+      expect(shotView).toHaveAttribute("data-can-insert-shot", "no");
+      expect(shotView).toHaveAttribute("data-can-remove-shot", "no");
       expect(shotView).toHaveAttribute("data-can-generate-narration", "no");
       expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "no");
       expect(screen.queryByRole("button", { name: "生成全集旁白配音" })).not.toBeInTheDocument();
@@ -218,6 +254,8 @@ describe("TimelineCanvas", () => {
 
       const shotView = screen.getByTestId("shot-split-view");
       expect(shotView).toHaveAttribute("data-can-update-prompt", "yes");
+      expect(shotView).toHaveAttribute("data-can-insert-shot", "yes");
+      expect(shotView).toHaveAttribute("data-can-remove-shot", "yes");
       expect(shotView).toHaveAttribute("data-can-generate-narration", "yes");
       expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "yes");
       expect(screen.getByRole("button", { name: "生成全集旁白配音" })).toBeInTheDocument();

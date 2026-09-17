@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { NarratedVideoDurationError } from "@/api";
 import { ShotDetail } from "./ShotDetail";
@@ -346,5 +346,21 @@ describe("ShotDetail 广告/短片", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: "前移分镜" })).not.toBeInTheDocument();
+  });
+  it("新增 / 移除分镜：移除取消不调用，分镜生成在跑时禁止移除", async () => {
+    const onInsertShot = vi.fn().mockResolvedValue(true);
+    const onRemoveShot = vi.fn().mockResolvedValue(true);
+    const { unmount } = renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot, onRemoveShot });
+
+    fireEvent.click(screen.getByRole("button", { name: "新增分镜" }));
+    await waitFor(() => expect(onInsertShot).toHaveBeenCalledWith("E1S01"));
+
+    fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
+    expect(onRemoveShot).not.toHaveBeenCalled();
+    unmount();
+
+    renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot, onRemoveShot, generatingVideo: true });
+    expect(screen.getByRole("button", { name: "移除分镜" })).toBeDisabled();
   });
 });

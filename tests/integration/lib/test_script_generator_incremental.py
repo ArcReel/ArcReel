@@ -21,6 +21,7 @@ from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
 from lib.project_manager import ProjectManager, ScriptWriteConflict
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
 from lib.script_generator import SCRIPT_PLAN_CONVERSION_GENERATOR, PromptAuthoringTargetError, ScriptGenerator
 from lib.script_models import PENDING_AUTHORING_FIELD
 from lib.script_plan_entries import (
@@ -427,6 +428,44 @@ class TestPromptAuthoring:
         assert _authored_with(after, variant, "补写")
         assert PENDING_AUTHORING_FIELD not in after
         assert _without_visual_layer(after, variant) == _without_visual_layer(added, variant)
+
+    async def test_timeline_insert_and_remove_survive_default_authoring(
+        self, tmp_path: Path, prompt_variant: _Variant
+    ) -> None:
+        """时间线新增 / 移除分镜之后编写：新增的空分镜被填充，移除的分镜不会被生成回来。"""
+        variant = prompt_variant
+        first, second = variant.entry_ids
+        project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
+        pm = ProjectManager(str(project_dir.parent))
+        editor = ScriptBatchEditor(pm)
+
+        def edit(operation: dict[str, Any]) -> None:
+            current = pm.load_script(project_dir.name, "episode_1.json")
+            command = ScriptBatchEditCommand.model_validate(
+                {"script": "episode_1.json", "expected_revision": script_revision(current), "operations": [operation]}
+            )
+            result = editor.execute(project_dir.name, command)
+            assert result.success is True, result.problems
+
+        item = blank_item_after(pm.load_script(project_dir.name, "episode_1.json"), first)
+        if variant is NARRATION:
+            item["novel_text"] = "手动新增的旁白。"
+        edit({"op": "insert_after", "after_id": first, "item": item})
+        edit({"op": "remove", "id": second})
+        added = item[variant.id_field]
+        before_first = _entry_json(project_dir, variant, first)
+
+        rewritten: list[str] = []
+        await variant.generator(project_dir, [variant.visual_factory(added, mark="补写")]).generate(
+            1, rewritten_entry_ids=rewritten
+        )
+
+        assert rewritten == [added]
+        after = _script(project_dir)[variant.items_key]
+        assert [entry[variant.id_field] for entry in after] == [first, added]
+        assert _authored_with(after[1], variant, "补写")
+        assert PENDING_AUTHORING_FIELD not in after[1]
+        assert _entry_json(project_dir, variant, first) == before_first
 
     async def test_nothing_pending_leaves_the_script_untouched(self, tmp_path: Path, variant: _Variant) -> None:
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)

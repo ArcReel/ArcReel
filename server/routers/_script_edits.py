@@ -41,14 +41,17 @@ def execute_current_script_edit(
     operations: Sequence[Mapping[str, Any]],
     *,
     editor: ScriptEditExecutor | None = None,
+    current_script: Mapping[str, Any] | None = None,
 ) -> ScriptBatchEditResult:
     """Adapt an unversioned legacy request to one revisioned command.
 
     The revision is only a compatibility snapshot. The editor still compares it inside
     the project lock, so a concurrent writer is rejected instead of being overwritten.
+    Callers that derived the operations from a script they already loaded pass it as
+    ``current_script`` so the revision covers that same snapshot.
     """
 
-    current = manager.load_script(project_name, script_file)
+    current = manager.load_script(project_name, script_file) if current_script is None else current_script
     command = ScriptBatchEditCommand.model_validate(
         {
             "script": script_file,

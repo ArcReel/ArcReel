@@ -72,6 +72,8 @@ import type {
   ReferenceVideoUnit,
   TransitionType,
   AdShot,
+  DramaScene,
+  NarrationSegment,
   ReferenceDurationPrecheck,
   ReferenceProjectionAdmission,
   NarratedVideoDurationAdmission,
@@ -1792,6 +1794,40 @@ class API {
         method: "POST",
         body: JSON.stringify({ script_file: scriptFile, shot_ids: shotIds }),
       }
+    );
+  }
+
+  /**
+   * 在分镜 `itemId` 之后新增一条待编写分镜（剧情演绎 / 旁白 / 广告通用）。服务端按当前剧本
+   * revision 执行，并发改写时返回 409。旁白分镜的正文即配音内容，`novelText` 必填。
+   */
+  static async insertScriptItemAfter(
+    projectName: string,
+    itemId: string,
+    scriptFile: string,
+    novelText?: string
+  ): Promise<SuccessResponse & { item: NarrationSegment | DramaScene | AdShot | null }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/script-items/${encodeURIComponent(itemId)}/insert-after`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          script_file: scriptFile,
+          ...(novelText !== undefined ? { novel_text: novelText } : {}),
+        }),
+      }
+    );
+  }
+
+  /** 移除分镜 `itemId`，其产物随分镜一并移除；服务端按当前剧本 revision 执行。 */
+  static async removeScriptItem(
+    projectName: string,
+    itemId: string,
+    scriptFile: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/script-items/${encodeURIComponent(itemId)}?script_file=${encodeURIComponent(scriptFile)}`,
+      { method: "DELETE" }
     );
   }
 

@@ -20,6 +20,8 @@ MESSAGES = {
     "project_exists": "项目 '{name}' 已存在",
     "script_not_found": "脚本 '{name}' 不存在",
     "script_item_not_found": "剧本中不存在分镜「{id}」",
+    "storyboard_script_required": "该剧本不是分镜图生视频剧本，参考生视频的视频单元请在参考生视频画布中增删",
+    "narration_segment_text_required": "新增旁白分镜需要先填写旁白正文",
     "prompt_preview_missing": "该分镜还没有填写提示词",
     "prompt_preview_invalid": "提示词无法渲染，请检查其格式",
     "prompt_preview_pending": "该分镜的提示词待生成：让 Agent 补写，或在编辑器里自行填写",

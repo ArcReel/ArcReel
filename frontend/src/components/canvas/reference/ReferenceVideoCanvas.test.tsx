@@ -129,6 +129,25 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
   });
 
+  it("removes the selected unit only after the danger confirmation", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    const deleteSpy = vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValue(undefined);
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await screen.findByTestId("unit-row-E1U1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/E1U1/)).toBeInTheDocument();
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
+    await waitFor(() => expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument());
+    expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("keeps request controls outside the tablist semantics", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);

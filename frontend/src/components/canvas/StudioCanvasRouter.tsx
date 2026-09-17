@@ -214,6 +214,38 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, currentScripts, refreshProject]);
 
+  // 时间线新增 / 移除分镜：服务端按当前剧本 revision 执行，这里不取快照。
+  // 返回值与 handleMoveShot 同一契约：本地 store 已刷新到新剧本才报告成功。
+  const handleInsertShot = useCallback(async (
+    afterId: string,
+    novelText: string | undefined,
+    scriptFile?: string,
+  ): Promise<boolean> => {
+    if (!currentProjectName || !currentScripts) return false;
+    const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
+    if (!resolvedFile) return false;
+    try {
+      await API.insertScriptItemAfter(currentProjectName, afterId, resolvedFile, novelText);
+      return await refreshProject();
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("shot_insert_failed", { message: errMsg(err) }), "error");
+      return false;
+    }
+  }, [currentProjectName, currentScripts, refreshProject]);
+
+  const handleRemoveShot = useCallback(async (itemId: string, scriptFile?: string): Promise<boolean> => {
+    if (!currentProjectName || !currentScripts) return false;
+    const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
+    if (!resolvedFile) return false;
+    try {
+      await API.removeScriptItem(currentProjectName, itemId, resolvedFile);
+      return await refreshProject();
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("shot_remove_failed", { message: errMsg(err) }), "error");
+      return false;
+    }
+  }, [currentProjectName, currentScripts, refreshProject]);
+
   const handleUpdateEpisodeTitle = useCallback(async (episode: number, title: string) => {
     if (!currentProjectName) return;
     try {
@@ -796,6 +828,8 @@ export function StudioCanvasRouter() {
                     durationWarningReason={durationWarningReason}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
+                    onInsertShot={handleInsertShot}
+                    onRemoveShot={handleRemoveShot}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={handleGenerateVideo}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}

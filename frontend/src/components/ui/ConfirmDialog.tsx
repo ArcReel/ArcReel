@@ -17,6 +17,8 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   tone?: ConfirmTone;
   loading?: boolean;
+  /** 确认前置条件未满足（如必填输入为空）时禁用确认按钮。 */
+  confirmDisabled?: boolean;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }
@@ -33,6 +35,7 @@ export function ConfirmDialog({
   cancelLabel,
   tone = "default",
   loading = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -103,7 +106,7 @@ export function ConfirmDialog({
             size="sm"
             tone={isDanger ? "warm" : "accent"}
             onClick={() => void onConfirm()}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
             leadingIcon={
               loading ? (
                 <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />

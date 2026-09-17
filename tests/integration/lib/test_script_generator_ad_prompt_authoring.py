@@ -13,7 +13,9 @@ import pytest
 
 from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
+from lib.project_manager import ProjectManager
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
 from lib.script_generator import ScriptGenerator
 from lib.script_models import PENDING_AUTHORING_FIELD
 from tests.fakes import FakeConfigResolver
@@ -176,6 +178,35 @@ class TestAdShotAuthoring:
         assert added["image_prompt"]["scene"] == "补写-E1S03"
         assert added["voiceover_text"] == "下单就送杯刷。"
         assert PENDING_AUTHORING_FIELD not in added
+
+    async def test_timeline_insert_and_remove_survive_default_authoring(self, tmp_path: Path) -> None:
+        """时间线新增 / 移除分镜之后编写：新增的空分镜被填充，移除的分镜不会被生成回来。"""
+        project_dir = await _storyboard_script(tmp_path)
+        pm = ProjectManager(str(project_dir.parent))
+        editor = ScriptBatchEditor(pm)
+
+        def edit(operation: dict[str, Any]) -> None:
+            current = pm.load_script(project_dir.name, "episode_1.json")
+            command = ScriptBatchEditCommand.model_validate(
+                {"script": "episode_1.json", "expected_revision": script_revision(current), "operations": [operation]}
+            )
+            result = editor.execute(project_dir.name, command)
+            assert result.success is True, result.problems
+
+        item = blank_item_after(pm.load_script(project_dir.name, "episode_1.json"), "E1S01")
+        edit({"op": "insert_after", "after_id": "E1S01", "item": item})
+        edit({"op": "remove", "id": "E1S02"})
+        before_first = _item_json(project_dir, "shots", "shot_id", "E1S01")
+
+        rewritten: list[str] = []
+        await _generator(project_dir, [_shot_visual("E1S03", mark="补写")]).generate(1, rewritten_entry_ids=rewritten)
+
+        assert rewritten == ["E1S03"]
+        assert list(_items(project_dir, "shots", "shot_id")) == ["E1S01", "E1S03"]
+        added = _items(project_dir, "shots", "shot_id")["E1S03"]
+        assert added["image_prompt"]["scene"] == "补写-E1S03"
+        assert PENDING_AUTHORING_FIELD not in added
+        assert _item_json(project_dir, "shots", "shot_id", "E1S01") == before_first
 
     async def test_nothing_pending_leaves_the_script_untouched(self, tmp_path: Path) -> None:
         project_dir = await _storyboard_script(tmp_path)

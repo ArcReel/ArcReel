@@ -20,6 +20,8 @@ MESSAGES = {
     "project_exists": "Project '{name}' already exists",
     "script_not_found": "Script '{name}' does not exist",
     "script_item_not_found": "Shot '{id}' does not exist in this script",
+    "storyboard_script_required": "This script is not a storyboard-to-video script; add or remove reference video units on the reference video canvas",
+    "narration_segment_text_required": "Enter the narration text before adding a narration shot",
     "prompt_preview_missing": "This shot has no prompt written yet",
     "prompt_preview_invalid": "The prompt cannot be rendered: check its format",
     "prompt_preview_pending": "This shot's prompt is pending: let the Agent write it, or fill it in the editor",

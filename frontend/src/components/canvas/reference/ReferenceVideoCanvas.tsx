@@ -8,6 +8,7 @@ import {
   Save,
   Scissors,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { UnitList } from "./UnitList";
 import { UnitRail } from "./UnitRail";
@@ -20,6 +21,7 @@ import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { referenceBatchOutcome } from "./batch-outcome";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ReferenceScriptPlanPreviewPanel } from "@/components/canvas/reference/ReferenceScriptPlanPreviewPanel";
@@ -176,6 +178,7 @@ export function ReferenceVideoCanvas({
   const loadUnits = useReferenceVideoStore((s) => s.loadUnits);
   const addUnit = useReferenceVideoStore((s) => s.addUnit);
   const patchUnit = useReferenceVideoStore((s) => s.patchUnit);
+  const deleteUnit = useReferenceVideoStore((s) => s.deleteUnit);
   const select = useReferenceVideoStore((s) => s.select);
 
   const units =
@@ -338,6 +341,21 @@ export function ReferenceVideoCanvas({
       toastError(e);
     }
   }, [addUnit, projectName, episode]);
+
+  const [removeUnitId, setRemoveUnitId] = useState<string | null>(null);
+  const [removingUnit, setRemovingUnit] = useState(false);
+  const handleRemoveUnit = useCallback(async () => {
+    if (!removeUnitId || removingUnit) return;
+    setRemovingUnit(true);
+    try {
+      await deleteUnit(projectName, episode, removeUnitId);
+      setRemoveUnitId(null);
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setRemovingUnit(false);
+    }
+  }, [deleteUnit, projectName, episode, removeUnitId, removingUnit]);
 
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
@@ -1101,6 +1119,16 @@ export function ReferenceVideoCanvas({
                     >
                       <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setRemoveUnitId(selected.unit_id)}
+                      disabled={isUnitLocked(selected.unit_id)}
+                      aria-label={t("reference_unit_remove")}
+                      title={t("reference_unit_remove")}
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
                   </div>
 
                   {selected.needs_replan && (
@@ -1386,6 +1414,16 @@ export function ReferenceVideoCanvas({
         </div>
       )}
 
+      <ConfirmDialog
+        open={removeUnitId !== null}
+        title={t("reference_unit_remove_title", { id: removeUnitId ?? "" })}
+        description={t("reference_unit_remove_desc")}
+        confirmLabel={t("reference_unit_remove_confirm")}
+        tone="danger"
+        loading={removingUnit}
+        onConfirm={handleRemoveUnit}
+        onCancel={() => setRemoveUnitId(null)}
+      />
       <ReferenceDurationConfirmDialog {...durationGate.dialogProps} />
       <ReferenceBatchAdmissionDialog
         admission={batchAdmission}
