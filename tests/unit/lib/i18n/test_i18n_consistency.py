@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from typing import get_args
 
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.i18n import MESSAGES, SUPPORTED_LOCALES
@@ -20,6 +21,8 @@ from lib.i18n.zh import errors as zh_errors
 from lib.i18n.zh import events as zh_events
 from lib.i18n.zh import system as zh_system
 from lib.i18n.zh import templates as zh_templates
+from lib.prompt_templates.builtin import builtin_templates
+from lib.prompt_templates.engine import TemplateAxis
 from lib.style_templates import list_template_ids
 
 
@@ -219,6 +222,21 @@ def test_frontend_event_label_keys_match_backend():
     )
     frontend_keys = set(re.findall(r"""["']label\.([a-z0-9_]+)["']""", source))
     assert frontend_keys == _event_label_keys(en_events.MESSAGES)
+
+
+def test_frontend_dashboard_covers_prompt_template_axes_and_categories():
+    """设置页按模版轴名与类别 id 取显示文案，缺 key 时会直接显示英文键名，三种语言都必须齐全。"""
+    axes = set(get_args(TemplateAxis))
+    categories = {meta.category for meta in builtin_templates.list_templates()}
+    required = {f"prompt_templates_axis_{axis}" for axis in axes} | {
+        f"prompt_templates_category_{category}" for category in categories
+    }
+    i18n_dir = Path(__file__).resolve().parents[4] / "frontend" / "src" / "i18n"
+    for locale in ("zh", "en", "vi"):
+        source = (i18n_dir / locale / "dashboard.ts").read_text(encoding="utf-8")
+        defined = set(re.findall(r"""['"]([a-z0-9_]+)['"]\s*:""", source))
+        missing = required - defined
+        assert not missing, f"{locale} dashboard missing prompt template keys: {sorted(missing)}"
 
 
 #: 目录名里出现即需要译名的书写系统区段：拉丁字母以外的写法在 en/vi 界面上无法直接阅读。

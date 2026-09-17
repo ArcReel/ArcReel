@@ -257,6 +257,21 @@ class TestBuildGridPrompt:
             "格3（row2 col2）— 空占位：纯灰色背景，无任何内容",
         ]
 
+    def test_single_scene_chunk_omits_transition_frame_rule(self):
+        scenes = [self._scene("S1", "s1", "a1")]
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
+        assert "过渡帧" not in prompt
+        assert "- 格0 是第一个场景的开场画面\n- 相邻格之间" in prompt
+
+    def test_multi_scene_chunk_lists_transition_frame_range(self):
+        scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 4)]
+        prompt = build_grid_prompt(
+            scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
+        )
+        assert "- 格1~格2 是相邻场景的过渡帧" in prompt
+
     def test_no_placeholders_when_exact_fit(self):
         # 4 scenes, 2x2 grid -> no placeholders needed (4 content cells: open, trans, trans, close)
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]

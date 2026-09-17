@@ -16,7 +16,7 @@ slots:
   cell_count: 画格总数
   grid_aspect_ratio: 整张联合图的比例
   panel_aspect_ratio: 单个画格的比例，由整图比例与行列数算出
-  last_chain_cell: 帧链最后一格的序号
+  last_chain_cell: 帧链最后一格的序号；只有开场一格时为 0，过渡帧行不渲染
   opening: 格0 的开场分镜（scene_id、description）
   transitions: 过渡格列表（index、row、col、from_id、to_id、action、description）
   placeholders: 空占位格列表（index、row、col）
@@ -41,7 +41,9 @@ Reference_Images: {{ reference_images }}
 【帧链节奏】
 本宫格采用首尾帧链式结构：
 - 格0 是第一个场景的开场画面
+{% if last_chain_cell %}
 - 格1~格{{ last_chain_cell }} 是相邻场景的过渡帧（前一场景的结束 = 后一场景的开始）
+{% endif %}
 - 相邻格之间应体现画面的自然过渡和动作延续
 
 【各格内容】
