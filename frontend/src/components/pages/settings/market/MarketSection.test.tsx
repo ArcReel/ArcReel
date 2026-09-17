@@ -134,7 +134,7 @@ describe("MarketSection", () => {
 
     const { unmount } = render(<MarketSection />);
 
-    expect(await screen.findByText("Market · 1 endpoints from 2 sources")).toBeInTheDocument();
+    expect(await screen.findByText("Market · 1 endpoint from 2 sources")).toBeInTheDocument();
     expect(API.refreshMarketSources).toHaveBeenCalledWith({
       staleOnly: true,
       signal: expect.any(AbortSignal),
@@ -202,7 +202,7 @@ describe("MarketSection", () => {
     render(<MarketSection />);
     const types = within(await screen.findByRole("group", { name: "条目类型" })).getAllByRole("button");
 
-    expect(types.map((type) => type.textContent)).toEqual(["调用端点", "提示词soon", "风格模板soon"]);
+    expect(types.map((type) => type.textContent)).toEqual(["调用端点", "提示词即将推出", "风格模板即将推出"]);
     expect(types[0]).toHaveAttribute("aria-pressed", "true");
     expect(types[1]).toBeDisabled();
     expect(types[2]).toBeDisabled();
@@ -297,7 +297,7 @@ describe("MarketSection", () => {
     expect(names).toEqual(["ArcReel Market", "团队市场", "停用的源"]);
 
     const official = row(dialog, "ArcReel Market");
-    expect(within(official).getByText("Official")).toBeInTheDocument();
+    expect(within(official).getByText("官方")).toBeInTheDocument();
     expect(within(official).getByText(/正常 · 上次成功刷新 13分钟前/)).toBeInTheDocument();
     expect(within(official).getByRole("button", { name: "删除 ArcReel Market" })).toBeDisabled();
     expect(within(official).getByRole("link", { name: "打开 ArcReel Market 的主页" })).toHaveAttribute(
@@ -366,6 +366,95 @@ describe("MarketSection", () => {
     expect(update).toHaveBeenLastCalledWith(2, { is_enabled: false });
   });
 
+  it("keeps concurrent rename and toggle results when their responses arrive out of order", async () => {
+    const rename = createDeferred<MarketSourceInfo>();
+    const toggle = createDeferred<MarketSourceInfo>();
+    vi.spyOn(API, "updateMarketSource").mockImplementation((_id, patch) =>
+      "display_name" in patch ? rename.promise : toggle.promise,
+    );
+    render(<MarketSection />);
+    const dialog = await openManager();
+
+    const input = within(dialog).getByRole("textbox", { name: "团队市场 的显示名" });
+    await userEvent.clear(input);
+    await userEvent.type(input, "同事的源{Enter}");
+    await userEvent.click(within(dialog).getByRole("switch", { name: "启用 同事的源" }));
+
+    toggle.resolve({ ...TEAM, is_enabled: false });
+    rename.resolve({ ...TEAM, display_name: "同事的源", is_enabled: true });
+
+    const renamed = await within(dialog).findByRole("textbox", { name: "同事的源 的显示名" });
+    await waitFor(() =>
+      expect(within(dialog).getByRole("switch", { name: "启用 同事的源" })).not.toBeChecked(),
+    );
+    expect(renamed).toHaveValue("同事的源");
+  });
+
+  it("sends repeated toggles of one source in order and keeps the last intent", async () => {
+    const off = createDeferred<MarketSourceInfo>();
+    const on = createDeferred<MarketSourceInfo>();
+    const update = vi
+      .spyOn(API, "updateMarketSource")
+      .mockReturnValueOnce(off.promise)
+      .mockReturnValueOnce(on.promise);
+    render(<MarketSection />);
+    const dialog = await openManager();
+    const toggle = () => within(dialog).getByRole("switch", { name: "启用 团队市场" });
+
+    await userEvent.click(toggle());
+    await userEvent.click(toggle());
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(toggle()).toBeChecked();
+
+    on.resolve({ ...TEAM, is_enabled: true });
+    off.resolve({ ...TEAM, is_enabled: false });
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update).toHaveBeenLastCalledWith(2, { is_enabled: true });
+    await waitFor(() => expect(toggle()).toBeChecked());
+  });
+
+  it("restores the last confirmed value when every queued toggle fails", async () => {
+    const off = createDeferred<MarketSourceInfo>();
+    const on = createDeferred<MarketSourceInfo>();
+    vi.spyOn(API, "updateMarketSource")
+      .mockReturnValueOnce(off.promise)
+      .mockReturnValueOnce(on.promise);
+    render(<MarketSection />);
+    const dialog = await openManager();
+    const toggle = () => within(dialog).getByRole("switch", { name: "启用 团队市场" });
+
+    await userEvent.click(toggle());
+    await userEvent.click(toggle());
+    off.reject(new Error("offline"));
+    await waitFor(() => expect(API.updateMarketSource).toHaveBeenCalledTimes(2));
+    on.reject(new Error("offline"));
+
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toContain("offline"));
+    expect(toggle()).toBeChecked();
+  });
+
+  it("rolls back only the failed field when a concurrent update fails", async () => {
+    const rename = createDeferred<MarketSourceInfo>();
+    const toggle = createDeferred<MarketSourceInfo>();
+    vi.spyOn(API, "updateMarketSource").mockImplementation((_id, patch) =>
+      "display_name" in patch ? rename.promise : toggle.promise,
+    );
+    render(<MarketSection />);
+    const dialog = await openManager();
+
+    const input = within(dialog).getByRole("textbox", { name: "团队市场 的显示名" });
+    await userEvent.clear(input);
+    await userEvent.type(input, "同事的源{Enter}");
+    await userEvent.click(within(dialog).getByRole("switch", { name: "启用 同事的源" }));
+
+    toggle.resolve({ ...TEAM, is_enabled: false });
+    rename.reject(new Error("rename failed"));
+
+    await within(dialog).findByRole("textbox", { name: "团队市场 的显示名" });
+    expect(within(dialog).getByRole("switch", { name: "启用 团队市场" })).not.toBeChecked();
+  });
+
   it("reverts a blank display name without saving", async () => {
     const update = vi.spyOn(API, "updateMarketSource");
     render(<MarketSection />);
@@ -405,6 +494,48 @@ describe("MarketSection", () => {
     expect(within(team).getByText("· bad slug")).toBeInTheDocument();
   });
 
+  it("keeps a rename made while a refresh of the same source is in flight", async () => {
+    const refresh = createDeferred<MarketSourceInfo>();
+    vi.spyOn(API, "refreshMarketSource").mockReturnValue(refresh.promise);
+    vi.spyOn(API, "updateMarketSource").mockImplementation(async (id, patch) => ({ ...TEAM, id, ...patch }));
+    render(<MarketSection />);
+    const dialog = await openManager();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "刷新 团队市场" }));
+    const input = within(dialog).getByRole("textbox", { name: "团队市场 的显示名" });
+    await userEvent.clear(input);
+    await userEvent.type(input, "同事的源{Enter}");
+    await within(dialog).findByRole("textbox", { name: "同事的源 的显示名" });
+
+    refresh.resolve({ ...TEAM, status: "invalid_index", last_error: "bad slug" });
+
+    expect(await within(dialog).findByText("· bad slug")).toBeInTheDocument();
+    expect(row(dialog, "同事的源")).toHaveTextContent("bad slug");
+  });
+
+  it("keeps an enablement change made while saving a new order", async () => {
+    const reorder = createDeferred<{ sources: MarketSourceInfo[] }>();
+    vi.spyOn(API, "reorderMarketSources").mockReturnValue(reorder.promise);
+    vi.spyOn(API, "updateMarketSource").mockImplementation(async (id, patch) => ({ ...TEAM, id, ...patch }));
+    render(<MarketSection />);
+    const dialog = await openManager();
+
+    fireEvent.keyDown(within(dialog).getByRole("button", { name: /调整 团队市场 的顺序/ }), { key: "ArrowUp" });
+    await userEvent.click(within(dialog).getByRole("switch", { name: "启用 团队市场" }));
+    await waitFor(() => expect(within(dialog).getByRole("switch", { name: "启用 团队市场" })).not.toBeChecked());
+
+    reorder.resolve({ sources: [{ ...TEAM, position: 0 }, { ...OFFICIAL, position: 1 }, DISABLED] });
+
+    await waitFor(() =>
+      expect(
+        within(dialog)
+          .getAllByRole("textbox", { name: /的显示名$/ })
+          .map((input) => (input as HTMLInputElement).value),
+      ).toEqual(["团队市场", "ArcReel Market", "停用的源"]),
+    );
+    expect(within(dialog).getByRole("switch", { name: "启用 团队市场" })).not.toBeChecked();
+  });
+
   it("refreshes all enabled sources from the dialog", async () => {
     render(<MarketSection />);
     const dialog = await openManager();
@@ -435,6 +566,38 @@ describe("MarketSection", () => {
           .map((input) => (input as HTMLInputElement).value),
       ).toEqual(["团队市场", "ArcReel Market", "停用的源"]),
     );
+  });
+
+  it("keeps the latest order when an earlier reorder request fails after it", async () => {
+    const first = createDeferred<{ sources: MarketSourceInfo[] }>();
+    const second = createDeferred<{ sources: MarketSourceInfo[] }>();
+    vi.spyOn(API, "reorderMarketSources")
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    render(<MarketSection />);
+    const dialog = await openManager();
+    const names = () =>
+      within(dialog)
+        .getAllByRole("textbox", { name: /的显示名$/ })
+        .map((input) => (input as HTMLInputElement).value);
+
+    fireEvent.keyDown(within(dialog).getByRole("button", { name: /调整 团队市场 的顺序/ }), { key: "ArrowUp" });
+    await waitFor(() => expect(names()).toEqual(["团队市场", "ArcReel Market", "停用的源"]));
+    fireEvent.keyDown(within(dialog).getByRole("button", { name: /调整 停用的源 的顺序/ }), { key: "ArrowUp" });
+    await waitFor(() => expect(names()).toEqual(["团队市场", "停用的源", "ArcReel Market"]));
+
+    second.resolve({
+      sources: [
+        { ...TEAM, position: 0 },
+        { ...DISABLED, position: 1 },
+        { ...OFFICIAL, position: 2 },
+      ],
+    });
+    first.reject(new Error("stale reorder failed"));
+
+    await waitFor(() => expect(API.reorderMarketSources).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toContain("stale reorder failed"));
+    expect(names()).toEqual(["团队市场", "停用的源", "ArcReel Market"]);
   });
 
   it("reorders by drag and drop and restores the order when saving fails", async () => {

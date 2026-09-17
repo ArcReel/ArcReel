@@ -83,14 +83,22 @@ class MarketAssetInvalidError(Exception):
 
 
 def snapshot_entries(source: MarketSource) -> tuple[MarketIndexEntry, ...]:
-    """市场源缓存快照里本客户端认识的条目；从未抓取或快照已读不懂时为空。"""
+    """市场源缓存快照里本客户端认识的条目；从未抓取或快照已读不懂时为空。
+
+    条目在源内以 slug 寻址，客户端刷新不校验 slug 唯一（规则 ② 由市场源 CI 负责）；同 slug 只保留
+    第一条，列表与按 slug 取详情、定义、icon 始终指向同一条。
+    """
     if source.cached_index is None:
         return ()
     try:
-        return parse_index(source.cached_index).entries
+        entries = parse_index(source.cached_index).entries
     except MarketIndexError:
         logger.warning("market source %s has an unreadable cached index", source.id)
         return ()
+    unique: dict[str, MarketIndexEntry] = {}
+    for entry in entries:
+        unique.setdefault(entry.slug, entry)
+    return tuple(unique.values())
 
 
 def merge_entries(sources: Iterable[MarketSource], *, entry_type: str = ENDPOINT_ENTRY_TYPE) -> list[SourcedEntry]:

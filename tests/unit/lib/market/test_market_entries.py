@@ -22,6 +22,7 @@ from lib.market.entries import (
     MarketSourceDisabledError,
     MissingTarget,
     entry_asset_url,
+    find_entry,
     merge_entries,
 )
 from lib.market.sources import PROXY_PREFIX_SETTING
@@ -105,6 +106,17 @@ def test_merge_keeps_source_order_sorts_by_name_and_skips_disabled_and_unknown_t
     merged = merge_entries([first, disabled, third, never_fetched])
 
     assert [(item.source.id, item.entry.slug) for item in merged] == [(1, "alpha"), (1, "zeta"), (3, "alpha")]
+
+
+def test_duplicate_slug_in_one_source_keeps_only_the_first_entry() -> None:
+    source = _source(1, _entry("demo", "Beta"), _entry("demo", "Alpha"))
+
+    [merged] = merge_entries([source])
+
+    assert merged.entry.name == "Beta"
+    found = find_entry(source, "demo")
+    assert found is not None
+    assert found.name == "Beta"
 
 
 def test_merge_skips_snapshot_that_no_longer_parses() -> None:

@@ -481,10 +481,23 @@ class TestPatchSystemConfig:
             assert res.status_code == 200
             assert res.json()["settings"]["market_github_proxy_prefix"] == ""
 
-    def test_patch_rejects_non_https_market_github_proxy_prefix(self):
+    def test_patch_rejects_invalid_market_github_proxy_prefix(self):
         mock_svc = _make_mock_svc(settings={"market_github_proxy_prefix": "https://proxy.example.net/"})
         with TestClient(self._make_patch_app(mock_svc)) as client:
-            for raw in ("http://proxy.example.net/", "proxy.example.net", "https://"):
+            for raw in (
+                "http://proxy.example.net/",
+                "proxy.example.net",
+                "https://",
+                "https://user:secret@proxy.example.net/",
+                "https://user@proxy.example.net/",
+                "https://proxy.example.net:bad/",
+                "https://proxy.example.net/#ignored",
+                "https://proxy.example.net/#",
+                "https://proxy.example.net/?token=abc",
+                "https://proxy.example.net/?",
+                "https://proxy.example.net/a\nb/",
+                "https://proxy.example.net/a b/",
+            ):
                 res = client.patch("/api/v1/system/config", json={"market_github_proxy_prefix": raw})
                 assert res.status_code == 422, raw
             res = client.get("/api/v1/system/config")

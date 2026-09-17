@@ -24,13 +24,28 @@ const ENTRY_TYPES = [
   { id: "style", labelKey: "market_type_style", available: false },
 ] as const;
 
-/** 按 id 用刷新结果替换列表里的行，保持原顺序。 */
-function mergeSources(
+/**
+ * 按 id 合并刷新结果，只改写刷新产出的字段、保持原顺序；显示名与启停以本地为准，
+ * 迟到的刷新响应不会覆盖期间完成的修改。
+ */
+function mergeRefreshed(
   current: MarketSourceInfo[],
   updated: MarketSourceInfo[],
 ): MarketSourceInfo[] {
   const byId = new Map(updated.map((source) => [source.id, source]));
-  return current.map((source) => byId.get(source.id) ?? source);
+  return current.map((source) => {
+    const refreshed = byId.get(source.id);
+    if (!refreshed) return source;
+    return {
+      ...source,
+      status: refreshed.status,
+      last_error: refreshed.last_error,
+      fetched_at: refreshed.fetched_at,
+      entry_count: refreshed.entry_count,
+      index: refreshed.index,
+      updated_at: refreshed.updated_at,
+    };
+  });
 }
 
 /** 影响条目列表的源字段：顺序、启停、显示名与快照时间。任一变化即重新拉取条目。 */
@@ -40,6 +55,13 @@ function entriesKey(sources: MarketSourceInfo[]): string {
       [source.id, source.is_enabled, source.display_name, source.fetched_at, source.updated_at].join(":"),
     )
     .join("|");
+}
+
+/** Darkroom kicker 固定英文，不进 i18n；只按数量切换单复数。 */
+function marketKicker(entryCount: number, sourceCount: number): string {
+  const endpoints = entryCount === 1 ? "endpoint" : "endpoints";
+  const sources = sourceCount === 1 ? "source" : "sources";
+  return `Market · ${entryCount} ${endpoints} from ${sourceCount} ${sources}`;
 }
 
 function matchesQuery(entry: MarketEntry, query: string): boolean {
@@ -81,7 +103,7 @@ export function MarketSection() {
           signal: controller.signal,
         });
         if (mounted.current && refreshed.length > 0) {
-          setSources((current) => mergeSources(current, refreshed));
+          setSources((current) => mergeRefreshed(current, refreshed));
         }
       } catch (err) {
         if (mounted.current && !controller.signal.aborted) {
@@ -120,7 +142,7 @@ export function MarketSection() {
     try {
       const { sources: refreshed } = await API.refreshMarketSources();
       if (!mounted.current) return;
-      setSources((current) => mergeSources(current, refreshed));
+      setSources((current) => mergeRefreshed(current, refreshed));
       pushToast(t("market_refresh_all_done", { count: refreshed.length }), "success");
     } catch (err) {
       if (mounted.current) pushToast(t("market_action_failed", { message: errMsg(err) }), "error");
@@ -137,7 +159,7 @@ export function MarketSection() {
       setRefreshingIds((current) => new Set(current).add(id));
       try {
         const refreshed = await API.refreshMarketSource(id);
-        if (mounted.current) setSources((current) => mergeSources(current, [refreshed]));
+        if (mounted.current) setSources((current) => mergeRefreshed(current, [refreshed]));
       } catch (err) {
         if (mounted.current) pushToast(t("market_action_failed", { message: errMsg(err) }), "error");
       } finally {
@@ -190,7 +212,7 @@ export function MarketSection() {
         <header className="mb-6 flex flex-wrap items-end gap-4">
           <div className="min-w-[16rem] flex-1">
             <div className={KICKER_ACCENT_CLS}>
-              Market · {allEntries.length} endpoints from {enabled.length} sources
+              {marketKicker(allEntries.length, enabled.length)}
             </div>
             <h2 className="mt-1 font-editorial text-[32px] leading-none text-text">
               {t("market_section_title")}
@@ -266,7 +288,9 @@ export function MarketSection() {
               >
                 {t(type.labelKey)}
                 {!type.available && (
-                  <span className="ml-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em]">soon</span>
+                  <span className="ml-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em]">
+                    {t("market_type_soon")}
+                  </span>
                 )}
               </button>
             ))}

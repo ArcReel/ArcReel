@@ -40,6 +40,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("canonical_key"),
+        sqlite_autoincrement=True,
     )
 
 

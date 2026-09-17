@@ -17,6 +17,8 @@ from .issues import INDEX_FILENAME
 
 GITHUB_RAW_HOST = "raw.githubusercontent.com"
 DEFAULT_GITHUB_REF = "HEAD"
+#: 解析出的索引地址与规范键的长度上限，与 ``market_source`` 表对应列宽一致。
+MAX_RESOLVED_LENGTH = 2048
 
 _OWNER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
@@ -50,9 +52,10 @@ def resolve_source_address(address: str) -> ResolvedSourceAddress:
     lowered = text.lower()
     if lowered.startswith("http://"):
         raise SourceAddressError(SourceAddressErrorCode.INSECURE_SCHEME)
-    if lowered.startswith("https://"):
-        return _resolve_https(text)
-    return _resolve_shorthand(text)
+    resolved = _resolve_https(text) if lowered.startswith("https://") else _resolve_shorthand(text)
+    if max(len(resolved.index_url), len(resolved.canonical_key)) > MAX_RESOLVED_LENGTH:
+        raise SourceAddressError(SourceAddressErrorCode.UNSUPPORTED)
+    return resolved
 
 
 def github_source(owner: str, repo: str, ref: str = DEFAULT_GITHUB_REF) -> ResolvedSourceAddress:

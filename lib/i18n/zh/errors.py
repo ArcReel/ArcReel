@@ -228,7 +228,7 @@ MESSAGES = {
     "market_source_order_length_mismatch": "排序列表的数量与现有市场源不一致",
     "market_source_order_duplicate_ids": "排序列表中有重复的市场源",
     "market_source_order_ids_mismatch": "排序列表与现有市场源不一致",
-    "market_github_proxy_prefix_invalid": "GitHub raw 代理前缀必须是 https:// 开头的地址",
+    "market_github_proxy_prefix_invalid": "GitHub raw 代理前缀必须是 https:// 开头的地址，且不含用户名、密码、查询参数或 # 片段",
     "market_source_disabled": "市场源已禁用，启用后才能获取其中的条目",
     "market_entry_not_found": "市场条目不存在",
     "market_entry_icon_not_found": "该市场条目没有图标",

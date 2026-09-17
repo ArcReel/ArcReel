@@ -473,6 +473,24 @@ async def get_system_version(
 # ---------------------------------------------------------------------------
 
 
+def _is_valid_proxy_prefix(prefix: str) -> bool:
+    if not prefix.isprintable() or any(char.isspace() for char in prefix):
+        return False
+    try:
+        parts = urlsplit(prefix)
+        parts.port  # noqa: B018 -- 访问即校验端口，非法端口抛 ValueError
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and bool(parts.hostname)
+        and parts.username is None
+        and parts.password is None
+        and "?" not in prefix
+        and "#" not in prefix
+    )
+
+
 @router.patch("/system/config")
 async def patch_system_config(
     req: SystemConfigPatchRequest,
@@ -508,13 +526,12 @@ async def patch_system_config(
     if "narration_voice" in patch:
         await svc.set_setting("narration_voice", str(patch["narration_voice"] or "").strip())
 
-    # 市场源 GitHub raw 代理前缀：只拼在 raw.githubusercontent.com 地址前，须是 https 地址；空串 = 清除
+    # 市场源 GitHub raw 代理前缀：只拼在 raw.githubusercontent.com 地址前，须是带主机名、不含空白与控制字符、不含用户名与密码的
+    # https 地址（该值经 GET 原样回显，不当作凭证存放），且不带查询串与 fragment（raw 地址按路径拼在前缀之后）；空串 = 清除
     if "market_github_proxy_prefix" in patch:
         prefix = str(patch["market_github_proxy_prefix"] or "").strip()
-        if prefix:
-            parts = urlsplit(prefix)
-            if parts.scheme != "https" or not parts.netloc:
-                raise UnprocessableError("market_github_proxy_prefix_invalid")
+        if prefix and not _is_valid_proxy_prefix(prefix):
+            raise UnprocessableError("market_github_proxy_prefix_invalid")
         await svc.set_setting(PROXY_PREFIX_SETTING, prefix)
 
     # 旁白语速：仅做正有限数卫生校验（拒绝 0/负数/inf/nan），具体取值范围由各供应商自行约束；null = 清除

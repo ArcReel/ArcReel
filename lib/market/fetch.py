@@ -1,12 +1,13 @@
 """市场源的远程抓取边界。
 
 后端代用户抓取任意 ``https://`` 地址，按服务端请求伪造的暴露面设边界：每一跳都须 ``https``、
-重定向手动跟随且有上限、单次请求有独立超时、响应体边读边计数。只经 raw 文件地址，不调用
+重定向手动跟随且有上限、一次抓取（含重定向与读取响应体）有总时限、响应体边读边计数。只经 raw 文件地址，不调用
 GitHub API；代理前缀只拼在 ``raw.githubusercontent.com`` 地址前，失败不回退直连。
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from enum import StrEnum
@@ -19,11 +20,13 @@ from .address import GITHUB_RAW_HOST
 from .index import INDEX_SCHEMA_VERSION, InvalidIndexError, MarketIndex, UnsupportedIndexSchemaError, parse_index
 from .issues import MarketIssue
 
-#: 单次请求超时，独立于共享客户端的默认值。
+#: 一次抓取的总时限（含重定向与读取响应体），独立于共享客户端的默认超时。
 FETCH_TIMEOUT_SECONDS = 10.0
 #: 索引与定义响应体上限。
 INDEX_MAX_BYTES = 1024 * 1024
 MAX_REDIRECTS = 5
+#: 保存的 ETag 长度上限，与 ``market_source.etag`` 列宽一致；超长的 ETag 不保存，之后的自动刷新整份抓取。
+MAX_ETAG_LENGTH = 512
 #: 索引 JSON 的容器嵌套上限；合规索引只有三层（顶层对象 → entries → 条目）。
 MAX_JSON_DEPTH = 32
 #: 手动刷新绕过边缘缓存时追加的查询参数名。
@@ -95,35 +98,61 @@ async def fetch_bytes(
     max_bytes: int,
     proxy_prefix: str = "",
     headers: dict[str, str] | None = None,
+    deadline_seconds: float = FETCH_TIMEOUT_SECONDS,
 ) -> RawResponse:
-    """按抓取边界 GET 一个地址，返回 2xx 或 304 响应。
+    """按抓取边界 GET 一个地址，返回 2xx 或 304 响应；``deadline_seconds`` 是整次抓取的总时限。
 
     Raises:
-        MarketTransportError: 非 https、网络失败、超时、重定向越界或非成功状态码。
+        MarketTransportError: 非 https、网络失败、超过总时限、重定向越界或非成功状态码。
         MarketPayloadTooLargeError: 响应体超过 ``max_bytes``。
     """
+    try:
+        async with asyncio.timeout(deadline_seconds):
+            return await _follow_redirects(
+                client,
+                url,
+                max_bytes=max_bytes,
+                proxy_prefix=proxy_prefix,
+                headers=headers,
+                deadline_seconds=deadline_seconds,
+            )
+    except TimeoutError as exc:
+        raise MarketTransportError(_timed_out(deadline_seconds)) from exc
+
+
+async def _follow_redirects(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    max_bytes: int,
+    proxy_prefix: str,
+    headers: dict[str, str] | None,
+    deadline_seconds: float,
+) -> RawResponse:
     current = url
     for _ in range(MAX_REDIRECTS + 1):
         if urlsplit(current).scheme != "https":
             raise MarketTransportError(f"refused non-https URL: {current}")
         request_url = with_proxy_prefix(current, proxy_prefix)
-        request = client.build_request("GET", request_url, headers=headers, timeout=FETCH_TIMEOUT_SECONDS)
         try:
+            request = client.build_request("GET", request_url, headers=headers, timeout=deadline_seconds)
             response = await client.send(request, stream=True, follow_redirects=False)
+            try:
+                if response.has_redirect_location:
+                    current = str(response.url.join(response.headers["location"]))
+                    continue
+                if response.status_code != 304 and not response.is_success:
+                    raise MarketTransportError(f"HTTP {response.status_code}")
+                content = await _read_limited(response, max_bytes)
+                return RawResponse(status_code=response.status_code, content=content, headers=response.headers)
+            finally:
+                await response.aclose()
+        except httpx.InvalidURL as exc:
+            raise MarketTransportError(f"invalid URL: {exc}") from exc
         except httpx.TimeoutException as exc:
-            raise MarketTransportError(f"request timed out after {FETCH_TIMEOUT_SECONDS:g}s") from exc
+            raise MarketTransportError(_timed_out(deadline_seconds)) from exc
         except httpx.HTTPError as exc:
             raise MarketTransportError(f"request failed: {type(exc).__name__}") from exc
-        try:
-            if response.has_redirect_location:
-                current = str(response.url.join(response.headers["location"]))
-                continue
-            if response.status_code != 304 and not response.is_success:
-                raise MarketTransportError(f"HTTP {response.status_code}")
-            content = await _read_limited(response, max_bytes)
-            return RawResponse(status_code=response.status_code, content=content, headers=response.headers)
-        finally:
-            await response.aclose()
     raise MarketTransportError(f"too many redirects (limit {MAX_REDIRECTS})")
 
 
@@ -168,7 +197,10 @@ async def fetch_index(
         ) from exc
     except InvalidIndexError as exc:
         raise MarketFetchError(SourceStatus.INVALID_INDEX, _describe_issues(exc.issues)) from exc
-    return FetchedIndex(not_modified=False, document=document, index=index, etag=response.headers.get("etag"))
+    etag = response.headers.get("etag")
+    if etag is not None and len(etag) > MAX_ETAG_LENGTH:
+        etag = None
+    return FetchedIndex(not_modified=False, document=document, index=index, etag=etag)
 
 
 async def _read_limited(response: httpx.Response, max_bytes: int) -> bytes:
@@ -184,26 +216,34 @@ async def _read_limited(response: httpx.Response, max_bytes: int) -> bytes:
     return bytes(buffer)
 
 
+def _timed_out(seconds: float) -> str:
+    return f"request timed out after {seconds:g}s"
+
+
 def _with_cache_bust(url: str, token: int) -> str:
     separator = "&" if urlsplit(url).query else "?"
     return f"{url}{separator}{CACHE_BUST_PARAM}={token}"
 
 
 def decode_json_payload(content: bytes) -> Any:
-    """按 UTF-8 解码并解析 JSON，容器嵌套不超过 :data:`MAX_JSON_DEPTH`。
+    """按 UTF-8 解码并严格解析 JSON：不收 ``NaN`` / ``Infinity``，容器嵌套不超过 :data:`MAX_JSON_DEPTH`。
 
     Raises:
-        MarketPayloadNotJsonError: 不是 JSON 或嵌套过深。
+        MarketPayloadNotJsonError: 不是 JSON（含非标准常量与超出整数位数上限的数字）或嵌套过深。
     """
     try:
-        document = json.loads(content.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        document = json.loads(content.decode("utf-8"), parse_constant=_reject_constant)
+    except ValueError as exc:
         raise MarketPayloadNotJsonError(f"is not valid JSON: {exc}") from exc
     except RecursionError as exc:
         raise MarketPayloadNotJsonError(_too_deep()) from exc
     if _nesting_exceeds(document, MAX_JSON_DEPTH):
         raise MarketPayloadNotJsonError(_too_deep())
     return document
+
+
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"non-standard JSON constant {name}")
 
 
 def _too_deep() -> str:

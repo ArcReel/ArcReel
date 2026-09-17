@@ -64,6 +64,11 @@ def test_upgrade_creates_table_with_unique_canonical_key(
             conn.execute(_INSERT)
         with pytest.raises(sa.exc.IntegrityError), engine.begin() as conn:
             conn.execute(_INSERT)
+        with engine.begin() as conn:
+            first_id = conn.execute(sa.text("SELECT max(id) FROM market_source")).scalar_one()
+            conn.execute(sa.text("DELETE FROM market_source"))
+            conn.execute(_INSERT)
+            assert conn.execute(sa.text("SELECT max(id) FROM market_source")).scalar_one() > first_id
     finally:
         engine.dispose()
 

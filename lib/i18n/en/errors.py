@@ -243,7 +243,7 @@ MESSAGES = {
     "market_source_order_length_mismatch": "The order list does not match the number of market sources",
     "market_source_order_duplicate_ids": "The order list contains duplicate market sources",
     "market_source_order_ids_mismatch": "The order list does not match the existing market sources",
-    "market_github_proxy_prefix_invalid": "The GitHub raw proxy prefix must be an address starting with https://",
+    "market_github_proxy_prefix_invalid": "The GitHub raw proxy prefix must be an address starting with https:// without a username, password, query string or fragment",
     "market_source_disabled": "This market source is disabled; enable it to fetch its entries",
     "market_entry_not_found": "Market entry not found",
     "market_entry_icon_not_found": "This market entry has no icon",

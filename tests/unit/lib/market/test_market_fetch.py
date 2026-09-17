@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from itertools import pairwise
@@ -13,10 +14,13 @@ import pytest
 from lib.market.fetch import (
     FETCH_TIMEOUT_SECONDS,
     INDEX_MAX_BYTES,
+    MAX_ETAG_LENGTH,
     MAX_JSON_DEPTH,
     MAX_REDIRECTS,
     MarketFetchError,
+    MarketTransportError,
     SourceStatus,
+    fetch_bytes,
     fetch_index,
     with_proxy_prefix,
 )
@@ -85,6 +89,16 @@ async def test_etag_is_sent_as_if_none_match_and_304_reports_not_modified(raw_cl
     assert result.document is None
 
 
+async def test_oversized_etag_is_not_kept(raw_client: httpx.AsyncClient) -> None:
+    with capture_http() as http:
+        http.get(INDEX_URL).respond(json=_index(), headers={"ETag": '"' + "x" * MAX_ETAG_LENGTH + '"'})
+
+        result = await fetch_index(raw_client, INDEX_URL)
+
+    assert result.not_modified is False
+    assert result.etag is None
+
+
 async def test_unexpected_304_without_etag_is_unreachable(raw_client: httpx.AsyncClient) -> None:
     with capture_http() as http:
         http.get(INDEX_URL).respond(304)
@@ -128,6 +142,50 @@ async def test_timeout_is_unreachable(raw_client: httpx.AsyncClient) -> None:
 
     assert error.status is SourceStatus.UNREACHABLE
     assert "timed out" in error.detail
+
+
+async def test_body_that_keeps_trickling_past_the_deadline_is_a_transport_error(
+    raw_client: httpx.AsyncClient,
+) -> None:
+    first_chunk_sent = asyncio.Event()
+    never = asyncio.Event()
+
+    async def trickle() -> AsyncGenerator[bytes]:
+        yield b"{"
+        first_chunk_sent.set()
+        await never.wait()
+        yield b"}"
+
+    with capture_http() as http:
+        http.get(INDEX_URL).respond(content=trickle())
+
+        with pytest.raises(MarketTransportError) as excinfo:
+            await fetch_bytes(raw_client, INDEX_URL, max_bytes=INDEX_MAX_BYTES, deadline_seconds=0)
+
+    assert first_chunk_sent.is_set()
+    assert str(excinfo.value) == "request timed out after 0s"
+
+
+async def test_connection_lost_while_reading_body_is_unreachable(raw_client: httpx.AsyncClient) -> None:
+    async def broken() -> AsyncGenerator[bytes]:
+        yield b"{"
+        raise httpx.ReadError("connection reset")
+
+    with capture_http() as http:
+        http.get(INDEX_URL).respond(content=broken())
+
+        error = await _fetch_error(raw_client)
+
+    assert error.status is SourceStatus.UNREACHABLE
+    assert error.detail == "request failed: ReadError"
+
+
+async def test_url_with_control_character_is_unreachable(raw_client: httpx.AsyncClient) -> None:
+    with pytest.raises(MarketFetchError) as excinfo:
+        await fetch_index(raw_client, "https://mirror.example.com/team\n/arcreel-market.json")
+
+    assert excinfo.value.status is SourceStatus.UNREACHABLE
+    assert excinfo.value.detail.startswith("invalid URL: ")
 
 
 async def test_http_error_status_is_unreachable(raw_client: httpx.AsyncClient) -> None:
@@ -180,6 +238,24 @@ async def test_excessive_json_nesting_is_invalid_index(raw_client: httpx.AsyncCl
 async def test_non_json_body_is_invalid_index(raw_client: httpx.AsyncClient) -> None:
     with capture_http() as http:
         http.get(INDEX_URL).respond(text="<html>not found</html>")
+
+        error = await _fetch_error(raw_client)
+
+    assert error.status is SourceStatus.INVALID_INDEX
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"schema_version": "1.0.0", "name": "m", "entries": [], "x": NaN}',
+        b'{"schema_version": "1.0.0", "name": "m", "entries": [], "x": -Infinity}',
+        b'{"schema_version": "1.0.0", "name": "m", "entries": [], "x": ' + b"9" * 5000 + b"}",
+    ],
+    ids=["nan", "infinity", "huge-integer"],
+)
+async def test_non_standard_json_numbers_are_invalid_index(raw_client: httpx.AsyncClient, body: bytes) -> None:
+    with capture_http() as http:
+        http.get(INDEX_URL).respond(content=body)
 
         error = await _fetch_error(raw_client)
 

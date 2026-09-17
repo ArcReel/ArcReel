@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ExternalLink, GripVertical, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -29,8 +29,33 @@ interface MarketSourcesDialogProps {
   onRefreshAll: () => void;
 }
 
-function replaceSource(current: MarketSourceInfo[], next: MarketSourceInfo): MarketSourceInfo[] {
-  return current.map((source) => (source.id === next.id ? next : source));
+type SourcePatch = { display_name?: string; is_enabled?: boolean };
+
+/** 只改写一行里给定的字段；同一行的并发修改各自只动自己提交的字段，响应先后不会互相覆盖。 */
+function patchSource(
+  current: MarketSourceInfo[],
+  id: number,
+  fields: Partial<MarketSourceInfo>,
+): MarketSourceInfo[] {
+  return current.map((source) => (source.id === id ? { ...source, ...fields } : source));
+}
+
+function pickPatchFields(source: MarketSourceInfo, patch: SourcePatch): SourcePatch {
+  return Object.fromEntries(
+    (Object.keys(patch) as (keyof SourcePatch)[]).map((key) => [key, source[key]]),
+  );
+}
+
+/** 按 `ordered` 的顺序与 position 重排当前行，行内其他字段保留本地值；不在其中的行排在最后。 */
+function applyOrder(current: MarketSourceInfo[], ordered: MarketSourceInfo[]): MarketSourceInfo[] {
+  const slots = new Map(ordered.map((source, index) => [source.id, { index, position: source.position }]));
+  const slotIndex = (source: MarketSourceInfo) => slots.get(source.id)?.index ?? ordered.length;
+  return current
+    .map((source) => {
+      const slot = slots.get(source.id);
+      return slot ? { ...source, position: slot.position } : source;
+    })
+    .sort((a, b) => slotIndex(a) - slotIndex(b));
 }
 
 function moveItem<T>(items: T[], from: number, to: number): T[] {
@@ -38,6 +63,51 @@ function moveItem<T>(items: T[], from: number, to: number): T[] {
   const [moved] = next.splice(from, 1);
   next.splice(to, 0, moved);
   return next;
+}
+
+interface SequencedMutation<T, V> {
+  /** 发起时本地的值，作为这一串修改开始前最近一次确认的值。 */
+  before: V;
+  send: () => Promise<T>;
+  confirmedValue: (result: T) => V;
+  applied: (result: T) => void;
+  rolledBack: (confirmed: V) => void;
+}
+
+interface MutationLane {
+  tail: Promise<void>;
+  generation: number;
+  confirmed: unknown;
+}
+
+/**
+ * 同一 key 的修改按发起顺序串行发送，服务端按用户操作顺序落库；响应与失败回滚只在该 key 没有
+ * 更新的修改时写回本地，回滚恢复到最近一次确认的值。失败一律抛出，由调用方提示。
+ */
+function useSequencedMutations() {
+  const lanes = useRef(new Map<string, MutationLane>());
+  return useCallback(async <T, V>(key: string, mutation: SequencedMutation<T, V>) => {
+    const pending = lanes.current.get(key);
+    const lane = pending ?? { tail: Promise.resolve(), generation: 0, confirmed: mutation.before };
+    lanes.current.set(key, lane);
+    const generation = ++lane.generation;
+    const run = pending ? lane.tail.then(mutation.send) : mutation.send();
+    lane.tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    const latest = () => lane.generation === generation;
+    try {
+      const result = await run;
+      lane.confirmed = mutation.confirmedValue(result);
+      if (latest()) mutation.applied(result);
+    } catch (err) {
+      if (latest()) mutation.rolledBack(lane.confirmed as V);
+      throw err;
+    } finally {
+      if (latest()) lanes.current.delete(key);
+    }
+  }, []);
 }
 
 /** 市场源管理弹窗：拖拽排序、改名、启停、单源刷新、删除与添加。 */
@@ -55,18 +125,22 @@ export function MarketSourcesDialog({
   const pushToast = useAppStore((s) => s.pushToast);
   const titleId = useId();
   const [dragId, setDragId] = useState<number | null>(null);
+  const mutate = useSequencedMutations();
 
   const failToast = (err: unknown) =>
     pushToast(t("market_action_failed", { message: errMsg(err) }), "error");
 
   const commitOrder = async (next: MarketSourceInfo[]) => {
-    const previous = sources;
-    onSourcesChange(() => next);
+    onSourcesChange((current) => applyOrder(current, next));
     try {
-      const { sources: saved } = await API.reorderMarketSources(next.map((source) => source.id));
-      onSourcesChange(() => saved);
+      await mutate("order", {
+        before: sources,
+        send: () => API.reorderMarketSources(next.map((source) => source.id)),
+        confirmedValue: ({ sources: saved }) => saved,
+        applied: ({ sources: saved }) => onSourcesChange((current) => applyOrder(current, saved)),
+        rolledBack: (confirmed) => onSourcesChange((current) => applyOrder(current, confirmed)),
+      });
     } catch (err) {
-      onSourcesChange(() => previous);
       failToast(err);
     }
   };
@@ -77,14 +151,22 @@ export function MarketSourcesDialog({
     void commitOrder(moveItem(sources, from, to));
   };
 
-  const update = async (id: number, patch: { display_name?: string; is_enabled?: boolean }) => {
+  const update = async (id: number, patch: SourcePatch) => {
     const previous = sources.find((source) => source.id === id);
-    if (previous) onSourcesChange((current) => replaceSource(current, { ...previous, ...patch }));
+    if (!previous) return;
+    onSourcesChange((current) => patchSource(current, id, patch));
     try {
-      const saved = await API.updateMarketSource(id, patch);
-      onSourcesChange((current) => replaceSource(current, saved));
+      await mutate(`${id}:${Object.keys(patch).join(",")}`, {
+        before: pickPatchFields(previous, patch),
+        send: () => API.updateMarketSource(id, patch),
+        confirmedValue: (saved) => pickPatchFields(saved, patch),
+        applied: (saved) =>
+          onSourcesChange((current) =>
+            patchSource(current, id, { ...pickPatchFields(saved, patch), updated_at: saved.updated_at }),
+          ),
+        rolledBack: (confirmed) => onSourcesChange((current) => patchSource(current, id, confirmed)),
+      });
     } catch (err) {
-      if (previous) onSourcesChange((current) => replaceSource(current, previous));
       failToast(err);
     }
   };
@@ -267,7 +349,7 @@ function SourceRow({
           />
           {official && (
             <span className="inline-flex shrink-0 items-center rounded-[5px] border border-accent/35 bg-accent-dim px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-accent-2">
-              Official
+              {t("market_source_official")}
             </span>
           )}
           {source.index?.homepage && (

@@ -1,8 +1,8 @@
 """市场源的登记与刷新。
 
 官方市场源是表里 ``kind = official`` 的一行，服务启动时 seed、不抓取。添加第三方源即抓取一次，
-失败不落库。刷新落五态之一：成功（含 304）更新 ``fetched_at`` 并清错误；失败只记 ``status`` 与
-``last_error``，保留上次成功的快照。同一源的并发刷新共享一次请求。网络请求期间不持有数据库会话。
+失败不落库；判重在抓取前后各做一次，抓取后的判重与落库在实例内串行。刷新落五态之一：成功（含 304）更新 ``fetched_at`` 并清错误；失败只记 ``status`` 与
+``last_error``，保留上次成功的快照。同一源的并发刷新共享一次请求，但手动刷新不并入在途的自动刷新。网络请求期间不持有数据库会话。
 """
 
 from __future__ import annotations
@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 from sqlalchemy.exc import IntegrityError
@@ -39,10 +41,17 @@ class DuplicateSourceError(Exception):
     """同一规范键的市场源已登记。"""
 
 
+@dataclass(frozen=True)
+class _InflightRefresh:
+    task: asyncio.Task[MarketSource | None]
+    manual: bool
+
+
 async def seed_official_source(session: AsyncSession, *, address: str = OFFICIAL_SOURCE_ADDRESS) -> None:
     """确保官方市场源存在并指向当前地址常量，然后提交；不抓取。
 
-    已存在时只同步地址、索引地址与规范键，用户改过的显示名、启用状态与顺序保留。
+    已存在时同步地址；索引地址或规范键变了还会丢弃旧快照与刷新状态（旧快照里的相对路径不属于新地址），
+    用户改过的显示名、启用状态与顺序保留。
     """
     resolved = resolve_source_address(address)
     repo = MarketSourceRepository(session)
@@ -60,15 +69,16 @@ async def seed_official_source(session: AsyncSession, *, address: str = OFFICIAL
                 status=SourceStatus.NEVER_FETCHED.value,
             )
         )
-    elif (
-        official.address != address
-        or official.canonical_key != resolved.canonical_key
-        or official.index_url != resolved.index_url
-    ):
+    else:
         official.address = address
-        official.index_url = resolved.index_url
-        official.canonical_key = resolved.canonical_key
-        official.etag = None
+        if official.canonical_key != resolved.canonical_key or official.index_url != resolved.index_url:
+            official.index_url = resolved.index_url
+            official.canonical_key = resolved.canonical_key
+            official.cached_index = None
+            official.fetched_at = None
+            official.etag = None
+            official.status = SourceStatus.NEVER_FETCHED.value
+            official.last_error = None
     await session.commit()
 
 
@@ -80,7 +90,7 @@ def is_stale(source: MarketSource, now: datetime) -> bool:
 
 
 class MarketSourceService:
-    """添加与刷新市场源。刷新去重按实例维持，生产环境经 :func:`get_market_source_service` 共享一个实例。"""
+    """添加与刷新市场源。添加串行与刷新去重按实例维持，生产环境经 :func:`get_market_source_service` 共享一个实例。"""
 
     def __init__(
         self,
@@ -92,7 +102,8 @@ class MarketSourceService:
         self._session_factory = session_factory
         self._http_client = http_client
         self._clock = clock
-        self._inflight: dict[int, asyncio.Task[MarketSource | None]] = {}
+        self._inflight: dict[int, _InflightRefresh] = {}
+        self._add_lock = asyncio.Lock()
 
     async def add_source(self, address: str, display_name: str | None = None) -> MarketSource:
         """解析地址、抓取并整份判定索引，成功才落库。
@@ -105,9 +116,7 @@ class MarketSourceService:
         text = address.strip()
         resolved = resolve_source_address(text)
         async with self._session_factory() as session:
-            registered = await MarketSourceRepository(session).list_ordered()
-            if any(same_source_identity(source.canonical_key, resolved.canonical_key) for source in registered):
-                raise DuplicateSourceError(resolved.canonical_key)
+            await _ensure_unregistered(MarketSourceRepository(session), resolved.canonical_key)
             proxy_prefix = await SystemSettingRepository(session).get(PROXY_PREFIX_SETTING)
 
         now = self._clock()
@@ -116,8 +125,9 @@ class MarketSourceService:
         )
         assert result.index is not None
 
-        async with self._session_factory() as session:
+        async with self._add_lock, self._session_factory() as session:
             repo = MarketSourceRepository(session)
+            await _ensure_unregistered(repo, resolved.canonical_key)
             source = MarketSource(
                 kind=CUSTOM_KIND,
                 display_name=(display_name or "").strip() or result.index.name,
@@ -144,14 +154,31 @@ class MarketSourceService:
         """刷新一个启用源，返回刷新后的行；源不存在时返回 None，禁用时原样返回。
 
         手动刷新不带 ETag 并绕过边缘缓存；自动刷新带 ``If-None-Match``。同一源已有刷新在途时
-        直接等待那一次的结果。
+        等待那一次的结果；在途的是自动刷新而本次是手动刷新时，排在它之后再做一次手动刷新。
         """
-        task = self._inflight.get(source_id)
-        if task is None:
-            task = asyncio.create_task(self._refresh(source_id, manual=manual))
-            self._inflight[source_id] = task
-            task.add_done_callback(lambda _: self._inflight.pop(source_id, None))
-        return await asyncio.shield(task)
+        inflight = self._inflight.get(source_id)
+        if inflight is None or (manual and not inflight.manual):
+            previous = inflight.task if inflight is not None else None
+            inflight = _InflightRefresh(
+                task=asyncio.create_task(self._refresh_after(previous, source_id, manual=manual)), manual=manual
+            )
+            self._inflight[source_id] = inflight
+            inflight.task.add_done_callback(self._forget_inflight(source_id, inflight))
+        return await asyncio.shield(inflight.task)
+
+    def _forget_inflight(self, source_id: int, inflight: _InflightRefresh) -> Callable[[asyncio.Task[Any]], None]:
+        def forget(_task: asyncio.Task[Any]) -> None:
+            if self._inflight.get(source_id) is inflight:
+                del self._inflight[source_id]
+
+        return forget
+
+    async def _refresh_after(
+        self, previous: asyncio.Task[MarketSource | None] | None, source_id: int, *, manual: bool
+    ) -> MarketSource | None:
+        if previous is not None:
+            await asyncio.wait([previous])
+        return await self._refresh(source_id, manual=manual)
 
     async def refresh_all(self, *, stale_only: bool) -> list[MarketSource]:
         """并行刷新全部启用源，按源顺序返回刷新过的行。
@@ -194,8 +221,9 @@ class MarketSourceService:
 
         async with self._session_factory() as session:
             source = await MarketSourceRepository(session).get(source_id)
-            if source is None:
-                return None
+            if source is None or source.index_url != index_url:
+                # 抓取期间源被删除后 id 被新源复用，或官方源地址已迁移：结果不属于当前这一行
+                return source
             if failure is not None:
                 source.status = failure.status.value
                 source.last_error = failure.detail
@@ -208,6 +236,13 @@ class MarketSourceService:
                 source.last_error = None
             await session.commit()
             return source
+
+
+async def _ensure_unregistered(repo: MarketSourceRepository, canonical_key: str) -> None:
+    """按 :func:`same_source_identity` 判重；数据库唯一约束只认完全相同的规范键，大小写变体靠这里拦。"""
+    registered = await repo.list_ordered()
+    if any(same_source_identity(source.canonical_key, canonical_key) for source in registered):
+        raise DuplicateSourceError(canonical_key)
 
 
 def _cache_bust_token(now: datetime) -> int:

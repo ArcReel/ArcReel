@@ -241,7 +241,7 @@ MESSAGES = {
     "market_source_order_length_mismatch": "Số lượng trong danh sách sắp xếp không khớp với các nguồn chợ hiện có",
     "market_source_order_duplicate_ids": "Danh sách sắp xếp có nguồn chợ bị trùng",
     "market_source_order_ids_mismatch": "Danh sách sắp xếp không khớp với các nguồn chợ hiện có",
-    "market_github_proxy_prefix_invalid": "Tiền tố proxy GitHub raw phải là địa chỉ bắt đầu bằng https://",
+    "market_github_proxy_prefix_invalid": "Tiền tố proxy GitHub raw phải là địa chỉ bắt đầu bằng https:// và không chứa tên người dùng, mật khẩu, chuỗi truy vấn hoặc phân đoạn #",
     "market_source_disabled": "Nguồn chợ này đã bị tắt; hãy bật lại để lấy các mục của nó",
     "market_entry_not_found": "Không tìm thấy mục trong chợ",
     "market_entry_icon_not_found": "Mục chợ này không có biểu tượng",

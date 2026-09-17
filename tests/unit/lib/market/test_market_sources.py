@@ -132,6 +132,9 @@ async def test_seed_updates_address_when_constant_changes_and_keeps_user_choices
         official = await MarketSourceRepository(session).get_official()
         assert official is not None
         official.etag = '"old"'
+        official.cached_index = _index("官方", "demo-video")
+        official.fetched_at = NOW
+        official.status = SourceStatus.OK.value
         await session.commit()
     equivalent_address = "https://github.com/ArcReel/market-index/tree/main"
     async with factory() as session:
@@ -141,9 +144,35 @@ async def test_seed_updates_address_when_constant_changes_and_keeps_user_choices
     assert official.address == equivalent_address
     assert official.index_url == "https://raw.githubusercontent.com/ArcReel/market-index/main/arcreel-market.json"
     assert official.canonical_key == "github:ArcReel/market-index@main"
-    assert official.etag is None
+    assert official.etag == '"old"'
+    assert official.cached_index == _index("官方", "demo-video")
+    assert official.status == SourceStatus.OK.value
     assert official.display_name == "官方"
     assert official.is_enabled is False
+
+
+async def test_seed_discards_snapshot_when_the_official_source_moves(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with factory() as session:
+        await seed_official_source(session)
+    async with factory() as session:
+        official = await MarketSourceRepository(session).get_official()
+        assert official is not None
+        official.etag = '"old"'
+        official.cached_index = _index("官方", "demo-video")
+        official.fetched_at = NOW
+        official.status = SourceStatus.UNREACHABLE.value
+        official.last_error = "HTTP 404"
+        await session.commit()
+
+    async with factory() as session:
+        await seed_official_source(session, address="ArcReel/market-index@main")
+
+    [official] = await _sources(factory)
+    assert official.index_url == "https://raw.githubusercontent.com/ArcReel/market-index/main/arcreel-market.json"
+    assert (official.cached_index, official.fetched_at, official.etag, official.last_error) == (None, None, None, None)
+    assert official.status == SourceStatus.NEVER_FETCHED.value
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +265,48 @@ async def test_add_compares_github_repository_case_insensitively_but_ref_case_se
         added = await service.add_source("SomeOne/MARKET@head")
 
     assert added.canonical_key == "github:SomeOne/MARKET@head"
+
+
+async def test_concurrent_adds_of_case_variants_store_only_one_source(
+    service: MarketSourceService, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    both_fetching = asyncio.Event()
+    fetching = 0
+
+    async def index_after_both_started(request: httpx.Request) -> httpx.Response:
+        nonlocal fetching
+        fetching += 1
+        if fetching == 2:
+            both_fetching.set()
+        await both_fetching.wait()
+        return httpx.Response(200, json=_index())
+
+    with capture_http() as http:
+        http.get(url__startswith=TEAM_URL).mock(side_effect=index_after_both_started)
+        http.get(url__startswith=TEAM_URL.replace("someone/market", "SomeOne/Market")).mock(
+            side_effect=index_after_both_started
+        )
+        results = await asyncio.gather(
+            service.add_source("someone/market"), service.add_source("SomeOne/Market"), return_exceptions=True
+        )
+
+    assert fetching == 2
+    assert sum(isinstance(result, MarketSource) for result in results) == 1
+    assert sum(isinstance(result, DuplicateSourceError) for result in results) == 1
+    assert len(await _sources(factory)) == 1
+
+
+async def test_re_adding_a_deleted_source_gets_a_new_id(
+    service: MarketSourceService, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    first = await _add_team_source(service)
+    async with factory() as session:
+        await MarketSourceRepository(session).delete(first.id)
+        await session.commit()
+
+    again = await _add_team_source(service)
+
+    assert again.id > first.id
 
 
 async def test_add_rejects_malformed_address(service: MarketSourceService) -> None:
@@ -406,6 +477,66 @@ async def test_stale_refresh_only_touches_sources_older_than_an_hour(
 
     assert [source.kind for source in results] == ["custom"]
     assert team_route.call_count == 1
+
+
+async def test_manual_refresh_during_an_automatic_one_runs_again_without_etag(
+    service: MarketSourceService, clock: Clock
+) -> None:
+    added = await _add_team_source(service)
+    clock.now = NOW + timedelta(hours=2)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    requests: list[httpx.Request] = []
+
+    async def index(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            started.set()
+            await release.wait()
+        return httpx.Response(200, json=_index(), headers={"ETag": '"v2"'})
+
+    with capture_http() as http:
+        http.get(url__startswith=TEAM_URL).mock(side_effect=index)
+        automatic = asyncio.create_task(service.refresh_source(added.id, manual=False))
+        await started.wait()
+        manual = asyncio.create_task(service.refresh_source(added.id, manual=True))
+        release.set()
+        await asyncio.gather(automatic, manual)
+
+    assert len(requests) == 2
+    assert requests[0].headers["if-none-match"] == '"v1"'
+    assert "if-none-match" not in requests[1].headers
+    assert "_ts" in requests[1].url.params
+
+
+async def test_refresh_result_is_not_applied_when_the_row_now_points_elsewhere(
+    service: MarketSourceService, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    added = await _add_team_source(service)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_index(request: httpx.Request) -> httpx.Response:
+        started.set()
+        await release.wait()
+        return httpx.Response(200, json=_index("旧地址的索引", "stale-entry"))
+
+    with capture_http() as http:
+        http.get(url__startswith=TEAM_URL).mock(side_effect=slow_index)
+        refresh = asyncio.create_task(service.refresh_source(added.id, manual=True))
+        await started.wait()
+        async with factory() as session:
+            row = await MarketSourceRepository(session).get(added.id)
+            assert row is not None
+            row.index_url = "https://mirror.example.com/other/arcreel-market.json"
+            row.canonical_key = "url:https://mirror.example.com/other/arcreel-market.json"
+            await session.commit()
+        release.set()
+        await refresh
+
+    [source] = await _sources(factory)
+    assert source.cached_index == _index("团队市场", "demo-video")
+    assert source.etag == '"v1"'
 
 
 async def test_concurrent_refreshes_of_one_source_share_a_single_request(service: MarketSourceService) -> None:

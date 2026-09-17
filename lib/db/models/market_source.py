@@ -16,9 +16,13 @@ class MarketSource(TimestampMixin, Base):
 
     ``cached_index`` 是最近一次成功抓取的索引原文，``fetched_at`` 是最近一次成功刷新（含 304）
     的时间；刷新失败只改 ``status`` / ``last_error``，两者保留。
+
+    ``id`` 在 SQLite 上也单调不复用（``AUTOINCREMENT``）：前端筛选、在途刷新与重排都以 id 指认源，
+    删除后再添加的源不能继承旧 id。
     """
 
     __tablename__ = "market_source"
+    __table_args__ = ({"sqlite_autoincrement": True},)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
