@@ -46,6 +46,7 @@ from lib.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.project_migration_failure import ProjectMigrationError
 from lib.project_migration_report import MigrationSkippedArtifact
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version, project_schema_is_current
+from lib.prompt_style import normalize_style_value
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
 from lib.speech_artifact_provenance import RenditionVariant, SelectedMediaEvidence, media_content_digest
@@ -751,6 +752,7 @@ class TargetStatePlanner:
                     rows=grid.rows,
                     columns=grid.cols,
                     style=str(self.project.get("style") or ""),
+                    style_description=normalize_style_value(self.project.get("style_description")),
                     grid_aspect_ratio=grid_aspect_ratio_for(grid.rows, grid.cols, member_ratio),
                     references=references,
                 )
@@ -812,6 +814,7 @@ class TargetStatePlanner:
                         rows=grid.rows,
                         columns=grid.cols,
                         style=str(self.project.get("style") or ""),
+                        style_description=normalize_style_value(self.project.get("style_description")),
                         member_aspect_ratio=member_ratio,
                         references=references,
                         source_composite_digest=composite_digest,

@@ -26,6 +26,7 @@ from lib.asset_types import asset_name_comparison_key
 from lib.character_voice import character_voice_binding
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
 from lib.project_manager import ProjectManager, resolve_episode_script_binding
+from lib.prompt_style import normalize_style_value
 from lib.reference_video.duration_slots import resolve_duration_slot
 from lib.reference_video.prompt_render import resolve_reference_audio_paths
 from lib.reference_video.request_projection import (
@@ -182,6 +183,7 @@ def project_video_basis_components(
             unit=item,
             request_assets=clamp_reference_assets(hydration.available, shape.reference_image_limit),
             style=project.get("style") if isinstance(project.get("style"), str) else None,
+            style_description=normalize_style_value(project.get("style_description")),
             aspect_ratio=resolve_video_aspect_ratio(project),
         )
     else:

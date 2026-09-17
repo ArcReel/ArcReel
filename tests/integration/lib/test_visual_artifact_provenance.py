@@ -436,6 +436,79 @@ def test_grid_composite_tracks_only_the_aspect_ratio_sent_for_the_composite(tmp_
     assert portrait.digest != landscape.digest
 
 
+def _style_bound_bases(tmp_path: Path, *, style_description: str | None) -> tuple[str, str, str]:
+    """宫格联合图、切格分镜、参考视频三类依据的固定输入；``None`` 表示调用方不传描述。"""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    reference = tmp_path / "ref.png"
+    composite = tmp_path / "grid.png"
+    reference.write_bytes(b"visual")
+    composite.write_bytes(b"grid-v1")
+    references = (VisualReference(path=reference, role="asset_sheet", logical_type="character", logical_id="阿黎"),)
+    described: dict[str, str] = {} if style_description is None else {"style_description": style_description}
+    composite_basis = build_grid_composite_visual_basis(
+        group_id="grid_1",
+        members=_grid_members(),
+        rows=2,
+        columns=2,
+        style="水墨",
+        grid_aspect_ratio="1:1",
+        references=references,
+        **described,
+    )
+    member_basis = build_grid_member_storyboard_visual_basis(
+        group_id="grid_1",
+        members=_grid_members(),
+        cell_index=1,
+        composite_image=composite,
+        rows=2,
+        columns=2,
+        style="水墨",
+        member_aspect_ratio="16:9",
+        references=references,
+        **described,
+    )
+    video_basis = build_reference_video_artifact_visual_basis(
+        unit={"unit_id": "E1U01", "text": "阿黎走入雨巷"},
+        request_assets=(_request_asset(reference, asset_type="character", name="阿黎"),),
+        style="水墨",
+        aspect_ratio="9:16",
+        **described,
+    )
+    return composite_basis.digest, member_basis.digest, video_basis.digest
+
+
+_EMPTY_DESCRIPTION_STYLE_BOUND_DIGESTS = (
+    "sha256-v1:fde8d88b4d4fd080b55ec7235d765758ffa3bd6c69da80addbd9d58f9ee10044",
+    "sha256-v1:f4a0eaf0e55365968ca3dc765bce0bea86e4d023920df9ef88765018bfae151e",
+    "sha256-v1:32958d73d0a053a82bc86176f62ea977e5f9c10d97498c09b5a99f683d62b575",
+)
+
+
+@pytest.mark.parametrize("style_description", [None, "", "  \n"], ids=["omitted", "empty", "blank"])
+def test_grid_and_reference_video_bases_without_style_description_keep_fixed_digests(
+    tmp_path: Path, style_description: str | None
+) -> None:
+    """描述为空的项目，三类依据的摘要固定样本不变：存量产物不因补记描述翻过期。"""
+    assert _style_bound_bases(tmp_path, style_description=style_description) == _EMPTY_DESCRIPTION_STYLE_BOUND_DIGESTS
+
+
+def test_grid_and_reference_video_bases_track_style_description(tmp_path: Path) -> None:
+    """自定义风格项目的风格只由描述承载：描述改写后三类依据的目标都变化。"""
+    soft = _style_bound_bases(tmp_path / "soft", style_description="柔光水彩")
+    hard = _style_bound_bases(tmp_path / "hard", style_description="硬光版画")
+    padded = _style_bound_bases(tmp_path / "padded", style_description="  柔光水彩\n")
+
+    assert soft == (
+        "sha256-v1:ce80159db288f150bccfaa7076d9723f71838110bfc186c3af3ca96b841989e9",
+        "sha256-v1:b8a3424fedf2e9d1372439a0729867a4a0d077d940db4cbe3ee5c3cc49c2d288",
+        "sha256-v1:b3af17f1d5d4169b815780967a5710fbffd272fa23dd465f1df257035f3d0402",
+    )
+    assert padded == soft
+    for before, after, empty in zip(soft, hard, _EMPTY_DESCRIPTION_STYLE_BOUND_DIGESTS, strict=True):
+        assert after != before
+        assert before != empty
+
+
 def test_storyboard_video_visual_basis_excludes_sound_execution_and_duration(tmp_path: Path) -> None:
     start = tmp_path / "start.png"
     end = tmp_path / "end.png"

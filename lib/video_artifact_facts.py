@@ -231,7 +231,11 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
             raise ValueError("storyboard visual basis has invalid frame evidence")
         return
 
-    if set(inputs) != {"unit_id", "visual_lines", "style", "canvas", "request_references"}:
+    required = {"unit_id", "visual_lines", "style", "canvas", "request_references"}
+    if set(inputs) - {"style_description"} != required:
+        raise ValueError("reference visual basis has invalid canonical inputs")
+    # 风格描述非空才入依据：键在场时必为非空字符串。
+    if "style_description" in inputs and not _nonempty(inputs["style_description"]):
         raise ValueError("reference visual basis has invalid canonical inputs")
     lines = inputs["visual_lines"]
     lines_valid = isinstance(lines, list) and all(_nonempty(line) for line in lines)

@@ -30,6 +30,7 @@ from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.path_safety import safe_join
 from lib.project_manager import get_project_manager
+from lib.prompt_style import normalize_style_value
 from lib.version_manager import StagedVersionCommit, VersionManager
 from lib.visual_artifact_provenance import (
     GridStoryboardVisual,
@@ -396,6 +397,7 @@ async def apply_grid_split(
                                 rows=grid.rows,
                                 columns=grid.cols,
                                 style=str(current_project.get("style") or ""),
+                                style_description=normalize_style_value(current_project.get("style_description")),
                                 member_aspect_ratio=member_ratio,
                                 references=references,
                                 source_composite_digest=composite_digest,

@@ -299,7 +299,7 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
             (project_dir / "project.json", project_backup_versions),
             (project_dir / "versions" / "versions.json", project_backup_versions),
             # 清单不只在激活那一步被改写：v9→v10 改它的 key 与草稿路径，v12→v13 整份重投影，
-            # v13→v14 改写受风格值归一影响的条目，v14→v15 改写剧本登记。
+            # v13→v14 改写受风格值归一与风格描述补记影响的条目，v14→v15 改写剧本登记。
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
         )

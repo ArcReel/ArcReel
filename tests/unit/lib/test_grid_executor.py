@@ -533,6 +533,7 @@ class TestExecuteGridTask:
             rows=2,
             columns=2,
             style="realistic",
+            style_description="胶片颗粒，低饱和",
             grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
         )
         assert captured == [expected]
@@ -616,6 +617,7 @@ class TestExecuteGridTask:
             rows=2,
             columns=2,
             style="realistic",
+            style_description="胶片颗粒，低饱和",
             grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
         )
         assert captured_basis == [expected_basis]

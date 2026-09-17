@@ -3381,6 +3381,7 @@ async def execute_grid_task(
             rows=grid.rows,
             columns=grid.cols,
             style=str(project.get("style") or ""),
+            style_description=normalize_style_value(project.get("style_description")),
             grid_aspect_ratio=grid_aspect_ratio,
             references=frozen_references.visual_references,
         )

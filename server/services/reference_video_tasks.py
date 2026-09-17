@@ -30,6 +30,7 @@ from lib.generation_queue import (
 )
 from lib.narration_delivery import USE_TTS
 from lib.path_safety import safe_join
+from lib.prompt_style import normalize_style_value
 from lib.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
@@ -644,6 +645,7 @@ async def execute_reference_video_task(
                     unit=unit,
                     request_assets=staged_request_assets,
                     style=project.get("style"),
+                    style_description=normalize_style_value(project.get("style_description")),
                     aspect_ratio=aspect_ratio,
                 )
             )

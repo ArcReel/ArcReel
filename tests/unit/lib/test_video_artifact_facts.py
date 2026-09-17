@@ -153,3 +153,47 @@ def test_video_artifact_currency_rejects_non_string_speakers_as_value_error(spea
 
     with pytest.raises(ValueError, match="not self-verifying"):
         VideoArtifactCurrencyFacts.from_dict(raw)
+
+
+def _reference_facts(visual_inputs: dict[str, object]) -> VideoArtifactCurrencyFacts:
+    facts = _facts()
+    reference = ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs=visual_inputs)
+    return VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=8,
+        visual_basis=reference,
+        speech_basis=facts.speech_basis,
+        duration_basis=facts.duration_basis,
+        video_basis=compose_video_artifact_basis(
+            visual=reference,
+            speech=facts.speech_basis,
+            duration=facts.duration_basis,
+        ),
+        voice_style_speakers=facts.voice_style_speakers,
+        duration_tiers=facts.duration_tiers,
+        reference_image_limit=None,
+        parent_version=0,
+    )
+
+
+_REFERENCE_VISUAL_INPUTS: dict[str, object] = {
+    "unit_id": "E1U1",
+    "visual_lines": ["阿离走入雨巷"],
+    "style": "",
+    "canvas": {"aspect_ratio": "9:16"},
+    "request_references": [],
+}
+
+
+def test_video_artifact_currency_accepts_reference_visual_style_description() -> None:
+    """自定义风格项目的参考视频依据带非空风格描述，冻结事实照常自证。"""
+    facts = _reference_facts({**_REFERENCE_VISUAL_INPUTS, "style_description": "柔光水彩"})
+
+    assert VideoArtifactCurrencyFacts.from_dict(facts.to_dict()) == facts
+
+
+@pytest.mark.parametrize("description", ["", 7])
+def test_video_artifact_currency_rejects_empty_or_non_string_style_description(description: object) -> None:
+    """描述为空时依据不记该键；空串或非字符串不是构造函数能写出的形态。"""
+    with pytest.raises(ValueError, match="reference visual basis has invalid canonical inputs"):
+        _reference_facts({**_REFERENCE_VISUAL_INPUTS, "style_description": description})
