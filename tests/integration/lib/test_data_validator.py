@@ -93,6 +93,21 @@ class TestDataValidator:
         assert not result.valid
         assert any("缺少必填字段: style" in error for error in result.errors)
 
+    @pytest.mark.parametrize("template_id", [0, ["live_cinematic"]], ids=["falsy", "truthy"])
+    def test_validate_project_rejects_non_string_template_id(self, tmp_path, template_id):
+        """模版 id 非字符串按类型错误报告，不参与「已选模版须有快照」的判定。"""
+        payload = _project_payload()
+        payload["style_template_id"] = template_id
+        payload["style"] = ""
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert not result.valid
+        assert any("字段类型错误: style_template_id 应为字符串" in error for error in result.errors)
+        assert not any("缺少必填字段: style" in error for error in result.errors)
+
     def test_validate_project_treats_empty_template_id_as_none(self, tmp_path):
         """创建接口按真值判定是否展开模版，空串 id 与 null 同义，不要求快照。"""
         payload = _project_payload()

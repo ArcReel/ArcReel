@@ -446,9 +446,13 @@ class DataValidator:
         # 选定了风格模版时 style 必须是展开快照（ADR 0023），空快照会让生成端丢掉已选的风格；
         # 模版 id 为空串与 null 同义（创建接口按真值判定是否展开模版）。
         style = project.get("style")
+        style_template_id = project.get("style_template_id")
+        if style_template_id is not None and not isinstance(style_template_id, str):
+            errors.append(_m("val_field_type_string", field="style_template_id"))
+            style_template_id = None
         if "style" in project and not isinstance(style, str):
             errors.append(_m("val_field_type_string", field="style"))
-        elif project.get("style_template_id") and not (style or "").strip():
+        elif style_template_id and not (style or "").strip():
             errors.append(_m("val_missing_field", field="style"))
 
         episodes = project.get("episodes", [])
