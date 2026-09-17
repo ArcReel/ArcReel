@@ -10,11 +10,19 @@
 #       uses: ArcReel/ArcReel/.github/workflows/market-publish-index.yml@main
 #       permissions:
 #         contents: write
+#       secrets: # 可选：仅在配置了下面两个 App secret 时需要
+#         MARKET_APP_CLIENT_ID: ${{ secrets.MARKET_APP_CLIENT_ID }}
+#         MARKET_APP_PRIVATE_KEY: ${{ secrets.MARKET_APP_PRIVATE_KEY }}
 #
-# 参数：无。权限：调用方须授予 contents: write，用于以 github-actions[bot] 提交重生成的索引。
-# 可选 secret INDEX_PUSH_TOKEN：默认分支受保护、GITHUB_TOKEN 无法直推时，传入可绕过保护的
-# GitHub App token（调用方加 `secrets: inherit` 或显式映射）；缺省使用 GITHUB_TOKEN。
-# 用 GITHUB_TOKEN 推送的提交不会再次触发工作流；用 App token 时会再跑一次，索引无变化即不提交。
+# 参数：无。权限：调用方须授予 contents: write，用于提交并推送重生成的索引。
+#
+# 可选 secrets（默认分支受保护、GITHUB_TOKEN 无法直推时使用；两者须同时配置）：
+#   MARKET_APP_CLIENT_ID    被 ruleset 列为 bypass actor 的 GitHub App 的 client id
+#   MARKET_APP_PRIVATE_KEY  该 App 的 private key
+# 推荐调用方仓库以同名 secret 配置，并在 `uses:` 块下显式映射这两个名字；同组织仓库也可用 `secrets: inherit`。
+# 两者齐备时，用 actions/create-github-app-token 换取只对调用方仓库 contents: write 的安装令牌，
+# 以该 App 的 bot 身份（<app-slug>[bot]）提交并推送；任一缺失时以 github-actions[bot] 身份用 GITHUB_TOKEN 推送。
+# 用 GITHUB_TOKEN 推送的提交不会再次触发工作流；用 App 令牌时会再跑一次，索引无变化即不提交。
 #
 # 同一分支的运行按 concurrency 串行；每次运行检出分支最新提交，因而排队的运行看得到上一次的 bot 提交。
 name: Market publish index
@@ -22,8 +30,11 @@ name: Market publish index
 on:
   workflow_call:
     secrets:
-      INDEX_PUSH_TOKEN:
-        description: 推送索引提交用的令牌；缺省使用 GITHUB_TOKEN
+      MARKET_APP_CLIENT_ID:
+        description: 推送索引提交用的 GitHub App client id；须与 MARKET_APP_PRIVATE_KEY 同时配置，缺省使用 GITHUB_TOKEN
+        required: false
+      MARKET_APP_PRIVATE_KEY:
+        description: 推送索引提交用的 GitHub App private key；须与 MARKET_APP_CLIENT_ID 同时配置，缺省使用 GITHUB_TOKEN
         required: false
 
 permissions:
@@ -39,6 +50,10 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write # 提交并推送重生成的 arcreel-market.json
+    env:
+      # secrets 不能直接用于 step 的 if，先在 job 级折算成不含密文的布尔字符串
+      USE_APP_TOKEN: ${{ secrets.MARKET_APP_CLIENT_ID != '' && secrets.MARKET_APP_PRIVATE_KEY != '' }}
+      APP_SECRETS_PARTIAL: ${{ (secrets.MARKET_APP_CLIENT_ID != '') != (secrets.MARKET_APP_PRIVATE_KEY != '') }}
     steps:
       - name: Require a branch ref
         env:
@@ -48,6 +63,10 @@ jobs:
             refs/heads/*) ;;
             *) echo "::error::market-publish-index must run on a branch push, got ${REF}"; exit 1 ;;
           esac
+
+      - name: Warn on partial App secrets
+        if: env.APP_SECRETS_PARTIAL == 'true'
+        run: echo "::warning::Only one of MARKET_APP_CLIENT_ID / MARKET_APP_PRIVATE_KEY is set; pushing with GITHUB_TOKEN instead."
 
       - name: Checkout market source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,17 +102,37 @@ jobs:
         working-directory: arcreel
         run: uv run --no-sync python -m lib.market check "${GITHUB_WORKSPACE}/market"
 
+      - name: Create App token
+        id: app-token
+        if: env.USE_APP_TOKEN == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.MARKET_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MARKET_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
       - name: Commit index
         working-directory: market
         env:
-          PUSH_TOKEN: ${{ secrets.INDEX_PUSH_TOKEN || github.token }}
+          PUSH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
           git add arcreel-market.json
           if git diff --cached --quiet; then
             echo "arcreel-market.json is up to date."
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$APP_SLUG" ]; then
+            bot_name="${APP_SLUG}[bot]"
+            bot_id="$(GH_TOKEN="$PUSH_TOKEN" gh api "/users/${bot_name}" --jq .id)"
+            bot_email="${bot_id}+${bot_name}@users.noreply.github.com"
+          else
+            bot_name="github-actions[bot]"
+            bot_email="41898282+github-actions[bot]@users.noreply.github.com"
+          fi
+          git config user.name "$bot_name"
+          git config user.email "$bot_email"
           git commit -m "chore: regenerate index"
           git push "https://x-access-token:${PUSH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git" "HEAD:${GITHUB_REF}"
