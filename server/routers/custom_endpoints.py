@@ -5,13 +5,16 @@
 
 ``POST /validate`` 是单段、服务端无状态的确认：与保存共用同一个校验器，额外回同作者同名的既有端点、提示
 回显与版本档位，让客户端在创建之前就能决定新建副本、覆盖既有还是取消。
+
+``validate`` 与创建这两个导入入口按载荷形状分流：带 ``kind`` 的是端点定义，其余按 ComfyUI 的
+workflow 收——用户手上最常见的文件是 ComfyUI 自己导出的 workflow，而不是端点定义。
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
@@ -19,10 +22,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.api_errors import ConflictError, NotFoundError, UnprocessableError
 from lib.custom_provider import make_endpoint_key
+from lib.custom_provider.comfyui.import_shapes import ImportShape, route_import_payload, ui_workflow_refusal
 from lib.custom_provider.endpoint_definition import (
-    CURRENT_SCHEMA_VERSION,
+    DefinitionDiagnostics,
     SchemaVersionLevel,
     VersionRelation,
+    current_schema_version,
     meets_min_app_version,
     parse_semver,
     schema_version_level,
@@ -54,6 +59,9 @@ router.include_router(endpoint_tests.router)
 #: 请求体即定义 JSON 原样。刻意不声明成 ``dict``：非对象的输入（数组、裸串）也要经共享校验器
 #: 产出定位到字段的诊断，而不是撞上 FastAPI 自己的一套 422 形状。
 DefinitionBody = Annotated[Any, Body()]
+
+#: 粘进来的是原始 workflow 时，由导入方指定它产图还是产视频——workflow 本身不声明这件事。
+ImportMediaType = Literal["image", "video"]
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +124,10 @@ class ValidateResponse(BaseModel):
     schema_version: SchemaVersionInfo
     # 定义未声明（或声明值不是 semver）、或应用版本读不出时为 null。
     min_app_version: MinAppVersionInfo | None = None
+    # 这份载荷被当成什么收的：端点定义、ComfyUI 的 API workflow，还是提交不了的 UI 格式。
+    import_shape: ImportShape
+    # 原始 API workflow 的包装结果；另两种形状为 null，客户端继续用自己手上那份。
+    wrapped_definition: dict[str, Any] | None = None
 
 
 class EndpointReferenceDescriptor(BaseModel):
@@ -149,16 +161,35 @@ def endpoint_response(
     )
 
 
-def _accepted_definition(body: object, _t: Translator) -> dict[str, Any]:
-    """过共享校验器，错误即 422 + 结构化诊断；通过后才是可落库的定义。
+def _routed_import(body: object, media_type: str) -> tuple[ImportShape, Any, DefinitionDiagnostics]:
+    """按载荷形状分流，产出「待校验的定义 + 它的诊断」。
+
+    UI 格式的 workflow 不进校验器：它没有 ``class_type``，拿定义 schema 去判只会报出一整屏与
+    「导错了菜单项」无关的字段错误，一条结构化的拒绝才说得清该怎么办。
+    """
+    shape, definition = route_import_payload(body, media_type=media_type)
+    if shape is ImportShape.COMFYUI_UI_WORKFLOW:
+        return shape, definition, ui_workflow_refusal()
+    return shape, definition, validate_definition(definition)
+
+
+def _accepted(definition: object, diagnostics: DefinitionDiagnostics, _t: Translator) -> dict[str, Any]:
+    """错误即 422 + 结构化诊断；通过后才是可落库的定义。
 
     保存与 ``validate`` 走同一个 :func:`validate_definition`，两处不可能给出不同判定——
     「validate 说行、保存说不行」正是共用校验器要消灭的分裂。警告不拦保存。
     """
-    diagnostics = validate_definition(body)
-    if diagnostics.errors or not isinstance(body, dict):
+    if diagnostics.errors or not isinstance(definition, dict):
         raise UnprocessableError("custom_endpoint_definition_invalid").with_diagnostic(diagnostics.to_payload(_t))
-    return body
+    return definition
+
+
+def _accepted_definition(body: object, _t: Translator) -> dict[str, Any]:
+    """整份替换走的入口：只认端点定义，不做导入分流。
+
+    用一份原始 workflow 覆盖既有端点会把已确认的节点绑定一并抹掉，这不该是静默发生的事。
+    """
+    return _accepted(body, validate_definition(body), _t)
 
 
 def _lineage(definition: object) -> tuple[str | None, str | None, str | None]:
@@ -265,10 +296,16 @@ async def _invalidate_backend_cache() -> None:
 async def create_endpoint(
     body: DefinitionBody,
     _t: Translator,
+    media_type: ImportMediaType = "video",
     session: AsyncSession = Depends(get_async_session),
 ) -> CustomEndpointResponse:
-    """创建（即导入）一条自定义调用端点。请求体是定义 JSON 原样，键由系统分配。"""
-    definition = _accepted_definition(body, _t)
+    """创建（即导入）一条自定义调用端点。请求体是定义 JSON 原样，键由系统分配。
+
+    请求体也可以是一份 ComfyUI 的原始 API workflow，此时服务端按 ``media_type`` 把它包成
+    ComfyUI 端点定义——包装结果的节点绑定是空的，因此会被「提示词与产物必须绑定」挡下。
+    """
+    _, routed, diagnostics = _routed_import(body, media_type)
+    definition = _accepted(routed, diagnostics, _t)
     mirror = derive_mirror_columns(definition)
     repo = CustomEndpointRepository(session)
     row = await repo.create(
@@ -298,26 +335,31 @@ async def validate_endpoint_definition(
     _t: Translator,
     read_app_version: Annotated[Callable[[], str], Depends(get_app_version_reader)],
     exclude_id: int | None = None,
+    media_type: ImportMediaType = "video",
     session: AsyncSession = Depends(get_async_session),
 ) -> ValidateResponse:
-    """保存前的单段确认：校验诊断 + 同作者同名的既有端点 + 提示回显 + 版本档位 + 应用版本门槛。服务端不留任何状态。
+    """保存前的单段确认：形状分流 + 校验诊断 + 同作者同名的既有端点 + 提示回显 + 版本档位 + 应用版本门槛。服务端不留任何状态。
 
-    ``exclude_id`` 供编辑既有端点时排除自身，否则它总会把自己报成重复。
+    ``exclude_id`` 供编辑既有端点时排除自身，否则它总会把自己报成重复。载荷是原始 API workflow
+    时，回的每一项都算在包装结果上——客户端接着要带走的就是它。
     """
-    diagnostics = validate_definition(body)
+    shape, definition, diagnostics = _routed_import(body, media_type)
     payload = diagnostics.to_payload(_t)
-    file_version = _schema_version_of(body)
+    file_version = _schema_version_of(definition)
+    current_version = current_schema_version(definition)
     return ValidateResponse(
         errors=payload["errors"],
         warnings=payload["warnings"],
-        duplicates=await _duplicates_of(CustomEndpointRepository(session), body, exclude_id),
-        hints=_hints_of(body),
+        duplicates=await _duplicates_of(CustomEndpointRepository(session), definition, exclude_id),
+        hints=_hints_of(definition),
         schema_version=SchemaVersionInfo(
             file=file_version,
-            current=CURRENT_SCHEMA_VERSION,
-            level=schema_version_level(file_version, CURRENT_SCHEMA_VERSION),
+            current=current_version,
+            level=schema_version_level(file_version, current_version),
         ),
-        min_app_version=_min_app_version_of(body, read_app_version),
+        min_app_version=_min_app_version_of(definition, read_app_version),
+        import_shape=shape,
+        wrapped_definition=definition if shape is ImportShape.COMFYUI_API_WORKFLOW else None,
     )
 
 

@@ -1,4 +1,4 @@
-"""声明式定义的诊断载体：稳定错误码 + 定位路径 + locale-neutral 消息。
+"""端点定义的诊断载体：稳定错误码 + 定位路径 + locale-neutral 消息。
 
 保存、``validate`` 接口、端点测试与 import 期共用同一份诊断，消费边界各自渲染语言，因此产出
 点只带 ``ValidationMessage``（key + params），不带成品文案。``code`` 是跨边界的稳定契约：前端
@@ -6,6 +6,9 @@
 
 ``path`` 是定义 JSON 内的定位串，根为 ``$``，其余按 ``submit.extract.video_url[0]`` 这样的
 点号 + 下标写法拼出，直接对应 UI 里的字段。
+
+本模块在 ``lib.custom_provider`` 顶层而不在某一种 ``kind`` 的包内：每种 kind 的校验实现都产出这套
+诊断，放进其中一个 kind 的包里会让另一个 kind 反向依赖它。
 """
 
 from __future__ import annotations
@@ -27,8 +30,9 @@ ROOT_PATH = "$"
 class DefinitionErrorCode(StrEnum):
     """定义校验能产出的全部诊断码。
 
-    前半段是结构层（JSON Schema 转译而来），后半段是语义层（占位符作用域、凭证唯一写入口、
-    能力两向一致、JSONPath 子集）。warning 码单列在末尾。
+    前半段是结构层（JSON Schema 转译而来），中段是声明式定义的语义层（占位符作用域、凭证唯一
+    写入口、能力两向一致、JSONPath 子集），再往后是 ComfyUI 定义的语义层（节点绑定与 workflow
+    的交叉判定）。结构层与占位符作用域两段由两种 kind 共用。warning 码单列在末尾。
     """
 
     # ---- 结构层 ----
@@ -93,6 +97,16 @@ class DefinitionErrorCode(StrEnum):
     ENUM_MAP_VALUE_MISSING = "enum_map_value_missing"
     TEMPLATE_TEXT_VARIABLE_NULL = "template_text_variable_null"
     EACH_VALUE_NOT_LIST = "each_value_not_list"
+
+    # ---- ComfyUI 节点绑定 ----
+    COMFYUI_BINDING_REQUIRED = "comfyui_binding_required"
+    COMFYUI_BINDING_KEY_NOT_ALLOWED = "comfyui_binding_key_not_allowed"
+    COMFYUI_NODE_NOT_FOUND = "comfyui_node_not_found"
+    COMFYUI_INPUT_NOT_FOUND = "comfyui_input_not_found"
+    COMFYUI_INPUT_IS_LINK = "comfyui_input_is_link"
+
+    # ---- ComfyUI 导入分流 ----
+    COMFYUI_UI_FORMAT_WORKFLOW = "comfyui_ui_format_workflow"
 
     # ---- warning ----
     POLL_WITHOUT_TASK_ID = "poll_without_task_id"

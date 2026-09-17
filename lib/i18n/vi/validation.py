@@ -238,7 +238,10 @@ MESSAGES = {
     "val_ce_removed_reason_mime_types": (
         "định dạng tư liệu không có danh sách cho phép; nhà cung cấp sẽ từ chối định dạng không nhận"
     ),
-    "val_ce_removed_reason_media_type": "giai đoạn này chỉ có một loại phương tiện là video",
+    "val_ce_removed_reason_media_type": "điểm cuối khai báo luôn là video nên không thể khai báo loại phương tiện",
+    "val_ce_removed_reason_comfyui_capabilities": (
+        "điểm cuối ComfyUI suy ra năng lực từ các liên kết node nên định nghĩa không lưu khai báo năng lực"
+    ),
     "val_ce_malformed_placeholder": (
         "{fragment} không phải là chỗ giữ hợp lệ: chỉ hỗ trợ biến trần "
         "(như prompt hoặc inputs.first_frame) — không có bộ lọc, chỉ số hay biểu thức, "
@@ -340,6 +343,26 @@ MESSAGES = {
     "val_ce_enum_map_value_missing": "enum_maps.{name} không có ánh xạ cho '{value}'",
     "val_ce_template_text_variable_null": "Biến {name} rỗng nên không thể chèn vào văn bản",
     "val_ce_each_value_not_list": "$each.in trỏ tới {name}, có giá trị khi chạy không phải danh sách",
+    # ---- Điểm cuối ComfyUI: liên kết node và phân loại khi nhập ----
+    "val_ce_comfyui_binding_required": (
+        "{binding_key} phải được liên kết với một node trước khi lưu: "
+        "câu lệnh quyết định vẽ gì, đầu ra quyết định lấy tệp nào"
+    ),
+    "val_ce_comfyui_binding_key_not_allowed": (
+        "Điểm cuối {media_type} không có ngữ nghĩa {binding_key}; các khóa khả dụng: {allowed}"
+    ),
+    "val_ce_comfyui_node_not_found": (
+        "Workflow không có node {node}: id node thay đổi mỗi khi workflow được chỉnh sửa, "
+        "hãy nhập lại và xác nhận các liên kết node"
+    ),
+    "val_ce_comfyui_input_not_found": "Node {node} không có đầu vào tên {input}",
+    "val_ce_comfyui_input_is_link": (
+        "Đầu vào {input} của node {node} được nối từ node phía trên nên giá trị điền vào sẽ bị ghi đè khi chạy; "
+        "hãy liên kết tới một trường giá trị trực tiếp"
+    ),
+    "val_ce_comfyui_ui_format_workflow": (
+        "Đây là workflow định dạng UI của ComfyUI và không thể gửi đi; hãy xuất bằng Export (API) trong ComfyUI"
+    ),
     "val_ce_poll_without_task_id": "Yêu cầu hỏi trạng thái không tham chiếu task_id; hãy xác nhận đây là chủ ý",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} dùng ký tự đại diện: với đối tượng chỉ lấy thành viên đầu tiên, "

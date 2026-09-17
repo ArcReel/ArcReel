@@ -12,3 +12,6 @@ from __future__ import annotations
 
 #: 声明式定义：「JSON in/out + 提交/轮询」流派，请求模板与取值路径都写在定义里（``docs/adr/0067``）。
 DECLARATIVE_KIND = "declarative"
+
+#: ComfyUI 定义：一份 API 格式 workflow 连同它的节点绑定（``docs/adr/0081``）。
+COMFYUI_KIND = "comfyui"

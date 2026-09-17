@@ -16,21 +16,31 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping
 from functools import cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl
 
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
 
-from lib.validation_messages import MessageRef, ValidationMessage
+from lib.custom_provider.comfyui.validator import (
+    CURRENT_SCHEMA_VERSION as COMFYUI_SCHEMA_VERSION,
+)
+from lib.custom_provider.comfyui.validator import (
+    validate_comfyui_definition,
+)
+from lib.custom_provider.definition_diagnostics import (
+    DefinitionDiagnostics,
+    DefinitionErrorCode,
+    DefinitionIssue,
+    join_path,
+)
+from lib.custom_provider.definition_schema_errors import most_specific, translate_schema_error
 from lib.video_backends.base import ProviderJobStatus, ReferenceAudioMode, audio_capability_pair_is_coherent
 
-from .errors import ROOT_PATH, DefinitionDiagnostics, DefinitionErrorCode, DefinitionIssue, join_path
 from .jsonpath_subset import JsonPathSubsetError, parse_json_path
-from .kinds import DECLARATIVE_KIND
+from .kinds import COMFYUI_KIND, DECLARATIVE_KIND
 from .template_engine import enum_map_key
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
@@ -135,29 +145,6 @@ _PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0
 #: 过滤器、下标、表达式与未闭合的开括号都不是占位符，渲染时会原样发给供应商。
 _PLACEHOLDER_OPEN = re.compile(r"\{\{")
 
-_ENUM_KEYWORDS = frozenset({"enum", "const"})
-
-#: ``schema.json`` 里给 ``$each`` 打的标记：它的 ``oneOf`` 是互斥形态而非分支联合。
-_EACH_SHAPE_MARKER = "each_shape"
-
-#: 同一深度上多条分支报错时的取舍：缺字段 / 多字段最能说明问题，笼统的类型错最没用。
-_KEYWORD_SPECIFICITY: Mapping[str, int] = {
-    "type": 0,
-    "anyOf": 1,
-    "oneOf": 1,
-    "not": 1,
-    "required": 3,
-    "additionalProperties": 3,
-}
-
-_VALUE_SHAPE_KEYWORDS = frozenset(
-    {"pattern", "format", "minLength", "maxLength", "minimum", "maximum", "minItems", "minProperties", "propertyNames"}
-)
-
-_MINIMUM_KEYWORDS = frozenset({"minLength", "minimum", "minItems", "minProperties"})
-_MAXIMUM_KEYWORDS = frozenset({"maxLength", "maximum"})
-_FORMAT_KEYWORDS = frozenset({"pattern", "format", "propertyNames"})
-
 
 @cache
 def load_schema() -> dict[str, Any]:
@@ -201,7 +188,25 @@ def _validate_declarative(document: Mapping[str, Any]) -> DefinitionDiagnostics:
 #: ``kind`` → 该 kind 的校验实现。键集即校验层认得的全部 kind，容器层的枚举由它派生，两者不会分叉。
 _KIND_VALIDATORS: Mapping[str, Callable[[Mapping[str, Any]], DefinitionDiagnostics]] = {
     DECLARATIVE_KIND: _validate_declarative,
+    COMFYUI_KIND: validate_comfyui_definition,
 }
+
+#: ``kind`` → 该 kind 的定义格式当前版本。两种 kind 各有一条版本线，拿一条去比另一条只会在完全
+#: 合规的定义上报出假的版本落差。
+_CURRENT_SCHEMA_VERSION_BY_KIND: Mapping[str, str] = {
+    DECLARATIVE_KIND: CURRENT_SCHEMA_VERSION,
+    COMFYUI_KIND: COMFYUI_SCHEMA_VERSION,
+}
+
+
+def current_schema_version(document: object) -> str:
+    """一份定义所属版本线的当前版本。
+
+    ``kind`` 认不出时退回声明式那条线：版本档位只是给导入确认看的提示，真正的闸门是校验器——
+    它对名录外的 kind 已经直接拒绝，此处再编一个版本号出来没有意义。
+    """
+    kind = document.get("kind") if isinstance(document, Mapping) else None
+    return _CURRENT_SCHEMA_VERSION_BY_KIND.get(str(kind), CURRENT_SCHEMA_VERSION)
 
 
 # ---------------------------------------------------------------- 容器层
@@ -220,7 +225,7 @@ def _container_validator() -> Draft202012Validator:
 
 def _container_issues(document: Any) -> Iterator[DefinitionIssue]:
     for error in _container_validator().iter_errors(document):
-        yield from _translate_schema_error(error)
+        yield from translate_schema_error(error, removed_fields={})
 
 
 # ---------------------------------------------------------------- 结构层
@@ -228,114 +233,7 @@ def _container_issues(document: Any) -> Iterator[DefinitionIssue]:
 
 def _structural_issues(document: Any) -> Iterator[DefinitionIssue]:
     for error in _schema_validator().iter_errors(document):
-        yield from _translate_schema_error(_most_specific(error))
-
-
-def _most_specific(error: ValidationError) -> ValidationError:
-    """``anyOf`` / ``oneOf`` 的报错落在组合关键字上，逐层下钻到真正不匹配的那条子规则。
-
-    组合里每条分支都会报错，取「定位最深、说法最具体」的那条：结构模板的分支union里，
-    「``body`` 不是字符串」这种最外层的类型错对写定义的人毫无用处，真正要看的是深处那句
-    「``$each`` 缺 item」。互斥形态的组合（``$each`` 的 item 与 key/value）停在组合关键字
-    上：下钻只会挑中某条分支缺哪个字段，而真正的问题是两种写法混用。
-    """
-    while error.context and not _is_mutually_exclusive_shape(error):
-        error = max(error.context, key=_specificity)
-    return error
-
-
-def _is_mutually_exclusive_shape(error: ValidationError) -> bool:
-    schema = error.schema if isinstance(error.schema, dict) else {}
-    return str(error.validator) == "oneOf" and schema.get("$comment") == _EACH_SHAPE_MARKER
-
-
-def _specificity(error: ValidationError) -> tuple[int, int]:
-    return len(error.absolute_path), _KEYWORD_SPECIFICITY.get(str(error.validator), 2)
-
-
-def _translate_schema_error(error: ValidationError) -> Iterator[DefinitionIssue]:
-    path = _format_path(error.absolute_path)
-    keyword = str(error.validator)
-    if _is_mutually_exclusive_shape(error):
-        yield DefinitionIssue(path, DefinitionErrorCode.EACH_SHAPE_INVALID)
-        return
-    if keyword == "required":
-        yield from _missing_field_issues(error, path)
-        return
-    if keyword == "additionalProperties":
-        yield from _extra_field_issues(error, path)
-        return
-    if keyword == "type":
-        yield DefinitionIssue(
-            path, DefinitionErrorCode.INVALID_TYPE, {"expected": _format_allowed(error.validator_value)}
-        )
-        return
-    if keyword in _ENUM_KEYWORDS:
-        yield DefinitionIssue(
-            path, DefinitionErrorCode.INVALID_ENUM_VALUE, {"allowed": _format_allowed(error.validator_value)}
-        )
-        return
-    if keyword in _VALUE_SHAPE_KEYWORDS:
-        yield DefinitionIssue(
-            path,
-            DefinitionErrorCode.INVALID_VALUE,
-            {"detail": _schema_detail(error)},
-        )
-        return
-    yield DefinitionIssue(
-        path,
-        DefinitionErrorCode.SCHEMA_VIOLATION,
-        {"detail": _schema_detail(error)},
-    )
-
-
-def _schema_detail(error: ValidationError) -> ValidationMessage:
-    """把 jsonschema 的英文散文收成少量 locale-neutral 约束模板。"""
-    keyword = str(error.validator)
-    if keyword in _MINIMUM_KEYWORDS:
-        return ValidationMessage("val_ce_schema_minimum_constraint", {"limit": error.validator_value})
-    if keyword in _MAXIMUM_KEYWORDS:
-        return ValidationMessage("val_ce_schema_maximum_constraint", {"limit": error.validator_value})
-    if keyword in _FORMAT_KEYWORDS:
-        return ValidationMessage("val_ce_schema_format_constraint", {"constraint": error.validator_value})
-    if keyword == "not":
-        return ValidationMessage("val_ce_schema_forbidden_constraint")
-    return ValidationMessage("val_ce_schema_generic_constraint", {"keyword": keyword})
-
-
-def _missing_field_issues(error: ValidationError, path: str) -> Iterator[DefinitionIssue]:
-    instance = error.instance if isinstance(error.instance, dict) else {}
-    required = error.validator_value if isinstance(error.validator_value, list) else []
-    for name in required:
-        if name not in instance:
-            yield DefinitionIssue(path, DefinitionErrorCode.MISSING_FIELD, {"field": str(name)})
-
-
-def _extra_field_issues(error: ValidationError, path: str) -> Iterator[DefinitionIssue]:
-    schema = error.schema if isinstance(error.schema, dict) else {}
-    allowed = set(schema.get("properties", {}))
-    instance = error.instance if isinstance(error.instance, dict) else {}
-    for name in sorted(set(instance) - allowed):
-        reason_key = REMOVED_FIELD_REASONS.get(name)
-        if reason_key is None:
-            yield DefinitionIssue(path, DefinitionErrorCode.UNKNOWN_FIELD, {"field": name})
-        else:
-            yield DefinitionIssue(
-                path, DefinitionErrorCode.REMOVED_FIELD, {"field": name, "reason": MessageRef(reason_key)}
-            )
-
-
-def _format_allowed(value: object) -> str:
-    if isinstance(value, list):
-        return " / ".join("null" if item is None else str(item) for item in value)
-    return "null" if value is None else str(value)
-
-
-def _format_path(parts: Sequence[str | int]) -> str:
-    path = ROOT_PATH
-    for part in parts:
-        path = join_path(path, part)
-    return path
+        yield from translate_schema_error(most_specific(error), removed_fields=REMOVED_FIELD_REASONS)
 
 
 # ---------------------------------------------------------------- 语义层

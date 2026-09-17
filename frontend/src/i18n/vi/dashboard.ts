@@ -1996,6 +1996,8 @@ export default {
   'ce_import_failed': 'Không nhập được định nghĩa.',
   'ce_imported': 'Đã nhập định nghĩa.',
   'ce_import_blocked': 'Hãy sửa các lỗi trong tệp trước khi nhập.',
+  'ce_import_shape_comfyui_api': 'Đã nhận diện là workflow API của ComfyUI và được đóng gói thành định nghĩa điểm cuối ComfyUI. Các liên kết node chưa được xác nhận; hãy liên kết câu lệnh và đầu ra trước khi lưu.',
+  'ce_import_shape_comfyui_ui': 'Đây là workflow định dạng UI của ComfyUI và không thể gửi đi. Hãy xuất lại bằng "Export (API)" trong ComfyUI.',
   'ce_import_create': 'Nhập',
   'ce_import_create_copy': 'Nhập thành bản sao',
   'ce_import_overwrite': 'Ghi đè',

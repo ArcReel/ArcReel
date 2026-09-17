@@ -197,7 +197,8 @@ MESSAGES = {
     "val_ce_removed_reason_extract_source": "取值根一律是响应体，HTTP 状态码不走 JSONPath",
     "val_ce_removed_reason_extract_usage_keys": "用量改挂 poll.extract.usage",
     "val_ce_removed_reason_mime_types": "素材格式不做白名单，由供应商在提交时拒绝",
-    "val_ce_removed_reason_media_type": "首期只有视频一种媒体类型",
+    "val_ce_removed_reason_media_type": "声明式端点恒为视频，媒体类型不可声明",
+    "val_ce_removed_reason_comfyui_capabilities": "ComfyUI 端点的能力只从节点绑定推导，定义不存能力声明",
     "val_ce_malformed_placeholder": (
         "{fragment} 不是合法占位符：只支持裸变量（如 prompt、inputs.first_frame），"
         "没有过滤器、下标与表达式，开括号也必须闭合"
@@ -250,6 +251,13 @@ MESSAGES = {
     "val_ce_enum_map_value_missing": "enum_maps.{name} 缺少 '{value}' 的映射",
     "val_ce_template_text_variable_null": "变量 {name} 为空，不能嵌入混合文本",
     "val_ce_each_value_not_list": "$each.in 指向的 {name} 在运行时不是列表",
+    # ---- ComfyUI 端点 · 节点绑定与导入分流 ----
+    "val_ce_comfyui_binding_required": "语义键 {binding_key} 必须绑定到节点后才能保存：提示词决定画什么，产物决定取哪个文件",
+    "val_ce_comfyui_binding_key_not_allowed": "{media_type} 端点没有 {binding_key} 这一项语义，可用的语义键：{allowed}",
+    "val_ce_comfyui_node_not_found": "workflow 里没有节点 {node}：workflow 改过之后节点 id 会变，请重新导入并确认节点绑定",
+    "val_ce_comfyui_input_not_found": "节点 {node} 没有名为 {input} 的输入",
+    "val_ce_comfyui_input_is_link": "节点 {node} 的 {input} 接的是上游连线，填进去的值运行时会被上游覆盖：请绑到字面值字段",
+    "val_ce_comfyui_ui_format_workflow": "这是 ComfyUI 的 UI 格式 workflow，提交不了：请在 ComfyUI 里改用「Export (API)」导出",
     "val_ce_poll_without_task_id": "轮询请求没有引用 task_id，请确认这是有意的",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} 含通配：对象通配只取首个，键序在前端预览与后端执行之间可能不同"

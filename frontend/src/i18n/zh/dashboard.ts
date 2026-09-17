@@ -1997,6 +1997,8 @@ export default {
   'ce_import_failed': '导入定义失败。',
   'ce_imported': '定义已导入。',
   'ce_import_blocked': '文件中的错误修正后才能导入。',
+  'ce_import_shape_comfyui_api': '识别为 ComfyUI 的 API workflow，已包装成 ComfyUI 端点定义。节点绑定尚未确认，绑定提示词与产物后才能保存。',
+  'ce_import_shape_comfyui_ui': '这是 ComfyUI 的 UI 格式 workflow，无法提交。请在 ComfyUI 中改用「Export (API)」重新导出。',
   'ce_import_create': '导入',
   'ce_import_create_copy': '导入为副本',
   'ce_import_overwrite': '覆盖',

@@ -18,7 +18,7 @@ from lib.custom_provider.endpoint_resolution import (
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, get_endpoint_spec
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.video_backends.base import ReferenceAudioMode
-from tests.factories import custom_endpoint_definition
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 
 if TYPE_CHECKING:
     from lib.db.models.custom_endpoint import CustomEndpoint
@@ -98,15 +98,29 @@ class TestKindDispatch:
         assert mirror.kind == "declarative"
         assert mirror.media_type == "video"
 
+    @pytest.mark.parametrize("media_type", ["image", "video"])
+    def test_a_comfyui_definition_declares_its_own_media_type(self, media_type: str):
+        mirror = derive_mirror_columns(comfyui_endpoint_definition(media_type=media_type))
+
+        assert mirror.kind == "comfyui"
+        assert mirror.media_type == media_type
+
+    def test_spec_from_a_comfyui_row_is_refused_until_the_runtime_lands(self):
+        """ComfyUI 定义已能入库，但投影层还没有它的实现：端点目录据此跳过该行而不是整份失败。"""
+        row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
+
+        with pytest.raises(ValueError, match="unsupported endpoint definition kind"):
+            endpoint_spec_from_row(cast("CustomEndpoint", row))
+
     def test_media_type_of_an_unsupported_kind_is_refused(self):
-        definition = custom_endpoint_definition(kind="comfyui")
+        definition = custom_endpoint_definition(kind="unregistered")
 
         with pytest.raises(ValueError, match="unsupported endpoint definition kind"):
             definition_media_type(definition)
 
     def test_spec_from_a_row_of_an_unsupported_kind_is_refused(self):
         """库里的 kind 是本层没有投影实现的那种：抛 ValueError，与「端点不存在」同一出口。"""
-        row = SimpleNamespace(id=7, definition=custom_endpoint_definition(kind="comfyui"))
+        row = SimpleNamespace(id=7, definition=custom_endpoint_definition(kind="unregistered"))
 
         with pytest.raises(ValueError, match="unsupported endpoint definition kind"):
             endpoint_spec_from_row(cast("CustomEndpoint", row))

@@ -2,10 +2,11 @@
 
 ``validator.validate_definition`` 是判定一份定义的唯一实现——保存、``validate`` 接口、端点测试
 与随版预设的 import 期都走这里，任何一处另写一份判定都会让「保存能过、跑起来报错」重新出现。
-它按定义的 ``kind`` 分派；声明式 kind 的结构契约是 ``schema.json``。
+它按定义的 ``kind`` 分派；声明式 kind 的结构契约是 ``schema.json``，ComfyUI kind 的实现在
+``lib.custom_provider.comfyui``。
 """
 
-from .errors import (
+from lib.custom_provider.definition_diagnostics import (
     MESSAGE_KEY_PREFIX,
     ROOT_PATH,
     DefinitionDiagnostics,
@@ -13,8 +14,9 @@ from .errors import (
     DefinitionIssue,
     message_key,
 )
+
 from .jsonpath_subset import JsonPathSubsetError, ParsedJsonPath, parse_json_path
-from .kinds import DECLARATIVE_KIND
+from .kinds import COMFYUI_KIND, DECLARATIVE_KIND
 from .response_extractor import JsonPathEvaluationError, extract_value, map_status, normalize_extract_spec
 from .template_engine import (
     AssetData,
@@ -27,6 +29,7 @@ from .template_engine import (
 from .validator import (
     CURRENT_SCHEMA_VERSION,
     IMAGE_INPUT_SOURCES,
+    current_schema_version,
     load_schema,
     requires_image_input,
     validate_definition,
@@ -41,6 +44,7 @@ from .versioning import (
 )
 
 __all__ = [
+    "COMFYUI_KIND",
     "CURRENT_SCHEMA_VERSION",
     "DECLARATIVE_KIND",
     "IMAGE_INPUT_SOURCES",
@@ -58,6 +62,7 @@ __all__ = [
     "TemplateRenderError",
     "VersionRelation",
     "build_context",
+    "current_schema_version",
     "encode_inputs",
     "extract_value",
     "load_schema",

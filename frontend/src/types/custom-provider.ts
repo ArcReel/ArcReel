@@ -11,8 +11,8 @@ export interface EndpointDescriptor {
   key: string;
   media_type: MediaType;
   family: string;
-  /** 实现形态：python = backend 代码，declarative = 随版声明式定义。 */
-  kind: "python" | "declarative";
+  /** 实现形态：python = backend 代码，declarative = 声明式定义，comfyui = 一份 ComfyUI workflow。 */
+  kind: "python" | "declarative" | "comfyui";
   /** 归属：builtin = 随版发布、只读，custom = 用户自建，可编辑删除。 */
   source: "builtin" | "custom";
   display_name_key: string;

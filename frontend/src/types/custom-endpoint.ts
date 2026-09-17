@@ -1,8 +1,9 @@
 import type { EndpointInstallation } from "./market";
-// 自定义调用端点（custom endpoint）——声明式协议定义的前端类型。
+// 自定义调用端点（custom endpoint）——端点定义的前端类型，按 kind 分声明式与 ComfyUI 两种。
 // 定义 JSON 本身是唯一真相源，导入导出零封套：文件即 definition 原样 JSON。
-// 后端 schema 在 lib/custom_provider/endpoint_definition/schema.json，最终判定以
-// POST /custom-endpoints/validate 为准，这里只描述 UI 需要读写的形状。
+// 后端 schema 在 lib/custom_provider/endpoint_definition/schema.json 与
+// lib/custom_provider/comfyui/schema.json，最终判定以 POST /custom-endpoints/validate 为准，
+// 这里只描述 UI 需要读写的形状。
 
 /** 素材在 ArcReel 侧的来源槽位。 */
 export type EndpointInputSource =
@@ -123,6 +124,25 @@ export interface EndpointDefinition {
   capabilities?: EndpointCapabilities;
 }
 
+/**
+ * 一份 ComfyUI 端点定义：API 格式 workflow 连同它的节点绑定。
+ *
+ * 能力只从 `bindings` 推导，定义不含 `capabilities` 节。`workflow` 与 `bindings` 此处保持松类型：
+ * 前端只在导入确认里读 `meta` 与 `kind`，节点绑定的编辑器另有其形。
+ */
+export interface ComfyuiEndpointDefinition {
+  kind: "comfyui";
+  schema_version: string;
+  meta: EndpointMeta;
+  media_type: "image" | "video";
+  auth?: EndpointAuth;
+  workflow: Record<string, unknown>;
+  bindings: Record<string, unknown[]>;
+}
+
+/** 导入、校验与保存这条路上流过的定义：两种 kind 都可能。 */
+export type AnyEndpointDefinition = EndpointDefinition | ComfyuiEndpointDefinition;
+
 // ---------------------------------------------------------------------------
 // CRUD / validate
 // ---------------------------------------------------------------------------
@@ -179,6 +199,14 @@ export interface EndpointMinAppVersionInfo {
   satisfied: boolean;
 }
 
+/**
+ * 服务端把这份载荷当成什么收的。
+ *
+ * 用户手上最常见的文件是 ComfyUI 自己导出的 workflow 而不是端点定义，导出菜单又有两项：
+ * `Export (API)` 能提交、`Export` 的画布存档不能。
+ */
+export type EndpointImportShape = "endpoint_definition" | "comfyui_api_workflow" | "comfyui_ui_workflow";
+
 export interface EndpointValidateResponse {
   errors: EndpointDefinitionIssue[];
   warnings: EndpointDefinitionIssue[];
@@ -187,6 +215,9 @@ export interface EndpointValidateResponse {
   schema_version: EndpointSchemaVersionInfo;
   /** 定义未声明门槛或应用版本读不出时为 null。 */
   min_app_version: EndpointMinAppVersionInfo | null;
+  import_shape: EndpointImportShape;
+  /** 原始 API workflow 的包装结果；另两种形状为 null，客户端继续用自己手上那份。 */
+  wrapped_definition: ComfyuiEndpointDefinition | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key, parse_endpoint_key
 from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
-from lib.custom_provider.endpoint_definition import DECLARATIVE_KIND
+from lib.custom_provider.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
 from lib.custom_provider.endpoints import EndpointSpec, declarative_endpoint_spec, get_endpoint_spec
 
 if TYPE_CHECKING:
@@ -37,9 +37,11 @@ class MirrorColumns:
     display_name: str
 
 
-#: ``kind`` → 从定义读媒体类型。声明式描述的是「JSON in/out + 提交/轮询」的视频协议，恒为常量。
+#: ``kind`` → 从定义读媒体类型。声明式描述的是「JSON in/out + 提交/轮询」的视频协议，恒为常量；
+#: 一份 ComfyUI workflow 产图还是产视频由它自己声明。
 _MEDIA_TYPE_BY_KIND: Mapping[str, Callable[[Mapping[str, Any]], str]] = {
     DECLARATIVE_KIND: lambda _definition: DECLARATIVE_MEDIA_TYPE,
+    COMFYUI_KIND: lambda definition: str(definition["media_type"]),
 }
 
 #: ``kind`` → 把定义投影成 spec 的实现。

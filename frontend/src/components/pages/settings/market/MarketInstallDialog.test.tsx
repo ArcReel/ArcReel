@@ -86,6 +86,8 @@ const validation: EndpointValidateResponse = {
   hints: definition.meta.hints!,
   schema_version: { file: "1.1.0", current: "1.1.0", level: "direct" },
   min_app_version: null,
+  import_shape: "endpoint_definition",
+  wrapped_definition: null,
 };
 
 function show(selected = entry) {

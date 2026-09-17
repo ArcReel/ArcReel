@@ -8,6 +8,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import type {
+  AnyEndpointDefinition,
   CustomEndpointInfo,
   CustomProviderInfo,
   EndpointDefinition,
@@ -23,6 +24,11 @@ import { EndpointDetail, type EndpointSelection } from "./EndpointDetail";
 import { EndpointImportDialog } from "./EndpointImportDialog";
 
 const KICKER_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
+
+/** 有 kind 即是一份此刻就能显示的端点定义；其余形状的身份由服务端的分流结果给出。 */
+function hasKind(value: unknown): value is AnyEndpointDefinition {
+  return typeof value === "object" && value !== null && "kind" in value;
+}
 
 interface ListEntry {
   key: string;
@@ -58,7 +64,7 @@ export function EndpointsSection() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importFileName, setImportFileName] = useState("");
-  const [importDefinition, setImportDefinition] = useState<EndpointDefinition | null>(null);
+  const [importDefinition, setImportDefinition] = useState<AnyEndpointDefinition | null>(null);
   const [importValidation, setImportValidation] = useState<EndpointValidateResponse | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -176,11 +182,14 @@ export function EndpointsSection() {
       setImportDefinition(null);
       setImportOpen(true);
       try {
-        const parsed = JSON.parse(await file.text()) as EndpointDefinition;
+        const parsed: unknown = JSON.parse(await file.text());
         if (importRunRef.current !== run) return;
-        setImportDefinition(parsed);
+        // 不带 kind 的载荷此刻还没有定义身份：服务端按 workflow 收下时，包装结果随校验结果回来。
+        const picked = hasKind(parsed) ? parsed : null;
+        setImportDefinition(picked);
         const result = await API.validateCustomEndpoint(parsed);
         if (importRunRef.current !== run) return;
+        setImportDefinition(result.wrapped_definition ?? picked);
         setImportValidation(result);
       } catch (e) {
         if (importRunRef.current !== run) return;

@@ -234,7 +234,10 @@ MESSAGES = {
     "val_ce_removed_reason_extract_source": "extraction always starts at the response body; HTTP status is not a path",
     "val_ce_removed_reason_extract_usage_keys": "usage now lives under poll.extract.usage",
     "val_ce_removed_reason_mime_types": "asset formats are not allow-listed; the provider rejects what it cannot take",
-    "val_ce_removed_reason_media_type": "video is the only media type in this release",
+    "val_ce_removed_reason_media_type": "a declarative endpoint is always video, so the media type cannot be declared",
+    "val_ce_removed_reason_comfyui_capabilities": (
+        "a ComfyUI endpoint derives its capabilities from the node bindings, so the definition holds no declaration"
+    ),
     "val_ce_malformed_placeholder": (
         "{fragment} is not a valid placeholder: only bare variables are supported "
         "(such as prompt or inputs.first_frame) — no filters, indexes or expressions, "
@@ -332,6 +335,26 @@ MESSAGES = {
     "val_ce_enum_map_value_missing": "enum_maps.{name} has no entry for '{value}'",
     "val_ce_template_text_variable_null": "Variable {name} is null and cannot be embedded in text",
     "val_ce_each_value_not_list": "$each.in points at {name}, whose runtime value is not a list",
+    # ---- ComfyUI endpoint: node bindings and import routing ----
+    "val_ce_comfyui_binding_required": (
+        "{binding_key} must be bound to a node before this endpoint can be saved: "
+        "the prompt decides what is drawn, the output decides which file is taken"
+    ),
+    "val_ce_comfyui_binding_key_not_allowed": (
+        "A {media_type} endpoint has no {binding_key} binding; available keys: {allowed}"
+    ),
+    "val_ce_comfyui_node_not_found": (
+        "The workflow has no node {node}: node ids change whenever the workflow is edited, "
+        "so re-import it and confirm the node bindings"
+    ),
+    "val_ce_comfyui_input_not_found": "Node {node} has no input named {input}",
+    "val_ce_comfyui_input_is_link": (
+        "Input {input} of node {node} is wired from an upstream node and would be overwritten at run time; "
+        "bind a literal field instead"
+    ),
+    "val_ce_comfyui_ui_format_workflow": (
+        "This is a ComfyUI UI-format workflow and cannot be submitted; export it with Export (API) in ComfyUI instead"
+    ),
     "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} uses a wildcard: an object wildcard takes the first member only, "

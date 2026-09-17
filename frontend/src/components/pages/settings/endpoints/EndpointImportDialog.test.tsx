@@ -13,6 +13,8 @@ function validation(overrides?: Partial<EndpointValidateResponse>): EndpointVali
     hints: null,
     schema_version: { file: "1.1.0", current: "1.1.0", level: "direct" },
     min_app_version: null,
+    import_shape: "endpoint_definition",
+    wrapped_definition: null,
     ...overrides,
   };
 }
@@ -56,5 +58,29 @@ describe("EndpointImportDialog", () => {
     renderDialog(validation({ min_app_version: { required: "0.30.0", current: "0.30.0", satisfied: true } }));
 
     expect(screen.queryByText(/该定义需要 ArcReel/)).not.toBeInTheDocument();
+  });
+
+  it("says a raw ComfyUI workflow was wrapped and still needs its bindings", () => {
+    renderDialog(validation({ import_shape: "comfyui_api_workflow" }));
+
+    expect(screen.getByText(/已包装成 ComfyUI 端点定义/)).toBeInTheDocument();
+  });
+
+  it("points a UI-format workflow back at the Export (API) menu item", () => {
+    renderDialog(
+      validation({
+        import_shape: "comfyui_ui_workflow",
+        errors: [{ path: "$", code: "comfyui_ui_format_workflow", message: "这是 ComfyUI 的 UI 格式 workflow，提交不了" }],
+      }),
+    );
+
+    expect(screen.getByText(/Export \(API\)/)).toBeInTheDocument();
+    expect(screen.getByText("文件中的错误修正后才能导入。")).toBeInTheDocument();
+  });
+
+  it("keeps the shape notice out of the way for an ordinary endpoint definition", () => {
+    renderDialog(validation());
+
+    expect(screen.queryByText(/ComfyUI/)).not.toBeInTheDocument();
   });
 });

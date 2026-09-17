@@ -1998,6 +1998,8 @@ export default {
   'ce_import_failed': 'The definition could not be imported.',
   'ce_imported': 'Definition imported.',
   'ce_import_blocked': 'Fix the errors in the file before importing.',
+  'ce_import_shape_comfyui_api': 'Recognized as a ComfyUI API workflow and wrapped into a ComfyUI endpoint definition. The node bindings are not confirmed yet; bind the prompt and the output before saving.',
+  'ce_import_shape_comfyui_ui': 'This is a ComfyUI UI-format workflow and cannot be submitted. Export it again with "Export (API)" in ComfyUI.',
   'ce_import_create': 'Import',
   'ce_import_create_copy': 'Import as a copy',
   'ce_import_overwrite': 'Overwrite',

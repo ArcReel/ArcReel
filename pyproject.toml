@@ -160,6 +160,22 @@ ignore_imports = [
     "lib.db.models.custom_provider -> lib.custom_provider",
 ]
 
+# ComfyUI 端点定义不经声明式运行时（docs/adr/0081）：两种 kind 的定义不同构，共用的只有诊断载体、
+# 诊断翻译与 kind 常量三件事。comfyui 子包一旦够到声明式的模板引擎、取值路径或它的校验实现，就是把
+# 「JSON in/out + 提交 / 轮询」的假设搬进节点图这一侧，保存期与填值期从此各说各话。反向也不许：
+# 分派表在 endpoint_definition.validator，它 import comfyui.validator 是唯一允许的方向。
+[[tool.importlinter.contracts]]
+name = "ComfyUI 端点实现不依赖声明式运行时"
+type = "forbidden"
+source_modules = ["lib.custom_provider.comfyui"]
+forbidden_modules = [
+    "lib.custom_provider.declarative_backend",
+    "lib.custom_provider.endpoint_definition.validator",
+    "lib.custom_provider.endpoint_definition.template_engine",
+    "lib.custom_provider.endpoint_definition.response_extractor",
+    "lib.custom_provider.endpoint_definition.jsonpath_subset",
+]
+
 # 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
 # （draft_quarantine）、正式 script_plan 的路径与写禁表（episode_paths）、已登记引用名的
 # 构造入口（reference_catalog）对 drama / narration / reference_video 一视同仁，任一处

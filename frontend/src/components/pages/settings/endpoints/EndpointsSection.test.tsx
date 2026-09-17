@@ -101,6 +101,8 @@ function validation(overrides?: Partial<EndpointValidateResponse>): EndpointVali
     hints: null,
     schema_version: { file: "1.0.0", current: "1.0.0", level: "direct" },
     min_app_version: null,
+    import_shape: "endpoint_definition",
+    wrapped_definition: null,
     ...overrides,
   };
 }
@@ -146,6 +148,38 @@ describe("EndpointsSection", () => {
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(useEndpointCatalogStore.getState(), "refresh").mockResolvedValue(undefined);
     vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(validation());
+  });
+
+  it("carries the server's wrapped definition when the picked file is a raw ComfyUI workflow", async () => {
+    const workflow = { "9": { class_type: "SaveVideo", inputs: { fps: 16 } } };
+    const validate = vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
+      validation({
+        import_shape: "comfyui_api_workflow",
+        wrapped_definition: {
+          kind: "comfyui",
+          schema_version: "1.0.0",
+          meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" },
+          media_type: "video",
+          workflow,
+          bindings: {},
+        },
+        errors: [
+          { path: "bindings.prompt", code: "comfyui_binding_required", message: "语义键 prompt 必须绑定到节点后才能保存" },
+        ],
+      }),
+    );
+    renderSection();
+    await screen.findByRole("navigation");
+
+    const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(picker, {
+      target: { files: [new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" })] },
+    });
+
+    // 原始 workflow 没有 kind，送去校验的是它本身；回来的包装结果接手成为待保存的定义。
+    expect(await screen.findByText(/已包装成 ComfyUI 端点定义/)).toBeInTheDocument();
+    expect(validate.mock.calls[0][0]).toEqual(workflow);
+    expect(screen.getByText(/workflow_api\.json · ComfyUI workflow · v1\.0\.0/)).toBeInTheDocument();
   });
 
   it("groups endpoints by whether they are mine, built-in, or implemented in code", async () => {

@@ -19,7 +19,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # 核心子模块白名单。新增包时请在此追加（而不是用 pkgutil.walk_packages，
 # 以避免意外拉起 lib.i18n.zh/en 的翻译数据包和 alembic.versions 迁移脚本）。
-# 参与 lib.config ↔ lib.custom_provider 互引的模块另需登记 FIRST_IMPORT_MODULES。
+# 参与模块级互引的模块（lib.config ↔ lib.custom_provider，端点定义的分派方 ↔ 各 kind 的实现方）
+# 另需登记 FIRST_IMPORT_MODULES。
 MODULES = [
     # lib 顶层单文件模块
     "lib.ark_shared",
@@ -54,6 +55,7 @@ MODULES = [
     # lib 子包
     "lib.config",
     "lib.custom_provider",
+    "lib.custom_provider.comfyui",
     "lib.db",
     "lib.db.models",
     "lib.db.repositories",
@@ -78,7 +80,10 @@ FIRST_IMPORT_MODULES = [
     "lib.config.resolver",
     "lib.custom_provider.backends",
     "lib.custom_provider.capabilities",
+    "lib.custom_provider.comfyui.import_shapes",
+    "lib.custom_provider.comfyui.validator",
     "lib.custom_provider.discovery",
+    "lib.custom_provider.endpoint_definition",
     "lib.custom_provider.endpoints",
     "lib.custom_provider.factory",
     "lib.custom_provider.loader",
@@ -96,9 +101,10 @@ def test_module_imports_first_in_fresh_process(module_name: str) -> None:
     """该模块作为解释器里第一个被导入的项目模块时也能成功。
 
     ``lib.config`` 与 ``lib.custom_provider`` 互相引用（后者装配 backend、backend 又读前者的
-    URL 工具），一旦某条边退回模块级导入就会成环——而环只在特定模块打头时才炸，同进程的
-    冒烟遍历因 ``sys.modules`` 已被前序用例填热而看不见。全新子进程是唯一能锁定"任意顺序
-    均可独立导入"的手段。
+    URL 工具）；端点定义的分派方与各 ``kind`` 的实现方也隔着包边界互指（``endpoint_definition``
+    的分派表 import 各 kind 的校验实现，``comfyui.import_shapes`` 又回头取 ``kinds`` 的常量）。
+    这类边一旦有一条退回模块级导入就会成环——而环只在特定模块打头时才炸，同进程的冒烟遍历因
+    ``sys.modules`` 已被前序用例填热而看不见。全新子进程是唯一能锁定"任意顺序均可独立导入"的手段。
     """
     try:
         result = subprocess.run(

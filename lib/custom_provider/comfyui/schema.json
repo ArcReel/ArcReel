@@ -1,0 +1,557 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arcreel.dev/schemas/comfyui-endpoint/1.0.0.json",
+  "title": "ArcReel 自定义调用端点 · ComfyUI 定义",
+  "description": "一份 ComfyUI workflow 连同它的节点绑定。workflow 以 API 格式原样内嵌，导出即自足 JSON，不引用外部文件。能力只从 bindings 推导，定义不存 capabilities 节。",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_version",
+    "meta",
+    "media_type",
+    "workflow",
+    "bindings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "comfyui"
+    },
+    "schema_version": {
+      "description": "ComfyUI 定义自有的版本线，与声明式定义的版本线互不相干。",
+      "$ref": "#/$defs/semver"
+    },
+    "meta": {
+      "$ref": "#/$defs/meta"
+    },
+    "media_type": {
+      "description": "这份 workflow 产出图像还是视频。",
+      "enum": [
+        "image",
+        "video"
+      ]
+    },
+    "auth": {
+      "description": "反向代理的凭据模板；ComfyUI 本体零鉴权，整节缺省或为空对象即不带凭证。",
+      "$ref": "#/$defs/auth"
+    },
+    "workflow": {
+      "$ref": "#/$defs/workflow"
+    },
+    "bindings": {
+      "$ref": "#/$defs/bindings"
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "maxLength": 64,
+      "$comment": "这份 schema 前后端共用，pattern 只写两个运行时都成立的构造：用 [0-9] 而非 \\d（Python 的 \\d 含 Unicode 十进制数字），另加禁换行的 not（Python 的 $ 还匹配末尾换行前的位置，而 ECMA-262 没有 \\Z）。另外 format 在 jsonschema 里默认只是注解、本仓也未装格式检查器，写 format 只当文档，约束力必须由同字段的 pattern 提供。长度上限让分量不超出整数转换上限，版本比较总能解析通过校验的值。",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "not": {
+        "pattern": "\\n"
+      }
+    },
+    "meta": {
+      "type": "object",
+      "required": [
+        "name",
+        "author",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "min_app_version": {
+          "description": "运行这份定义所需的最低 ArcReel 版本（semver）。当前应用版本低于它时，导入确认给出提示，市场安装拒绝。",
+          "$ref": "#/$defs/semver"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "homepage": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://[^\\s/?#]+\\S*$"
+        },
+        "hints": {
+          "description": "随定义分发的提示，导入时展示并由用户确认，不携带凭证。",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "base_url": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https?://[^\\s/?#]+\\S*$"
+            },
+            "suggested_models": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "auth": {
+      "description": "鉴权：header 名加值模板，或 query 参数。api_key 占位符只允许出现在这一节，且非空 auth 至少引用一次；签名类鉴权不支持。整节可为空对象（无凭证接口）。",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headers": {
+          "$ref": "#/$defs/headerMap"
+        },
+        "query": {
+          "$ref": "#/$defs/queryMap"
+        }
+      }
+    },
+    "headerMap": {
+      "description": "请求头模板。键取 HTTP 字段名的 tchar 集（RFC 9110 §5.6.2），下划线等合法记号不拦。",
+      "type": "object",
+      "$comment": "`$` 在 Python 的 re 里还匹配末尾换行前的位置，而 ECMA-262 没有 \\Z——这份 schema 前端也要用，故另加一条禁换行的 not 而不是换锚点。",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$",
+        "not": {
+          "pattern": "\\n"
+        }
+      },
+      "additionalProperties": {
+        "description": "头值模板：不得含 CR/LF——字段值里的换行是另起一个头，HTTP 客户端本就会拒。",
+        "$ref": "#/$defs/template",
+        "not": {
+          "pattern": "[\\r\\n]"
+        }
+      }
+    },
+    "queryMap": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/template"
+      }
+    },
+    "template": {
+      "description": "字符串模板。占位符写作双花括号包裹的变量名；整串只有一个占位符时保留变量的原生类型，混合文本一律串化。值为 null 的整串占位符会删掉所在键或数组元素。",
+      "type": "string"
+    },
+    "node": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflowNode": {
+      "type": "object",
+      "required": [
+        "class_type"
+      ],
+      "properties": {
+        "class_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "_meta": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "workflow": {
+      "description": "ComfyUI「Export (API)」导出的节点图，键是节点 id。提交时的底稿，ArcReel 不改写其结构，故只校验到「每个节点是对象且有 class_type」为止，节点自身的其余键原样保留。",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/workflowNode"
+      }
+    },
+    "writeTarget": {
+      "description": "把一项语义写进节点某个输入的目标。",
+      "type": "object",
+      "required": [
+        "node",
+        "input",
+        "class_type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "description": "workflow 里的节点 id。",
+          "$ref": "#/$defs/node"
+        },
+        "input": {
+          "description": "该节点 inputs 下的字段名。",
+          "type": "string",
+          "minLength": 1
+        },
+        "class_type": {
+          "description": "绑定时该节点的类型，只用于重导入重匹配与展示。",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "绑定时该节点的 _meta.title，只用于重导入重匹配与展示。",
+          "type": "string"
+        },
+        "direction": {
+          "const": "write"
+        }
+      }
+    },
+    "steppedTarget": {
+      "description": "带步长的写入目标：算出来的值按 step 对齐后再填。",
+      "type": "object",
+      "required": [
+        "node",
+        "input",
+        "class_type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "description": "workflow 里的节点 id。",
+          "$ref": "#/$defs/node"
+        },
+        "input": {
+          "description": "该节点 inputs 下的字段名。",
+          "type": "string",
+          "minLength": 1
+        },
+        "class_type": {
+          "description": "绑定时该节点的类型，只用于重导入重匹配与展示。",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "绑定时该节点的 _meta.title，只用于重导入重匹配与展示。",
+          "type": "string"
+        },
+        "direction": {
+          "const": "write"
+        },
+        "step": {
+          "description": "该输入接受的取值步长。",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "framesTarget": {
+      "description": "帧数写入目标：没有 fps 只读绑定时，由条目上手填的 fps 常量参与 frames 换算。",
+      "type": "object",
+      "required": [
+        "node",
+        "input",
+        "class_type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "description": "workflow 里的节点 id。",
+          "$ref": "#/$defs/node"
+        },
+        "input": {
+          "description": "该节点 inputs 下的字段名。",
+          "type": "string",
+          "minLength": 1
+        },
+        "class_type": {
+          "description": "绑定时该节点的类型，只用于重导入重匹配与展示。",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "绑定时该节点的 _meta.title，只用于重导入重匹配与展示。",
+          "type": "string"
+        },
+        "direction": {
+          "const": "write"
+        },
+        "step": {
+          "description": "该输入接受的取值步长。",
+          "type": "integer",
+          "minimum": 1
+        },
+        "fps": {
+          "description": "手填的帧率常量，仅在没有 fps 绑定时用于 frames 换算。",
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "readTarget": {
+      "description": "只读目标：ArcReel 从该输入读取 workflow 的字面值，不写回。",
+      "type": "object",
+      "required": [
+        "node",
+        "input",
+        "class_type",
+        "direction"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "description": "workflow 里的节点 id。",
+          "$ref": "#/$defs/node"
+        },
+        "input": {
+          "description": "该节点 inputs 下的字段名。",
+          "type": "string",
+          "minLength": 1
+        },
+        "class_type": {
+          "description": "绑定时该节点的类型，只用于重导入重匹配与展示。",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "绑定时该节点的 _meta.title，只用于重导入重匹配与展示。",
+          "type": "string"
+        },
+        "direction": {
+          "const": "read"
+        }
+      }
+    },
+    "seedTarget": {
+      "description": "种子写入目标。",
+      "type": "object",
+      "required": [
+        "node",
+        "input",
+        "class_type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "description": "workflow 里的节点 id。",
+          "$ref": "#/$defs/node"
+        },
+        "input": {
+          "description": "该节点 inputs 下的字段名。",
+          "type": "string",
+          "minLength": 1
+        },
+        "class_type": {
+          "description": "绑定时该节点的类型，只用于重导入重匹配与展示。",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "绑定时该节点的 _meta.title，只用于重导入重匹配与展示。",
+          "type": "string"
+        },
+        "direction": {
+          "const": "write"
+        },
+        "policy": {
+          "description": "random 每次提交重新随机，keep 保留 workflow 里的字面值。",
+          "enum": [
+            "random",
+            "keep"
+          ],
+          "default": "random"
+        }
+      }
+    },
+    "referenceImageTarget": {
+      "description": "参考图写入目标：列表顺序即参考图序号。",
+      "type": "object",
+      "required": [
+        "node",
+        "input",
+        "class_type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "description": "workflow 里的节点 id。",
+          "$ref": "#/$defs/node"
+        },
+        "input": {
+          "description": "该节点 inputs 下的字段名。",
+          "type": "string",
+          "minLength": 1
+        },
+        "class_type": {
+          "description": "绑定时该节点的类型，只用于重导入重匹配与展示。",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "绑定时该节点的 _meta.title，只用于重导入重匹配与展示。",
+          "type": "string"
+        },
+        "direction": {
+          "const": "write"
+        },
+        "consumer": {
+          "description": "该读图节点接到谁的哪个入口；张数少于格子数时据此改图，而不是重复填充。",
+          "type": "object",
+          "required": [
+            "node",
+            "input"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "node": {
+              "$ref": "#/$defs/node"
+            },
+            "input": {
+              "type": "string",
+              "minLength": 1
+            },
+            "class_type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "title": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "outputTarget": {
+      "description": "产物节点：ArcReel 取这个节点的输出文件作为成片。它是节点级的，没有 input。",
+      "type": "object",
+      "required": [
+        "node",
+        "class_type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "description": "workflow 里的节点 id。",
+          "$ref": "#/$defs/node"
+        },
+        "class_type": {
+          "description": "绑定时该节点的类型，只用于重导入重匹配与展示。",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "绑定时该节点的 _meta.title，只用于重导入重匹配与展示。",
+          "type": "string"
+        },
+        "direction": {
+          "const": "write"
+        }
+      }
+    },
+    "bindings": {
+      "description": "语义键 → 目标列表。三态：非空列表是已绑定，空列表是显式不支持，键缺失是从未推断。键集在此封闭，哪些键能用于哪种 media_type 由校验器的白名单判定。",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeTarget"
+          }
+        },
+        "negative_prompt": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeTarget"
+          }
+        },
+        "start_image": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeTarget"
+          }
+        },
+        "end_image": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeTarget"
+          }
+        },
+        "reference_images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/referenceImageTarget"
+          }
+        },
+        "width": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/steppedTarget"
+          }
+        },
+        "height": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/steppedTarget"
+          }
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/framesTarget"
+          }
+        },
+        "fps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/readTarget"
+          }
+        },
+        "seed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/seedTarget"
+          }
+        },
+        "output": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/outputTarget"
+          },
+          "maxItems": 1
+        }
+      }
+    }
+  }
+}

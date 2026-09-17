@@ -3,11 +3,17 @@ import { CircleAlert, Loader2, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { ACCENT_BTN_SM_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
-import type { EndpointDefinition, EndpointValidateResponse } from "@/types";
+import type { AnyEndpointDefinition, EndpointImportShape, EndpointValidateResponse } from "@/types";
 import { formatNameList } from "@/utils/list-format";
 import { EndpointDuplicateChoices } from "./EndpointDuplicateChoices";
 
-/** 导入确认：先看校验结果与同作者同名定义，再决定新建副本、覆盖既有，还是取消。 */
+/** 三种载荷形状各自的提示；端点定义是常态，不占版面。 */
+const SHAPE_NOTICE_KEYS: Partial<Record<EndpointImportShape, string>> = {
+  comfyui_api_workflow: "ce_import_shape_comfyui_api",
+  comfyui_ui_workflow: "ce_import_shape_comfyui_ui",
+};
+
+/** 导入确认：先看载荷形状与校验结果，再决定新建副本、覆盖既有，还是取消。 */
 export function EndpointImportDialog({
   open,
   fileName,
@@ -20,7 +26,7 @@ export function EndpointImportDialog({
 }: {
   open: boolean;
   fileName: string;
-  definition: EndpointDefinition | null;
+  definition: AnyEndpointDefinition | null;
   validation: EndpointValidateResponse | null;
   busy: boolean;
   onCreateCopy: () => void;
@@ -33,6 +39,7 @@ export function EndpointImportDialog({
   const hasErrors = (validation?.errors.length ?? 0) > 0;
   const schemaVersion = validation?.schema_version;
   const minAppVersion = validation?.min_app_version;
+  const shapeNoticeKey = validation ? SHAPE_NOTICE_KEYS[validation.import_shape] : undefined;
 
   return (
     <GlassModal
@@ -56,6 +63,12 @@ export function EndpointImportDialog({
           <p className="mt-3 flex items-center gap-2 text-[12px] text-text-3">
             <Loader2 className="h-3 w-3 motion-safe:animate-spin text-accent-2" aria-hidden />
             {t("common:loading")}
+          </p>
+        )}
+
+        {shapeNoticeKey && (
+          <p className="mt-3 rounded-[8px] border border-hairline bg-bg-grad-a/40 px-3 py-2 text-[12px] leading-[1.55] text-text-2">
+            {t(shapeNoticeKey)}
           </p>
         )}
 

@@ -20,7 +20,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_endpoints, custom_providers, system_config
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.factories import custom_endpoint_definition
+from tests.factories import comfyui_api_workflow, comfyui_endpoint_definition, custom_endpoint_definition
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -397,6 +397,125 @@ class TestValidateDuplicates:
 # ---------------------------------------------------------------------------
 # 目录
 # ---------------------------------------------------------------------------
+
+
+class TestComfyuiEndpoint:
+    """ComfyUI 定义与声明式定义同走一条 CRUD：镜像列改由定义自己声明媒体类型。"""
+
+    def test_a_bound_definition_is_stored_and_mirrors_its_own_media_type(self, endpoints_client: TestClient):
+        definition = comfyui_endpoint_definition(media_type="image")
+        del definition["bindings"]["fps"]
+
+        body = _create(endpoints_client, definition)
+
+        assert body["kind"] == "comfyui"
+        assert body["schema_version"] == "1.0.0"
+        assert body["media_type"] == "image"
+        assert body["display_name"] == "示例 ComfyUI 端点"
+
+    def test_export_round_trips_the_definition(self, endpoints_client: TestClient):
+        definition = comfyui_endpoint_definition()
+
+        created = _create(endpoints_client, definition)
+        exported = endpoints_client.get(f"/api/v1/custom-endpoints/{created['id']}").json()
+
+        assert exported["definition"] == definition
+
+    def test_an_unbound_definition_is_refused(self, endpoints_client: TestClient):
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["output"] = []
+
+        resp = endpoints_client.post("/api/v1/custom-endpoints", json=definition)
+
+        assert resp.status_code == 422
+        assert [e["code"] for e in resp.json()["diagnostic"]["errors"]] == ["comfyui_binding_required"]
+
+    @pytest.mark.parametrize(
+        ("mutate", "code"),
+        [
+            (lambda d: d["bindings"]["prompt"][0].__setitem__("node", "404"), "comfyui_node_not_found"),
+            (lambda d: d["bindings"]["prompt"][0].__setitem__("input", "clip"), "comfyui_input_is_link"),
+            (lambda d: d.__setitem__("media_type", "image"), "comfyui_binding_key_not_allowed"),
+        ],
+    )
+    def test_a_broken_binding_is_refused_with_its_own_code(self, endpoints_client: TestClient, mutate: Any, code: str):
+        definition = comfyui_endpoint_definition()
+        mutate(definition)
+
+        resp = endpoints_client.post("/api/v1/custom-endpoints", json=definition)
+
+        assert resp.status_code == 422
+        assert code in [e["code"] for e in resp.json()["diagnostic"]["errors"]]
+
+
+class TestImportRouting:
+    """三种载荷形状各有一种反应：定义照旧、API workflow 自动包装、UI 格式结构化拒绝。"""
+
+    def test_a_definition_is_taken_as_a_definition(self, endpoints_client: TestClient):
+        body = endpoints_client.post("/api/v1/custom-endpoints/validate", json=comfyui_endpoint_definition()).json()
+
+        assert body["import_shape"] == "endpoint_definition"
+        assert body["wrapped_definition"] is None
+        assert body["errors"] == []
+
+    def test_a_comfyui_definition_is_measured_against_its_own_version_line(self, endpoints_client: TestClient):
+        """两种 kind 各有一条版本线：拿声明式那条去比，一份齐整的 ComfyUI 定义会被报成版本落后。"""
+        body = endpoints_client.post("/api/v1/custom-endpoints/validate", json=comfyui_endpoint_definition()).json()
+
+        assert body["schema_version"] == {"file": "1.0.0", "current": "1.0.0", "level": "direct"}
+
+    @pytest.mark.parametrize("media_type", ["image", "video"])
+    def test_a_raw_api_workflow_comes_back_wrapped(self, endpoints_client: TestClient, media_type: str):
+        workflow = comfyui_api_workflow()
+
+        body = endpoints_client.post(f"/api/v1/custom-endpoints/validate?media_type={media_type}", json=workflow).json()
+
+        assert body["import_shape"] == "comfyui_api_workflow"
+        assert body["wrapped_definition"]["workflow"] == workflow
+        assert body["wrapped_definition"]["media_type"] == media_type
+        assert body["wrapped_definition"]["bindings"] == {}
+
+    def test_the_wrapped_workflow_reports_only_the_missing_bindings(self, endpoints_client: TestClient):
+        body = endpoints_client.post("/api/v1/custom-endpoints/validate", json=comfyui_api_workflow()).json()
+
+        assert {e["code"] for e in body["errors"]} == {"comfyui_binding_required"}
+        assert body["schema_version"]["level"] == "direct"
+
+    def test_a_ui_format_workflow_is_refused_with_a_structured_reason(self, endpoints_client: TestClient):
+        ui_workflow = {"last_node_id": 9, "nodes": [{"id": 6, "type": "CLIPTextEncode"}], "links": []}
+
+        body = endpoints_client.post("/api/v1/custom-endpoints/validate", json=ui_workflow).json()
+
+        assert body["import_shape"] == "comfyui_ui_workflow"
+        assert body["wrapped_definition"] is None
+        assert [(e["path"], e["code"]) for e in body["errors"]] == [("$", "comfyui_ui_format_workflow")]
+
+    def test_saving_a_raw_api_workflow_is_wrapped_and_then_refused_for_its_bindings(self, endpoints_client: TestClient):
+        """创建入口与 validate 同走一条分流：包装结果的节点绑定为空，保存到此为止。"""
+        resp = endpoints_client.post("/api/v1/custom-endpoints", json=comfyui_api_workflow())
+
+        assert resp.status_code == 422
+        assert [(e["path"], e["code"]) for e in resp.json()["diagnostic"]["errors"]] == [
+            ("bindings.prompt", "comfyui_binding_required"),
+            ("bindings.output", "comfyui_binding_required"),
+        ]
+
+    def test_saving_a_ui_format_workflow_fails_with_the_same_reason(self, endpoints_client: TestClient):
+        ui_workflow = {"last_node_id": 9, "nodes": [{"id": 6, "type": "CLIPTextEncode"}], "links": []}
+
+        resp = endpoints_client.post("/api/v1/custom-endpoints", json=ui_workflow)
+
+        assert resp.status_code == 422
+        assert [e["code"] for e in resp.json()["diagnostic"]["errors"]] == ["comfyui_ui_format_workflow"]
+
+    def test_replacing_a_definition_never_takes_a_raw_workflow(self, endpoints_client: TestClient):
+        """整份替换只认端点定义：用一份原始 workflow 覆盖会把已确认的节点绑定一并抹掉。"""
+        created = _create(endpoints_client, comfyui_endpoint_definition())
+
+        resp = endpoints_client.put(f"/api/v1/custom-endpoints/{created['id']}", json=comfyui_api_workflow())
+
+        assert resp.status_code == 422
+        assert [e["code"] for e in resp.json()["diagnostic"]["errors"]] == ["missing_field"]
 
 
 class TestEndpointCatalog:
