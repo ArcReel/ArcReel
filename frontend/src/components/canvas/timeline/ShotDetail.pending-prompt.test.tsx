@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import type { NarrationSegment } from "@/types";
@@ -62,20 +62,8 @@ describe("ShotDetail 待生成提示词", () => {
     expect(onUpdatePrompt).toHaveBeenCalledWith("E1S01", { image_prompt: "雨夜街道" });
   });
 
-  it("失效条目显示提示并可「采用新内容」", async () => {
-    const onAdoptPlanContent = vi.fn().mockResolvedValue(undefined);
-    renderDetail(makeSegment({ image_prompt: "旧提示词", video_prompt: "旧动作" }), {
-      promptsStale: true,
-      onAdoptPlanContent,
-    });
-    expect(screen.getByText("内容已更新，提示词可能不符")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "采用新内容" }));
-    await waitFor(() => expect(onAdoptPlanContent).toHaveBeenCalledTimes(1));
-  });
-
-  it("未失效条目不渲染失效提示", () => {
+  it("已有提示词的条目不显示待生成", () => {
     renderDetail(makeSegment({ image_prompt: "提示词", video_prompt: "动作" }));
-    expect(screen.queryByText("内容已更新，提示词可能不符")).not.toBeInTheDocument();
     for (const title of ["Image Prompt · 分镜图", "Video Prompt · 视频"]) {
       const section = screen.getByText(title).closest("section") as HTMLElement;
       expect(within(section).queryByText("待生成")).not.toBeInTheDocument();

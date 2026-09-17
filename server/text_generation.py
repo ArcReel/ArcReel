@@ -46,10 +46,7 @@ from lib.draft_quarantine import (
 )
 from lib.draft_violation import DraftViolation, collect_violations
 from lib.episode_paths import (
-    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
-    REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
     SCRIPT_PLAN_FILENAMES,
-    SCRIPT_PLAN_LEGACY_FILENAMES,
     episode_drafts_dir,
     episode_script_filename,
     episode_source_relpath,
@@ -577,57 +574,6 @@ def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
     return is_reference_video_project(project_data)
 
 
-def _prompt_authoring_blocking_quarantine_kinds(project_data: dict[str, Any]) -> tuple[str, ...]:
-    """该项目上会阻塞 prompt_authoring 的草稿来源。
-
-    只返回项目当前生成模式对应的草稿来源。其他生成模式的遗留草稿没有当前写入方负责清理，
-    若参与判定会把该集永久卡死。参考生视频的 prompt_authoring 提示词编写自身也有草稿位，故比其它变体
-    多一个来源。
-    """
-    if _uses_reference_video_units(project_data):
-        return (QUARANTINE_KIND_SCRIPT_PLAN, QUARANTINE_KIND_PROMPT_AUTHORING)
-    kind = script_review.script_plan_quarantine_kind(project_data)
-    return (kind,) if kind is not None else ()
-
-
-def _resolve_script_plan_path(
-    project_path: Path, episode: int, project_data: dict[str, Any]
-) -> tuple[Path, str] | None:
-    """Return (script_plan_md path, hint text for missing-file error)；ad 一键生成不依赖 script_plan，返回 None。"""
-    content_mode = project_data.get("content_mode", "narration")
-    if content_mode == "ad":
-        # ad 创作输入是 project.json 的 brief + 商品信息 + target_duration，
-        # ScriptGenerator 的 ad 分支不读 drafts/ 中间文件。
-        return None
-    generation_mode = project_data.get("generation_mode")
-    drafts_path = episode_drafts_dir(project_path, episode)
-    if generation_mode == "reference_video":
-        # reference_video 生成需结构化 script_plan JSON；仅存旧版 .md 时给出与
-        # ScriptGenerator._load_reference_script_plan 一致的重拆迁移提示，而非笼统的缺文件错误。
-        rv_json = drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
-        if not rv_json.exists() and (drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME).exists():
-            return rv_json, (
-                f"调用 generate_script_plan 把旧 {REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME} "
-                f"重新拆分为结构化 {REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME}"
-            )
-        return rv_json, "generate_script_plan tool"
-    if content_mode != "narration" and content_mode in SCRIPT_PLAN_FILENAMES:
-        # SCRIPT_PLAN_FILENAMES 中除 narration 外的模式走两段式结构化 JSON（见 ADR 0041）。
-        # narration 虽也在 SCRIPT_PLAN_FILENAMES，但另有旧 .md 迁移提示分支，需先排除。
-        return drafts_path / SCRIPT_PLAN_FILENAMES[content_mode], "generate_script_plan tool"
-    # narration 生成需结构化 script_plan JSON；仅存旧版 .md 时给出与
-    # ScriptGenerator._load_narration_script_plan 一致的重切迁移提示，而非笼统的缺文件错误。
-    narration_json = SCRIPT_PLAN_FILENAMES["narration"]
-    narration_legacy_md = SCRIPT_PLAN_LEGACY_FILENAMES["narration"][0]
-    script_plan_json = drafts_path / narration_json
-    if not script_plan_json.exists() and (drafts_path / narration_legacy_md).exists():
-        return (
-            script_plan_json,
-            f"调用 generate_script_plan 把旧 {narration_legacy_md} 重新拆分为结构化 {narration_json}",
-        )
-    return script_plan_json, "generate_script_plan tool"
-
-
 def _read_project_data(project_path: Path) -> dict[str, Any]:
     try:
         return json.loads((project_path / "project.json").read_text(encoding="utf-8"))
@@ -664,23 +610,6 @@ def prompt_authoring_preflight(project_path: Path, episode: int) -> None:
         raise TextGenerationError(
             f"❌ 第 {episode} 集尚无正式脚本，无法编写提示词。"
             "请先完成本集脚本规划，并在 Web 端完成内容确认（确认即生成正式脚本）。"
-        )
-
-
-def episode_generation_preflight(project_path: Path, episode: int, *, enforce_review_gate: bool) -> None:
-    project_data = _read_project_data(project_path)
-    _refuse_pending_drafts(project_path, episode, _prompt_authoring_blocking_quarantine_kinds(project_data))
-
-    script_plan = _resolve_script_plan_path(project_path, episode, project_data)
-    if script_plan is not None:
-        script_plan_path, hint = script_plan
-        if not script_plan_path.exists():
-            raise TextGenerationError(f"❌ 未找到脚本规划文件: {script_plan_path}\n   请先完成 {hint}")
-
-    if enforce_review_gate and script_review.gate_blocks_prompt_authoring(project_path, project_data, episode):
-        raise TextGenerationError(
-            "⏸️ script_plan 结构化中间态尚未完成内容确认，prompt_authoring 视觉生成被阻塞。"
-            "请在 Web 端审阅并确认本集 script_plan 内容后再生成剧本。"
         )
 
 

@@ -99,9 +99,9 @@ def test_already_normalized_project_keeps_every_basis_digest(tmp_path: Path) -> 
     project_before = _read_project(project_dir)
     before = dict(_entries(project_dir))
 
-    migrate_project_dir(project_dir)
+    advance_project_schema(project_dir, to_version=14)
 
-    assert _read_project(project_dir) == {**project_before, "schema_version": CURRENT_PROJECT_SCHEMA_VERSION}
+    assert _read_project(project_dir) == {**project_before, "schema_version": 14}
     assert _entries(project_dir) == before
 
 

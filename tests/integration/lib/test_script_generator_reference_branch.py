@@ -1,7 +1,7 @@
 """ScriptGenerator reference_video 分支测试。
 
 提示词编写只读正式剧本的 video_units：默认改写带待编写标记的单元正文，``entry_ids`` 显式重写；
-脚本规划只在机械转换（``convert_script_plan`` / 预演）里被读取。
+脚本规划只在内容确认转换（``materialize_script_plan``）里被读取。
 """
 
 import asyncio
@@ -120,6 +120,18 @@ def _stub_resolver(caps: dict | None = None) -> ConfigResolver:
     return cast(ConfigResolver, _StubConfigResolver(caps))
 
 
+async def _materialize(generator: ScriptGenerator, episode: int = 1):
+    """以当前规划与当前正式剧本为认可对象做内容确认转换；规划缺席时由加载器先行报错。"""
+    plan_path = generator.project_path / "drafts" / f"episode_{episode}" / "script_plan_reference_units.json"
+    script_path = generator.project_path / "scripts" / f"episode_{episode}.json"
+    return await generator.materialize_script_plan(
+        episode,
+        expected_plan_revision=script_review.content_fingerprint(plan_path) or "",
+        expected_script_fingerprint=script_review.content_fingerprint(script_path),
+        project_update=lambda _project: None,
+    )
+
+
 def _write_reference_project(tmp_path: Path, *, video_backend: str, content_mode: str = "narration") -> Path:
     """造一个带脚本规划的参考生视频最小项目；``video_backend`` 决定 registry 侧的真实时长档位。"""
     project_dir = tmp_path / "proj"
@@ -152,7 +164,7 @@ def _write_reference_project(tmp_path: Path, *, video_backend: str, content_mode
 
 @pytest.fixture
 def plan_only_reference_project(tmp_path: Path) -> Path:
-    """只有脚本规划、尚无正式剧本的 vidu2.0 项目：机械转换的输入。"""
+    """只有脚本规划、尚无正式剧本的 vidu2.0 项目：内容确认转换的输入。"""
     return _write_reference_project(tmp_path, video_backend="vidu/vidu2.0")
 
 
@@ -455,7 +467,7 @@ async def test_script_plan_conversion_inherits_drama_content_mode(tmp_path: Path
     """
     project_dir = _write_reference_project(tmp_path, video_backend="vidu/vidu2.0", content_mode="drama")
 
-    await ScriptGenerator(project_dir, config_resolver=_stub_resolver({})).convert_script_plan(1)
+    await _materialize(ScriptGenerator(project_dir, config_resolver=_stub_resolver({})))
 
     data = _json.loads(_script_path(project_dir).read_text(encoding="utf-8"))
     assert data["content_mode"] == "drama"
@@ -598,7 +610,7 @@ async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# 机械转换读取 reference_video 脚本规划
+# 内容确认转换读取 reference_video 脚本规划
 # ---------------------------------------------------------------------------
 
 
@@ -613,9 +625,9 @@ async def test_conversion_reads_legacy_script_plan_draft_without_source_text(pla
     saved = _json.loads((project / "drafts" / "episode_1" / "script_plan_reference_units.json").read_text("utf-8"))
     assert "source_text" not in saved["units"][0]
 
-    receipt = await ScriptGenerator(project, config_resolver=_stub_resolver({})).convert_script_plan(1)
+    receipt = await _materialize(ScriptGenerator(project, config_resolver=_stub_resolver({})))
 
-    assert receipt.added == ("E1U01",)
+    assert receipt.entry_ids == ("E1U01",)
     assert list(_formal_units(project)) == ["E1U01"]
 
 
@@ -628,7 +640,7 @@ async def test_reference_script_plan_legacy_md_prompts_resplit(plan_only_referen
 
     gen = ScriptGenerator(plan_only_reference_project)
     with pytest.raises(FileNotFoundError, match="generate_script_plan"):
-        await gen.convert_script_plan(1)
+        await _materialize(gen)
 
 
 @pytest.mark.asyncio
@@ -638,7 +650,7 @@ async def test_reference_script_plan_missing_raises(plan_only_reference_project:
 
     gen = ScriptGenerator(plan_only_reference_project)
     with pytest.raises(FileNotFoundError, match="video_unit 拆分"):
-        await gen.convert_script_plan(1)
+        await _materialize(gen)
 
 
 @pytest.mark.asyncio
@@ -653,7 +665,7 @@ async def test_reference_script_plan_rejects_out_of_enum_duration(plan_only_refe
     # 固定能力来源为 project.json 自报身份查 registry（vidu2.0 → [4, 8]），隔离 DB 全局默认干扰
     gen = ScriptGenerator(plan_only_reference_project, config_resolver=_stub_resolver(None))
     with pytest.raises(ValueError, match="时长非法"):
-        await gen.convert_script_plan(1)
+        await _materialize(gen)
 
 
 @pytest.mark.asyncio
@@ -666,12 +678,12 @@ async def test_reference_script_plan_rejects_duplicate_unit_ids(plan_only_refere
 
     gen = ScriptGenerator(plan_only_reference_project)
     with pytest.raises(ValueError, match="unit_id 重复"):
-        await gen.convert_script_plan(1)
+        await _materialize(gen)
 
 
 def test_reference_script_plan_migration_carries_confirmation_forward(plan_only_reference_project: Path):
     """迁移回写让 script_plan 内容指纹漂移；若该集已确认（指纹恰是迁移前内容），须把确认指纹
-    平移到迁移后的值，否则仅转换预演一次就会让已确认分集重新等待确认。
+    平移到迁移后的值，否则仅加载一次规划就会让已确认分集重新等待确认。
     """
     drafts = plan_only_reference_project / "drafts" / "episode_1"
     # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
@@ -739,10 +751,12 @@ async def test_reference_script_plan_migration_waits_for_prompt_authoring_draft_
             return original_acquire(lock, *args, **kwargs)
 
         monkeypatch.setattr(project_manager_module.portalocker.Lock, "acquire", tracked_acquire)
-        preview = asyncio.create_task(ScriptGenerator(plan_only_reference_project).preview_script_plan_conversion(1))
+        loading = asyncio.create_task(
+            ScriptGenerator(plan_only_reference_project)._load_plan_entries_for_materialization(1)
+        )
         attempted_before_release = await asyncio.to_thread(attempted.wait, 1)
         if attempted_before_release:
-            assert not preview.done()
+            assert not loading.done()
             assert "duration_override" in script_plan_path.read_text(encoding="utf-8")
             ticked = asyncio.Event()
             asyncio.get_running_loop().call_soon(ticked.set)
@@ -751,7 +765,7 @@ async def test_reference_script_plan_migration_waits_for_prompt_authoring_draft_
         release.set()
         await asyncio.wait_for(holder, timeout=1)
 
-    await asyncio.wait_for(preview, timeout=1)
+    await asyncio.wait_for(loading, timeout=1)
     assert attempted_before_release
     assert "duration_override" not in script_plan_path.read_text(encoding="utf-8")
 
@@ -795,9 +809,6 @@ def test_reference_script_plan_migration_does_not_carry_confirmation_when_durati
 ):
     """迁移带 warnings（求和时长不在模型档位内，被取档改写）不是纯格式收编：已确认分集
     须重新等待确认，不能平移确认——取档后的秒数不是用户确认时看到的值。
-
-    重新等待确认的同时本次调用也须中止：内容确认判的是迁移前状态、已按「已确认」放行，
-    改写发生在放行之后，继续下去就会按用户从未过目的秒数走完付费的 prompt_authoring。
     """
     drafts = plan_only_reference_project / "drafts" / "episode_1"
     # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
@@ -813,36 +824,13 @@ def test_reference_script_plan_migration_does_not_carry_confirmation_when_durati
 
     gen = ScriptGenerator(plan_only_reference_project)
     # 求和 4s 不是模型档位成员，取档改写为 8s——这一步产生 warning。
-    with pytest.raises(ValueError, match="尚未完成内容确认"):
-        gen._load_reference_script_plan(episode=1, supported_durations=[8])
+    gen._load_reference_script_plan(episode=1, supported_durations=[8])
 
-    # 迁移本身已幂等落盘（中止的是本次生成，不是迁移）。
     assert _json.loads(script_plan_path.read_text(encoding="utf-8"))["units"][0]["duration_seconds"] == 8
 
     after_project = _json.loads(project_path.read_text(encoding="utf-8"))
     review = after_project["episodes"][0]["script_plan_review"]
     assert review["fingerprint"] == before  # 未被平移，仍是迁移前的旧指纹——照常判定为待确认
-
-
-@pytest.mark.asyncio
-async def test_script_plan_text_violation_is_caught_by_conversion(plan_only_reference_project: Path):
-    """script_plan 正文的语法违约在转换时按机器口径拦下，且错误指名 script_plan。
-
-    编辑器侧保存只做结构校验（人写的文本有作者意图要保护，语法问题仅出 warning），手工编辑
-    过的 script_plan 因而可能带着未登记的 `@[名称]` 进到转换。
-    """
-    project = plan_only_reference_project
-    _write_script_plan(
-        project,
-        _json.dumps(
-            {"units": [{"unit_id": "E1U01", "duration_seconds": 4, "text": "@[查无此人} 推门"}]},
-            ensure_ascii=False,
-        ),
-    )
-
-    with pytest.raises(DraftViolation, match="来自 script_plan"):
-        await ScriptGenerator(project, config_resolver=_stub_resolver({})).convert_script_plan(1)
-    assert not _script_path(project).exists()
 
 
 @pytest.mark.asyncio
@@ -860,10 +848,7 @@ async def test_formal_text_violation_is_caught_before_the_paid_prompt_authoring_
     generator.generate.assert_not_awaited()
 
 
-@pytest.mark.parametrize(("from_script_plan", "origin"), [(True, "script_plan"), (False, "正式脚本")])
-def test_speech_violation_preserves_canonical_unit_and_locations(
-    reference_project: Path, from_script_plan: bool, origin: str
-):
+def test_speech_violation_preserves_canonical_unit_and_locations(reference_project: Path):
     gen = ScriptGenerator(reference_project)
     units = [
         {
@@ -874,12 +859,12 @@ def test_speech_violation_preserves_canonical_unit_and_locations(
     ]
 
     with pytest.raises(DraftViolation) as exc_info:
-        gen._assert_reference_unit_text_valid(units, max_refs=None, from_script_plan=from_script_plan)
+        gen._assert_reference_unit_text_valid(units, max_refs=None)
 
     problem = exc_info.value
     assert problem.code == "mixed_speech"
     assert "unit E1U01 发声准入未通过" in str(problem)
-    assert f"unit {origin} 的 unit" not in str(problem)
+    assert "unit 正式脚本 的 unit" not in str(problem)
     assert problem.locations == (
         {"path": ["text"], "line": 1},
         {"path": ["text"], "line": 2},

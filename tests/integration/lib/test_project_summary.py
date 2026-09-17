@@ -373,9 +373,9 @@ def test_stale_artifacts_stay_available_and_are_counted_separately(tmp_path: Pat
 def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """列出 N 个项目不该读 N 份小说：整本源文与源文修订号都不进本投影。
 
-    分集原文（``source/episode_N.txt``）是另一回事——它是产物清单重建 script_plan 基线的输入，
-    每集至多读一次，与工作台比对同一件产物付的代价相同。这条断言把两者分开钉住：
-    一旦有人为了算阶段又去读整本源文、或为了修订号做全量 sha256，它就会红。
+    分集原文（``source/episode_N.txt``）只是 script_plan 基线的输入；本投影计数的剧本与媒体产物
+    都不以 script_plan 为依据，因此同样不读。一旦有人为了算阶段又去读整本源文、分集原文，
+    或为了修订号做全量 sha256，它就会红。
     """
 
     pm, project_path = _make_project(tmp_path, "narration")
@@ -394,11 +394,9 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
     assert summary.phase == "completed"
-    # 整本源文（含 source/ 直下其余文件）一次不读，修订号也不算。
+    # 整本源文、分集原文（source/ 直下全部文件）一次不读，修订号也不算。
     assert revision_calls == []
-    assert "novel.txt" not in source_reads
-    # 分集原文每集至多一次：产物清单比对 script_plan 基线的必需读。
-    assert source_reads == {"episode_1.txt": 1}
+    assert source_reads == {}
 
 
 def test_migration_blocked_project_is_listed_as_needing_repair(tmp_path: Path) -> None:

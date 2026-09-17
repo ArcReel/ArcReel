@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock, FileOutput, Lock, RotateCcw, Save, Wrench } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Lock, RotateCcw, Save, Wrench } from "lucide-react";
 import type {
   DramaNormalizedScript,
   DramaSceneContent,
@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/darkroom-tokens";
 import { sumItemDuration } from "@/utils/script-shape";
 import { UtteranceListEditor } from "./UtteranceListEditor";
-import { ScriptPlanConversionDialog } from "./ScriptPlanConversionDialog";
 
 interface ScriptReviewGateProps {
   projectName: string;
@@ -272,7 +271,6 @@ function QuarantinePanel(props: { quarantine: ScriptReviewQuarantine; onRequestF
 export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTimeline }: ScriptReviewGateProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
-  const [convertOpen, setConvertOpen] = useState(false);
   const [overwriteOpen, setOverwriteOpen] = useState(false);
 
   const handleConfirmed = useCallback(() => {
@@ -369,6 +367,9 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
   const confirmed = status === "confirmed" && !quarantined;
   // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
   const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
+  // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
+  const scriptMissing = confirmed && state?.script_overwrite == null;
+  const confirmLocked = quarantined || (confirmed && !scriptMissing);
 
   return (
     <div className="flex flex-col gap-3">
@@ -396,9 +397,11 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
             <span className="text-[11px] text-text-4">
               {quarantined
                 ? t("dashboard:review_quarantined_hint")
-                : confirmed
-                  ? t("dashboard:review_confirmed_hint")
-                  : overwrite
+                : scriptMissing
+                  ? t("dashboard:review_script_missing_hint")
+                  : confirmed
+                    ? t("dashboard:review_confirmed_hint")
+                    : overwrite
                     ? t("dashboard:review_overwrite_hint")
                     : t("dashboard:review_pending_hint")}
             </span>
@@ -418,12 +421,6 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
               {saving ? t("common:saving") : t("dashboard:review_save_action")}
             </button>
           )}
-          {confirmed && (
-            <button type="button" onClick={() => setConvertOpen(true)} disabled={busy} className={GHOST_BTN_CLS}>
-              <FileOutput className="h-3.5 w-3.5" />
-              {t("dashboard:review_convert_action")}
-            </button>
-          )}
           {overwrite ? (
             <PrimaryButton
               tone="danger"
@@ -438,17 +435,19 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
             <button
               type="button"
               onClick={voidPromise(() => handleConfirm())}
-              disabled={busy || confirmed || quarantined}
+              disabled={busy || confirmLocked}
               title={quarantined ? t("dashboard:review_confirm_blocked_quarantined") : undefined}
               className={ACCENT_BTN_CLS}
               style={ACCENT_BUTTON_STYLE}
             >
-              {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {confirmLocked ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
               {confirming
                 ? t("dashboard:review_confirming")
-                : confirmed
-                  ? t("dashboard:review_confirmed_badge")
-                  : t("dashboard:review_confirm_action")}
+                : scriptMissing
+                  ? t("dashboard:review_rematerialize_action")
+                  : confirmed
+                    ? t("dashboard:review_confirmed_badge")
+                    : t("dashboard:review_confirm_action")}
             </button>
           )}
         </div>
@@ -466,13 +465,6 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
           onCancel={() => setOverwriteOpen(false)}
         />
       )}
-
-      <ScriptPlanConversionDialog
-        open={convertOpen}
-        projectName={projectName}
-        episode={episode}
-        onClose={() => setConvertOpen(false)}
-      />
 
       {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
       {!quarantined && (

@@ -1,0 +1,183 @@
+"""v14→v15：正式脚本成为唯一内容真相后，存量项目在用户口径上可继续制作，剧本登记不因依据改版翻过期。"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from lib.artifact_currency import ArtifactCurrencyResolver
+from lib.artifact_manifest import ArtifactBasis, ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifact_provenance import build_episode_script_basis, project_episode_script_prompt_inputs
+from lib.project_manager import ProjectManager
+from lib.project_migration_report import load_migration_report
+from lib.project_migrations.runner import migrate_project_dir
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script_review import content_fingerprint, review_status
+from lib.workflow_state import WorkflowStateService
+from tests.legacy_project_shapes import (
+    ScriptPlanVariantName,
+    advance_project_schema,
+    write_legacy_script_plan_project,
+)
+
+_VARIANTS: tuple[ScriptPlanVariantName, ...] = ("drama", "narration", "reference_video")
+_PLAN_FILES = {
+    "drama": "script_plan_normalized_script.json",
+    "narration": "script_plan_segments.json",
+    "reference_video": "script_plan_reference_units.json",
+}
+_SCRIPT = ArtifactKey.episode_script(1)
+
+
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _script_status(project_dir: Path, key: ArtifactKey) -> str:
+    entry = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+    assert entry is not None
+    return ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=entry.artifact_path).status.value
+
+
+def _legacy_script_digest(project: dict[str, Any], plan_document: object) -> str:
+    """v2 剧本依据（以脚本规划内容为输入）的摘要：历史事实，按当时的形状写死。"""
+
+    return ArtifactBasis.build(
+        "structured-content/episode-script",
+        kind_version=2,
+        inputs={
+            "content_mode": project["content_mode"],
+            "generation_mode": project["generation_mode"],
+            "step1_content": plan_document,
+            "prompt_context": project_episode_script_prompt_inputs(project),
+        },
+    ).digest
+
+
+def _planless_script_digest(episode: int) -> str:
+    return ArtifactBasis.build(
+        "structured-content/episode-script-without-plan",
+        kind_version=1,
+        inputs={"episode": episode},
+    ).digest
+
+
+def _project_at_v14(root: Path, variant: ScriptPlanVariantName = "narration") -> Path:
+    project_dir = write_legacy_script_plan_project(root, variant=variant, schema_version=7)
+    advance_project_schema(project_dir, to_version=14)
+    return project_dir
+
+
+def _put_script_digest(project_dir: Path, digest: str) -> None:
+    ProjectArtifactManifestAdapter(project_dir).put_entry(
+        _SCRIPT, ArtifactManifestEntry(artifact_path="scripts/episode_1.json", basis_digest=digest)
+    )
+
+
+@pytest.mark.parametrize("variant", _VARIANTS)
+def test_whole_chain_leaves_every_episode_ready_for_the_next_step(
+    tmp_path: Path, variant: ScriptPlanVariantName
+) -> None:
+    root = tmp_path / "projects"
+    project_dir = write_legacy_script_plan_project(root, variant=variant, schema_version=7)
+
+    assert migrate_project_dir(project_dir) is True
+
+    project = _read_json(project_dir / "project.json")
+    assert project["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    service = WorkflowStateService(ProjectManager(root))
+    materialized = service.get_status(project_dir.name, 2)
+    assert materialized.next_action is not None
+    assert materialized.next_action.type.value == "author_prompts"
+    unit = "U" if variant == "reference_video" else "S"
+    assert materialized.next_action.requested_ids == [f"E2{unit}01", f"E2{unit}02"]
+    for episode in (1, 2, 3):
+        status = service.get_status(project_dir.name, episode)
+        assert status.artifacts["script"]["state"] == "current"
+        assert status.state not in {"SCRIPT_PLAN_CONTENT", "SCRIPT_PLAN_REVIEW"}
+        assert review_status(project_dir, project, episode) == "confirmed"
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert report.registered["episode-script"] == 3
+
+
+def test_rerunning_the_script_plan_of_a_grandfathered_episode_only_asks_for_confirmation(tmp_path: Path) -> None:
+    """grandfather 集记下确认基线后，重跑脚本规划回到待确认，但正式脚本照常在用、不挡下游。"""
+
+    root = tmp_path / "projects"
+    project_dir = write_legacy_script_plan_project(root, variant="narration", schema_version=7)
+    migrate_project_dir(project_dir)
+    plan_path = project_dir / "drafts" / "episode_3" / _PLAN_FILES["narration"]
+    plan = _read_json(plan_path)
+    plan["segments"][0]["novel_text"] = "重跑后的旁白。"
+    _write_json(plan_path, plan)
+
+    project = _read_json(project_dir / "project.json")
+    assert review_status(project_dir, project, 3) == "pending_review"
+    status = WorkflowStateService(ProjectManager(root)).get_status(project_dir.name, 3)
+    assert status.artifacts["script"]["state"] == "current"
+    assert status.next_action is not None
+    assert status.next_action.type.value == "author_prompts"
+
+
+def test_script_registered_by_the_plan_based_basis_is_rebased_and_stays_current(tmp_path: Path) -> None:
+    project_dir = _project_at_v14(tmp_path / "projects")
+    project = _read_json(project_dir / "project.json")
+    plan = _read_json(project_dir / "drafts" / "episode_1" / _PLAN_FILES["narration"])
+    _put_script_digest(project_dir, _legacy_script_digest(project, plan))
+
+    migrate_project_dir(project_dir)
+
+    migrated = _read_json(project_dir / "project.json")
+    entry = ProjectArtifactManifestAdapter(project_dir).get_entry(_SCRIPT)
+    assert entry == ArtifactManifestEntry(
+        artifact_path="scripts/episode_1.json", basis_digest=build_episode_script_basis(project=migrated).digest
+    )
+    assert _script_status(project_dir, _SCRIPT) == "current"
+
+
+def test_planless_script_registration_is_rebased_and_stays_current(tmp_path: Path) -> None:
+    project_dir = _project_at_v14(tmp_path / "projects")
+    _put_script_digest(project_dir, _planless_script_digest(1))
+
+    migrate_project_dir(project_dir)
+
+    assert _script_status(project_dir, _SCRIPT) == "current"
+
+
+def test_script_already_stale_before_the_migration_stays_stale(tmp_path: Path) -> None:
+    project_dir = _project_at_v14(tmp_path / "projects")
+    project = _read_json(project_dir / "project.json")
+    stale_digest = _legacy_script_digest(project, {"segments": [{"novel_text": "更早的规划"}]})
+    _put_script_digest(project_dir, stale_digest)
+
+    migrate_project_dir(project_dir)
+
+    entry = ProjectArtifactManifestAdapter(project_dir).get_entry(_SCRIPT)
+    assert entry is not None
+    assert entry.basis_digest == stale_digest
+    assert _script_status(project_dir, _SCRIPT) == "stale"
+
+
+def test_unmaterializable_confirmed_episode_appears_in_the_migration_report(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    project_dir = _project_at_v14(root)
+    plan_path = project_dir / "drafts" / "episode_2" / _PLAN_FILES["narration"]
+    _write_json(plan_path, {"segments": []})
+    project = _read_json(project_dir / "project.json")
+    project["episodes"][1]["script_plan_review"]["fingerprint"] = content_fingerprint(plan_path)
+    _write_json(project_dir / "project.json", project)
+
+    migrate_project_dir(project_dir)
+
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert [(item.kind, item.episode) for item in report.skipped if item.episode == 2] == [("episode-script", 2)]
+    assert not (project_dir / "scripts" / "episode_2.json").exists()

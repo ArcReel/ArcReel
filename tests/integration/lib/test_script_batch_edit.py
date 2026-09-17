@@ -58,12 +58,12 @@ def editor(tmp_path: Path) -> tuple[ProjectManager, ScriptBatchEditor, Path]:
     pm.create_project("demo", content_mode="narration")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     project_dir = pm.get_project_path("demo")
-    # 先落 script_plan、后落源文：保存剧本时计划在场但尚无源文，剧本不被登记，
-    # 之后的编辑才是首次登记，注入的清单写失败才会真正被触发。
     script_plan = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
     script_plan.parent.mkdir(parents=True, exist_ok=True)
     script_plan.write_text(json.dumps({"segments": [{"segment_id": "E1S01"}]}), encoding="utf-8")
     pm.save_script("demo", _script(), "episode_1.json")
+    # 剧本在场而产物清单尚无登记：之后的编辑才是首次登记，注入的清单写失败才会真正被触发。
+    (project_dir / ".arcreel_artifacts.json").unlink()
     source = project_dir / "source" / "episode_1.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("风吹过旷野。", encoding="utf-8")
@@ -125,11 +125,8 @@ def test_multi_operation_commit_updates_manifest_and_returns_revision(
     adapter = ProjectArtifactManifestAdapter(project_dir)
     entry = adapter.get_entry(ArtifactKey.episode_script(1))
     assert entry is not None
-    script_plan = json.loads(
-        (project_dir / "drafts" / "episode_1" / "script_plan_segments.json").read_text(encoding="utf-8")
-    )
     project = pm.load_project("demo")
-    assert entry.basis_digest == build_episode_script_basis(script_plan, project=project).digest
+    assert entry.basis_digest == build_episode_script_basis(project=project).digest
     assert entry.artifact_path == "scripts/episode_1.json"
 
 

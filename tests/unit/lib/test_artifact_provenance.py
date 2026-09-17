@@ -90,17 +90,9 @@ def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
     script_plan = build_script_plan_basis("第一场\n对白", episode=1, project=first_project)
     same_script_plan = build_script_plan_basis("第一场\n对白", episode=1, project=changed_execution_project)
     changed_source = build_script_plan_basis("第一场\n另一句对白", episode=1, project=first_project)
-    script = build_episode_script_basis({"scenes": [{"scene_id": "E1S01"}]}, project=first_project)
-    same_script = build_episode_script_basis(
-        {"scenes": [{"scene_id": "E1S01"}]},
-        project=changed_execution_project,
-    )
-    changed_script_plan = build_episode_script_basis(
-        {"scenes": [{"scene_id": "E1S01", "source_text": "changed"}]},
-        project=first_project,
-    )
+    script = build_episode_script_basis(project=first_project)
+    same_script = build_episode_script_basis(project=changed_execution_project)
     changed_prompt_context = build_episode_script_basis(
-        {"scenes": [{"scene_id": "E1S01"}]},
         project={
             **first_project,
             "overview": {"synopsis": "新的项目概述"},
@@ -117,7 +109,6 @@ def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
     assert same_script_plan.digest == script_plan.digest
     assert changed_source.digest != script_plan.digest
     assert same_script.digest == script.digest
-    assert changed_script_plan.digest != script.digest
     assert changed_prompt_context.digest != script.digest
 
 
@@ -333,10 +324,8 @@ def test_episode_script_basis_tracks_each_durable_prompt_context_field(changed: 
         "scenes": {"屋顶": {"description": "晴日"}},
         "props": {"钥匙": {"description": "白银"}},
     }
-    script_plan = {"scenes": [{"scene_id": "E1S01"}]}
-
-    baseline = build_episode_script_basis(script_plan, project=project)
-    updated = build_episode_script_basis(script_plan, project={**project, **changed})
+    baseline = build_episode_script_basis(project=project)
+    updated = build_episode_script_basis(project={**project, **changed})
 
     assert updated.digest != baseline.digest
 
@@ -349,11 +338,8 @@ def test_episode_script_basis_ignores_asset_fields_not_rendered_into_prompt_auth
         "scenes": {},
         "props": {},
     }
-    script_plan = {"segments": [{"segment_id": "E1S01"}]}
-
-    baseline = build_episode_script_basis(script_plan, project=project)
+    baseline = build_episode_script_basis(project=project)
     updated = build_episode_script_basis(
-        script_plan,
         project={
             **project,
             "characters": {"阿黎": {"description": "蓝衣", "character_sheet": "characters/new.png"}},
@@ -370,11 +356,8 @@ def test_structured_basis_rejects_malformed_formal_inputs() -> None:
             episode=1,
             project={"content_mode": [], "generation_mode": "storyboard"},
         )
-    with pytest.raises(ValueError, match="non-finite"):
-        build_episode_script_basis(
-            {"duration": float("nan")},
-            project={"content_mode": "narration", "generation_mode": "storyboard"},
-        )
+    with pytest.raises(ValueError, match="generation_mode"):
+        build_episode_script_basis(project={"content_mode": "narration", "generation_mode": "unknown"})
 
 
 def test_script_plan_basis_treats_null_source_kind_as_default() -> None:

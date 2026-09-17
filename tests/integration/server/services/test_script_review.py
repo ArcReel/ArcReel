@@ -30,7 +30,6 @@ from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.draft_validation import DraftViolation
-from lib.script_plan_entries import SCRIPT_PLAN_ENTRY_REVISION_FIELD, plan_entry_revisions
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 from tests.fakes import FakeConfigResolver
 
@@ -321,111 +320,6 @@ def _write_script(pm: ProjectManager, script: dict) -> None:
     atomic_write_json(pm.get_project_path("demo") / "scripts" / "episode_1.json", script)
 
 
-#: 不属于任何脚本规划条目的指纹值：条目上记着它，即表示该条目消费的内容已经不是当前那份。
-_MISMATCHED_ENTRY_REVISION = "sha256-v1:" + "0" * 64
-
-
-class TestScriptEntryCurrency:
-    """state 携带正式剧本相对 script_plan 的条目时效：无准入口径，草稿在场时照样给出。"""
-
-    @staticmethod
-    def _two_segment_plan() -> dict:
-        plan = _narration_script_plan()
-        second = dict(plan["segments"][0], segment_id="E1S02", novel_text="第二段。")
-        plan["segments"].append(second)
-        return plan
-
-    async def test_no_formal_script_yields_none(self, tmp_path):
-        pm = _make_project(tmp_path, "narration")
-        _write_script_plan(pm, "narration", _narration_script_plan())
-        assert (await _service(pm).get_state("demo", 1))["script_entry_currency"] is None
-
-    async def test_no_script_plan_yields_none(self, tmp_path):
-        pm = _make_project(tmp_path, "narration")
-        _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
-        state = await _service(pm).get_state("demo", 1)
-        assert state["status"] == "no_script_plan"
-        assert state["script_entry_currency"] is None
-
-    async def test_reports_only_the_entries_whose_content_drifted(self, tmp_path):
-        pm = _make_project(tmp_path, "narration")
-        plan = self._two_segment_plan()
-        _write_script_plan(pm, "narration", plan)
-        revisions = plan_entry_revisions("narration", plan["segments"], episode=1)
-        _write_script(
-            pm,
-            _narration_script(
-                _narration_script_segment("E1S01", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: revisions["E1S01"]}),
-                _narration_script_segment("E1S02", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: _MISMATCHED_ENTRY_REVISION}),
-                _narration_script_segment("E1S09", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: _MISMATCHED_ENTRY_REVISION}),
-            ),
-        )
-
-        state = await _service(pm).get_state("demo", 1)
-
-        assert state["script_entry_currency"] == {
-            "stale": ["E1S02"],
-            "added": [],
-            "removed": ["E1S09"],
-            "order_changed": False,
-        }
-
-    async def test_legacy_script_is_current_while_the_whole_revision_still_matches(self, tmp_path):
-        """存量剧本没有条目指纹：metadata 记录的整集指纹仍等于当前 script_plan 指纹即不误报。"""
-        pm = _make_project(tmp_path, "narration")
-        path = _write_script_plan(pm, "narration", _narration_script_plan())
-        whole = script_review.content_fingerprint(path)
-        _write_script(
-            pm,
-            _narration_script(
-                _narration_script_segment("E1S01"), metadata={script_review.SCRIPT_PLAN_REVISION_FIELD: whole}
-            ),
-        )
-
-        state = await _service(pm).get_state("demo", 1)
-
-        assert state["fingerprint"] == whole
-        assert state["script_entry_currency"] == {"stale": [], "added": [], "removed": [], "order_changed": False}
-
-    async def test_non_object_script_yields_none(self, tmp_path):
-        """剧本文件顶层不是对象时返回 None：时效是两份内容的比对，缺一方就没有答案，不整个 500。"""
-        pm = _make_project(tmp_path, "narration")
-        _write_script_plan(pm, "narration", _narration_script_plan())
-        (pm.get_project_path("demo") / "scripts" / "episode_1.json").write_text("[]", encoding="utf-8")
-
-        state = await _service(pm).get_state("demo", 1)
-
-        assert state["script_entry_currency"] is None
-
-    async def test_pending_draft_does_not_hide_stale_entries(self, tmp_path):
-        """待修复草稿在场时内容确认回到 pending，但条目时效仍按正式 script_plan 给出——
-        时效回答「内容是否变了」，草稿只阻断「能否确认 / 转换」。"""
-        pm = _make_project(tmp_path, "narration")
-        plan = self._two_segment_plan()
-        _write_script_plan(pm, "narration", plan)
-        revisions = plan_entry_revisions("narration", plan["segments"], episode=1)
-        _write_script(
-            pm,
-            _narration_script(
-                _narration_script_segment("E1S01", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: revisions["E1S01"]}),
-                _narration_script_segment("E1S02", **{SCRIPT_PLAN_ENTRY_REVISION_FIELD: _MISMATCHED_ENTRY_REVISION}),
-            ),
-        )
-        svc = _service(pm)
-        write_quarantine(
-            pm.get_project_path("demo"),
-            1,
-            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-            content={"segments": []},
-            violations=[],
-        )
-
-        state = await svc.get_state("demo", 1)
-
-        assert state["status"] == "pending_review"
-        assert state["script_entry_currency"]["stale"] == ["E1S02"]
-
-
 class TestDramaGateFlow:
     async def test_no_script_plan_then_pending_then_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
@@ -442,14 +336,14 @@ class TestDramaGateFlow:
         assert state["content"]["scenes"][0]["utterances"][0]["speaker"] == "阿离"
         project_path = pm.get_project_path("demo")
         project = pm.load_project("demo")
-        assert script_review.gate_blocks_prompt_authoring(project_path, project, 1) is True
+        assert script_review.review_status(project_path, project, 1) == "pending_review"
 
         # 确认 → 放行
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
         project = pm.load_project("demo")
-        assert script_review.gate_blocks_prompt_authoring(project_path, project, 1) is False
+        assert script_review.review_status(project_path, project, 1) != "pending_review"
 
     async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path):
         """drama 的草稿同样独立阻塞：草稿在场期间确认被拒、prompt_authoring 被阻塞，即使正式 script_plan
@@ -470,7 +364,7 @@ class TestDramaGateFlow:
         )
 
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "quarantined"
@@ -645,12 +539,10 @@ class TestConfirmMaterializesScript:
             assert scene["pending_authoring"] is True
             assert scene["image_prompt"] is None
             assert scene["video_prompt"] is None
-            assert scene[SCRIPT_PLAN_ENTRY_REVISION_FIELD]
         assert [scene["scene_description"] for scene in script["scenes"]] == [
             entry["scene_description"] for entry in plan["scenes"]
         ]
         assert script["scenes"][0]["utterances"] == plan["scenes"][0]["utterances"]
-        assert script["metadata"][script_review.SCRIPT_PLAN_REVISION_FIELD] == state["fingerprint"]
 
     async def test_narration_confirm_writes_every_plan_entry_pending_authoring(self, tmp_path):
         pm = _make_project(tmp_path, "narration")
@@ -868,7 +760,7 @@ class TestNarrationGateFlow:
         )
 
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "quarantined"
@@ -897,13 +789,13 @@ class TestReferenceVideoGateFlow:
         assert state["status"] == "pending_review"
         assert state["content"]["units"][0]["unit_id"] == "E1U01"
         assert state["content"]["units"][0]["text"].startswith("@[阿离]")
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
 
         # 确认 → 放行
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) != "pending_review"
 
     async def test_saving_confirmed_units_is_rejected_without_writing(self, tmp_path):
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -965,7 +857,7 @@ class TestReferenceVideoGateFlow:
         )
 
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "quarantined"
@@ -1562,7 +1454,7 @@ class TestErrors:
         assert exc.value.admission.unit_id == "E1S01"
         assert exc.value.admission.problems[0].code == "needs_replan"
         project = pm.load_project("demo")
-        assert script_review.gate_blocks_prompt_authoring(pm.get_project_path("demo"), project, 1) is True
+        assert script_review.review_status(pm.get_project_path("demo"), project, 1) == "pending_review"
 
     async def test_save_not_applicable_rejected(self, tmp_path):
         pm = _make_project(tmp_path, "ad")  # ad 无结构化 script_plan，gate 不适用
@@ -1798,7 +1690,7 @@ class TestPromptAuthoringEnforcement:
             "demo", lambda p: script_review.apply_confirmation(p, 1, "sha256-v1:" + "0" * 64, "2026-01-01T00:00:00Z")
         )
         project_path = pm.get_project_path("demo")
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
 
         ctx = ToolContext(
             project_name="demo",
@@ -1819,7 +1711,7 @@ class TestPromptAuthoringEnforcement:
         pm = _make_project(tmp_path, "drama")
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         project_path = pm.get_project_path("demo")
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
 
         ctx = ToolContext(
             project_name="demo",
@@ -1830,7 +1722,7 @@ class TestPromptAuthoringEnforcement:
         result = await confirm_script_review_tool(ctx).handler({"episode": 1})
 
         assert result.get("is_error") is not True
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) != "pending_review"
 
     async def test_confirm_tool_requires_the_same_overwrite_acknowledgement(self, tmp_path):
         """Agent 确认走同一服务：已有正式脚本时不带认可返回与 web 相同的清单，带认可才覆盖。"""
@@ -1894,7 +1786,7 @@ class TestLegacyEnumeration:
         _write_prompt_authoring(pm)
         project_path = pm.get_project_path("demo")
         assert (await _service(pm).get_state("demo", 1))["status"] == "confirmed"
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) != "pending_review"
 
     async def test_script_plan_prompt_authoring_review_matching_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
@@ -1946,7 +1838,7 @@ class TestManualSplitSelfHeal:
         assert confirmed["status"] == "confirmed"
 
         project_path = pm.get_project_path("demo")
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) != "pending_review"
 
     async def test_self_heal_never_anchors_even_when_source_text_matches(self, tmp_path):
         """派生文件内容即使能在原文中精确匹配，自愈也只登记不锚定：位置记录只由规划工具写入。"""

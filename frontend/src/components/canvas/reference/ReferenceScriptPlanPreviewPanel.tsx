@@ -475,6 +475,9 @@ export function ReferenceScriptPlanPreviewPanel({
   const readOnly = quarantined || confirmed;
   // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
   const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
+  // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
+  const scriptMissing = confirmed && state?.script_overwrite == null;
+  const confirmLocked = quarantined || (confirmed && !scriptMissing);
   const displayUnits: DisplayUnit[] = quarantined
     ? quarantinedDisplayUnits(quarantine.content, episode)
     : draft
@@ -552,6 +555,8 @@ export function ReferenceScriptPlanPreviewPanel({
                 </>
               ) : quarantined ? (
                 t("reference_script_plan_editable_hint")
+              ) : scriptMissing ? (
+                t("dashboard:review_script_missing_hint")
               ) : confirmed ? (
                 t("dashboard:review_confirmed_hint")
               ) : overwrite ? (
@@ -601,7 +606,7 @@ export function ReferenceScriptPlanPreviewPanel({
             <button
               type="button"
               onClick={voidPromise(() => handleConfirm())}
-              disabled={busy || confirmed || quarantined || outOfTierUnitKeys.size > 0}
+              disabled={busy || confirmLocked || outOfTierUnitKeys.size > 0}
               className={ACCENT_BTN_CLS}
               style={ACCENT_BUTTON_STYLE}
               title={
@@ -612,12 +617,14 @@ export function ReferenceScriptPlanPreviewPanel({
                     : undefined
               }
             >
-              {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {confirmLocked ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
               {confirming
                 ? t("dashboard:review_confirming")
-                : confirmed
-                  ? t("dashboard:review_confirmed_badge")
-                  : t("reference_script_plan_confirm_continue")}
+                : scriptMissing
+                  ? t("dashboard:review_rematerialize_action")
+                  : confirmed
+                    ? t("dashboard:review_confirmed_badge")
+                    : t("reference_script_plan_confirm_continue")}
             </button>
           )}
         </div>

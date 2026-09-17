@@ -28,7 +28,6 @@ from lib.artifact_activation import (
 from lib.artifact_manifest import ArtifactBasisDescriptor, ArtifactEntryRekeyReceipt, ArtifactKey
 from lib.artifact_provenance import (
     build_ad_episode_script_basis,
-    build_episode_script_basis,
     project_ad_episode_script_inputs,
 )
 from lib.async_thread import run_sync_transaction
@@ -88,6 +87,13 @@ from lib.reference_video.draft_validation import (
 )
 from lib.reference_video.duration_slots import resolve_duration_slot
 from lib.reference_video.text_parser import extract_mentions
+from lib.script_document import (
+    build_materialized_script,
+    episode_ledger_entry,
+    finish_script_document,
+    ledger_outline,
+    prepare_script_entries,
+)
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     PENDING_AUTHORING_FIELD,
@@ -106,32 +112,18 @@ from lib.script_models import (
     build_episode_script_model,
     script_duration_total,
 )
-from lib.script_plan_entries import (
-    SCRIPT_PLAN_ENTRY_REVISION_FIELD,
-    ScriptEntryCurrency,
-    ScriptPlanEntryError,
-    ScriptPlanKind,
-    entry_id_field,
-    evaluate_entry_currency,
-    plan_entry_content,
-    plan_entry_revisions,
-    plan_variant,
-    script_entries_by_id,
-    splice_entries,
-)
+from lib.script_plan_entries import ScriptPlanKind, entry_id_field, plan_variant
 from lib.script_review import (
-    SCRIPT_PLAN_REVISION_FIELD,
     ScriptPlanWriteConflict,
     content_fingerprint,
     content_fingerprint_of_data,
     formal_script_overwrite,
     formal_script_plan_lock,
-    gate_blocks_prompt_authoring,
     migrate_script_plan_draft_in_place,
     script_plan_path,
 )
 from lib.script_skeleton import resolve_declared_kind, resolve_kind_items, rewrite_episode_prefix
-from lib.speech_composition import admit_script_unit, require_script_unit_admitted, video_unit_replan_problems
+from lib.speech_composition import require_script_unit_admitted, video_unit_replan_problems
 from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -203,57 +195,15 @@ class PromptAuthoringTargets:
 
 
 @dataclass(frozen=True, slots=True)
-class PromptAuthoringScope:
-    """机械转换的条目比对结果：脚本规划各条目的指纹、旧剧本里可沿用的条目与条目时效。
-
-    ``plan_revisions`` 与 ``existing`` 用改写后的落盘 id 为键，供装配阶段对齐。
-    """
-
-    plan_kind: ScriptPlanKind
-    plan_revisions: dict[str, str]
-    existing: dict[str, dict]
-    existing_title: str | None
-    currency: ScriptEntryCurrency
-    #: 旧剧本 metadata 记录的整集脚本规划指纹；无旧剧本或未记录时为 None。
-    existing_plan_revision: str | None = None
-
-    @property
-    def items_key(self) -> str:
-        """该变体在剧本 dict 里的条目数组键。"""
-        return plan_variant(self.plan_kind).skeleton_kind
-
-
-@dataclass(frozen=True, slots=True)
-class ScriptPlanConversionReceipt:
-    """一次「按脚本规划转为正式脚本」的回执：三组条目 id 都按脚本规划顺序（``removed`` 按旧剧本顺序）。"""
+class ScriptPlanMaterializationReceipt:
+    """内容确认把脚本规划整份转为正式剧本的回执。"""
 
     episode: int
     script_filename: str
-    #: 这一次转换新加进剧本、带待编写标记的条目（参考生视频单元的正文待改写）。
-    added: tuple[str, ...]
-    #: 这一次转换「采用新内容」的失效条目：内容层按脚本规划重取、提示词保留、盖新指纹。
-    refreshed: tuple[str, ...]
-    #: 这一次转换因脚本规划里已不存在而移出剧本的条目。
+    #: 新正式剧本的全部条目 id（均待编写），按脚本规划顺序。
+    entry_ids: tuple[str, ...]
+    #: 旧正式剧本里有、新剧本里已不存在的条目 id，按旧剧本顺序。
     removed: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ScriptPlanConversionPreview:
-    """机械转换的只读预演：不落盘，只回答「现在转会有哪些条目新增 / 失效 / 移出」。"""
-
-    episode: int
-    #: 正式剧本是否已存在；不存在时 ``added`` 即脚本规划全部条目。
-    has_script: bool
-    #: 脚本规划里有、正式剧本里没有的条目，按脚本规划顺序。
-    added: tuple[str, ...]
-    #: 正式剧本里内容指纹已落后于脚本规划的条目，按脚本规划顺序。
-    stale: tuple[str, ...]
-    #: 正式剧本里有、脚本规划里已不存在的条目，按剧本顺序。
-    removed: tuple[str, ...]
-    #: 三组都为空时也可能要转：沿用条目的顺序与脚本规划不同。
-    order_changed: bool = False
-    #: 脚本规划的标题（drama）与正式剧本标题不同。
-    title_changed: bool = False
 
 
 class ScriptPlanNotFoundError(FileNotFoundError):
@@ -270,19 +220,6 @@ class VideoDurationsUnresolvedError(ValueError):
     仍是 ``ValueError`` 的子类，按准入失败处理的调用方不受影响；需要向用户指明「去配置视频
     模型」的调用方按本类型捕获。
     """
-
-
-def _conversion_title(plan_title: str | None, scope: PromptAuthoringScope, episode: int) -> str:
-    """机械转换落盘的标题：规划有标题取规划，否则沿用旧剧本，再否则按集号兜底。"""
-    return plan_title or _existing_title(scope, episode)
-
-
-def _existing_title(scope: PromptAuthoringScope, episode: int) -> str:
-    return scope.existing_title or f"第{episode}集"
-
-
-#: 机械转换写进剧本 ``metadata.generator`` 的标记：这份剧本的条目是按脚本规划投影出来的，不经文本模型。
-SCRIPT_PLAN_CONVERSION_GENERATOR = "script_plan_conversion"
 
 
 class ScriptGenerator:
@@ -313,7 +250,7 @@ class ScriptGenerator:
         self.project_path = Path(project_path)
         self.generator = generator
         self.config_resolver = config_resolver
-        self._script_plan_revision: str | None = None
+        self._script_plan_fingerprint: str | None = None
         self._artifact_basis: ArtifactBasisDescriptor | None = None
         self._script_plan_input_claim: ArtifactInputClaim | None = None
 
@@ -328,20 +265,12 @@ class ScriptGenerator:
 
     def _episode_entry(self, episode: int) -> dict:
         """按集号取 project.json episodes 条目；缺失返回空 dict。"""
-        return next(
-            (
-                ep
-                for ep in (self.project_json.get("episodes") or [])
-                if isinstance(ep, dict) and ep.get("episode") == episode
-            ),
-            {},
-        )
+        return episode_ledger_entry(self.project_json, episode)
 
     @staticmethod
     def _entry_outline(entry: dict) -> dict:
         """账本条目的 outline 字段归一化为 dict（缺失/形状异常返回空 dict）。"""
-        raw_outline = entry.get("outline")
-        return raw_outline if isinstance(raw_outline, dict) else {}
+        return ledger_outline(entry)
 
     @classmethod
     async def create(
@@ -358,56 +287,6 @@ class ScriptGenerator:
             project_path,
             generator,
             config_resolver=config_resolver,
-        )
-
-    def _resolve_prompt_authoring_scope(
-        self,
-        episode: int,
-        filename: str,
-        *,
-        plan_kind: ScriptPlanKind,
-        plan_entries: list[dict],
-    ) -> PromptAuthoringScope:
-        """按条目比对脚本规划与现有剧本，供机械转换定出新增 / 失效 / 移出的条目。
-
-        存量剧本的条目没有条目指纹，按剧本 metadata 记录的整集脚本规划指纹是否仍等于当前值
-        回退判定（见 ``evaluate_entry_currency``），因而不会因为升级本身被误报失效。
-        """
-        plan_revisions = plan_entry_revisions(plan_kind, plan_entries, episode=episode)
-        pm = ProjectManager(str(self.project_path.parent))
-        try:
-            existing_script = pm.load_script_readonly(self.project_path.name, filename)
-        except (FileNotFoundError, ValueError):
-            # 剧本不存在，或磁盘上那份读不成 dict：两者都没有可沿用的条目，按整集转换处置。
-            existing_script = None
-        if existing_script is None:
-            currency = evaluate_entry_currency(
-                plan_kind, script={}, plan_revisions=plan_revisions, legacy_entries_current=False
-            )
-            existing: dict[str, dict] = {}
-            existing_title = None
-            recorded = None
-        else:
-            metadata = existing_script.get("metadata")
-            recorded = metadata.get(SCRIPT_PLAN_REVISION_FIELD) if isinstance(metadata, Mapping) else None
-            currency = evaluate_entry_currency(
-                plan_kind,
-                script=existing_script,
-                plan_revisions=plan_revisions,
-                legacy_entries_current=(
-                    self._script_plan_revision is not None and recorded == self._script_plan_revision
-                ),
-            )
-            existing = script_entries_by_id(plan_kind, existing_script)
-            raw_title = existing_script.get("title")
-            existing_title = raw_title if isinstance(raw_title, str) and raw_title.strip() else None
-        return PromptAuthoringScope(
-            plan_kind=plan_kind,
-            plan_revisions=plan_revisions,
-            existing=existing,
-            existing_title=existing_title,
-            currency=currency,
-            existing_plan_revision=recorded if isinstance(recorded, str) else None,
         )
 
     def _load_prompt_authoring_targets(
@@ -491,7 +370,7 @@ class ScriptGenerator:
         ):
             raise ValueError(f"output_filename 只接受纯文件名，不允许目录或路径分隔符: {output_filename!r}")
 
-        self._script_plan_revision = None
+        self._script_plan_fingerprint = None
         self._artifact_basis = None
         self._script_plan_input_claim = None
         gen_mode = self.generation_mode
@@ -689,27 +568,24 @@ class ScriptGenerator:
         script["metadata"] = metadata
         return script
 
-    async def _load_plan_entries_for_conversion(
-        self, episode: int, *, validate_reference_text: bool = True
+    async def _load_plan_entries_for_materialization(
+        self, episode: int
     ) -> tuple[ScriptPlanKind, list[dict], str | None]:
-        """按项目路线读脚本规划并过与 ``generate`` 同一组准入断言，返回 (变体, 条目, 标题)。
+        """按项目路线读脚本规划并过物化的准入断言，返回 (变体, 条目, 标题)。
 
-        三条路线各自的加载器负责结构校验、待修复草稿守卫与整集指纹 / 产物依据的冻结；时长档位
-        与发声准入与走文本模型的路径同口径——机械转换不调用模型，但落盘的是同一份正式剧本，
-        放行判据不能比生成路径松。``validate_reference_text=False`` 时参考生视频单元正文不按
-        机器口径预判，见 ``_assert_reference_script_plan_ready``。
+        三条路线各自的加载器负责结构校验、待修复草稿守卫与规划指纹 / 输入登记的冻结；时长档位与
+        发声准入按当前视频能力判定。参考生视频单元正文不按机器口径预判：单元以待编写落盘，正文由之后的
+        提示词编写改写并在那里校验。
         """
         gen_mode = self.generation_mode
         if self.content_mode == "ad":
-            raise ValueError("广告/短片项目没有脚本规划步骤，不适用机械转换")
+            raise ValueError("广告/短片项目没有脚本规划步骤，不适用内容确认转换")
         if gen_mode == "reference_video":
             caps = await self._fetch_video_capabilities()
             units = await run_sync_transaction(
                 self._load_reference_script_plan, episode, self._resolve_raw_supported_durations(caps)
             )
-            self._assert_reference_script_plan_ready(
-                units, caps=caps, gen_mode=gen_mode, validate_text=validate_reference_text
-            )
+            self._assert_reference_script_plan_durations(units, caps=caps, gen_mode=gen_mode)
             return "reference_video", units, None
         if self.content_mode != "narration":
             content = self._load_drama_script_plan_content(episode)
@@ -719,151 +595,11 @@ class ScriptGenerator:
                 require_script_unit_admitted("scenes", scene)
             await self._assert_drama_script_plan_durations(scenes, episode=episode, gen_mode=gen_mode)
             raw_title = content.get("title")
-            # 与旧剧本标题同一口径：空白标题视为缺失，否则转换后预演会一直报 title_changed。
             title = raw_title if isinstance(raw_title, str) and raw_title.strip() else None
             return "drama", scenes, title
         caps = await self._fetch_video_capabilities()
         supported = self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=None)
         return "narration", self._load_narration_script_plan(episode, supported), None
-
-    async def preview_script_plan_conversion(self, episode: int) -> ScriptPlanConversionPreview:
-        """按当前脚本规划与正式剧本算一次 ``convert_script_plan`` 的三组条目，不写任何文件。"""
-        self._script_plan_revision = None
-        self._artifact_basis = None
-        self._script_plan_input_claim = None
-        plan_kind, plan_entries, title = await self._load_plan_entries_for_conversion(episode)
-        scope = self._resolve_prompt_authoring_scope(
-            episode, episode_script_filename(episode), plan_kind=plan_kind, plan_entries=plan_entries
-        )
-        has_script = bool(scope.existing) or scope.existing_title is not None
-        return ScriptPlanConversionPreview(
-            episode=episode,
-            has_script=has_script,
-            added=scope.currency.new_ids,
-            stale=scope.currency.stale_ids,
-            removed=scope.currency.removed_ids,
-            order_changed=has_script and scope.currency.order_changed,
-            title_changed=has_script and _conversion_title(title, scope, episode) != _existing_title(scope, episode),
-        )
-
-    async def convert_script_plan(
-        self,
-        episode: int,
-        *,
-        entry_ids: Iterable[str] | None = None,
-    ) -> ScriptPlanConversionReceipt:
-        """把脚本规划机械转为正式剧本：只同步内容层，从不写视觉层。
-
-        无正式剧本时整集投影，drama / narration 条目的 ``image_prompt`` / ``video_prompt`` 以 ``None``
-        落盘，参考生视频的单元正文逐字复制；新增条目带待编写标记。已有正式剧本时做集合同步：
-        脚本规划新增的条目以待编写态加入，规划里已不存在的条目移出，顺序跟随规划；失效条目的
-        内容、提示词与指纹三样原样保留、继续报失效；未变条目逐字节不变。``entry_ids`` 点名的
-        失效条目「采用新内容」：内容层按脚本规划重取、提示词保留、盖当前指纹；点名了非失效条目
-        即报错、不落盘。剧本与规划逐条一致时不写盘，回执三组为空。
-        """
-        self._script_plan_revision = None
-        self._artifact_basis = None
-        self._script_plan_input_claim = None
-        plan_kind, plan_entries, title = await self._load_plan_entries_for_conversion(episode)
-        filename = episode_script_filename(episode)
-        # 指纹先于读入旧剧本：装配用的快照与 expected_fingerprint 出自同一时刻之前，两者之间
-        # 落下的并发保存在写入时按冲突拒绝，而不是拿新文件的指纹把它覆盖掉。
-        formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
-        scope = self._resolve_prompt_authoring_scope(episode, filename, plan_kind=plan_kind, plan_entries=plan_entries)
-        currency = scope.currency
-        requested = tuple(dict.fromkeys(entry_ids or ()))
-        unknown = [entry_id for entry_id in requested if entry_id not in currency.plan_ids]
-        if unknown:
-            raise ScriptPlanEntryError(f"entry_ids 不在当前脚本规划内: {unknown}")
-        not_stale = [entry_id for entry_id in requested if entry_id not in currency.stale_ids]
-        if not_stale:
-            raise ScriptPlanEntryError(f"只有失效条目才能采用新内容，这些条目并未失效: {not_stale}")
-        refreshed = tuple(entry_id for entry_id in currency.plan_ids if entry_id in requested)
-        added = currency.new_ids
-        untouched_stale = tuple(entry_id for entry_id in currency.stale_ids if entry_id not in requested)
-
-        id_field = entry_id_field(plan_kind)
-        rewritten: list[dict] = []
-        for entry in plan_entries:
-            entry_id = str(rewrite_episode_prefix(entry.get(id_field), episode))
-            content = plan_entry_content(plan_kind, entry)
-            if entry_id in added:
-                if plan_kind != "reference_video":
-                    content = {**content, "image_prompt": None, "video_prompt": None}
-                rewritten.append(content)
-            elif entry_id in refreshed:
-                rewritten.append({**scope.existing[entry_id], **content})
-
-        script_data: dict[str, Any] = {
-            "title": _conversion_title(title, scope, episode),
-            scope.items_key: rewritten,
-        }
-        script_data = self._add_metadata(script_data, episode)
-        script_data["metadata"]["generator"] = SCRIPT_PLAN_CONVERSION_GENERATOR
-        # 转换不写视觉层：新增条目待编写（参考生视频单元正文待改写），采用新内容的条目保持原有待编写状态。
-        for item in script_data[scope.items_key]:
-            entry_id = item.get(id_field)
-            if entry_id in added or (
-                entry_id in refreshed and scope.existing[entry_id].get(PENDING_AUTHORING_FIELD) is True
-            ):
-                item[PENDING_AUTHORING_FIELD] = True
-        script_data[scope.items_key] = splice_entries(
-            plan_kind,
-            plan_revisions=scope.plan_revisions,
-            rewritten=script_data[scope.items_key],
-            existing=scope.existing,
-            keep_revision_ids=untouched_stale,
-        )
-        # 未盖指纹的存量失效条目只能靠整集指纹继续报失效：此时沿用旧剧本记录的整集指纹，
-        # 不换成当前值，否则它们会在读时被当成「随整集一起生成」而误判为当前。
-        if any(SCRIPT_PLAN_ENTRY_REVISION_FIELD not in item for item in script_data[scope.items_key]):
-            script_data["metadata"].pop(SCRIPT_PLAN_REVISION_FIELD, None)
-            if scope.existing_plan_revision is not None:
-                script_data["metadata"][SCRIPT_PLAN_REVISION_FIELD] = scope.existing_plan_revision
-
-        receipt = ScriptPlanConversionReceipt(
-            episode=episode,
-            script_filename=filename,
-            added=added,
-            refreshed=refreshed,
-            removed=currency.removed_ids,
-        )
-        # 条目集合、顺序与标题都没变才是空操作：只调顺序或只改标题同样要落盘。
-        if (
-            not added
-            and not refreshed
-            and not currency.removed_ids
-            and script_data[scope.items_key] == list(scope.existing.values())
-            and script_data["title"] == _existing_title(scope, episode)
-        ):
-            logger.info("第 %d 集剧本与脚本规划逐条一致，机械转换未写盘", episode)
-            return receipt
-
-        # 与 ``_generate_text`` 同一道复核：快照之后脚本规划又被改写（登记的正式产物已不是冻结的
-        # 那份），拒绝把旧投影落盘。输出侧的 expected_fingerprint 只守正式剧本，守不住输入。
-        if self._script_plan_input_claim is not None:
-            await asyncio.to_thread(
-                assert_current_artifact_input_claims_usable, self.project_path, (self._script_plan_input_claim,)
-            )
-        pm = ProjectManager(str(self.project_path.parent))
-        output_path = await run_sync_transaction(
-            pm.save_script,
-            self.project_path.name,
-            script_data,
-            filename,
-            validate=True,
-            artifact_basis=self._artifact_basis,
-            expected_fingerprint=formal_baseline,
-        )
-        logger.info(
-            "第 %d 集已按脚本规划机械转为正式剧本（新增 %d / 采用新内容 %d / 移出 %d），保存至 %s",
-            episode,
-            len(added),
-            len(refreshed),
-            len(currency.removed_ids),
-            output_path,
-        )
-        return receipt
 
     async def materialize_script_plan(
         self,
@@ -872,46 +608,28 @@ class ScriptGenerator:
         expected_plan_revision: str,
         expected_script_fingerprint: str | None,
         project_update: Callable[[dict[str, Any]], None],
-    ) -> ScriptPlanConversionReceipt:
+    ) -> ScriptPlanMaterializationReceipt:
         """内容确认时把脚本规划整份转为正式剧本：旧剧本（若有）整份被替换，不沿用任何条目。
 
-        全部条目待编写、视觉层为空；参考生视频的单元正文与时长取自脚本规划。条目指纹与整集
-        指纹照常盖上。``expected_plan_revision`` 是确认记录的脚本规划指纹，加载到的规划不是这份
-        即抛 ``ScriptPlanWriteConflict``；``expected_script_fingerprint`` 是调用方认可覆盖时看到的
-        正式剧本指纹（无剧本为 None），落盘时不匹配抛 ``ScriptWriteConflict``。旧剧本的条目即使
+        投影见 ``lib.script_document.build_materialized_script``。``expected_plan_revision`` 是确认记录的脚本规划指纹，加载到的
+        规划不是这份即抛 ``ScriptPlanWriteConflict``；``expected_script_fingerprint`` 是调用方认可覆盖时
+        看到的正式剧本指纹（无剧本为 None），落盘时不匹配抛 ``ScriptWriteConflict``。旧剧本的条目即使
         与新条目同 id，名下产物也随本次写入撤登记。``project_update`` 与剧本在同一写事务内修改
         project.json，确认记录借此与正式剧本一起落盘。
         """
-        self._script_plan_revision = None
+        self._script_plan_fingerprint = None
         self._artifact_basis = None
         self._script_plan_input_claim = None
-        plan_kind, plan_entries, title = await self._load_plan_entries_for_conversion(
-            episode, validate_reference_text=False
-        )
+        plan_kind, plan_entries, title = await self._load_plan_entries_for_materialization(episode)
         # 加载器在 await 内冻结了本次读到的规划指纹；静态收窄看不到这次改写。
-        loaded_revision = cast(str | None, self._script_plan_revision)
+        loaded_revision = cast(str | None, self._script_plan_fingerprint)
         if loaded_revision != expected_plan_revision:
             raise ScriptPlanWriteConflict(expected=expected_plan_revision, actual=loaded_revision, current_content=None)
         filename = episode_script_filename(episode)
-        plan_revisions = plan_entry_revisions(plan_kind, plan_entries, episode=episode)
-        items: list[dict] = []
-        for entry in plan_entries:
-            content = plan_entry_content(plan_kind, entry)
-            if plan_kind != "reference_video":
-                content = {**content, "image_prompt": None, "video_prompt": None}
-            items.append(content)
-        items_key = plan_variant(plan_kind).skeleton_kind
-        episode_title = self._episode_entry(episode).get("title")
-        fallback_title = episode_title if isinstance(episode_title, str) and episode_title.strip() else f"第{episode}集"
-        script_data: dict[str, Any] = {"title": title or fallback_title, items_key: items}
-        script_data = self._add_metadata(script_data, episode)
-        script_data["metadata"]["generator"] = SCRIPT_PLAN_CONVERSION_GENERATOR
-        for item in script_data[items_key]:
-            item[PENDING_AUTHORING_FIELD] = True
-        script_data[items_key] = splice_entries(
-            plan_kind, plan_revisions=plan_revisions, rewritten=script_data[items_key], existing={}
+        script_data = build_materialized_script(
+            self.project_json, episode, plan_kind=plan_kind, plan_entries=plan_entries, title=title
         )
-
+        items_key = plan_variant(plan_kind).skeleton_kind
         id_field = entry_id_field(plan_kind)
         entry_ids = tuple(str(item[id_field]) for item in script_data[items_key])
         previous = await asyncio.to_thread(formal_script_overwrite, self.project_path, episode)
@@ -920,7 +638,6 @@ class ScriptGenerator:
         if plan_path is None:
             raise FileNotFoundError(f"第 {episode} 集不适用脚本规划")
         claim = self._script_plan_input_claim
-        artifact_basis = self._artifact_basis
         pm = ProjectManager(str(self.project_path.parent))
 
         def _commit() -> None:
@@ -939,7 +656,6 @@ class ScriptGenerator:
                     script_data,
                     filename,
                     validate=True,
-                    artifact_basis=artifact_basis,
                     expected_fingerprint=expected_script_fingerprint,
                     replaced_resource_ids=tuple(entry_id for entry_id in previous_ids if entry_id in entry_ids),
                     project_update=project_update,
@@ -953,8 +669,8 @@ class ScriptGenerator:
             len(entry_ids),
             len(removed),
         )
-        return ScriptPlanConversionReceipt(
-            episode=episode, script_filename=filename, added=entry_ids, refreshed=(), removed=removed
+        return ScriptPlanMaterializationReceipt(
+            episode=episode, script_filename=filename, entry_ids=entry_ids, removed=removed
         )
 
     async def _assert_drama_script_plan_durations(
@@ -1297,11 +1013,6 @@ class ScriptGenerator:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
 
-    def _freeze_script_plan_artifact_basis(self, script_plan_content: object) -> None:
-        """Freeze the authoritative script_plan basis before the provider call."""
-        basis = build_episode_script_basis(script_plan_content, project=self.project_json)
-        self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
-
     def _freeze_script_plan_input_claim(self, episode: int, script_plan_path: Path, *, content_digest: str) -> None:
         """Bind parsed script_plan bytes to their formal identity for provider admission."""
 
@@ -1359,13 +1070,10 @@ class ScriptGenerator:
         self,
         episode: int,
         supported_durations: list[int],
-        *,
-        _prompt_authoring_lock_held: bool = False,
     ) -> list[dict]:
         """加载并校验 reference_video script_plan 结构化中间文件 ``script_plan_reference_units.json``。
 
-        返回 unit dict 列表（unit_id / text / duration_seconds），供 prompt_authoring prompt 渲染
-        （``render_reference_units_for_prompt_authoring``）作唯一基底——prompt_authoring 不解析自由文本。
+        返回 unit dict 列表（unit_id / text / duration_seconds / source_text），供内容确认整份转为正式剧本。
         校验：结构合法（``ReferenceScriptPlanDraft``）、units 非空、unit_id 唯一、
         unit ``duration_seconds`` ∈ ``supported_durations``（与拆分工具的 response_schema 同口径，
         防手工编辑漂移出非法时长）。仅存在结构化前的旧 ``script_plan_reference_units.md`` 时给
@@ -1374,13 +1082,12 @@ class ScriptGenerator:
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
         script_plan_json = drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
-        # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 prompt_authoring 等于把一份
-        # 待处置的违约产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞；脚本、测试等
-        # 直连调用会绕过工具入口，因此在此重复守卫。
+        # 待修复草稿在场时不转换：正式文件此刻仍是上一版（或不存在），拿它转为正式剧本等于把一份
+        # 待处置的违约产出静默换成旧内容。确认服务已按同一判据拒绝；直连调用会绕过服务，因此在此重复守卫。
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集有待修复草稿（{quarantine}），prompt_authoring 生成已中止；"
+                f"第 {episode} 集有待修复草稿（{quarantine}），脚本规划转换已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         if not script_plan_json.exists():
@@ -1399,15 +1106,7 @@ class ScriptGenerator:
         # 与 server.services.script_review / save_content 共享同一把 per-path 锁：
         # 迁移的读改写与 Web 端保存、重拆分写盘相互互斥。
         prompt_authoring_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        prompt_authoring_lock = nullcontext() if _prompt_authoring_lock_held else pm.file_lock(prompt_authoring_path)
-        with prompt_authoring_lock, pm.file_lock(script_plan_json):
-            # 顺序不变量：内容确认的判定在更早的转换入口完成，迁移在其后运行且可能
-            # 改写时长。先记下迁移前的放行状态，供迁移后判断放行依据是否已失效。放行状态与
-            # 草稿在同一临界区内读取，两者才描述同一时刻——锁外读则并发的保存/确认会让它
-            # 描述另一份草稿的内容确认结果。
-            gate_passed_before = not gate_blocks_prompt_authoring(
-                self.project_path, pm.load_project(self.project_path.name), episode
-            )
+        with pm.file_lock(prompt_authoring_path), pm.file_lock(script_plan_json):
             try:
                 raw = json.loads(script_plan_json.read_text(encoding="utf-8"))
             except json.JSONDecodeError as e:
@@ -1415,35 +1114,19 @@ class ScriptGenerator:
 
             # 存量草稿的 per-shot 时长一次性收编到 unit 级并回写落盘（二次加载不再触发）。
             # 此处持有模型档位，收编结果直接取档，与下方的枚举校验对齐。
-            migrated_project, migration_warnings = migrate_script_plan_draft_in_place(
+            # 时长被收编改写时规划指纹随之漂移，物化按确认指纹复核而拒绝，不以用户未过目的秒数落盘。
+            migrate_script_plan_draft_in_place(
                 self.project_path,
                 raw,
                 episode=episode,
                 update_project=lambda mutate: pm.update_project(self.project_path.name, mutate),
                 supported_durations=supported_durations,
             )
-            self._script_plan_revision = content_fingerprint_of_data(raw)
-            self._freeze_script_plan_artifact_basis(raw)
+            self._script_plan_fingerprint = content_fingerprint_of_data(raw)
             self._freeze_script_plan_input_claim(
                 episode,
                 script_plan_json,
                 content_digest=sha256_file(script_plan_json),
-            )
-
-        # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、内容确认随之失效。而放行
-        # 依据是改写前的状态：不在此处补判，生成就会拿着用户从未过目的秒数走完付费的
-        # prompt_authoring，落盘之后才在下次加载被拦下。
-        if (
-            migration_warnings
-            and migrated_project is not None
-            and gate_passed_before
-            and gate_blocks_prompt_authoring(self.project_path, migrated_project, episode)
-        ):
-            raise ValueError(
-                f"第 {episode} 集 script_plan 时长已按当前模型档位收编改写（"
-                + "；".join(warning.render() for warning in migration_warnings)
-                + "），改写后的内容尚未完成内容确认，prompt_authoring 生成已中止；"
-                "请在 Web 端完成本集 script_plan 的内容确认后重新生成"
             )
 
         try:
@@ -1493,7 +1176,7 @@ class ScriptGenerator:
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集 script_plan 有草稿待处置（{quarantine}），prompt_authoring 生成已中止；"
+                f"第 {episode} 集 script_plan 有草稿待处置（{quarantine}），脚本规划转换已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         drafts_path = episode_drafts_dir(self.project_path, episode)
@@ -1515,8 +1198,7 @@ class ScriptGenerator:
             raw = json.loads(raw_bytes.decode("utf-8"))
         except json.JSONDecodeError as e:
             raise ValueError(f"script_plan_segments.json 解析失败: {e}") from e
-        self._script_plan_revision = content_fingerprint_of_data(raw)
-        self._freeze_script_plan_artifact_basis(raw)
+        self._script_plan_fingerprint = content_fingerprint_of_data(raw)
         self._freeze_script_plan_input_claim(
             episode,
             script_plan_json,
@@ -1567,7 +1249,7 @@ class ScriptGenerator:
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集有待修复草稿（{quarantine}），prompt_authoring 生成已中止；"
+                f"第 {episode} 集有待修复草稿（{quarantine}），脚本规划转换已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         raw = self._load_script_plan(episode)
@@ -1577,8 +1259,7 @@ class ScriptGenerator:
             raise ValueError(f"脚本规划内容文件不是合法 JSON（drama script_plan 应为结构化内容）: {e}") from e
         if not isinstance(data, dict):
             raise ValueError("脚本规划内容文件结构异常：顶层应为对象 {title, scenes}")
-        self._script_plan_revision = content_fingerprint_of_data(data)
-        self._freeze_script_plan_artifact_basis(data)
+        self._script_plan_fingerprint = content_fingerprint_of_data(data)
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("脚本规划内容文件结构异常：scenes 必须是非空的分镜对象数组")
@@ -1599,24 +1280,11 @@ class ScriptGenerator:
             raise ValueError(f"脚本规划内容文件 scene_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
         return data
 
-    def _assert_reference_script_plan_ready(
-        self,
-        script_plan_units: list[dict],
-        *,
-        caps: dict | None,
-        gen_mode: str | None,
-        validate_text: bool = True,
+    def _assert_reference_script_plan_durations(
+        self, script_plan_units: list[dict], *, caps: dict | None, gen_mode: str | None
     ) -> None:
-        """prompt_authoring 落盘前对 script_plan 现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
-
-        产出路径（付费调用前）与晋升路径（待修复草稿重判前）共用这一份：晋升期间用户可能在 Web
-        端改过 script_plan，两处口径若分叉，就会出现「晋升放行、下次生成被拒」或反过来的死角。
-        ``validate_text=False`` 只判时长：内容确认的整集转换把单元以待编写落盘，正文由之后的
-        提示词编写改写并在那里按机器口径校验。
-        """
+        """转为正式剧本前判脚本规划已确认的单元时长仍在当前生效档位内；正文由之后的提示词编写改写并校验。"""
         for unit in script_plan_units:
-            # 必然失败的已确认时长在付费调用之前拦下：script_plan 加载用的是未收窄的档位全集，
-            # 联动约束收窄后它可能已出局。放到 _add_metadata 才拦，TextBackend 的费用已经产生。
             off_tiers = self._unit_duration_off_every_tier(unit["duration_seconds"], caps=caps, gen_mode=gen_mode)
             if off_tiers is not None:
                 raise ValueError(
@@ -1624,16 +1292,6 @@ class ScriptGenerator:
                     f"{sorted(set(off_tiers))} 内；通常是模型或分辨率配置变化让档位收窄导致，"
                     "请调整配置回原档位，或重新拆分该集 script_plan 并重新完成内容确认"
                 )
-        if not validate_text:
-            return
-        # prompt_authoring 的产出是 script_plan 正文逐字保留 + 画面展开，script_plan 正文里的语法违约必然原样复现在
-        # prompt_authoring 产出上。编辑器侧保存只做结构校验、语法问题仅出 warning（人写的文本有作者意图
-        # 要保护），因此手工编辑过的 script_plan 可能带着未登记的 @[名称] 或描述行里的花括号进到这里
-        # ——不在调用前判，就会付完 prompt_authoring 的钱才失败，且错误指向 prompt_authoring「改坏了」，而真正要改的
-        # 是 script_plan。故在此按同一把尺预判 script_plan 正文，违约时指名 script_plan。
-        self._assert_reference_unit_text_valid(
-            script_plan_units, max_refs=self._resolve_max_refs(caps), from_script_plan=True
-        )
 
     def _assert_reference_units_authorable(self, units: list[dict], *, caps: dict | None) -> None:
         """提示词编写付费调用前对待编写单元现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
@@ -1650,14 +1308,10 @@ class ScriptGenerator:
                     f"unit {unit['unit_id']} 时长 {duration}s 不在当前生效档位 {sorted(set(off_tiers))} 内；"
                     "通常是模型或分辨率配置变化让档位收窄导致，请调整配置回原档位，或在时间线上把该单元时长改到档位内"
                 )
-        self._assert_reference_unit_text_valid(units, max_refs=self._resolve_max_refs(caps), from_script_plan=False)
+        self._assert_reference_unit_text_valid(units, max_refs=self._resolve_max_refs(caps))
 
-    def _assert_reference_unit_text_valid(
-        self, units: list[dict], *, max_refs: int | None, from_script_plan: bool
-    ) -> None:
-        """按机器产物的严格口径预判各 unit 正文，违约时把定位与出路指回正文的出处。
-
-        ``from_script_plan`` 为真时正文出自脚本规划（机械转换），否则出自正式脚本（提示词编写）。
+    def _assert_reference_unit_text_valid(self, units: list[dict], *, max_refs: int | None) -> None:
+        """按机器产物的严格口径预判正式脚本各 unit 正文，违约时把定位与出路指回时间线。
 
         与 ``_merge_reference_visual`` 用的是同一个 ``validate_unit_text``：同一把尺量两处，
         避免「script_plan 放行、prompt_authoring 必拒」的死角。此处只判、不取派生结果——参考图是执行期从正文
@@ -1669,17 +1323,9 @@ class ScriptGenerator:
         """
         source_language = self.project_json.get("source_language")
         speech_rate_override = project_speech_rate_override(self.project_json)
-        if from_script_plan:
-            origin = "script_plan"
-            hint = (
-                "这段正文来自 script_plan（拆分产出或手工编辑），prompt_authoring 会逐字保留它，"
-                "请先在 Web 端修正该 unit 的 script_plan 正文或时长并重新完成内容确认"
-            )
-        else:
-            origin = "正式脚本"
-            hint = "这段正文来自正式脚本，提示词编写会逐字保留其中的台词，请先在时间线上修正该单元的正文或时长"
+        hint = "这段正文来自正式脚本，提示词编写会逐字保留其中的台词，请先在时间线上修正该单元的正文或时长"
         for unit in units:
-            label = f"{origin} 的 unit {unit['unit_id']}"
+            label = f"正式脚本 的 unit {unit['unit_id']}"
             text = str(unit.get("text") or "")
             try:
                 validate_unit_text(
@@ -2312,37 +1958,7 @@ class ScriptGenerator:
             补充元数据后的剧本数据
         """
         gen_mode = self.generation_mode
-        # CLI 参数 --episode 是集号唯一真相源。schema 已从 AI 输出中移除 episode 字段，
-        # 这里负责落盘前补上。
-        script_data["episode"] = int(episode)
-
-        # 兜底改写 segment/scene/unit ID 中的 E\d+ 前缀，避免 LLM 写错集号导致文件
-        # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
-        ep = int(episode)
-        # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + resolve_kind_items 查条目数组
-        # 与 id 字段改写（参考生视频三种 content_mode 均映射到 video_units，无需按生成模式分支）。
-        # self.content_mode 为项目级校验值，解析不会 fail-loud。
-        kind = resolve_declared_kind(self.content_mode, gen_mode)
-        raw_rewrite_items, id_field, _kind = resolve_kind_items(script_data, kind=kind)
-        # 校验失败降级保存的原始 dict 里该数组可能为非列表脏值（LLM 误写标量），
-        # `... or []` 只挡 falsy、挡不住真值标量，isinstance 守卫避免 `for` 迭代崩溃。
-        rewritten_output_ids: list[str] = []
-        for s in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
-            if isinstance(s, dict) and id_field in s:
-                s[id_field] = rewrite_episode_prefix(s.get(id_field), ep)
-                if reference_unit_durations is not None:
-                    rewritten_output_ids.append(str(s[id_field]))
-
-        for item in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
-            if not isinstance(item, dict):
-                continue
-            # 本轮产出的条目视觉层已由提示词编写写回；机械转换在此之后为新增条目重新置位。
-            item.pop(PENDING_AUTHORING_FIELD, None)
-            admission = admit_script_unit(kind, item, ignore_marker=True)
-            if admission.allowed:
-                item.pop("needs_replan", None)
-            else:
-                item["needs_replan"] = True
+        rewritten_output_ids = prepare_script_entries(script_data, project=self.project_json, episode=episode)
 
         if reference_unit_durations is not None:
             # unit_id 集合须与 script_plan 完全一致才覆盖时长：LLM 漏写某个已确认 unit、或输出
@@ -2358,6 +1974,9 @@ class ScriptGenerator:
             if unknown:
                 raise ValueError(f"reference_video 输出包含 script_plan 之外的未知 unit_id: {unknown}")
 
+            raw_rewrite_items, id_field, _kind = resolve_kind_items(
+                script_data, kind=resolve_declared_kind(self.content_mode, gen_mode)
+            )
             for s in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
                 if not (isinstance(s, dict) and id_field in s):
                     continue
@@ -2392,63 +2011,12 @@ class ScriptGenerator:
                         target_duration,
                     )
                 s["duration_seconds"] = target_duration
-        # content_mode 严格只是"内容类型"（narration/drama/ad）；"视频来源"维度是项目级事实，
-        # 剧本不落盘任何生成模式标记——生成分派一律读项目生成模式。
-        # 参考生视频剧本必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
-        # "narration"，setdefault 拿不到项目级真值；非参考集 LLM 已在 schema 中产出
-        # narration/drama，setdefault 仅作 fallback。
-        if self.content_mode != "ad" and gen_mode == "reference_video":
-            script_data["content_mode"] = self.content_mode
-        else:
-            script_data.setdefault("content_mode", self.content_mode)
-
-        # 集级钩子/下集预告：分集账本是钩子设计的单一真相源，强制以账本值覆盖
-        # （LLM 不参与填写，model_dump 只会留下 None 默认值）。账本无规划数据时为 None。
-        # ad 恒单集、无分集账本概念，剧本模型也不持有这两个字段，跳过注入。
-        if self.content_mode != "ad":
-            entry = self._episode_entry(ep)
-            script_data["hook"] = entry.get("hook")
-            script_data["next_episode_teaser"] = self._entry_outline(entry).get("next_episode_teaser")
-
-        # 添加小说信息
-        # 注意守卫语义：novel 字段已 SkipJsonSchema 隐藏，但 default_factory=NovelInfo
-        # 让 model_dump 输出必带 {"title":"","chapter":""} 占位。所以判 "key 是否存在"
-        # 无法捕获真实"未注入"状态，必须按内容判：title/chapter 任一为空就重注入。
-        novel = script_data.get("novel")
-        if not isinstance(novel, dict) or not novel.get("title") or not novel.get("chapter"):
-            script_data["novel"] = {
-                "title": self.project_json.get("title", ""),
-                "chapter": f"第{episode}集",
-            }
-        # 剥离已废弃的 source_file（AI 可能虚构）
-        novel = script_data.get("novel")
-        if isinstance(novel, dict):
-            novel.pop("source_file", None)
-
-        # 剥离剧本级 generation_mode：生成模式的真相源是 project.json，剧本不留标记。
-        # 校验失败时 script_data 是后端原样返回的 dict（未经模型过滤），存量剧本重生成也会
-        # 把旧值带进来——不在此处删就会随写盘回到磁盘上。
-        script_data.pop("generation_mode", None)
-
-        # 添加时间戳
-        now = datetime.now(UTC).isoformat()
-        script_data.setdefault("metadata", {})
-        script_data["metadata"]["created_at"] = now
-        script_data["metadata"]["updated_at"] = now
-        script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
-        script_plan_revision = getattr(self, "_script_plan_revision", None)
-        if script_plan_revision is not None:
-            script_data["metadata"][SCRIPT_PLAN_REVISION_FIELD] = script_plan_revision
-
-        # 剥离废弃的 episode 级聚合字段：条目数、总时长与角色/场景/道具聚合都是从剧本正文
-        # 逐读即得的派生值，由项目摘要读时计算，落盘一份只会与正文漂移。
-        script_data["metadata"].pop("total_scenes", None)
-        script_data["metadata"].pop("estimated_duration_seconds", None)
-        script_data.pop("duration_seconds", None)
-        script_data.pop("characters_in_episode", None)
-        script_data.pop("clues_in_episode", None)
-
-        return script_data
+        return finish_script_document(
+            script_data,
+            project=self.project_json,
+            episode=episode,
+            generator=self.generator.model if self.generator else "unknown",
+        )
 
     def _quality_probe(self, script_data: dict, episode: int) -> None:
         """落盘后的轻量质量探针：仅日志，不阻断、不重试。

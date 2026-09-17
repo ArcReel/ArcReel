@@ -15,11 +15,18 @@
 | --- | --- | --- | --- |
 | 视频版本记录只有 `version/file/prompt/created_at/duration_seconds`，`duration_seconds` 可能是字符串 | ≤ 0.26 | 类型化来源字段（`lib/artifact_version_provenance.py`） | v12→v13 按当时项目状态投影补写，标 `provenance_backfilled_at` |
 | 旁白音频版本记录没有 TTS 设置 | ≤ 0.26 | `tts_*` + `artifact_audio_basis` | 不补写，进迁移报告 |
-| 脚本规划草稿是 `.md`（`step1_*.md` / `script_plan_*.md`），没有 JSON 正式计划 | ≤ 0.26 | `drafts/episode_N/script_plan_*.json` | 剧本按无计划依据登记（`build_planless_episode_script_basis`） |
-| 源文用上传原名，没有 `source/episode_N.txt` | ≤ 0.26 | `source/episode_N.txt` | 不改文件；与 `.md` 草稿同时出现时剧本走无计划登记，若 JSON 计划在场而源文缺席则剧本不登记 |
+| 脚本规划草稿是 `.md`（`step1_*.md` / `script_plan_*.md`），没有 JSON 正式计划 | ≤ 0.26 | `drafts/episode_N/script_plan_*.json` | 不改文件；剧本依据不以脚本规划为输入，照常登记 |
+| 源文用上传原名，没有 `source/episode_N.txt` | ≤ 0.26 | `source/episode_N.txt` | 不改文件；只影响脚本规划自身的登记，剧本照常登记 |
 | 剧本顶层没有 `episode` 字段 | 未见于真实项目 | 顶层 `episode == 绑定集号` | 激活预检拒绝并点名文件 |
 | 风格值以「画风：」开头（当时的风格模版带该前缀） | 0.9 – 0.15 | 已剥前缀的风格值 | v13→v14 就地剥离 |
 | 风格值是 `Photographic` / `Anime` / `3D Animation` 短标签 | ≤ 0.8 | `style_template_id` + 展开后的模版快照 | v13→v14 解析并展开；已有 `style_template_id` 时不动 |
+| 剧本条目带 `script_plan_entry_revision`，剧本 `metadata` 带 `script_plan_revision` | schema ≤ 14 | 无指纹字段 | v14→v15 删除 |
+| 脚本规划已确认，绑定的正式脚本不在盘上 | schema ≤ 14 | 确认即转出正式脚本 | v14→v15 整份转出、全部待编写；转不出的进迁移报告 |
+| 正式脚本分镜视觉层两侧皆空，没有待编写标记 | schema ≤ 14 | `pending_authoring: true` | v14→v15 盖标记（参考生视频单元不按此判） |
+| drama 正式分镜缺 `scene_description` | schema ≤ 14 | 从脚本规划透传 | v14→v15 按分镜 id 从脚本规划回填 |
+| 参考生视频正式单元缺 `source_text` | schema ≤ 14 | 从脚本规划投影 | v14→v15 按单元 id 补录，取不到留空 |
+| 有正式脚本与脚本规划，没有 `script_plan_review` | schema ≤ 14 | 确认记录 | v14→v15 把当前规划指纹记为确认基线；账本 stale 的集不记 |
+| 剧本清单依据是 v2（以脚本规划内容为输入）或无计划依据 | schema 8 – 14 | v3（不以脚本规划为输入） | v14→v15 只改写改写前时新的登记，本就过期的保留 |
 
 ## 约定
 

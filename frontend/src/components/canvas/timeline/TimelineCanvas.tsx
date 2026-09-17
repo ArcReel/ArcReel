@@ -6,11 +6,6 @@ import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
-import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
-import { useScriptEntryCurrency } from "@/hooks/useScriptEntryCurrency";
-import { API } from "@/api";
-import { errMsg } from "@/utils/async";
 import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
@@ -189,30 +184,6 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const narrationBatchBusy = useMemo(
     () => [...currentSegmentIds].some((id) => ttsBusyIds.has(id)),
     [ttsBusyIds, currentSegmentIds],
-  );
-
-  // 正式剧本条目相对脚本规划的时效：广告/短片没有脚本规划，只读态（无写入口）也不比对。
-  const { staleIds: staleEntryIds, reload: reloadEntryCurrency } = useScriptEntryCurrency({
-    projectName,
-    episode,
-    enabled: Boolean(episodeScript) && editorContentMode !== "ad" && Boolean(onUpdatePrompt),
-    scriptRevision: episodeScript,
-  });
-  const handleAdoptPlanContent = useCallback(
-    async (segmentId: string) => {
-      try {
-        await API.convertScriptPlan(projectName, episode, [segmentId]);
-        useAppStore.getState().pushToast(t("detail_adopt_plan_content_done", { id: segmentId }), "success");
-      } catch (err) {
-        useAppStore.getState().pushToast(t("detail_adopt_plan_content_failed", { message: errMsg(err) }), "error");
-        return;
-      }
-      // 剧本已改写：重取项目数据拿新内容，再按新剧本重新比对时效。刷新失败或被取消时 store 里
-      // 仍是旧剧本，此时不能重取时效——服务端会报该条目已是当前，失效提示消失而内容还是旧的。
-      const refreshed = await useProjectsStore.getState().refreshProject(projectName);
-      if (refreshed === "success") await reloadEntryCurrency();
-    },
-    [projectName, episode, t, reloadEntryCurrency],
   );
 
   if (!projectData || (!episodeScript && !hasDraft)) {
@@ -408,8 +379,6 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                 generatingNarration={generatingNarration}
                 durationOptions={durationOptions}
                 durationWarningReason={durationWarningReason}
-                staleEntryIds={staleEntryIds}
-                onAdoptPlanContent={onUpdatePrompt ? handleAdoptPlanContent : undefined}
               />
             </div>
           </div>

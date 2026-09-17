@@ -81,11 +81,15 @@ def build_script_plan_request(
     return prompt_inputs, basis
 
 
-#: 脚本规划 basis 的 kind，以及它作为剧本 basis 输入时的键名。两个值都参与 digest 计算，而落盘
-#: 的 ``.arcreel_artifacts.json`` 只留 digest、不留输入，改值便无从重算：存量脚本规划与剧本产物
-#: 会整体判成 stale 并阻断下游生成。**值是持久化格式，与 manifest digest 兼容，不得随术语改名。**
+#: 脚本规划 basis 的 kind，以及它作为剧本 basis v2 输入时的键名。两个值都参与 digest 计算，而落盘
+#: 的 ``.arcreel_artifacts.json`` 只留 digest、不留输入，改值便无从重算：存量脚本规划产物会整体判成
+#: stale 并阻断下游生成。**值是持久化格式，与 manifest digest 兼容，不得随术语改名。** 剧本 basis
+#: v3 不以脚本规划为输入，输入键只供 v14→v15 迁移重算存量登记。
 SCRIPT_PLAN_BASIS_KIND = "structured-content/step1"
 SCRIPT_PLAN_BASIS_INPUT_KEY = "step1_content"
+
+#: 非 ad 剧本 basis 的 kind。同为持久化格式：v14→v15 迁移按它的历史版本识别存量登记。
+EPISODE_SCRIPT_BASIS_KIND = "structured-content/episode-script"
 
 
 def _build_script_plan_basis(
@@ -250,35 +254,23 @@ def _script_plan_prompt_variant(content_mode: str, generation_mode: str) -> Scri
     return "narration"
 
 
-def build_episode_script_basis(script_plan_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
-    """Describe every durable prompt input consumed by an episode script."""
+def build_episode_script_basis(*, project: Mapping[str, object]) -> ArtifactBasis:
+    """Describe the durable project inputs rendered into an episode script's prompt authoring.
+
+    The formal script is the episode's own content truth once content review has
+    materialized it, so the script_plan is not an input: rerunning the plan without
+    confirming it leaves the script current.
+    """
 
     content_mode, generation_mode = _content_axes(project)
     return ArtifactBasis.build(
-        "structured-content/episode-script",
-        kind_version=2,
+        EPISODE_SCRIPT_BASIS_KIND,
+        kind_version=3,
         inputs={
             "content_mode": content_mode,
             "generation_mode": generation_mode,
-            SCRIPT_PLAN_BASIS_INPUT_KEY: script_plan_content,
             "prompt_context": project_episode_script_prompt_inputs(project),
         },
-    )
-
-
-def build_planless_episode_script_basis(episode: int) -> ArtifactBasis:
-    """Describe an episode script that has no formal script_plan to depend on.
-
-    The basis names only the episode, so the script stays current until a formal
-    plan appears and the regular basis takes over.
-    """
-
-    if type(episode) is not int or episode < 1:
-        raise ValueError("episode must be a positive integer")
-    return ArtifactBasis.build(
-        "structured-content/episode-script-without-plan",
-        kind_version=1,
-        inputs={"episode": episode},
     )
 
 

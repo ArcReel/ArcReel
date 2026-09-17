@@ -19,7 +19,6 @@ from copy import deepcopy
 from typing import Any
 
 from lib.script_models import PENDING_AUTHORING_FIELD
-from lib.script_plan_entries import SCRIPT_PLAN_ENTRY_REVISION_FIELD
 from lib.script_skeleton import resolve_kind_items
 
 logger = logging.getLogger(__name__)
@@ -103,13 +102,6 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
     if parts[0] == "needs_replan":
         raise ScriptEditError("patch_episode_script 不可直接改重规划标记；修改 unit 规划内容后由系统重算")
-    if parts[0] == SCRIPT_PLAN_ENTRY_REVISION_FIELD:
-        # 条目内容指纹陈述「这一条的视觉层是照着哪份脚本规划内容写的」，由提示词编写落盘时写入。
-        # 放行 patch 等于让 Agent 手改这条陈述，失效条目便能被伪装成未变、逃过重写。
-        raise ScriptEditError(
-            f"patch_episode_script 不可改 {SCRIPT_PLAN_ENTRY_REVISION_FIELD}；"
-            "它由提示词编写落盘时写入，陈述该条目消费的脚本规划内容"
-        )
     if parts[0] == PENDING_AUTHORING_FIELD:
         # 待编写标记随视觉层是否写齐变化；放行 patch 会让缺视觉层的条目被伪装成已编写。
         raise ScriptEditError(

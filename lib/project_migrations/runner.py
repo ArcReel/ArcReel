@@ -46,6 +46,7 @@ from lib.project_migrations.v10_to_v11_character_voice_binding import migrate_v1
 from lib.project_migrations.v11_to_v12_character_derivatives import migrate_v11_to_v12
 from lib.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
 from lib.project_migrations.v13_to_v14_legacy_style_values import migrate_v13_to_v14
+from lib.project_migrations.v14_to_v15_formal_script_truth import migrate_v14_to_v15
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -58,8 +59,8 @@ _DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES
 
 #: 迁移器返回值：改写产物清单的那几步返回本步登记与跳过的产物，runner 把链上最后一份折进迁移报告。
 MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | None]] = {}
-#: 自行备份输入的迁移器（清单激活按依赖集备份；v8、v9 备份自己改写的文件），runner 不为它们备份 project.json。
-_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12})
+#: 自行备份输入的迁移器（清单激活按依赖集备份；v8、v9、v14 备份自己改写的文件），runner 不为它们备份 project.json。
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12, 14})
 
 # 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
@@ -298,7 +299,7 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
             (project_dir / "project.json", project_backup_versions),
             (project_dir / "versions" / "versions.json", project_backup_versions),
             # 清单不只在激活那一步被改写：v9→v10 改它的 key 与草稿路径，v12→v13 整份重投影，
-            # v13→v14 改写受风格值归一影响的条目。
+            # v13→v14 改写受风格值归一影响的条目，v14→v15 改写剧本登记。
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
         )
@@ -336,3 +337,4 @@ MIGRATORS[10] = migrate_v10_to_v11
 MIGRATORS[11] = migrate_v11_to_v12
 MIGRATORS[12] = migrate_v12_to_v13
 MIGRATORS[13] = migrate_v13_to_v14
+MIGRATORS[14] = migrate_v14_to_v15

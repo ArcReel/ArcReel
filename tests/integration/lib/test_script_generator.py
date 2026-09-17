@@ -12,6 +12,7 @@ from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
 from lib.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.script_generator import PromptAuthoringTargets, ScriptGenerator
+from lib.script_review import content_fingerprint, script_plan_path
 from lib.script_structure_validator import ScriptStructureValidationError
 from lib.speech_composition import SpeechAdmissionError
 from tests.fakes import FakeConfigResolver
@@ -216,7 +217,7 @@ class TestScriptGenerator:
             },
         )
         _write_script_plan_json(project_path, 1, [_script_plan_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         generator = ScriptGenerator(project_path, config_resolver=_resolver())  # 无 client
         prompt = await generator.build_prompt(1)
@@ -240,7 +241,7 @@ class TestScriptGenerator:
             },
         )
         _write_script_plan_json(project_path, 1, [_script_plan_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
 
@@ -266,7 +267,7 @@ class TestScriptGenerator:
             },
         )
         _write_script_plan_json(project_path, 1, [_script_plan_seg("E1S01", "verbatim source line.", duration=4)])
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
@@ -475,7 +476,7 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
@@ -504,7 +505,7 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
@@ -525,7 +526,7 @@ class TestScriptGenerator:
         payload["source_language"] = "English"
         _write_json(project_json_path, payload)
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
@@ -571,7 +572,7 @@ class TestScriptGenerator:
             1,
             [{**_script_plan_seg("E1S01", "原样保留的小说原文。", duration=4), "characters_in_segment": ["姜月茴"]}],
         )
-        converted = await _convert_script_plan(project_path)
+        converted = await _materialized_script(project_path)
 
         fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
@@ -614,7 +615,7 @@ class TestScriptGenerator:
             )
             _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
             response = _drama_visual_response()
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         loop_tick = threading.Event()
         provider_saw_tick: list[bool] = []
@@ -694,7 +695,7 @@ class TestScriptGenerator:
         )
 
         with pytest.raises(ValueError, match=r"script_plan artifact is not registered"):
-            await ScriptGenerator(project_path, config_resolver=_resolver()).convert_script_plan(1)
+            await _materialize(ScriptGenerator(project_path, config_resolver=_resolver()))
 
         assert not (project_path / "scripts" / "episode_1.json").exists()
 
@@ -720,7 +721,7 @@ class TestScriptGenerator:
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
 
-        payload = await _convert_script_plan(project_path)
+        payload = await _materialized_script(project_path)
 
         assert payload["hook"] == "少年坠崖生死未卜"
         assert payload["next_episode_teaser"] == "崖底神秘人出手相救"
@@ -744,7 +745,7 @@ class TestScriptGenerator:
         )
         _write_script_plan_json(project_path, 1, [_script_plan_seg("E1S01", "原文", duration=4)])
 
-        payload = await _convert_script_plan(project_path)
+        payload = await _materialized_script(project_path)
 
         assert payload["hook"] is None
         assert payload["next_episode_teaser"] is None
@@ -766,7 +767,7 @@ class TestScriptGenerator:
             },
         )
         _write_script_plan_json(project_path, 10, [_script_plan_seg("E10S01", "原文", duration=4)])
-        await _convert_script_plan(project_path, 10)
+        await _materialized_script(project_path, 10)
 
         fake = _FakeTextGenerator(
             json.dumps(_narration_visual_response(["E10S01"], title="第十集"), ensure_ascii=False)
@@ -792,7 +793,7 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
@@ -819,7 +820,7 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
@@ -836,7 +837,7 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
         script_path = project_path / "scripts" / "episode_1.json"
         script = json.loads(script_path.read_text(encoding="utf-8"))
         script["scenes"][0]["utterances"].append({"kind": "voiceover", "speaker": None, "text": "庭院里只剩风声。"})
@@ -867,7 +868,7 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
-        await _convert_script_plan(project_path)
+        await _materialized_script(project_path)
 
         # 空视觉响应 → 视觉层结构校验 fail-loud；但模型调用已发生，仍可断言请求参数
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
@@ -1513,10 +1514,23 @@ def _resolver() -> ConfigResolver:
     return cast(ConfigResolver, FakeConfigResolver(supported_durations=(4, 6, 8)))
 
 
-async def _convert_script_plan(project_path: Path, episode: int = 1) -> dict:
-    """按生产口径把已登记的脚本规划机械转为正式剧本（条目带待编写标记），返回落盘的剧本。"""
-    await ScriptGenerator(project_path, config_resolver=_resolver()).convert_script_plan(episode)
+async def _materialized_script(project_path: Path, episode: int = 1) -> dict:
+    """按内容确认的转换口径把已登记的脚本规划整份转为正式剧本（条目带待编写标记），返回落盘的剧本。"""
+    await _materialize(ScriptGenerator(project_path, config_resolver=_resolver()), episode)
     return json.loads((project_path / "scripts" / f"episode_{episode}.json").read_text(encoding="utf-8"))
+
+
+async def _materialize(generator: ScriptGenerator, episode: int = 1) -> None:
+    plan_path = script_plan_path(generator.project_path, generator.project_json, episode)
+    assert plan_path is not None
+    plan_revision = content_fingerprint(plan_path)
+    assert plan_revision is not None
+    await generator.materialize_script_plan(
+        episode,
+        expected_plan_revision=plan_revision,
+        expected_script_fingerprint=content_fingerprint(generator.project_path / "scripts" / f"episode_{episode}.json"),
+        project_update=lambda _project: None,
+    )
 
 
 def _segment_targets(segments: list[dict], target_ids: list[str]) -> PromptAuthoringTargets:
@@ -1815,36 +1829,6 @@ class TestLoadReferenceScriptPlan:
         on_disk = json.loads(self._script_plan_path(sg, 1).read_text(encoding="utf-8"))
         assert on_disk["units"][0]["duration_seconds"] == 8
         assert "duration_override" not in on_disk["units"][0]
-
-    def test_clamping_migration_aborts_generation_that_gate_already_let_through(self, tmp_path):
-        """靠 grandfather 判据（prompt_authoring 已存在、无确认指纹）放行的存量集：迁移 clamp 改写秒数
-        即令放行依据失效，生成须中止。内容确认判的是迁移前状态、改写发生在放行之后——不在此
-        拦下，付费的 prompt_authoring 就会按用户从未过目的秒数生成；加载这份已落盘状态时才会被拦截。
-        """
-        sg = self._generator(
-            tmp_path,
-            {"episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}]},
-        )
-        (sg.project_path / "scripts").mkdir(parents=True, exist_ok=True)
-        (sg.project_path / "scripts" / "episode_1.json").write_text(
-            json.dumps({"episode": 1, "video_units": []}, ensure_ascii=False), encoding="utf-8"
-        )
-        self._write(
-            sg,
-            1,
-            {
-                "units": [
-                    {
-                        "unit_id": "E1U01",
-                        "text": "甲起身\n甲出门",
-                        "duration_seconds": 7,
-                        "duration_override": True,
-                    }
-                ]
-            },
-        )
-        with pytest.raises(ValueError, match="尚未完成内容确认"):
-            sg._load_reference_script_plan(1, [4, 6, 8])
 
     def test_empty_units_raises(self, tmp_path):
         sg = self._generator(tmp_path)

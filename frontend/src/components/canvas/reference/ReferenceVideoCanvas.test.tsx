@@ -553,7 +553,6 @@ describe("ReferenceVideoCanvas", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
-      script_entry_currency: null,
       script_overwrite: null,
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
@@ -581,7 +580,6 @@ describe("ReferenceVideoCanvas", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
-      script_entry_currency: null,
       script_overwrite: null,
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
@@ -604,7 +602,6 @@ describe("ReferenceVideoCanvas", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
-      script_entry_currency: null,
       script_overwrite: null,
       content: { units: [] },
     });

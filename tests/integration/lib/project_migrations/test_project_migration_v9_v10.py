@@ -118,7 +118,8 @@ def test_every_script_plan_variant_keeps_its_confirmation_across_the_rename(
     episode = migrated["episodes"][0]
     assert "step1_review" not in episode
     assert episode["script_plan_review"] == {"fingerprint": fingerprint, "confirmed_at": "2026-01-01T00:00:00Z"}
-    assert _read_json(project_dir / "scripts" / "episode_1.json")["metadata"] == {"script_plan_revision": fingerprint}
+    # 链尾（v15）的剧本 metadata 不带整集指纹。
+    assert _read_json(project_dir / "scripts" / "episode_1.json")["metadata"] == {}
     # 确认指纹是内容指纹，改名不动内容：迁移后这一集仍是已确认、不重新阻塞提示词编写。
     assert script_review.review_status(project_dir, migrated, 1) == "confirmed"
 

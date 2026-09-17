@@ -1,4 +1,4 @@
-"""早于产物清单（schema 8）写出的项目目录形态，供迁移与读侧测试共用。
+"""旧版本代码写出的项目目录形态，供迁移与读侧测试共用。
 
 形态清单见 ``docs/agents/project-migrations.md``「已知旧形态」。构造出的目录停在
 ``schema_version`` 参数指定的版本；``advance_project_schema`` 按迁移链逐级推进到指定版本，
@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from lib.grid.models import GridGeneration, build_frame_chain
 from lib.project_migrations.runner import MIGRATORS
+from lib.script_review import content_fingerprint
 from lib.source_revision import SourceScope, compute_source_revision
 
 _LEGACY_SNAPSHOT_TIMESTAMP = "20260302T145652"
@@ -351,6 +352,152 @@ def write_legacy_style_project(
     return project_dir
 
 
+ScriptPlanVariantName = Literal["drama", "narration", "reference_video"]
+
+#: 退役的条目指纹与整集指纹：样本里只要求字段在场，取值无关紧要。
+_LEGACY_ENTRY_REVISION = "sha256-legacy-entry-revision"
+_LEGACY_SCRIPT_REVISION = "sha256-legacy-script-revision"
+
+
+def _legacy_plan_entry(variant: ScriptPlanVariantName, episode: int, index: int) -> dict[str, Any]:
+    if variant == "reference_video":
+        return {
+            "unit_id": f"E{episode}U{index:02d}",
+            "text": f"第{episode}集第{index}个单元的画面。",
+            "duration_seconds": 8,
+            "source_text": f"第{episode}集第{index}段原文。",
+        }
+    if variant == "narration":
+        return {
+            "segment_id": f"E{episode}S{index:02d}",
+            "novel_text": f"第{episode}集第{index}段旁白。",
+            "duration_seconds": 4,
+            "segment_break": False,
+            "characters_in_segment": [],
+            "scenes": [],
+            "props": [],
+        }
+    return {
+        "scene_id": f"E{episode}S{index:02d}",
+        "duration_seconds": 8,
+        "segment_break": False,
+        "characters_in_scene": [],
+        "scenes": [],
+        "props": [],
+        "scene_description": f"第{episode}集第{index}镜的视觉改编。",
+        "utterances": [{"kind": "voiceover", "speaker": None, "text": f"第{episode}集第{index}句旁白。"}],
+        "source_text": f"第{episode}集第{index}段原文。",
+    }
+
+
+def _legacy_script_entry(
+    variant: ScriptPlanVariantName, plan_entry: dict[str, Any], *, authored: bool, with_revisions: bool
+) -> dict[str, Any]:
+    """已有正式脚本里的一条：``authored=False`` 是视觉层两侧皆空、也没有待编写标记的旧形态。"""
+
+    entry = dict(plan_entry)
+    if variant == "reference_video":
+        # 旧参考单元不带对应原文。
+        entry.pop("source_text")
+    else:
+        if variant == "drama":
+            # 旧 drama 分镜不带视觉改编描述。
+            entry.pop("scene_description")
+        entry["image_prompt"] = {"scene": "画面", "composition": {"shot_type": "Medium Shot"}} if authored else None
+        entry["video_prompt"] = {"action": "动作"} if authored else None
+    if with_revisions:
+        entry["script_plan_entry_revision"] = _LEGACY_ENTRY_REVISION
+    return entry
+
+
+def write_legacy_script_plan_project(
+    root: Path,
+    name: str = "legacy-script-plan",
+    *,
+    variant: ScriptPlanVariantName,
+    schema_version: int = 14,
+) -> Path:
+    """条目指纹时期写出的脚本规划项目，三集各是一种要在 v15 收编的旧形态。
+
+    - 第 1 集：已确认，正式脚本带条目指纹与整集指纹；第 2 条视觉层为空而无待编写标记；drama 分镜
+      缺视觉改编描述、参考单元缺对应原文。
+    - 第 2 集：已确认，绑定的正式脚本尚不在盘上（旧版由提示词编写产出，确认本身不转出正式脚本）。
+    - 第 3 集：有正式脚本与脚本规划、无确认记录（grandfather 集）。
+
+    ``schema_version < 10`` 时草稿、确认记录与整集指纹用 v9 之前的旧名，条目指纹不写（那时还
+    没有）；产物清单由链上 v7→v8 激活补录。
+    """
+
+    content_mode = "narration" if variant == "narration" else "drama"
+    generation_mode = "reference_video" if variant == "reference_video" else "storyboard"
+    legacy_names = schema_version < 10
+    plan_filename = {
+        "drama": "normalized_script.json",
+        "narration": "segments.json",
+        "reference_video": "reference_units.json",
+    }[variant]
+    plan_filename = f"{'step1' if legacy_names else 'script_plan'}_{plan_filename}"
+    review_field = "step1_review" if legacy_names else "script_plan_review"
+    metadata_field = "step1_revision" if legacy_names else "script_plan_revision"
+    with_revisions = schema_version >= 14
+    items_key = {"drama": "scenes", "narration": "segments", "reference_video": "units"}[variant]
+    script_items_key = "video_units" if variant == "reference_video" else items_key
+
+    project_dir = root / name
+    project_dir.mkdir(parents=True)
+    episodes: list[dict[str, Any]] = []
+    for episode in (1, 2, 3):
+        plan_entries = [_legacy_plan_entry(variant, episode, index) for index in (1, 2)]
+        plan: dict[str, Any] = {items_key: plan_entries}
+        if variant == "drama":
+            plan["title"] = f"规划第{episode}集"
+        plan_path = project_dir / "drafts" / f"episode_{episode}" / plan_filename
+        _write_json(plan_path, plan)
+        (project_dir / "source").mkdir(exist_ok=True)
+        (project_dir / "source" / f"episode_{episode}.txt").write_text(f"第{episode}集原文。", encoding="utf-8")
+        script_file = f"scripts/episode_{episode}.json"
+        ledger: dict[str, Any] = {"episode": episode, "title": f"第{episode}集", "script_file": script_file}
+        if episode in (1, 2):
+            ledger[review_field] = {
+                "fingerprint": content_fingerprint(plan_path),
+                "confirmed_at": "2026-01-01T00:00:00Z",
+            }
+        if episode in (1, 3):
+            script: dict[str, Any] = {
+                "episode": episode,
+                "title": f"第{episode}集",
+                "content_mode": content_mode,
+                script_items_key: [
+                    _legacy_script_entry(variant, entry, authored=index == 0, with_revisions=with_revisions)
+                    for index, entry in enumerate(plan_entries)
+                ],
+                "metadata": {metadata_field: content_fingerprint(plan_path)},
+            }
+            _write_json(project_dir / script_file, script)
+        episodes.append(ledger)
+    project: dict[str, Any] = {
+        "schema_version": schema_version,
+        "title": "旧脚本规划项目",
+        "content_mode": content_mode,
+        "generation_mode": generation_mode,
+        "source_kind": "novel",
+        "source_language": "中文",
+        "style": "写实",
+        "style_description": "电影感",
+        "aspect_ratio": "9:16",
+        "default_duration": 8,
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "products": {},
+        "episodes": episodes,
+    }
+    _write_json(project_dir / "project.json", project)
+    _write_versions(project_dir, {})
+    _mark_asset_inventory_current(project_dir)
+    return project_dir
+
+
 def _mark_asset_inventory_current(project_dir: Path) -> None:
     """旧项目都跑过资产分析：清点标记与当前源文一致，制作状态越过资产清点门。"""
 
@@ -374,8 +521,10 @@ def advance_project_schema(project_dir: Path, *, to_version: int) -> None:
 
 
 __all__ = [
+    "ScriptPlanVariantName",
     "advance_project_schema",
     "write_legacy_reference_video_project",
+    "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",
     "write_legacy_style_project",
 ]

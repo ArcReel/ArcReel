@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from lib import episode_paths, script_review
-from server import text_generation
 from server.routers import files
 
 
@@ -42,8 +41,8 @@ def test_episode_drafts_dir():
     assert episode_paths.episode_drafts_dir(Path("/p"), 2) == Path("/p/drafts/episode_2")
 
 
-def test_new_content_mode_registered_once_covers_gate_web_and_agent(monkeypatch, tmp_path):
-    """在 SCRIPT_PLAN_FILENAMES 登记一处新模式，gate 路径、web 阶段文件、Agent 写盘路径应自动一致。
+def test_new_content_mode_registered_once_covers_gate_and_web(monkeypatch, tmp_path):
+    """在 SCRIPT_PLAN_FILENAMES 登记一处新模式，gate 路径与 web 阶段文件应自动一致。
 
     该集的脚本进度（``script_status``）由项目摘要按 script_plan 与正式脚本的产物态派生，探测的
     正是这里的 gate 路径，故不再有第四条独立的候选名表需要同步。
@@ -59,23 +58,13 @@ def test_new_content_mode_registered_once_covers_gate_web_and_agent(monkeypatch,
     # web 草稿读写：_stage_files 返回同一文件名
     assert files._stage_files("docudrama") == {"script_plan": "script_plan_docu.json"}
 
-    # Agent 写盘：_resolve_script_plan_path 指向同一结构化文件名，不因 == "drama" 硬编码误落 narration
-    resolved = text_generation._resolve_script_plan_path(tmp_path, 1, project)
-    assert resolved is not None
-    assert resolved[0] == tmp_path / "drafts" / "episode_1" / "script_plan_docu.json"
 
-
-def test_ad_has_no_structured_script_plan_across_web_and_agent(tmp_path):
-    """ad 不走结构化 script_plan：web 阶段映射为空、Agent 写盘与 gate 路径解析均为 None。"""
+def test_ad_has_no_structured_script_plan_across_web_and_gate(tmp_path):
+    """ad 不走结构化 script_plan：web 阶段映射为空、gate 路径解析为 None。"""
     # web 草稿读写：ad 不误落 drama 文件名，返回空映射；ad 优先于 generation_mode，
-    # 带 reference_video 戳同样无 script_plan（与 _resolve_script_plan_path 先判 ad 同序）
+    # 带 reference_video 戳同样无 script_plan
     assert files._stage_files("ad") == {}
     assert files._stage_files("ad", generation_mode="reference_video") == {}
-    # Agent 写盘：ad 不依赖 script_plan
-    assert (
-        text_generation._resolve_script_plan_path(tmp_path, 1, {"content_mode": "ad", "episodes": [{"episode": 1}]})
-        is None
-    )
     # gate：ad 无结构化 script_plan 可探测，该集的脚本进度因此不会被判为"已分段"
     assert script_review.script_plan_path(tmp_path, {"content_mode": "ad", "episodes": [{"episode": 1}]}, 1) is None
 

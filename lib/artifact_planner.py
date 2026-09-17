@@ -27,7 +27,6 @@ from lib.artifact_manifest import (
 from lib.artifact_provenance import (
     build_ad_episode_script_basis,
     build_episode_script_basis,
-    build_planless_episode_script_basis,
     build_script_plan_basis,
     decode_script_plan_source,
 )
@@ -132,12 +131,6 @@ class _EpisodeState:
 
 
 @dataclass(frozen=True, slots=True)
-class _FormalScriptPlanState:
-    artifact_path: str
-    content: object
-
-
-@dataclass(frozen=True, slots=True)
 class _PersistedPresentationProof:
     frozen_subtitle_basis: ArtifactBasis
     frozen_presentation_basis: ArtifactBasis
@@ -202,6 +195,7 @@ class TargetStatePlanner:
             self.adapter.get_entry(ArtifactKey.episode_script(1))
             self.load_episodes()
             self._plan_assets()
+            self._plan_script_plans()
             self._plan_structured_content()
             self._plan_grids()
             self._plan_storyboards()
@@ -513,55 +507,36 @@ class TargetStatePlanner:
         if self.project.get("content_mode") not in {"narration", "drama"}:
             self._planned.add("structured-content")
             return
-        script_plan_by_episode = {
-            binding.episode: script_plan
-            for binding in self.bindings
-            if (self.episode_scope is None or binding.episode == self.episode_scope)
-            and (script_plan := self._plan_one_script_plan(binding)) is not None
-        }
-        for episode in self.episodes:
-            script_plan = script_plan_by_episode.get(episode.episode)
-            if script_plan is None:
-                if self._script_plan_absent(episode.episode):
-                    self._add_if_present(
-                        ArtifactKey.episode_script(episode.episode),
-                        episode.script_file,
-                        build_planless_episode_script_basis(episode.episode),
-                    )
-                continue
-            try:
-                script_basis = build_episode_script_basis(script_plan.content, project=self.project)
-            except (TypeError, ValueError):
-                continue
-            self._add_if_present(
-                ArtifactKey.episode_script(episode.episode),
-                episode.script_file,
-                script_basis,
-            )
+        try:
+            script_basis = build_episode_script_basis(project=self.project)
+        except (TypeError, ValueError):
+            script_basis = None
+        if script_basis is not None:
+            for episode in self.episodes:
+                self._add_if_present(
+                    ArtifactKey.episode_script(episode.episode),
+                    episode.script_file,
+                    script_basis,
+                )
         self._planned.add("structured-content")
 
-    def _script_plan_absent(self, episode: int) -> bool:
-        """Whether the episode's formal script_plan slot resolves and holds no file at all."""
+    def _plan_script_plans(self) -> None:
+        for binding in self.bindings:
+            if self.episode_scope is None or binding.episode == self.episode_scope:
+                self._plan_one_script_plan(binding)
 
-        script_plan_path = script_review.script_plan_path(self.project_dir, self.project, episode)
-        if script_plan_path is None:
-            return False
-        script_plan_rel = script_plan_path.relative_to(self.project_dir).as_posix()
-        observation = self.adapter.inspect_artifact(self._pending_source(script_plan_rel))
-        return observation.blocker is None and not observation.present
-
-    def _plan_one_script_plan(self, binding: _EpisodeBinding) -> _FormalScriptPlanState | None:
+    def _plan_one_script_plan(self, binding: _EpisodeBinding) -> None:
         if self.project.get("content_mode") not in {"narration", "drama"}:
-            return None
+            return
         script_plan_path = script_review.script_plan_path(self.project_dir, self.project, binding.episode)
         if script_plan_path is None:
-            return None
+            return
         script_plan_rel = script_plan_path.relative_to(self.project_dir).as_posix()
         observation = self.adapter.inspect_artifact(self._pending_source(script_plan_rel))
         if observation.blocker is not None or not observation.present:
-            return None
+            return
         script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
-        script_plan_content = self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
+        self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
         script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
         source_rel = episode_source_relpath(binding.episode)
         source_observation = self.adapter.inspect_artifact(source_rel)
@@ -581,9 +556,6 @@ class TargetStatePlanner:
                 pass
             else:
                 self._add_if_present(script_plan_key, script_plan_rel, script_plan_basis)
-        if script_plan_key not in self.entries:
-            return None
-        return _FormalScriptPlanState(artifact_path=script_plan_rel, content=script_plan_content)
 
     def _plan_storyboards(self) -> None:
         if "storyboards" in self._planned:

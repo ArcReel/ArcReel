@@ -282,12 +282,6 @@ class NarrationSegment(BaseModel):
     # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
     # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
-    # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
-    # 供工作流按条目判定失效、供增量合并识别未变条目；对 LLM 隐藏，不在任何 PATCH 白名单内。
-    # 存量剧本无此字段（None），按整集 ``script_plan_revision`` 回退判定。
-    script_plan_entry_revision: SkipJsonSchema[str | None] = Field(
-        default=None, description="该条目消费的脚本规划条目内容指纹"
-    )
 
 
 class NovelInfo(BaseModel):
@@ -544,12 +538,6 @@ class DramaScene(BaseModel):
     # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
     # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
-    # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
-    # 供工作流按条目判定失效、供增量合并识别未变条目；对 LLM 隐藏，不在任何 PATCH 白名单内。
-    # 存量剧本无此字段（None），按整集 ``script_plan_revision`` 回退判定。
-    script_plan_entry_revision: SkipJsonSchema[str | None] = Field(
-        default=None, description="该条目消费的脚本规划条目内容指纹"
-    )
 
 
 class DramaEpisodeScript(BaseModel):
@@ -848,12 +836,6 @@ class ReferenceVideoUnit(BaseModel):
     # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
     # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
-    # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
-    # 供工作流按条目判定失效、供增量合并识别未变条目；对 LLM 隐藏，不在任何 PATCH 白名单内。
-    # 存量剧本无此字段（None），按整集 ``script_plan_revision`` 回退判定。
-    script_plan_entry_revision: SkipJsonSchema[str | None] = Field(
-        default=None, description="该条目消费的脚本规划条目内容指纹"
-    )
 
     @model_validator(mode="after")
     def _validate_replan_shell(self) -> "ReferenceVideoUnit":

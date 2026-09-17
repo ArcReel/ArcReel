@@ -9,7 +9,6 @@ import {
   ChevronDown,
   Check,
   Loader2,
-  RefreshCw,
   Undo2,
 } from "lucide-react";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -108,10 +107,6 @@ interface ShotDetailProps {
   durationOptions?: number[];
   /** 已保存时长越界的成因判定；缺省时退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
-  /** 该条目的内容已落后于脚本规划：提示词可能与新内容不符。 */
-  promptsStale?: boolean;
-  /** 按脚本规划采用新内容（提示词保留）；缺省时不渲染入口。 */
-  onAdoptPlanContent?: () => void | Promise<void>;
 }
 
 function getNarrationText(seg: Segment, mode: DetailContentMode): string {
@@ -480,8 +475,6 @@ export function ShotDetail({
   generatingNarration,
   durationOptions = [],
   durationWarningReason,
-  promptsStale = false,
-  onAdoptPlanContent,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
@@ -1039,17 +1032,6 @@ export function ShotDetail({
     </div>
   );
 
-  const [adopting, setAdopting] = useState(false);
-  const handleAdoptPlanContent = async () => {
-    if (!onAdoptPlanContent || adopting) return;
-    setAdopting(true);
-    try {
-      await onAdoptPlanContent();
-    } finally {
-      setAdopting(false);
-    }
-  };
-
   const renderPendingBadge = (pending: boolean) =>
     pending ? (
       <span
@@ -1084,36 +1066,6 @@ export function ShotDetail({
           }}
         >
           {t("detail_pending_authoring_hint")}
-        </div>
-      )}
-
-      {promptsStale && (
-        <div
-          role="status"
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-[11.5px]"
-          style={{
-            color: "var(--color-text-2)",
-            background: "var(--color-warm-tint-faint)",
-            border: "1px solid var(--color-hairline-soft)",
-          }}
-        >
-          <span className="min-w-0 flex-1">{t("detail_prompts_stale_hint")}</span>
-          {onAdoptPlanContent && (
-            <button
-              type="button"
-              onClick={() => void handleAdoptPlanContent()}
-              disabled={adopting || dirty || refsReadOnly}
-              className="focus-ring inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ color: "var(--color-accent-2)", border: "1px solid var(--color-accent-soft)" }}
-            >
-              {adopting ? (
-                <Loader2 className="h-3 w-3 motion-safe:animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
-              {t("detail_adopt_plan_content")}
-            </button>
-          )}
         </div>
       )}
 

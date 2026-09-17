@@ -284,7 +284,7 @@ def _reference_video_facts(resource_id: str, *, episode: int = 1) -> VideoArtifa
 
 
 def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp_path: Path) -> None:
-    project_dir, project, script_plan, _script = _project(tmp_path)
+    project_dir, project, _script_plan, _script = _project(tmp_path)
     orphan = project_dir / "output" / "orphan.srt"
     orphan.parent.mkdir()
     orphan.write_text("history", encoding="utf-8")
@@ -358,7 +358,7 @@ def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp
         ),
         ArtifactKey.episode_script(1): ArtifactManifestEntry(
             artifact_path="scripts/episode_1.json",
-            basis_digest=build_episode_script_basis(script_plan, project=project).digest,
+            basis_digest=build_episode_script_basis(project=project).digest,
         ),
         ArtifactKey.episode_storyboard(1, "E1S01"): ArtifactManifestEntry(
             artifact_path="storyboards/scene_E1S01.png",
@@ -832,7 +832,9 @@ def test_v7_activation_backfills_formal_script_plan_before_final_script_exists(t
     assert script_plan == _read_json(project_dir / "drafts" / "episode_1" / "script_plan_segments.json")
 
 
-def test_v7_activation_does_not_backfill_script_from_an_unclaimed_script_plan(tmp_path: Path) -> None:
+def test_v7_activation_registers_script_without_claiming_an_unclaimed_script_plan(tmp_path: Path) -> None:
+    """剧本依据不含脚本规划：规划无源文可认领时不登记规划，剧本照常登记。"""
+
     project_dir, _project_data, _script_plan, _script = _project(tmp_path)
     (project_dir / "source" / "episode_1.txt").unlink()
 
@@ -840,7 +842,10 @@ def test_v7_activation_does_not_backfill_script_from_an_unclaimed_script_plan(tm
 
     entries = _stored_entries(project_dir)
     assert ArtifactKey.episode_script_plan(1).encode() not in entries
-    assert ArtifactKey.episode_script(1).encode() not in entries
+    assert (
+        entries[ArtifactKey.episode_script(1).encode()]["basis_digest"]
+        == build_episode_script_basis(project=_read_json(project_dir / "project.json")).digest
+    )
 
 
 def test_v7_activation_does_not_use_unowned_same_name_storyboard_as_previous_input(tmp_path: Path) -> None:

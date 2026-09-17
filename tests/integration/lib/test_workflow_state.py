@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import unicodedata
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from portalocker.exceptions import LockException
 
 import lib.script_review as script_review
 from lib.artifact_activation import (
@@ -21,7 +19,7 @@ from lib.episode_ledger import (
     discover_sources,
     register_orphan_episode_entries,
 )
-from lib.json_io import atomic_write_json, load_json
+from lib.json_io import atomic_write_json
 from lib.narration_delivery import (
     TtsSynthesisSettings,
     build_narration_audio_basis,
@@ -35,7 +33,6 @@ from lib.project_migration_failure import (
 )
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.resource_paths import resource_relative_path
-from lib.script_plan_entries import SCRIPT_PLAN_ENTRY_REVISION_FIELD, plan_entry_revisions
 from lib.source_revision import SourceScope, compute_source_revision
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
@@ -793,9 +790,8 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
-    # 整本源文仍只读一次；分集原文是产物清单比对的输入（据其重建 script_plan 基线），
-    # 由现势解析器按项目根与分集两层各读一次。
-    assert source_reads == {"novel.txt": 1, "episode_1.txt": 2}
+    # 整本源文仍只读一次；分集原文是 script_plan 基线的输入，只在比对 script_plan 时读一次。
+    assert source_reads == {"novel.txt": 1, "episode_1.txt": 1}
     assert status.target is not None
     assert status.target.episode == 2
     assert status.state == "SCRIPT_PLAN_CONTENT"
@@ -1208,7 +1204,6 @@ def test_legacy_storyboard_script_without_duration_remains_resumable(
             "title": "第一集",
             "content_mode": mode,
             items_key: [item],
-            "metadata": {script_review.SCRIPT_PLAN_REVISION_FIELD: revision},
         },
     )
 
@@ -1248,7 +1243,6 @@ def _confirmed_narration_project_with_script(
             "title": "第一集",
             "content_mode": "narration",
             "segments": script_segments,
-            "metadata": {script_review.SCRIPT_PLAN_REVISION_FIELD: revision},
         },
     )
     return pm, project_path, revision
@@ -1264,176 +1258,6 @@ def _plan_segment(segment_id: str, novel_text: str) -> dict:
         "scenes": [],
         "props": [],
     }
-
-
-#: 不属于任何脚本规划条目的指纹值：条目上记着它，即表示该条目消费的内容已经不是当前那份。
-_MISMATCHED_ENTRY_REVISION = "sha256-v1:" + "0" * 64
-
-
-def test_script_entry_currency_reports_only_the_changed_entry(tmp_path: Path) -> None:
-    """一条条目的指纹失配：剧本判 stale，但失效条目只列那一条，其余条目不受牵连。"""
-    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
-    revisions = plan_entry_revisions("narration", plan, episode=1)
-    pm, _project_path, _revision = _confirmed_narration_project_with_script(
-        tmp_path,
-        plan,
-        [
-            _valid_narration_segment(script_plan_entry_revision=revisions["E1S01"]),
-            _valid_narration_segment(segment_id="E1S02", script_plan_entry_revision=_MISMATCHED_ENTRY_REVISION),
-        ],
-    )
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.artifacts["script"]["state"] == "stale"
-    assert status.artifacts["script"]["stale_entry_ids"] == ["E1S02"]
-    assert status.artifacts["script"]["removed_entry_ids"] == []
-
-
-def test_script_entry_currency_marks_matching_entries_current(tmp_path: Path) -> None:
-    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
-    revisions = plan_entry_revisions("narration", plan, episode=1)
-    pm, _project_path, _revision = _confirmed_narration_project_with_script(
-        tmp_path,
-        plan,
-        [
-            _valid_narration_segment(script_plan_entry_revision=revisions["E1S01"]),
-            _valid_narration_segment(segment_id="E1S02", script_plan_entry_revision=revisions["E1S02"]),
-        ],
-    )
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.artifacts["script"]["state"] == "current"
-    assert status.artifacts["script"]["stale_entry_ids"] == []
-    assert status.artifacts["script"]["entry_order_changed"] is False
-
-
-def test_script_entry_currency_reports_added_removed_and_reordered_entries(tmp_path: Path) -> None:
-    plan = [_plan_segment("E1S02", "原文乙。"), _plan_segment("E1S01", "原文甲。")]
-    revisions = plan_entry_revisions("narration", plan, episode=1)
-    pm, _project_path, _revision = _confirmed_narration_project_with_script(
-        tmp_path,
-        plan,
-        [
-            _valid_narration_segment(script_plan_entry_revision=revisions["E1S01"]),
-            _valid_narration_segment(segment_id="E1S09", script_plan_entry_revision=_MISMATCHED_ENTRY_REVISION),
-        ],
-    )
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.artifacts["script"]["state"] == "stale"
-    assert status.artifacts["script"]["stale_entry_ids"] == ["E1S02"]
-    assert status.artifacts["script"]["removed_entry_ids"] == ["E1S09"]
-
-
-def test_status_backfills_legacy_entry_revisions(tmp_path: Path) -> None:
-    """存量剧本的读时补齐：整集指纹仍相等时，状态计算把当前条目指纹落进磁盘上的剧本。
-
-    补齐只有在脚本规划被改动之前才做得成——之后整集指纹失配，就只剩整集口径可退。
-    """
-    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
-    pm, project_path, _revision = _confirmed_narration_project_with_script(
-        tmp_path,
-        plan,
-        [_valid_narration_segment(), _valid_narration_segment(segment_id="E1S02")],
-    )
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.artifacts["script"]["state"] == "current"
-    saved = load_json(project_path / "scripts" / "episode_1.json")
-    assert {
-        segment["segment_id"]: segment[SCRIPT_PLAN_ENTRY_REVISION_FIELD] for segment in saved["segments"]
-    } == plan_entry_revisions("narration", plan, episode=1)
-
-
-def test_backfilled_legacy_script_reports_only_the_changed_entry(tmp_path: Path) -> None:
-    """补齐之后改一条脚本规划内容：只有那一条判失效，其余条目不再被整集口径牵连。"""
-    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
-    pm, project_path, _revision = _confirmed_narration_project_with_script(
-        tmp_path,
-        plan,
-        [_valid_narration_segment(), _valid_narration_segment(segment_id="E1S02")],
-    )
-    WorkflowStateService(pm).get_status("demo")
-
-    changed = [plan[0], _plan_segment("E1S02", "原文乙改了一个错别字。")]
-    script_plan_path = project_path / "drafts" / "episode_1" / "script_plan_segments.json"
-    atomic_write_json(script_plan_path, {"segments": changed})
-    revision = script_review.content_fingerprint(script_plan_path)
-    assert revision is not None
-    pm.update_project(
-        "demo", lambda project: script_review.apply_confirmation(project, 1, revision, "2026-08-12T00:00:00Z")
-    )
-    _register_script_plan(project_path)
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.artifacts["script"]["state"] == "stale"
-    assert status.artifacts["script"]["stale_entry_ids"] == ["E1S02"]
-
-
-def test_status_does_not_backfill_when_whole_revision_differs(tmp_path: Path) -> None:
-    """整集指纹已失配：不回填、不写盘，仍按整集口径把全部条目判失效（引入本机制前的结论）。"""
-    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
-    pm, project_path, _revision = _confirmed_narration_project_with_script(
-        tmp_path,
-        plan,
-        [_valid_narration_segment(), _valid_narration_segment(segment_id="E1S02")],
-    )
-    script_path = project_path / "scripts" / "episode_1.json"
-    script = load_json(script_path)
-    script["metadata"][script_review.SCRIPT_PLAN_REVISION_FIELD] = "sha256-v1:" + "1" * 64
-    atomic_write_json(script_path, script)
-    before = script_path.read_bytes()
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.artifacts["script"]["state"] == "stale"
-    assert status.artifacts["script"]["stale_entry_ids"] == ["E1S01", "E1S02"]
-    assert script_path.read_bytes() == before
-
-
-def test_status_survives_a_failed_backfill_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """补齐落不了盘（取不到剧本锁）：状态照常给出结论，不把一次读状态变成失败。
-
-    锁失败经 portalocker 包成 ``BaseLockException``、不是 ``OSError``；补齐只是格式收编，
-    落不了盘不改变任何结论。
-    """
-    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
-    pm, project_path, _revision = _confirmed_narration_project_with_script(
-        tmp_path,
-        plan,
-        [_valid_narration_segment(), _valid_narration_segment(segment_id="E1S02")],
-    )
-    script_path = project_path / "scripts" / "episode_1.json"
-    before = script_path.read_bytes()
-
-    def _refuse_lock(self: ProjectManager, path: Path):
-        raise LockException("锁不可用")
-
-    monkeypatch.setattr(ProjectManager, "file_lock", contextmanager(_refuse_lock))
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.artifacts["script"]["state"] == "current"
-    assert status.artifacts["script"]["stale_entry_ids"] == []
-    assert script_path.read_bytes() == before
-
-
-def test_legacy_script_without_entry_revisions_stays_current(tmp_path: Path) -> None:
-    """存量剧本条目无指纹：整集指纹仍匹配时不误报 stale（读时按整集口径回退）。"""
-    plan = [_plan_segment("E1S01", "原文甲。")]
-    pm, _project_path, _revision = _confirmed_narration_project_with_script(
-        tmp_path, plan, [_valid_narration_segment()]
-    )
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.artifacts["script"]["state"] == "current"
-    assert status.artifacts["script"]["stale_entry_ids"] == []
 
 
 def test_legacy_narration_scenes_skeleton_remains_resumable(tmp_path: Path) -> None:
@@ -1797,7 +1621,7 @@ def test_identical_stale_script_plan_rebuild_advances_after_explicit_completion(
     assert completed.next_action.type == "confirm_script_plan"
 
 
-def test_null_baseline_stale_rebuild_invalidates_grandfathered_script(tmp_path: Path) -> None:
+def test_null_baseline_stale_rebuild_requires_confirming_the_rebuilt_script_plan(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source_and_complete(pm, project_path)
     pm.update_project(
@@ -1846,11 +1670,9 @@ def test_null_baseline_stale_rebuild_invalidates_grandfathered_script(tmp_path: 
         script_review.apply_confirmation(project, 1, revision, "now")
 
     pm.update_project("demo", _confirm)
-    regenerate = service.get_status("demo")
-    # 祖传剧本按重建后的 script_plan 重算取证即判陈旧；陈旧可用，流程继续向下游推进。
-    assert regenerate.artifacts["script"]["state"] == "stale"
-    assert regenerate.state == "STORYBOARD"
-    assert regenerate.next_action.type == "generate_storyboards"
+    confirmed = service.get_status("demo")
+    assert confirmed.state == "STORYBOARD"
+    assert confirmed.next_action.type == "generate_storyboards"
 
 
 def test_quarantined_script_plan_is_a_blocker_not_a_confirmation_loop(tmp_path: Path) -> None:
@@ -1878,7 +1700,8 @@ def test_quarantined_script_plan_is_a_blocker_not_a_confirmation_loop(tmp_path: 
     assert status.next_action.type == "none"
 
 
-def test_confirmed_script_plan_change_marks_old_final_script_stale(tmp_path: Path) -> None:
+def _narration_project_with_confirmed_plan(tmp_path: Path, *, write_script: bool) -> tuple[ProjectManager, Path, Path]:
+    """script_plan 已确认的 narration 项目；``write_script`` 为真时正式脚本已登记。返回脚本规划路径。"""
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source_and_complete(pm, project_path)
     pm.update_project(
@@ -1891,35 +1714,100 @@ def test_confirmed_script_plan_change_marks_old_final_script_stale(tmp_path: Pat
     draft_dir.mkdir(parents=True)
     _write_episode_source(project_path, 1)
     script_plan_path = draft_dir / "script_plan_segments.json"
-    atomic_write_json(script_plan_path, {"segments": [{"segment_id": "E1S01", "novel_text": "旧内容"}]})
-    old_revision = script_review.content_fingerprint(script_plan_path)
-    assert old_revision is not None
-    _write_registered_script(
-        project_path,
-        {
-            "episode": 1,
-            "title": "第一集",
-            "content_mode": "narration",
-            "segments": [_valid_narration_segment()],
-            "metadata": {script_review.SCRIPT_PLAN_REVISION_FIELD: old_revision},
-        },
-    )
-
-    atomic_write_json(script_plan_path, {"segments": [{"segment_id": "E1S01", "novel_text": "新内容"}]})
-    new_revision = script_review.content_fingerprint(script_plan_path)
-    assert new_revision is not None
+    atomic_write_json(script_plan_path, {"segments": [_plan_segment("E1S01", "旧内容")]})
+    revision = script_review.content_fingerprint(script_plan_path)
+    assert revision is not None
     pm.update_project(
-        "demo", lambda project: script_review.apply_confirmation(project, 1, new_revision, "2026-08-11T00:00:00Z")
+        "demo", lambda project: script_review.apply_confirmation(project, 1, revision, "2026-08-11T00:00:00Z")
     )
+    _register_script_plan(project_path)
+    if write_script:
+        _write_registered_script(
+            project_path,
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "segments": [_valid_narration_segment()],
+            },
+        )
+    return pm, project_path, script_plan_path
 
+
+def test_unconfirmed_script_plan_rerun_only_shows_as_pending_review(tmp_path: Path) -> None:
+    """已有正式脚本时重跑脚本规划而未确认：内容确认转为待确认，正式脚本仍时新，下游照常推进。"""
+    pm, project_path, script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=True)
+    atomic_write_json(script_plan_path, {"segments": [_plan_segment("E1S01", "新内容")]})
     _register_script_plan(project_path)
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    # 剧本按新 script_plan 重算取证即判陈旧；陈旧仍可用，故流程继续向下游推进而非退回重写剧本。
-    assert status.artifacts["script"]["state"] == "stale"
+    assert status.gates["script_plan_review"]["state"] == "pending"
+    assert status.artifacts["script"]["state"] == "current"
+    assert not status.blockers
     assert status.state == "STORYBOARD"
     assert status.next_action.type == "generate_storyboards"
+
+
+def test_confirmed_script_plan_change_keeps_the_formal_script_current(tmp_path: Path) -> None:
+    """正式脚本是该集唯一的内容真相：脚本规划内容变化并被确认，也不回头把正式脚本判过期。"""
+    pm, project_path, script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=True)
+    atomic_write_json(script_plan_path, {"segments": [_plan_segment("E1S01", "新内容")]})
+    new_revision = script_review.content_fingerprint(script_plan_path)
+    assert new_revision is not None
+    pm.update_project(
+        "demo", lambda project: script_review.apply_confirmation(project, 1, new_revision, "2026-08-12T00:00:00Z")
+    )
+    _register_script_plan(project_path)
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "current"
+    assert status.state == "STORYBOARD"
+    assert status.next_action.type == "generate_storyboards"
+
+
+def test_quarantined_script_plan_rerun_does_not_block_a_formal_script_in_use(tmp_path: Path) -> None:
+    """重跑落了待修复草稿、但正式脚本在用：脚本规划标 blocked 且不给阻塞项，下游照常推进。"""
+    pm, project_path, _script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=True)
+    quarantine = script_review.script_plan_quarantine_path(project_path, pm.load_project("demo"), 1)
+    assert quarantine is not None
+    atomic_write_json(quarantine, {})
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script_plan"]["state"] == "blocked"
+    assert status.gates["script_plan_review"]["state"] == "pending"
+    assert not status.blockers
+    assert status.state == "STORYBOARD"
+    assert status.next_action.type == "generate_storyboards"
+
+
+def test_confirmed_script_plan_without_formal_script_asks_to_confirm_again(tmp_path: Path) -> None:
+    """已确认却缺正式脚本：下一步是重新确认（确认即转出正式脚本），不给无从下手的 generate_script。"""
+    pm, _project_path, _script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=False)
+    service = WorkflowStateService(pm)
+
+    first = service.get_status("demo")
+    second = service.get_status("demo")
+
+    for status in (first, second):
+        assert status.artifacts["script"]["state"] == "missing"
+        assert status.state == "SCRIPT_PLAN_REVIEW"
+        assert status.next_action.type == "confirm_script_plan"
+        assert status.next_action.requires_confirmation is True
+        assert status.next_action.args == {"episode": 1}
+
+
+def test_ad_without_script_still_asks_to_generate_the_script(tmp_path: Path) -> None:
+    """ad 没有脚本规划，缺剧本时仍由 generate_script 直接产出。"""
+    pm, _project_path = _make_project(tmp_path, "ad")
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["script"]["state"] == "missing"
+    assert status.next_action.type == "generate_script"
+    assert status.next_action.args == {"episode": 1}
 
 
 def test_blocked_final_script_is_not_reclassified_as_stale_by_provenance(tmp_path: Path) -> None:
@@ -1948,7 +1836,6 @@ def test_blocked_final_script_is_not_reclassified_as_stale_by_provenance(tmp_pat
             "title": "第一集",
             "content_mode": "drama",
             "scenes": [_valid_drama_scene()],
-            "metadata": {script_review.SCRIPT_PLAN_REVISION_FIELD: revision},
         },
     )
     _edit_claimed_script(project_path, [])
@@ -2398,19 +2285,12 @@ def test_script_plan_registered_from_read_text_source_stays_current_with_crlf_by
 def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generation(tmp_path: Path) -> None:
     """待编写条目：剧本条目本身是当前的，下一步是补提示词而非生成分镜图。"""
     plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
-    revisions = plan_entry_revisions("narration", plan, episode=1)
     pm, _project_path, _revision = _confirmed_narration_project_with_script(
         tmp_path,
         plan,
         [
-            _valid_narration_segment(script_plan_entry_revision=revisions["E1S01"]),
-            _valid_narration_segment(
-                segment_id="E1S02",
-                image_prompt=None,
-                video_prompt=None,
-                pending_authoring=True,
-                script_plan_entry_revision=revisions["E1S02"],
-            ),
+            _valid_narration_segment(),
+            _valid_narration_segment(segment_id="E1S02", image_prompt=None, video_prompt=None, pending_authoring=True),
         ],
     )
 
@@ -2451,7 +2331,6 @@ def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
             "content_mode": "drama",
             "generation_mode": "reference_video",
             "video_units": [_valid_video_unit(pending_authoring=True)],
-            "metadata": {script_review.SCRIPT_PLAN_REVISION_FIELD: revision},
         },
     )
 
@@ -2487,18 +2366,12 @@ def test_pending_ad_shots_ask_to_author_prompts(tmp_path: Path) -> None:
 def test_author_prompts_lists_marked_entries_not_empty_prompts(tmp_path: Path) -> None:
     """补充提示词只读待编写标记：带标记的条目即使已有提示词也列入，无标记的空提示词条目不列入。"""
     plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
-    revisions = plan_entry_revisions("narration", plan, episode=1)
     pm, _project_path, _revision = _confirmed_narration_project_with_script(
         tmp_path,
         plan,
         [
-            _valid_narration_segment(pending_authoring=True, script_plan_entry_revision=revisions["E1S01"]),
-            _valid_narration_segment(
-                segment_id="E1S02",
-                image_prompt=None,
-                video_prompt=None,
-                script_plan_entry_revision=revisions["E1S02"],
-            ),
+            _valid_narration_segment(pending_authoring=True),
+            _valid_narration_segment(segment_id="E1S02", image_prompt=None, video_prompt=None),
         ],
     )
 
@@ -2510,16 +2383,11 @@ def test_author_prompts_lists_marked_entries_not_empty_prompts(tmp_path: Path) -
 
 def test_empty_prompts_without_pending_authoring_do_not_ask_to_author_prompts(tmp_path: Path) -> None:
     plan = [_plan_segment("E1S01", "原文甲。")]
-    revisions = plan_entry_revisions("narration", plan, episode=1)
     pm, _project_path, _revision = _confirmed_narration_project_with_script(
         tmp_path,
         plan,
         [
-            _valid_narration_segment(
-                image_prompt=None,
-                video_prompt=None,
-                script_plan_entry_revision=revisions["E1S01"],
-            ),
+            _valid_narration_segment(image_prompt=None, video_prompt=None),
         ],
     )
 

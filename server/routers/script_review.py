@@ -10,19 +10,12 @@ import logging
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from lib.api_errors import ConflictError, NotFoundError, UnprocessableError
+from lib.api_errors import NotFoundError
 from lib.i18n import Translator
-from lib.project_manager import ScriptWriteConflict, get_project_manager
-from lib.script_plan_entries import ScriptPlanEntryError
+from lib.project_manager import get_project_manager
 from server.dependencies import require_project_migration_ok
 from server.routers._script_review_errors import raise_review_error
-from server.services.script_plan_conversion import (
-    ScriptPlanNotFoundError,
-    convert_script_plan,
-    preview_script_plan_conversion,
-)
 from server.services.script_review import ScriptReviewError, ScriptReviewService
-from server.text_generation import TextGenerationError
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +53,6 @@ def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
 async def get_script_review(project_name: str, episode: int, _t: Translator):
     """读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。
-
-    ``script_entry_currency`` 随 state 回传：正式剧本相对这份 script_plan 的条目时效，时间线的
-    「剧本内容已更新」提示读它。它不带准入判定，草稿在场时照样给出失效条目——与 ``conversion-preview``
-    的「能否转换」是两套口径。
 
     ``quarantine`` 字段单独合并（reference_video 变体、草稿在场时才非 None）：它按产出时
     那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。
@@ -163,74 +152,3 @@ async def confirm_script_review(
         raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-
-
-class ConvertScriptPlanRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    entry_ids: list[str] = Field(default_factory=list, description="要「采用新内容」的失效分镜 id")
-
-
-@router.post(
-    "/projects/{project_name}/episodes/{episode}/script-review/convert",
-    dependencies=[Depends(require_project_migration_ok)],
-)
-async def convert_script_plan_to_script(
-    project_name: str,
-    episode: int,
-    _t: Translator,
-    req: ConvertScriptPlanRequest | None = None,
-):
-    """按脚本规划机械转为正式脚本，不调用文本模型。
-
-    与 MCP 工具 ``convert_script_plan`` 同一入口：内容确认门禁与 ``generate_episode_script`` 共用同一道
-    预检；无 ``entry_ids`` 为集合同步（新增以待生成落盘、移出、改序，失效分镜不碰），有 ``entry_ids``
-    让点名的失效分镜采用新内容。回执列出 ``added`` / ``refreshed`` / ``removed`` 三组条目 id。
-    """
-    entry_ids = req.entry_ids if req is not None else []
-    try:
-        receipt = await convert_script_plan(project_name, episode, entry_ids=entry_ids)
-    except TextGenerationError as exc:
-        raise ConflictError("script_conversion_refused").with_diagnostic(str(exc)) from exc
-    except ScriptWriteConflict as exc:
-        raise ConflictError("script_conversion_conflict") from exc
-    except ScriptPlanEntryError as exc:
-        raise UnprocessableError("script_conversion_invalid_entries").with_diagnostic(str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise NotFoundError("project_not_found", name=project_name) from exc
-    except ValueError as exc:
-        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
-    return {
-        "episode": receipt.episode,
-        "script_filename": receipt.script_filename,
-        "added": list(receipt.added),
-        "refreshed": list(receipt.refreshed),
-        "removed": list(receipt.removed),
-    }
-
-
-@router.get("/projects/{project_name}/episodes/{episode}/script-review/conversion-preview")
-async def preview_script_plan_conversion_to_script(project_name: str, episode: int, _t: Translator):
-    """只读预演机械转换：列出 ``added`` / ``stale`` / ``removed`` 三组条目 id，以及顺序、标题是否有变。
-
-    不落盘、不经内容确认门禁，但过与生成同一组准入断言（待修复草稿、时长档位、发声准入），
-    任一不满足即 422——它回答的是「现在能否转换」，只供「转为正式脚本」对话框使用；时间线的
-    失效提示读 ``GET script-review`` 的 ``script_entry_currency``，那是不带准入的「内容是否变了」。
-    """
-    try:
-        preview = await preview_script_plan_conversion(project_name, episode)
-    except ScriptPlanNotFoundError as exc:
-        raise UnprocessableError("script_review_no_script_plan") from exc
-    except FileNotFoundError as exc:
-        raise NotFoundError("project_not_found", name=project_name) from exc
-    except ValueError as exc:
-        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
-    return {
-        "episode": preview.episode,
-        "has_script": preview.has_script,
-        "added": list(preview.added),
-        "stale": list(preview.stale),
-        "removed": list(preview.removed),
-        "order_changed": preview.order_changed,
-        "title_changed": preview.title_changed,
-    }

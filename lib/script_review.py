@@ -1,8 +1,8 @@
 """script_plan→prompt_authoring 内容确认的核心逻辑：适用性判定、script_plan 路径、内容指纹、确认状态派生，
 以及参考生视频正式 script_plan 的单一写盘出口（``script_plan_write_lock`` / ``write_script_plan_locked``）。
 
-gate 横跨两处消费：SDK 工具（``generate_episode_script`` 的 prompt_authoring 阻塞 enforcement）与 web
-router / service（结构化中间态查看 / 编辑 / 确认）。状态派生只依赖 script_plan 文件 + project dict
+gate 由 web router / service（结构化中间态查看 / 编辑 / 确认，确认即转为正式脚本）、Agent 确认工具与
+工作流状态消费。状态派生只依赖 script_plan 文件 + project dict
 的纯计算；写盘出口另持 ``ProjectManager.file_lock`` 的 per-path 锁，四条写路径（Web 端保存、
 重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 prompt_authoring 草稿清理只存在一处。
 
@@ -52,9 +52,6 @@ from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets
 from lib.script_plan_entries import (
-    SCRIPT_PLAN_REVISION_FIELD as SCRIPT_PLAN_REVISION_FIELD,
-)
-from lib.script_plan_entries import (
     ScriptPlanKind as ScriptPlanKind,
 )
 from lib.validation_messages import ValidationMessage
@@ -65,7 +62,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 #: 内容确认状态：not_applicable=该集不走 gate；no_script_plan=适用但 script_plan 未产出；
-#: pending_review=script_plan 已产出但未经确认（或确认后内容又变）→ 阻塞 prompt_authoring；confirmed=已确认放行。
+#: pending_review=script_plan 已产出但未经确认（或确认后内容又变）；confirmed=已确认（已转为正式脚本）。
 ReviewStatus = Literal["not_applicable", "no_script_plan", "pending_review", "confirmed"]
 
 #: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
@@ -77,10 +74,7 @@ STALE_SCRIPT_PLAN_REVISION_FIELD = "stale_script_plan_revision"
 #: stale 分集的 script_plan 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
 STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD = "stale_script_plan_rebuilt_revision"
 
-# SCRIPT_PLAN_REVISION_FIELD（最终剧本 metadata 记录其实际消费的 script_plan 内容指纹；workflow
-# status 用它识别 script_plan 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 prompt_authoring
-# 已完成）的字面量定义在 lib.script_plan_entries——它是条目指纹的整集对位，存量条目的回填按它
-# 开门——由本模块顶部的 import 再导出，既有读法不变。ScriptPlanKind 同样定义在那里，同样再导出。
+# ScriptPlanKind 的字面量定义在 lib.script_plan_entries，由本模块顶部的 import 再导出。
 
 
 def script_plan_kind(project: dict[str, Any]) -> ScriptPlanKind | None:
@@ -581,15 +575,6 @@ def formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], ep
         return False
     live = content_fingerprint(path)
     return live is not None and _formal_script_plan_confirmed(project_path, project, episode, live)
-
-
-def gate_blocks_prompt_authoring(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """prompt_authoring 是否应被 gate 阻塞——仅 pending_review 阻塞；not_applicable / no_script_plan / confirmed 放行。
-
-    no_script_plan 不在此阻塞：prompt_authoring 入口对缺 script_plan 另有「未找到脚本规划文件」的早返提示，
-    本 gate 只负责「script_plan 在但未确认」这一道。
-    """
-    return review_status(project_path, project, episode) == "pending_review"
 
 
 def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, confirmed_at: str) -> bool:

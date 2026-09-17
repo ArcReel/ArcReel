@@ -355,11 +355,11 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "generate_episode_script",
         "generate_script_plan",
         "confirm_script_review",
-        "convert_script_plan",
         "patch_episode_script",
     }
     batches = {"get_generation_batch", "cancel_generation_batch"}
     retired = {
+        "convert_script_plan",
         "normalize_drama_script",
         "split_narration_segments",
         "split_reference_video_units",

@@ -152,21 +152,6 @@ export type ScriptReviewStatus =
   | "pending_review"
   | "confirmed";
 
-/**
- * 正式剧本相对当前脚本规划的条目时效：无准入的「内容是否变了」，与工作流状态同一口径。
- * 草稿在场、时长档位或发声准入不满足时照样给出；「能否转换」由 `ScriptPlanConversionPreview` 另答。
- * 三组 id 按脚本规划顺序（`removed` 按剧本顺序）。
- */
-export interface ScriptEntryCurrency {
-  /** 剧本里已有、内容指纹落后于脚本规划的条目。 */
-  stale: string[];
-  /** 脚本规划里有、剧本里还没有的条目。 */
-  added: string[];
-  /** 剧本里有、脚本规划里已不存在的条目。 */
-  removed: string[];
-  order_changed: boolean;
-}
-
 /** 内容确认将覆盖的正式脚本：旧分镜全部移除，列出每条分镜名下已生成的产物。 */
 export interface ScriptOverwrite {
   /** 被列出的这份正式脚本的版本；认可覆盖时原样回传，正式脚本之后又有变化则按新清单再次拒绝。 */
@@ -202,8 +187,6 @@ export interface ScriptReviewState {
    * 超出目标只提示，不阻断确认与后续生成。
    */
   episode_target_duration: number | null;
-  /** 正式剧本相对这份脚本规划的条目时效；没有正式剧本或没有可比对的条目时 null。 */
-  script_entry_currency: ScriptEntryCurrency | null;
   /** 确认将覆盖的正式脚本；该集尚无正式脚本时 null。非 null 时确认须带其 `revision` 认可覆盖。 */
   script_overwrite: ScriptOverwrite | null;
 }
@@ -247,7 +230,7 @@ export interface NarrationSegment {
   characters_in_segment: string[];
   scenes?: string[];
   props?: string[];
-  /** `null` = 待生成：脚本规划机械转换只落内容层，提示词尚未编写。 */
+  /** `null` = 待生成：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
   transition_to_next: TransitionType;
@@ -270,7 +253,7 @@ export interface DramaScene {
   characters_in_scene: string[];
   scenes?: string[];
   props?: string[];
-  /** `null` = 待生成：脚本规划机械转换只落内容层，提示词尚未编写。 */
+  /** `null` = 待生成：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
   /**
@@ -390,25 +373,3 @@ export interface ItemPromptPreview {
   video: RenderedPromptPreview;
 }
 
-/** 脚本规划机械转换的只读预演：三组条目 id 按脚本规划顺序（`removed` 按剧本顺序）。 */
-export interface ScriptPlanConversionPreview {
-  episode: number;
-  /** 正式剧本是否已存在；不存在时 `added` 即脚本规划全部条目。 */
-  has_script: boolean;
-  added: string[];
-  stale: string[];
-  removed: string[];
-  /** 三组都为空时也可能要转：沿用条目的顺序与脚本规划不同。 */
-  order_changed: boolean;
-  /** 脚本规划的标题（剧情演绎）与正式剧本标题不同。 */
-  title_changed: boolean;
-}
-
-/** 一次机械转换的回执：新增（提示词待生成）/ 采用新内容 / 移出。 */
-export interface ScriptPlanConversionReceipt {
-  episode: number;
-  script_filename: string;
-  added: string[];
-  refreshed: string[];
-  removed: string[];
-}

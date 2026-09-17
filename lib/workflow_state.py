@@ -1,8 +1,6 @@
 """Authoritative workflow status for ArcReel projects.
 
-状态计算不改变任何结论性数据。唯一的写盘是条目指纹的读时补齐（见
-``_annotate_script_entry_currency``）：存量剧本一次性收编，只增补一个对 LLM 与 PATCH 均不可见
-的指纹字段，本次状态的结论不因它是否落盘而变化。
+状态计算只读，不写盘。
 """
 
 from __future__ import annotations
@@ -17,7 +15,6 @@ from functools import partial
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-from portalocker.exceptions import BaseLockException
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib import script_review
@@ -47,7 +44,6 @@ from lib.project_migration_failure import (
 )
 from lib.project_migration_report import MigrationReport, load_migration_report
 from lib.script_models import PENDING_AUTHORING_FIELD, get_generated_assets, script_duration_total
-from lib.script_plan_entries import backfill_entry_revisions, compare_script_with_plan_document
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton, resolve_kind_items
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 from lib.version_manager import VersionManager
@@ -691,83 +687,6 @@ class WorkflowStateService:
             return False
         matching_docs = [doc for doc in planning_sources if unicodedata.normalize("NFC", doc.rel_path) == canonical_rel]
         return len(matching_docs) == 1 and offset >= len(matching_docs[0].text)
-
-    def _annotate_script_entry_currency(
-        self,
-        project_path: Path,
-        project_name: str,
-        project: dict[str, Any],
-        target: WorkflowTarget,
-        script: dict[str, Any],
-        script_artifact: dict[str, Any],
-        *,
-        whole_plan_revision: str | None,
-    ) -> None:
-        """按条目比对剧本与脚本规划，把失效 / 新增 / 被删条目写进剧本 artifact，并据此收紧 state。
-
-        判定是条目级的：改一条 ``source_text`` 只让那一条失效，其余条目照旧可用——重写的是失效
-        条目，不是整集（stale 的语义见 ``docs/adr/0062``）。存量剧本的条目没有条目指纹，退回
-        整集口径判定，不因升级本身被误报。
-
-        本方法同时是条目指纹的**读时补齐路径**：整集指纹仍相等时，这里就把当前脚本规划的条目
-        指纹落进那些无指纹的存量条目。补齐只有在脚本规划被改动之前才做得成——整集指纹一旦失配
-        就无从知道每条消费了什么，只能整集回退、整集重写，用户精修过的提示词随之被覆盖。这是
-        状态计算里唯一的写盘，且只增补一个对 LLM 与 PATCH 均不可见的指纹字段：写盘失败不改变
-        本次状态的任何结论，故只记日志、不升级为 blocker。
-
-        脚本规划读不出或形状不符时什么也不标注：脚本规划自身的状态由 ``artifacts["script_plan"]``
-        回答，此处不重复造一类错误。
-
-        比对本身是条目时效的共用口径 ``compare_script_with_plan_document``（内容确认状态读的也是
-        它），不带任何准入判定：草稿在场、时长档位或发声准入不满足时这里照样给出失效条目。
-        """
-        plan_kind = script_review.script_plan_kind(project)
-        if plan_kind is None:
-            return
-        script_plan_path = script_review.script_plan_path(project_path, project, target.episode)
-        if script_plan_path is None:
-            return
-        try:
-            document = json.loads(script_plan_path.read_bytes().decode("utf-8"))
-        except (OSError, ValueError):
-            return
-        comparison = compare_script_with_plan_document(
-            plan_kind,
-            plan_document=document,
-            script=script,
-            episode=target.episode,
-            whole_plan_revision=whole_plan_revision,
-        )
-        if comparison is None:
-            return
-        # 在内存副本上补齐：非空即表示磁盘上那份也待补，据此决定是否为落盘取一次剧本锁——
-        # 已补齐过的剧本（绝大多数）因此不为读状态引入锁竞争。补齐不改变比对结论：无指纹条目
-        # 只在整集指纹相等时被盖章，而比对对这类条目同样按整集指纹回退判定。
-        if backfill_entry_revisions(
-            plan_kind,
-            script=script,
-            plan_revisions=comparison.plan_revisions,
-            whole_plan_revision=whole_plan_revision,
-        ):
-            try:
-                self.pm.backfill_script_plan_entry_revisions(
-                    project_name,
-                    target.script,
-                    plan_kind=plan_kind,
-                    plan_revisions=comparison.plan_revisions,
-                    whole_plan_revision=whole_plan_revision,
-                )
-            except (OSError, ValueError, BaseLockException):
-                # 落盘要取剧本锁、要写文件，两者都可能失败（锁失败经 portalocker 包成
-                # BaseLockException，不是 OSError）。补齐是纯格式收编，失败不改变本次状态的
-                # 任何结论，一次读状态不该因此整个失败。
-                logger.warning("剧本 %s 的条目指纹读时补齐未能落盘", target.script, exc_info=True)
-        currency = comparison.currency
-        script_artifact["stale_entry_ids"] = list(currency.outdated_ids)
-        script_artifact["removed_entry_ids"] = list(currency.removed_ids)
-        script_artifact["entry_order_changed"] = currency.order_changed
-        if currency.is_stale:
-            script_artifact["state"] = ArtifactStatus.STALE.value
 
     def _load_script_artifacts(
         self,
@@ -1530,7 +1449,15 @@ class WorkflowStateService:
                         else None,
                         "revision": revision,
                     }
-                    if script_review.script_plan_quarantined(project_path, project, target.episode):
+                    # 已有正式剧本时，脚本规划重跑后未确认（含重跑产出落了待修复草稿）只表现为内容确认状态，
+                    # 不挡下游；账本 stale 的集原文范围已失效，旧剧本不再可用，仍须先确认。
+                    formal_script_in_use = (
+                        selected is not None
+                        and selected[1].get("ledger_status") != "stale"
+                        and script_review.prompt_authoring_generated(project_path, project, target.episode)
+                    )
+                    quarantined = script_review.script_plan_quarantined(project_path, project, target.episode)
+                    if quarantined and not formal_script_in_use:
                         quarantine = script_review.script_plan_quarantine_path(project_path, project, target.episode)
                         assert quarantine is not None
                         artifacts["script_plan"]["state"] = "blocked"
@@ -1546,7 +1473,9 @@ class WorkflowStateService:
                             WorkflowActionType.NONE, "quarantined script_plan must be repaired before confirmation"
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
-                    if artifacts["script_plan"]["state"] == "blocked":
+                    if quarantined:
+                        artifacts["script_plan"]["state"] = "blocked"
+                    elif artifacts["script_plan"]["state"] == "blocked":
                         state = "SCRIPT_PLAN_CONTENT"
                         next_action = _action(WorkflowActionType.NONE, "formal script_plan currency is blocked")
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
@@ -1573,7 +1502,7 @@ class WorkflowStateService:
                             "state": "confirmed" if review == "confirmed" else "pending",
                             "revision": revision,
                         }
-                        if review != "confirmed":
+                        if review != "confirmed" and not formal_script_in_use:
                             state = "SCRIPT_PLAN_REVIEW"
                             next_action = _action(
                                 WorkflowActionType.CONFIRM_SCRIPT_PLAN,
@@ -1585,53 +1514,28 @@ class WorkflowStateService:
                                 project, source, target, state, blockers, gates, artifacts, next_action
                             )
 
-                script_artifact, items, kind, script = self._load_script_artifacts(
+                script_artifact, items, kind, _script = self._load_script_artifacts(
                     project_path, project_name, project, target, blockers, currency
                 )
                 artifacts["script"] = script_artifact
-                if mode != "ad" and script_artifact["state"] in {
-                    ArtifactStatus.CURRENT.value,
-                    ArtifactStatus.STALE.value,
-                }:
-                    plan_artifact = artifacts.get("script_plan")
-                    self._annotate_script_entry_currency(
-                        project_path,
-                        project_name,
-                        project,
-                        target,
-                        script,
-                        script_artifact,
-                        whole_plan_revision=(
-                            plan_artifact.get("revision") if isinstance(plan_artifact, Mapping) else None
-                        ),
-                    )
-                if (
-                    currency is None
-                    and mode != "ad"
-                    and script_artifact["state"] == "current"
-                    and script_review.stored_review(project, target.episode).get("fingerprint") is not None
-                ):
-                    metadata = script.get("metadata")
-                    generated_from = (
-                        metadata.get(script_review.SCRIPT_PLAN_REVISION_FIELD)
-                        if isinstance(metadata, Mapping)
-                        else None
-                    )
-                    if generated_from != artifacts["script_plan"].get("revision"):
-                        artifacts["script"]["state"] = "stale"
                 if blockers:
                     state = "FINAL_SCRIPT"
                     next_action = _action(WorkflowActionType.NONE, "script is blocked")
-                elif script_artifact["state"] == "missing" or (
-                    currency is None and script_artifact["state"] == "stale"
-                ):
+                elif script_artifact["state"] == "missing" and mode != "ad":
+                    # 正式剧本只由内容确认转出：已确认却缺剧本（存量或被删除）时重新确认即补建，编写提示词无从下手。
+                    state = "SCRIPT_PLAN_REVIEW"
+                    next_action = _action(
+                        WorkflowActionType.CONFIRM_SCRIPT_PLAN,
+                        "confirming the script_plan materializes the missing final script",
+                        args={"episode": target.episode},
+                        requires_confirmation=True,
+                    )
+                elif script_artifact["state"] == "missing":
                     state = "FINAL_SCRIPT"
-                    stale_entry_ids = script_artifact.get("stale_entry_ids")
                     next_action = _action(
                         WorkflowActionType.GENERATE_SCRIPT,
                         "target episode has no current final script",
-                        args={"episode": target.episode}
-                        | ({"stale_entry_ids": stale_entry_ids} if stale_entry_ids else {}),
+                        args={"episode": target.episode},
                     )
                 elif pending_authoring_ids := _pending_authoring_entry_ids(items, kind):
                     # 存在待编写条目：剧本阶段未完成，先补提示词，不报生成分镜图。
@@ -1778,8 +1682,8 @@ class WorkflowStateService:
     ) -> bool:
         """一集没有正式 script_plan、但正式剧本已按无计划依据登记且可用时，剧本门代替计划门。
 
-        没有计划文件的剧本按无计划依据登记在清单里。这样的集直接按剧本与下游产物判状态；
-        用户重跑规划产生正式计划后，剧本条目因依据变化判 stale，走常规路线。
+        剧本的登记不以脚本规划为依据，没有计划文件的集直接按剧本与下游产物判状态；用户重跑规划产生
+        正式计划后，该集回到常规路线，未确认的新规划只表现为内容确认状态。
         """
 
         if currency is None or selected is None:

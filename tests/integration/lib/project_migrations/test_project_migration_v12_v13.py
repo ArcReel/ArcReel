@@ -120,7 +120,9 @@ def test_status_passes_the_script_plan_gate_for_a_registered_planless_script(tmp
     assert status.artifacts["videos"]["current_ids"] == ["E1S1", "E1S2"]
 
 
-def test_planless_script_stays_current_until_a_formal_plan_appears(tmp_path: Path) -> None:
+def test_planless_script_stays_current_after_a_formal_plan_appears(tmp_path: Path) -> None:
+    """剧本依据不含脚本规划：之后补出的正式规划不让已有正式脚本过期。"""
+
     project_dir = write_legacy_storyboard_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=12)
     migrate_v12_to_v13(project_dir)
@@ -132,7 +134,7 @@ def test_planless_script_stays_current_until_a_formal_plan_appears(tmp_path: Pat
         json.dumps({"segments": [{"novel_text": "第一段旁白。"}]}, ensure_ascii=False), encoding="utf-8"
     )
 
-    assert _script_state(project_dir) == ArtifactStatus.STALE.value
+    assert _script_state(project_dir) == ArtifactStatus.CURRENT.value
 
 
 def test_typed_records_are_left_untouched_and_the_migration_is_idempotent(tmp_path: Path) -> None:

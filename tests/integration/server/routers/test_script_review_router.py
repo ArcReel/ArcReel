@@ -175,22 +175,22 @@ class TestScriptReviewRouter:
             assert body["status"] == "pending_review"
             assert body["content"]["scenes"][0]["utterances"][0]["speaker"] == "阿离"
 
-            # 确认前 prompt_authoring 被阻塞
+            # 确认前内容确认待审
             from lib import script_review
 
             assert (
-                script_review.gate_blocks_prompt_authoring(pm.get_project_path("demo"), pm.load_project("demo"), 1)
-                is True
+                script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "pending_review"
             )
 
             # 确认 → confirmed，prompt_authoring 放行
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 200
             assert confirmed.json()["status"] == "confirmed"
-            assert (
-                script_review.gate_blocks_prompt_authoring(pm.get_project_path("demo"), pm.load_project("demo"), 1)
-                is False
-            )
+            # 正式脚本由确认直接转出：状态只描述内容确认，确认之外没有预演或转换入口。
+            assert "script_entry_currency" not in client.get(base).json()
+            assert client.get(f"{base}/conversion-preview").status_code == 404
+            assert client.post(f"{base}/convert").status_code == 404
+            assert script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "confirmed"
 
     def test_saving_confirmed_script_plan_is_rejected_with_recognizable_code(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
@@ -359,8 +359,7 @@ class TestReferenceVideoRouter:
             assert body["content"]["units"][0]["unit_id"] == "E1U01"
             assert body["quarantine"] is None
             assert (
-                script_review.gate_blocks_prompt_authoring(pm.get_project_path("demo"), pm.load_project("demo"), 1)
-                is True
+                script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "pending_review"
             )
 
             # 编辑单元正文 → 重新等待确认
@@ -373,10 +372,7 @@ class TestReferenceVideoRouter:
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 200
             assert confirmed.json()["status"] == "confirmed"
-            assert (
-                script_review.gate_blocks_prompt_authoring(pm.get_project_path("demo"), pm.load_project("demo"), 1)
-                is False
-            )
+            assert script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "confirmed"
 
     def test_quarantine_surfaced_with_recomputed_line_anchored_violations(self, tmp_path, monkeypatch):
         """草稿在场时 GET 附带 ``quarantine`` 字段：违约按产出时那套校验器读时重算，
@@ -797,159 +793,3 @@ class TestReferenceVideoRouter:
             resp = client.put(f"{base}/content", params={"base_fingerprint": fresh}, json=mine)
             assert resp.status_code == 200
             assert resp.json()["content"]["units"][0]["text"] == "@[阿离] 立于屋檐下。"
-
-
-class TestScriptPlanConversionRouter:
-    """内容确认后的机械转换：预演只读，转换经内容确认门禁，回执列出三组条目。"""
-
-    @staticmethod
-    def _client_with_conversion(
-        monkeypatch, tmp_path: Path, *, generation_mode: str | None = None
-    ) -> tuple[TestClient, ProjectManager]:
-        from server.services import script_plan_conversion as conversion_mod
-        from tests.fakes import FakeConfigResolver
-
-        client, pm = _client(monkeypatch, tmp_path, generation_mode=generation_mode)
-        pm.update_project("demo", lambda project: project.__setitem__("style", "Anime"))
-        monkeypatch.setattr(conversion_mod, "get_project_manager", lambda: pm)
-        resolver = cast(ConfigResolver, FakeConfigResolver(supported_durations=(4, 6, 8)))
-        original = conversion_mod.ScriptGenerator
-        monkeypatch.setattr(
-            conversion_mod,
-            "ScriptGenerator",
-            lambda project_path, config_resolver=None: original(project_path, config_resolver=resolver),
-        )
-        return client, pm
-
-    @staticmethod
-    def _admitted_drama_script_plan() -> dict:
-        """机械转换与生成路径同一道发声准入：分镜只留台词，避免画外音 + 台词混排被拒。"""
-        plan = _drama_script_plan()
-        plan["scenes"][0]["utterances"] = [{"kind": "dialogue", "speaker": "阿离", "text": "你终于回来了。"}]
-        return plan
-
-    @staticmethod
-    def _write_registered_script_plan(pm: ProjectManager, content: dict) -> None:
-        """机械转换读的是已登记的脚本规划产物：落盘后按源文激活产物清单。"""
-        from lib.artifact_activation import activate_artifact_target_state
-
-        _write_script_plan(pm, content)
-        project_path = pm.get_project_path("demo")
-        source = project_path / "source" / "episode_1.txt"
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text("三年后，阿离立于屋檐下：你终于回来了。", encoding="utf-8")
-        activate_artifact_target_state(project_path, bump_schema=False)
-
-    def test_preview_then_convert_then_no_op(self, tmp_path, monkeypatch):
-        client, pm = self._client_with_conversion(monkeypatch, tmp_path)
-        with client:
-            base = "/api/v1/projects/demo/episodes/1/script-review"
-            self._write_registered_script_plan(pm, self._admitted_drama_script_plan())
-
-            # 预演不经门禁：未确认也能读到「无正式剧本，将新建 1 条」
-            preview = client.get(f"{base}/conversion-preview")
-            assert preview.status_code == 200
-            assert preview.json() == {
-                "episode": 1,
-                "has_script": False,
-                "added": ["E1S01"],
-                "stale": [],
-                "removed": [],
-                "order_changed": False,
-                "title_changed": False,
-            }
-
-            # 转换经内容确认门禁：未确认 409
-            refused = client.post(f"{base}/convert")
-            assert refused.status_code == 409
-
-            # 确认即整集转换：正式剧本已按规划写出
-            assert client.post(f"{base}/confirm").status_code == 200
-            scene = pm.load_script("demo", "episode_1.json")["scenes"][0]
-            assert scene["image_prompt"] is None
-            assert scene["video_prompt"] is None
-            assert scene["utterances"][0]["text"] == "你终于回来了。"
-
-            # 逐条一致：再转一次三组为空，预演也报已同步
-            again = client.post(f"{base}/convert", json={"entry_ids": []})
-            assert again.status_code == 200
-            assert (again.json()["added"], again.json()["refreshed"], again.json()["removed"]) == ([], [], [])
-            synced = client.get(f"{base}/conversion-preview").json()
-            assert synced["has_script"] is True
-            assert (synced["added"], synced["stale"], synced["removed"]) == ([], [], [])
-            assert (synced["order_changed"], synced["title_changed"]) == (False, False)
-
-    def test_preview_distinguishes_a_missing_script_plan_from_a_missing_project(self, tmp_path, monkeypatch):
-        client, _pm = self._client_with_conversion(monkeypatch, tmp_path)
-        with client:
-            no_plan = client.get("/api/v1/projects/demo/episodes/1/script-review/conversion-preview")
-            assert no_plan.status_code == 422, no_plan.text
-            assert no_plan.json()["detail"] == i18n_message("script_review_no_script_plan")
-
-            no_project = client.get("/api/v1/projects/absent/episodes/1/script-review/conversion-preview")
-            assert no_project.status_code == 404, no_project.text
-
-    def test_preview_reports_missing_project_metadata_as_missing_project(self, tmp_path, monkeypatch):
-        """参考生视频路线读规划时项目元数据已不在：是项目缺失（404），不是脚本规划缺失（422）。"""
-        import lib.script_generator as generator_mod
-
-        client, pm = self._client_with_conversion(monkeypatch, tmp_path, generation_mode="reference_video")
-        _write_rv_script_plan(pm, _rv_script_plan())
-
-        class _MetadataGone(ProjectManager):
-            def load_project(self, project_name: str) -> dict:
-                raise FileNotFoundError("项目元数据文件不存在")
-
-        monkeypatch.setattr(generator_mod, "ProjectManager", _MetadataGone)
-        with client:
-            got = client.get("/api/v1/projects/demo/episodes/1/script-review/conversion-preview")
-            assert got.status_code == 404, got.text
-            assert got.json()["detail"] != i18n_message("script_review_no_script_plan")
-
-    def test_state_currency_survives_a_pending_draft_that_refuses_the_preview(self, tmp_path, monkeypatch):
-        """待修复草稿在场：预演过准入链整体 422，而 ``GET script-review`` 的条目时效仍列出失效条目——
-        时间线的「剧本内容已更新」提示读后者，不随草稿的出现而消失。"""
-        from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, write_quarantine
-
-        client, pm = self._client_with_conversion(monkeypatch, tmp_path)
-        with client:
-            base = "/api/v1/projects/demo/episodes/1/script-review"
-            self._write_registered_script_plan(pm, self._admitted_drama_script_plan())
-            assert client.post(f"{base}/confirm").status_code == 200
-            assert client.post(f"{base}/convert").status_code == 200
-            synced = client.get(base).json()
-            assert synced["script_entry_currency"] == {"stale": [], "added": [], "removed": [], "order_changed": False}
-
-            # 只改原文锚：条目内容变了，剧本里那一条失效
-            edited = self._admitted_drama_script_plan()
-            edited["scenes"][0]["source_text"] = "三年后，阿离立于屋檐下，轻声道：你终于回来了。"
-            self._write_registered_script_plan(pm, edited)
-            assert client.get(base).json()["script_entry_currency"]["stale"] == ["E1S01"]
-            assert client.get(f"{base}/conversion-preview").json()["stale"] == ["E1S01"]
-
-            write_quarantine(
-                pm.get_project_path("demo"),
-                1,
-                QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-                content={"title": "第一集", "scenes": []},
-                violations=[],
-            )
-
-            refused = client.get(f"{base}/conversion-preview")
-            assert refused.status_code == 422, refused.text
-            state = client.get(base)
-            assert state.status_code == 200, state.text
-            assert state.json()["status"] == "pending_review"
-            assert state.json()["script_entry_currency"]["stale"] == ["E1S01"]
-
-    def test_adopting_a_current_entry_is_rejected(self, tmp_path, monkeypatch):
-        client, pm = self._client_with_conversion(monkeypatch, tmp_path)
-        with client:
-            base = "/api/v1/projects/demo/episodes/1/script-review"
-            self._write_registered_script_plan(pm, self._admitted_drama_script_plan())
-            assert client.post(f"{base}/confirm").status_code == 200
-            assert client.post(f"{base}/convert").status_code == 200
-
-            rejected = client.post(f"{base}/convert", json={"entry_ids": ["E1S01"]})
-            assert rejected.status_code == 422
-            assert "E1S01" in rejected.json()["diagnostic"]
