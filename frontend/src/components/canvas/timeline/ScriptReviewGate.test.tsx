@@ -100,8 +100,72 @@ describe("ScriptReviewGate", () => {
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
     await waitFor(() =>
-      expect(screen.getByText("视觉生成已放行。再次编辑将重新等待确认。")).toBeInTheDocument(),
+      expect(screen.getByText("内容已确认，此处只读。请在时间线上修改；要整集重做，请重跑脚本规划后再确认。")).toBeInTheDocument(),
     );
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("renders confirmed drama content without edit controls and offers the timeline", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({ status: "confirmed", confirmed_at: "2026-06-26T00:00:00Z" }),
+    );
+    const openTimeline = vi.fn();
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" onOpenTimeline={openTimeline} />);
+
+    expect(await screen.findByText("你终于回来了。")).toBeInTheDocument();
+    expect(screen.getByText("三年后，阿离立于屋檐下：你终于回来了。")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除发声" })).not.toBeInTheDocument();
+    expect(screen.getByText("内容已确认，此处只读。请在时间线上修改；要整集重做，请重跑脚本规划后再确认。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "去时间线修改" }));
+    expect(openTimeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders confirmed narration text read-only", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      narrationState({ status: "confirmed", confirmed_at: "2026-06-26T00:00:00Z" }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+    expect(await screen.findByText("裴与出征后的第二年。")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "去时间线修改" })).not.toBeInTheDocument();
+  });
+
+  it("turns read-only when a save is refused because the episode was confirmed meanwhile", async () => {
+    vi.spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState())
+      .mockResolvedValue(dramaState({ status: "confirmed", confirmed_at: "2026-06-26T00:00:00Z" }));
+    vi.spyOn(API, "saveScriptReviewContent").mockRejectedValue(
+      new ApiRequestError("脚本规划已确认，不能再修改", { code: "script_plan_confirmed" }, 409),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.change(await screen.findByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
+    fireEvent.click(await screen.findByText("修复后保存"));
+
+    await waitFor(() => expect(screen.queryByRole("textbox")).not.toBeInTheDocument());
+    expect(screen.getByText("你终于回来了。")).toBeInTheDocument();
+    expect(screen.queryByText("修复后保存")).not.toBeInTheDocument();
+  });
+
+  it("becomes editable again once a re-run script plan is pending review", async () => {
+    vi.spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState({ status: "confirmed", confirmed_at: "2026-06-26T00:00:00Z" }))
+      .mockResolvedValueOnce(dramaState({ fingerprint: "fp2" }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    await screen.findByText("你终于回来了。");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
+    });
+
+    expect(await screen.findByDisplayValue("你终于回来了。")).toBeInTheDocument();
   });
 
   it("keeps the ordinary confirm button when the episode has no formal script", async () => {

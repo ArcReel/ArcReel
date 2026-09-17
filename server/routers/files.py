@@ -875,7 +875,9 @@ async def update_draft_content(
             except ScriptReviewError as exc:
                 raise_review_error(exc, episode, _t)
         else:
-            is_new = await asyncio.to_thread(_write_plain_draft, project_dir, episode, draft_path, content, _t)
+            is_new = await asyncio.to_thread(
+                _write_plain_draft, project_name, project_dir, episode, draft_path, content, _t
+            )
 
         # 发射 draft 事件通知前端
         action = "created" if is_new else "updated"
@@ -904,6 +906,7 @@ async def update_draft_content(
 
 
 def _write_plain_draft(
+    project_name: str,
     project_dir: Path,
     episode: int,
     draft_path: Path,
@@ -918,6 +921,8 @@ def _write_plain_draft(
     失败）。按目标文件名而非 content_mode 触发：_stage_files 对未知模式回落到 drama 的
     结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration
     的 script_plan 落自己的文件名，不匹配此校验。
+
+    已确认的脚本规划只读，与 ``ScriptReviewService.save_content`` 同一判据与错误码。
     """
     draft_path.parent.mkdir(parents=True, exist_ok=True)
     if draft_path.name == SCRIPT_PLAN_FILENAMES["drama"]:
@@ -941,6 +946,9 @@ def _write_plain_draft(
     # 草稿文件的迁移读改写与 Web 端保存相互串行化。
     pm = get_project_manager()
     with pm.file_lock(draft_path):
+        project = pm.load_project_readonly(project_name)
+        if script_review.formal_script_plan_confirmed(project_dir, project, episode):
+            raise_review_error(ScriptReviewError("script_plan_confirmed"), episode, _t)
         is_new = not draft_path.exists()
         with script_review.formal_script_plan_write_transaction(project_dir, episode, draft_path):
             atomic_write_bytes(draft_path, content.encode("utf-8"))

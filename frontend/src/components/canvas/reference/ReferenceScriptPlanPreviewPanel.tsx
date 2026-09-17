@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
 import type {
   ReferenceScriptPlanDraft,
   ReferenceScriptPlanFlatUnit,
@@ -27,6 +27,8 @@ interface ReferenceScriptPlanPreviewPanelProps {
   episode: number;
   /** Asset name → kind, for mention coloring — same lookup the editor/parse preview share. */
   lookup: MentionLookup;
+  /** 切到本集视频单元时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
+  onOpenTimeline?: () => void;
 }
 
 /** 原文锚失配类违约：呈现为「原文」小节的红标，不进逐行锚定或聚合区。 */
@@ -342,9 +344,15 @@ function selectUnitsContent(state: ScriptReviewState): ReferenceScriptPlanDraft 
  * 草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 prompt_authoring。
  *
  * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（无待处置
- * 草稿）内容上开放；草稿的修复走 Agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
+ * 草稿）内容上开放；草稿的修复走 Agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。确认之后
+ * 脚本规划只读，同样不开放编辑，指引到时间线修改。
  */
-export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }: ReferenceScriptPlanPreviewPanelProps) {
+export function ReferenceScriptPlanPreviewPanel({
+  projectName,
+  episode,
+  lookup,
+  onOpenTimeline,
+}: ReferenceScriptPlanPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
 
@@ -462,7 +470,9 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
   }
 
   const quarantined = quarantine != null;
-  const confirmed = status === "confirmed" && !dirty && !quarantined;
+  // 已确认的脚本规划只读：保存端点按同一判据拒绝，内容修改改在时间线上做。
+  const confirmed = status === "confirmed" && !quarantined;
+  const readOnly = quarantined || confirmed;
   // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
   const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
   const displayUnits: DisplayUnit[] = quarantined
@@ -559,7 +569,13 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
               {t("reference_script_plan_request_fix")}
             </button>
           )}
-          {!quarantined && dirty && (
+          {confirmed && onOpenTimeline && (
+            <button type="button" onClick={onOpenTimeline} className={GHOST_BTN_CLS}>
+              <ArrowRight className="h-3.5 w-3.5" />
+              {t("dashboard:review_open_timeline")}
+            </button>
+          )}
+          {!readOnly && dirty && (
             <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
               <Save className="h-3.5 w-3.5" />
               {saving ? t("common:saving") : t("common:save")}
@@ -638,12 +654,12 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
             projectHasScene={projectHasScene}
             quarantined={quarantined}
             onScrollRef={setCardRef}
-            editing={!quarantined && editingUnitKey === unit.key}
+            editing={!readOnly && editingUnitKey === unit.key}
             onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
-            onTextChange={quarantined ? null : (text) => updateUnitText(i, text)}
+            onTextChange={readOnly ? null : (text) => updateUnitText(i, text)}
             supportedDurations={unitDurationTiers(unit, lookup, state?.duration_tiers ?? null) ?? (state?.supported_durations ?? null)}
             outOfTier={outOfTierUnitKeys.has(unit.key)}
-            onDurationChange={quarantined ? null : (seconds) => updateDuration(i, seconds)}
+            onDurationChange={readOnly ? null : (seconds) => updateDuration(i, seconds)}
             busy={busy}
           />
         ))}

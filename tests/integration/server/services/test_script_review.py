@@ -477,21 +477,59 @@ class TestDramaGateFlow:
         clear_quarantine(project_path, 1, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
-    async def test_editing_script_plan_after_confirm_repends(self, tmp_path):
+    async def test_saving_confirmed_script_plan_is_rejected_without_writing(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = _service(pm)
+        path = _write_script_plan(pm, "drama", _admitted_drama_script_plan())
+        await svc.confirm("demo", 1)
+        before = path.read_bytes()
+
+        edited = _admitted_drama_script_plan()
+        edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, edited)
+
+        assert exc.value.code == "script_plan_confirmed"
+        assert path.read_bytes() == before
+        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
+
+    async def test_confirmed_script_plan_stays_read_only_while_a_rerun_draft_is_pending(self, tmp_path):
+        """重跑脚本规划留下待修复草稿时，正式脚本规划仍是已确认的那一份，照样不能保存。"""
+        pm = _make_project(tmp_path, "drama")
+        svc = _service(pm)
+        path = _write_script_plan(pm, "drama", _admitted_drama_script_plan())
+        await svc.confirm("demo", 1)
+        write_quarantine(
+            pm.get_project_path("demo"),
+            1,
+            QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+            content=_admitted_drama_script_plan(),
+            violations=[DraftViolation("台词不在原文里")],
+        )
+        before = path.read_bytes()
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, _admitted_drama_script_plan())
+
+        assert exc.value.code == "script_plan_confirmed"
+        assert path.read_bytes() == before
+
+    async def test_rerun_script_plan_after_confirm_repends_and_reopens_editing(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         await svc.confirm("demo", 1)
-        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
-        # 内容变更（指纹漂移）→ 自动重新等待确认
+        rerun = _admitted_drama_script_plan()
+        rerun["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
+        _write_script_plan(pm, "drama", rerun)
+        assert (await svc.get_state("demo", 1))["status"] == "pending_review"
+
         edited = _admitted_drama_script_plan()
-        edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
-        await svc.save_content("demo", 1, edited)
-
-        state = await svc.get_state("demo", 1)
+        edited["scenes"][0]["scene_description"] = "雨停了"
+        state = await svc.save_content("demo", 1, edited)
         assert state["status"] == "pending_review"
-        assert state["content"]["scenes"][0]["scene_description"] == "雨势渐急，阿离仍站在屋檐下"
+        assert state["content"]["scenes"][0]["scene_description"] == "雨停了"
 
     async def test_legacy_mixed_scene_allows_metadata_edit_but_rejects_speech_edit_atomically(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
@@ -762,14 +800,23 @@ class TestNarrationGateFlow:
 
         assert (await svc.confirm("demo", 1))["status"] == "confirmed"
 
-    async def test_edit_novel_text_repends(self, tmp_path):
+    async def test_saving_confirmed_novel_text_is_rejected_until_rerun(self, tmp_path):
         pm = _make_project(tmp_path, "narration")
         svc = _service(pm)
-        _write_script_plan(pm, "narration", _narration_script_plan())
+        path = _write_script_plan(pm, "narration", _narration_script_plan())
         await svc.confirm("demo", 1)
+        before = path.read_bytes()
 
         edited = _narration_script_plan()
         edited["segments"][0]["novel_text"] = "裴与出征后的第三年。"
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, edited)
+        assert exc.value.code == "script_plan_confirmed"
+        assert path.read_bytes() == before
+
+        rerun = _narration_script_plan()
+        rerun["segments"][0]["duration_seconds"] = 8
+        _write_script_plan(pm, "narration", rerun)
         await svc.save_content("demo", 1, edited)
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
@@ -830,14 +877,33 @@ class TestReferenceVideoGateFlow:
         assert confirmed["confirmed_at"]
         assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
 
-    async def test_editing_unit_text_reopens_review(self, tmp_path):
-        """编辑单元正文 → 重新等待确认；正文是落盘的唯一内容，参考图不随之落一份副本。"""
+    async def test_saving_confirmed_units_is_rejected_without_writing(self, tmp_path):
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = _service(pm)
+        path = _write_rv_script_plan(pm, _rv_script_plan())
+        await svc.confirm("demo", 1)
+        before = path.read_bytes()
+
+        edited = _rv_script_plan()
+        edited["units"][0]["text"] = "@[阿离] 收伞。"
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, edited)
+
+        assert exc.value.code == "script_plan_confirmed"
+        assert path.read_bytes() == before
+        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
+
+    async def test_editing_unit_text_after_rerun_keeps_review_pending(self, tmp_path):
+        """重跑后编辑单元正文仍待确认；正文是落盘的唯一内容，参考图不随之落一份副本。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
         svc = _service(pm)
         _write_rv_script_plan(pm, _rv_script_plan())
         await svc.confirm("demo", 1)
-        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
+        rerun = _rv_script_plan()
+        rerun["units"][0]["text"] = "@[阿离] 立于屋檐下。"
+        _write_rv_script_plan(pm, rerun)
+        assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
         edited = _rv_script_plan()
         edited["units"][0]["text"] = "@[阿离] 立于屋檐下。\n镜头扫过 @[屋檐]。"
@@ -1167,12 +1233,12 @@ class TestReferenceVideoScriptPlanMigration:
         svc = _service(pm)
         _write_rv_script_plan(pm, self._legacy_script_plan())
 
-        confirmed = await svc.confirm("demo", 1)
-        assert confirmed["status"] == "confirmed"
-
-        edited = confirmed["content"]
+        edited = (await svc.get_state("demo", 1))["content"]
         edited["units"][0]["text"] = "@[阿离] 收伞。"
         assert (await svc.save_content("demo", 1, edited))["status"] == "pending_review"
+
+        confirmed = await svc.confirm("demo", 1)
+        assert confirmed["status"] == "confirmed"
 
     async def test_confirm_survives_migration_without_reopening_review(self, tmp_path):
         """迁移是机械收编、不是内容编辑：已确认的分集不因加载而重新等待确认。"""
@@ -1802,14 +1868,14 @@ class TestLegacyEnumeration:
         assert (await _service(pm).get_state("demo", 1))["status"] == "confirmed"
 
     async def test_script_plan_prompt_authoring_review_mismatch_pending(self, tmp_path):
-        """已确认后 script_plan 又被改（即便 prompt_authoring 在）→ 重新等待确认，指纹优先于 grandfather。"""
+        """已确认后 script_plan 又被重跑（即便 prompt_authoring 在）→ 重新等待确认，指纹优先于 grandfather。"""
         pm = _make_project(tmp_path, "drama")
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         _write_prompt_authoring(pm)
         await _confirm_over_existing_script(pm)
-        edited = _admitted_drama_script_plan()
-        edited["scenes"][0]["source_text"] = "改写后的原文锚"
-        await _service(pm).save_content("demo", 1, edited)
+        rerun = _admitted_drama_script_plan()
+        rerun["scenes"][0]["source_text"] = "改写后的原文锚"
+        _write_script_plan(pm, "drama", rerun)
         assert (await _service(pm).get_state("demo", 1))["status"] == "pending_review"
 
 

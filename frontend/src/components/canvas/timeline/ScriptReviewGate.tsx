@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, Clock, FileOutput, Lock, RotateCcw, Save, Wrench } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, FileOutput, Lock, RotateCcw, Save, Wrench } from "lucide-react";
 import type {
   DramaNormalizedScript,
   DramaSceneContent,
@@ -33,6 +33,8 @@ interface ScriptReviewGateProps {
   projectName: string;
   episode: number;
   contentMode: "narration" | "drama";
+  /** 切到本集时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
+  onOpenTimeline?: () => void;
 }
 
 const SECTION_LABEL_STYLE: React.CSSProperties = {
@@ -89,13 +91,37 @@ function SceneHeader({
   );
 }
 
+/** 只读正文：保留换行，空值不渲染。 */
+function ReadOnlyText({ text, className = "" }: { text: string; className?: string }) {
+  if (!text) return null;
+  return <p className={`whitespace-pre-wrap text-[12.5px] leading-relaxed ${className}`}>{text}</p>;
+}
+
+function ReadOnlyUtterances({ utterances }: { utterances: Utterance[] }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {utterances.map((u, i) => (
+        <li key={String(i)} className="flex items-start gap-2 text-[12.5px] leading-relaxed">
+          <span className="mt-0.5 shrink-0 rounded border border-hairline bg-bg-grad-a/55 px-1.5 py-px text-[10.5px] text-text-3">
+            {u.kind === "dialogue" ? u.speaker : t("utterance_kind_voiceover")}
+          </span>
+          <span className={u.kind === "voiceover" ? "italic text-text-2" : "text-text"}>{u.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function DramaSceneCard({
   scene,
   disabled,
+  readOnly,
   onChange,
 }: {
   scene: DramaSceneContent;
   disabled: boolean;
+  readOnly: boolean;
   onChange: (patch: Partial<DramaSceneContent>) => void;
 }) {
   const { t } = useTranslation("dashboard");
@@ -109,23 +135,31 @@ function DramaSceneCard({
       <label className="mb-1 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
         {t("review_utterances_label")}
       </label>
-      <UtteranceListEditor
-        utterances={scene.utterances}
-        disabled={disabled}
-        onChange={(utterances: Utterance[]) => onChange({ utterances })}
-      />
+      {readOnly ? (
+        <ReadOnlyUtterances utterances={scene.utterances} />
+      ) : (
+        <UtteranceListEditor
+          utterances={scene.utterances}
+          disabled={disabled}
+          onChange={(utterances: Utterance[]) => onChange({ utterances })}
+        />
+      )}
 
       <label className="mb-1 mt-3 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
         {t("review_source_text_label")}
       </label>
-      <AutoTextarea
-        value={scene.source_text}
-        disabled={disabled}
-        onChange={(source_text) => onChange({ source_text })}
-        placeholder={t("review_source_text_placeholder")}
-        aria-label={t("review_source_text_label")}
-        className="text-text-3"
-      />
+      {readOnly ? (
+        <ReadOnlyText text={scene.source_text} className="text-text-3" />
+      ) : (
+        <AutoTextarea
+          value={scene.source_text}
+          disabled={disabled}
+          onChange={(source_text) => onChange({ source_text })}
+          placeholder={t("review_source_text_placeholder")}
+          aria-label={t("review_source_text_label")}
+          className="text-text-3"
+        />
+      )}
     </article>
   );
 }
@@ -133,10 +167,12 @@ function DramaSceneCard({
 function NarrationSegmentCard({
   segment,
   disabled,
+  readOnly,
   onChange,
 }: {
   segment: NarrationScriptPlanSegment;
   disabled: boolean;
+  readOnly: boolean;
   onChange: (patch: Partial<NarrationScriptPlanSegment>) => void;
 }) {
   const { t } = useTranslation("dashboard");
@@ -154,13 +190,17 @@ function NarrationSegmentCard({
       <label className="mb-1 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
         {t("review_novel_text_label")}
       </label>
-      <AutoTextarea
-        value={segment.novel_text}
-        onChange={(novel_text) => onChange({ novel_text })}
-        placeholder={t("review_novel_text_placeholder")}
-        aria-label={t("review_novel_text_label")}
-        disabled={disabled}
-      />
+      {readOnly ? (
+        <ReadOnlyText text={segment.novel_text} className="text-text" />
+      ) : (
+        <AutoTextarea
+          value={segment.novel_text}
+          onChange={(novel_text) => onChange({ novel_text })}
+          placeholder={t("review_novel_text_placeholder")}
+          aria-label={t("review_novel_text_label")}
+          disabled={disabled}
+        />
+      )}
     </article>
   );
 }
@@ -227,9 +267,9 @@ function QuarantinePanel(props: { quarantine: ScriptReviewQuarantine; onRequestF
  * （novel_text）共用本面板；reference_video 变体的专属面板见 `ReferenceScriptPlanPreviewPanel`。
  *
  * 待修复草稿在场时整面板转只读（见 `QuarantinePanel`）：正式内容此刻仍是上一版，编辑与确认
- * 都无意义——确认端点本就按同一判据拒绝。
+ * 都无意义——确认端点本就按同一判据拒绝。确认之后脚本规划只读，卡片不渲染编辑控件，指引到时间线修改。
  */
-export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptReviewGateProps) {
+export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTimeline }: ScriptReviewGateProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
   const [convertOpen, setConvertOpen] = useState(false);
@@ -325,7 +365,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   // 待修复草稿在场：正式内容此刻仍是上一版，可编辑态会让用户改一份不会被消费的内容，且确认
   // 端点本就按同一判据拒绝。故整面板转只读，编辑与确认一并锁住。
   const quarantined = quarantine != null;
-  const confirmed = status === "confirmed" && !dirty && !quarantined;
+  // 已确认的脚本规划只读：保存端点按同一判据拒绝，内容修改改在时间线上做。
+  const confirmed = status === "confirmed" && !quarantined;
   // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
   const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
 
@@ -365,7 +406,13 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
         </div>
 
         <div className="flex items-center gap-2">
-          {dirty && !quarantined && (
+          {confirmed && onOpenTimeline && (
+            <button type="button" onClick={onOpenTimeline} className={GHOST_BTN_CLS}>
+              <ArrowRight className="h-3.5 w-3.5" />
+              {t("dashboard:review_open_timeline")}
+            </button>
+          )}
+          {dirty && !quarantined && !confirmed && (
             <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
               <Save className="h-3.5 w-3.5" />
               {saving ? t("common:saving") : t("dashboard:review_save_action")}
@@ -448,6 +495,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
                   key={scene.scene_id || i}
                   scene={scene}
                   disabled={busy}
+                  readOnly={confirmed}
                   onChange={(patch) => updateDramaScene(i, patch)}
                 />
               ))
@@ -458,6 +506,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
                   key={segment.segment_id || i}
                   segment={segment}
                   disabled={busy}
+                  readOnly={confirmed}
                   onChange={(patch) => updateNarrationSegment(i, patch)}
                 />
               ))

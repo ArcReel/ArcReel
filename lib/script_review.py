@@ -556,14 +556,31 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     live = content_fingerprint(path)
     if live is None:
         return "no_script_plan"
+    return "confirmed" if _formal_script_plan_confirmed(project_path, project, episode, live) else "pending_review"
+
+
+def _formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], episode: int, live: str) -> bool:
     stored_fingerprint = stored_review(project, episode).get("fingerprint")
     if stored_fingerprint is not None:
-        return "confirmed" if stored_fingerprint == live else "pending_review"
+        return stored_fingerprint == live
     # 无确认指纹（存量 / 首次）：用 prompt_authoring 产物是否已存在做 grandfather 判据。
     # 过渡态局限：存量集没有指纹基线，无法区分「script_plan 未动」与「script_plan 已重拆但未确认」——
     # 只要旧 prompt_authoring 文件仍在，重拆后的 script_plan 也会被放行、不重新阻塞。这是「不无谓阻塞存量重跑」的
     # 取舍代价，且自愈：用户或 Agent 首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
-    return "confirmed" if prompt_authoring_generated(project_path, project, episode) else "pending_review"
+    return prompt_authoring_generated(project_path, project, episode)
+
+
+def formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], episode: int) -> bool:
+    """正式脚本规划是否就是已确认的那一份；是则只读，内容修改改在正式脚本上做。
+
+    与 ``review_status`` 同一判据，但不看待修复草稿：重跑脚本规划留下的草稿在场时，正式脚本规划
+    仍是已确认的那一份，照样只读；重跑写出新内容后指纹不再一致，即恢复可编辑。
+    """
+    path = script_plan_path(project_path, project, episode)
+    if path is None:
+        return False
+    live = content_fingerprint(path)
+    return live is not None and _formal_script_plan_confirmed(project_path, project, episode, live)
 
 
 def gate_blocks_prompt_authoring(project_path: Path, project: dict[str, Any], episode: int) -> bool:

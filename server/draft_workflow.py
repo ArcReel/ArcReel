@@ -275,6 +275,19 @@ def _commit_reference_script_plan(
     clear_quarantine(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
 
 
+#: 草稿 meta 标记：这份脚本规划草稿是从正式脚本规划取回的编辑副本，不是重跑脚本规划留下的待修复产出。
+#: 已确认的脚本规划只读，编辑副本的修改与晋升按它拒绝；重跑的产出不带它，修复与晋升照常放行。
+_FORMAL_EDIT_META_KEY = "formal_edit"
+
+
+def _script_plan_confirmed_detail(episode: int) -> str:
+    return (
+        f"❌ 第 {episode} 集的脚本规划已确认，确认后只读，不能再改。"
+        "内容修改请在正式脚本上进行（patch_episode_script，或请用户在时间线上修改）；"
+        "要整集重做，请重跑 generate_script_plan，新的脚本规划会让该集回到待确认。"
+    )
+
+
 def _open_script_plan_draft(
     project_path: Path,
     episode: int,
@@ -300,6 +313,7 @@ def _open_script_plan_draft(
             meta={
                 "source": source or None,
                 "base_fingerprint": script_review.content_fingerprint_of_data(data),
+                _FORMAL_EDIT_META_KEY: True,
             },
         )
 
@@ -1076,6 +1090,19 @@ class DraftWorkflow:
             )
         return kind
 
+    def _reject_confirmed_script_plan_edit(self, episode: int, kind: str, draft: QuarantinedDraft | None) -> None:
+        """已确认的脚本规划只读：拒绝为它取回编辑副本，以及修改、晋升已有的编辑副本。
+
+        ``draft`` 为 None 表示正要取回新的编辑副本；重跑脚本规划留下的草稿不带编辑标记，不受限制。
+        """
+        if kind == QUARANTINE_KIND_PROMPT_AUTHORING:
+            return
+        if draft is not None and draft.meta.get(_FORMAL_EDIT_META_KEY) is not True:
+            return
+        project = self.ctx.pm.load_project_readonly(self.ctx.project_name)
+        if script_review.formal_script_plan_confirmed(self.ctx.project_path, project, episode):
+            raise DraftWorkflowError("script_plan_confirmed", _script_plan_confirmed_detail(episode))
+
     def _read_if_present(
         self,
         episode: int,
@@ -1157,6 +1184,7 @@ class DraftWorkflow:
                 existing = await asyncio.to_thread(self._read_if_present, episode, resolved)
                 if existing is not None:
                     return existing
+                await asyncio.to_thread(self._reject_confirmed_script_plan_edit, episode, resolved, None)
                 if resolved == QUARANTINE_KIND_PROMPT_AUTHORING:
                     await run_sync_transaction(
                         self._open_reference_prompt_authoring,
@@ -1193,6 +1221,7 @@ class DraftWorkflow:
                 "revision_conflict",
                 f"draft revision changed: expected {base_revision}, actual {actual_revision}",
             )
+        self._reject_confirmed_script_plan_edit(episode, resolved, draft)
         meta = draft.meta
         if updates_source:
             if resolved == QUARANTINE_KIND_PROMPT_AUTHORING:
@@ -1282,6 +1311,7 @@ class DraftWorkflow:
                     "revision_conflict",
                     f"draft revision changed: expected {base_revision}, actual {actual_revision}",
                 )
+            await asyncio.to_thread(self._reject_confirmed_script_plan_edit, episode, resolved, draft)
             try:
                 if resolved in _SINGLE_SCRIPT_PLAN_PROMOTERS:
                     message = await _SINGLE_SCRIPT_PLAN_PROMOTERS[resolved](self.ctx, episode, draft)

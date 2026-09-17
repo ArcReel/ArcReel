@@ -483,6 +483,7 @@ class ScriptReviewService:
         """校验并落盘编辑后的结构化中间态（手动或 Agent 编辑后回写），返回最新状态（重新等待确认）。
 
         内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
+        已确认的脚本规划只读，保存抛 ``script_plan_confirmed``、不落盘；重跑脚本规划写出新内容后恢复可保存。
 
         ``base_fingerprint`` 是编辑方读取内容（``get_state``）时拿到的指纹：给定时在锁内与盘上
         现值比对，不一致（编辑期间另一写入方已改过 script_plan）抛 ``conflict``、不落盘——后写方拿
@@ -525,6 +526,7 @@ class ScriptReviewService:
                     self.pm.file_lock(prompt_authoring_path),
                     script_review.script_plan_write_lock(project_path, episode),
                 ):
+                    self._reject_confirmed_script_plan(project_name, project_path, episode)
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
                     script_review.write_script_plan_locked(
                         project_path, episode, validated, expected_fingerprint=expected
@@ -535,11 +537,18 @@ class ScriptReviewService:
                 # 台词准入判定，让基线过期的保存拿到 conflict 而不是一条它改不动的准入意见。
                 # 比对既已在此做过，落盘出口不再重复比对（默认 UNCHECKED）。
                 with script_review.formal_script_plan_lock(project_path, episode, path):
+                    self._reject_confirmed_script_plan(project_name, project_path, episode)
                     script_review.assert_base_fingerprint(path, expected)
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
                     script_review.write_formal_script_plan_locked(project_path, episode, path, validated)
         except script_review.ScriptPlanWriteConflict as exc:
             raise ScriptReviewError("conflict", str(exc)) from exc
+
+    def _reject_confirmed_script_plan(self, project_name: str, project_path: Path, episode: int) -> None:
+        """已确认的脚本规划只读：持脚本规划锁时按最新确认记录判定，已确认即拒绝保存。"""
+        project = self.pm.load_project_readonly(project_name)
+        if script_review.formal_script_plan_confirmed(project_path, project, episode):
+            raise ScriptReviewError("script_plan_confirmed")
 
     async def confirm(
         self, project_name: str, episode: int, *, overwrite_revision: str | None = None

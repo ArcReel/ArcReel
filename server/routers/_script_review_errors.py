@@ -24,7 +24,7 @@ _ERROR_STATUS: dict[str, int] = {
     "speech_admission": 409,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 raise_review_error 单独处理。
-# 确认转换的错误码（overwrite_required / conversion_refused / conversion_conflict / video_model_unresolved）
+# 只读拒绝（script_plan_confirmed）与确认转换的错误码（overwrite_required / conversion_refused / conversion_conflict / video_model_unresolved）
 # 带诊断或专用状态，同样在 raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
@@ -42,6 +42,8 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
         raise UnprocessableError("script_review_conversion_refused").with_diagnostic(exc.message)
     if exc.code == "video_model_unresolved":
         raise UnprocessableError("script_review_video_model_unresolved")
+    if exc.code == "script_plan_confirmed":
+        raise ConflictError("script_review_script_plan_confirmed").with_diagnostic({"code": exc.code})
     if exc.code == "conversion_conflict":
         raise ConflictError("script_conversion_conflict")
     status = _ERROR_STATUS.get(exc.code, 400)

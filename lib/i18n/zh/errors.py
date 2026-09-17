@@ -171,6 +171,7 @@ MESSAGES = {
     "script_review_quarantined": "本集有待修复草稿，请让 Agent 修改并晋升后再确认",
     "script_review_conflict": "脚本规划草稿在编辑期间已被其他编辑方修改，本次保存未覆盖；请刷新查看最新内容，合并后再保存",
     "script_review_invalid_content": "内容确认草稿结构校验失败，请检查后重试",
+    "script_review_script_plan_confirmed": "脚本规划已确认，不能再修改；请在时间线上修改，要整集重做请重跑脚本规划",
     "script_review_overwrite_required": "本集已有正式脚本，确认会覆盖它：旧分镜全部移除，其分镜图与视频不再显示。请确认覆盖后重试",
     "script_review_conversion_refused": "脚本规划暂不能转为正式脚本，本次确认未完成；请检查分镜时长、台词与脚本规划状态后重试",
     "script_review_video_model_unresolved": "尚未配置可用的视频模型，无法确定分镜时长档位，本次确认未完成；请在「全局设置 → 供应商」配置视频供应商，或在项目设置中选择视频模型后重试",

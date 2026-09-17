@@ -367,6 +367,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
               projectName={projectName}
               episode={episode}
               contentMode={editorContentMode}
+              onOpenTimeline={hasScript ? () => setActiveTab("timeline") : undefined}
             />
           </div>
         ) : episodeScript && segments.length > 0 ? (

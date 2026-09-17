@@ -800,7 +800,9 @@ async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> 
     assert uploaded.structuredContent["source"]["path"] == "source/novel.txt"
 
 
-async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_server) -> None:
+async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_server, remote_projects) -> None:
+    # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
+    (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
     app = _mounted(remote_server)
     async with (
         remote_server.session_manager.run(),
@@ -1080,6 +1082,8 @@ async def test_remote_mcp_generation_rejects_non_positive_episode(remote_server,
 
 
 async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
+    # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
+    (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
     app = _mounted(remote_server)
     async with (
         remote_server.session_manager.run(),

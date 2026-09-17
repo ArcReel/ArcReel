@@ -20,6 +20,18 @@ function overwriteFromError(err: unknown): ScriptOverwrite | null {
   return overwrite != null && typeof overwrite === "object" ? (overwrite as ScriptOverwrite) : null;
 }
 
+/** 保存被拒是因为脚本规划已确认、只读。 */
+function isScriptPlanConfirmedError(err: unknown): boolean {
+  if (!(err instanceof ApiRequestError) || err.status !== 409) return false;
+  const diagnostic = err.diagnostic;
+  return diagnostic != null && typeof diagnostic === "object" && (diagnostic as { code?: unknown }).code === "script_plan_confirmed";
+}
+
+/** 已确认、无待修复草稿的脚本规划只读，本地未保存的编辑无处可存，外部刷新时直接采用服务端内容。 */
+function isReadOnly(state: ScriptReviewState): boolean {
+  return state.status === "confirmed" && state.quarantine == null;
+}
+
 /** 内容是否有未保存编辑：以序列化比对，draft 由 server content 克隆而来，键序稳定。 */
 function isDirty(draft: unknown, serverContent: unknown): boolean {
   if (draft == null) return false;
@@ -148,9 +160,9 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
         if (signal.aborted) return;
         setLoadError(null);
         setState(next);
-        // 外部刷新（挂载 / Agent 改 script_plan 触发的 revision）：用户无未保存编辑时采用服务端内容，
-        // 有编辑则仅更新服务端态、保留用户草稿。dirtyRef 读取在 effect 内安全（非 render 期）。
-        if (!dirtyRef.current) {
+        // 外部刷新（挂载 / Agent 改 script_plan 触发的 revision）：用户无未保存编辑、或内容已确认只读时采用
+        // 服务端内容，否则仅更新服务端态、保留用户草稿。dirtyRef 读取在 effect 内安全（非 render 期）。
+        if (!dirtyRef.current || isReadOnly(next)) {
           setDraft(clone(selectContent(next)));
           setBaseFingerprint(next.fingerprint);
         }
@@ -181,6 +193,8 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
+      // 编辑期间该集已被确认：重新拉取，面板随之转为只读。
+      if (isScriptPlanConfirmedError(err)) setReloadNonce((n) => n + 1);
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {
       setSaving(false);

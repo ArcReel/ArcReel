@@ -179,6 +179,7 @@ MESSAGES = {
         "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
     ),
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp xác nhận nội dung thất bại; vui lòng kiểm tra và thử lại",
+    "script_review_script_plan_confirmed": "Kế hoạch kịch bản đã được xác nhận và không thể chỉnh sửa nữa; hãy chỉnh sửa trên dòng thời gian, hoặc chạy lại kế hoạch kịch bản để làm lại cả tập",
     "script_review_overwrite_required": "Tập này đã có kịch bản chính thức. Xác nhận sẽ ghi đè: mọi phân cảnh cũ bị xóa, ảnh phân cảnh và video của chúng không còn hiển thị. Hãy đồng ý ghi đè rồi thử lại",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
     "script_review_video_model_unresolved": "Chưa cấu hình mô hình video khả dụng nên không xác định được các mức thời lượng phân cảnh, xác nhận chưa hoàn tất; hãy cấu hình nhà cung cấp video trong Cài đặt → Nhà cung cấp, hoặc chọn mô hình video trong cài đặt dự án rồi thử lại",

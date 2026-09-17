@@ -192,6 +192,28 @@ class TestScriptReviewRouter:
                 is False
             )
 
+    def test_saving_confirmed_script_plan_is_rejected_with_recognizable_code(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            _write_script_plan(pm, _admitted_drama_script_plan())
+            confirmed = client.post(f"{base}/confirm")
+            assert confirmed.status_code == 200, confirmed.text
+            plan_path = pm.get_project_path("demo") / "drafts" / "episode_1" / "script_plan_normalized_script.json"
+            before = plan_path.read_bytes()
+
+            edited = _admitted_drama_script_plan()
+            edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
+            refused = client.put(
+                f"{base}/content", params={"base_fingerprint": confirmed.json()["fingerprint"]}, json=edited
+            )
+
+            assert refused.status_code == 409
+            assert refused.json()["detail"] == i18n_message("script_review_script_plan_confirmed")
+            assert refused.json()["diagnostic"] == {"code": "script_plan_confirmed"}
+            assert plan_path.read_bytes() == before
+            assert client.get(base).json()["status"] == "confirmed"
+
     def test_confirm_over_existing_script_requires_acknowledgement(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -207,9 +229,10 @@ class TestScriptReviewRouter:
                 "video_count": 0,
             }
 
-            edited = _admitted_drama_script_plan()
-            edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
-            state = client.put(f"{base}/content", json=edited).json()
+            rerun = _admitted_drama_script_plan()
+            rerun["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
+            _write_script_plan(pm, rerun)
+            state = client.get(base).json()
             assert state["status"] == "pending_review"
             assert state["script_overwrite"] == expected_overwrite
 
@@ -900,9 +923,8 @@ class TestScriptPlanConversionRouter:
             # 只改原文锚：条目内容变了，剧本里那一条失效
             edited = self._admitted_drama_script_plan()
             edited["scenes"][0]["source_text"] = "三年后，阿离立于屋檐下，轻声道：你终于回来了。"
-            saved = client.put(f"{base}/content", params={"base_fingerprint": synced["fingerprint"]}, json=edited)
-            assert saved.status_code == 200, saved.text
-            assert saved.json()["script_entry_currency"]["stale"] == ["E1S01"]
+            self._write_registered_script_plan(pm, edited)
+            assert client.get(base).json()["script_entry_currency"]["stale"] == ["E1S01"]
             assert client.get(f"{base}/conversion-preview").json()["stale"] == ["E1S01"]
 
             write_quarantine(

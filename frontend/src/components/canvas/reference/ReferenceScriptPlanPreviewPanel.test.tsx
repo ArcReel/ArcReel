@@ -169,6 +169,24 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
   });
 
+  it("renders confirmed units without edit controls and offers the timeline", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ status: "confirmed", quarantine: null }));
+    const openTimeline = vi.fn();
+
+    render(
+      <ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} onOpenTimeline={openTimeline} />,
+    );
+
+    expect(await screen.findByText("E1U01")).toBeInTheDocument();
+    expect(screen.getByText("8 秒")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑文稿" })).not.toBeInTheDocument();
+    expect(screen.getByText("内容已确认，此处只读。请在时间线上修改；要整集重做，请重跑脚本规划后再确认。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "去时间线修改" }));
+    expect(openTimeline).toHaveBeenCalledTimes(1);
+  });
+
   it("confirms over an existing formal script only through the danger overwrite dialog", async () => {
     const overwrite = {
       revision: "sha256-v1:listed",

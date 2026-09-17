@@ -59,6 +59,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     rv_script_plan_path,
     rv_source,
     rv_unit,
+    use_fake_caps,
     write_drama_script_plan,
     write_nr_script_plan,
     write_rv_script_plan,
@@ -375,6 +376,115 @@ async def test_open_draft_returns_existing_drama_draft(fake_ctx: ToolContext) ->
 
     assert out.get("is_error") is not True
     assert read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "未晋升的修改。"
+
+
+def _mark_script_plan_confirmed(fake_ctx: ToolContext) -> None:
+    """该集已产出正式剧本、没有确认记录：按存量口径视为脚本规划已确认。"""
+    scripts = fake_ctx.project_path / "scripts"
+    scripts.mkdir(exist_ok=True)
+    (scripts / "episode_1.json").write_text(json.dumps({"title": "第一集", "scenes": []}), encoding="utf-8")
+
+
+def _problem(out: dict) -> dict:
+    assert out.get("is_error") is True, out
+    return json.loads(out["content"][0]["text"])["problem"]
+
+
+async def test_open_draft_refuses_to_copy_a_confirmed_script_plan(fake_ctx: ToolContext) -> None:
+    drama_project(fake_ctx)
+    write_drama_script_plan(fake_ctx, [drama_scene()])
+    _mark_script_plan_confirmed(fake_ctx)
+
+    problem = _problem(await open_drama_for_edit(fake_ctx, source="source/episode_1.txt"))
+
+    assert problem["code"] == "script_plan_confirmed"
+    assert "patch_episode_script" in problem["detail"]
+    assert "generate_script_plan" in problem["detail"]
+    assert not drama_quarantine_path(fake_ctx).exists()
+
+
+async def test_patch_and_promote_refuse_an_edit_copy_once_the_script_plan_is_confirmed(fake_ctx: ToolContext) -> None:
+    drama_project(fake_ctx)
+    write_drama_script_plan(fake_ctx, [drama_scene()])
+    opened = _draft_result(await open_drama_for_edit(fake_ctx, source="source/episode_1.txt"))
+    _mark_script_plan_confirmed(fake_ctx)
+    formal_before = drama_script_plan_path(fake_ctx).read_bytes()
+    draft_before = drama_quarantine_path(fake_ctx).read_bytes()
+    content = opened["content"]
+    content["scenes"][0]["scene_description"] = "阿离推开山门。"
+    args = {"episode": 1, "doc_type": "drama_script_plan"}
+
+    patched = await call(patch_draft_tool(fake_ctx), {**args, "content": content, "base_revision": opened["revision"]})
+    use_fake_caps(fake_ctx, supported_durations=(4, 6, 8), default_duration=4)
+    promoted = await call(promote_draft_tool(fake_ctx), {**args, "base_revision": opened["revision"]})
+
+    assert _problem(patched)["code"] == "script_plan_confirmed"
+    assert _problem(promoted)["code"] == "script_plan_confirmed"
+    assert drama_quarantine_path(fake_ctx).read_bytes() == draft_before
+    assert drama_script_plan_path(fake_ctx).read_bytes() == formal_before
+
+
+async def test_rerun_draft_on_a_confirmed_script_plan_can_still_be_repaired_and_promoted(
+    fake_ctx: ToolContext,
+) -> None:
+    """重跑脚本规划留下的待修复草稿不是已确认内容的编辑副本：修复并晋升后正式脚本规划换成新内容。"""
+    drama_project(fake_ctx)
+    write_drama_script_plan(fake_ctx, [drama_scene()])
+    _mark_script_plan_confirmed(fake_ctx)
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+        content={"title": "第一集", "scenes": [drama_scene(scene_description="旧产出。")]},
+        violations=[],
+        meta={
+            "source": "source/episode_1.txt",
+            "base_fingerprint": script_review.content_fingerprint(drama_script_plan_path(fake_ctx)),
+        },
+    )
+    args = {"episode": 1, "doc_type": "drama_script_plan"}
+    opened = _draft_result(await call(open_draft_tool(fake_ctx), args))
+    content = opened["content"]
+    content["scenes"][0]["scene_description"] = "阿离推开山门。"
+
+    patched = _draft_result(
+        await call(patch_draft_tool(fake_ctx), {**args, "content": content, "base_revision": opened["revision"]})
+    )
+    use_fake_caps(fake_ctx, supported_durations=(4, 6, 8), default_duration=4)
+    promoted = await call(promote_draft_tool(fake_ctx), {**args, "base_revision": patched["revision"]})
+
+    assert promoted.get("is_error") is not True, promoted
+    saved = json.loads(drama_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["scenes"][0]["scene_description"] == "阿离推开山门。"
+
+
+async def test_prompt_authoring_draft_is_not_affected_by_a_confirmed_script_plan(fake_ctx: ToolContext) -> None:
+    rv_source(fake_ctx)
+    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
+    _write_reference_prompt_authoring(
+        fake_ctx,
+        {
+            "title": "第一集",
+            "content_mode": "narration",
+            "episode": 1,
+            "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
+        },
+    )
+    project = fake_ctx.pm.load_project_readonly(fake_ctx.project_name)
+    assert script_review.formal_script_plan_confirmed(fake_ctx.project_path, project, 1)
+    args = {"episode": 1, "doc_type": "reference_prompt_authoring"}
+
+    opened = _draft_result(await call(open_draft_tool(fake_ctx), args))
+    patched = await call(
+        patch_draft_tool(fake_ctx),
+        {
+            **args,
+            "content": {"title": "第一集", "units": [{"text": "@[张三] 坐下"}]},
+            "base_revision": opened["revision"],
+        },
+    )
+
+    assert _draft_result(patched)["content"]["units"][0]["text"] == "@[张三] 坐下"
 
 
 async def test_open_draft_rejects_variant_without_draft_channel(fake_ctx: ToolContext) -> None:

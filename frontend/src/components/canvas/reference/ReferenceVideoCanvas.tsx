@@ -982,6 +982,7 @@ export function ReferenceVideoCanvas({
               projectName={projectName}
               episode={episode}
               lookup={mentionLookup}
+              onOpenTimeline={() => setTab("units")}
             />
           </div>
         </div>
