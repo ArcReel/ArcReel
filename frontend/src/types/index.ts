@@ -4,6 +4,7 @@ export * from "./task";
 export * from "./assistant";
 export * from "./workspace";
 export * from "./system";
+export * from "./prompt-template";
 export * from "./api-key";
 export * from "./provider";
 export * from "./usage-record";

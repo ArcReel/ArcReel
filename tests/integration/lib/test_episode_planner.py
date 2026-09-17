@@ -58,11 +58,24 @@ _THREE_EPISODE_DRAFT = [
 _TARGET_VOLUME_UNSET_LINE = "- 每集目标体量：未设置，请按短视频节奏自行把握（以剧情弧完整优先）"
 
 
-def _expected_planning_prompt(target_volume_line: str, *, content_mode: str = "narration") -> str:
+def _expected_planning_prompt(
+    target_volume_line: str, *, content_mode: str = "narration", source_kind: str = "novel"
+) -> str:
     """完整锁住目标体量三种来源之外的既有 planning prompt。"""
-    lines = [
-        "你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，",
-        "并在集尾留下让观众想看下一集的钩子。",
+    screenplay = source_kind == "screenplay"
+    if screenplay:
+        lines = [
+            "你是短视频分集规划师。下面是作者已写好的成品剧本片段，请尊重作者自带的分集、提取而非重切：",
+            "- 若剧本自带分集（任意形态——分集标记、结构表、标题体系、分隔等，不要依赖任何固定标记或正则识别），",
+            "  照用作者划定的每一集边界，title、hook 与分集大纲都取自剧本原文。",
+            "- 若剧本没有任何分集线索，再按完整剧情弧语义切分，每一集都是一个完整的故事段落，绝不按字数机械切碎。",
+        ]
+    else:
+        lines = [
+            "你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，",
+            "并在集尾留下让观众想看下一集的钩子。",
+        ]
+    lines += [
         "",
         "# 项目信息",
         f"- 创作类型：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
@@ -74,17 +87,23 @@ def _expected_planning_prompt(target_volume_line: str, *, content_mode: str = "n
         "  end_anchor（本集结尾处的原文片段，10~30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；",
         "  本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。",
     ]
+    if screenplay:
+        lines.append(
+            "- 优先照用作者的分集：剧本已划定每集边界时，end_anchor 取作者每集结尾处的原文片段，"
+            "title / hook 也取自剧本（作者写明的集标题、集尾钩子）；剧本未分集时才按剧情弧自行切，绝不按字数硬凑集数。"
+        )
     if content_mode == "drama":
         lines.append(
             "- 每一集另给出 story_beats（本集故事节点列表，按顺序）"
-            "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）。"
+            "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）"
+            + ("；剧本已写明本集节点 / 下集预告时照搬其原文，未写明再自行提炼。" if screenplay else "。")
         )
     lines += [
         "- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。",
         "- 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。",
         "- 只输出符合 schema 的 JSON，不要输出其他内容。",
         "",
-        "# 小说原文片段",
+        "# 剧本原文片段" if screenplay else "# 小说原文片段",
         "---",
         SOURCE,
         "---",
@@ -1303,6 +1322,24 @@ class TestPlan:
         await EpisodePlanner(project_dir, generator=fake).plan()
 
         assert fake.requests[0].prompt == _expected_planning_prompt(_TARGET_VOLUME_UNSET_LINE)
+
+    @pytest.mark.parametrize("source_kind", ["novel", "screenplay"])
+    @pytest.mark.parametrize("content_mode", ["narration", "drama"])
+    async def test_plan_prompt_locks_each_content_mode_and_source_kind(
+        self, tmp_path: Path, content_mode: str, source_kind: str
+    ):
+        """创作类型与源文类型的四种组合各自逐字锁住开篇句、切分规则与原文片段标题。"""
+        project_dir = _write_project(tmp_path, content_mode=content_mode, extra={"source_kind": source_kind})
+        draft = {"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}
+        if content_mode == "drama":
+            draft |= {"story_beats": ["李恒获得古玉"], "next_episode_teaser": None}
+        fake = _FakeTextGenerator([_plan_response([draft])])
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert fake.requests[0].prompt == _expected_planning_prompt(
+            _TARGET_VOLUME_UNSET_LINE, content_mode=content_mode, source_kind=source_kind
+        )
 
     async def test_plan_normal_batch_omits_ledger_stats(self, tmp_path: Path):
         """常规（非耗尽）批次不附全局核对材料，只报累计已规划集数。"""

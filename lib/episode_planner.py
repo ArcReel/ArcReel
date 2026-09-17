@@ -21,7 +21,7 @@ import json
 import logging
 import statistics
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +47,7 @@ from lib.episode_target_volume import EpisodeTargetVolume, resolve_episode_targe
 from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, resolve_source_kind
-from lib.prompt_builders_script import USER_INSTRUCTIONS_HEADER
+from lib.prompt_templates.builtin import builtin_templates
 from lib.providers import CallPurpose
 from lib.text_backends.base import (
     DEFAULT_MAX_OUTPUT_TOKENS,
@@ -362,36 +362,6 @@ def _missing_source_range_error(nums: list[int]) -> EpisodePlanningError:
     )
 
 
-# plan_episodes 开篇定位：novel 走「切分 / 创作」，screenplay 翻为「尊重作者分集 / 提取」。
-# screenplay 二分支——剧本自带分集（任意形态）照用作者边界，无分集才按剧情弧语义切，
-# 绝不按字数机械切；不依赖任何固定分集标记，靠模型语义识别作者写下的分集形态。
-_PLAN_INTRO_NOVEL: tuple[str, ...] = (
-    "你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，",
-    "并在集尾留下让观众想看下一集的钩子。",
-)
-_PLAN_INTRO_SCREENPLAY: tuple[str, ...] = (
-    "你是短视频分集规划师。下面是作者已写好的成品剧本片段，请尊重作者自带的分集、提取而非重切：",
-    "- 若剧本自带分集（任意形态——分集标记、结构表、标题体系、分隔等，不要依赖任何固定标记或正则识别），",
-    "  照用作者划定的每一集边界，title、hook 与分集大纲都取自剧本原文。",
-    "- 若剧本没有任何分集线索，再按完整剧情弧语义切分，每一集都是一个完整的故事段落，绝不按字数机械切碎。",
-)
-# screenplay 在「切分规则」段补一条把上述意图落到 end_anchor 层的具体指令。
-_PLAN_RULE_SCREENPLAY: str = (
-    "- 优先照用作者的分集：剧本已划定每集边界时，end_anchor 取作者每集结尾处的原文片段，"
-    "title / hook 也取自剧本（作者写明的集标题、集尾钩子）；剧本未分集时才按剧情弧自行切，绝不按字数硬凑集数。"
-)
-# drama 大纲条目说明：screenplay 优先照搬作者写下的故事节点 / 下集预告。
-_PLAN_DRAMA_OUTLINE_NOVEL: str = (
-    "- 每一集另给出 story_beats（本集故事节点列表，按顺序）"
-    "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）。"
-)
-_PLAN_DRAMA_OUTLINE_SCREENPLAY: str = (
-    "- 每一集另给出 story_beats（本集故事节点列表，按顺序）"
-    "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）；"
-    "剧本已写明本集节点 / 下集预告时照搬其原文，未写明再自行提炼。"
-)
-
-
 class EpisodePlanner:
     """分集规划器。``generator`` 为 None 时仅可构造，调用 plan() 会报错。"""
 
@@ -498,7 +468,7 @@ class EpisodePlanner:
         window_end = len(text) if remaining_chars <= window_chars * 1.2 else start + window_chars
         window = text[start:window_end]
         window_is_final = window_end >= len(text)
-        content_mode = str(project.get("content_mode") or "narration")
+        content_mode = "drama" if project.get("content_mode") == "drama" else "narration"
         draft_model: type[NarrationPlanDraft | DramaPlanDraft] = (
             DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
         )
@@ -1052,23 +1022,6 @@ def _context_entries(project: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [e for _, e in anchored[-_CONTEXT_EPISODES_LIMIT:]]
 
 
-def _target_volume_line(volume: EpisodeTargetVolume | None) -> str:
-    """规划 prompt 的「每集目标体量」行，按来源分三种措辞。
-
-    折算来源的措辞写明目标时长与换算语速：模型据此知道这个数是估出来的、可为剧情完整性
-    浮动，而不是用户逐字给定的体量。
-    """
-    if volume is None:
-        return "- 每集目标体量：未设置，请按短视频节奏自行把握（以剧情弧完整优先）"
-    if volume.source == "duration":
-        return (
-            f"- 每集目标体量：约 {volume.units} {volume.unit_noun}"
-            f"（按单集目标时长 {volume.seconds} 秒、口播语速约 {volume.units_per_second:g} "
-            f"{volume.unit_noun}/秒粗略折算，允许为剧情完整性上下浮动）"
-        )
-    return f"- 每集目标体量：约 {volume.units} {volume.unit_noun}（允许为剧情完整性上下浮动）"
-
-
 def _build_planning_prompt(
     *,
     project: Mapping[str, Any],
@@ -1083,74 +1036,38 @@ def _build_planning_prompt(
 ) -> str:
     """规划 prompt。仅面向文本模型，不做 i18n。
 
-    ``instructions`` 非空时注入一个中性的「附加指令」分节（遵循强度由附加指令正文自行表达，
-    模板不加强度限定词）；为空则不注入，prompt 与无附加指令时逐字一致。``progress`` 非 None 时
-    注入「全局进度」分节（调用方只在 instructions 非空时传入）。
+    ``instructions`` 为空时不注入附加指令分节，prompt 与无附加指令时逐字一致。``progress``
+    非 None 时注入「全局进度」分节（调用方只在 instructions 非空时传入）。
     """
-    overview = project.get("overview") or {}
+    overview = project.get("overview")
+    if not isinstance(overview, Mapping):
+        overview = {}
     language = _language_of(project)
-    unit_name = reading_unit_noun(language)
     target_volume = resolve_episode_target_volume(project, language=language)
-    is_screenplay = resolve_source_kind(project) == "screenplay"
-
-    lines: list[str] = [
-        *(_PLAN_INTRO_SCREENPLAY if is_screenplay else _PLAN_INTRO_NOVEL),
-        "",
-        "# 项目信息",
-        f"- 创作类型：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
-    ]
-    synopsis = overview.get("synopsis") if isinstance(overview, Mapping) else None
-    if synopsis:
-        lines.append(f"- 故事概述：{synopsis}")
-    genre = overview.get("genre") if isinstance(overview, Mapping) else None
-    if genre:
-        lines.append(f"- 题材：{genre}")
-    lines.append(_target_volume_line(target_volume))
-    if max_episodes is not None:
-        lines.append(f"- 本批最多规划 {max_episodes} 集")
-
-    if context_entries:
-        lines += ["", "# 已规划的前情（已定上下文，不可改动，续着它往下规划）"]
-        for entry in context_entries:
-            title = entry.get("title") or "（无标题）"
-            hook = entry.get("hook") or ""
-            lines.append(f"- 第 {entry.get('episode')} 集《{title}》 钩子：{hook}")
-
-    if instructions:
-        lines += ["", USER_INSTRUCTIONS_HEADER, instructions]
-    if progress is not None:
-        lines += [
-            "",
-            "# 全局进度",
-            f"- 已规划 {progress.planned_count} 集",
-            f"- 未规划余量约 {progress.remaining_units} {unit_name}（含本窗口，含后续源文件）",
-            f"- 本窗口为其中前 {progress.window_units} {unit_name}",
-            "- 若附加指令含总集数、按章节对齐等全局约束，请结合以上进度与余量换算本批的切分节奏与集数。",
-        ]
-
-    lines += [
-        "",
-        "# 切分规则",
-        "- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：这一刀为什么切在这、给观众留了什么悬念）、",
-        "  end_anchor（本集结尾处的原文片段，10~30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；",
-        "  本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。",
-    ]
-    if is_screenplay:
-        lines.append(_PLAN_RULE_SCREENPLAY)
-    if content_mode == "drama":
-        lines.append(_PLAN_DRAMA_OUTLINE_SCREENPLAY if is_screenplay else _PLAN_DRAMA_OUTLINE_NOVEL)
-    lines += [
-        "- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。",
-    ]
-    if window_is_final:
-        lines.append("- 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。")
-    else:
-        lines.append("- 这段原文只是全文的一个窗口：窗口尾部剧情弧不完整的内容不要硬凑成集，留给下一批规划即可。")
-    lines.append("- 只输出符合 schema 的 JSON，不要输出其他内容。")
-
-    if failure:
-        lines += ["", "# 上一轮输出未通过校验，请针对性修正后重新输出"]
-        lines += [f"- {reason}" for reason in failure]
-
-    lines += ["", "# 剧本原文片段" if is_screenplay else "# 小说原文片段", "---", window, "---"]
-    return "\n".join(lines)
+    return builtin_templates.render(
+        "text/episode_plan",
+        content_mode=content_mode,
+        source_kind=resolve_source_kind(project),
+        synopsis=overview.get("synopsis") or None,
+        genre=overview.get("genre") or None,
+        unit_noun=reading_unit_noun(language),
+        target_volume=None
+        if target_volume is None
+        else {
+            "units": target_volume.units,
+            "seconds": target_volume.seconds,
+            "units_per_second": None
+            if target_volume.units_per_second is None
+            else f"{target_volume.units_per_second:g}",
+        },
+        max_episodes=max_episodes,
+        context_entries=[
+            {"episode": entry.get("episode"), "title": entry.get("title") or None, "hook": entry.get("hook") or ""}
+            for entry in context_entries
+        ],
+        instructions=instructions or None,
+        progress=None if progress is None else asdict(progress),
+        window_is_final=window_is_final,
+        failure=failure or None,
+        window=window,
+    )

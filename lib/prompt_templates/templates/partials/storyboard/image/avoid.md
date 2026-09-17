@@ -1,0 +1,1 @@
+Avoid: {{ partial("shared/image_avoid") }}

@@ -2,6 +2,7 @@ MESSAGES = {
     "project_migration_failed": "Dự án '{name}' chưa hoàn tất nâng cấp dữ liệu nên không thể tạo nội dung. Lý do: {reason}. Hãy sửa trong cuộc trò chuyện với tác nhân AI rồi thử nâng cấp lại",
     "project_not_found": "Dự án '{name}' không tồn tại hoặc chưa được khởi tạo",
     "resource_not_found": "Tài nguyên được yêu cầu không tồn tại",
+    "prompt_template_not_found": "Mẫu prompt '{id}' không tồn tại",
     "overview_ai_response_invalid": "Không thể phân tích phản hồi của AI thành tổng quan dự án, vui lòng thử lại hoặc đổi mô hình/nhà cung cấp",
     "overview_generation_failed": "Tạo tổng quan thất bại, vui lòng thử lại sau hoặc đổi mô hình/nhà cung cấp",
     "video_capabilities_unresolved": "Không xác định được khả năng mô hình video cho dự án '{name}'; vui lòng kiểm tra cấu hình nhà cung cấp",

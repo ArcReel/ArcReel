@@ -171,13 +171,29 @@ async def test_build_adds_keep_alive_hook_with_can_use_tool(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_build_append_prompt_carries_locale_language(tmp_path: Path) -> None:
-    """prompt 装配按 locale 渲染语言规范段。"""
-    assembler = _make_assembler(tmp_path)
-    prompt = await assembler._build_append_prompt("demo", locale="vi")
-    assert "Tiếng Việt" in prompt or "vi" in prompt.lower()
-    # persona 恒在
-    assert "ArcReel Agent" in prompt
+@pytest.mark.parametrize(
+    ("locale", "language"),
+    [("zh", "中文"), ("en", "English"), ("vi", "Tiếng Việt")],
+)
+async def test_build_system_prompt_renders_language_rule_for_locale(tmp_path: Path, locale: str, language: str) -> None:
+    """追加的系统提示按 locale 渲染语言规范，只含语言规范、项目上下文与用户记忆三段。"""
+
+    async def fake_loader():
+        return {}
+
+    assembler = _make_assembler(tmp_path, provider_env_loader=fake_loader)
+    options = await assembler.build("demo", locale=locale)
+    append = options.system_prompt["append"]
+
+    assert f"- **回答用户必须使用{language}**：" in append
+    assert f"- **Prompt 使用{language}**：" in append
+    assert [line for line in append.splitlines() if line.startswith("## ")] == [
+        "## 语言规范",
+        "## 当前项目上下文",
+        "## 用户记忆",
+    ]
+    # 人设随创作类型 CLAUDE.md 由 SDK 加载，不再由服务端追加
+    assert "ArcReel Agent" not in append
 
 
 @pytest.mark.asyncio
@@ -364,4 +380,4 @@ async def test_append_prompt_omits_user_memory_for_invalid_user_id(tmp_path: Pat
     prompt = await assembler._build_append_prompt("demo")
 
     assert "## 用户记忆" not in prompt
-    assert "ArcReel Agent" in prompt
+    assert "## 语言规范" in prompt

@@ -11,6 +11,7 @@ import {
   KeyRound,
   Languages,
   Plug,
+  ScrollText,
   Waypoints,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -20,6 +21,7 @@ import { AgentConfigTab } from "./AgentConfigTab";
 import { ApiKeysTab } from "./ApiKeysTab";
 import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
+import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
@@ -43,6 +45,7 @@ type SettingsSection =
   | "media"
   | "usage"
   | "api-keys"
+  | "prompt-templates"
   | "about";
 
 /** 引导第 5/6 步指向的侧栏入口——只有这两项挂锚点，其余小节不在当前引导覆盖范围内。 */
@@ -85,7 +88,10 @@ const SECTION_GROUPS: SectionGroup[] = [
   },
   {
     kicker: "System",
-    items: [{ id: "about", labelKey: "dashboard:about", Icon: Info }],
+    items: [
+      { id: "prompt-templates", labelKey: "dashboard:prompt_templates", Icon: ScrollText },
+      { id: "about", labelKey: "dashboard:about", Icon: Info },
+    ],
   },
 ];
 
@@ -105,6 +111,7 @@ export function SystemConfigPage() {
     if (section === "media") return "media";
     if (section === "usage") return "usage";
     if (section === "api-keys") return "api-keys";
+    if (section === "prompt-templates") return "prompt-templates";
     if (section === "about") return "about";
     return "providers";
   }, [search]);
@@ -326,6 +333,7 @@ export function SystemConfigPage() {
                   <ApiKeysTab />
                 </div>
               )}
+              {activeSection === "prompt-templates" && <PromptTemplatesSection />}
               {activeSection === "about" && <AboutSection />}
             </div>
           )}
