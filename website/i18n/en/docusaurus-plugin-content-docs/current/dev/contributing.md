@@ -212,6 +212,7 @@ Published pages also declare their documentation-refresh coverage tier via the `
 | `website/docs/guide/getting-started.md` | The complete path from deployment to the first generated video | Production-grade reverse proxy and backup strategies |
 | `website/docs/guide/workflows.md` | Content modes, video generation modes, review checkpoints, and selection guidance | Provider credentials and operations commands |
 | `website/docs/guide/providers.md` | Provider types, capability coverage, selection principles, and configuration hierarchy | Price promises likely to become outdated |
+| `website/docs/guide/market.md` | Managing market sources, confirming, updating, and uninstalling market entries | Contribution workflow and steps for hosting a market source (the official market source repository docs are authoritative) |
 | `website/docs/guide/jianying-export.md` | Locating the Jianying draft directory, exporting, and further editing steps | The video generation process itself |
 | `website/docs/guide/faq.md` | Frequently asked questions and short answers | Long tutorials |
 | `website/docs/ops/deployment.md` | Deployment, upgrades, backup, recovery, monitoring, and security | Product marketing copy |

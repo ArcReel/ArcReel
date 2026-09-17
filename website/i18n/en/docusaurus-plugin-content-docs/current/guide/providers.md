@@ -334,6 +334,8 @@ The model discovery protocol only determines which type of model-listing interfa
 6. TTS;
 7. Error codes and rate-limiting behavior.
 
+If someone has already adapted the call endpoint you need, you can install it directly from the [Market](./market.md) instead of writing the definition yourself.
+
 ### 10.1 Three Endpoint Test Modes {#custom-endpoint-tests}
 
 The call endpoint detail page in Settings offers three test modes, ordered from lowest to highest risk:
@@ -374,7 +376,7 @@ definition → run the shared validator → check responses offline → preview 
 save.” The definition reference and thin HTTP script are downloaded with the skill; the adaptation flow adds no
 MCP or SDK tool. Response checks and request previews do not contact the provider. A connection test performs a real
 generation and may incur charges, so the Agent must obtain your explicit approval first. When a definition with
-the same lineage exists, the Agent may save a copy and report it; overwriting the existing endpoint always
+the same author and name exists, the Agent may save a copy and report it; overwriting the existing endpoint always
 requires your explicit approval.
 
 Pass required assets with `--start-image`, `--end-image`, repeatable `--reference-images`, and repeatable
