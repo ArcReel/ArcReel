@@ -1093,8 +1093,9 @@ class TaskRepository(BaseRepository):
         queued_result = await self.session.execute(
             self._scope_query(select(Task).where(Task.project_name == project_name, Task.status == "queued"), Task)
         )
-        queued_tasks = list(queued_result.scalars().all())
-        task_ids = [t.task_id for t in queued_tasks]
+        task_ids = [t.task_id for t in queued_result.scalars().all()]
+        if not task_ids:
+            return {"cancelled_count": 0, "skipped_running_count": 0}
 
         # UPDATE 不经 _scope_query（只接受 Select），按作用域内查出的 id 集合限定目标行
         now = utc_now()
@@ -1111,22 +1112,21 @@ class TaskRepository(BaseRepository):
         result = await self.session.execute(stmt)
         cancelled_count = rowcount(result)
 
-        if task_ids:
-            await self.session.flush()
-            refreshed = await self.session.execute(
-                select(Task).where(Task.task_id.in_(task_ids), Task.status == "cancelled")
+        await self.session.flush()
+        refreshed = await self.session.execute(
+            select(Task).where(Task.task_id.in_(task_ids), Task.status == "cancelled")
+        )
+        for updated_task in refreshed.scalars().all():
+            self._record_terminal_event(
+                task_id=updated_task.task_id,
+                project_name=project_name,
+                status="cancelled",
+                task_type=updated_task.task_type,
             )
-            for updated_task in refreshed.scalars().all():
-                self._record_terminal_event(
-                    task_id=updated_task.task_id,
-                    project_name=project_name,
-                    status="cancelled",
-                    task_type=updated_task.task_type,
-                )
 
         await self.session.commit()
         # 竞态时部分任务可能在 UPDATE 前被 worker 领走，skipped = 预期取消数 - 实际取消数
-        skipped = len(queued_tasks) - cancelled_count
+        skipped = len(task_ids) - cancelled_count
         return {
             "cancelled_count": cancelled_count,
             "skipped_running_count": max(0, skipped),

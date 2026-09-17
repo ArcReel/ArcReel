@@ -895,6 +895,17 @@ class TestCancelRespectsScope:
         assert (await seeder.get(hidden))["status"] == "queued"
         assert [e["task_id"] for e in scoped.terminal_events] == [visible]
 
+    async def test_cancel_all_queued_without_in_scope_tasks_changes_nothing(self, db_session):
+        seeder = TaskRepository(db_session)
+        hidden = await self._enqueue(seeder, "hidden")
+        scoped = ResourceScopedTaskRepository(db_session)
+
+        result = await scoped.cancel_all_queued("demo")
+
+        assert result == {"cancelled_count": 0, "skipped_running_count": 0}
+        assert (await seeder.get(hidden))["status"] == "queued"
+        assert scoped.terminal_events == []
+
     async def test_cancel_all_preview_counts_only_in_scope_queued_tasks(self, db_session):
         seeder = TaskRepository(db_session)
         await self._enqueue(seeder, "visible")
