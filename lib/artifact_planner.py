@@ -752,6 +752,7 @@ class TargetStatePlanner:
                     columns=grid.cols,
                     style=str(self.project.get("style") or ""),
                     grid_aspect_ratio=grid_aspect_ratio_for(grid.rows, grid.cols, member_ratio),
+                    style_description=str(self.project.get("style_description") or ""),
                     references=references,
                 )
             except (OSError, TypeError, ValueError):
@@ -813,6 +814,7 @@ class TargetStatePlanner:
                         columns=grid.cols,
                         style=str(self.project.get("style") or ""),
                         member_aspect_ratio=member_ratio,
+                        style_description=str(self.project.get("style_description") or ""),
                         references=references,
                         source_composite_digest=composite_digest,
                     )

@@ -193,26 +193,31 @@ def build_grid_composite_visual_basis(
     columns: int,
     style: str,
     grid_aspect_ratio: str,
+    style_description: str = "",
     references: Sequence[VisualReference] = (),
 ) -> ArtifactBasis:
     """Describe one grid composite without hashing its rendered provider prompt."""
 
     member_tuple = _validate_grid_members(members, rows=rows, columns=columns)
     _require_string("style", style)
+    _require_string("style_description", style_description)
+    inputs: dict[str, object] = {
+        "group_id": _require_non_empty("group_id", group_id),
+        "cells": _project_grid_cells(member_tuple),
+        "layout": {
+            "rows": rows,
+            "columns": columns,
+            "grid_aspect_ratio": _require_non_empty("grid_aspect_ratio", grid_aspect_ratio),
+        },
+        "style": style,
+        "references": _reference_evidence(references),
+    }
+    if normalized_description := style_description.strip():
+        inputs["style_description"] = normalized_description
     return ArtifactBasis.build(
         "artifact-visual/grid-composite",
         kind_version=1,
-        inputs={
-            "group_id": _require_non_empty("group_id", group_id),
-            "cells": _project_grid_cells(member_tuple),
-            "layout": {
-                "rows": rows,
-                "columns": columns,
-                "grid_aspect_ratio": _require_non_empty("grid_aspect_ratio", grid_aspect_ratio),
-            },
-            "style": style,
-            "references": _reference_evidence(references),
-        },
+        inputs=inputs,
     )
 
 
@@ -226,6 +231,7 @@ def build_grid_member_storyboard_visual_basis(
     columns: int,
     style: str,
     member_aspect_ratio: str,
+    style_description: str = "",
     references: Sequence[VisualReference] = (),
     source_composite_digest: str | None = None,
 ) -> ArtifactBasis:
@@ -241,21 +247,25 @@ def build_grid_member_storyboard_visual_basis(
     if type(cell_index) is not int or not 0 <= cell_index < len(member_tuple):
         raise ValueError("cell_index must identify a content cell")
     _require_string("style", style)
+    _require_string("style_description", style_description)
+    inputs: dict[str, object] = {
+        "group_id": _require_non_empty("group_id", group_id),
+        "cell": _project_grid_cells(member_tuple)[cell_index],
+        "layout": {
+            "rows": rows,
+            "columns": columns,
+            "member_aspect_ratio": _require_non_empty("member_aspect_ratio", member_aspect_ratio),
+        },
+        "style": style,
+        "references": _reference_evidence(references),
+        "source_composite": _composite_evidence(composite_image, source_composite_digest),
+    }
+    if normalized_description := style_description.strip():
+        inputs["style_description"] = normalized_description
     return ArtifactBasis.build(
         "artifact-visual/grid-member",
         kind_version=1,
-        inputs={
-            "group_id": _require_non_empty("group_id", group_id),
-            "cell": _project_grid_cells(member_tuple)[cell_index],
-            "layout": {
-                "rows": rows,
-                "columns": columns,
-                "member_aspect_ratio": _require_non_empty("member_aspect_ratio", member_aspect_ratio),
-            },
-            "style": style,
-            "references": _reference_evidence(references),
-            "source_composite": _composite_evidence(composite_image, source_composite_digest),
-        },
+        inputs=inputs,
     )
 
 
@@ -356,6 +366,7 @@ def build_reference_video_artifact_visual_basis(
     request_assets: Sequence[ResolvedReferenceAsset],
     style: str | None,
     aspect_ratio: str,
+    style_description: str = "",
 ) -> ArtifactBasis:
     """Describe one canonical ``video_unit`` and the images actually sent for it.
 
@@ -380,16 +391,20 @@ def build_reference_video_artifact_visual_basis(
         )
         for asset in request_assets
     ]
+    _require_string("style_description", style_description)
+    inputs: dict[str, object] = {
+        "unit_id": unit_id,
+        "visual_lines": visual_lines,
+        "style": style or "",
+        "canvas": {"aspect_ratio": _require_non_empty("aspect_ratio", aspect_ratio)},
+        "request_references": _reference_evidence(references),
+    }
+    if normalized_description := style_description.strip():
+        inputs["style_description"] = normalized_description
     return ArtifactBasis.build(
         "artifact-visual/video-reference",
         kind_version=1,
-        inputs={
-            "unit_id": unit_id,
-            "visual_lines": visual_lines,
-            "style": style or "",
-            "canvas": {"aspect_ratio": _require_non_empty("aspect_ratio", aspect_ratio)},
-            "request_references": _reference_evidence(references),
-        },
+        inputs=inputs,
     )
 
 

@@ -527,12 +527,14 @@ class TestExecuteGridTask:
             )
             for i in range(1, 4)
         )
+        # 宫格依据与提示词消费同一份描述：换参考图、描述被重新分析覆盖后，旧宫格随之翻过期。
         expected = build_grid_composite_visual_basis(
             group_id=grid_json.id,
             members=members,
             rows=2,
             columns=2,
             style="realistic",
+            style_description="胶片颗粒，低饱和",
             grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
         )
         assert captured == [expected]
@@ -616,6 +618,7 @@ class TestExecuteGridTask:
             rows=2,
             columns=2,
             style="realistic",
+            style_description="胶片颗粒，低饱和",
             grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
         )
         assert captured_basis == [expected_basis]

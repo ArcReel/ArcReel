@@ -183,6 +183,7 @@ def project_video_basis_components(
             request_assets=clamp_reference_assets(hydration.available, shape.reference_image_limit),
             style=project.get("style") if isinstance(project.get("style"), str) else None,
             aspect_ratio=resolve_video_aspect_ratio(project),
+            style_description=str(project.get("style_description") or ""),
         )
     else:
         raise ValueError(f"resource type does not carry video artifact metadata: {resource_type}")

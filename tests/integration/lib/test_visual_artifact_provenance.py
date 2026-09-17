@@ -4,7 +4,7 @@ import unicodedata
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -434,6 +434,64 @@ def test_grid_composite_tracks_only_the_aspect_ratio_sent_for_the_composite(tmp_
     portrait = build_grid_composite_visual_basis(grid_aspect_ratio="9:16", **common)
 
     assert portrait.digest != landscape.digest
+
+
+def test_style_description_is_a_flat_conditional_input_on_grid_and_reference_bases(tmp_path: Path) -> None:
+    """宫格、切格分镜与参考视频照分镜图的做法记描述：保留扁平键 ``style``，描述非空才另记扁平
+    ``style_description``。改成 asset-sheet 的嵌套对象形态会让所有存量宫格无论描述是否为空都翻 stale。
+    """
+
+    reference = tmp_path / "reference.png"
+    reference.write_bytes(b"visual")
+    members = _grid_members()
+    assets = (VisualReference(path=reference, role="asset_sheet"),)
+
+    def composite(description: str = ""):
+        return build_grid_composite_visual_basis(
+            group_id="grid_1",
+            members=members,
+            rows=2,
+            columns=2,
+            style="水墨",
+            grid_aspect_ratio="1:1",
+            references=assets,
+            style_description=description,
+        )
+
+    def member(description: str = ""):
+        return build_grid_member_storyboard_visual_basis(
+            group_id="grid_1",
+            members=members,
+            cell_index=0,
+            composite_image=reference,
+            rows=2,
+            columns=2,
+            style="水墨",
+            member_aspect_ratio="16:9",
+            references=assets,
+            style_description=description,
+        )
+
+    def video(description: str = ""):
+        return build_reference_video_artifact_visual_basis(
+            unit={"unit_id": "E1U01", "text": "阿黎走入雨巷"},
+            request_assets=(),
+            style="水墨",
+            aspect_ratio="9:16",
+            style_description=description,
+        )
+
+    for build in (composite, member, video):
+        assert build("").digest == build().digest
+        assert build("   ").digest == build().digest
+        described = build("淡彩")
+        assert described.digest != build().digest
+        assert build("硬光").digest != described.digest
+        raw_inputs = described.to_evidence_dict()["inputs"]
+        assert isinstance(raw_inputs, dict)
+        inputs = cast(dict[str, Any], raw_inputs)
+        assert inputs["style_description"] == "淡彩"
+        assert "style" in inputs
 
 
 def test_storyboard_video_visual_basis_excludes_sound_execution_and_duration(tmp_path: Path) -> None:

@@ -645,6 +645,7 @@ async def execute_reference_video_task(
                     request_assets=staged_request_assets,
                     style=project.get("style"),
                     aspect_ratio=aspect_ratio,
+                    style_description=str(project.get("style_description") or ""),
                 )
             )
             artifact_speech = await asyncio.to_thread(

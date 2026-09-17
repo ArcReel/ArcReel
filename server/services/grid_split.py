@@ -397,6 +397,7 @@ async def apply_grid_split(
                                 columns=grid.cols,
                                 style=str(current_project.get("style") or ""),
                                 member_aspect_ratio=member_ratio,
+                                style_description=str(current_project.get("style_description") or ""),
                                 references=references,
                                 source_composite_digest=composite_digest,
                             )

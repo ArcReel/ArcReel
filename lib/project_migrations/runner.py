@@ -47,6 +47,7 @@ from lib.project_migrations.v11_to_v12_character_derivatives import migrate_v11_
 from lib.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
 from lib.project_migrations.v13_to_v14_legacy_style_values import migrate_v13_to_v14
 from lib.project_migrations.v14_to_v15_formal_script_truth import migrate_v14_to_v15
+from lib.project_migrations.v15_to_v16_grid_video_style_descriptions import migrate_v15_to_v16
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -299,7 +300,8 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
             (project_dir / "project.json", project_backup_versions),
             (project_dir / "versions" / "versions.json", project_backup_versions),
             # 清单不只在激活那一步被改写：v9→v10 改它的 key 与草稿路径，v12→v13 整份重投影，
-            # v13→v14 改写受风格值归一影响的条目，v14→v15 改写剧本登记。
+            # v13→v14 改写受风格值归一影响的条目，v14→v15 改写剧本登记，v15→v16 给宫格与参考
+            # 视频的依据补记风格描述。
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
         )
@@ -338,3 +340,4 @@ MIGRATORS[11] = migrate_v11_to_v12
 MIGRATORS[12] = migrate_v12_to_v13
 MIGRATORS[13] = migrate_v13_to_v14
 MIGRATORS[14] = migrate_v14_to_v15
+MIGRATORS[15] = migrate_v15_to_v16

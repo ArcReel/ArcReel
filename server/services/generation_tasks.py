@@ -3382,6 +3382,7 @@ async def execute_grid_task(
             columns=grid.cols,
             style=str(project.get("style") or ""),
             grid_aspect_ratio=grid_aspect_ratio,
+            style_description=str(project.get("style_description") or ""),
             references=frozen_references.visual_references,
         )
         generator = ctx.generator

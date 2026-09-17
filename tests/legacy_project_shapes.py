@@ -154,6 +154,7 @@ def write_legacy_reference_video_project(
     schema_version: int = 7,
     unit_ids: tuple[str, ...] = ("E1U01", "E1U02"),
     with_legacy_audio: bool = False,
+    style_description: str = "电影感",
 ) -> Path:
     """drama + reference_video 路线的旧项目：视频单元直出，版本记录是旧形态。"""
 
@@ -169,7 +170,7 @@ def write_legacy_reference_video_project(
             "source_kind": "novel",
             "source_language": "中文",
             "style": "写实",
-            "style_description": "电影感",
+            "style_description": style_description,
             "aspect_ratio": "9:16",
             "default_duration": 8,
             "characters": {},
@@ -239,6 +240,7 @@ def write_legacy_style_project(
     schema_version: int = 7,
     style: str = "画风：写实电影感",
     style_template_id: str | None = None,
+    style_description: str = "淡彩",
 ) -> Path:
     """风格值还是遗留形态的旧项目：资产图、宫格与单张分镜图齐全，四类视觉依据都在场。
 
@@ -257,7 +259,7 @@ def write_legacy_style_project(
         "source_kind": "novel",
         "source_language": "中文",
         "style": style,
-        "style_description": "淡彩",
+        "style_description": style_description,
         "aspect_ratio": "9:16",
         "grid_storyboard": True,
         "characters": {"阿离": {"description": "银发旅人", "character_sheet": "characters/阿离.png"}},
