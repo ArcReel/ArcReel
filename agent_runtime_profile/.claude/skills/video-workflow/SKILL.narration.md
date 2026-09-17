@@ -156,7 +156,7 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 - `next_action.type == "confirm_script_plan"` → 先完成下述内容确认，刷新计划后再路由
 - `next_action.type == "generate_script"` → dispatch 剧本生成
 
-**script_plan→prompt_authoring 内容确认（阻塞）**：`prepare_script_plan` 产出的脚本规划须经**显式确认**才放行提示词编写（三种结构化 script_plan 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `script_plan_reference_units.json` 同样须确认，不要跳过。ad 无 script_plan，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认时计划停在 `confirm_script_plan`、不会路由到提示词编写；尚无正式脚本时 `generate_episode_script` 直接报「尚无正式脚本」。确认即把脚本规划整集转为正式脚本、全部条目待编写；该集已有正式脚本时确认会覆盖它，须按上方「整集重做」先取得用户同意。
+**script_plan→prompt_authoring 内容确认（阻塞）**：`prepare_script_plan` 产出的脚本规划须经**显式确认**才放行提示词编写（三种结构化 script_plan 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `script_plan_reference_units.json` 同样须确认，不要跳过。ad 无 script_plan，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。该集尚无正式脚本时，未确认的计划停在 `confirm_script_plan`、不会路由到提示词编写（已有正式脚本时不挡下游，见上方「整集重做」）；尚无正式脚本时 `generate_episode_script` 直接报「尚无正式脚本」。确认即把脚本规划整集转为正式脚本、全部条目待编写；该集已有正式脚本时确认会覆盖它，须按上方「整集重做」先取得用户同意。
 
 **dispatch `create-episode-script` 子智能体**：传入项目名称、项目路径、集数；可选附加指令（用户对本次生成的要求等任何需带给子智能体的临时上下文，原文透传）。
 

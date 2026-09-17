@@ -1283,3 +1283,56 @@ def test_blank_item_rejects_unknown_anchor_and_reference_units(tmp_path: Path) -
         blank_item_after(_storyboard_script("drama", ["E1S01"]), "E1S09")
     with pytest.raises(ScriptEditError):
         blank_item_after(pm.load_script("demo", "episode_1.json"), "E1U1")
+
+
+@pytest.mark.parametrize(
+    ("content_mode", "items_key"),
+    [("narration", "segments"), ("drama", "scenes"), ("ad", "shots")],
+)
+def test_removing_the_only_item_is_rejected_without_writes(tmp_path: Path, content_mode: str, items_key: str) -> None:
+    pm, service = _storyboard_project(tmp_path, content_mode, ["E1S01"])
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    before = script_path.read_bytes()
+
+    result = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S01"}]))
+
+    assert result.success is False
+    problem = result.problems[0]
+    assert (problem.code, problem.reason, problem.operation_index, problem.unit_id) == (
+        "schema_invalid",
+        "script_collection_empty",
+        0,
+        "E1S01",
+    )
+    assert problem.locations[0].path == (items_key,)
+    assert script_path.read_bytes() == before
+
+
+def test_removing_every_item_in_one_batch_is_attributed_to_the_last_remove(tmp_path: Path) -> None:
+    pm, service = _storyboard_project(tmp_path, "ad", ["E1S01", "E1S02"])
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    before = script_path.read_bytes()
+
+    result = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S02"}, {"op": "remove", "id": "E1S01"}]))
+
+    assert result.success is False
+    assert (result.problems[0].reason, result.problems[0].operation_index) == ("script_collection_empty", 1)
+    assert script_path.read_bytes() == before
+
+
+def test_removing_the_only_item_and_reinserting_in_the_same_batch_is_allowed(tmp_path: Path) -> None:
+    pm, service = _storyboard_project(tmp_path, "narration", ["E1S01"])
+
+    result = service.execute(
+        "demo",
+        _command(
+            pm,
+            [
+                {"op": "remove", "id": "E1S01"},
+                {"op": "insert_after", "after_id": None, "item": _segment("E1S01", text="风停了。")},
+            ],
+        ),
+    )
+
+    assert result.success is True, result.problems
+    assert [item["segment_id"] for item in pm.load_script("demo", "episode_1.json")["segments"]] == ["E1S01"]

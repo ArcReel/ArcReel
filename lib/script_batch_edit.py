@@ -363,6 +363,29 @@ class ScriptBatchEditor:
                         if before_admission != after_admission:
                             speech_change[item_id] = index
 
+                # 分镜图生视频的一集至少保留一个分镜：空集合能过结构校验，却让该集在工作流中阻塞、
+                # 时间线也没有新增入口。参考生视频画布可从空集合新增单元，不受此限。按整批结果判定
+                # 而不是在单条 remove 处判定，同批先删后插（拆分锚点、整体替换）照常成立。
+                remaining_items, _remaining_id_field, collection_kind = resolve_items(candidate)
+                if not remaining_items and collection_kind != "video_units":
+                    last_remove = max(
+                        (i for i, op in enumerate(command.operations) if isinstance(op, RemoveOperation)),
+                        default=None,
+                    )
+                    raise _AbortEdit(
+                        self._failure(
+                            script=resolved_script,
+                            episode=episode_number,
+                            revision=before_revision,
+                            code="schema_invalid",
+                            reason="script_collection_empty",
+                            next_action="fix_operation",
+                            operation_index=last_remove,
+                            unit_id=_operation_id(command.operations[last_remove]) if last_remove is not None else None,
+                            locations=(ScriptBatchEditLocation(path=(collection_kind,)),),
+                        )
+                    )
+
                 speech_problems = _new_speech_problems(
                     candidate,
                     before_admissions=before_admissions,

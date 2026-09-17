@@ -756,6 +756,27 @@ class TestPatchEpisodeScript:
 
 
 class TestPatchEpisodeScriptStructuralOperations:
+    @pytest.mark.parametrize(
+        ("fixture", "items_key"), [("ctx", "segments"), ("drama_ctx", "scenes"), ("ad_ctx", "shots")]
+    )
+    async def test_removing_the_last_item_is_rejected_atomically(
+        self, request: pytest.FixtureRequest, fixture: str, items_key: str
+    ) -> None:
+        tool_ctx: ToolContext = request.getfixturevalue(fixture)
+        before = _load(tool_ctx)
+
+        out = await _patch(tool_ctx, [{"op": "remove", "id": "E1S01"}, {"op": "remove", "id": "E1S02"}])
+
+        assert out.get("is_error") is True
+        assert "script_collection_empty" in _text(out)
+        assert _load(tool_ctx) == before
+
+    async def test_removing_one_of_several_items_still_commits(self, ad_ctx: ToolContext) -> None:
+        out = await _patch(ad_ctx, [{"op": "remove", "id": "E1S01"}])
+
+        assert out.get("is_error") is not True, out
+        assert [shot["shot_id"] for shot in _load(ad_ctx)["shots"]] == ["E1S02"]
+
     async def test_insert_adds_at_position(self, ctx: ToolContext) -> None:
         out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN")}])
         assert out.get("is_error") is not True

@@ -20,6 +20,7 @@ MESSAGES = {
     "project_exists": "项目 '{name}' 已存在",
     "script_not_found": "脚本 '{name}' 不存在",
     "script_item_not_found": "剧本中不存在分镜「{id}」",
+    "script_item_remove_last_blocked": "本集只剩这一个分镜，不能移除",
     "storyboard_script_required": "该剧本不是分镜图生视频剧本，参考生视频的视频单元请在参考生视频画布中增删",
     "narration_segment_text_required": "新增旁白分镜需要先填写旁白正文",
     "prompt_preview_missing": "该分镜还没有填写提示词",

@@ -1317,6 +1317,8 @@ async def remove_script_item(
                     editor=make_script_batch_editor(manager),
                     current_script=current,
                 )
+            if not result.success and result.problems[0].reason == "script_collection_empty":
+                raise UnprocessableError("script_item_remove_last_blocked")
             require_script_edit_result(result, operation_not_found=True)
             return {"success": True, "edit_result": result.model_dump(mode="json")}
 

@@ -20,6 +20,7 @@ MESSAGES = {
     "project_exists": "Dự án '{name}' đã tồn tại",
     "script_not_found": "Kịch bản '{name}' không tồn tại",
     "script_item_not_found": "Không có phân cảnh '{id}' trong kịch bản này",
+    "script_item_remove_last_blocked": "Đây là phân cảnh duy nhất của tập nên không thể gỡ",
     "storyboard_script_required": "Kịch bản này không phải kịch bản từ ảnh phân cảnh sang video; hãy thêm hoặc xóa đơn vị video tham chiếu trên canvas video tham chiếu",
     "narration_segment_text_required": "Hãy nhập văn bản lời dẫn trước khi thêm phân cảnh lời dẫn",
     "prompt_preview_missing": "Phân cảnh này chưa có lời nhắc",

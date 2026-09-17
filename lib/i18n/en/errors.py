@@ -20,6 +20,7 @@ MESSAGES = {
     "project_exists": "Project '{name}' already exists",
     "script_not_found": "Script '{name}' does not exist",
     "script_item_not_found": "Shot '{id}' does not exist in this script",
+    "script_item_remove_last_blocked": "This is the only shot in the episode and cannot be removed",
     "storyboard_script_required": "This script is not a storyboard-to-video script; add or remove reference video units on the reference video canvas",
     "narration_segment_text_required": "Enter the narration text before adding a narration shot",
     "prompt_preview_missing": "This shot has no prompt written yet",
