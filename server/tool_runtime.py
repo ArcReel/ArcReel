@@ -151,6 +151,7 @@ from server.services.video_caps import annotate_reference_unit_tiers
 from server.services.workflow_planner import WorkflowPlanner
 from server.text_generation import (
     CompensableTextGenerationResult,
+    ScriptOverwriteRequiredError,
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
@@ -396,6 +397,10 @@ async def _run_text_generation(
 ) -> ToolOutcome[TextGenerationResult]:
     try:
         return ToolOutcome(value=await call)
+    except ScriptOverwriteRequiredError as exc:
+        return ToolOutcome(
+            problem=ToolProblem("script_overwrite_required", str(exc), params={"script_overwrite": exc.overwrite})
+        )
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -648,8 +653,15 @@ async def generate_script_plan(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ConfirmScriptReviewRequest:
+    episode: int
+    #: 用户已同意覆盖的正式脚本版本（覆盖清单的 ``revision``）；该集尚无正式脚本时不必给。
+    overwrite_revision: str | None = None
+
+
 async def confirm_script_review(
-    request: ToolRequest[int],
+    request: ToolRequest[ConfirmScriptReviewRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -657,7 +669,8 @@ async def confirm_script_review(
     return await _run_text_generation(
         "confirm_script_review",
         confirm_script_review_handler(
-            request.value,
+            request.value.episode,
+            overwrite_revision=request.value.overwrite_revision,
             project_name=scope.project_name,
             projects=services.projects,
             config_resolver=services.capabilities,

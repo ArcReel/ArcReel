@@ -167,6 +167,15 @@ export interface ScriptEntryCurrency {
   order_changed: boolean;
 }
 
+/** 内容确认将覆盖的正式脚本：旧分镜全部移除，列出每条分镜名下已生成的产物。 */
+export interface ScriptOverwrite {
+  /** 被列出的这份正式脚本的版本；认可覆盖时原样回传，正式脚本之后又有变化则按新清单再次拒绝。 */
+  revision: string;
+  entries: { id: string; has_storyboard: boolean; has_video: boolean }[];
+  storyboard_count: number;
+  video_count: number;
+}
+
 /** script_plan→prompt_authoring 内容确认状态（后端 server/routers/script_review.py 的 GET 响应）。 */
 export interface ScriptReviewState {
   episode: number;
@@ -195,6 +204,8 @@ export interface ScriptReviewState {
   episode_target_duration: number | null;
   /** 正式剧本相对这份脚本规划的条目时效；没有正式剧本或没有可比对的条目时 null。 */
   script_entry_currency: ScriptEntryCurrency | null;
+  /** 确认将覆盖的正式脚本；该集尚无正式脚本时 null。非 null 时确认须带其 `revision` 认可覆盖。 */
+  script_overwrite: ScriptOverwrite | null;
 }
 
 export interface Composition {

@@ -17,6 +17,7 @@ function reviewState(currency: ScriptEntryCurrency | null): ScriptReviewState {
     episode_target_duration: null,
     content: null,
     script_entry_currency: currency,
+    script_overwrite: null,
   };
 }
 

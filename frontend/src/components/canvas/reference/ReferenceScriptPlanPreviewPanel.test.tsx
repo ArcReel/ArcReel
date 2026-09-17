@@ -22,6 +22,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     duration_tiers: null,
     episode_target_duration: null,
     script_entry_currency: null,
+    script_overwrite: null,
     content: {
       units: [
         {
@@ -47,6 +48,7 @@ function quarantinedState(): ScriptReviewState {
     duration_tiers: null,
     episode_target_duration: null,
     script_entry_currency: null,
+    script_overwrite: null,
     content: null,
     quarantine: {
       content: {
@@ -162,9 +164,34 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /确认拆分，继续生成/ }));
 
-    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
     await waitFor(() => expect(useAssistantStore.getState().input).toContain("第 1 集"));
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+  });
+
+  it("confirms over an existing formal script only through the danger overwrite dialog", async () => {
+    const overwrite = {
+      revision: "sha256-v1:listed",
+      entries: [{ id: "E1U01", has_storyboard: false, has_video: true }],
+      storyboard_count: 0,
+      video_count: 1,
+    };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ script_overwrite: overwrite }));
+    const confirm = vi
+      .spyOn(API, "confirmScriptReview")
+      .mockResolvedValue(pendingState({ status: "confirmed", quarantine: null }));
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
+    expect(button).toHaveAttribute("data-tone", "danger");
+    expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+    expect(await screen.findByRole("dialog")).toHaveTextContent("0 张分镜图、1 段视频随分镜移除");
+    fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, { overwriteRevision: "sha256-v1:listed" }));
   });
 
   it("suppresses the confirm toast/prefill if the user has switched to a different project mid-request", async () => {
@@ -254,6 +281,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       duration_tiers: null,
       episode_target_duration: null,
       script_entry_currency: null,
+      script_overwrite: null,
     });
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     await waitFor(() => expect(screen.getByText("暂无脚本规划结果")).toBeInTheDocument());

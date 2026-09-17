@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { ScriptReviewGate } from "./ScriptReviewGate";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
@@ -19,6 +19,7 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     duration_tiers: null,
     episode_target_duration: null,
     script_entry_currency: null,
+    script_overwrite: null,
     content: {
       title: "第一集",
       scenes: [
@@ -54,6 +55,7 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     duration_tiers: null,
     episode_target_duration: null,
     script_entry_currency: null,
+    script_overwrite: null,
     content: {
       segments: [
         {
@@ -96,10 +98,75 @@ describe("ScriptReviewGate", () => {
 
     fireEvent.click(screen.getByText("确认并继续"));
 
-    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
     await waitFor(() =>
       expect(screen.getByText("视觉生成已放行。再次编辑将重新等待确认。")).toBeInTheDocument(),
     );
+  });
+
+  it("keeps the ordinary confirm button when the episode has no formal script", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const button = await screen.findByRole("button", { name: "确认并继续" });
+    expect(button).not.toHaveAttribute("data-tone");
+    expect(screen.queryByText("确认并覆盖正式脚本")).not.toBeInTheDocument();
+  });
+
+  it("renders a danger confirm that lists the consequences before overwriting a formal script", async () => {
+    const overwrite = {
+      revision: "sha256-v1:listed",
+      entries: [
+        { id: "E1S01", has_storyboard: true, has_video: true },
+        { id: "E1S09", has_storyboard: false, has_video: false },
+      ],
+      storyboard_count: 1,
+      video_count: 1,
+    };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: overwrite }));
+    const confirm = vi
+      .spyOn(API, "confirmScriptReview")
+      .mockResolvedValue(dramaState({ status: "confirmed", confirmed_at: "2026-06-26T00:00:00Z" }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
+    expect(button).toHaveAttribute("data-tone", "danger");
+    expect(screen.getByText("本集已有正式脚本，确认会按脚本规划整份重建它。")).toBeInTheDocument();
+
+    fireEvent.click(button);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("现有 2 条分镜将被移除");
+    expect(dialog).toHaveTextContent("1 张分镜图、1 段视频随分镜移除");
+    expect(dialog).toHaveTextContent("E1S01");
+    expect(dialog).toHaveTextContent("E1S09");
+    expect(confirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, { overwriteRevision: "sha256-v1:listed" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("switches to the danger confirm when the server reports an existing formal script", async () => {
+    const overwrite = {
+      revision: "sha256-v1:listed",
+      entries: [{ id: "E1S01", has_storyboard: false, has_video: false }],
+      storyboard_count: 0,
+      video_count: 0,
+    };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    vi.spyOn(API, "confirmScriptReview").mockRejectedValue(
+      new ApiRequestError("本集已有正式脚本", { script_overwrite: overwrite }, 409),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.click(await screen.findByRole("button", { name: "确认并继续" }));
+
+    const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
+    expect(button).toHaveAttribute("data-tone", "danger");
   });
 
   it("edits content, surfaces save, and persists the edited intermediate", async () => {

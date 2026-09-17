@@ -770,6 +770,7 @@ describe("API", () => {
       await API.saveScriptReviewContent("a b", 2, content);
       await API.saveScriptReviewContent("a b", 2, content, "fp 1");
       await API.confirmScriptReview("a b", 3);
+      await API.confirmScriptReview("a b", 3, { overwriteRevision: "sha256-v1:abc" });
 
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/1/script-review", {
         signal: undefined,
@@ -788,6 +789,11 @@ describe("API", () => {
       );
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/3/script-review/confirm", {
         method: "POST",
+        body: JSON.stringify({ overwrite_revision: null }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/3/script-review/confirm", {
+        method: "POST",
+        body: JSON.stringify({ overwrite_revision: "sha256-v1:abc" }),
       });
     });
   });

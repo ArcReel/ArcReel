@@ -2423,6 +2423,45 @@ def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generatio
     assert status.next_action.args["episode"] == 1
 
 
+def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
+    """参考生视频确认后单元全部待编写：下一步补写单元，而不是直接进入生成。"""
+    pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}]
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    _write_episode_source(project_path, 1)
+    plan_path = draft_dir / "script_plan_reference_units.json"
+    atomic_write_json(plan_path, {"units": [{"unit_id": "E1U01", "text": "镜头", "duration_seconds": 8}]})
+    revision = script_review.content_fingerprint(plan_path)
+    assert revision is not None
+    pm.update_project(
+        "demo", lambda project: script_review.apply_confirmation(project, 1, revision, "2026-08-11T00:00:00Z")
+    )
+    _write_registered_script(
+        project_path,
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "drama",
+            "generation_mode": "reference_video",
+            "video_units": [_valid_video_unit(pending_authoring=True)],
+            "metadata": {script_review.SCRIPT_PLAN_REVISION_FIELD: revision},
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.next_action.type == "author_prompts"
+    assert status.next_action.requested_ids == ["E1U01"]
+
+
 def test_author_prompts_lists_marked_entries_not_empty_prompts(tmp_path: Path) -> None:
     """补充提示词只读待编写标记：带标记的条目即使已有提示词也列入，无标记的空提示词条目不列入。"""
     plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]

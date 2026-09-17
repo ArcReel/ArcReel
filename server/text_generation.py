@@ -273,6 +273,14 @@ class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
 
 
+class ScriptOverwriteRequiredError(TextGenerationError):
+    """内容确认会覆盖该集已有的正式脚本，而调用方未认可覆盖；携带将被移除的条目与产物摘要。"""
+
+    def __init__(self, message: str, overwrite: dict[str, Any] | None) -> None:
+        super().__init__(message)
+        self.overwrite = overwrite
+
+
 def _draft_file_revision(path: Path) -> str | None:
     try:
         return prefixed_sha256_file(path)
@@ -757,6 +765,7 @@ def _unbound_mentions_note(warnings: Sequence[Mapping[str, Any]]) -> str:
 async def confirm_script_review(
     episode: int,
     *,
+    overwrite_revision: str | None = None,
     project_name: str,
     projects: ProjectManager,
     config_resolver: ConfigResolver,
@@ -764,11 +773,22 @@ async def confirm_script_review(
     from server.services.script_review import ScriptReviewError, ScriptReviewService
 
     try:
-        state = await ScriptReviewService(projects, config_resolver=config_resolver).confirm(project_name, episode)
+        state = await ScriptReviewService(projects, config_resolver=config_resolver).confirm(
+            project_name, episode, overwrite_revision=overwrite_revision
+        )
     except ScriptReviewError as exc:
+        if exc.code == "overwrite_required":
+            raise ScriptOverwriteRequiredError(
+                f"⚠️ 第 {episode} 集已有正式脚本，确认会整份覆盖它：旧分镜全部移除，其分镜图与视频不再显示，"
+                "手改的提示词一并丢弃。params.script_overwrite 列出将被移除的分镜与产物；"
+                "须先向用户说明并取得明确同意，再以 overwrite_revision=params.script_overwrite.revision 重新确认；"
+                "正式脚本在此期间又有变化时会按新清单再次拒绝。",
+                exc.overwrite,
+            ) from exc
         raise TextGenerationError(f"❌ 无法完成 script_plan 内容确认（{exc.code}）：{exc.message or exc.code}") from exc
     return TextGenerationResult(
-        f"✅ 第 {episode} 集 script_plan 已确认，prompt_authoring 视觉生成已放行（status={state['status']}）"
+        f"✅ 第 {episode} 集 script_plan 已确认并整份转为正式脚本，全部分镜待编写，"
+        f"prompt_authoring 视觉生成已放行（status={state['status']}）"
     )
 
 

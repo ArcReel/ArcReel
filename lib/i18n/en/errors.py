@@ -181,6 +181,9 @@ MESSAGES = {
         "Refresh to see the latest content, merge your changes, then save again"
     ),
     "script_review_invalid_content": "Content confirmation draft structure validation failed; please check and retry",
+    "script_review_overwrite_required": "This episode already has a formal script. Confirming overwrites it: every existing shot is removed and its storyboard images and videos are no longer shown. Acknowledge the overwrite and retry",
+    "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
+    "script_review_video_model_unresolved": "No usable video model is configured, so shot duration tiers cannot be determined and the confirmation was not completed; configure a video provider in Settings → Providers, or pick a video model in the project settings, then retry",
     "script_review_quarantine_unreadable": (
         "The draft needing fixes is corrupted or malformed and can't be read; ask the agent to re-split this episode"
     ),

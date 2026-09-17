@@ -14,6 +14,8 @@ import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { sumItemDuration } from "@/utils/script-shape";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
+import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
+import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
@@ -347,6 +349,7 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
   const pushToast = useAppStore((s) => s.pushToast);
 
   const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
+  const [overwriteOpen, setOverwriteOpen] = useState(false);
 
   const handleConfirmed = useCallback(() => {
     // 保存 / 确认两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目
@@ -460,6 +463,8 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
 
   const quarantined = quarantine != null;
   const confirmed = status === "confirmed" && !dirty && !quarantined;
+  // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
+  const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
   const displayUnits: DisplayUnit[] = quarantined
     ? quarantinedDisplayUnits(quarantine.content, episode)
     : draft
@@ -539,6 +544,8 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
                 t("reference_script_plan_editable_hint")
               ) : confirmed ? (
                 t("dashboard:review_confirmed_hint")
+              ) : overwrite ? (
+                t("dashboard:review_overwrite_hint")
               ) : (
                 t("dashboard:review_pending_hint")
               )}
@@ -558,29 +565,60 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
               {saving ? t("common:saving") : t("common:save")}
             </button>
           )}
-          <button
-            type="button"
-            onClick={voidPromise(handleConfirm)}
-            disabled={busy || confirmed || quarantined || outOfTierUnitKeys.size > 0}
-            className={ACCENT_BTN_CLS}
-            style={ACCENT_BUTTON_STYLE}
-            title={
-              quarantined
-                ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
-                : outOfTierUnitKeys.size > 0
-                  ? t("reference_script_plan_duration_out_of_tier_hint")
-                  : undefined
-            }
-          >
-            {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-            {confirming
-              ? t("dashboard:review_confirming")
-              : confirmed
-                ? t("dashboard:review_confirmed_badge")
-                : t("reference_script_plan_confirm_continue")}
-          </button>
+          {overwrite ? (
+            <PrimaryButton
+              tone="danger"
+              onClick={() => setOverwriteOpen(true)}
+              disabled={busy || quarantined || outOfTierUnitKeys.size > 0}
+              title={
+                quarantined
+                  ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
+                  : outOfTierUnitKeys.size > 0
+                    ? t("reference_script_plan_duration_out_of_tier_hint")
+                    : undefined
+              }
+              leadingIcon={quarantined ? <Lock className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            >
+              {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
+            </PrimaryButton>
+          ) : (
+            <button
+              type="button"
+              onClick={voidPromise(() => handleConfirm())}
+              disabled={busy || confirmed || quarantined || outOfTierUnitKeys.size > 0}
+              className={ACCENT_BTN_CLS}
+              style={ACCENT_BUTTON_STYLE}
+              title={
+                quarantined
+                  ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
+                  : outOfTierUnitKeys.size > 0
+                    ? t("reference_script_plan_duration_out_of_tier_hint")
+                    : undefined
+              }
+            >
+              {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {confirming
+                ? t("dashboard:review_confirming")
+                : confirmed
+                  ? t("dashboard:review_confirmed_badge")
+                  : t("reference_script_plan_confirm_continue")}
+            </button>
+          )}
         </div>
       </header>
+
+      {overwrite && (
+        <ScriptOverwriteConfirmDialog
+          open={overwriteOpen}
+          overwrite={overwrite}
+          loading={confirming}
+          onConfirm={async () => {
+            await handleConfirm({ overwriteRevision: overwrite.revision });
+            setOverwriteOpen(false);
+          }}
+          onCancel={() => setOverwriteOpen(false)}
+        />
+      )}
 
       {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
       {!quarantined && (

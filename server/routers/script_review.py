@@ -1,7 +1,7 @@
 """script_plan→prompt_authoring web 内容确认路由。
 
-暴露结构化中间态的审阅 / 编辑 / 确认：script_plan 产出后中间态在 web 可见可改，用户显式确认后才放行
-prompt_authoring 视觉生成（prompt_authoring 由 Agent 的 generate_episode_script 执行，读时经内容确认校验阻塞到确认）。
+暴露脚本规划的审阅 / 编辑 / 确认：script_plan 产出后在 web 可见可改，用户显式确认时整份转为
+正式脚本并放行 prompt_authoring 视觉生成（prompt_authoring 由 Agent 的 generate_episode_script 执行，读时经内容确认校验阻塞到确认）。
 drama（utterances + source_text）与 narration（结构化 novel_text）共用本机制。
 """
 
@@ -122,9 +122,28 @@ async def update_script_review_content(
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
-@router.post("/projects/{project_name}/episodes/{episode}/script-review/confirm")
-async def confirm_script_review(project_name: str, episode: int, _t: Translator):
-    """用户显式确认 script_plan 内容，放行 prompt_authoring 视觉生成。
+class ConfirmScriptReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    overwrite_revision: str | None = Field(
+        default=None, description="认可覆盖的正式脚本版本，取自 script_overwrite.revision；该集尚无正式脚本时不必给"
+    )
+
+
+@router.post(
+    "/projects/{project_name}/episodes/{episode}/script-review/confirm",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def confirm_script_review(
+    project_name: str,
+    episode: int,
+    _t: Translator,
+    req: ConfirmScriptReviewRequest | None = None,
+):
+    """用户显式确认 script_plan 内容：整份转为正式脚本（全部分镜待编写），放行 prompt_authoring 视觉生成。
+
+    该集已有正式脚本时须带 ``overwrite_revision``（覆盖清单的 ``revision``），缺失或与当前正式脚本不符
+    时 409，诊断里的 ``script_overwrite`` 列出当前将被移除的分镜与产物摘要，不写正式脚本与确认记录。
 
     ``quarantine`` 同 GET / PUT 一并合并，保持三个端点响应形状一致——``confirm()`` 内部虽已
     按待处置草稿文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的草稿状态，而不是让这个字段在
@@ -132,7 +151,9 @@ async def confirm_script_review(project_name: str, episode: int, _t: Translator)
     """
     try:
         service = ScriptReviewService(get_project_manager())
-        state = await service.confirm(project_name, episode)
+        state = await service.confirm(
+            project_name, episode, overwrite_revision=req.overwrite_revision if req is not None else None
+        )
         await _attach_duration_tiers(service, project_name, episode, state)
         state["quarantine"] = _localize_quarantine_violations(
             await service.get_quarantine_info(project_name, episode), _t

@@ -737,6 +737,51 @@ class TestScriptPlanConversion:
             await _converter(project_dir).convert_script_plan(1)
         assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
 
+    async def test_materialization_refuses_a_plan_other_than_the_confirmed_one(
+        self, tmp_path: Path, variant: _Variant
+    ) -> None:
+        """确认记录的是校验过的那份规划：加载到的规划指纹不同即拒绝，不写剧本、不改 project.json。"""
+        project_dir, _plan_path = variant.build(tmp_path)
+        project_before = (project_dir / "project.json").read_bytes()
+
+        with pytest.raises(script_review.ScriptPlanWriteConflict):
+            await _converter(project_dir).materialize_script_plan(
+                1,
+                expected_plan_revision="sha256-v1:" + "0" * 64,
+                expected_script_fingerprint=None,
+                project_update=lambda project: project.__setitem__("touched", True),
+            )
+
+        assert not (project_dir / "scripts" / "episode_1.json").exists()
+        assert (project_dir / "project.json").read_bytes() == project_before
+
+    async def test_materialization_refuses_a_script_other_than_the_acknowledged_one(
+        self, tmp_path: Path, variant: _Variant
+    ) -> None:
+        """覆盖认可对应调用方看到的那份正式剧本：剧本之后又被改过即按冲突拒绝，剧本与 project.json 原样。"""
+        project_dir, plan_path = variant.build(tmp_path)
+        await _converter(project_dir).convert_script_plan(1)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        acknowledged = script_review.content_fingerprint(script_path)
+        document = json.loads(script_path.read_text(encoding="utf-8"))
+        document["title"] = "认可之后又改了"
+        script_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        before = script_path.read_bytes()
+        project_before = (project_dir / "project.json").read_bytes()
+        plan_revision = script_review.content_fingerprint(plan_path)
+        assert plan_revision is not None
+
+        with pytest.raises(ScriptWriteConflict):
+            await _converter(project_dir).materialize_script_plan(
+                1,
+                expected_plan_revision=plan_revision,
+                expected_script_fingerprint=acknowledged,
+                project_update=lambda project: project.__setitem__("touched", True),
+            )
+
+        assert script_path.read_bytes() == before
+        assert (project_dir / "project.json").read_bytes() == project_before
+
     async def test_title_only_change_is_previewed_and_persisted(self, tmp_path: Path) -> None:
         """drama 规划只改标题：三组条目为空但不是空操作，预演报 title_changed，转换落盘新标题。"""
         project_dir, plan_path = DRAMA.build(tmp_path)

@@ -1692,14 +1692,22 @@ class API {
     );
   }
 
-  /** 用户显式确认 script_plan 内容，放行 prompt_authoring 视觉生成。 */
+  /**
+   * 用户显式确认 script_plan 内容：整份转为正式脚本，放行 prompt_authoring 视觉生成。
+   * 该集已有正式脚本时须带 `overwriteRevision`（覆盖清单的 `revision`）；缺失或与当前正式脚本不符时 409，
+   * `diagnostic.script_overwrite` 列出当前将被移除的分镜。
+   */
   static async confirmScriptReview(
     projectName: string,
-    episode: number
+    episode: number,
+    options: { overwriteRevision?: string } = {}
   ): Promise<ScriptReviewState> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/confirm`,
-      { method: "POST" }
+      {
+        method: "POST",
+        body: JSON.stringify({ overwrite_revision: options.overwriteRevision ?? null }),
+      }
     );
   }
 

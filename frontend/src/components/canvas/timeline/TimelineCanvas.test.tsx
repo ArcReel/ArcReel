@@ -82,6 +82,7 @@ function makeReviewState(stale: string[]): ScriptReviewState {
     episode_target_duration: null,
     content: null,
     script_entry_currency: { stale, added: [], removed: [], order_changed: false },
+    script_overwrite: null,
   };
 }
 

@@ -896,7 +896,16 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
             },
             progress_callback=record_progress,
         )
-        confirmed = await session.call_tool("confirm_script_review", {"project": "demo", "episode": 1})
+        refused = await session.call_tool("confirm_script_review", {"project": "demo", "episode": 1})
+        refused_problem = refused.structuredContent["problem"]
+        confirmed = await session.call_tool(
+            "confirm_script_review",
+            {
+                "project": "demo",
+                "episode": 1,
+                "overwrite_revision": refused_problem["params"]["script_overwrite"]["revision"],
+            },
+        )
         script = await session.call_tool(
             "generate_episode_script",
             {"project": "ad-demo", "episode": 1, "dry_run": True},
@@ -917,6 +926,9 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert "prompt immediately without a generation_batch; do not poll" in tools["generate_script_plan"].description
     assert set(script_plan.structuredContent) == {"text_generation"}
     assert script_plan.structuredContent["text_generation"]["message"]
+    assert refused.isError
+    assert refused_problem["code"] == "script_overwrite_required"
+    assert refused_problem["params"]["script_overwrite"]["entries"] == []
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
     assert not script.isError

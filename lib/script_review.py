@@ -26,6 +26,7 @@ import json
 import logging
 from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -48,6 +49,8 @@ from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.reference_video.duration_migration import migrate_unit_durations
+from lib.script_editor import ScriptEditError, resolve_items
+from lib.script_models import get_generated_assets
 from lib.script_plan_entries import (
     SCRIPT_PLAN_REVISION_FIELD as SCRIPT_PLAN_REVISION_FIELD,
 )
@@ -450,6 +453,76 @@ def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:
     ep = find_episode(project, episode)
     review = ep.get(REVIEW_FIELD) if ep else None
     return review if isinstance(review, dict) else {}
+
+
+@dataclass(frozen=True, slots=True)
+class OverwrittenScriptEntry:
+    """覆盖式确认将移除的一条正式脚本条目，及其名下已生成的产物。"""
+
+    entry_id: str
+    has_storyboard: bool
+    has_video: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FormalScriptOverwrite:
+    """内容确认将覆盖的正式脚本：确认后旧条目全部移除，产物按分镜移除的口径撤登记。
+
+    ``fingerprint`` 是读取时正式脚本的内容指纹，对外作 ``revision``：调用方认可覆盖时回传它，
+    与确认时读到的正式脚本不符即视为未认可、按新清单重新拒绝；覆盖写入也以它为基线，认可只对应
+    这一份被列出的内容。
+    """
+
+    fingerprint: str
+    entries: tuple[OverwrittenScriptEntry, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "revision": self.fingerprint,
+            "entries": [
+                {"id": entry.entry_id, "has_storyboard": entry.has_storyboard, "has_video": entry.has_video}
+                for entry in self.entries
+            ],
+            "storyboard_count": sum(entry.has_storyboard for entry in self.entries),
+            "video_count": sum(entry.has_video for entry in self.entries),
+        }
+
+
+def formal_script_overwrite(project_path: Path, episode: int) -> FormalScriptOverwrite | None:
+    """读取内容确认将覆盖的正式脚本；该集尚无正式脚本时返回 None。
+
+    读的是确认转换写出的那份 ``scripts/episode_N.json``。文件存在但读不成剧本（非法 JSON、
+    条目数组损坏）时照样算已有正式脚本、条目列表为空：覆盖它仍需认可。
+    """
+    path = project_path / episode_script_relpath(episode)
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return FormalScriptOverwrite(fingerprint=hashlib.sha256(raw).hexdigest(), entries=())
+    fingerprint = content_fingerprint_of_data(parsed)
+    if not isinstance(parsed, dict):
+        return FormalScriptOverwrite(fingerprint=fingerprint, entries=())
+    try:
+        items, id_field, _kind = resolve_items(parsed)
+    except ScriptEditError:
+        items, id_field = [], ""
+    entries: list[OverwrittenScriptEntry] = []
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get(id_field), str) or not item[id_field]:
+            continue
+        assets = get_generated_assets(item)
+        entries.append(
+            OverwrittenScriptEntry(
+                entry_id=item[id_field],
+                has_storyboard=bool(assets.get("storyboard_image")),
+                has_video=bool(assets.get("video_clip")),
+            )
+        )
+    return FormalScriptOverwrite(fingerprint=fingerprint, entries=tuple(entries))
 
 
 def prompt_authoring_generated(project_path: Path, project: dict[str, Any], episode: int) -> bool:

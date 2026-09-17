@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { API } from "@/api";
-import type { ScriptReviewState } from "@/types";
+import { API, ApiRequestError } from "@/api";
+import type { ScriptOverwrite, ScriptReviewState } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 
 /** 面板可编辑的草稿：`ScriptReviewState.content` 的某个变体。 */
@@ -9,6 +9,15 @@ type ScriptReviewContent = NonNullable<ScriptReviewState["content"]>;
 
 function scriptReviewErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "";
+}
+
+/** 确认被拒是因为该集已有正式脚本、未认可覆盖时，取出服务端列出的覆盖后果。 */
+function overwriteFromError(err: unknown): ScriptOverwrite | null {
+  if (!(err instanceof ApiRequestError) || err.status !== 409) return null;
+  const diagnostic = err.diagnostic;
+  if (diagnostic == null || typeof diagnostic !== "object") return null;
+  const overwrite = (diagnostic as { script_overwrite?: unknown }).script_overwrite;
+  return overwrite != null && typeof overwrite === "object" ? (overwrite as ScriptOverwrite) : null;
 }
 
 /** 内容是否有未保存编辑：以序列化比对，draft 由 server content 克隆而来，键序稳定。 */
@@ -48,7 +57,11 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
   busy: boolean;
   retry: () => void;
   save: () => Promise<void>;
-  confirm: () => Promise<void>;
+  /**
+   * 确认并整份转为正式脚本。该集已有正式脚本时须传认可覆盖的 `overwriteRevision`；缺失或已过期而被
+   * 服务端拒绝时，把服务端列出的当前覆盖后果写回 `state.script_overwrite`，面板据此改呈 danger 确认。
+   */
+  confirm: (options?: { overwriteRevision?: string }) => Promise<void>;
 }
 
 /**
@@ -174,15 +187,19 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     }
   }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
 
-  const confirm = useCallback(async () => {
+  const confirm = useCallback(async (options: { overwriteRevision?: string } = {}) => {
     setConfirming(true);
     try {
       if (dirty && draft) {
         adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       }
-      adopt(await API.confirmScriptReview(projectName, episode));
+      adopt(await API.confirmScriptReview(projectName, episode, options));
       onConfirmed();
     } catch (err) {
+      const overwrite = overwriteFromError(err);
+      if (overwrite) {
+        setState((prev) => (prev ? { ...prev, script_overwrite: overwrite } : prev));
+      }
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:review_confirm_failed"), "error");
     } finally {
       setConfirming(false);

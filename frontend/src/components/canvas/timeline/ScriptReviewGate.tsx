@@ -15,6 +15,8 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
+import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
+import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import {
   ACCENT_BUTTON_STYLE,
@@ -231,6 +233,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
   const [convertOpen, setConvertOpen] = useState(false);
+  const [overwriteOpen, setOverwriteOpen] = useState(false);
 
   const handleConfirmed = useCallback(() => {
     pushToast(t("dashboard:review_confirmed"), "success");
@@ -323,6 +326,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   // 端点本就按同一判据拒绝。故整面板转只读，编辑与确认一并锁住。
   const quarantined = quarantine != null;
   const confirmed = status === "confirmed" && !dirty && !quarantined;
+  // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
+  const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
 
   return (
     <div className="flex flex-col gap-3">
@@ -352,7 +357,9 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
                 ? t("dashboard:review_quarantined_hint")
                 : confirmed
                   ? t("dashboard:review_confirmed_hint")
-                  : t("dashboard:review_pending_hint")}
+                  : overwrite
+                    ? t("dashboard:review_overwrite_hint")
+                    : t("dashboard:review_pending_hint")}
             </span>
           </div>
         </div>
@@ -370,23 +377,48 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
               {t("dashboard:review_convert_action")}
             </button>
           )}
-          <button
-            type="button"
-            onClick={voidPromise(handleConfirm)}
-            disabled={busy || confirmed || quarantined}
-            title={quarantined ? t("dashboard:review_confirm_blocked_quarantined") : undefined}
-            className={ACCENT_BTN_CLS}
-            style={ACCENT_BUTTON_STYLE}
-          >
-            {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-            {confirming
-              ? t("dashboard:review_confirming")
-              : confirmed
-                ? t("dashboard:review_confirmed_badge")
-                : t("dashboard:review_confirm_action")}
-          </button>
+          {overwrite ? (
+            <PrimaryButton
+              tone="danger"
+              onClick={() => setOverwriteOpen(true)}
+              disabled={busy || quarantined}
+              title={quarantined ? t("dashboard:review_confirm_blocked_quarantined") : undefined}
+              leadingIcon={quarantined ? <Lock className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            >
+              {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
+            </PrimaryButton>
+          ) : (
+            <button
+              type="button"
+              onClick={voidPromise(() => handleConfirm())}
+              disabled={busy || confirmed || quarantined}
+              title={quarantined ? t("dashboard:review_confirm_blocked_quarantined") : undefined}
+              className={ACCENT_BTN_CLS}
+              style={ACCENT_BUTTON_STYLE}
+            >
+              {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {confirming
+                ? t("dashboard:review_confirming")
+                : confirmed
+                  ? t("dashboard:review_confirmed_badge")
+                  : t("dashboard:review_confirm_action")}
+            </button>
+          )}
         </div>
       </header>
+
+      {overwrite && (
+        <ScriptOverwriteConfirmDialog
+          open={overwriteOpen}
+          overwrite={overwrite}
+          loading={confirming}
+          onConfirm={async () => {
+            await handleConfirm({ overwriteRevision: overwrite.revision });
+            setOverwriteOpen(false);
+          }}
+          onCancel={() => setOverwriteOpen(false)}
+        />
+      )}
 
       <ScriptPlanConversionDialog
         open={convertOpen}

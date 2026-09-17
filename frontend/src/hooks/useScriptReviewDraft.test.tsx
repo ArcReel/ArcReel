@@ -17,6 +17,7 @@ function reviewState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSt
     duration_tiers: null,
     episode_target_duration: null,
     script_entry_currency: null,
+    script_overwrite: null,
     content: {
       title: "第一集",
       scenes: [

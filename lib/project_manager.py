@@ -717,6 +717,8 @@ class ProjectManager:
         expected_fingerprint: str | _Unset | None = _UNSET,
         cancellation_file_receipts: list[FormalWriteReceipt] | None = None,
         cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
+        replaced_resource_ids: Sequence[str] = (),
+        project_update: Callable[[dict[str, Any]], None] | None = None,
     ) -> Path:
         """
         保存分镜剧本
@@ -729,6 +731,8 @@ class ProjectManager:
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
             artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
             expected_fingerprint: 可选的正式剧本内容基线；在剧本锁内不匹配时拒绝写入。
+            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；它们名下的产物登记随本次写入撤销。
+            project_update: 与剧本、集索引同一写事务内对 project.json 的额外修改；仅带集号的剧本可用。
 
         Returns:
             保存的文件路径
@@ -790,6 +794,7 @@ class ProjectManager:
                         artifact_path=f"scripts/{filename}",
                         resource_ids=resource_ids,
                         removed_resource_ids=tuple(set(previous_resource_ids) - set(resource_ids)),
+                        replaced_resource_ids=replaced_resource_ids,
                         basis=artifact_basis,
                         cancellation_receipts=cancellation_manifest_receipts,
                     )
@@ -811,6 +816,7 @@ class ProjectManager:
                 before=before_script,
                 prepare_on_commit=prepare_on_commit,
                 cancellation_receipts=cancellation_file_receipts,
+                project_update=project_update,
             )
 
     def _commit_script_unlocked(
@@ -824,6 +830,7 @@ class ProjectManager:
         on_commit: Callable[[Path], None] | None = None,
         prepare_on_commit: Callable[[], Callable[[Path], None] | None] | None = None,
         cancellation_receipts: list[FormalWriteReceipt] | None = None,
+        project_update: Callable[[dict[str, Any]], None] | None = None,
     ) -> Path:
         """Commit a script, its project index, and an optional sidecar hook together.
 
@@ -842,6 +849,8 @@ class ProjectManager:
         project_file = self._get_project_file_path(project_name)
         sync_project = project_file.is_file() and isinstance(script.get("episode"), int)
         lock_project = project_file.is_file() and (sync_project or prepare_on_commit is not None)
+        if project_update is not None and not sync_project:
+            raise ValueError("project_update requires an episode script of an existing project")
 
         if lock_project:
             with self._project_lock(project_name):
@@ -862,6 +871,8 @@ class ProjectManager:
                         if self._requires_unique_asset_namespace(project):
                             ensure_project_asset_namespace(project)
                         self._apply_episode_sync(project, script, filename)
+                        if project_update is not None:
+                            project_update(project)
                         self._migrate_legacy_resolution_on_save(project)
                         self._touch_metadata(project)
                         if self._requires_unique_asset_namespace(project):

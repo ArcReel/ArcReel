@@ -55,6 +55,7 @@ from server.tool_runtime import (
     CallerContext,
     CompleteAssetInventoryRequest,
     CompleteScriptPlanRebuildRequest,
+    ConfirmScriptReviewRequest,
     CreateProjectToolRequest,
     GenerationBatchToolRequest,
     PatchEpisodeMetaRequest,
@@ -619,8 +620,15 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="confirm_script_review", structured_output=False)
-    async def remote_confirm_script_review(project: str, episode: int) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Confirm one episode's script_plan review before visual generation."""
+    async def remote_confirm_script_review(  # pyright: ignore[reportUnusedFunction]
+        project: str, episode: int, overwrite_revision: str | None = None
+    ) -> CallToolResult:
+        """Confirm one episode's script_plan review: convert it into the formal script before visual generation.
+
+        When the episode already has a formal script, confirming overwrites it; without a matching
+        ``overwrite_revision`` the call returns ``script_overwrite_required`` listing the shots it would remove.
+        Ask the user before retrying with ``overwrite_revision`` set to ``script_overwrite.revision``.
+        """
         try:
             scope = _project_scope(project, projects)
         except (FileNotFoundError, ValueError) as exc:
@@ -629,7 +637,12 @@ def build_remote_mcp_server(
             return _to_mcp_result("text_generation", ToolOutcome(problem=problem))
         return _to_mcp_result(
             "text_generation",
-            await confirm_script_review(ToolRequest(episode), scope, _authenticated_caller(), services),
+            await confirm_script_review(
+                ToolRequest(ConfirmScriptReviewRequest(episode=episode, overwrite_revision=overwrite_revision)),
+                scope,
+                _authenticated_caller(),
+                services,
+            ),
         )
 
     @server.tool(name="patch_episode_script", structured_output=False)

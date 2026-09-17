@@ -19,6 +19,7 @@ from server.media_tools.context import (
 )
 from server.text_generation import TextGenerationRequest as ToolTextGenerationRequest
 from server.tool_runtime import (
+    ConfirmScriptReviewRequest,
     ToolOutcome,
     ToolProblem,
     ToolRequest,
@@ -298,16 +299,31 @@ def generate_script_plan_tool(
 def confirm_script_review_tool(ctx: ToolContext):
     @tool(
         "confirm_script_review",
-        "确认本集 script_plan 结构化中间态，放行 prompt_authoring 视觉生成。仅在用户已明确认可进入视觉生成时调用。",
+        "确认本集 script_plan：整份转为正式脚本（全部分镜待编写），放行 prompt_authoring 视觉生成。"
+        "仅在用户已明确认可进入视觉生成时调用。该集已有正式脚本时确认会整份覆盖它，未认可时返回"
+        " script_overwrite_required 与将被移除的分镜清单（params.script_overwrite）；须向用户说明并取得同意后，"
+        "再以清单中的 revision 作为 overwrite_revision 重新确认。",
         {
             "type": "object",
-            "properties": {"episode": {"type": "integer", "description": "剧集编号"}},
+            "properties": {
+                "episode": {"type": "integer", "description": "剧集编号"},
+                "overwrite_revision": {
+                    "type": "string",
+                    "description": "用户已同意覆盖的正式脚本版本，取自 script_overwrite.revision；尚无正式脚本时不必给",
+                },
+            },
             "required": ["episode"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        revision = args.get("overwrite_revision")
         outcome = await run_confirm_script_review(
-            ToolRequest(int(args["episode"])),
+            ToolRequest(
+                ConfirmScriptReviewRequest(
+                    episode=int(args["episode"]),
+                    overwrite_revision=revision if isinstance(revision, str) else None,
+                )
+            ),
             ctx.scope,
             ctx.caller,
             tool_services(ctx),
