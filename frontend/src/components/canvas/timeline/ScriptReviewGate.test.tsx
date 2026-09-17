@@ -1,10 +1,24 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, type MockInstance } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { ScriptReviewGate } from "./ScriptReviewGate";
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
-import type { ScriptReviewState } from "@/types";
+import type { ScriptReviewState, VideoCapabilities } from "@/types";
+
+const VIDEO_CAPS = {
+  provider_id: "gemini",
+  model: "veo-3",
+  supported_durations: [4, 8],
+  max_duration: 8,
+} as VideoCapabilities;
+
+// 等能力请求的回调落地后再断言「无提示」：只等到 spy 被调用时回调尚未执行，「无提示」恒成立。
+async function settleCapabilityRequests(spy: MockInstance<typeof API.getVideoCapabilities>) {
+  await act(async () => {
+    await Promise.allSettled(spy.mock.results.map((r) => r.value));
+  });
+}
 
 // 已确认的集照常已有正式脚本（确认即转出）。
 const CONFIRMED: Partial<ScriptReviewState> = {
@@ -252,6 +266,91 @@ describe("ScriptReviewGate", () => {
 
     const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
     expect(button).toHaveAttribute("data-tone", "danger");
+  });
+
+  it("keeps the overwrite dialog open with the refreshed list when the formal script changed meanwhile", async () => {
+    const listed = {
+      revision: "sha256-v1:listed",
+      entries: [{ id: "E1S01", has_storyboard: false, has_video: false }],
+      storyboard_count: 0,
+      video_count: 0,
+    };
+    const refreshed = {
+      revision: "sha256-v1:refreshed",
+      entries: [
+        { id: "E1S01", has_storyboard: false, has_video: false },
+        { id: "E1S07", has_storyboard: true, has_video: false },
+      ],
+      storyboard_count: 1,
+      video_count: 0,
+    };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: listed }));
+    const confirm = vi
+      .spyOn(API, "confirmScriptReview")
+      .mockRejectedValueOnce(new ApiRequestError("正式脚本已变化", { script_overwrite: refreshed }, 409))
+      .mockResolvedValueOnce(dramaState(CONFIRMED));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
+    fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
+
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("E1S07"));
+    expect(screen.getByRole("dialog")).toHaveTextContent("1 张分镜图、0 段视频随分镜移除");
+
+    fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("warns and disables confirm when the server reports the video model cannot be resolved", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("尚未配置可用的视频模型");
+    expect(screen.getByRole("link", { name: "前往项目设置" })).toHaveAttribute("href", "/app/projects/p/settings");
+    const button = screen.getByRole("button", { name: "确认并继续" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", expect.stringContaining("尚未配置可用的视频模型"));
+  });
+
+  it("disables the overwrite confirm too when the video model cannot be resolved", async () => {
+    const overwrite = { revision: "sha256-v1:listed", entries: [], storyboard_count: 0, video_count: 0 };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: overwrite }));
+    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "确认并覆盖正式脚本" })).toBeDisabled();
+  });
+
+  it("shows no video model warning once capabilities resolve", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    const capabilities = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(VIDEO_CAPS);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const button = await screen.findByRole("button", { name: "确认并继续" });
+    await waitFor(() => expect(capabilities).toHaveBeenCalled());
+    await settleCapabilityRequests(capabilities);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(button).toBeEnabled();
+  });
+
+  it("keeps confirm available when the capability request itself fails", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    const capabilities = vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new TypeError("Failed to fetch"));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const button = await screen.findByRole("button", { name: "确认并继续" });
+    await waitFor(() => expect(capabilities).toHaveBeenCalled());
+    await settleCapabilityRequests(capabilities);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(button).toBeEnabled();
   });
 
   it("edits content, surfaces save, and persists the edited intermediate", async () => {

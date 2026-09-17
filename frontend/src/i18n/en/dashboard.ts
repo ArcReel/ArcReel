@@ -1515,6 +1515,8 @@ export default {
   'review_quarantined_no_violations': 'Revalidation found no violations — waiting for the Agent to promote the draft.',
   'review_quarantined_draft_label': 'Draft content (read-only)',
   'review_confirm_blocked_quarantined': 'A draft needs fixes — confirm once it is fixed and promoted',
+  'review_video_model_unresolved_hint': 'No usable video model is configured, so shot durations can\'t be determined and confirming is unavailable for now; pick a video model in the project settings, or configure a video provider in Settings → Providers',
+  'review_video_model_unresolved_action': 'Open project settings',
   'review_request_fix': 'Ask the Agent to fix it',
   'review_fix_request_prefill_header':
     'Episode {{episode}}’s script plan draft has {{count}} violation(s) to fix — call open_draft with doc_type={{docType}} to read it, then correct it with patch_draft using the same doc_type and pass the returned revision as base_revision:',
@@ -1772,7 +1774,6 @@ export default {
   'detail_section_prompts': 'PROMPTS',
   'detail_dialogue_empty': '(no dialogue yet)',
   'detail_dialogue_add': '+ Add dialogue',
-  'detail_prompt_pending': 'Pending',
   'detail_pending_authoring_hint': 'Pending authoring: this shot\'s prompts haven\'t been authored yet. Ask the agent to fill them in, or write them below',
   'shot_prompt_pending': 'Prompts pending',
   'detail_image_prompt_title': 'Image Prompt · Storyboard',

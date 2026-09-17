@@ -1514,6 +1514,8 @@ export default {
   'review_quarantined_no_violations': '重新校验已无违约，等待 Agent 把草稿晋升为正式内容。',
   'review_quarantined_draft_label': '草稿正文（只读）',
   'review_confirm_blocked_quarantined': '有待修复草稿，修复晋升后才能确认',
+  'review_video_model_unresolved_hint': '尚未配置可用的视频模型，无法确定分镜时长，暂时不能确认；请在项目设置中选择视频模型，或在「设置 → 供应商」页面配置视频供应商',
+  'review_video_model_unresolved_action': '前往项目设置',
   'review_request_fix': '让 Agent 修复',
   'review_fix_request_prefill_header':
     '第 {{episode}} 集的脚本规划草稿有 {{count}} 处违约待修复，请用 doc_type={{docType}} 调用 open_draft 读取草稿，再用同一 doc_type 调用 patch_draft 修正，并把 open_draft 返回的 revision 作为 base_revision 传入：',
@@ -1771,7 +1773,6 @@ export default {
   'detail_section_prompts': '提示词',
   'detail_dialogue_empty': '（暂无对话）',
   'detail_dialogue_add': '+ 添加对话',
-  'detail_prompt_pending': '待生成',
   'detail_pending_authoring_hint': '待编写：该分镜的提示词尚未编写，可让 Agent 补充提示词，或直接在下方填写',
   'shot_prompt_pending': '提示词待生成',
   'detail_image_prompt_title': 'Image Prompt · 分镜图',

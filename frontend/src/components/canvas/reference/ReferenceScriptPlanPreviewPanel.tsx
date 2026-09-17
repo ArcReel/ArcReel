@@ -10,11 +10,13 @@ import type {
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { sumItemDuration } from "@/utils/script-shape";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
+import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
@@ -391,6 +393,10 @@ export function ReferenceScriptPlanPreviewPanel({
     onConfirmed: handleConfirmed,
   });
 
+  // 确认转出按视频模型能力定时长档位：服务端明确答复模型无法解析时提前拦下；能力请求本身失败
+  // 不算，交确认端点兜底。能力按项目生成模式定轴，不带集号；演示项目由 hook 自行跳过。
+  const { videoModelUnresolved } = useModelCapabilities({ projectName });
+
   const updateUnitText = useCallback(
     (unitIndex: number, text: string) => {
       setDraft((prev) => {
@@ -478,6 +484,7 @@ export function ReferenceScriptPlanPreviewPanel({
   // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = quarantined || (confirmed && !scriptMissing);
+  const videoModelBlocked = videoModelUnresolved && !confirmLocked;
   const displayUnits: DisplayUnit[] = quarantined
     ? quarantinedDisplayUnits(quarantine.content, episode)
     : draft
@@ -498,6 +505,13 @@ export function ReferenceScriptPlanPreviewPanel({
       );
   const allViolations = quarantine?.violations ?? [];
   const hasDraftViolations = allViolations.length > 0;
+  const confirmBlockedHint = quarantined
+    ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
+    : videoModelBlocked
+      ? t("dashboard:review_video_model_unresolved_hint")
+      : outOfTierUnitKeys.size > 0
+        ? t("reference_script_plan_duration_out_of_tier_hint")
+        : undefined;
   const unitKeys = new Set(displayUnits.map((u) => u.key));
   const unassignedViolations = allViolations.filter((v) => !unitKeys.has(unitKeyFromLabel(v.label) ?? ""));
   const violatingUnitKeys = [...new Set(allViolations.map((v) => unitKeyFromLabel(v.label)).filter((k): k is string => k != null))];
@@ -590,14 +604,8 @@ export function ReferenceScriptPlanPreviewPanel({
             <PrimaryButton
               tone="danger"
               onClick={() => setOverwriteOpen(true)}
-              disabled={busy || quarantined || outOfTierUnitKeys.size > 0}
-              title={
-                quarantined
-                  ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
-                  : outOfTierUnitKeys.size > 0
-                    ? t("reference_script_plan_duration_out_of_tier_hint")
-                    : undefined
-              }
+              disabled={busy || quarantined || outOfTierUnitKeys.size > 0 || videoModelBlocked}
+              title={confirmBlockedHint}
               leadingIcon={quarantined ? <Lock className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
             >
               {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
@@ -606,16 +614,10 @@ export function ReferenceScriptPlanPreviewPanel({
             <button
               type="button"
               onClick={voidPromise(() => handleConfirm())}
-              disabled={busy || confirmLocked || outOfTierUnitKeys.size > 0}
+              disabled={busy || confirmLocked || outOfTierUnitKeys.size > 0 || videoModelBlocked}
               className={ACCENT_BTN_CLS}
               style={ACCENT_BUTTON_STYLE}
-              title={
-                quarantined
-                  ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
-                  : outOfTierUnitKeys.size > 0
-                    ? t("reference_script_plan_duration_out_of_tier_hint")
-                    : undefined
-              }
+              title={confirmBlockedHint}
             >
               {confirmLocked ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
               {confirming
@@ -630,14 +632,16 @@ export function ReferenceScriptPlanPreviewPanel({
         </div>
       </header>
 
+      {videoModelBlocked && <VideoModelUnresolvedNotice projectName={projectName} />}
+
       {overwrite && (
         <ScriptOverwriteConfirmDialog
           open={overwriteOpen}
           overwrite={overwrite}
           loading={confirming}
           onConfirm={async () => {
-            await handleConfirm({ overwriteRevision: overwrite.revision });
-            setOverwriteOpen(false);
+            // 失败（如确认期间该集被并发写入）时框保持打开，呈现刷新后的覆盖清单。
+            if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);
           }}
           onCancel={() => setOverwriteOpen(false)}
         />

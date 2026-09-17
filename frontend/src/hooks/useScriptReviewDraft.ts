@@ -72,8 +72,9 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
   /**
    * 确认并整份转为正式脚本。该集已有正式脚本时须传认可覆盖的 `overwriteRevision`；缺失或已过期而被
    * 服务端拒绝时，把服务端列出的当前覆盖后果写回 `state.script_overwrite`，面板据此改呈 danger 确认。
+   * 失败已就地处置（toast）、不重抛；返回是否成功，供调用方决定是否收起确认框。
    */
-  confirm: (options?: { overwriteRevision?: string }) => Promise<void>;
+  confirm: (options?: { overwriteRevision?: string }) => Promise<boolean>;
 }
 
 /**
@@ -201,7 +202,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     }
   }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
 
-  const confirm = useCallback(async (options: { overwriteRevision?: string } = {}) => {
+  const confirm = useCallback(async (options: { overwriteRevision?: string } = {}): Promise<boolean> => {
     setConfirming(true);
     try {
       if (dirty && draft) {
@@ -209,12 +210,14 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       }
       adopt(await API.confirmScriptReview(projectName, episode, options));
       onConfirmed();
+      return true;
     } catch (err) {
       const overwrite = overwriteFromError(err);
       if (overwrite) {
         setState((prev) => (prev ? { ...prev, script_overwrite: overwrite } : prev));
       }
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:review_confirm_failed"), "error");
+      return false;
     } finally {
       setConfirming(false);
     }

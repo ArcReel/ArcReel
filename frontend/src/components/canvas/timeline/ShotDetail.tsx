@@ -1032,16 +1032,6 @@ export function ShotDetail({
     </div>
   );
 
-  const renderPendingBadge = (pending: boolean) =>
-    pending ? (
-      <span
-        className="rounded px-1.5 py-px text-[10px] font-semibold"
-        style={{ color: "var(--color-warm)", border: "1px solid var(--color-hairline-soft)" }}
-      >
-        {t("detail_prompt_pending")}
-      </span>
-    ) : null;
-
   const midColumn = (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-5 pb-7 pt-3.5">
       <div
@@ -1081,7 +1071,6 @@ export function ShotDetail({
           >
             {t("detail_image_prompt_title")}
           </span>
-          {renderPendingBadge(ip === null)}
           <span className="flex-1" />
           {imgDraft && (
             <span
@@ -1131,7 +1120,6 @@ export function ShotDetail({
           >
             {t("detail_video_prompt_title")}
           </span>
-          {renderPendingBadge(vp === null)}
           <span className="flex-1" />
           {vidDraft && (
             <span

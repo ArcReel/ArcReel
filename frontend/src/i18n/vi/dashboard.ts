@@ -1491,6 +1491,8 @@ export default {
   'review_quarantined_no_violations': 'Xác thực lại không còn vi phạm — đang chờ Agent thăng cấp bản nháp.',
   'review_quarantined_draft_label': 'Nội dung bản nháp (chỉ đọc)',
   'review_confirm_blocked_quarantined': 'Còn bản nháp cần sửa — chỉ xác nhận được sau khi sửa và thăng cấp',
+  'review_video_model_unresolved_hint': 'Chưa cấu hình mô hình video khả dụng nên không xác định được thời lượng phân cảnh, tạm thời chưa thể xác nhận; hãy chọn mô hình video trong cài đặt dự án, hoặc cấu hình nhà cung cấp video trong Cài đặt → Nhà cung cấp',
+  'review_video_model_unresolved_action': 'Mở cài đặt dự án',
   'review_request_fix': 'Nhờ Agent sửa',
   'review_fix_request_prefill_header':
     'Bản nháp kế hoạch kịch bản của tập {{episode}} có {{count}} vi phạm cần sửa; hãy gọi open_draft với doc_type={{docType}} để đọc, sau đó sửa bằng patch_draft với cùng doc_type và truyền revision trả về làm base_revision:',
@@ -1607,7 +1609,6 @@ export default {
   'detail_drawer_left_label': 'Kịch bản / Đối thoại / Ghi chú',
   'detail_field_chars_count': '{{count}} ký tự',
   'detail_image_prompt_placeholder': 'Mô tả khung hình: bối cảnh, nhân vật, hành động, bố cục…',
-  'detail_prompt_pending': 'Chờ tạo',
   'detail_pending_authoring_hint': 'Chờ biên soạn: prompt của phân cảnh này chưa được biên soạn. Hãy nhờ Agent bổ sung hoặc tự điền bên dưới',
   'shot_prompt_pending': 'Prompt chờ tạo',
   'detail_image_prompt_title': 'Image Prompt · Phân cảnh',

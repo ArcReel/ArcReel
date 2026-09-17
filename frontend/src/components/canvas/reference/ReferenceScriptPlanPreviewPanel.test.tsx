@@ -1,14 +1,28 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { API } from "@/api";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { ReferenceScriptPlanPreviewPanel } from "./ReferenceScriptPlanPreviewPanel";
 import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
-import type { ReferenceScriptPlanDraft, ScriptReviewState } from "@/types";
+import type { ReferenceScriptPlanDraft, ScriptReviewState, VideoCapabilities } from "@/types";
 
 const LOOKUP: MentionLookup = { 阿离: "character", 长街: "scene" };
+
+const VIDEO_CAPS = {
+  provider_id: "gemini",
+  model: "veo-3",
+  supported_durations: [4, 8],
+  max_duration: 8,
+} as VideoCapabilities;
+
+// 等能力请求的回调落地后再断言「无提示」：只等到 spy 被调用时回调尚未执行，「无提示」恒成立。
+async function settleCapabilityRequests(spy: MockInstance<typeof API.getVideoCapabilities>) {
+  await act(async () => {
+    await Promise.allSettled(spy.mock.results.map((r) => r.value));
+  });
+}
 
 // 已确认的集照常已有正式脚本（确认即转出）。
 const CONFIRMED: Partial<ScriptReviewState> = {
@@ -232,6 +246,91 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, { overwriteRevision: "sha256-v1:listed" }));
+  });
+
+  it("keeps the overwrite dialog open with the refreshed list when the formal script changed meanwhile", async () => {
+    const listed = {
+      revision: "sha256-v1:listed",
+      entries: [{ id: "E1U01", has_storyboard: false, has_video: true }],
+      storyboard_count: 0,
+      video_count: 1,
+    };
+    const refreshed = {
+      revision: "sha256-v1:refreshed",
+      entries: [
+        { id: "E1U01", has_storyboard: false, has_video: true },
+        { id: "E1U05", has_storyboard: false, has_video: true },
+      ],
+      storyboard_count: 0,
+      video_count: 2,
+    };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ script_overwrite: listed }));
+    const confirm = vi
+      .spyOn(API, "confirmScriptReview")
+      .mockRejectedValueOnce(new ApiRequestError("正式脚本已变化", { script_overwrite: refreshed }, 409))
+      .mockResolvedValueOnce(pendingState(CONFIRMED));
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
+    fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
+
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("E1U05"));
+    expect(screen.getByRole("dialog")).toHaveTextContent("0 张分镜图、2 段视频随分镜移除");
+
+    fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("warns and disables confirm when the server reports the video model cannot be resolved", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("尚未配置可用的视频模型");
+    expect(screen.getByRole("link", { name: "前往项目设置" })).toHaveAttribute("href", "/app/projects/p/settings");
+    const button = screen.getByRole("button", { name: /确认拆分，继续生成/ });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", expect.stringContaining("尚未配置可用的视频模型"));
+  });
+
+  it("disables the overwrite confirm too when the video model cannot be resolved", async () => {
+    const overwrite = { revision: "sha256-v1:listed", entries: [], storyboard_count: 0, video_count: 0 };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ script_overwrite: overwrite }));
+    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "确认并覆盖正式脚本" })).toBeDisabled();
+  });
+
+  it("shows no video model warning once capabilities resolve", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    const capabilities = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(VIDEO_CAPS);
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    const button = await screen.findByRole("button", { name: /确认拆分，继续生成/ });
+    await waitFor(() => expect(capabilities).toHaveBeenCalled());
+    await settleCapabilityRequests(capabilities);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(button).toBeEnabled();
+  });
+
+  it("keeps confirm available when the capability request itself fails", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    const capabilities = vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new TypeError("Failed to fetch"));
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    const button = await screen.findByRole("button", { name: /确认拆分，继续生成/ });
+    await waitFor(() => expect(capabilities).toHaveBeenCalled());
+    await settleCapabilityRequests(capabilities);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(button).toBeEnabled();
   });
 
   it("suppresses the confirm toast/prefill if the user has switched to a different project mid-request", async () => {

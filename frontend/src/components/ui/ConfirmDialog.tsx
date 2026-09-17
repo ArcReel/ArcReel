@@ -25,7 +25,7 @@ interface ConfirmDialogProps {
 
 // 通用确认弹窗（站内 yes/no 类破坏性确认的入口）。
 // tone="danger" 时顶部 hairline 走 warm、确认按钮走 warm tone；并显示左上角告警 icon。
-// 视觉与其他 v3 玻璃 modal 统一（issue #487）。
+// 视觉与其他 v3 玻璃 modal 统一。
 export function ConfirmDialog({
   open,
   title,

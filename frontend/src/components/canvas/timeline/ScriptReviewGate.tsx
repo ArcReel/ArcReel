@@ -12,10 +12,12 @@ import type {
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
+import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import {
@@ -297,6 +299,10 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
     onConfirmed: handleConfirmed,
   });
 
+  // 确认转出按视频模型能力定时长档位：服务端明确答复模型无法解析时提前拦下；能力请求本身失败
+  // 不算，交确认端点兜底。能力按项目生成模式定轴，不带集号；演示项目由 hook 自行跳过。
+  const { videoModelUnresolved } = useModelCapabilities({ projectName });
+
   const updateDramaScene = (index: number, patch: Partial<DramaSceneContent>) => {
     setDraft((prev) => {
       if (!prev || !("scenes" in prev)) return prev;
@@ -370,6 +376,12 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
   // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = quarantined || (confirmed && !scriptMissing);
+  const videoModelBlocked = videoModelUnresolved && !confirmLocked;
+  const confirmBlockedHint = quarantined
+    ? t("dashboard:review_confirm_blocked_quarantined")
+    : videoModelBlocked
+      ? t("dashboard:review_video_model_unresolved_hint")
+      : undefined;
 
   return (
     <div className="flex flex-col gap-3">
@@ -425,8 +437,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
             <PrimaryButton
               tone="danger"
               onClick={() => setOverwriteOpen(true)}
-              disabled={busy || quarantined}
-              title={quarantined ? t("dashboard:review_confirm_blocked_quarantined") : undefined}
+              disabled={busy || quarantined || videoModelBlocked}
+              title={confirmBlockedHint}
               leadingIcon={quarantined ? <Lock className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
             >
               {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
@@ -435,8 +447,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
             <button
               type="button"
               onClick={voidPromise(() => handleConfirm())}
-              disabled={busy || confirmLocked}
-              title={quarantined ? t("dashboard:review_confirm_blocked_quarantined") : undefined}
+              disabled={busy || confirmLocked || videoModelBlocked}
+              title={confirmBlockedHint}
               className={ACCENT_BTN_CLS}
               style={ACCENT_BUTTON_STYLE}
             >
@@ -453,14 +465,16 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
         </div>
       </header>
 
+      {videoModelBlocked && <VideoModelUnresolvedNotice projectName={projectName} />}
+
       {overwrite && (
         <ScriptOverwriteConfirmDialog
           open={overwriteOpen}
           overwrite={overwrite}
           loading={confirming}
           onConfirm={async () => {
-            await handleConfirm({ overwriteRevision: overwrite.revision });
-            setOverwriteOpen(false);
+            // 失败（如确认期间该集被并发写入）时框保持打开，呈现刷新后的覆盖清单。
+            if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);
           }}
           onCancel={() => setOverwriteOpen(false)}
         />
