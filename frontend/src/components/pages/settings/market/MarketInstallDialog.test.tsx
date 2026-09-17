@@ -210,6 +210,7 @@ describe("MarketInstallDialog", () => {
             source_key: "url:other",
             source_id: 2,
             source_display_name: "Other source",
+            source_enabled: true,
             slug: "demo",
             installed_version: "1.0.0",
             installed_at: "2026-09-17",
@@ -313,7 +314,7 @@ describe("MarketInstallDialog", () => {
 
       await userEvent.click(screen.getByRole("button", { name: "先导出当前定义" }));
       expect(downloads).toHaveLength(1);
-      expect(downloads[0].name).toBe("Demo-tuned.json");
+      expect(downloads[0].name).toBe("demo.json");
       expect(JSON.parse(await downloads[0].blob.text())).toEqual(localDefinition);
 
       await waitFor(() => expect(confirm).toBeEnabled());

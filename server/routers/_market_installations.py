@@ -31,6 +31,8 @@ class EndpointInstallationResponse(BaseModel):
     source_key: str
     source_id: int | None
     source_display_name: str | None
+    #: 来源已删除时为空。
+    source_enabled: bool | None
     slug: str
     installed_version: str
     installed_at: str
@@ -101,6 +103,7 @@ async def endpoint_installations(
             source_key=record.source_key,
             source_id=source.id if source else None,
             source_display_name=source.display_name if source else None,
+            source_enabled=source.is_enabled if source else None,
             slug=record.slug,
             installed_version=record.installed_version,
             # SQLite 读回的时间不带时区，库内一律按 UTC 存。

@@ -11,8 +11,11 @@ import type {
   CustomEndpointInfo,
   EndpointDefinition,
   EndpointDescriptor,
+  EndpointInstallation,
   EndpointValidateResponse,
+  MarketEntry,
 } from "@/types";
+import { MARKET_CONTRIBUTING_URL } from "../market/market-links";
 import { EndpointsSection } from "./EndpointsSection";
 
 function makeDefinition(overrides?: Partial<EndpointDefinition>): EndpointDefinition {
@@ -112,6 +115,22 @@ function renderSection(search = "section=endpoints") {
     ),
     location,
   };
+}
+
+function captureDownloads() {
+  const downloads: { name: string; blob: Blob }[] = [];
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    value: vi.fn((blob: Blob) => {
+      downloads.push({ name: "", blob });
+      return "blob:definition";
+    }),
+  });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+    downloads[downloads.length - 1].name = this.download;
+  });
+  return downloads;
 }
 
 describe("EndpointsSection", () => {
@@ -329,5 +348,172 @@ describe("EndpointsSection", () => {
     expect(await screen.findByText("该端点由代码实现，仅展示接口信息。")).toBeInTheDocument();
     expect(screen.getByText("/v1/videos")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "复制为我的" })).not.toBeInTheDocument();
+  });
+
+  describe("market integration", () => {
+    const INSTALLATION: EndpointInstallation = {
+      source_key: "github:arcreel/arcreel-market@HEAD",
+      source_id: 1,
+      source_display_name: "ArcReel 官方市场",
+      source_enabled: true,
+      slug: "kling-master",
+      installed_version: "1.0.0",
+      installed_at: "2026-09-01T00:00:00+00:00",
+      state: "current",
+      modified: false,
+    };
+
+    function withInstallation(overrides: Partial<EndpointInstallation>) {
+      vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({
+        endpoints: [{ ...MINE, installation: { ...INSTALLATION, ...overrides } }],
+      });
+    }
+
+    it("links from the endpoint list to the market section", async () => {
+      const { location } = renderSection("section=endpoints&endpoint=ce-7");
+      await userEvent.click(await screen.findByRole("button", { name: "从市场获取" }));
+      expect(location.history).toEqual(["/app/settings?section=market&endpoint=ce-7"]);
+    });
+
+    it("shows both status axes and the source of an installed endpoint without an update action", async () => {
+      withInstallation({ modified: true });
+      renderSection("section=endpoints&endpoint=ce-7");
+      expect(await screen.findByText("来自市场 ArcReel 官方市场")).toBeInTheDocument();
+      expect(screen.getByText("自定义")).toBeInTheDocument();
+      expect(screen.getByText("已安装")).toBeInTheDocument();
+      expect(screen.getByText("已修改")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "更新" })).not.toBeInTheDocument();
+    });
+
+    it("leaves a hand-made endpoint without market badges", async () => {
+      renderSection("section=endpoints&endpoint=ce-7");
+      expect(await screen.findByRole("button", { name: "导出" })).toBeInTheDocument();
+      expect(screen.queryByText(/来自市场/)).not.toBeInTheDocument();
+      expect(screen.queryByText("已安装")).not.toBeInTheDocument();
+    });
+
+    it("names a disabled source and falls back to the canonical key once the source is deleted", async () => {
+      withInstallation({ state: "unavailable", source_enabled: false });
+      const { unmount } = renderSection("section=endpoints&endpoint=ce-7");
+      expect(await screen.findByText("来自市场 ArcReel 官方市场（来源已禁用）")).toBeInTheDocument();
+      expect(screen.getByText("市场中不可用")).toBeInTheDocument();
+      unmount();
+
+      withInstallation({ state: "unavailable", source_id: null, source_display_name: null, source_enabled: null });
+      renderSection("section=endpoints&endpoint=ce-7");
+      expect(
+        await screen.findByText("来自市场 github:arcreel/arcreel-market@HEAD（来源已删除）"),
+      ).toBeInTheDocument();
+    });
+
+    it("opens the install dialog in update mode from the update action", async () => {
+      withInstallation({ state: "update_available" });
+      const entry: MarketEntry = {
+        source_id: 1,
+        source_display_name: "ArcReel 官方市场",
+        type: "endpoint",
+        slug: "kling-master",
+        path: "endpoints/kling-master/definition.json",
+        name: "Example Video API",
+        author: "Ada",
+        version: "1.1.0",
+        media_type: "video",
+        description: null,
+        homepage: null,
+        icon: null,
+        min_app_version: null,
+        min_app_version_satisfied: true,
+        installation: {
+          endpoint_id: 7,
+          endpoint_key: "ce-7",
+          endpoint_display_name: "Example Video API",
+          installed_version: "1.0.0",
+          state: "update_available",
+          modified: false,
+        },
+      };
+      vi.spyOn(API, "getMarketEntry").mockResolvedValue({
+        entry,
+        source: {
+          id: 1,
+          kind: "official",
+          display_name: "ArcReel 官方市场",
+          canonical_key: INSTALLATION.source_key,
+          is_enabled: true,
+          status: "ok",
+          fetched_at: null,
+          index: null,
+        },
+        app_version: null,
+      });
+      vi.spyOn(API, "getMarketEntryDefinition").mockResolvedValue({
+        definition: makeDefinition(),
+        entry_matches_definition: true,
+      });
+      renderSection("section=endpoints&endpoint=ce-7");
+
+      const actions = (await screen.findByRole("button", { name: "更新" })).parentElement!;
+      const labels = within(actions)
+        .getAllByRole("button")
+        .map((button) => button.textContent);
+      expect(labels.indexOf("更新")).toBe(labels.indexOf("新建供应商并使用此端点") + 1);
+      expect(labels.indexOf("导出")).toBe(labels.indexOf("更新") + 1);
+
+      await userEvent.type(screen.getByDisplayValue("Example Video API"), "!");
+      await userEvent.click(screen.getByRole("button", { name: "更新" }));
+      expect(await screen.findByText("Update endpoint")).toBeInTheDocument();
+      expect(API.getMarketEntry).toHaveBeenCalledWith(1, "kling-master", expect.anything());
+      expect(await screen.findByText("你的本地修改会被覆盖")).toBeInTheDocument();
+      const downloads = captureDownloads();
+      await userEvent.click(screen.getByRole("button", { name: "先导出当前定义" }));
+      expect(JSON.parse(await downloads[0].blob.text()).meta.name).toBe("Example Video API!");
+      expect(await screen.findByRole("button", { name: "更新到 v1.1.0" })).toBeInTheDocument();
+    });
+
+    it("aborts an entry request when the selected endpoint changes", async () => {
+      withInstallation({ state: "update_available" });
+      let signal: AbortSignal | undefined;
+      vi.spyOn(API, "getMarketEntry").mockImplementation((_sourceId, _slug, options) => {
+        signal = options?.signal;
+        return new Promise(() => undefined);
+      });
+      renderSection("section=endpoints&endpoint=ce-7");
+
+      await userEvent.click(await screen.findByRole("button", { name: "更新" }));
+      await waitFor(() => expect(signal).toBeDefined());
+      await userEvent.click(screen.getByRole("button", { name: "新建" }));
+      expect(signal?.aborted).toBe(true);
+      expect(screen.queryByText("Update endpoint")).not.toBeInTheDocument();
+    });
+
+    it("reports an entry request failure and restores the update action", async () => {
+      withInstallation({ state: "update_available" });
+      vi.spyOn(API, "getMarketEntry").mockRejectedValue(new Error("entry unavailable"));
+      const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+      renderSection("section=endpoints&endpoint=ce-7");
+
+      const update = await screen.findByRole("button", { name: "更新" });
+      await userEvent.click(update);
+      await waitFor(() => expect(pushToast).toHaveBeenCalledWith("entry unavailable", "error"));
+      expect(update).toBeEnabled();
+    });
+
+    it("links to the official contribution guide next to export", async () => {
+      renderSection("section=endpoints&endpoint=ce-7");
+      const link = await screen.findByRole("link", { name: "投稿到市场" });
+      expect(link).toHaveAttribute("href", MARKET_CONTRIBUTING_URL);
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noreferrer");
+    });
+
+    it("exports an installed endpoint under its market slug with unchanged content", async () => {
+      withInstallation({});
+      const downloads = captureDownloads();
+      renderSection("section=endpoints&endpoint=ce-7");
+      await userEvent.click(await screen.findByRole("button", { name: "导出" }));
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].name).toBe("kling-master.json");
+      expect(await downloads[0].blob.text()).toBe(JSON.stringify(makeDefinition(), null, 2));
+    });
   });
 });

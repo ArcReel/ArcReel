@@ -232,6 +232,7 @@ async def test_overwrite_preserves_key_references_and_update_refreshes_record(
     assert retained["source_key"] == "url:source-1"
     assert retained["source_id"] is None
     assert retained["source_display_name"] is None
+    assert retained["source_enabled"] is None
 
 
 async def test_overwrite_rejects_endpoint_without_same_author_and_name(
@@ -297,8 +298,10 @@ async def test_installation_states_follow_index_version_source_availability_and_
     detail = (await install_client.get(BASE)).json()["entry"]["installation"]
     assert (detail["state"], detail["modified"]) == ("update_available", True)
 
+    assert (await install_client.get(endpoint_url)).json()["installation"]["source_enabled"] is True
     assert (await install_client.patch("/market/sources/1", json={"is_enabled": False})).status_code == 200
     assert await states() == (("unavailable", True), None)
+    assert (await install_client.get(endpoint_url)).json()["installation"]["source_enabled"] is False
     disabled_detail = (await install_client.get(BASE)).json()["entry"]["installation"]
     assert disabled_detail["state"] == "update_available"
     assert (await install_client.patch("/market/sources/1", json={"is_enabled": True})).status_code == 200

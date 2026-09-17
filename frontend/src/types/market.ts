@@ -87,6 +87,8 @@ export interface EndpointInstallation {
   source_key: string;
   source_id: number | null;
   source_display_name: string | null;
+  /** 来源已删除时为 null。 */
+  source_enabled: boolean | null;
   slug: string;
   installed_version: string;
   installed_at: string;

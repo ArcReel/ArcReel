@@ -5,6 +5,7 @@ import { AlertTriangle, Check, Download, ExternalLink, Loader2, Trash2 } from "l
 import { API } from "@/api";
 import type {
   CustomEndpointInfo,
+  EndpointDefinition,
   EndpointReference,
   EndpointValidateResponse,
   MarketEntry,
@@ -42,10 +43,14 @@ function displayValue(value: unknown): string {
  */
 export function MarketInstallDialog({
   entry,
+  currentEndpointDefinition,
+  hasUnsavedEndpointChanges = false,
   onClose,
   onInstallationChange,
 }: {
   entry: MarketEntry;
+  currentEndpointDefinition?: EndpointDefinition;
+  hasUnsavedEndpointChanges?: boolean;
   onClose: () => void;
   onInstallationChange: (installation: MarketEntryInstallation | null) => void;
 }) {
@@ -108,7 +113,8 @@ export function MarketInstallDialog({
   const blocked = !preview || !definition || !preview.matches || !!validation?.errors.length || appVersionUnmet;
   const updating = installed?.state === "update_available";
   const marketVersion = preview?.detail.entry.version ?? entry.version;
-  const installedDefinition = preview?.endpoints.find((item) => item.id === installed?.endpoint_id)?.definition;
+  const installedDefinition =
+    currentEndpointDefinition ?? preview?.endpoints.find((item) => item.id === installed?.endpoint_id)?.definition;
   const close = () => {
     if (!busy) onClose();
   };
@@ -289,7 +295,7 @@ export function MarketInstallDialog({
               )}
             </>
           )}
-          {updating && installed.modified && (
+          {updating && (installed.modified || hasUnsavedEndpointChanges) && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-warn/35 bg-warn/8 px-3 py-2">
               <p className="flex items-center gap-1.5 text-[12px] text-text-2">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
@@ -299,7 +305,7 @@ export function MarketInstallDialog({
                 type="button"
                 disabled={!installedDefinition}
                 className={GHOST_BTN_CLS}
-                onClick={() => installedDefinition && exportEndpointDefinition(installedDefinition)}
+                onClick={() => installedDefinition && exportEndpointDefinition(installedDefinition, entry.slug)}
               >
                 <Download className="h-3.5 w-3.5" aria-hidden />
                 {t("market_export_current_definition")}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
-import { FileJson2, Loader2, Lock, Plus, Upload } from "lucide-react";
+import { FileJson2, Loader2, Lock, Plus, Store, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
@@ -12,9 +12,12 @@ import type {
   CustomProviderInfo,
   EndpointDefinition,
   EndpointDescriptor,
+  EndpointInstallation,
   EndpointReference,
   EndpointValidateResponse,
+  MarketEntry,
 } from "@/types";
+import { MarketInstallDialog } from "../market/MarketInstallDialog";
 import { newEndpointDefinition } from "./endpoint-definition-draft";
 import { EndpointDetail, type EndpointSelection } from "./EndpointDetail";
 import { EndpointImportDialog } from "./EndpointImportDialog";
@@ -26,6 +29,12 @@ interface ListEntry {
   label: string;
   python: boolean;
   referenceCount: number;
+}
+
+interface MarketUpdateTarget {
+  entry: MarketEntry;
+  currentDefinition: EndpointDefinition;
+  hasUnsavedChanges: boolean;
 }
 
 /**
@@ -53,6 +62,10 @@ export function EndpointsSection() {
   const [importValidation, setImportValidation] = useState<EndpointValidateResponse | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+
+  const [marketUpdateTarget, setMarketUpdateTarget] = useState<MarketUpdateTarget | null>(null);
+  const [marketUpdatePending, setMarketUpdatePending] = useState(false);
+  const marketUpdateRef = useRef<AbortController | null>(null);
 
   const selectedKey = new URLSearchParams(search).get("endpoint");
 
@@ -216,6 +229,56 @@ export function EndpointsSection() {
     [importDefinition, finishImport, pushToast, t],
   );
 
+  // --- 从市场更新 ---
+
+  useEffect(() => {
+    marketUpdateRef.current?.abort();
+  }, [selectedKey]);
+
+  useEffect(
+    () => () => {
+      marketUpdateRef.current?.abort();
+      marketUpdateRef.current = null;
+    },
+    [],
+  );
+
+  const handleUpdateFromMarket = useCallback(
+    async (
+      installation: EndpointInstallation,
+      currentDefinition: EndpointDefinition,
+      hasUnsavedChanges: boolean,
+    ) => {
+      if (installation.source_id === null) return;
+      marketUpdateRef.current?.abort();
+      const controller = new AbortController();
+      marketUpdateRef.current = controller;
+      setMarketUpdatePending(true);
+      try {
+        const detail = await API.getMarketEntry(installation.source_id, installation.slug, {
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) {
+          setMarketUpdateTarget({ entry: detail.entry, currentDefinition, hasUnsavedChanges });
+        }
+      } catch (e) {
+        if (!controller.signal.aborted) pushToast(errMsg(e), "error");
+      } finally {
+        if (marketUpdateRef.current === controller) {
+          marketUpdateRef.current = null;
+          setMarketUpdatePending(false);
+        }
+      }
+    },
+    [pushToast],
+  );
+
+  const openMarket = useCallback(() => {
+    const params = new URLSearchParams(search);
+    params.set("section", "market");
+    navigate(`${location}?${params.toString()}`, { replace: true });
+  }, [location, navigate, search]);
+
   // --- 接线到供应商 ---
 
   const handleCreateProvider = useCallback(
@@ -304,6 +367,15 @@ export function EndpointsSection() {
             }}
           />
         </div>
+        <button
+          type="button"
+          onClick={openMarket}
+          title={t("ce_get_from_market_hint")}
+          className={`${GHOST_BTN_CLS} mx-1 mb-3 w-[calc(100%-0.5rem)] justify-center border-dashed`}
+        >
+          <Store className="h-3.5 w-3.5" aria-hidden />
+          {t("ce_get_from_market")}
+        </button>
 
         {selectedKey === "new" && (
           <div className="mb-4">
@@ -365,7 +437,8 @@ export function EndpointsSection() {
       <div className="min-w-0 flex-1">
         {selection ? (
           <EndpointDetail
-            key={selectedKey ?? ""}
+            // 市场更新会替换定义但保留端点键，安装时间随之变化，借此按新定义重建草稿。
+            key={`${selectedKey ?? ""}:${selection.mode === "custom" ? (selection.record.installation?.installed_at ?? "") : ""}`}
             selection={selection}
             providers={providers}
             referenceCount={selectedKey ? (referenceCounts[selectedKey] ?? 0) : 0}
@@ -380,6 +453,10 @@ export function EndpointsSection() {
             }}
             onCreateProvider={handleCreateProvider}
             onNavigateToModel={handleNavigateToModel}
+            onUpdateFromMarket={(installation, currentDefinition, hasUnsavedChanges) =>
+              void handleUpdateFromMarket(installation, currentDefinition, hasUnsavedChanges)
+            }
+            marketUpdatePending={marketUpdatePending}
           />
         ) : (
           <p className="p-6 text-[12.5px] text-text-3">{t("ce_select_endpoint")}</p>
@@ -396,6 +473,19 @@ export function EndpointsSection() {
         onOverwrite={(id) => void handleImportOverwrite(id)}
         onCancel={() => setImportOpen(false)}
       />
+
+      {marketUpdateTarget && (
+        <MarketInstallDialog
+          key={`${marketUpdateTarget.entry.source_id}/${marketUpdateTarget.entry.slug}`}
+          entry={marketUpdateTarget.entry}
+          currentEndpointDefinition={marketUpdateTarget.currentDefinition}
+          hasUnsavedEndpointChanges={marketUpdateTarget.hasUnsavedChanges}
+          onClose={() => setMarketUpdateTarget(null)}
+          onInstallationChange={(installation) => {
+            voidCall(reload().then(() => (installation === null ? select(null) : undefined)));
+          }}
+        />
+      )}
     </div>
   );
 }

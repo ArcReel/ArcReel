@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, Download, Loader2, Plus, Trash2 } from "lucide-react";
+import { Copy, Download, ExternalLink, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
@@ -17,9 +17,12 @@ import type {
   CustomProviderInfo,
   EndpointDefinition,
   EndpointDescriptor,
+  EndpointInstallation,
   EndpointReference,
   EndpointValidateResponse,
 } from "@/types";
+import { MarketInstallBadges } from "../market/MarketInstallBadges";
+import { MARKET_CONTRIBUTING_URL } from "../market/market-links";
 import { isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
 import { EndpointDiagnostics } from "./EndpointDiagnostics";
 import { EndpointReferenceList, endpointReferences } from "./EndpointReferenceList";
@@ -47,6 +50,27 @@ interface EndpointDetailProps {
   onCopied: (record: CustomEndpointInfo) => void;
   onCreateProvider: (definition: EndpointDefinition, endpointKey: string) => void;
   onNavigateToModel: (reference: EndpointReference) => void;
+  /** 打开安装确认弹窗的更新态；只在市场轴可更新时提供入口。 */
+  onUpdateFromMarket: (
+    installation: EndpointInstallation,
+    currentDefinition: EndpointDefinition,
+    hasUnsavedChanges: boolean,
+  ) => void;
+  /** 更新弹窗所需的条目详情正在加载。 */
+  marketUpdatePending: boolean;
+}
+
+/** 安装记录的来源描述：来源被删除时只剩规范键原文，禁用或删除都注明。 */
+function MarketOrigin({ installation }: { installation: EndpointInstallation }) {
+  const { t } = useTranslation("dashboard");
+  const source = installation.source_display_name ?? installation.source_key;
+  const key =
+    installation.source_enabled === null
+      ? "ce_from_market_source_deleted"
+      : installation.source_enabled
+        ? "ce_from_market"
+        : "ce_from_market_source_disabled";
+  return <span className="min-w-0 break-all">{t(key, { source })}</span>;
 }
 
 function KindBadge({ selection }: { selection: EndpointSelection }) {
@@ -78,12 +102,15 @@ export function EndpointDetail({
   onCopied,
   onCreateProvider,
   onNavigateToModel,
+  onUpdateFromMarket,
+  marketUpdatePending,
 }: EndpointDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
 
   const editable = selection.mode === "new" || selection.mode === "custom";
   const persistedId = selection.mode === "custom" ? selection.record.id : null;
+  const installation = selection.mode === "custom" ? selection.record.installation : null;
 
   // 选中项由父级以 key 区分挂载，草稿因此可以直接由初始 selection 派生；
   // 只有内置声明式端点的定义需要另行拉取。
@@ -206,8 +233,8 @@ export function EndpointDetail({
   }, [persistedId, onDeleted, pushToast, t]);
 
   const handleExport = useCallback(() => {
-    if (draft) exportEndpointDefinition(draft);
-  }, [draft]);
+    if (draft) exportEndpointDefinition(draft, installation?.slug);
+  }, [draft, installation]);
 
   const handleCopyAsMine = useCallback(async () => {
     if (!draft) return;
@@ -252,16 +279,18 @@ export function EndpointDetail({
       {/* 头部 */}
       <div className="mb-5 flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <h2 className="font-editorial text-[20px] text-text">{title}</h2>
             <KindBadge selection={selection} />
+            {installation && <MarketInstallBadges state={installation.state} modified={installation.modified} />}
           </div>
-          <div className="mt-1 flex items-center gap-2.5 text-[12px] text-text-3">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-text-3">
             {draft && (
-              <span>
+              <span className="whitespace-nowrap">
                 {draft.meta.author} · v{draft.meta.version}
               </span>
             )}
+            {installation && <MarketOrigin installation={installation} />}
             {referenceCount > 0 && <span>{t("ce_reference_count", { n: referenceCount })}</span>}
           </div>
         </div>
@@ -278,12 +307,32 @@ export function EndpointDetail({
           </button>
         )}
 
+        {installation?.state === "update_available" && (
+          <button
+            type="button"
+            onClick={() => draft && onUpdateFromMarket(installation, draft, dirty || jsonIssue !== null)}
+            disabled={marketUpdatePending || !draft}
+            className={GHOST_BTN_CLS}
+          >
+            {marketUpdatePending ? (
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            )}
+            {t("market_update")}
+          </button>
+        )}
+
         {editable ? (
           <>
             <button type="button" onClick={handleExport} disabled={!draft} className={GHOST_BTN_CLS}>
               <Download className="h-3.5 w-3.5" aria-hidden />
               {t("ce_export")}
             </button>
+            <a href={MARKET_CONTRIBUTING_URL} target="_blank" rel="noreferrer" className={GHOST_BTN_CLS}>
+              {t("ce_contribute_to_market")}
+              <ExternalLink className="h-3 w-3" aria-hidden />
+            </a>
             {persistedId !== null && (
               <button
                 type="button"
