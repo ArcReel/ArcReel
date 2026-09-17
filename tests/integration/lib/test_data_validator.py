@@ -93,6 +93,18 @@ class TestDataValidator:
         assert not result.valid
         assert any("缺少必填字段: style" in error for error in result.errors)
 
+    def test_validate_project_treats_empty_template_id_as_none(self, tmp_path):
+        """创建接口按真值判定是否展开模版，空串 id 与 null 同义，不要求快照。"""
+        payload = _project_payload()
+        payload["style_template_id"] = ""
+        payload["style"] = ""
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert result.valid
+
     def test_validate_project_accepts_selected_template_with_snapshot(self, tmp_path):
         payload = _project_payload()
         payload["style_template_id"] = "live_cinematic"

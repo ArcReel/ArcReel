@@ -443,11 +443,12 @@ class DataValidator:
 
         # 风格不是必填：缺失与空串都是合法状态（未选风格、自定义风格图）。出现即须为字符串，
         # 显式 null 也不行：v13→v14 迁移把非字符串值原样保留，等这里报告，产物规划遇到会直接抛错。
-        # 选定了风格模版时 style 必须是展开快照（ADR 0023），空快照会让生成端丢掉已选的风格。
+        # 选定了风格模版时 style 必须是展开快照（ADR 0023），空快照会让生成端丢掉已选的风格；
+        # 模版 id 为空串与 null 同义（创建接口按真值判定是否展开模版）。
         style = project.get("style")
         if "style" in project and not isinstance(style, str):
             errors.append(_m("val_field_type_string", field="style"))
-        elif project.get("style_template_id") is not None and not (style or "").strip():
+        elif project.get("style_template_id") and not (style or "").strip():
             errors.append(_m("val_missing_field", field="style"))
 
         episodes = project.get("episodes", [])
