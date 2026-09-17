@@ -354,6 +354,10 @@ MESSAGES = {
         "no leading / or scheme, no .., and it must not point outside the source"
     ),
     "val_market_file_missing": "Referenced file does not exist: {value}",
+    "val_market_symlink_not_allowed": (
+        '"{value}" is a symbolic link: clients fetching via GitHub raw receive the link target path text, '
+        "so use a regular file or directory instead"
+    ),
     "val_market_icon_format_invalid": "The icon must be a readable PNG, WebP or SVG whose extension matches its content",
     "val_market_icon_too_large": "The icon is {size} bytes, over the {limit}-byte limit",
     "val_market_icon_not_square": "The icon must be square; it is {width}×{height}",

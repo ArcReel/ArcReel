@@ -193,15 +193,47 @@ class TestReferencedFilesRule:
         target.unlink()
         target.symlink_to(outside)
 
-        assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].path", "path_not_relative")]
+        assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].path", "symlink_not_allowed")]
 
-    def test_symlink_loop_is_reported_as_missing(self, source: _Source):
+    def test_symlink_loop_is_rejected(self, source: _Source):
         source.add("demo")
         target = source.root / "endpoints" / "demo" / "definition.json"
         target.unlink()
         target.symlink_to(target)
 
-        assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].path", "file_missing")]
+        assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].path", "symlink_not_allowed")]
+
+    def test_symlinked_definition_inside_the_source_is_rejected(self, source: _Source):
+        """GitHub raw 对符号链接返回链接目标路径文本，客户端抓不到定义内容。"""
+        source.add("demo")
+        target = source.root / "endpoints" / "demo" / "definition.json"
+        real = target.with_name("real.json")
+        target.rename(real)
+        target.symlink_to("real.json")
+
+        issues = check_source(source.write())
+
+        assert [(issue.path, issue.code.value, dict(issue.params)) for issue in issues] == [
+            ("entries[0].path", "symlink_not_allowed", {"value": "endpoints/demo/definition.json"})
+        ]
+
+    def test_symlinked_icon_inside_the_source_is_rejected(self, source: _Source):
+        source.add("demo", icon=("real.png", _png()))
+        (source.root / "endpoints" / "demo" / "icon.png").symlink_to("real.png")
+        source.entries[0]["icon"] = "endpoints/demo/icon.png"
+
+        assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].icon", "symlink_not_allowed")]
+
+    def test_symlinked_entry_directory_is_rejected(self, source: _Source):
+        source.add("real")
+        (source.root / "endpoints" / "demo").symlink_to("real", target_is_directory=True)
+        source.entries[0] = _entry_for("demo", _definition())
+
+        issues = check_source(source.write())
+
+        assert [(issue.path, issue.code.value, dict(issue.params)) for issue in issues] == [
+            ("entries[0].path", "symlink_not_allowed", {"value": "endpoints/demo"})
+        ]
 
     def test_missing_icon_is_reported(self, source: _Source):
         source.add("demo")

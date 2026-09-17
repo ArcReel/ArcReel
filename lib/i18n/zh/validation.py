@@ -265,6 +265,7 @@ MESSAGES = {
     "val_market_slug_directory_mismatch": "slug「{slug}」与定义所在目录名「{directory}」不一致",
     "val_market_path_not_relative": "「{value}」必须是市场源内的相对路径：不能以 / 或协议开头，不能含 ..，不能指向源外",
     "val_market_file_missing": "引用的文件不存在：{value}",
+    "val_market_symlink_not_allowed": "「{value}」是符号链接：客户端经 GitHub raw 抓取时只能拿到链接目标路径文本，请改为实体文件或目录",
     "val_market_icon_format_invalid": "图标必须是可读取的 PNG、WebP 或 SVG，且扩展名与内容一致",
     "val_market_icon_too_large": "图标 {size} 字节，超过上限 {limit} 字节",
     "val_market_icon_not_square": "图标必须是正方形，当前 {width}×{height}",

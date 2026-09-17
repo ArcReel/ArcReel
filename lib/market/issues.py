@@ -39,6 +39,7 @@ class MarketIssueCode(StrEnum):
     # ---- ③ 旁置文件 ----
     PATH_NOT_RELATIVE = "path_not_relative"
     FILE_MISSING = "file_missing"
+    SYMLINK_NOT_ALLOWED = "symlink_not_allowed"
     ICON_FORMAT_INVALID = "icon_format_invalid"
     ICON_TOO_LARGE = "icon_too_large"
     ICON_NOT_SQUARE = "icon_not_square"

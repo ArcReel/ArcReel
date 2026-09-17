@@ -171,3 +171,30 @@ class TestGenerateErrors:
         _add(tmp_path, "demo", icon_png=_png(), icon_svg=b"<svg/>")
 
         assert self._codes(tmp_path) == [("endpoints/demo", "icon_ambiguous")]
+
+    def test_symlinked_definition_is_rejected(self, tmp_path: Path):
+        directory = _add(tmp_path, "demo")
+        (directory / "definition.json").rename(directory / "real.json")
+        (directory / "definition.json").symlink_to("real.json")
+
+        assert self._codes(tmp_path) == [("endpoints/demo/definition.json", "symlink_not_allowed")]
+
+    @pytest.mark.parametrize("dangling", [False, True])
+    def test_symlinked_icon_is_rejected(self, tmp_path: Path, dangling: bool):
+        directory = _add(tmp_path, "demo", real_png=_png())
+        (directory / "icon.png").symlink_to("missing.png" if dangling else "real.png")
+
+        assert self._codes(tmp_path) == [("endpoints/demo/icon.png", "symlink_not_allowed")]
+
+    @pytest.mark.parametrize("target", ["real", "missing", "demo"])
+    def test_symlinked_entry_directory_is_rejected(self, tmp_path: Path, target: str):
+        _add(tmp_path, "real")
+        (tmp_path / "endpoints" / "demo").symlink_to(target, target_is_directory=True)
+
+        assert self._codes(tmp_path) == [("endpoints/demo", "symlink_not_allowed")]
+
+    def test_symlinked_endpoints_directory_is_rejected(self, tmp_path: Path):
+        _add(tmp_path / "elsewhere", "demo")
+        (tmp_path / "endpoints").symlink_to("elsewhere/endpoints", target_is_directory=True)
+
+        assert self._codes(tmp_path) == [("endpoints", "symlink_not_allowed")]

@@ -95,10 +95,27 @@ def _check_source_document(root: Path, document: object) -> list[MarketIssue]:
     return issues
 
 
+def _find_symlink(root: Path, relative: str) -> str | None:
+    """``relative`` 沿途（含自身）第一个是符号链接的路径段，以相对 ``root`` 的 POSIX 路径返回；没有则 None。
+
+    客户端经 GitHub raw 抓取文件，raw 对符号链接返回链接目标路径文本而非目标内容，所以市场源里被引用的
+    文件及其所在目录都必须是实体。
+    """
+    current = root
+    for part in PurePosixPath(relative).parts:
+        current = current / part
+        if current.is_symlink():
+            return current.relative_to(root).as_posix()
+    return None
+
+
 def _referenced_file(
     root: Path, root_resolved: Path, relative: str, location: str, issues: list[MarketIssue]
 ) -> Path | None:
-    """解析索引引用的仓内文件；越出市场源（含经符号链接）、不存在或解析不了（如符号链接成环）时记诊断并返回 None。"""
+    """解析索引引用的仓内文件；沿途有符号链接、越出市场源、不存在或解析不了时记诊断并返回 None。"""
+    if (link := _find_symlink(root, relative)) is not None:
+        issues.append(_index_issue(location, MarketIssueCode.SYMLINK_NOT_ALLOWED, value=link))
+        return None
     try:
         resolved = (root / relative).resolve()
     except (OSError, RuntimeError):

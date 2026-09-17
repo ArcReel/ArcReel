@@ -362,6 +362,10 @@ MESSAGES = {
         "không bắt đầu bằng / hoặc giao thức, không chứa .., không trỏ ra ngoài nguồn"
     ),
     "val_market_file_missing": "Tệp được tham chiếu không tồn tại: {value}",
+    "val_market_symlink_not_allowed": (
+        '"{value}" là liên kết tượng trưng: máy khách tải qua GitHub raw chỉ nhận được văn bản đường dẫn đích, '
+        "hãy dùng tệp hoặc thư mục thực"
+    ),
     "val_market_icon_format_invalid": "Biểu tượng phải là PNG, WebP hoặc SVG đọc được, với phần mở rộng khớp nội dung",
     "val_market_icon_too_large": "Biểu tượng có {size} byte, vượt giới hạn {limit} byte",
     "val_market_icon_not_square": "Biểu tượng phải là hình vuông; hiện là {width}×{height}",

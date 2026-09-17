@@ -56,11 +56,13 @@ def build_index(
     entries: list[dict[str, Any]] = []
     issues: list[MarketIssue] = []
     endpoints = root / ENDPOINTS_DIR
-    directories = sorted(path for path in endpoints.iterdir() if path.is_dir()) if endpoints.is_dir() else []
-    for directory in directories:
-        entry = _entry_of(directory, issues)
-        if entry is not None:
-            entries.append(entry)
+    if endpoints.is_symlink():
+        issues.append(_symlink_issue(ENDPOINTS_DIR))
+    elif endpoints.is_dir():
+        for directory in sorted(path for path in endpoints.iterdir() if path.is_dir() or path.is_symlink()):
+            entry = _entry_of(directory, issues)
+            if entry is not None:
+                entries.append(entry)
     if issues:
         raise GenerateError(issues)
 
@@ -99,10 +101,21 @@ def _entry_of(directory: Path, issues: list[MarketIssue]) -> dict[str, Any] | No
     slug = directory.name
     relative_dir = f"{ENDPOINTS_DIR}/{slug}"
     definition_path = f"{relative_dir}/{DEFINITION_FILENAME}"
-    icons = [f"{ICON_STEM}{suffix}" for suffix in ICON_FORMATS if (directory / f"{ICON_STEM}{suffix}").is_file()]
+    if directory.is_symlink():
+        issues.append(_symlink_issue(relative_dir))
+        return None
+    icons = [
+        f"{ICON_STEM}{suffix}"
+        for suffix in ICON_FORMATS
+        if (icon := directory / f"{ICON_STEM}{suffix}").is_file() or icon.is_symlink()
+    ]
+    issues.extend(_symlink_issue(f"{relative_dir}/{icon}") for icon in icons if (directory / icon).is_symlink())
     if len(icons) > 1:
         issues.append(MarketIssue(relative_dir, ROOT_PATH, MarketIssueCode.ICON_AMBIGUOUS, {"icons": ", ".join(icons)}))
 
+    if (directory / DEFINITION_FILENAME).is_symlink():
+        issues.append(_symlink_issue(definition_path))
+        return None
     if not (directory / DEFINITION_FILENAME).is_file():
         issues.append(MarketIssue(definition_path, ROOT_PATH, MarketIssueCode.FILE_MISSING, {"value": definition_path}))
         return None
@@ -130,3 +143,8 @@ def _entry_of(directory: Path, issues: list[MarketIssue]) -> dict[str, Any] | No
     if len(icons) == 1:
         entry["icon"] = f"{relative_dir}/{icons[0]}"
     return entry
+
+
+def _symlink_issue(relative: str) -> MarketIssue:
+    """生成器从目录发现的条目与 ``check`` 同口径：市场源里被引用的路径不能是符号链接（见 :func:`_find_symlink`）。"""
+    return MarketIssue(relative, ROOT_PATH, MarketIssueCode.SYMLINK_NOT_ALLOWED, {"value": relative})
