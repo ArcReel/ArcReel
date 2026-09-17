@@ -154,6 +154,7 @@ def write_legacy_reference_video_project(
     schema_version: int = 7,
     unit_ids: tuple[str, ...] = ("E1U01", "E1U02"),
     with_legacy_audio: bool = False,
+    style: str = "写实",
     style_description: str = "电影感",
 ) -> Path:
     """drama + reference_video 路线的旧项目：视频单元直出，版本记录是旧形态。"""
@@ -169,7 +170,7 @@ def write_legacy_reference_video_project(
             "generation_mode": "reference_video",
             "source_kind": "novel",
             "source_language": "中文",
-            "style": "写实",
+            "style": style,
             "style_description": style_description,
             "aspect_ratio": "9:16",
             "default_duration": 8,
@@ -524,14 +525,14 @@ def write_undescribed_style_bases_project(
     0.27 起的版本记录冻结类型化依据，那时的依据构造不记 ``style_description``：项目以空描述走完
     迁移链登记全部产物，再写入描述，得到的清单与版本记录正是那时留下的形态。停在 v12 的样本
     代表 0.27–0.29 留下的项目，两者盘上形态相同，只差 ``schema_version``。资产图与单张分镜图的
-    依据一向记描述，同法构造后它们在迁移前就是过期的——描述出现在它们登记之后。``style`` 只对
-    宫格项目生效，可传遗留风格值与描述补记叠加。
+    依据一向记描述，同法构造后它们在迁移前就是过期的——描述出现在它们登记之后。``style`` 可传
+    遗留风格值，与描述补记叠加。
     """
 
     if route == "grid":
         project_dir = write_legacy_style_project(root, name, style=style, style_description="")
     else:
-        project_dir = write_legacy_reference_video_project(root, name, style_description="")
+        project_dir = write_legacy_reference_video_project(root, name, style=style, style_description="")
     advance_project_schema(project_dir, to_version=13)
     project_path = project_dir / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))

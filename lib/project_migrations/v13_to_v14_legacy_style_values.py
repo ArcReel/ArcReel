@@ -163,17 +163,18 @@ def _selected_version_record(
     return selected[0] if len(selected) == 1 else None
 
 
-def _described_video_facts(facts: VideoArtifactCurrencyFacts, description: str) -> VideoArtifactCurrencyFacts | None:
-    """在冻结的参考视频事实上补记风格描述，重组视频依据。已记描述或不是参考视频的返回 None。"""
+def _migrated_video_facts(
+    facts: VideoArtifactCurrencyFacts, migrated: Mapping[str, Any], description: str
+) -> VideoArtifactCurrencyFacts | None:
+    """把冻结的参考视频事实的风格入参换成迁移后的风格值与描述，重组视频依据。不是参考视频的返回 None。"""
     inputs = facts.visual_basis.to_evidence_dict()["inputs"]
     if facts.visual_basis.kind != _REFERENCE_VIDEO_VISUAL_KIND or not isinstance(inputs, Mapping):
         return None
-    if "style_description" in inputs:
-        return None
+    style = migrated.get("style")
     visual = ArtifactBasis.build(
         facts.visual_basis.kind,
         kind_version=facts.visual_basis.kind_version,
-        inputs={**inputs, "style_description": description},
+        inputs={**inputs, "style": style if isinstance(style, str) else "", "style_description": description},
     )
     video = compose_video_artifact_basis(visual=visual, speech=facts.speech_basis, duration=facts.duration_basis)
     return replace(facts, visual_basis=visual, video_basis=video)
@@ -191,13 +192,14 @@ def _rewrite_selected_versions(
     stored: Mapping[ArtifactKey, ArtifactManifestEntry],
     rebased: Mapping[ArtifactKey, ArtifactManifestEntry],
     after: _Planned,
+    migrated: Mapping[str, Any],
     description: str,
 ) -> _VersionRewrite:
     """把待改写登记的三类产物的选中版本记录就地改到新口径。
 
     播放器与版本恢复按版本记录冻结的依据判断时新：只改清单，时新的视频在播放器上仍标「比当前内容
     旧」，恢复当前版本也会登记回旧口径。冻结依据等于改写前登记的记录改写过去；已是新口径的记录
-    （改写落盘后进程被杀、重跑）原样保留；两者都不是，或补记描述后与改写后目标不一致，这条登记撤回
+    （改写落盘后进程被杀、重跑）原样保留；两者都不是，或换上迁移后的风格入参仍与改写后目标不一致，这条登记撤回
     改写，免得清单判时新而播放器判过期。没有选中版本记录的产物只改清单。
     """
     changed = False
@@ -218,7 +220,7 @@ def _rewrite_selected_versions(
                 continue
             if frozen_facts.video_basis.digest == target.basis_digest:
                 continue
-            facts = _described_video_facts(frozen_facts, description)
+            facts = _migrated_video_facts(frozen_facts, migrated, description)
             if (
                 frozen_facts.video_basis.digest != old_digest
                 or facts is None
@@ -316,7 +318,7 @@ def migrate_v13_to_v14(project_dir: Path) -> ArtifactBackfillOutcome | None:
             loaded = json.loads(versions_bytes)
             if isinstance(loaded, dict):
                 versions = loaded
-                rewrite = _rewrite_selected_versions(versions, stored, rebased, after, description)
+                rewrite = _rewrite_selected_versions(versions, stored, rebased, after, migrated, description)
         for key in rewrite.withdrawn:
             del rebased[key]
         if rebased:

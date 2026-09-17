@@ -263,18 +263,30 @@ def test_prefixed_style_and_description_are_rebased_together(tmp_path: Path) -> 
         tmp_path / "projects", "grid", route="grid", style=_PREFIXED_STYLE
     )
 
+    _add_grid_version_record(project_dir)
+
     migrate_project_dir(project_dir)
 
     assert _read_project(project_dir)["style"] == _NORMALIZED_STYLE
     for key in (_GRID, *_GRID_MEMBERS):
         assert _status(project_dir, key) == "current"
+    record = _read_versions(project_dir)["grids"]["grid_123456789abc"]["versions"][0]
+    assert (
+        parse_image_version_basis("grids", "grid_123456789abc", record).digest
+        == _entries(project_dir)[_GRID].basis_digest
+    )
 
 
-@pytest.mark.parametrize("schema_version", [12, 13])
-def test_described_reference_videos_stay_current_in_workflow_and_player(tmp_path: Path, schema_version: int) -> None:
+@pytest.mark.parametrize(
+    ("schema_version", "style"),
+    [(12, _NORMALIZED_STYLE), (13, _NORMALIZED_STYLE), (13, _PREFIXED_STYLE)],
+)
+def test_described_reference_videos_stay_current_in_workflow_and_player(
+    tmp_path: Path, schema_version: int, style: str
+) -> None:
     root = tmp_path / "projects"
     project_dir = write_undescribed_style_bases_project(
-        root, "reference", route="reference_video", schema_version=schema_version
+        root, "reference", route="reference_video", style=style, schema_version=schema_version
     )
     before = _entries(project_dir)
 
