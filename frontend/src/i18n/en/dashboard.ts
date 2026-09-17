@@ -1025,6 +1025,7 @@ export default {
   'references_badge_scene': 'Scene',
   'references_badge_prop': 'Props',
   'reference_editor_unit_meta': '{{duration}}s',
+  'reference_editor_pending_authoring_hint': 'Pending authoring: this video unit\'s prompt hasn\'t been authored yet. Ask the agent to fill it in, or write it below',
   'default_duration_label': 'Default Duration',
   'default_duration_project_desc': 'Default video duration for new storyboards; "Auto" lets AI decide based on content',
   'duration_selection': 'Duration selection',

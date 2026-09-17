@@ -109,6 +109,19 @@ describe("ReferenceVideoCard", () => {
     expect(voiceover?.textContent).toBe("{很久以前……}");
   });
 
+  it("shows the pending-authoring hint until authoring clears the flag", () => {
+    const { rerender } = render(<ControlledCard unit={mkUnit({ text: "", pending_authoring: true })} />);
+    expect(screen.getByText(/^待编写/)).toBeInTheDocument();
+
+    rerender(<ControlledCard unit={mkUnit({ text: "", pending_authoring: false })} />);
+    expect(screen.queryByText(/^待编写/)).not.toBeInTheDocument();
+  });
+
+  it("does not show the pending-authoring hint for units without the flag, even with an empty body", () => {
+    render(<ControlledCard unit={mkUnit({ text: "" })} />);
+    expect(screen.queryByText(/^待编写/)).not.toBeInTheDocument();
+  });
+
   it("fires onChange with the new prompt text on every edit", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();

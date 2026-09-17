@@ -1007,6 +1007,7 @@ export default {
   'references_badge_scene': 'Cảnh',
   'references_badge_prop': 'Đạo cụ',
   'reference_editor_unit_meta': '{{duration}}s',
+  'reference_editor_pending_authoring_hint': 'Chờ biên soạn: prompt của đơn vị video này chưa được biên soạn. Hãy nhờ Agent bổ sung hoặc tự điền bên dưới',
   'default_duration_label': 'Thời lượng mặc định',
   'default_duration_project_desc': 'Thời lượng video mặc định cho phân cảnh mới; "Tự động" để AI quyết định theo nội dung',
   'duration_selection': 'Chọn thời lượng',
