@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.api_errors import BadRequestError
 from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
-from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
@@ -174,18 +173,20 @@ class ModelInput(BaseModel):
             logger.warning("能力覆盖含未开放键，保存时已剔除: %s", ", ".join(dropped))
         return kept or None
 
-    def to_db_dict(self) -> dict:
+    def to_db_dict(self, endpoint_spec: EndpointSpec) -> dict:
         """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
 
         视频类 endpoint：supported_durations 缺省（None）或显式传 []（空列表，下游视为非法）时，
         统一归一为缺省并由 duration_presets 启发式填补。
         非视频类 endpoint 保持 None。
+
+        媒体类型读调用方已解析好的 spec：``ce-`` 端点的媒体类型写在它那份定义里，键前缀推不出来。
         """
         from lib.custom_provider.duration_presets import infer_supported_durations
 
         d = self.model_dump()
         durations = self.supported_durations
-        is_video = static_media_type(self.endpoint) == DECLARATIVE_MEDIA_TYPE
+        is_video = endpoint_spec.media_type == "video"
         # video endpoint：把 [] 当作缺省（下游/前端都不接受空列表），交给 preset 兜底
         if is_video and durations is not None and len(durations) == 0:
             durations = None
@@ -623,21 +624,21 @@ async def _resolve_model_endpoint_specs(
     return await _read_endpoint_specs(session, models, on_unknown=reject)
 
 
-def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> None:
+def _check_unique_defaults(models: list[ModelInput], specs: dict[str, EndpointSpec], _t: Callable[..., str]) -> None:
     """校验默认模型互斥。
 
     - 非 image endpoint（text / video / audio）：同一 media_type 至多 1 个 is_default=True。
     - image endpoint：image capability 集合两两不相交（即同一 capability 至多 1 个默认）。
+
+    媒体类型读 ``specs`` 里已解析好的 spec：``ce-`` 端点的媒体类型写在定义里，键前缀推不出来。
+    ``specs`` 由 :func:`_resolve_model_endpoint_specs` 现解析，解析不出的行已在那里被 422 拦下。
     """
     text_video_defaults: dict[str, list[str]] = {}
     image_defaults: list[tuple[str, frozenset[ImageCapability]]] = []
     for m in models:
         if not m.is_default:
             continue
-        try:
-            mt = static_media_type(m.endpoint)
-        except ValueError:
-            continue  # endpoint 已在 ModelInput validator 校验，此处跳过未知值
+        mt = specs[m.endpoint].media_type
         if mt != "image":
             text_video_defaults.setdefault(mt, []).append(m.model_id)
             continue
@@ -748,13 +749,14 @@ async def create_provider(
     session: AsyncSession = Depends(get_async_session),
 ):
     """创建自定义供应商，可同时创建模型列表。"""
+    specs: dict[str, EndpointSpec] = {}
     if body.models:
         _check_duplicate_model_ids(body.models, _t)
-        _check_unique_defaults(body.models, _t)
         specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+        _check_unique_defaults(body.models, specs, _t)
         _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
-    model_dicts = [m.to_db_dict() for m in body.models] if body.models else None
+    model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models] if body.models else None
     provider = await repo.create_provider(
         display_name=body.display_name,
         discovery_format=body.discovery_format,
@@ -865,8 +867,8 @@ async def full_update_provider(
 ):
     """原子更新供应商元数据 + 模型列表（单一事务）。"""
     _check_duplicate_model_ids(body.models, _t)
-    _check_unique_defaults(body.models, _t)
     specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+    _check_unique_defaults(body.models, specs, _t)
     _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     kwargs: dict = {
@@ -882,7 +884,7 @@ async def full_update_provider(
     provider = await repo.update_provider(provider_id, **kwargs)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    model_dicts = [m.to_db_dict() for m in body.models]
+    model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models]
     await repo.replace_models(provider_id, model_dicts)
     await session.commit()
     await _invalidate_caches(request)
@@ -939,8 +941,8 @@ async def replace_models(
 ):
     """替换供应商的整个模型列表。"""
     _check_duplicate_model_ids(body.models, _t)
-    _check_unique_defaults(body.models, _t)
     specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+    _check_unique_defaults(body.models, specs, _t)
     _check_model_capability_overrides(body.models, _t, specs)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
@@ -951,7 +953,7 @@ async def replace_models(
     new_model_ids = {m.model_id for m in body.models}
     deleted_model_ids = old_model_ids - new_model_ids
 
-    model_dicts = [m.to_db_dict() for m in body.models]
+    model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models]
     new_models = await repo.replace_models(provider_id, model_dicts)
 
     # 清理引用已删除模型的全局配置

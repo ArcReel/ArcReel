@@ -257,8 +257,9 @@ class CapacityTable:
         """从 ConfigService + PROVIDER_REGISTRY + 自定义供应商加载容量表。"""
         from lib.config.registry import PROVIDER_REGISTRY
         from lib.config.service import ConfigService
-        from lib.custom_provider.endpoints import static_media_type
+        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
         from lib.db import safe_session_factory
+        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
         default_image = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
@@ -286,11 +287,26 @@ class CapacityTable:
                 limits[provider_id] = cls._lane_limits(meta.media_types, image_max, video_max, audio_max)
 
             repo = CustomProviderRepository(session)
+            get_custom_endpoint = CustomEndpointRepository(session).get
+            # 同一端点可能挂在多行乃至多个供应商上，媒体类型按端点键缓存，整张表只读一次库。
+            media_type_by_endpoint: dict[str, str] = {}
             for provider, models in await repo.list_providers_with_models():
                 pid = provider.provider_id  # "custom-{id}"
-                # 自定义供应商的模型行可以挂 ce- 端点：按内置注册表查会抛 ValueError，
-                # 让整张容量表的刷新一起作废，该供应商停在 video 容量 0 上收不了任务。
-                media_types = {static_media_type(m.endpoint) for m in models if m.is_enabled}
+                # 模型行可以挂 ce- 端点，媒体类型写在它那份定义里，只能解析 spec 取。
+                media_types: set[str] = set()
+                for m in models:
+                    if not m.is_enabled:
+                        continue
+                    media_type = media_type_by_endpoint.get(m.endpoint)
+                    if media_type is None:
+                        try:
+                            media_type = (await resolve_endpoint_spec(m.endpoint, get_custom_endpoint)).media_type
+                        except ValueError:
+                            # 端点已不在：该行发起生成必然失败，不凭它开 lane，也不作废整张表的刷新。
+                            logger.warning("无法解析模型 endpoint，容量表跳过该行: endpoint=%r", m.endpoint)
+                            continue
+                        media_type_by_endpoint[m.endpoint] = media_type
+                    media_types.add(media_type)
                 # 自定义供应商不在内置注册表，无声明默认层 → 两层回退：列有值取列值，
                 # 列为 NULL 走全局默认。投影仍交给 _lane_limits 统一处理不支持的 lane。
                 image_max = provider.image_max_workers if provider.image_max_workers is not None else default_image

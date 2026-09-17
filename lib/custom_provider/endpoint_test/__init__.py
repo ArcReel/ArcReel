@@ -16,6 +16,7 @@ from .inputs import (
     EndpointTestCredentials,
     EndpointTestParameters,
 )
+from .modes import EndpointTestMode, supports_test_mode
 from .preview import PreviewedRequest, RequestPreview, preview_request
 from .trial_run import (
     MAX_POLL_RESPONSES,
@@ -41,6 +42,7 @@ __all__ = [
     "EndpointTestAssets",
     "EndpointTestCredentials",
     "EndpointTestDefinitionError",
+    "EndpointTestMode",
     "EndpointTestParameters",
     "FieldExtraction",
     "PathAttempt",
@@ -60,5 +62,6 @@ __all__ = [
     "provider_from_base_url",
     "shutdown_trial_runs",
     "stage_report_payload",
+    "supports_test_mode",
     "trial_run_manager",
 ]

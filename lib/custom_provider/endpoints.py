@@ -106,8 +106,11 @@ class EndpointSpec:
 
     @property
     def kind(self) -> str:
-        """实现形态：``declarative``（声明式定义）或 ``python``（backend 代码）。"""
-        return "declarative" if self.definition is not None else "python"
+        """实现形态：有定义时取定义的 ``kind``，Python backend 实现的端点为 ``python``。
+
+        ``python`` 不是定义容器的 kind——它没有定义可读，是「没有定义」这件事本身的名字。
+        """
+        return "python" if self.definition is None else str(self.definition["kind"])
 
     @property
     def display_name(self) -> str | None:
@@ -584,20 +587,20 @@ def endpoint_to_media_type(endpoint: str) -> str:
 
 
 def static_media_type(endpoint: str) -> str:
-    """不读库判定端点媒体类型：自定义端点的键前缀已蕴含 video，其余走内置查表。
+    """不读库判定内置端点的媒体类型；``ce-`` 键在此拒绝。
 
-    模型行的 endpoint 列既可能是内置键，也可能是 ``ce-`` 键，凡是按端点分媒体类型的地方
-    都要走这里；只查内置注册表会让带自定义端点的供应商整个判失败。
+    自定义端点的媒体类型由它那份定义决定（按 ``kind`` 各有取法），键前缀不蕴含媒体类型。模型行
+    的 endpoint 列两种键都可能是，按端点分媒体类型的地方一律先
+    ``endpoint_resolution.resolve_endpoint_spec`` 取 spec、再读 ``EndpointSpec.media_type``。
 
     Raises:
-        ValueError: 既非自定义端点键，内置注册表里也没有该键。
+        ValueError: 传入 ``ce-`` 键（须读定义），或内置注册表里没有该键。
     """
     # 延迟导入：builtin_definitions 消费本模块的注册表，模块级导入会成环。
     from lib.custom_provider import is_custom_endpoint
-    from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
 
     if is_custom_endpoint(endpoint):
-        return DECLARATIVE_MEDIA_TYPE
+        raise ValueError(f"custom endpoint media type comes from its definition: {endpoint!r}")
     return endpoint_to_media_type(endpoint)
 
 

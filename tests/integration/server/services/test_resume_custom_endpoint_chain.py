@@ -34,6 +34,7 @@ from lib.reference_video.execution_checkpoint import (
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from server.services import generation_context
 from tests.factories import custom_endpoint_definition
+from tests.fakes import bind_safe_session_factory
 from tests.http_capture import capture_http
 
 
@@ -68,7 +69,7 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
     - 缩略图抽取走 ffprobe 子进程，替换为 no-op 保持测试封闭。
     """
     monkeypatch.setattr("lib.db.async_session_factory", session_factory)
-    monkeypatch.setattr("lib.db.safe_session_factory", session_factory)
+    bind_safe_session_factory(monkeypatch, session_factory)
     monkeypatch.setattr("lib.db.engine.async_session_factory", session_factory)
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "appdata"))
 

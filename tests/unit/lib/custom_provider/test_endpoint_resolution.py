@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key
-from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
+from lib.custom_provider.endpoint_resolution import (
+    definition_media_type,
+    derive_mirror_columns,
+    endpoint_spec_from_row,
+    resolve_endpoint_spec,
+)
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, get_endpoint_spec
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.video_backends.base import ReferenceAudioMode
 from tests.factories import custom_endpoint_definition
+
+if TYPE_CHECKING:
+    from lib.db.models.custom_endpoint import CustomEndpoint
 
 
 async def _store(session: AsyncSession, definition: dict) -> int:
@@ -73,6 +84,32 @@ class TestSpecFromRow:
         assert spec.reference_audio_capable is True
         assert spec.video_caps_for_model is not None
         assert spec.video_caps_for_model("m").reference_audio_mode is ReferenceAudioMode.DIRECT
+
+
+class TestKindDispatch:
+    """定义的 ``kind`` 决定投影走谁；名录外的 kind 在投影层就拒，不靠某一种 kind 的规则兜底。"""
+
+    def test_media_type_comes_from_the_definition_kind(self):
+        assert definition_media_type(custom_endpoint_definition()) == "video"
+
+    def test_mirror_columns_take_kind_and_media_type_from_the_definition(self):
+        mirror = derive_mirror_columns(custom_endpoint_definition())
+
+        assert mirror.kind == "declarative"
+        assert mirror.media_type == "video"
+
+    def test_media_type_of_an_unsupported_kind_is_refused(self):
+        definition = custom_endpoint_definition(kind="comfyui")
+
+        with pytest.raises(ValueError, match="unsupported endpoint definition kind"):
+            definition_media_type(definition)
+
+    def test_spec_from_a_row_of_an_unsupported_kind_is_refused(self):
+        """库里的 kind 是本层没有投影实现的那种：抛 ValueError，与「端点不存在」同一出口。"""
+        row = SimpleNamespace(id=7, definition=custom_endpoint_definition(kind="comfyui"))
+
+        with pytest.raises(ValueError, match="unsupported endpoint definition kind"):
+            endpoint_spec_from_row(cast("CustomEndpoint", row))
 
 
 class TestResolveEndpointSpec:

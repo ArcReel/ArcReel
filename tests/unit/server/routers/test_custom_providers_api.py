@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Generator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -20,12 +21,18 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.config.service import ConfigService
-from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, declarative_endpoint_spec
+from lib.custom_provider.endpoints import (
+    ENDPOINT_REGISTRY,
+    EndpointSpec,
+    declarative_endpoint_spec,
+    get_endpoint_spec,
+)
 from lib.db import get_async_session
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.factories import custom_endpoint_definition
 from tests.http_capture import capture_http, only_request
 
 _EXAMPLE_TEMPLATE_PATH = (
@@ -1605,6 +1612,52 @@ async def test_split_image_endpoints_may_both_be_default(custom_providers_client
     assert defaults == {"m1": True, "m2": True}
 
 
+def _builtin_specs(models) -> dict[str, EndpointSpec]:
+    """内置端点的 spec 表，形状与 `_resolve_model_endpoint_specs` 的产出一致。"""
+    return {m.endpoint: get_endpoint_spec(m.endpoint) for m in models}
+
+
+def _custom_endpoint_spec(key: str, media_type: str) -> EndpointSpec:
+    """一条 ce- 端点的 spec，媒体类型按需改写——键前缀推不出媒体类型，只能由 spec 带过来。"""
+    spec = declarative_endpoint_spec(key, custom_endpoint_definition(), source="custom")
+    return replace(spec, media_type=media_type)
+
+
+def test_to_db_dict_reads_the_media_type_from_the_resolved_spec():
+    """时长档位归一只对视频端点做；ce- 端点是不是视频，由解析好的 spec 说了算。"""
+    from server.routers.custom_providers import ModelInput
+
+    model = ModelInput(model_id="m1", display_name="m1", endpoint="ce-7", supported_durations=[])
+
+    # video：空列表下游视为非法，归一为缺省再由 preset 兜底
+    assert model.to_db_dict(_custom_endpoint_spec("ce-7", "video"))["supported_durations"] != "[]"
+    # 非 video：不归一，原样落库
+    assert model.to_db_dict(_custom_endpoint_spec("ce-7", "image"))["supported_durations"] == "[]"
+
+
+def test_check_unique_defaults_reads_the_media_type_from_the_resolved_spec():
+    """两条 ce- 默认模型冲不冲突，取决于 spec 的媒体类型，而不是键前缀。"""
+    from fastapi import HTTPException
+
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="m1", display_name="m1", endpoint="ce-7", is_default=True),
+        ModelInput(model_id="m2", display_name="m2", endpoint="ce-8", is_default=True),
+    ]
+
+    def t(key, **params):
+        return f"{key}:{params}"
+
+    same_lane = {"ce-7": _custom_endpoint_spec("ce-7", "audio"), "ce-8": _custom_endpoint_spec("ce-8", "audio")}
+    with pytest.raises(HTTPException) as excinfo:
+        _check_unique_defaults(models, same_lane, t)
+    assert excinfo.value.status_code == 422
+
+    split_lanes = {"ce-7": _custom_endpoint_spec("ce-7", "audio"), "ce-8": _custom_endpoint_spec("ce-8", "video")}
+    _check_unique_defaults(models, split_lanes, t)
+
+
 def test_check_unique_defaults_rejects_two_generations_defaults():
     """同 provider 内两条 -generations 都设默认 → 422。"""
     from fastapi import HTTPException
@@ -1620,7 +1673,7 @@ def test_check_unique_defaults_rejects_two_generations_defaults():
         return f"{key}:{params}"
 
     with pytest.raises(HTTPException) as excinfo:
-        _check_unique_defaults(models, t)
+        _check_unique_defaults(models, _builtin_specs(models), t)
     assert excinfo.value.status_code == 422
 
 
@@ -1639,7 +1692,7 @@ def test_check_unique_defaults_rejects_wildcard_with_split():
         return f"{key}:{params}"
 
     with pytest.raises(HTTPException):
-        _check_unique_defaults(models, t)
+        _check_unique_defaults(models, _builtin_specs(models), t)
 
 
 def test_check_unique_defaults_text_still_media_type_exclusive():
@@ -1657,7 +1710,7 @@ def test_check_unique_defaults_text_still_media_type_exclusive():
         return f"{key}:{params}"
 
     with pytest.raises(HTTPException):
-        _check_unique_defaults(models, t)
+        _check_unique_defaults(models, _builtin_specs(models), t)
 
 
 # ---------------------------------------------------------------------------

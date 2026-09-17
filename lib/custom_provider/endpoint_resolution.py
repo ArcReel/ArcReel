@@ -5,11 +5,11 @@
 定义后内置」的兜底——两个命名空间同域但永不重叠（内置键禁用 ``ce-`` 前缀，见
 ``lib.custom_provider.endpoints``）。
 
-定义本体是唯一真相源，spec 是它的运行时投影：显示名取 ``meta.name``、能力取 ``capabilities``、
-请求形态取 ``submit``。投影本身不在本模块——用户定义与随版定义是同一种东西，共用
-``endpoints.declarative_endpoint_spec`` 那一份实现，本模块只管「读库取行 → 投影」。装载走 async
-（读库）、构造是纯函数，两段分明（``docs/adr/0039``）；不做启动时全量加载进内存注册表——定义原地
-更新须立即对新任务生效。
+定义本体是唯一真相源，spec 与镜像列都是它的投影，两者都按定义的 ``kind`` 分派到该 kind 的投影
+实现：媒体类型一律由定义决定，端点键不蕴含任何媒体类型。某一种 kind 的投影实现本身不在本模块——
+用户定义与随版定义是同一种东西，声明式共用 ``endpoints.declarative_endpoint_spec`` 那一份实现，
+本模块只管「读库取行 → 按 kind 找投影」。装载走 async（读库）、构造是纯函数，两段分明
+（``docs/adr/0039``）；不做启动时全量加载进内存注册表——定义原地更新须立即对新任务生效。
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key, parse_endpoint_key
 from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
+from lib.custom_provider.endpoint_definition import DECLARATIVE_KIND
 from lib.custom_provider.endpoints import EndpointSpec, declarative_endpoint_spec, get_endpoint_spec
 
 if TYPE_CHECKING:
@@ -36,6 +37,34 @@ class MirrorColumns:
     display_name: str
 
 
+#: ``kind`` → 从定义读媒体类型。声明式描述的是「JSON in/out + 提交/轮询」的视频协议，恒为常量。
+_MEDIA_TYPE_BY_KIND: Mapping[str, Callable[[Mapping[str, Any]], str]] = {
+    DECLARATIVE_KIND: lambda _definition: DECLARATIVE_MEDIA_TYPE,
+}
+
+#: ``kind`` → 把定义投影成 spec 的实现。
+_SPEC_BY_KIND: Mapping[str, Callable[[str, Mapping[str, Any]], EndpointSpec]] = {
+    DECLARATIVE_KIND: lambda key, definition: declarative_endpoint_spec(key, definition, source="custom"),
+}
+
+
+def _dispatch[T](table: Mapping[str, T], definition: Mapping[str, Any]) -> T:
+    kind = str(definition["kind"])
+    implementation = table.get(kind)
+    if implementation is None:
+        raise ValueError(f"unsupported endpoint definition kind: {kind!r}")
+    return implementation
+
+
+def definition_media_type(definition: Mapping[str, Any]) -> str:
+    """读一份**已过校验**的定义的媒体类型，按 ``kind`` 取。
+
+    Raises:
+        ValueError: 定义的 ``kind`` 在本层没有投影实现。
+    """
+    return _dispatch(_MEDIA_TYPE_BY_KIND, definition)(definition)
+
+
 def derive_mirror_columns(definition: Mapping[str, Any]) -> MirrorColumns:
     """从一份**已过校验**的定义派生镜像列。
 
@@ -46,14 +75,19 @@ def derive_mirror_columns(definition: Mapping[str, Any]) -> MirrorColumns:
     return MirrorColumns(
         kind=str(definition["kind"]),
         schema_version=str(definition["schema_version"]),
-        media_type=DECLARATIVE_MEDIA_TYPE,
+        media_type=definition_media_type(definition),
         display_name=str(meta["name"]),
     )
 
 
 def endpoint_spec_from_row(row: CustomEndpoint) -> EndpointSpec:
-    """按库里的行构造 spec；键由行的自增 id 派生，来源标为 ``custom``。"""
-    return declarative_endpoint_spec(make_endpoint_key(row.id), row.definition, source="custom")
+    """按库里的行构造 spec；键由行的自增 id 派生，来源标为 ``custom``。
+
+    Raises:
+        ValueError: 行上定义的 ``kind`` 在本层没有投影实现。
+    """
+    definition: Mapping[str, Any] = row.definition
+    return _dispatch(_SPEC_BY_KIND, definition)(make_endpoint_key(row.id), definition)
 
 
 async def resolve_endpoint_spec(

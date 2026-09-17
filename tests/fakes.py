@@ -827,3 +827,13 @@ def hook_claim_recheck(monkeypatch, *, before=None, after_first_pass=None) -> No
         return result
 
     monkeypatch.setattr(generation_tasks, "assert_current_artifact_input_claims_usable", _recheck)
+
+
+def bind_safe_session_factory(monkeypatch, factory) -> None:
+    """把全局 ``lib.db.safe_session_factory`` 指向给定的 session 工厂。
+
+    worker 侧的 ``_requeue_single_task`` 与 ``CapacityTable.from_db`` 在函数内晚导入这个全局
+    名字、绕开注入的协作者自己开 session，测试只能从这一处换；工厂由调用方给，可以是真库的
+    ``async_sessionmaker``，也可以是只出一个假 session 的上下文管理器。
+    """
+    monkeypatch.setattr("lib.db.safe_session_factory", factory)

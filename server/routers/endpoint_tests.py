@@ -45,6 +45,7 @@ from lib.custom_provider.endpoint_test import (
     EndpointTestAssets,
     EndpointTestCredentials,
     EndpointTestDefinitionError,
+    EndpointTestMode,
     EndpointTestParameters,
     TrialRun,
     TrialRunBusyError,
@@ -56,6 +57,7 @@ from lib.custom_provider.endpoint_test import (
     parse_response_body,
     preview_request,
     stage_report_payload,
+    supports_test_mode,
     trial_run_manager,
 )
 from lib.custom_provider.endpoints import declarative_requires_api_key, declarative_requires_base_url
@@ -241,11 +243,18 @@ async def _read_upload(upload: UploadFile) -> AssetData:
     return AssetData(upload.content_type or "application/octet-stream", content)
 
 
-def _accepted_definition(definition: object, _t: Translator) -> dict[str, Any]:
-    """过共享校验器。与保存接口同一份判定、同一套错误码，端点测试不另设门槛。"""
+def _accepted_definition(definition: object, _t: Translator, *, mode: EndpointTestMode) -> dict[str, Any]:
+    """过共享校验器，再按定义的 ``kind`` 判这种模式支不支持。
+
+    校验与保存接口同一份判定、同一套错误码，端点测试不另设门槛。「这种 kind 没有这种模式」不是
+    定义有错，故不混进定义诊断，按一条 400 单独拒绝。
+    """
     diagnostics = validate_definition(definition)
     if diagnostics.errors or not isinstance(definition, dict):
         raise _invalid(diagnostics, _t)
+    kind = str(definition["kind"])
+    if not supports_test_mode(kind, mode):
+        raise BadRequestError("endpoint_test_mode_unsupported_for_kind", kind=kind)
     return definition
 
 
@@ -330,7 +339,7 @@ async def preview_endpoint_request(
 ) -> PreviewResponse:
     """渲染将要发出的请求，不外发。凭证打码、素材换成体积摘要、``task_id`` 保持占位符。"""
     body, assets = await _parse_body(request, PreviewRequestInput)
-    definition = _accepted_definition(body.definition, _t)
+    definition = _accepted_definition(body.definition, _t, mode=EndpointTestMode.PREVIEW_REQUEST)
     credentials = await _resolve_credentials(
         body.credentials,
         session,
@@ -354,7 +363,7 @@ async def check_endpoint_response(
     _t: Translator,
 ) -> dict[str, Any]:
     """用一份供应商真实响应验证取值路径与状态映射，不外发。零费用。"""
-    definition = _accepted_definition(body.definition, _t)
+    definition = _accepted_definition(body.definition, _t, mode=EndpointTestMode.CHECK_RESPONSE)
     try:
         report = check_response(definition, body.stage, parse_response_body(body.response_body))
     except EndpointTestDefinitionError as exc:
@@ -391,7 +400,7 @@ async def start_trial_run(
         # 覆盖 parameters 里独立携带的 model。
         parameters = replace(parameters, model=body.model_ref.model_id)
     elif body.definition is not None:
-        definition = _accepted_definition(body.definition, _t)
+        definition = _accepted_definition(body.definition, _t, mode=EndpointTestMode.TRIAL_RUN)
         credentials = await _required_credentials(
             body.credentials,
             session,
@@ -511,7 +520,7 @@ async def _model_ref_target(
         diagnostics = builtin_declarative_video_diagnostics(model_ref.provider_id, model_ref.model_id, config)
         if diagnostics is not None:
             builtin_definition, base_url, api_key = diagnostics
-            definition = _accepted_definition(dict(builtin_definition), _t)
+            definition = _accepted_definition(dict(builtin_definition), _t, mode=EndpointTestMode.TRIAL_RUN)
             credentials = EndpointTestCredentials(base_url=base_url, api_key=api_key)
         target = model_ref_target(model_ref.provider_id, model_ref.model_id, resolver=resolver, definition=definition)
         return target, credentials, definition
@@ -539,7 +548,7 @@ async def _model_ref_target(
     if endpoint_spec.definition is not None:
         # 内置声明式端点（newapi-video / v2 / minimax 系）与 ce-* 一样有定义：结果体的渲染请求、
         # 逐阶段提取与提交前渲染闸按同一条路给出，不因定义随版发布而缺一段诊断。
-        definition = _accepted_definition(dict(endpoint_spec.definition), _t)
+        definition = _accepted_definition(dict(endpoint_spec.definition), _t, mode=EndpointTestMode.TRIAL_RUN)
     credentials = EndpointTestCredentials(base_url=provider.base_url, api_key=provider.api_key)
     target = model_ref_target(model_ref.provider_id, model_ref.model_id, resolver=resolver, definition=definition)
     return target, credentials, definition

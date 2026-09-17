@@ -157,6 +157,14 @@ def test_migrated_builtin_endpoints_are_declarative(key: str):
     assert descriptor["display_name_key"] == ""
 
 
+def test_spec_kind_is_read_from_the_definition():
+    """``kind`` 读定义本体，不由「有没有定义」推断——第二种 kind 的端点同样持有一份定义。"""
+    template = _example_template()
+    template["kind"] = "comfyui"
+
+    assert declarative_endpoint_spec("demo-video", template).kind == "comfyui"
+
+
 def test_unmigrated_endpoints_stay_python_in_the_catalog():
     descriptor = endpoint_spec_to_dict(ENDPOINT_REGISTRY["openai-video"])
     assert descriptor["kind"] == "python"

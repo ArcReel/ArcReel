@@ -248,6 +248,7 @@ MESSAGES = {
     "endpoint_test_definition_and_model_ref_exclusive": "调用端点定义与测试模型只能提供其一",
     "endpoint_test_too_many_assets": "素材文件数量超过 {limit} 个上限",
     "endpoint_test_credentials_ambiguous": "凭证只能提供其一：选择供应商，或内联填写接口地址与 API Key",
+    "endpoint_test_mode_unsupported_for_kind": "这种调用端点（{kind}）不支持该项端点测试",
     "endpoint_test_model_unavailable": "该模型已禁用或不是视频模型，无法用于测试连接",
     "endpoint_test_provider_base_url_required": "该模型的调用端点需要接口地址，请先给这个供应商填写 base_url",
     "model_not_found": "模型不存在",

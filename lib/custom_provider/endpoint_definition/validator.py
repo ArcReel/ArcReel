@@ -1,9 +1,13 @@
-"""声明式定义的共享校验器：保存、validate 接口、端点测试与 import 期唯一的判定实现。
+"""端点定义的共享校验器：保存、validate 接口、端点测试与 import 期唯一的判定实现。
 
-两层闸门合起来才算通过：``schema.json`` 管结构（字段集、类型、枚举），本模块管语义——占位符
-只能引用声明过的变量、凭证只从 ``auth`` 节写入、能力声明与实际引用的素材两向一致、每条取值
-路径落在 JSONPath 受限子集内。两层的产出统一成 :class:`DefinitionIssue`，消费方拿到的永远是
-同一套码。
+入口 :func:`validate_definition` 先过容器层（是对象、有 ``kind``、``kind`` 有校验实现），再按
+``kind`` 分派——名录外的 kind 在容器层就被结构化拒绝，不会走进某一种 kind 的规则里报出一串与
+真正问题无关的次生错误。
+
+声明式 kind 的两层闸门合起来才算通过：``schema.json`` 管结构（字段集、类型、枚举），本模块管
+语义——占位符只能引用声明过的变量、凭证只从 ``auth`` 节写入、能力声明与实际引用的素材两向一致、
+每条取值路径落在 JSONPath 受限子集内。两层的产出统一成 :class:`DefinitionIssue`，消费方拿到的
+永远是同一套码。
 
 纯逻辑：不碰数据库、不发请求、不读环境，输入是一份已解析的 JSON 值。
 """
@@ -12,7 +16,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -26,6 +30,7 @@ from lib.video_backends.base import ProviderJobStatus, ReferenceAudioMode, audio
 
 from .errors import ROOT_PATH, DefinitionDiagnostics, DefinitionErrorCode, DefinitionIssue, join_path
 from .jsonpath_subset import JsonPathSubsetError, parse_json_path
+from .kinds import DECLARATIVE_KIND
 from .template_engine import enum_map_key
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
@@ -168,17 +173,54 @@ def _schema_validator() -> Draft202012Validator:
 
 
 def validate_definition(document: object) -> DefinitionDiagnostics:
-    """校验一份定义 JSON。
+    """校验一份定义 JSON：先过容器层，再按 ``kind`` 分派到该 kind 的校验实现。
+
+    容器层只认 ``kind``，其余字段一概不看：不同 kind 的定义不同构，用某一种 kind 的 schema 去
+    判另一种只会报出一串与真正问题无关的次生错误。
+    """
+    container = tuple(_container_issues(document))
+    if container or not isinstance(document, dict):
+        return DefinitionDiagnostics(errors=container)
+    return _KIND_VALIDATORS[str(document["kind"])](document)
+
+
+def _validate_declarative(document: Mapping[str, Any]) -> DefinitionDiagnostics:
+    """声明式定义的两层闸门。
 
     结构层有错时不再跑语义层：占位符与能力检查都以字段形状成立为前提，在残缺结构上继续跑只会
     产出误导性的次生错误。
     """
     structural = tuple(_structural_issues(document))
-    if structural or not isinstance(document, dict):
+    if structural:
         return DefinitionDiagnostics(errors=structural)
     checker = _SemanticChecker(document)
     checker.run()
     return DefinitionDiagnostics(errors=tuple(checker.errors), warnings=tuple(checker.warnings))
+
+
+#: ``kind`` → 该 kind 的校验实现。键集即校验层认得的全部 kind，容器层的枚举由它派生，两者不会分叉。
+_KIND_VALIDATORS: Mapping[str, Callable[[Mapping[str, Any]], DefinitionDiagnostics]] = {
+    DECLARATIVE_KIND: _validate_declarative,
+}
+
+
+# ---------------------------------------------------------------- 容器层
+
+
+@cache
+def _container_validator() -> Draft202012Validator:
+    schema = {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {"kind": {"enum": sorted(_KIND_VALIDATORS)}},
+    }
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema)
+
+
+def _container_issues(document: Any) -> Iterator[DefinitionIssue]:
+    for error in _container_validator().iter_errors(document):
+        yield from _translate_schema_error(error)
 
 
 # ---------------------------------------------------------------- 结构层

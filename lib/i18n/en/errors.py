@@ -263,6 +263,7 @@ MESSAGES = {
     "endpoint_test_definition_and_model_ref_exclusive": "Provide either an endpoint definition or a model to test, not both",
     "endpoint_test_too_many_assets": "Too many asset files; the limit is {limit}",
     "endpoint_test_credentials_ambiguous": "Provide one credential source only: select a provider, or fill in the base URL and API key inline",
+    "endpoint_test_mode_unsupported_for_kind": "This kind of endpoint ({kind}) does not support that endpoint test",
     "endpoint_test_model_unavailable": "This model is disabled or not a video model, so it cannot run a test connection",
     "endpoint_test_provider_base_url_required": "This model's endpoint needs an API address; set a base_url on the provider first",
     "model_not_found": "Model not found",
