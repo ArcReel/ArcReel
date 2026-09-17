@@ -152,6 +152,20 @@ async def test_script_generator_reads_script_plan_reference_units(reference_proj
 
 
 @pytest.mark.asyncio
+async def test_reference_prompt_authoring_ends_with_instructions_on_both_paths(reference_project: Path):
+    gen = ScriptGenerator(reference_project)
+    assert "# 附加指令" not in await gen.build_prompt(episode=1)
+    preview = await gen.build_prompt(episode=1, instructions="多给人物面部特写")
+    assert preview.endswith("逐 unit 产出。\n\n# 附加指令\n多给人物面部特写")
+
+    fake_generator = _fake_prompt_authoring_generator(PROMPT_AUTHORING_UNIT_TEXT)
+    await ScriptGenerator(reference_project, generator=fake_generator).generate(
+        episode=1, instructions="多给人物面部特写"
+    )
+    assert fake_generator.generate.await_args.args[0].prompt == preview
+
+
+@pytest.mark.asyncio
 async def test_script_generator_uses_reference_schema_on_generate(reference_project: Path):
     """prompt_authoring 用扁平 schema 出正文，落盘结构由 script_plan + 正文机械合成。"""
     from lib.script_models import ReferencePromptAuthoringFlatScript

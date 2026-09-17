@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,6 +25,7 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.api_errors import UnprocessableError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
@@ -38,6 +40,7 @@ from lib.generation_type_buckets import (
 from lib.http_status_errors import raise_for_status_redacted
 from lib.httpx_shared import get_http_client
 from lib.i18n import DEFAULT_LOCALE, Locale, Translator, translate_or
+from lib.market.sources import PROXY_PREFIX_SETTING
 from server.dependencies import get_config_service
 from server.routers._validators import validate_backend_value
 
@@ -298,6 +301,8 @@ class SystemConfigPatchRequest(BaseModel):
     default_audio_backend: str | None = None
     narration_voice: str | None = None
     narration_speed: float | None = None
+    # 市场源 GitHub raw 代理前缀：空串 = 直连
+    market_github_proxy_prefix: str | None = None
     video_generate_audio: bool | None = None
     video_poll_timeout_seconds: int | None = None
     anthropic_api_key: str | None = None
@@ -392,6 +397,7 @@ async def get_system_config(
         "agent_max_concurrent_sessions": int(all_s.get("agent_max_concurrent_sessions") or "5"),
         "text_backend_simple": all_s.get("text_backend_simple") or "",
         "text_backend_complex": all_s.get("text_backend_complex") or "",
+        "market_github_proxy_prefix": all_s.get(PROXY_PREFIX_SETTING) or "",
     }
 
     options = await _build_options(svc, session, locale)
@@ -467,6 +473,24 @@ async def get_system_version(
 # ---------------------------------------------------------------------------
 
 
+def _is_valid_proxy_prefix(prefix: str) -> bool:
+    if not prefix.isprintable() or any(char.isspace() for char in prefix):
+        return False
+    try:
+        parts = urlsplit(prefix)
+        parts.port  # noqa: B018 -- 访问即校验端口，非法端口抛 ValueError
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and bool(parts.hostname)
+        and parts.username is None
+        and parts.password is None
+        and "?" not in prefix
+        and "#" not in prefix
+    )
+
+
 @router.patch("/system/config")
 async def patch_system_config(
     req: SystemConfigPatchRequest,
@@ -501,6 +525,14 @@ async def patch_system_config(
     # 旁白音色：可配置字符串 id（照供应商文档填），空串 = 清除回落服务默认
     if "narration_voice" in patch:
         await svc.set_setting("narration_voice", str(patch["narration_voice"] or "").strip())
+
+    # 市场源 GitHub raw 代理前缀：只拼在 raw.githubusercontent.com 地址前，须是带主机名、不含空白与控制字符、不含用户名与密码的
+    # https 地址（该值经 GET 原样回显，不当作凭证存放），且不带查询串与 fragment（raw 地址按路径拼在前缀之后）；空串 = 清除
+    if "market_github_proxy_prefix" in patch:
+        prefix = str(patch["market_github_proxy_prefix"] or "").strip()
+        if prefix and not _is_valid_proxy_prefix(prefix):
+            raise UnprocessableError("market_github_proxy_prefix_invalid")
+        await svc.set_setting(PROXY_PREFIX_SETTING, prefix)
 
     # 旁白语速：仅做正有限数卫生校验（拒绝 0/负数/inf/nan），具体取值范围由各供应商自行约束；null = 清除
     if "narration_speed" in patch:

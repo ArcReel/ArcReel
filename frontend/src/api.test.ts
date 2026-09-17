@@ -438,6 +438,8 @@ describe("API", () => {
 
       await API.getSystemConfig();
       await API.getSystemVersion();
+      await API.listPromptTemplates();
+      await API.getPromptTemplate("asset/sheet 1");
       await API.updateSystemConfig({ default_image_backend: "vertex" });
       await API.listFiles("demo");
       await API.deleteDraft("demo", 1, "script_plan");
@@ -548,6 +550,8 @@ describe("API", () => {
       });
       expect(requestSpy).toHaveBeenCalledWith("/system/config");
       expect(requestSpy).toHaveBeenCalledWith("/system/version");
+      expect(requestSpy).toHaveBeenCalledWith("/prompt-templates", { signal: undefined });
+      expect(requestSpy).toHaveBeenCalledWith("/prompt-templates/asset/sheet%201", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/system/config", {
         method: "PATCH",
         body: JSON.stringify({ default_image_backend: "vertex" }),
@@ -789,6 +793,44 @@ describe("API", () => {
   });
 
   describe("fetch-based wrappers", () => {
+    it("passes cancellation through the stale market refresh wrapper", async () => {
+      const request = vi.spyOn(API, "request").mockResolvedValue({ sources: [] } as never);
+      const controller = new AbortController();
+
+      await API.refreshMarketSources({ staleOnly: true, signal: controller.signal });
+
+      expect(request).toHaveBeenCalledWith("/market/refresh?stale_only=true", {
+        method: "POST",
+        signal: controller.signal,
+      });
+    });
+
+    it("lists market entries of a type and fetches entry icons as blobs keyed by version", async () => {
+      const blob = new Blob(["png"], { type: "image/png" });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(mockResponse({ jsonData: { entries: [], app_version: "0.30.0" } }))
+        .mockResolvedValueOnce(mockResponse({ blobData: blob }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(API.listMarketEntries()).resolves.toEqual({ entries: [], app_version: "0.30.0" });
+      await expect(API.getMarketEntryIcon(3, "kling-master", "1.0.0+b")).resolves.toBe(blob);
+
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/market/entries?type=endpoint");
+      expect(fetchMock.mock.calls[1][0]).toBe(
+        "/api/v1/market/sources/3/entries/kling-master/icon?v=1.0.0%2Bb",
+      );
+    });
+
+    it("throws when a market entry icon cannot be fetched", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(mockResponse({ ok: false, status: 502, jsonData: { detail: "无法取回" } })),
+      );
+
+      await expect(API.getMarketEntryIcon(3, "kling-master", "1.0.0")).rejects.toThrow("无法取回");
+    });
+
     it("uploads files via multipart form and returns JSON", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({ jsonData: { success: true, path: "p", url: "u" } }),

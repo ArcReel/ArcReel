@@ -58,7 +58,7 @@ from lib.i18n import _ as translate
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, is_reference_video_project
 from lib.prompt_builders_reference import build_reference_units_split_prompt
-from lib.prompt_builders_script import append_user_instructions, build_narration_split_prompt, build_normalize_prompt
+from lib.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.providers import CallPurpose
 from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.reference_video.draft_validation import (
@@ -866,8 +866,8 @@ async def generate_drama_script_plan(
             source_language=cast(str | None, prompt_inputs["source_language"]),
             speech_rate_override=cast(float | None, prompt_inputs["speech_rate_override"]),
             episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
+            instructions=instructions,
         )
-        prompt = append_user_instructions(prompt, instructions)
 
         if request.dry_run:
             return TextGenerationResult(
@@ -1528,8 +1528,8 @@ async def generate_reference_script_plan(
             episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
             episode_outline=cast(dict[str, Any] | None, prompt_inputs["episode_outline"]),
             next_episode_outline=cast(dict[str, Any] | None, prompt_inputs["next_episode_outline"]),
+            instructions=instructions,
         )
-        prompt = append_user_instructions(prompt, instructions)
 
         if request.dry_run:
             return TextGenerationResult(
@@ -1678,8 +1678,8 @@ async def generate_narration_script_plan(
             episode=episode,
             target_language=cast(str, prompt_inputs["target_language"]),
             episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
+            instructions=instructions,
         )
-        prompt = append_user_instructions(prompt, instructions)
 
         if request.dry_run:
             return TextGenerationResult(

@@ -32,7 +32,7 @@ class TestBuildPrompt:
 
         assert out.count("Style:") == 1
         assert "Style: 真人电视剧风格" in out
-        assert out.startswith("Visual style: Soft light")
+        assert out.startswith("Style: 真人电视剧风格\nVisual style: Soft light")
 
     def test_unstructured_prompt_keeps_one_style_line(self) -> None:
         from server.media_tools.storyboards import _build_prompt

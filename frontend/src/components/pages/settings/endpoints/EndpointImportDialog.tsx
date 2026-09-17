@@ -31,6 +31,7 @@ export function EndpointImportDialog({
 
   const hasErrors = (validation?.errors.length ?? 0) > 0;
   const schemaVersion = validation?.schema_version;
+  const minAppVersion = validation?.min_app_version;
 
   return (
     <GlassModal
@@ -63,6 +64,18 @@ export function EndpointImportDialog({
               file: schemaVersion.file ?? t("ce_import_schema_unknown"),
               current: schemaVersion.current,
             })}
+          </p>
+        )}
+
+        {minAppVersion && !minAppVersion.satisfied && (
+          <p className="mt-3 flex items-start gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/40 px-3 py-2 text-[12px] leading-[1.55] text-text-2">
+            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warm-bright" aria-hidden />
+            <span>
+              {t("ce_import_requires_newer_app", {
+                required: minAppVersion.required,
+                current: minAppVersion.current,
+              })}
+            </span>
           </p>
         )}
 
