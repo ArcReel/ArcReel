@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -196,6 +196,22 @@ describe("SystemConfigPage", () => {
     const link = screen.getByRole("link", { name: "返回" });
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/app/projects");
+  });
+
+  it("places the market section right after endpoints and opens it full width", async () => {
+    vi.spyOn(API, "listMarketSources").mockResolvedValue({ sources: [] });
+    vi.spyOn(API, "refreshMarketSources").mockResolvedValue({ sources: [] });
+    vi.spyOn(API, "listMarketEntries").mockResolvedValue({ entries: [], app_version: "0.9.0" });
+    renderPage("/app/settings?section=market");
+
+    const labels = within(screen.getByRole("navigation", { name: "设置" }))
+      .getAllByRole("button")
+      .map((button) => button.textContent?.trim())
+      .filter((label) => label === "调用端点" || label === "市场");
+    expect(labels).toEqual(["调用端点", "市场"]);
+    expect(screen.getByRole("button", { name: "市场" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("heading", { name: "市场", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "管理市场源" })).toBeInTheDocument();
   });
 
   it("loads version info when entering the about section", async () => {

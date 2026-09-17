@@ -29,8 +29,8 @@ STORYBOARD_PAYLOAD = {"script_file": "episode_1.json", "prompt": "queued prompt"
 #: fake_resolve_ctx 默认 image lane 的 backend_model；裁剪 warning 报的是它，不是 registry 里的 provider 名。
 FAKE_BACKEND_MODEL = "gpt-image-2"
 CLAMPED_PROMPT = (
-    "Visual style: cinematic\n\n"
     "Style: Anime\n"
+    "Visual style: cinematic\n"
     "Reference_Images: 图1、图2、图3、图4、图5、图6为角色参考图；图7为场景参考图。\n"
     "Scene: 图1握着玉佩立在图7门口\n"
     "Composition:\n  shot_type: Medium Shot\n  lighting: 暖光\n  ambiance: 薄雾\n"

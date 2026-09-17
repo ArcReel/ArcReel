@@ -24,6 +24,7 @@ const CONFIG = {
     text_backend_complex: "",
     video_generate_audio: false,
     video_poll_timeout_seconds: 3600,
+    market_github_proxy_prefix: "",
   },
 };
 
@@ -82,6 +83,24 @@ describe("MediaModelSection", () => {
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_poll_timeout_seconds: 7200 }));
+  });
+
+  it("reads and saves the GitHub raw proxy prefix with the other system settings", async () => {
+    const user = userEvent.setup();
+    mockConfig({ market_github_proxy_prefix: "https://old.example.com/" });
+    const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(CONFIG as never);
+    render(<MediaModelSection />);
+
+    const input = await screen.findByRole("textbox", { name: "GitHub raw 代理前缀" });
+    expect(input).toHaveValue("https://old.example.com/");
+    await user.clear(input);
+    await user.type(input, "https://proxy.example.com/");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({ market_github_proxy_prefix: "https://proxy.example.com/" }),
+    );
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("代理前缀已保存"));
   });
 
   it("rounds a fractional polling timeout to an integer on blur before saving", async () => {

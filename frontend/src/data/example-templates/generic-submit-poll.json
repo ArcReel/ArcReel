@@ -1,6 +1,6 @@
 {
   "kind": "declarative",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "meta": {
     "name": "Generic Submit + Poll",
     "author": "ArcReel",

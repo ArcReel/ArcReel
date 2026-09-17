@@ -7,6 +7,7 @@ from dataclasses import replace
 
 import pytest
 
+from lib.prompt_templates.builtin import builtin_templates
 from lib.reference_video.prompt_render import (
     render_unit_prompt,
     resolve_reference_audio_paths,
@@ -72,7 +73,6 @@ def test_native_tier_binds_audio_in_speaker_first_appearance_order():
         _project(),
         _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, model_id="doubao-seedance-2-0"),
-        style="写实电影感",
     )
     # 音频顺序即请求字段顺序，也即 @音频N 编号
     assert rendered.audio_speakers == ["张三", "李四"]
@@ -97,7 +97,6 @@ def test_silent_episode_sends_dialogue_without_any_audio_binding():
             max_reference_audio=3,
             model_id="doubao-seedance-2-0",
         ),
-        style="写实电影感",
     )
     assert rendered.audio_speakers == []
     assert rendered.audio_speaker_reference_index == []
@@ -147,8 +146,8 @@ def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencin
         audio_ready={"张三", "李四"},
     )
     refs = _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑"))
-    audible = render_unit_prompt(_TEXT, _project(), refs, settings, style="写实电影感")
-    silent = render_unit_prompt(_TEXT, _project(), refs, replace(settings, **silencing), style="写实电影感")
+    audible = render_unit_prompt(_TEXT, _project(), refs, settings)
+    silent = render_unit_prompt(_TEXT, _project(), refs, replace(settings, **silencing))
 
     def _body(prompt: str) -> str:
         return prompt.split("\n\n")[1]
@@ -405,31 +404,68 @@ def test_unclosed_brace_line_sent_verbatim_with_warning():
 
 
 def test_legend_and_absolute_seconds_are_gone():
-    rendered = render_unit_prompt(_TEXT, _project(), _refs(("character", "张三")), _SOFT, style="写实电影感")
+    rendered = render_unit_prompt(_TEXT, _project(), _refs(("character", "张三")), _SOFT)
     assert "[图" not in rendered.prompt
     assert "参考图对照" not in rendered.prompt
     assert "禁止出现：BGM、文字字幕、水印。" not in rendered.prompt
     assert "s)" not in rendered.prompt
 
 
-def test_third_segment_anchors_style_and_constraint_packs():
-    rendered = render_unit_prompt("镜头1：空镜。", _project(), [], _SOFT, style="写实电影感")
-    assert "整体视觉风格：写实电影感。" in rendered.prompt
-    assert "保持无字幕" in rendered.prompt
-    assert "不要生成水印" in rendered.prompt
-    assert "禁止出现背景音乐。" in rendered.prompt
+def _video_avoid_line() -> str:
+    """分镜视频提示词的 Avoid 行即视频负向提示词。"""
+    return builtin_templates.render("storyboard/video", body="正文").splitlines()[-1]
 
 
-def test_twin_guard_only_when_two_or_more_characters():
+def _avoid_line(prompt: str) -> str:
+    lines = [line for line in prompt.splitlines() if line.startswith("Avoid:")]
+    assert len(lines) == 1
+    return lines[0]
+
+
+def test_third_segment_anchors_style_and_video_negative_prompt():
+    rendered = render_unit_prompt("镜头1：空镜。", _project(style_description="冷色调，胶片颗粒"), [], _SOFT)
+    assert rendered.prompt.split("\n\n")[-1] == "\n".join(
+        ["Style: 写实电影感", "Visual style: 冷色调，胶片颗粒", _video_avoid_line()]
+    )
+
+
+def test_third_segment_drops_quality_and_stability_packs():
+    rendered = render_unit_prompt("镜头1：@[张三] 独行。", _project(), _refs(("character", "张三")), _SOFT)
+    for phrase in ("高清", "细节丰富", "电影质感", "光影柔和", "稳定不变形", "五官清晰", "穿模", "卡顿"):
+        assert phrase not in rendered.prompt
+
+
+def test_third_segment_without_style_keeps_only_the_avoid_line():
+    rendered = render_unit_prompt("镜头1：空镜。", _project(style=""), [], _SOFT)
+    assert rendered.prompt == f"镜头1：空镜。\n\n{_video_avoid_line()}"
+
+
+def test_twin_exclusion_only_when_two_or_more_characters():
     single = render_unit_prompt("镜头1：@[张三] 独行。", _project(), _refs(("character", "张三")), _SOFT)
-    assert "双胞胎" not in single.prompt
-    both = render_unit_prompt(
+    assert _avoid_line(single.prompt) == _video_avoid_line()
+    clipped = render_unit_prompt(
         "镜头1：@[张三] 与 @[李四] 对峙。",
         _project(),
-        _refs(("character", "张三"), ("character", "李四")),
+        _refs(("character", "张三")),
         _SOFT,
     )
-    assert "双胞胎" in both.prompt
+    assert clipped.prompt.startswith("<张三>@图片1。")
+    assert "<李四>@图片" not in clipped.prompt
+    assert _avoid_line(clipped.prompt) == f"{_video_avoid_line()}、外形着装完全一致的分身或双胞胎"
+
+
+def test_product_fidelity_tail_follows_the_third_segment():
+    rendered = render_unit_prompt(
+        "镜头1：@[商品甲] 与 @[商品乙] 摆在桌上。",
+        _project(products={"商品甲": {}, "商品乙": {}}),
+        _refs(("product", "商品甲"), ("product", "商品乙"), ("product", "商品甲")),
+        _SOFT,
+    )
+    tail = rendered.prompt.split("\n\n")[-1]
+    assert tail.startswith(
+        "商品高保真还原（最高优先级，优先于前述文字/Logo 禁止项）：画面中的商品「商品甲」「商品乙」必须"
+    )
+    assert rendered.prompt.index(_video_avoid_line()) < rendered.prompt.index(tail)
 
 
 def test_script_without_dialogue_still_renders_three_segments():
@@ -637,8 +673,8 @@ def test_several_derivatives_of_one_character_share_a_single_form_declaration():
     assert "<张三/劲装>与<张三/兽化>是同一角色的不同形态，各自按对应参考图呈现。" in rendered.prompt
 
 
-def test_one_character_in_two_forms_does_not_trigger_the_twin_guard():
-    """双胞胎兜底数的是不同角色：本体 + 衍生是两张图、一个人，兜底会与形态说明句对立。"""
+def test_one_character_in_two_forms_does_not_trigger_the_twin_exclusion():
+    """分身排除项数的是不同角色：本体 + 衍生是两张图、一个人，排除项会与形态说明句对立。"""
     rendered = render_unit_prompt(
         "@[张三] 与 @[张三/劲装] 对峙。",
         _project_with_derivatives(),
@@ -646,10 +682,10 @@ def test_one_character_in_two_forms_does_not_trigger_the_twin_guard():
         _SOFT,
     )
 
-    assert "双胞胎" not in rendered.prompt
+    assert _avoid_line(rendered.prompt) == _video_avoid_line()
 
 
-def test_two_characters_still_trigger_the_twin_guard_when_one_is_a_derivative():
+def test_two_characters_still_trigger_the_twin_exclusion_when_one_is_a_derivative():
     rendered = render_unit_prompt(
         "@[张三/劲装] 与 @[李四] 对峙。",
         _project_with_derivatives(),
@@ -657,7 +693,7 @@ def test_two_characters_still_trigger_the_twin_guard_when_one_is_a_derivative():
         _SOFT,
     )
 
-    assert "双胞胎" in rendered.prompt
+    assert _avoid_line(rendered.prompt) == f"{_video_avoid_line()}、外形着装完全一致的分身或双胞胎"
 
 
 def test_a_lone_form_needs_no_declaration():

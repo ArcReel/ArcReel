@@ -112,16 +112,18 @@ exclude_lines = [
 [tool.importlinter]
 root_packages = ["lib"]
 
-# lib.config < lib.*_backends < lib.custom_provider：config 是配置解析的基础层，backends
-# 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商。四个 backend
-# 包为同层 sibling（`:` 分隔），彼此复用 video_backends.base 的工具不算方向违规。
+# lib.config < lib.*_backends < lib.custom_provider < lib.market：config 是配置解析的基础层，backends
+# 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商，market 以调用端点
+# 定义为条目载荷、复用其校验器，位于最上层。四个 backend 包为同层 sibling（`:` 分隔），彼此复用
+# video_backends.base 的工具不算方向违规。
 # ignore_imports 是存量违规的 baseline，逐条掐的是**违规链的终端边**而非首跳，这样中间模块
 # （project_manager / cost_calculator / usage_repo 等）后续新增的反向依赖仍会被契约拦下。
 # 新增条目前先确认该边无法就地清零；清零一条即删一行。
 [[tool.importlinter.contracts]]
-name = "lib.config / lib.*_backends / lib.custom_provider 分层契约"
+name = "lib.config / lib.*_backends / lib.custom_provider / lib.market 分层契约"
 type = "layers"
 layers = [
+    "market",
     "custom_provider",
     "image_backends : video_backends : audio_backends : text_backends",
     "config",

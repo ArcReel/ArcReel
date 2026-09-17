@@ -337,4 +337,36 @@ MESSAGES = {
         "{path_expression} uses a wildcard: an object wildcard takes the first member only, "
         "and key order may differ between the preview and the backend"
     ),
+    # ---- market source checks ----
+    "val_market_index_unreadable": "Cannot read the index file: {detail}",
+    "val_market_unsupported_schema_version": "Index schema_version {version} is newer than the supported {supported}",
+    "val_market_missing_field": "Missing required field: {field}",
+    "val_market_invalid_type": "Wrong type; expected {expected}",
+    "val_market_invalid_value": "Value violates constraint {keyword}: {constraint}",
+    "val_market_slug_invalid": (
+        'Invalid slug "{value}": use lowercase letters, digits and hyphens, '
+        "start with a letter or digit, at most 64 characters"
+    ),
+    "val_market_slug_duplicate": 'Slug "{slug}" is used more than once in this market source',
+    "val_market_slug_directory_mismatch": 'Slug "{slug}" does not match the definition directory "{directory}"',
+    "val_market_path_not_relative": (
+        '"{value}" must be a relative path inside the market source: '
+        "no leading / or scheme, no .., and it must not point outside the source"
+    ),
+    "val_market_file_missing": "Referenced file does not exist: {value}",
+    "val_market_icon_format_invalid": "The icon must be a readable PNG, WebP or SVG whose extension matches its content",
+    "val_market_icon_too_large": "The icon is {size} bytes, over the {limit}-byte limit",
+    "val_market_icon_not_square": "The icon must be square; it is {width}×{height}",
+    "val_market_icon_ambiguous": "An entry directory may contain only one icon file; found: {icons}",
+    "val_market_definition_unreadable": "Cannot read the definition: {detail}",
+    "val_market_definition_invalid": "The definition failed validation ({code}): {detail}",
+    "val_market_projection_mismatch": (
+        'Index field {field} is "{index_value}", which differs from "{definition_value}" in the definition meta'
+    ),
+    "val_market_min_app_version_invalid": 'min_app_version "{value}" is not semver (x.y.z)',
+    "val_market_detail_meta_not_object": "The definition has no meta object",
+    "val_market_cli_check_passed": "Market source check passed: {directory}",
+    "val_market_cli_check_failed": "Market source check failed with {count} issue(s)",
+    "val_market_cli_generate_written": "Wrote {path} ({count} entries)",
+    "val_market_cli_generate_failed": "Cannot generate the index: {count} issue(s)",
 }

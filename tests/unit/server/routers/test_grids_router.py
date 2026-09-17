@@ -366,6 +366,7 @@ class _FakePMGenerate:
             "content_mode": "narration",
             "aspect_ratio": "9:16",
             "style": "anime",
+            "style_description": "赛璐璐平涂，高对比描边",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
@@ -454,6 +455,10 @@ def test_generate_grid_success(monkeypatch, tmp_path):
     assert len(fake_queue.calls) == 1
     saved = json.loads((tmp_path / "grids" / f"{body['grid_ids'][0]}.json").read_text(encoding="utf-8"))
     assert saved["scene_ids"] == ["E1S01", "E1S02", "E1S03", "E1S04"]
+    prompt_lines = fake_queue.calls[0]["payload"]["prompt"].splitlines()
+    assert "Style: anime" in prompt_lines
+    assert "Visual style: 赛璐璐平涂，高对比描边" in prompt_lines
+    assert saved["prompt"] == fake_queue.calls[0]["payload"]["prompt"]
 
 
 class _FakePMBlockedReference(_FakePMGenerate):

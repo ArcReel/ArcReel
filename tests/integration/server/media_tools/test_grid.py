@@ -820,6 +820,7 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
+    fake_ctx.pm.project_payload["style_description"] = "水墨晕染，留白构图"
     all_ids = [f"E1S{i:02d}" for i in range(1, 13)]
     fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": sid, "image_prompt": "p", "video_prompt": "v", "segment_break": False} for sid in all_ids
@@ -864,6 +865,7 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
     # 每张的 prompt 按自身块与档位构建
     assert "3×3" in payloads[0]["prompt"]
     assert "2×2" in payloads[1]["prompt"]
+    assert all("Visual style: 水墨晕染，留白构图" in p["prompt"].splitlines() for p in payloads)
 
     # 落盘的 grid 记录与 payload 一致，帧链长度等于格数
     grids = sorted(GridManager(fake_ctx.project_path).list_all(), key=lambda g: len(g.scene_ids), reverse=True)

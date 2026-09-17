@@ -23,8 +23,14 @@ description: "剧情演绎单集规范化剧本子智能体。使用场景：(1)
 
 ## 分集节奏建议
 
-手动改分镜内容（情况 B / C）前先 Read `.claude/references/episode-pacing-drama.md`：那是节奏建议的正文，本文件不复述。
-首次生成（情况 A）无须自己读——服务端把同一份文本注入 `mcp__arcreel__generate_script_plan` 的 prompt。
+手动改分镜内容（情况 B / C）时按下列建议把握节奏；首次生成（情况 A）由服务端把同一份建议注入 `mcp__arcreel__generate_script_plan` 的 prompt。
+
+分集节奏（短剧体裁建议）：
+- 开篇 ~4 秒承担钩子职能：用强冲击 / 悬念 / 危机切入，避免介绍性远景。
+- 中段每 ~15 秒宜安排一次转折点（动作转折 / 情绪反差 / 关系撕裂 / 异常事件），
+  通过画面权重和景别变化呈现，避免长段平铺。
+- 末镜停在情绪极致瞬间，shot_type 倾向 Close-up / Extreme Close-up，
+  给观众留下回看的钩子。
 
 ## 工作流程
 
