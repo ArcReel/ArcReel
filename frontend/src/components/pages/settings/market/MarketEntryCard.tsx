@@ -115,13 +115,15 @@ export function MarketEntryCard({
       }`}
       style={CARD_STYLE}
     >
-      <button
-        type="button"
-        aria-label={entry.name}
-        disabled={unmet}
-        onClick={onOpen}
-        className="absolute inset-0 z-10 rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      />
+      {/* 版本不满足时不铺覆盖层，禁用的覆盖按钮仍会拦下版本徽标的悬停提示。 */}
+      {!unmet && (
+        <button
+          type="button"
+          aria-label={entry.name}
+          onClick={onOpen}
+          className="absolute inset-0 z-10 rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        />
+      )}
       <div
         className="relative flex aspect-[2/1] items-center justify-center border-b border-hairline-soft"
         style={{ background: "oklch(0.14 0.010 265 / 0.6)" }}

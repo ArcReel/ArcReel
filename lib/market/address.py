@@ -65,20 +65,13 @@ def github_source(owner: str, repo: str, ref: str = DEFAULT_GITHUB_REF) -> Resol
     )
 
 
-def same_source_identity(left: str, right: str) -> bool:
-    """比较规范键；GitHub owner/repo 忽略大小写，ref 保持大小写敏感。"""
-    if left == right:
-        return True
+def source_identity(canonical_key: str) -> str:
+    """规范键的身份形态，相等即同一市场源：GitHub owner/repo 折叠大小写，ref 与直链保持原样。"""
     prefix = "github:"
-    if not left.startswith(prefix) or not right.startswith(prefix):
-        return False
-    left_repo, left_separator, left_ref = left.removeprefix(prefix).rpartition("@")
-    right_repo, right_separator, right_ref = right.removeprefix(prefix).rpartition("@")
-    return (
-        bool(left_separator and right_separator)
-        and left_repo.casefold() == right_repo.casefold()
-        and left_ref == right_ref
-    )
+    repository, separator, ref = canonical_key.removeprefix(prefix).rpartition("@")
+    if not canonical_key.startswith(prefix) or not separator:
+        return canonical_key
+    return f"{prefix}{repository.casefold()}@{ref}"
 
 
 def _resolve_shorthand(text: str) -> ResolvedSourceAddress:

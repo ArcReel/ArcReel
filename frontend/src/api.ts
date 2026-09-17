@@ -3148,13 +3148,14 @@ class API {
     return this.request(`/market/sources/${sourceId}/entries/${encodeURIComponent(slug)}`, options);
   }
 
-  static async getMarketEntryDefinition(sourceId: number, slug: string, options: { signal?: AbortSignal } = {}): Promise<{ definition: unknown; entry_matches_definition: boolean }> {
+  static async getMarketEntryDefinition(sourceId: number, slug: string, options: { signal?: AbortSignal } = {}): Promise<{ definition: unknown; entry_matches_definition: boolean; definition_digest: string | null }> {
     return this.request(`/market/sources/${sourceId}/entries/${encodeURIComponent(slug)}/definition`, options);
   }
 
-  static async installMarketEntry(sourceId: number, slug: string, overwriteEndpointId?: number): Promise<{ endpoint: CustomEndpointInfo; installation: MarketEntryInstallation }> {
+  /** `definitionDigest` 取自确认页加载的定义；服务端重新抓取后内容不同即 409 拒装。 */
+  static async installMarketEntry(sourceId: number, slug: string, definitionDigest: string, overwriteEndpointId?: number): Promise<{ endpoint: CustomEndpointInfo; installation: MarketEntryInstallation }> {
     return this.request(`/market/sources/${sourceId}/entries/${encodeURIComponent(slug)}/install`, {
-      method: "POST", body: JSON.stringify({ overwrite_endpoint_id: overwriteEndpointId }),
+      method: "POST", body: JSON.stringify({ definition_digest: definitionDigest, overwrite_endpoint_id: overwriteEndpointId }),
     });
   }
 

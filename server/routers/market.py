@@ -41,7 +41,7 @@ from lib.market.entries import (
 )
 from lib.market.fetch import MarketFetchError
 from lib.market.index import MarketIndexEntry
-from lib.market.installations import write_installation
+from lib.market.installations import definition_digest, write_installation
 from lib.market.issues import MarketIssue, MarketIssueCode
 from lib.market.sources import DuplicateSourceError, MarketSourceService, get_market_source_service
 from server.routers._market_installations import (
@@ -162,6 +162,8 @@ class MarketEntryDefinitionResponse(BaseModel):
     #: 市场源里的定义文件按 JSON 解析后的原文，未经定义校验。
     definition: Any
     entry_matches_definition: bool
+    #: 定义是 JSON 对象时的摘要；安装时须原样带回，证明确认的就是这份定义。
+    definition_digest: str | None
 
 
 class AddMarketSourceRequest(BaseModel):
@@ -425,24 +427,30 @@ class _CheckedDefinition:
     def matches_entry(self) -> bool:
         return not any(issue.code == MarketIssueCode.PROJECTION_MISMATCH for issue in self.issues)
 
+    @property
+    def digest(self) -> str | None:
+        return definition_digest(self.definition) if isinstance(self.definition, dict) else None
+
 
 async def _checked_definition(
     service: MarketEntryService, session: AsyncSession, source_id: int, slug: str
 ) -> _CheckedDefinition:
-    """抓定义后再读当前快照做规则 ④⑤，网络等待期间的刷新不会绕过一致性校验。"""
+    """抓定义后再读当前快照做规则 ④⑤；抓取期间源已刷新、条目或索引地址变了即 409，不拿旧地址的内容对新条目校验。"""
     try:
-        definition = await service.fetch_definition(source_id, slug)
+        fetched = await service.fetch_definition(source_id, slug)
     except (MarketEntryNotFoundError, MarketSourceDisabledError, MarketAssetFetchError, MarketAssetInvalidError) as exc:
         raise _entry_api_error(exc) from exc
     source = await _require_source(MarketSourceRepository(session), source_id)
     entry = find_entry(source, slug)
     if entry is None:
         raise NotFoundError("market_entry_not_found")
+    if entry != fetched.entry or source.index_url != fetched.index_url:
+        raise ConflictError("market_entry_changed_during_fetch")
     return _CheckedDefinition(
         source=source,
         entry=entry,
-        definition=definition,
-        issues=check_entry_definition(entry, definition, definition_file=entry.path),
+        definition=fetched.definition,
+        issues=check_entry_definition(entry, fetched.definition, definition_file=entry.path),
     )
 
 
@@ -451,7 +459,11 @@ async def get_entry_definition(
     source_id: int, slug: str, service: EntryService, session: AsyncSession = Depends(get_async_session)
 ) -> MarketEntryDefinitionResponse:
     checked = await _checked_definition(service, session, source_id, slug)
-    return MarketEntryDefinitionResponse(definition=checked.definition, entry_matches_definition=checked.matches_entry)
+    return MarketEntryDefinitionResponse(
+        definition=checked.definition,
+        entry_matches_definition=checked.matches_entry,
+        definition_digest=checked.digest,
+    )
 
 
 @router.get("/sources/{source_id}/entries/{slug}/icon", response_class=Response)
@@ -472,6 +484,8 @@ async def get_entry_icon(source_id: int, slug: str, service: EntryService) -> Re
 
 
 class InstallMarketEntryRequest(BaseModel):
+    #: 确认页展示的定义摘要。安装时重新抓取，内容与用户核对过的不同即拒装。
+    definition_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     overwrite_endpoint_id: int | None = Field(default=None, gt=0)
 
 
@@ -494,6 +508,8 @@ async def install_entry(
     source, entry, definition = checked.source, checked.entry, checked.definition
     if not source.is_enabled:
         raise ConflictError("market_source_disabled")
+    if checked.digest is not None and checked.digest != body.definition_digest:
+        raise ConflictError("market_entry_definition_changed")
     if not checked.matches_entry:
         raise UnprocessableError("market_entry_definition_mismatch")
     if entry.min_app_version is not None and not meets_min_app_version(

@@ -214,7 +214,7 @@ describe("MarketSection", () => {
     const installed = { endpoint_id: 7, endpoint_key: "ce-7", endpoint_display_name: "Alpha", installed_version: "1.2.0", state: "current" as const, modified: false };
     vi.mocked(API.listMarketEntries).mockResolvedValue({ entries: [makeEntry({ installation: installed }), ENTRIES[1]], app_version: "0.30.0" });
     vi.spyOn(API, "getMarketEntry").mockRejectedValue(new Error("Preview unavailable"));
-    vi.spyOn(API, "getMarketEntryDefinition").mockResolvedValue({ definition: {}, entry_matches_definition: false });
+    vi.spyOn(API, "getMarketEntryDefinition").mockResolvedValue({ definition: {}, entry_matches_definition: false, definition_digest: "reviewed-digest" });
     vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({ endpoints: [] });
     render(<MarketSection />);
     await screen.findAllByRole("article");

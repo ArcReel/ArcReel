@@ -436,6 +436,8 @@ MESSAGES = {
     "memory_file_not_found": "记忆文件 '{filename}' 不存在",
     "memory_file_too_large": "记忆文件 '{filename}' 超出大小限制（最大 {limit_kib} KiB）",
     "market_entry_definition_mismatch": "索引与定义不一致，无法安装",
+    "market_entry_definition_changed": "市场条目的定义在你核对后已变化，请重新打开确认页核对后再安装",
+    "market_entry_changed_during_fetch": "市场源在读取定义期间已刷新，请重试",
     "market_entry_requires_newer_app": "此条目需要应用版本 ≥ {version}",
     "market_entry_already_installed": "此条目已安装，请选择已安装的端点进行更新",
     "market_endpoint_already_installed": "该端点已有其他安装记录，无法覆盖",

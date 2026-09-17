@@ -51,6 +51,15 @@ class SourcedEntry:
 
 
 @dataclass(frozen=True)
+class FetchedDefinition:
+    """抓到的定义原文，连同选定抓取地址的那份快照里的索引地址与条目。"""
+
+    definition: Any
+    index_url: str
+    entry: MarketIndexEntry
+
+
+@dataclass(frozen=True)
 class MarketIcon:
     content: bytes
     media_type: str
@@ -138,8 +147,10 @@ class MarketEntryService:
         self._icon_cache_size = icon_cache_size
         self._icons: OrderedDict[tuple[str, str, str], MarketIcon] = OrderedDict()
 
-    async def fetch_definition(self, source_id: int, slug: str) -> Any:
+    async def fetch_definition(self, source_id: int, slug: str) -> FetchedDefinition:
         """抓取条目定义并按 JSON 解析后原样返回，不做定义校验。
+
+        调用方在抓取后重读快照时，据返回的索引地址与条目判断抓取期间源是否已刷新。
 
         Raises:
             MarketEntryNotFoundError: 源或条目不存在。
@@ -150,9 +161,10 @@ class MarketEntryService:
         index_url, entry, proxy_prefix = await self._locate(source_id, slug)
         content = await self._fetch(entry_asset_url(index_url, entry.path), INDEX_MAX_BYTES, proxy_prefix)
         try:
-            return decode_json_payload(content)
+            definition = decode_json_payload(content)
         except MarketPayloadNotJsonError as exc:
             raise MarketAssetInvalidError(f"definition {exc}") from exc
+        return FetchedDefinition(definition=definition, index_url=index_url, entry=entry)
 
     async def fetch_icon(self, source_id: int, slug: str) -> MarketIcon:
         """取条目 icon：先查进程内缓存，未命中再抓取并二次把关扩展名、体积与格式。

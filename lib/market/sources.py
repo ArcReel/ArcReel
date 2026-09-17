@@ -24,7 +24,7 @@ from lib.db.models.market_source import MarketSource
 from lib.db.repositories.market_source_repo import CUSTOM_KIND, OFFICIAL_KIND, MarketSourceRepository
 from lib.httpx_shared import get_http_client
 
-from .address import resolve_source_address, same_source_identity
+from .address import resolve_source_address, source_identity
 from .fetch import MarketFetchError, SourceStatus, fetch_index
 
 logger = logging.getLogger(__name__)
@@ -239,9 +239,10 @@ class MarketSourceService:
 
 
 async def _ensure_unregistered(repo: MarketSourceRepository, canonical_key: str) -> None:
-    """按 :func:`same_source_identity` 判重；数据库唯一约束只认完全相同的规范键，大小写变体靠这里拦。"""
+    """按 :func:`source_identity` 判重；数据库唯一约束只认完全相同的规范键，大小写变体靠这里拦。"""
     registered = await repo.list_ordered()
-    if any(same_source_identity(source.canonical_key, canonical_key) for source in registered):
+    identity = source_identity(canonical_key)
+    if any(source_identity(source.canonical_key) == identity for source in registered):
         raise DuplicateSourceError(canonical_key)
 
 

@@ -21,6 +21,7 @@ from lib.db.models.market_installation import MarketInstallation
 from lib.db.models.market_source import MarketSource
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 
+from .address import source_identity
 from .entries import snapshot_entries
 from .index import MarketIndexEntry
 
@@ -78,12 +79,19 @@ async def write_installation(
 ) -> CustomEndpoint:
     """调用方负责校验与提交；任一失败回滚端点与记录两者。
 
-    覆盖目标只能是持有本条目安装记录的端点，或没有安装记录、与定义同作者同名的端点。
+    覆盖目标只能是持有本条目安装记录的端点，或没有安装记录、与定义同作者同名的端点。安装记录按
+    :func:`~lib.market.address.source_identity` 归属来源，与市场源判重同一口径。
     """
     repo = CustomEndpointRepository(session)
     mirror = derive_mirror_columns(definition)
-    existing = await session.scalar(
-        select(MarketInstallation).where(MarketInstallation.source_key == source_key, MarketInstallation.slug == slug)
+    identity = source_identity(source_key)
+    existing = next(
+        (
+            record
+            for record in await session.scalars(select(MarketInstallation).where(MarketInstallation.slug == slug))
+            if source_identity(record.source_key) == identity
+        ),
+        None,
     )
     if overwrite_endpoint_id is None:
         if existing is not None:
@@ -118,7 +126,9 @@ async def write_installation(
         )
         if endpoint is None:
             raise NotFoundError("custom_endpoint_not_found")
-    record = existing or MarketInstallation(custom_endpoint_id=endpoint.id, source_key=source_key, slug=slug)
+    record = existing or MarketInstallation(custom_endpoint_id=endpoint.id, slug=slug)
+    # 来源删除后以大小写不同的地址重新添加时，记录随之改用当前规范键。
+    record.source_key = source_key
     record.installed_version = definition["meta"]["version"]
     record.installed_digest = definition_digest(definition)
     record.installed_at = utc_now()

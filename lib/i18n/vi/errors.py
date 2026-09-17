@@ -492,6 +492,8 @@ MESSAGES = {
     "memory_file_not_found": "Tệp ký ức '{filename}' không tồn tại",
     "memory_file_too_large": "Tệp ký ức '{filename}' vượt quá giới hạn kích thước (tối đa {limit_kib} KiB)",
     "market_entry_definition_mismatch": "Chỉ mục và định nghĩa không khớp; không thể cài đặt",
+    "market_entry_definition_changed": "Định nghĩa của mục đã thay đổi sau khi bạn xem xét; hãy mở lại trang xác nhận để xem xét lại",
+    "market_entry_changed_during_fetch": "Nguồn chợ đã được làm mới trong lúc đọc định nghĩa; vui lòng thử lại",
     "market_entry_requires_newer_app": "Mục này yêu cầu phiên bản ứng dụng ≥ {version}",
     "market_entry_already_installed": "Mục này đã được cài đặt; chọn điểm cuối của nó để cập nhật",
     "market_endpoint_already_installed": "Điểm cuối này có bản ghi cài đặt khác và không thể ghi đè",

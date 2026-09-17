@@ -28,6 +28,8 @@ import { KICKER_ACCENT_CLS, KICKER_CLS } from "./market-source-status";
 interface Preview {
   detail: MarketEntryDetail;
   definition: unknown;
+  /** 安装时带回，确保装上的就是这里展示给用户核对的定义。 */
+  digest: string | null;
   matches: boolean;
   validation: EndpointValidateResponse;
   endpoints: CustomEndpointInfo[];
@@ -83,9 +85,11 @@ export function MarketInstallDialog({
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
+        setError(null);
         setPreview({
           detail,
           definition: payload.definition,
+          digest: payload.definition_digest,
           matches: payload.entry_matches_definition,
           validation,
           endpoints: endpoints.endpoints,
@@ -110,27 +114,45 @@ export function MarketInstallDialog({
   );
   const appVersionUnmet =
     !!preview && (!preview.detail.entry.min_app_version_satisfied || validation?.min_app_version?.satisfied === false);
-  const blocked = !preview || !definition || !preview.matches || !!validation?.errors.length || appVersionUnmet;
+  const blocked = !preview?.digest || !definition || !preview.matches || !!validation?.errors.length || appVersionUnmet;
   const updating = installed?.state === "update_available";
-  const marketVersion = preview?.detail.entry.version ?? entry.version;
+  // 卡片与条目详情都可能早于定义所属的快照。投影一致时定义 meta 与该快照的条目逐字段相同，
+  // 头部取自摘要绑定的这份定义，与信任块同源；否则安装已被拦下，退回条目详情或卡片。
+  const shown = preview?.detail.entry ?? entry;
+  const header =
+    preview?.matches && definition
+      ? {
+          name: definition.meta.name,
+          author: definition.meta.author,
+          version: definition.meta.version,
+          description: definition.meta.description ?? null,
+          homepage: definition.meta.homepage ?? null,
+        }
+      : shown;
+  const marketVersion = header.version;
   const installedDefinition =
     currentEndpointDefinition ?? preview?.endpoints.find((item) => item.id === installed?.endpoint_id)?.definition;
   const close = () => {
     if (!busy) onClose();
   };
-  const openEndpoint = (key: string) =>
+  // 从调用端点小节打开时导航不会卸载弹窗，需主动关闭。
+  const openEndpoint = (key: string) => {
     navigate(`${location}?${new URLSearchParams({ section: "endpoints", endpoint: key })}`);
+    onClose();
+  };
   const goToModel = (reference: EndpointReference) =>
     navigate(
       `${location}?${new URLSearchParams({ section: "providers", custom: String(reference.provider_id), model: reference.model_id })}`,
     );
   const install = async () => {
+    if (!preview?.digest) return;
     setBusy(true);
     setError(null);
     try {
       const result = await API.installMarketEntry(
         entry.source_id,
         entry.slug,
+        preview.digest,
         (updating ? installed.endpoint_id : overwriteId) ?? undefined,
       );
       setInstalled(result.installation);
@@ -178,16 +200,16 @@ export function MarketInstallDialog({
         </div>
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
           <header className="flex items-start gap-3">
-            <EntryIcon entry={entry} />
+            <EntryIcon entry={shown} />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 id={titleId} className="font-editorial text-[24px] leading-tight text-text">
-                  {entry.name}
+                  {header.name}
                 </h2>
                 {installed && <MarketInstallBadges state={installed.state} modified={installed.modified} />}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-text-3">
-                <span>{entry.author}</span>
+                <span>{header.author}</span>
                 <span aria-hidden>·</span>
                 <span>
                   {updating
@@ -199,9 +221,9 @@ export function MarketInstallDialog({
                   name={source?.display_name ?? entry.source_display_name}
                   kind={source?.kind ?? null}
                 />
-                {entry.homepage && (
+                {header.homepage && (
                   <a
-                    href={entry.homepage}
+                    href={header.homepage}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 text-accent-2 hover:underline"
@@ -211,7 +233,7 @@ export function MarketInstallDialog({
                   </a>
                 )}
               </div>
-              {entry.description && <p className="mt-2 text-[12.5px] text-text-2">{entry.description}</p>}
+              {header.description && <p className="mt-2 text-[12.5px] text-text-2">{header.description}</p>}
               {source?.kind === "custom" && (
                 <p className="mt-3 rounded-[8px] border border-warn/30 bg-warn/8 p-3 text-[12px] text-text-2">
                   {t("market_unreviewed")}
@@ -245,7 +267,7 @@ export function MarketInstallDialog({
                   {appVersionUnmet && (
                     <p className="text-warn">
                       {t("market_requires_app", {
-                        version: validation?.min_app_version?.required ?? entry.min_app_version,
+                        version: validation?.min_app_version?.required ?? shown.min_app_version,
                       })}
                     </p>
                   )}

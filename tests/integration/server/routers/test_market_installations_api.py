@@ -1,6 +1,7 @@
 """真实安装事务、来源绑定、原地覆盖与卸载的 HTTP 契约。"""
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import pytest
@@ -23,6 +24,14 @@ from tests.factories import custom_endpoint_definition
 
 BASE = "/market/sources/1/entries/example"
 URL = "https://example.com/endpoints/example/definition.json"
+
+
+def _install_body(definition: dict[str, Any], overwrite_endpoint_id: int | None = None) -> dict[str, Any]:
+    """确认页核对过的就是 ``definition``。"""
+    body: dict[str, Any] = {"definition_digest": definition_digest(definition)}
+    if overwrite_endpoint_id is not None:
+        body["overwrite_endpoint_id"] = overwrite_endpoint_id
+    return body
 
 
 @pytest.fixture
@@ -83,7 +92,7 @@ async def test_install_record_responses_and_uninstall_cascade(
     assert (await install_client.get(BASE)).json()["entry"]["installation"] is None
     with respx.mock(assert_all_called=True) as remote:
         route = remote.get(URL).respond(json=definition)
-        response = await install_client.post(f"{BASE}/install", json={})
+        response = await install_client.post(f"{BASE}/install", json=_install_body(definition))
         assert response.status_code == 200, response.text
         assert route.call_count == 1
     payload = response.json()
@@ -136,9 +145,29 @@ async def test_rejected_install_leaves_no_endpoint_or_record(
         del definition["submit"]
     with respx.mock() as remote:
         remote.get(URL).respond(json=definition)
-        response = await install_client.post(f"{BASE}/install", json={})
+        response = await install_client.post(f"{BASE}/install", json=_install_body(definition))
     assert response.status_code == 422
     assert response.json()["detail"] == detail
+    async with session_factory() as session:
+        assert await session.scalar(select(func.count()).select_from(CustomEndpoint)) == 0
+        assert await session.scalar(select(func.count()).select_from(MarketInstallation)) == 0
+
+
+async def test_install_rejects_definition_changed_after_review(
+    install_client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+):
+    reviewed = custom_endpoint_definition()
+    swapped = custom_endpoint_definition()
+    swapped["submit"]["url"] = "https://attacker.example.com/submit"
+    with respx.mock() as remote:
+        remote.get(URL).mock(side_effect=[httpx.Response(200, json=reviewed), httpx.Response(200, json=swapped)])
+        preview = (await install_client.get(f"{BASE}/definition")).json()
+        response = await install_client.post(
+            f"{BASE}/install", json={"definition_digest": preview["definition_digest"]}
+        )
+    assert preview["definition_digest"] == definition_digest(reviewed)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "市场条目的定义在你核对后已变化，请重新打开确认页核对后再安装"
     async with session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(CustomEndpoint)) == 0
         assert await session.scalar(select(func.count()).select_from(MarketInstallation)) == 0
@@ -147,12 +176,14 @@ async def test_rejected_install_leaves_no_endpoint_or_record(
 async def test_duplicate_install_and_cross_source_overwrite_conflict(
     install_client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ):
+    definition = custom_endpoint_definition()
     with respx.mock() as remote:
-        remote.get(URL).respond(json=custom_endpoint_definition())
-        installed = (await install_client.post(f"{BASE}/install", json={})).json()
-        duplicate = await install_client.post(f"{BASE}/install", json={})
+        remote.get(URL).respond(json=definition)
+        installed = (await install_client.post(f"{BASE}/install", json=_install_body(definition))).json()
+        duplicate = await install_client.post(f"{BASE}/install", json=_install_body(definition))
         other_source = await install_client.post(
-            "/market/sources/2/entries/example/install", json={"overwrite_endpoint_id": installed["endpoint"]["id"]}
+            "/market/sources/2/entries/example/install",
+            json=_install_body(definition, installed["endpoint"]["id"]),
         )
         assert duplicate.status_code == 409
         assert duplicate.json()["detail"] == "此条目已安装，请选择已安装的端点进行更新"
@@ -187,7 +218,7 @@ async def test_overwrite_preserves_key_references_and_update_refreshes_record(
         await session.commit()
     with respx.mock() as remote:
         remote.get(URL).respond(json=definition)
-        response = await install_client.post(f"{BASE}/install", json={"overwrite_endpoint_id": local["id"]})
+        response = await install_client.post(f"{BASE}/install", json=_install_body(definition, local["id"]))
         assert response.status_code == 200, response.text
         assert response.json()["endpoint"]["key"] == local["key"]
         blocked_delete = await install_client.delete(f"/custom-endpoints/{local['id']}")
@@ -208,7 +239,7 @@ async def test_overwrite_preserves_key_references_and_update_refreshes_record(
             }
             await session.commit()
         remote.get(URL).respond(json=definition)
-        updated = await install_client.post(f"{BASE}/install", json={"overwrite_endpoint_id": local["id"]})
+        updated = await install_client.post(f"{BASE}/install", json=_install_body(definition, local["id"]))
         assert updated.status_code == 200, updated.text
         assert updated.json()["installation"] == {
             **updated.json()["installation"],
@@ -246,7 +277,7 @@ async def test_overwrite_rejects_endpoint_without_same_author_and_name(
     ).json()
     with respx.mock() as remote:
         remote.get(URL).respond(json=definition)
-        response = await install_client.post(f"{BASE}/install", json={"overwrite_endpoint_id": unrelated["id"]})
+        response = await install_client.post(f"{BASE}/install", json=_install_body(definition, unrelated["id"]))
     assert response.status_code == 409
     assert response.json()["detail"] == "只能覆盖与该条目同作者、同名的端点"
     async with session_factory() as session:
@@ -254,6 +285,62 @@ async def test_overwrite_rejects_endpoint_without_same_author_and_name(
         assert stored is not None
         assert stored.definition["meta"]["name"] == "Other"
         assert await session.scalar(select(func.count()).select_from(MarketInstallation)) == 0
+
+
+async def test_installation_reconnects_to_github_source_re_added_with_other_casing(
+    install_client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+):
+    definition = custom_endpoint_definition()
+    async with session_factory() as session:
+        source = await session.get(MarketSource, 1)
+        assert source is not None
+        source.canonical_key = "github:Team/Market@HEAD"
+        await session.commit()
+    with respx.mock() as remote:
+        remote.get(URL).respond(json=definition)
+        installed = (await install_client.post(f"{BASE}/install", json=_install_body(definition))).json()
+    endpoint_id = installed["endpoint"]["id"]
+    async with session_factory() as session:
+        source = await session.get(MarketSource, 1)
+        assert source is not None
+        cached_index = source.cached_index
+        await session.delete(source)
+        await session.commit()
+        session.add(
+            MarketSource(
+                id=3,
+                kind="custom",
+                display_name="Re-added",
+                address="team/market",
+                index_url="https://example.com/arcreel-market.json",
+                canonical_key="github:team/market@HEAD",
+                is_enabled=True,
+                position=3,
+                status="ok",
+                cached_index=cached_index,
+            )
+        )
+        await session.commit()
+
+    endpoint_side = (await install_client.get(f"/custom-endpoints/{endpoint_id}")).json()["installation"]
+    assert (endpoint_side["source_id"], endpoint_side["state"]) == (3, "current")
+    entry_side = (await install_client.get("/market/sources/3/entries/example")).json()["entry"]["installation"]
+    assert entry_side["endpoint_id"] == endpoint_id
+    with respx.mock() as remote:
+        remote.get(URL).respond(json=definition)
+        duplicate = await install_client.post(
+            "/market/sources/3/entries/example/install", json=_install_body(definition)
+        )
+        updated = await install_client.post(
+            "/market/sources/3/entries/example/install", json=_install_body(definition, endpoint_id)
+        )
+    assert duplicate.status_code == 409
+    assert updated.status_code == 200, updated.text
+    async with session_factory() as session:
+        records = (await session.scalars(select(MarketInstallation))).all()
+        assert [(record.custom_endpoint_id, record.source_key) for record in records] == [
+            (endpoint_id, "github:team/market@HEAD")
+        ]
 
 
 async def _set_index_entry(session_factory: async_sessionmaker[AsyncSession], source_id: int, **fields: object) -> None:
@@ -266,13 +353,32 @@ async def _set_index_entry(session_factory: async_sessionmaker[AsyncSession], so
         await session.commit()
 
 
+async def test_install_rejects_entry_moved_by_refresh_during_definition_fetch(
+    install_client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+):
+    definition = custom_endpoint_definition()
+
+    async def refreshed_while_fetching(_request: httpx.Request) -> httpx.Response:
+        await _set_index_entry(session_factory, 1, path="endpoints/moved/definition.json")
+        return httpx.Response(200, json=definition)
+
+    with respx.mock() as remote:
+        remote.get(URL).mock(side_effect=refreshed_while_fetching)
+        response = await install_client.post(f"{BASE}/install", json=_install_body(definition))
+    assert response.status_code == 409
+    assert response.json()["detail"] == "市场源在读取定义期间已刷新，请重试"
+    async with session_factory() as session:
+        assert await session.scalar(select(func.count()).select_from(CustomEndpoint)) == 0
+        assert await session.scalar(select(func.count()).select_from(MarketInstallation)) == 0
+
+
 async def test_installation_states_follow_index_version_source_availability_and_local_edits(
     install_client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ):
     definition = custom_endpoint_definition()
     with respx.mock() as remote:
         remote.get(URL).respond(json=definition)
-        installed = (await install_client.post(f"{BASE}/install", json={})).json()
+        installed = (await install_client.post(f"{BASE}/install", json=_install_body(definition))).json()
     endpoint_url = f"/custom-endpoints/{installed['endpoint']['id']}"
 
     async def states() -> tuple[tuple[str, bool], tuple[str, bool] | None]:

@@ -155,7 +155,7 @@ async def test_definition_is_fetched_and_returned_as_is(
 
     with capture_http() as http:
         route = http.get(f"{TEAM_DIR}endpoints/demo/definition.json").respond(json=definition)
-        assert await entry_service.fetch_definition(1, "demo") == definition
+        assert (await entry_service.fetch_definition(1, "demo")).definition == definition
 
     only_request(route)
 
@@ -170,7 +170,7 @@ async def test_definition_goes_through_proxy_prefix(
 
     with capture_http() as http:
         route = http.get(f"https://proxy.example.net/{TEAM_DIR}endpoints/demo/definition.json").respond(json={})
-        assert await entry_service.fetch_definition(1, "demo") == {}
+        assert (await entry_service.fetch_definition(1, "demo")).definition == {}
 
     assert route.call_count == 1
 

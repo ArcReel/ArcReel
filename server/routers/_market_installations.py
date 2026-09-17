@@ -12,6 +12,7 @@ from lib.custom_provider import make_endpoint_key
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.market_installation import MarketInstallation
 from lib.db.models.market_source import MarketSource
+from lib.market.address import source_identity
 from lib.market.entries import SourcedEntry
 from lib.market.index import MarketIndexEntry
 from lib.market.installations import InstallationState, InstallationStatus, available_entries, installation_status
@@ -52,22 +53,29 @@ def _status(record: MarketInstallation, endpoint: CustomEndpoint, entry: MarketI
 async def entry_installations(
     session: AsyncSession, entries: Iterable[SourcedEntry]
 ) -> dict[tuple[str, str], EntryInstallationResponse]:
-    """按 ``(source_key, slug)`` 索引给定条目的安装记录；没有记录的条目不出现。"""
-    by_key = {(item.source.canonical_key, item.entry.slug): item.entry for item in entries}
-    if not by_key:
+    """按条目所在源的 ``(canonical_key, slug)`` 索引给定条目的安装记录；没有记录的条目不出现。
+
+    记录按来源身份归属，源被删除后以大小写不同的 GitHub 地址重新添加仍能接上。
+    """
+    by_identity = {
+        (source_identity(item.source.canonical_key), item.entry.slug): (item.source.canonical_key, item.entry)
+        for item in entries
+    }
+    if not by_identity:
         return {}
     rows = await session.execute(
         select(MarketInstallation, CustomEndpoint)
         .join(CustomEndpoint)
-        .where(MarketInstallation.source_key.in_({source_key for source_key, _ in by_key}))
+        .where(MarketInstallation.slug.in_({slug for _, slug in by_identity}))
     )
     installations: dict[tuple[str, str], EntryInstallationResponse] = {}
     for record, endpoint in rows:
-        entry = by_key.get((record.source_key, record.slug))
-        if entry is None:
+        matched = by_identity.get((source_identity(record.source_key), record.slug))
+        if matched is None:
             continue
+        canonical_key, entry = matched
         status = _status(record, endpoint, entry)
-        installations[(record.source_key, record.slug)] = EntryInstallationResponse(
+        installations[(canonical_key, record.slug)] = EntryInstallationResponse(
             endpoint_id=endpoint.id,
             endpoint_key=make_endpoint_key(endpoint.id),
             endpoint_display_name=endpoint.display_name,
@@ -87,18 +95,22 @@ async def endpoint_installations(
     session: AsyncSession, where: ColumnElement[bool] | None = None
 ) -> dict[int, EndpointInstallationResponse]:
     """按端点 id 索引；``where`` 缺省时取全部记录。源被删除时来源字段为空、市场轴为 unavailable。"""
-    rows = await session.execute(
-        select(MarketInstallation, CustomEndpoint, MarketSource)
-        .join(CustomEndpoint)
-        .outerjoin(MarketSource, MarketSource.canonical_key == MarketInstallation.source_key)
-        .where(true() if where is None else where)
-    )
+    rows = (
+        await session.execute(
+            select(MarketInstallation, CustomEndpoint).join(CustomEndpoint).where(true() if where is None else where)
+        )
+    ).all()
+    if not rows:
+        return {}
+    sources = {source_identity(source.canonical_key): source for source in await session.scalars(select(MarketSource))}
     installations: dict[int, EndpointInstallationResponse] = {}
     snapshots: dict[str, dict[str, MarketIndexEntry]] = {}
-    for record, endpoint, source in rows:
-        if record.source_key not in snapshots:
-            snapshots[record.source_key] = available_entries(source)
-        status = _status(record, endpoint, snapshots[record.source_key].get(record.slug))
+    for record, endpoint in rows:
+        identity = source_identity(record.source_key)
+        source = sources.get(identity)
+        if identity not in snapshots:
+            snapshots[identity] = available_entries(source)
+        status = _status(record, endpoint, snapshots[identity].get(record.slug))
         installations[record.custom_endpoint_id] = EndpointInstallationResponse(
             source_key=record.source_key,
             source_id=source.id if source else None,

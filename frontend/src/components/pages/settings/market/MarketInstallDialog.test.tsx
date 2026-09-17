@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API, ApiRequestError } from "@/api";
+import i18n from "@/i18n";
 import type {
   CustomEndpointInfo,
   EndpointValidateResponse,
@@ -106,6 +107,7 @@ describe("MarketInstallDialog", () => {
     vi.spyOn(API, "getMarketEntryDefinition").mockResolvedValue({
       definition,
       entry_matches_definition: true,
+      definition_digest: "reviewed-digest",
     });
     vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({ endpoints: [] });
     vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(validation);
@@ -129,10 +131,29 @@ describe("MarketInstallDialog", () => {
     await userEvent.click(confirm);
     expect(await screen.findByText("安装成功")).toBeInTheDocument();
     expect(onInstallationChange).toHaveBeenCalledWith(installation);
-    expect(API.installMarketEntry).toHaveBeenCalledWith(1, "demo", undefined);
+    expect(API.installMarketEntry).toHaveBeenCalledWith(1, "demo", "reviewed-digest", undefined);
     await userEvent.click(screen.getByRole("button", { name: "用此端点新建供应商" }));
     expect(location.history?.at(-1)).toContain("endpoint=ce-7");
     expect(location.history?.at(-1)).toContain("base_url=https%3A%2F%2Fapi.example.com");
+  });
+
+  it("shows header metadata from the reviewed definition rather than an earlier entry snapshot", async () => {
+    const stale = { ...entry, name: "Demo Old", author: "Old Author", description: "Stale", homepage: "https://old.example.com" };
+    vi.mocked(API.getMarketEntry).mockResolvedValue({ ...detail, entry: stale });
+    vi.mocked(API.getMarketEntryDefinition).mockResolvedValue({
+      definition: {
+        ...definition,
+        meta: { ...definition.meta, name: "Demo Pro", author: "New Author", description: "Refreshed", homepage: "https://new.example.com" },
+      },
+      entry_matches_definition: true,
+      definition_digest: "reviewed-digest",
+    });
+    show(stale);
+    expect(await screen.findByRole("heading", { name: "Demo Pro" })).toBeInTheDocument();
+    expect(screen.getByText("New Author")).toBeInTheDocument();
+    expect(screen.getByText("Refreshed")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /主页/ })).toHaveAttribute("href", "https://new.example.com");
+    expect(screen.queryByText("Stale")).not.toBeInTheDocument();
   });
 
   it.each([
@@ -144,6 +165,7 @@ describe("MarketInstallDialog", () => {
       vi.mocked(API.getMarketEntryDefinition).mockResolvedValue({
         definition,
         entry_matches_definition: false,
+        definition_digest: "reviewed-digest",
       });
     if (reason === "errors")
       vi.mocked(API.validateCustomEndpoint).mockResolvedValue({
@@ -172,10 +194,28 @@ describe("MarketInstallDialog", () => {
     expect(API.installMarketEntry).not.toHaveBeenCalled();
   });
 
+  it("clears a failed preview once reloading for another language succeeds", async () => {
+    vi.mocked(API.getMarketEntry).mockRejectedValueOnce(new Error("Preview unavailable"));
+    show();
+    expect(await screen.findByText("Preview unavailable")).toBeInTheDocument();
+    try {
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+      expect(await screen.findByRole("button", { name: "Confirm installation" })).toBeInTheDocument();
+      expect(screen.queryByText("Preview unavailable")).not.toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh");
+      });
+    }
+  });
+
   it("renders malformed trust fields as text while showing validation errors", async () => {
     vi.mocked(API.getMarketEntryDefinition).mockResolvedValue({
       definition: { ...definition, submit: { ...definition.submit, url: { invalid: "URL" } } },
       entry_matches_definition: true,
+      definition_digest: "reviewed-digest",
     });
     vi.mocked(API.validateCustomEndpoint).mockResolvedValue({
       ...validation,
@@ -226,7 +266,7 @@ describe("MarketInstallDialog", () => {
     await userEvent.click(screen.getByRole("radio", { name: /Local/ }));
     await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
     expect(await screen.findByText("安装成功")).toBeInTheDocument();
-    expect(API.installMarketEntry).toHaveBeenCalledWith(1, "demo", 7);
+    expect(API.installMarketEntry).toHaveBeenCalledWith(1, "demo", "reviewed-digest", 7);
   });
 
   it("reuses the reference list when uninstall is rejected and navigates to the model", async () => {
@@ -320,7 +360,7 @@ describe("MarketInstallDialog", () => {
       await waitFor(() => expect(confirm).toBeEnabled());
       await userEvent.click(confirm);
       expect(await screen.findByText("已更新到 v1.0.0")).toBeInTheDocument();
-      expect(API.installMarketEntry).toHaveBeenCalledWith(1, "demo", 7);
+      expect(API.installMarketEntry).toHaveBeenCalledWith(1, "demo", "reviewed-digest", 7);
       expect(onInstallationChange).toHaveBeenCalledWith(installation);
       expect(screen.queryByText("你的本地修改会被覆盖")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /更新到/ })).not.toBeInTheDocument();
@@ -335,14 +375,16 @@ describe("MarketInstallDialog", () => {
     });
 
     it("keeps the current installed entry in install mode with the endpoint shortcut", async () => {
-      showUpdate({ ...installation, modified: true });
+      const { location, onClose } = showUpdate({ ...installation, modified: true });
 
       expect(await screen.findByText("Install endpoint")).toBeInTheDocument();
       expect(screen.getByText("v1.0.0")).toBeInTheDocument();
       expect(screen.getByText("已修改")).toBeInTheDocument();
       expect(screen.queryByText("你的本地修改会被覆盖")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /更新到/ })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "打开端点" })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "打开端点" }));
+      expect(location.history?.at(-1)).toContain("section=endpoints&endpoint=ce-7");
+      expect(onClose).toHaveBeenCalledOnce();
     });
   });
 });

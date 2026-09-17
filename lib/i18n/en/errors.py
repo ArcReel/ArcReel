@@ -491,6 +491,8 @@ MESSAGES = {
     "memory_file_not_found": "Memory file '{filename}' does not exist",
     "memory_file_too_large": "Memory file '{filename}' exceeds the size limit (max {limit_kib} KiB)",
     "market_entry_definition_mismatch": "The index and definition do not match; installation is blocked",
+    "market_entry_definition_changed": "The entry definition changed after you reviewed it; reopen the confirmation to review it again",
+    "market_entry_changed_during_fetch": "The market source was refreshed while the definition was being read; try again",
     "market_entry_requires_newer_app": "This entry requires app version ≥ {version}",
     "market_entry_already_installed": "This entry is already installed; select its endpoint to update",
     "market_endpoint_already_installed": "This endpoint has another installation record and cannot be overwritten",

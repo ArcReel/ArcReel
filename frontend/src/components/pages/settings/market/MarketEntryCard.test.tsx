@@ -96,6 +96,7 @@ describe("MarketEntryCard", () => {
     const card = screen.getByRole("article", { name: "kling Master" });
     expect(card).toHaveClass("opacity-60");
     expect(screen.getByText("需要 ArcReel ≥ 0.32.0")).toHaveAttribute("title", "当前版本 0.30.0");
+    expect(screen.queryByRole("button", { name: "kling Master" })).not.toBeInTheDocument();
   });
 
   it("shows no version requirement when it is satisfied", () => {

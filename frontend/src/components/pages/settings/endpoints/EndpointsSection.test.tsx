@@ -447,8 +447,9 @@ describe("EndpointsSection", () => {
         app_version: null,
       });
       vi.spyOn(API, "getMarketEntryDefinition").mockResolvedValue({
-        definition: makeDefinition(),
+        definition: makeDefinition({ meta: { name: "Example Video API", author: "Ada", version: "1.1.0" } }),
         entry_matches_definition: true,
+        definition_digest: "reviewed-digest",
       });
       renderSection("section=endpoints&endpoint=ce-7");
 
@@ -468,6 +469,21 @@ describe("EndpointsSection", () => {
       await userEvent.click(screen.getByRole("button", { name: "先导出当前定义" }));
       expect(JSON.parse(await downloads[0].blob.text()).meta.name).toBe("Example Video API!");
       expect(await screen.findByRole("button", { name: "更新到 v1.1.0" })).toBeInTheDocument();
+    });
+
+    it("locks editing and saving while the entry for an update is loading", async () => {
+      withInstallation({ state: "update_available" });
+      vi.spyOn(API, "getMarketEntry").mockReturnValue(new Promise(() => undefined));
+      renderSection("section=endpoints&endpoint=ce-7");
+
+      const nameField = await screen.findByDisplayValue("Example Video API");
+      await userEvent.type(nameField, "!");
+      const save = screen.getByRole("button", { name: "保存更改" });
+      await waitFor(() => expect(save).toBeEnabled());
+      await userEvent.click(screen.getByRole("button", { name: "更新" }));
+
+      expect(nameField).toHaveAttribute("readonly");
+      expect(save).toBeDisabled();
     });
 
     it("aborts an entry request when the selected endpoint changes", async () => {

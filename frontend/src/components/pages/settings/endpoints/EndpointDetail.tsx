@@ -109,6 +109,8 @@ export function EndpointDetail({
   const pushToast = useAppStore((s) => s.pushToast);
 
   const editable = selection.mode === "new" || selection.mode === "custom";
+  // 市场更新弹窗按点击时的草稿判断是否提示覆盖，条目详情加载期间不再接受编辑。
+  const readOnly = !editable || marketUpdatePending;
   const persistedId = selection.mode === "custom" ? selection.record.id : null;
   const installation = selection.mode === "custom" ? selection.record.installation : null;
 
@@ -349,7 +351,7 @@ export function EndpointDetail({
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={saving || hasErrors || jsonIssue !== null || !dirty}
+              disabled={saving || marketUpdatePending || hasErrors || jsonIssue !== null || !dirty}
               title={hasErrors ? t("ce_save_blocked") : undefined}
               className={ACCENT_BTN_SM_CLS}
               style={ACCENT_BUTTON_STYLE}
@@ -435,7 +437,7 @@ export function EndpointDetail({
             <div>
               <textarea
                 value={jsonText}
-                readOnly={!editable}
+                readOnly={readOnly}
                 spellCheck={false}
                 aria-label={t("ce_view_json")}
                 aria-invalid={jsonIssue !== null || undefined}
@@ -466,7 +468,7 @@ export function EndpointDetail({
             </div>
           ) : (
             <VariableInsertionProvider key={formEpoch}>
-              <EndpointForm definition={draft} onChange={setDraft} readOnly={!editable} />
+              <EndpointForm definition={draft} onChange={setDraft} readOnly={readOnly} />
               <EndpointTestSection definition={draft} providers={providers} />
             </VariableInsertionProvider>
           )}
