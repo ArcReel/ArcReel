@@ -47,6 +47,22 @@ class TestDataValidator:
         assert result.errors == []
         assert "验证通过" in str(result)
 
+    @pytest.mark.parametrize("style", [None, ""], ids=["absent", "empty"])
+    def test_validate_project_accepts_project_without_style(self, tmp_path, style):
+        """未选风格（自定义风格图或尚未选择）的项目是合法状态，风格不是必填字段。"""
+        payload = _project_payload()
+        if style is None:
+            del payload["style"]
+        else:
+            payload["style"] = style
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert result.valid
+        assert result.errors == []
+
     def test_validate_project_reports_missing_and_invalid_fields(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         # title 字段完全缺失才报错;空字符串在新策略下属于合法状态(前端 i18n 兜底)

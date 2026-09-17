@@ -388,6 +388,19 @@ class TestProjectArchiveService:
         imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
         assert imported_manifest == startup_manifest
 
+    def test_official_round_trip_accepts_project_without_style(self, tmp_path):
+        """未选风格的项目照常导出并导入，导出诊断与导入校验都不把空风格当缺陷。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="")
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo")
+        shutil.rmtree(pm.get_project_path("demo"))
+        result = service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        assert result.project_name == "demo"
+        assert pm.load_project("demo")["style"] == ""
+
     def test_import_rejects_official_manifest_claim_when_formal_bytes_were_replaced(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
