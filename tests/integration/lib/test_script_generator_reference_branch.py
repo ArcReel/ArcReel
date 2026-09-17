@@ -1194,6 +1194,46 @@ async def test_promote_prompt_authoring_draft_merges_only_the_recorded_units(ref
 
 
 @pytest.mark.asyncio
+async def test_promote_whole_script_draft_clears_pending_only_for_units_whose_text_changed(reference_project: Path):
+    """无 meta.unit_ids 的整份草稿：正文变了的单元清除待编写标记，正文未变的单元逐字节保留（含标记）。"""
+    authored = {
+        "unit_id": "E1U01",
+        "text": "镜头1：远景。@[主角] 站在 @[酒馆] 门口。",
+        "duration_seconds": 4,
+        "pending_authoring": False,
+    }
+    rewritten = {"unit_id": "E1U02", "text": "@[主角] 走进 @[酒馆]", "duration_seconds": 4}
+    untouched = {"unit_id": "E1U03", "text": "@[主角] 坐在 @[酒馆] 角落", "duration_seconds": 4}
+    _write_formal_units(reference_project, [authored, rewritten, untouched])
+    before = _formal_units(reference_project)
+    formal = _script_path(reference_project)
+    write_quarantine(
+        reference_project,
+        1,
+        QUARANTINE_KIND_PROMPT_AUTHORING,
+        content={
+            "title": "第1集",
+            "units": [
+                {"text": authored["text"]},
+                {"text": "镜头1：中景。@[主角] 走进 @[酒馆]。"},
+                {"text": untouched["text"]},
+            ],
+        },
+        violations=[],
+        meta={"base_fingerprint": script_review.content_fingerprint(formal)},
+    )
+
+    await ScriptGenerator(reference_project).promote_reference_prompt_authoring_draft(episode=1)
+
+    after = _formal_units(reference_project)
+    assert after["E1U01"] == before["E1U01"]
+    assert after["E1U02"] == {"unit_id": "E1U02", "text": "镜头1：中景。@[主角] 走进 @[酒馆]。", "duration_seconds": 4}
+    assert after["E1U03"] == before["E1U03"]
+    assert after["E1U03"]["pending_authoring"] is True
+    assert not _prompt_authoring_quarantine(reference_project).exists()
+
+
+@pytest.mark.asyncio
 async def test_promote_prompt_authoring_draft_rejects_stale_formal_baseline(reference_project: Path):
     formal = _script_path(reference_project)
     baseline = script_review.content_fingerprint(formal)

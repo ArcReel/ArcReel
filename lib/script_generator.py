@@ -1768,6 +1768,16 @@ class ScriptGenerator:
         max_refs = self._resolve_max_refs(caps)
         try:
             authored = self._merge_reference_visual(units, json.dumps(draft.content), episode, max_refs=max_refs)
+            if unit_ids is None:
+                # 整份草稿里正文未变的单元不算已编写：只写回正文实际改变的单元，其余单元（含待编写标记）
+                # 沿用正式剧本。全部单元仍经上面的合并重判，违约照常落报告。
+                changed = [
+                    (unit, merged)
+                    for unit, merged in zip(units, authored, strict=True)
+                    if merged["text"] != unit.get("text")
+                ]
+                targets = replace(targets, entries=tuple(unit for unit, _ in changed))
+                authored = [merged for _, merged in changed]
             # _add_metadata（经 _authored_script）一并纳入：它按落地后的最终正文重算生效档位，草稿里
             # 新增 / 去掉一个 `@` 引用就会在合并之后才判出档，留在 try 之外会让晋升在这一类上退回
             # 「报错但草稿不刷新」。
