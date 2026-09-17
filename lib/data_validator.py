@@ -447,7 +447,7 @@ class DataValidator:
         style = project.get("style")
         if "style" in project and not isinstance(style, str):
             errors.append(_m("val_field_type_string", field="style"))
-        elif project.get("style_template_id") is not None and not style:
+        elif project.get("style_template_id") is not None and not (style or "").strip():
             errors.append(_m("val_missing_field", field="style"))
 
         episodes = project.get("episodes", [])

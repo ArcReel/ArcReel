@@ -76,7 +76,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("字段类型错误: style 应为字符串" in error for error in result.errors)
 
-    @pytest.mark.parametrize("style", [None, ""], ids=["absent", "empty"])
+    @pytest.mark.parametrize("style", [None, "", " \n"], ids=["absent", "empty", "whitespace"])
     def test_validate_project_rejects_selected_template_without_snapshot(self, tmp_path, style):
         """选定了风格模版的项目必须带展开快照，否则设置页显示已选模版而生成端拿不到风格。"""
         payload = _project_payload()
