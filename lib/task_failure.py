@@ -118,6 +118,8 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "resume_endpoint_changed_detail": "task_fail_resume_endpoint_changed_detail",
     "declarative_template_render_failed": "task_fail_declarative_template_render_failed",
     "declarative_response_extract_failed": "task_fail_declarative_response_extract_failed",
+    # 参考图或首尾帧不足时的改图失败：级联触到产物节点，这份 workflow 出片本身依赖那张图。
+    "comfyui_image_drop_unsupported": "task_fail_comfyui_image_drop_unsupported",
     "artifact_download_failed": "task_fail_artifact_download_failed",
     "restart_lost_checkpoint_no_job_id": "task_fail_restart_lost_checkpoint_no_job_id",
     "execution_identity_unrecoverable": "task_fail_execution_identity_unrecoverable",

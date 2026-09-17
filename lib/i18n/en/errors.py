@@ -70,6 +70,7 @@ MESSAGES = {
     ),
     "task_fail_declarative_template_render_failed": "Endpoint request rendering failed: {detail}",
     "task_fail_declarative_response_extract_failed": "Endpoint response extraction failed: {detail}",
+    "task_fail_comfyui_image_drop_unsupported": "This workflow's output depends on the image read by node {node}, so it cannot be rewired for fewer images; supply the missing images or use another workflow",
     "task_fail_artifact_download_failed": "Video generation succeeded but artifact download failed; retry the download: {detail}",
     "task_fail_cascade_blocked_dependency": "Blocked by failed dependency task {dependency_task_id}: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt must be a string or an object containing scene/composition",

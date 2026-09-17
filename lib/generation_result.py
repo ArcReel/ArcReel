@@ -166,6 +166,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "provider_rejected": GenerationAction.FIX_INPUT,
     "declarative_template_render_failed": GenerationAction.CONFIGURE_PROVIDER,
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
+    "comfyui_image_drop_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     # 供应商已出片、只是没取回来：重发同一请求会再建一个付费任务，正确的一步是接续取件。
     "artifact_download_failed": GenerationAction.RETRY_ARTIFACT_DOWNLOAD,
     "execution_identity_unrecoverable": GenerationAction.RETRY,

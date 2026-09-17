@@ -70,6 +70,7 @@ MESSAGES = {
     ),
     "task_fail_declarative_template_render_failed": "Không thể kết xuất yêu cầu endpoint: {detail}",
     "task_fail_declarative_response_extract_failed": "Không thể trích xuất phản hồi endpoint: {detail}",
+    "task_fail_comfyui_image_drop_unsupported": "Chuỗi tạo thành phẩm của workflow này phụ thuộc vào ảnh do node {node} đọc vào, nên không thể chỉnh lại đồ thị khi thiếu ảnh; hãy bổ sung ảnh hoặc dùng workflow khác",
     "task_fail_artifact_download_failed": "Đã tạo video nhưng tải tệp xuống thất bại; hãy thử tải lại: {detail}",
     "task_fail_cascade_blocked_dependency": "Bị chặn do tác vụ phụ thuộc {dependency_task_id} thất bại: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt phải là chuỗi hoặc đối tượng chứa scene/composition",

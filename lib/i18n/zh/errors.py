@@ -68,6 +68,7 @@ MESSAGES = {
     "task_fail_resume_endpoint_changed_detail": "该模型的接口已更换，无法接续提交前发起的生成：{detail}",
     "task_fail_declarative_template_render_failed": "调用端点请求渲染失败：{detail}",
     "task_fail_declarative_response_extract_failed": "调用端点响应提取失败：{detail}",
+    "task_fail_comfyui_image_drop_unsupported": "这份 workflow 的成片链路依赖节点 {node} 读入的图，参考图或首尾帧不足时无法改图，请补齐图片或改用别的 workflow",
     "task_fail_artifact_download_failed": "视频生成任务已成功但下载失败，可重试下载：{detail}",
     "task_fail_cascade_blocked_dependency": "因依赖任务 {dependency_task_id} 失败而被阻塞：{reason}",
     "prompt_must_be_string_or_scene_object": "prompt 必须是字符串或包含 scene/composition 的对象",
