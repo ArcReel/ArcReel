@@ -85,6 +85,7 @@ from lib.reference_video.duration_slots import resolve_duration_slot
 from lib.reference_video.text_parser import extract_mentions
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
+    PENDING_AUTHORING_FIELD,
     AdEpisodeScript,
     AdReferenceFlatScript,
     DramaEpisodeScript,
@@ -836,6 +837,13 @@ class ScriptGenerator:
         }
         script_data = self._add_metadata(script_data, episode)
         script_data["metadata"]["generator"] = SCRIPT_PLAN_CONVERSION_GENERATOR
+        # 转换不写视觉层：新增的提示词条目待编写，采用新内容的条目保持原有待编写状态。
+        for item in script_data[scope.items_key]:
+            entry_id = item.get(id_field)
+            if (entry_id in added and plan_kind != "reference_video") or (
+                entry_id in refreshed and scope.existing[entry_id].get(PENDING_AUTHORING_FIELD) is True
+            ):
+                item[PENDING_AUTHORING_FIELD] = True
         script_data[scope.items_key] = splice_entries(
             plan_kind,
             plan_revisions=scope.plan_revisions,
@@ -2379,6 +2387,8 @@ class ScriptGenerator:
         for item in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
             if not isinstance(item, dict):
                 continue
+            # 本轮产出的条目视觉层已由提示词编写写回；机械转换在此之后为新增条目重新置位。
+            item.pop(PENDING_AUTHORING_FIELD, None)
             admission = admit_script_unit(kind, item, ignore_marker=True)
             if admission.allowed:
                 item.pop("needs_replan", None)

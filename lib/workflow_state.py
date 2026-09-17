@@ -46,7 +46,7 @@ from lib.project_migration_failure import (
     load_migration_verdict,
 )
 from lib.project_migration_report import MigrationReport, load_migration_report
-from lib.script_models import get_generated_assets, script_duration_total
+from lib.script_models import PENDING_AUTHORING_FIELD, get_generated_assets, script_duration_total
 from lib.script_plan_entries import backfill_entry_revisions, compare_script_with_plan_document
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton, resolve_kind_items
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
@@ -287,21 +287,20 @@ def _project_revision(project: Mapping[str, Any]) -> str:
     return prefixed_canonical_json_digest(dict(project))
 
 
-#: 提示词可为待生成态的骨架：分镜图生视频的两条剧集路线。参考生视频的单元正文即提示词，ad 无脚本规划。
+#: 由待编写标记驱动补充提示词的骨架：分镜图生视频的两条剧集路线。参考生视频与 ad 的待编写条目
+#: 尚不能由提示词编写按正式脚本补写，不在此列。
 _PROMPT_BEARING_KINDS = frozenset({"segments", "scenes"})
 
 
-def _pending_prompt_entry_ids(items: list[dict[str, Any]], kind: str | None) -> list[str]:
-    """``image_prompt`` / ``video_prompt`` 任一为 ``None``（含字段缺失）的条目 id，按剧本顺序。"""
+def _pending_authoring_entry_ids(items: list[dict[str, Any]], kind: str | None) -> list[str]:
+    """带待编写标记的条目 id，按剧本顺序。"""
     if kind not in _PROMPT_BEARING_KINDS:
         return []
     id_field = SKELETONS[kind].id_field
     return [
         str(item[id_field])
         for item in items
-        if isinstance(item.get(id_field), str)
-        and item[id_field]
-        and (item.get("image_prompt") is None or item.get("video_prompt") is None)
+        if isinstance(item.get(id_field), str) and item[id_field] and item.get(PENDING_AUTHORING_FIELD) is True
     ]
 
 
@@ -1639,14 +1638,14 @@ class WorkflowStateService:
                         args={"episode": target.episode}
                         | ({"stale_entry_ids": stale_entry_ids} if stale_entry_ids else {}),
                     )
-                elif pending_prompt_ids := _pending_prompt_entry_ids(items, kind):
-                    # 机械转换出的剧本条目还没有提示词：剧本阶段未完成，先补提示词，不报生成分镜图。
+                elif pending_authoring_ids := _pending_authoring_entry_ids(items, kind):
+                    # 存在待编写条目：剧本阶段未完成，先补提示词，不报生成分镜图。
                     state = "FINAL_SCRIPT"
                     next_action = _action(
                         WorkflowActionType.AUTHOR_PROMPTS,
                         "script entries still need prompts",
                         args={"episode": target.episode},
-                        ids=pending_prompt_ids,
+                        ids=pending_authoring_ids,
                     )
                 else:
                     missing_sheets = [

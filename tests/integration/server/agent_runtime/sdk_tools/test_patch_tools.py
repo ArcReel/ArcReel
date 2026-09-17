@@ -705,6 +705,23 @@ class TestPatchEpisodeScriptStructuralOperations:
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
 
+    async def test_insert_marks_new_entry_pending_authoring(self, ctx: ToolContext) -> None:
+        out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN")}])
+
+        assert out.get("is_error") is not True
+        segments = {s["segment_id"]: s for s in _load(ctx)["segments"]}
+        assert segments["E1S01_1"]["pending_authoring"] is True
+        assert "pending_authoring" not in segments["E1S01"]
+
+    async def test_split_marks_only_new_parts_pending_authoring(self, ctx: ToolContext) -> None:
+        out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}])
+
+        assert out.get("is_error") is not True
+        segments = _load(ctx)["segments"]
+        assert segments[0]["segment_id"] == "E1S01"
+        assert "pending_authoring" not in segments[0]
+        assert segments[1]["pending_authoring"] is True
+
     async def test_insert_mixed_speech_is_structured_and_atomic(self, ctx: ToolContext) -> None:
         before = _load(ctx)
         mixed = _segment("IGN")

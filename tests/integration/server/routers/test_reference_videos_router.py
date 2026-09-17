@@ -109,6 +109,17 @@ def test_add_unit_creates_minimal_entry(reference_videos_client: TestClient):
     assert payload["unit"]["text"] == "镜头1：@张三 推门"
 
 
+def test_added_unit_is_pending_authoring(reference_videos_client: TestClient):
+    resp = reference_videos_client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "镜头1：@张三 推门", "duration_seconds": 3},
+    )
+    assert resp.status_code == 201, resp.text
+
+    units = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"]
+    assert [unit["pending_authoring"] for unit in units] == [True]
+
+
 def test_add_unit_refuses_a_blank_body(reference_videos_client: TestClient):
     """正文是单元的唯一内容真相：空正文的单元不可执行，创建时即以 needs_replan 拒绝。"""
     response = reference_videos_client.post(

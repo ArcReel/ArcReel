@@ -910,6 +910,72 @@ def test_remove_then_reinsert_same_id_preserves_anchor_media(
     assert {key: snapshot[key] for key in anchor_claims} == anchor_claims
 
 
+def test_inserted_item_is_pending_authoring_regardless_of_supplied_flag(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, _project_dir = editor
+
+    result = service.execute(
+        "demo",
+        _command(
+            pm,
+            [{"op": "insert_after", "after_id": "E1S01", "item": _segment("E1S04") | {"pending_authoring": False}}],
+        ),
+    )
+
+    assert result.success is True
+    saved = {segment["segment_id"]: segment for segment in pm.load_script("demo", "episode_1.json")["segments"]}
+    assert saved["E1S04"]["pending_authoring"] is True
+    assert all("pending_authoring" not in saved[segment_id] for segment_id in ("E1S01", "E1S02", "E1S03"))
+
+
+def test_reinserted_same_id_keeps_its_authoring_state(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, _project_dir = editor
+    with pm.locked_script("demo", "episode_1.json", validate=False) as script:
+        script["segments"][1]["pending_authoring"] = True
+
+    result = service.execute(
+        "demo",
+        _command(
+            pm,
+            [
+                {"op": "remove", "id": "E1S01"},
+                {"op": "insert_after", "after_id": None, "item": _segment("E1S01") | {"pending_authoring": True}},
+                {"op": "remove", "id": "E1S02"},
+                {"op": "insert_after", "after_id": "E1S01", "item": _segment("E1S02")},
+            ],
+        ),
+    )
+
+    assert result.success is True
+    saved = {segment["segment_id"]: segment for segment in pm.load_script("demo", "episode_1.json")["segments"]}
+    assert "pending_authoring" not in saved["E1S01"]
+    assert saved["E1S02"]["pending_authoring"] is True
+
+
+def test_fresh_insert_reusing_a_removed_id_is_pending_authoring(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, _project_dir = editor
+
+    result = service.execute(
+        "demo",
+        _command(
+            pm,
+            [
+                {"op": "remove", "id": "E1S01"},
+                {"op": "insert_after", "after_id": None, "item": _segment("E1S01")},
+            ],
+        ),
+        fresh_insert_indexes=frozenset({1}),
+    )
+
+    assert result.success is True
+    assert pm.load_script("demo", "episode_1.json")["segments"][0]["pending_authoring"] is True
+
+
 def test_structural_edit_preserves_existing_paid_media(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
 ) -> None:

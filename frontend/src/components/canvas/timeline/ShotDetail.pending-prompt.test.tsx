@@ -81,4 +81,14 @@ describe("ShotDetail 待生成提示词", () => {
       expect(within(section).queryByText("待生成")).not.toBeInTheDocument();
     }
   });
+
+  it("待编写条目显示待编写提示", () => {
+    renderDetail(makeSegment({ image_prompt: "提示词", video_prompt: "动作", pending_authoring: true }));
+    expect(screen.getByText(/^待编写/)).toBeInTheDocument();
+  });
+
+  it("未带待编写标记的条目即使提示词为空也不显示待编写提示", () => {
+    renderDetail(makeSegment());
+    expect(screen.queryByText(/^待编写/)).not.toBeInTheDocument();
+  });
 });

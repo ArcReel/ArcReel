@@ -67,6 +67,8 @@ export interface ReferenceVideoUnit {
   generated_assets: UnitGeneratedAssets;
   /** Problem shell or mixed-speech marker; generation is blocked until repaired. */
   needs_replan?: boolean;
+  /** Pending authoring: the unit's body has not been written by prompt authoring yet. Read-only. */
+  pending_authoring?: boolean;
 }
 
 export interface ReferenceRequestOptions {

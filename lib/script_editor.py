@@ -18,6 +18,7 @@ import logging
 from copy import deepcopy
 from typing import Any
 
+from lib.script_models import PENDING_AUTHORING_FIELD
 from lib.script_plan_entries import SCRIPT_PLAN_ENTRY_REVISION_FIELD
 from lib.script_skeleton import resolve_kind_items
 
@@ -108,6 +109,11 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         raise ScriptEditError(
             f"patch_episode_script 不可改 {SCRIPT_PLAN_ENTRY_REVISION_FIELD}；"
             "它由提示词编写落盘时写入，陈述该条目消费的脚本规划内容"
+        )
+    if parts[0] == PENDING_AUTHORING_FIELD:
+        # 待编写标记由新增条目置位、提示词编写写回时清除；放行 patch 会让缺视觉层的条目被伪装成已编写。
+        raise ScriptEditError(
+            f"patch_episode_script 不可改 {PENDING_AUTHORING_FIELD}；它由新增条目置位、提示词编写写回时清除"
         )
     if parts[0] == "end_frame_image":
         # 尾帧字段的值是本服务写出的快照相对路径，只由尾帧设置/清除端点写入。放行 patch

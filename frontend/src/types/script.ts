@@ -248,6 +248,8 @@ export interface NarrationSegment {
    */
   end_frame_image?: string | null;
   generated_assets?: GeneratedAssets;
+  /** 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回后清除，只读。 */
+  pending_authoring?: boolean;
 }
 
 export interface DramaScene {
@@ -274,6 +276,8 @@ export interface DramaScene {
    */
   end_frame_image?: string | null;
   generated_assets?: GeneratedAssets;
+  /** 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回后清除，只读。 */
+  pending_authoring?: boolean;
 }
 
 /** Novel source information (present in both episode script types). */
@@ -336,6 +340,8 @@ export interface AdShot {
    */
   end_frame_image?: string | null;
   generated_assets?: GeneratedAssets;
+  /** 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回后清除，只读。 */
+  pending_authoring?: boolean;
 }
 
 export interface AdEpisodeScript {

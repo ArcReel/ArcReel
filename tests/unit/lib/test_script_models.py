@@ -576,7 +576,7 @@ class TestLLMSchemaExclusion:
         from lib.script_models import NarrationEpisodeScript
 
         keys = self._all_keys(NarrationEpisodeScript.model_json_schema())
-        for forbidden in ("note", "generated_assets", "end_frame_image"):
+        for forbidden in ("note", "generated_assets", "end_frame_image", "pending_authoring"):
             assert forbidden not in keys, f"{forbidden} 不应出现在 LLM schema 中"
         # 顶层 duration_seconds 由 caller 重算
         assert "duration_seconds" not in NarrationEpisodeScript.model_json_schema()["properties"]
@@ -585,7 +585,7 @@ class TestLLMSchemaExclusion:
         from lib.script_models import DramaEpisodeScript
 
         keys = self._all_keys(DramaEpisodeScript.model_json_schema())
-        for forbidden in ("note", "generated_assets", "end_frame_image"):
+        for forbidden in ("note", "generated_assets", "end_frame_image", "pending_authoring"):
             assert forbidden not in keys
         assert "duration_seconds" not in DramaEpisodeScript.model_json_schema()["properties"]
         # utterances 是 LLM 可见的一等字段（drama 口播序列的落点），取代旧 voiceover
@@ -596,14 +596,14 @@ class TestLLMSchemaExclusion:
         from lib.script_models import AdEpisodeScript
 
         keys = self._all_keys(AdEpisodeScript.model_json_schema())
-        for forbidden in ("note", "generated_assets", "end_frame_image"):
+        for forbidden in ("note", "generated_assets", "end_frame_image", "pending_authoring"):
             assert forbidden not in keys
 
     def test_reference_video_schema_excludes_runtime_fields(self):
         from lib.script_models import ReferenceVideoScript
 
         keys = self._all_keys(ReferenceVideoScript.model_json_schema())
-        for forbidden in ("note", "generated_assets", "duration_override"):
+        for forbidden in ("note", "generated_assets", "duration_override", "pending_authoring"):
             assert forbidden not in keys
         assert "duration_seconds" not in ReferenceVideoScript.model_json_schema()["properties"]
 

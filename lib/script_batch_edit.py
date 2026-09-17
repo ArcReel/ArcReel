@@ -36,6 +36,7 @@ from lib.project_migration_failure import (
     load_migration_verdict,
 )
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
+from lib.script_models import PENDING_AUTHORING_FIELD
 from lib.script_review import content_fingerprint_of_data
 from lib.script_structure_validator import validate_script_structure
 from lib.speech_composition import SpeechAdmission, admit_script_unit, refresh_video_unit_replan_state
@@ -650,9 +651,12 @@ def _apply_operation(
         removed = removed_items.pop(item_id, None)
         if not preserve_removed_assets:
             removed = None
+        # 待编写标记不接受调用方自带的值：新增条目一律置位，同 id 重插（拆分锚点、先删后插）沿用被删条目的状态。
+        item.pop(PENDING_AUTHORING_FIELD, None)
         if removed is None:
             item["generated_assets"] = {}
             item.pop("end_frame_image", None)
+            item[PENDING_AUTHORING_FIELD] = True
         else:
             assets = removed.get("generated_assets")
             item["generated_assets"] = copy.deepcopy(assets) if isinstance(assets, dict) else {}
@@ -660,6 +664,8 @@ def _apply_operation(
                 item.pop("end_frame_image", None)
             else:
                 item["end_frame_image"] = removed["end_frame_image"]
+            if removed.get(PENDING_AUTHORING_FIELD) is True:
+                item[PENDING_AUTHORING_FIELD] = True
         if kind == "video_units":
             refresh_video_unit_replan_state(item)
         items.insert(insert_at, item)

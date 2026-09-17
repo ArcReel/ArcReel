@@ -185,6 +185,11 @@ class TestPatchField:
         with pytest.raises(ScriptEditError, match="不可改 end_frame_image"):
             patch_field(_narration(), "E1S01", "end_frame_image", "../../../etc/passwd")
 
+    def test_patch_pending_authoring_rejected(self):
+        # 待编写只由新增条目置位、提示词编写清除；patch 放行会让 Agent 手改这条陈述。
+        with pytest.raises(ScriptEditError, match="不可改 pending_authoring"):
+            patch_field(_narration(), "E1S01", "pending_authoring", False)
+
     @pytest.mark.parametrize("field", ["image_prompt", "video_prompt"])
     def test_patch_cannot_clear_a_prompt_to_none(self, field):
         # None 是提示词的「待生成」态，只由脚本规划机械转换写入；剧本模型接受 None 之后，

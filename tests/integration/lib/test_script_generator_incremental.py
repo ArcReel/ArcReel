@@ -424,6 +424,24 @@ class TestIncrementalMerge:
         after = _entries(_script(project_dir), variant)
         assert json.dumps(after[second], ensure_ascii=False, sort_keys=True) == before_second_json
 
+    async def test_rewritten_entry_leaves_pending_authoring(self, tmp_path: Path, variant: _Variant) -> None:
+        """写回视觉层的条目清除待编写标记；未被写回的条目标记不变。"""
+        first, second = variant.entry_ids
+        project_dir, _plan_path = variant.build(tmp_path)
+        await variant.generator(project_dir, [variant.visual_factory(first, second, mark="首轮")]).generate(1)
+        path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(path.read_text(encoding="utf-8"))
+        for entry in script[variant.items_key]:
+            entry["pending_authoring"] = True
+        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        rerun = variant.generator(project_dir, [variant.visual_factory(first, mark="点名")])
+        await rerun.generate(1, scope=[first])
+
+        after = _entries(_script(project_dir), variant)
+        assert "pending_authoring" not in after[first]
+        assert after[second]["pending_authoring"] is True
+
     async def test_entry_ids_missing_a_new_entry_fails_before_the_model(
         self, tmp_path: Path, variant: _Variant
     ) -> None:
@@ -580,6 +598,7 @@ class TestScriptPlanConversion:
             else:
                 assert entry["image_prompt"] is None
                 assert entry["video_prompt"] is None
+                assert entry["pending_authoring"] is True
                 assert "needs_replan" not in entry
                 assert "scene_description" not in entry
                 assert entry[_plan_text_field(variant)] == plan_entries[entry_id][_plan_text_field(variant)]
@@ -613,7 +632,9 @@ class TestScriptPlanConversion:
         assert rewritten == [first]
         after = _entries(_script(project_dir), variant)
         assert after[first]["image_prompt"] is not None
+        assert "pending_authoring" not in after[first]
         assert json.dumps(after[second], ensure_ascii=False, sort_keys=True) == before_second
+        assert after[second]["pending_authoring"] is True
 
     async def test_default_generate_after_conversion_targets_nothing(
         self, tmp_path: Path, prompt_variant: _Variant
@@ -794,6 +815,22 @@ class TestScriptPlanConversion:
         assert after["generated_assets"] == before_second["generated_assets"]
         assert after[SCRIPT_PLAN_ENTRY_REVISION_FIELD] != before_second[SCRIPT_PLAN_ENTRY_REVISION_FIELD]
         assert not _currency(project_dir, plan_path, variant).is_stale
+
+    async def test_adopting_new_content_keeps_the_entry_pending_authoring(
+        self, tmp_path: Path, variant: _Variant
+    ) -> None:
+        first, second = variant.entry_ids
+        project_dir, plan_path = variant.build(tmp_path)
+        await variant.generator(project_dir, [variant.visual_factory(first, second, mark="首轮")]).generate(1)
+        path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(path.read_text(encoding="utf-8"))
+        script[variant.items_key][1]["pending_authoring"] = True
+        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+        self._edit_plan(plan_path, project_dir, variant)
+
+        await _converter(project_dir).convert_script_plan(1, entry_ids=[second])
+
+        assert _entries(_script(project_dir), variant)[second]["pending_authoring"] is True
 
     async def test_adopting_new_content_on_a_current_entry_fails_without_writing(
         self, tmp_path: Path, variant: _Variant

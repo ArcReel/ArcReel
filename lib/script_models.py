@@ -185,6 +185,9 @@ PromptText = SkipJsonSchema[Annotated[str, AfterValidator(_require_non_blank_pro
 #: 只由转换路径写入，不是模型可选的输出形状；空串仍由 ``PromptText`` 拒绝。
 PendingPrompt = SkipJsonSchema[None]
 
+#: 条目级待编写标记的字段名，见各条目模型的 ``pending_authoring``。
+PENDING_AUTHORING_FIELD = "pending_authoring"
+
 
 class GeneratedAssets(BaseModel):
     """生成资源状态（初始化为空）"""
@@ -276,6 +279,9 @@ class NarrationSegment(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
+    # 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回该条目时清除；
+    # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
+    pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
     # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
     # 供工作流按条目判定失效、供增量合并识别未变条目；对 LLM 隐藏，不在任何 PATCH 白名单内。
     # 存量剧本无此字段（None），按整集 ``script_plan_revision`` 回退判定。
@@ -532,6 +538,9 @@ class DramaScene(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
+    # 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回该条目时清除；
+    # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
+    pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
     # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
     # 供工作流按条目判定失效、供增量合并识别未变条目；对 LLM 隐藏，不在任何 PATCH 白名单内。
     # 存量剧本无此字段（None），按整集 ``script_plan_revision`` 回退判定。
@@ -738,6 +747,9 @@ class AdShot(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
+    # 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回该条目时清除；
+    # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
+    pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
 
 
 class AdEpisodeScript(BaseModel):
@@ -866,6 +878,9 @@ class ReferenceVideoUnit(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
+    # 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回该条目时清除；
+    # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
+    pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
     # 该条目消费的脚本规划条目内容指纹（``lib.script_plan_entries``）。提示词编写落盘时写入，
     # 供工作流按条目判定失效、供增量合并识别未变条目；对 LLM 隐藏，不在任何 PATCH 白名单内。
     # 存量剧本无此字段（None），按整集 ``script_plan_revision`` 回退判定。

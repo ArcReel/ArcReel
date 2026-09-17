@@ -1003,6 +1003,20 @@ export function ShotDetail({
         {t("detail_section_prompts")}
       </div>
 
+      {segment.pending_authoring === true && (
+        <div
+          role="status"
+          className="rounded-lg px-3 py-2 text-[11.5px]"
+          style={{
+            color: "var(--color-text-2)",
+            background: "var(--color-warm-tint-faint)",
+            border: "1px solid var(--color-hairline-soft)",
+          }}
+        >
+          {t("detail_pending_authoring_hint")}
+        </div>
+      )}
+
       {promptsStale && (
         <div
           role="status"

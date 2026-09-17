@@ -2395,8 +2395,8 @@ def test_script_plan_registered_from_read_text_source_stays_current_with_crlf_by
     assert comparison.status is ArtifactStatus.CURRENT
 
 
-def test_pending_prompts_ask_to_author_prompts_before_visual_generation(tmp_path: Path) -> None:
-    """机械转换出的条目提示词为 None：剧本条目本身是当前的，下一步是补提示词而非生成分镜图。"""
+def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generation(tmp_path: Path) -> None:
+    """待编写条目：剧本条目本身是当前的，下一步是补提示词而非生成分镜图。"""
     plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
     revisions = plan_entry_revisions("narration", plan, episode=1)
     pm, _project_path, _revision = _confirmed_narration_project_with_script(
@@ -2408,6 +2408,7 @@ def test_pending_prompts_ask_to_author_prompts_before_visual_generation(tmp_path
                 segment_id="E1S02",
                 image_prompt=None,
                 video_prompt=None,
+                pending_authoring=True,
                 script_plan_entry_revision=revisions["E1S02"],
             ),
         ],
@@ -2420,3 +2421,47 @@ def test_pending_prompts_ask_to_author_prompts_before_visual_generation(tmp_path
     assert status.next_action.type == "author_prompts"
     assert status.next_action.requested_ids == ["E1S02"]
     assert status.next_action.args["episode"] == 1
+
+
+def test_author_prompts_lists_marked_entries_not_empty_prompts(tmp_path: Path) -> None:
+    """补充提示词只读待编写标记：带标记的条目即使已有提示词也列入，无标记的空提示词条目不列入。"""
+    plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
+    revisions = plan_entry_revisions("narration", plan, episode=1)
+    pm, _project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [
+            _valid_narration_segment(pending_authoring=True, script_plan_entry_revision=revisions["E1S01"]),
+            _valid_narration_segment(
+                segment_id="E1S02",
+                image_prompt=None,
+                video_prompt=None,
+                script_plan_entry_revision=revisions["E1S02"],
+            ),
+        ],
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.next_action.type == "author_prompts"
+    assert status.next_action.requested_ids == ["E1S01"]
+
+
+def test_empty_prompts_without_pending_authoring_do_not_ask_to_author_prompts(tmp_path: Path) -> None:
+    plan = [_plan_segment("E1S01", "原文甲。")]
+    revisions = plan_entry_revisions("narration", plan, episode=1)
+    pm, _project_path, _revision = _confirmed_narration_project_with_script(
+        tmp_path,
+        plan,
+        [
+            _valid_narration_segment(
+                image_prompt=None,
+                video_prompt=None,
+                script_plan_entry_revision=revisions["E1S01"],
+            ),
+        ],
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.next_action.type == "generate_storyboards"
