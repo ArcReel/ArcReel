@@ -66,12 +66,20 @@ export interface MarketEntryListResponse {
   app_version: string | null;
 }
 
+/**
+ * 已安装端点的市场轴：安装记录版本与索引条目版本字符串不等即可更新；来源被禁用、被删除或条目已从索引
+ * 移除即不可用。与本地修改轴 `modified` 互相独立。
+ */
+export type MarketInstallationState = "current" | "update_available" | "unavailable";
+
 export interface MarketEntryInstallation {
   endpoint_id: number;
   endpoint_key: string;
   endpoint_display_name: string;
   installed_version: string;
-  state: "current";
+  /** 条目就在市场列表里，不会是 unavailable。 */
+  state: Exclude<MarketInstallationState, "unavailable">;
+  /** 当前定义摘要与安装时不同。 */
   modified: boolean;
 }
 
@@ -82,7 +90,8 @@ export interface EndpointInstallation {
   slug: string;
   installed_version: string;
   installed_at: string;
-  state: "current";
+  state: MarketInstallationState;
+  /** 当前定义摘要与安装时不同。 */
   modified: boolean;
 }
 

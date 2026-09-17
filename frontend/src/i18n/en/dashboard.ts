@@ -2225,4 +2225,13 @@ export default {
   'market_create_provider': 'Create provider with this endpoint',
   'market_open_endpoint': 'Open endpoint',
   'market_create_copy': 'Create a copy',
+  'market_update_available': 'Update available',
+  'market_unavailable': 'Unavailable in market',
+  'market_modified': 'Modified',
+  'market_update': 'Update',
+  'market_update_to': 'Update to v{{version}}',
+  'market_update_versions': 'Installed v{{installed}} → Market v{{version}}',
+  'market_modified_overwrite_warning': 'Your local changes will be overwritten',
+  'market_export_current_definition': 'Export current definition first',
+  'market_update_success': 'Updated to v{{version}}',
 };

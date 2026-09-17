@@ -195,6 +195,8 @@ async def test_overwrite_preserves_key_references_and_update_refreshes_record(
         assert blocked_delete.json()["diagnostic"]["references"][0]["model_id"] == "video"
         renamed = custom_endpoint_definition(meta={**definition["meta"], "name": "Renamed locally"})
         assert (await install_client.put(f"/custom-endpoints/{local['id']}", json=renamed)).status_code == 200
+        modified = (await install_client.get(f"/custom-endpoints/{local['id']}")).json()["installation"]
+        assert (modified["state"], modified["modified"]) == ("current", True)
         definition["meta"]["version"] = "0.2.0"
         async with session_factory() as session:
             source = await session.get(MarketSource, 1)
@@ -208,7 +210,13 @@ async def test_overwrite_preserves_key_references_and_update_refreshes_record(
         remote.get(URL).respond(json=definition)
         updated = await install_client.post(f"{BASE}/install", json={"overwrite_endpoint_id": local["id"]})
         assert updated.status_code == 200, updated.text
-        assert updated.json()["installation"]["installed_version"] == "0.2.0"
+        assert updated.json()["installation"] == {
+            **updated.json()["installation"],
+            "installed_version": "0.2.0",
+            "state": "current",
+            "modified": False,
+        }
+        assert updated.json()["endpoint"]["definition"]["meta"]["name"] == definition["meta"]["name"]
     async with session_factory() as session:
         record = await session.get(MarketInstallation, local["id"])
         assert record is not None
@@ -245,3 +253,61 @@ async def test_overwrite_rejects_endpoint_without_same_author_and_name(
         assert stored is not None
         assert stored.definition["meta"]["name"] == "Other"
         assert await session.scalar(select(func.count()).select_from(MarketInstallation)) == 0
+
+
+async def _set_index_entry(session_factory: async_sessionmaker[AsyncSession], source_id: int, **fields: object) -> None:
+    async with session_factory() as session:
+        source = await session.get(MarketSource, source_id)
+        assert source is not None
+        assert source.cached_index is not None
+        entries = [{**source.cached_index["entries"][0], **fields}] if fields else []
+        source.cached_index = {**source.cached_index, "entries": entries}
+        await session.commit()
+
+
+async def test_installation_states_follow_index_version_source_availability_and_local_edits(
+    install_client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+):
+    definition = custom_endpoint_definition()
+    with respx.mock() as remote:
+        remote.get(URL).respond(json=definition)
+        installed = (await install_client.post(f"{BASE}/install", json={})).json()
+    endpoint_url = f"/custom-endpoints/{installed['endpoint']['id']}"
+
+    async def states() -> tuple[tuple[str, bool], tuple[str, bool] | None]:
+        endpoint_side = (await install_client.get(endpoint_url)).json()["installation"]
+        listed = (await install_client.get("/custom-endpoints")).json()["endpoints"][0]["installation"]
+        assert listed == endpoint_side
+        entries = (await install_client.get("/market/entries")).json()["entries"]
+        entry_side = next(
+            (e["installation"] for e in entries if e["source_id"] == 1 and e["installation"] is not None), None
+        )
+        return (
+            (endpoint_side["state"], endpoint_side["modified"]),
+            None if entry_side is None else (entry_side["state"], entry_side["modified"]),
+        )
+
+    edited = custom_endpoint_definition()
+    edited["meta"]["version"] = "9.9.9"
+    assert (await install_client.put(endpoint_url, json=edited)).status_code == 200
+    assert await states() == (("current", True), ("current", True))
+
+    await _set_index_entry(session_factory, 1, version="0.0.1")
+    assert await states() == (("update_available", True), ("update_available", True))
+    detail = (await install_client.get(BASE)).json()["entry"]["installation"]
+    assert (detail["state"], detail["modified"]) == ("update_available", True)
+
+    assert (await install_client.patch("/market/sources/1", json={"is_enabled": False})).status_code == 200
+    assert await states() == (("unavailable", True), None)
+    disabled_detail = (await install_client.get(BASE)).json()["entry"]["installation"]
+    assert disabled_detail["state"] == "update_available"
+    assert (await install_client.patch("/market/sources/1", json={"is_enabled": True})).status_code == 200
+
+    await _set_index_entry(session_factory, 1)
+    assert await states() == (("unavailable", True), None)
+
+    assert (await install_client.delete("/market/sources/1")).status_code == 204
+    assert (await install_client.put(endpoint_url, json=definition)).status_code == 200
+    endpoint_side = (await install_client.get(endpoint_url)).json()["installation"]
+    assert (endpoint_side["state"], endpoint_side["modified"]) == ("unavailable", False)
+    assert endpoint_side["installed_version"] == definition["meta"]["version"]

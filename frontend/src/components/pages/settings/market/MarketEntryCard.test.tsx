@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { API } from "@/api";
-import type { MarketEntry } from "@/types";
+import type { MarketEntry, MarketEntryInstallation } from "@/types";
 import { MarketEntryCard } from "./MarketEntryCard";
 
 function makeEntry(overrides: Partial<MarketEntry> = {}): MarketEntry {
@@ -109,5 +110,42 @@ describe("MarketEntryCard", () => {
 
     expect(screen.getByRole("article", { name: "kling Master" })).not.toHaveClass("opacity-60");
     expect(screen.queryByText(/需要 ArcReel/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { state: "update_available", modified: true, badges: ["可更新", "已修改"], action: "更新", opens: "dialog" },
+    { state: "current", modified: true, badges: ["已安装", "已修改"], action: "已安装", opens: "endpoint" },
+    { state: "current", modified: false, badges: ["已安装"], action: "已安装", opens: "endpoint" },
+  ] as const)("shows $badges badges and routes the $action action", async ({ state, modified, badges, action, opens }) => {
+    const installation: MarketEntryInstallation = {
+      endpoint_id: 7,
+      endpoint_key: "ce-7",
+      endpoint_display_name: "kling Master",
+      installed_version: "2.0.0",
+      state,
+      modified,
+    };
+    const onOpen = vi.fn();
+    const onInstalledOpen = vi.fn();
+    render(
+      <MarketEntryCard
+        entry={makeEntry({ installation })}
+        sourceName="团队市场"
+        sourceKind="custom"
+        appVersion="0.30.0"
+        onOpen={onOpen}
+        onInstalledOpen={onInstalledOpen}
+      />,
+    );
+
+    const card = screen.getByRole("article", { name: "kling Master" });
+    const badgeTexts = within(card)
+      .queryAllByText(/.+/, { selector: "span" })
+      .filter((el) => el.className.includes("tracking-[0.1em]"))
+      .map((el) => el.textContent);
+    expect(badgeTexts).toEqual(badges);
+    await userEvent.click(within(card).getByRole("button", { name: action }));
+    expect(onOpen).toHaveBeenCalledTimes(opens === "dialog" ? 1 : 0);
+    expect(onInstalledOpen).toHaveBeenCalledTimes(opens === "endpoint" ? 1 : 0);
   });
 });

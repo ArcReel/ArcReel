@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
-import { ExternalLink, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Download, ExternalLink, Loader2, Trash2 } from "lucide-react";
 import { API } from "@/api";
 import type {
   CustomEndpointInfo,
@@ -19,6 +19,8 @@ import { errMsg } from "@/utils/async";
 import { isRenderableDefinition } from "../endpoints/endpoint-definition-draft";
 import { EndpointDuplicateChoices } from "../endpoints/EndpointDuplicateChoices";
 import { EndpointReferenceList, endpointReferences } from "../endpoints/EndpointReferenceList";
+import { exportEndpointDefinition } from "../endpoints/export-endpoint-definition";
+import { MarketInstallBadges } from "./MarketInstallBadges";
 import { EntryIcon, SourceChip } from "./MarketEntryCard";
 import { KICKER_ACCENT_CLS, KICKER_CLS } from "./market-source-status";
 
@@ -34,7 +36,10 @@ function displayValue(value: unknown): string {
   return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
-/** 安装前完整展示来源、校验和凭证去向；安装与卸载由服务端原子执行。 */
+/**
+ * 安装与更新共用的确认弹窗：先完整展示来源、校验和凭证去向，安装、更新与卸载由服务端原子执行。
+ * 可更新时进入更新态，确认后经同一安装接口原地覆盖持有记录的端点；本地改过的定义先提示会被覆盖并可先导出。
+ */
 export function MarketInstallDialog({
   entry,
   onClose,
@@ -53,6 +58,7 @@ export function MarketInstallDialog({
   const [overwriteId, setOverwriteId] = useState<number | null>(null);
   const [installed, setInstalled] = useState(entry.installation);
   const [success, setSuccess] = useState<CustomEndpointInfo | null>(null);
+  const [updatedTo, setUpdatedTo] = useState<string | null>(null);
   const [references, setReferences] = useState<EndpointReference[] | null>(null);
 
   useEffect(() => {
@@ -100,6 +106,9 @@ export function MarketInstallDialog({
   const appVersionUnmet =
     !!preview && (!preview.detail.entry.min_app_version_satisfied || validation?.min_app_version?.satisfied === false);
   const blocked = !preview || !definition || !preview.matches || !!validation?.errors.length || appVersionUnmet;
+  const updating = installed?.state === "update_available";
+  const marketVersion = preview?.detail.entry.version ?? entry.version;
+  const installedDefinition = preview?.endpoints.find((item) => item.id === installed?.endpoint_id)?.definition;
   const close = () => {
     if (!busy) onClose();
   };
@@ -113,9 +122,14 @@ export function MarketInstallDialog({
     setBusy(true);
     setError(null);
     try {
-      const result = await API.installMarketEntry(entry.source_id, entry.slug, overwriteId ?? undefined);
+      const result = await API.installMarketEntry(
+        entry.source_id,
+        entry.slug,
+        (updating ? installed.endpoint_id : overwriteId) ?? undefined,
+      );
       setInstalled(result.installation);
       setSuccess(result.endpoint);
+      setUpdatedTo(updating ? result.installation.installed_version : null);
       onInstallationChange(result.installation);
       await useEndpointCatalogStore.getState().refresh();
     } catch (e) {
@@ -153,41 +167,51 @@ export function MarketInstallDialog({
     >
       <div className="flex max-h-[86vh] flex-col">
         <div className="flex items-center justify-between px-6 pt-5">
-          <span className={KICKER_ACCENT_CLS}>Install endpoint</span>
+          <span className={KICKER_ACCENT_CLS}>{updating ? "Update endpoint" : "Install endpoint"}</span>
           <ModalCloseButton onClick={close} disabled={busy} />
         </div>
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
-          <header>
-            <div className="flex items-center gap-3">
-              <EntryIcon entry={entry} />
-              <div className="min-w-0">
-                <h2 id={titleId} className="font-editorial text-[24px] text-text">
+          <header className="flex items-start gap-3">
+            <EntryIcon entry={entry} />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 id={titleId} className="font-editorial text-[24px] leading-tight text-text">
                   {entry.name}
                 </h2>
-                <p className="text-[12px] text-text-3">
-                  {entry.author} · v{entry.version}
-                </p>
+                {installed && <MarketInstallBadges state={installed.state} modified={installed.modified} />}
               </div>
-              {installed && <span className="text-[12px] text-good">{t("market_installed")}</span>}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <SourceChip
-                name={source?.display_name ?? entry.source_display_name}
-                kind={source?.kind ?? null}
-              />
-              {entry.homepage && (
-                <a href={entry.homepage} target="_blank" rel="noreferrer" className={GHOST_BTN_CLS}>
-                  {t("market_homepage")}
-                  <ExternalLink className="h-3 w-3" aria-hidden />
-                </a>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-text-3">
+                <span>{entry.author}</span>
+                <span aria-hidden>·</span>
+                <span>
+                  {updating
+                    ? t("market_update_versions", { installed: installed.installed_version, version: marketVersion })
+                    : `v${marketVersion}`}
+                </span>
+                <span aria-hidden>·</span>
+                <SourceChip
+                  name={source?.display_name ?? entry.source_display_name}
+                  kind={source?.kind ?? null}
+                />
+                {entry.homepage && (
+                  <a
+                    href={entry.homepage}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-accent-2 hover:underline"
+                  >
+                    {t("market_homepage")}
+                    <ExternalLink className="h-3 w-3" aria-hidden />
+                  </a>
+                )}
+              </div>
+              {entry.description && <p className="mt-2 text-[12.5px] text-text-2">{entry.description}</p>}
+              {source?.kind === "custom" && (
+                <p className="mt-3 rounded-[8px] border border-warn/30 bg-warn/8 p-3 text-[12px] text-text-2">
+                  {t("market_unreviewed")}
+                </p>
               )}
             </div>
-            <p className="mt-2 text-[12.5px] text-text-2">{entry.description}</p>
-            {source?.kind === "custom" && (
-              <p className="mt-3 rounded-[8px] border border-warn/30 bg-warn/8 p-3 text-[12px] text-text-2">
-                {t("market_unreviewed")}
-              </p>
-            )}
           </header>
           {!preview && !error && (
             <p role="status" className="flex items-center gap-2 text-text-3">
@@ -265,12 +289,32 @@ export function MarketInstallDialog({
               )}
             </>
           )}
+          {updating && installed.modified && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-warn/35 bg-warn/8 px-3 py-2">
+              <p className="flex items-center gap-1.5 text-[12px] text-text-2">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
+                {t("market_modified_overwrite_warning")}
+              </p>
+              <button
+                type="button"
+                disabled={!installedDefinition}
+                className={GHOST_BTN_CLS}
+                onClick={() => installedDefinition && exportEndpointDefinition(installedDefinition)}
+              >
+                <Download className="h-3.5 w-3.5" aria-hidden />
+                {t("market_export_current_definition")}
+              </button>
+            </div>
+          )}
           {success && (
             <div
               role="status"
               className="rounded-[8px] border border-good/30 bg-good/8 p-3 text-[12.5px] text-text-2"
             >
-              <p>{t("market_install_success")}</p>
+              <p className="flex items-center gap-1.5 text-text">
+                <Check className="h-3.5 w-3.5 text-good" aria-hidden />
+                {updatedTo === null ? t("market_install_success") : t("market_update_success", { version: updatedTo })}
+              </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -323,7 +367,7 @@ export function MarketInstallDialog({
             <button type="button" disabled={busy} className={GHOST_BTN_CLS} onClick={close}>
               {t("common:cancel")}
             </button>
-            {installed ? (
+            {installed && !updating ? (
               <button
                 type="button"
                 disabled={busy}
@@ -340,7 +384,7 @@ export function MarketInstallDialog({
                 style={ACCENT_BUTTON_STYLE}
                 onClick={() => void install()}
               >
-                {t("market_confirm_install")}
+                {updating ? t("market_update_to", { version: marketVersion }) : t("market_confirm_install")}
               </button>
             )}
           </div>

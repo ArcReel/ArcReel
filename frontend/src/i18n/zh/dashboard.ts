@@ -2224,4 +2224,13 @@ export default {
   'market_create_provider': '用此端点新建供应商',
   'market_open_endpoint': '打开端点',
   'market_create_copy': '新建副本',
+  'market_update_available': '可更新',
+  'market_unavailable': '市场中不可用',
+  'market_modified': '已修改',
+  'market_update': '更新',
+  'market_update_to': '更新到 v{{version}}',
+  'market_update_versions': '已安装 v{{installed}} → 市场 v{{version}}',
+  'market_modified_overwrite_warning': '你的本地修改会被覆盖',
+  'market_export_current_definition': '先导出当前定义',
+  'market_update_success': '已更新到 v{{version}}',
 } satisfies Record<keyof typeof enDashboard, string>;

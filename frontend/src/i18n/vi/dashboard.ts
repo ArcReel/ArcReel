@@ -2223,4 +2223,13 @@ export default {
   'market_create_provider': 'Tạo nhà cung cấp với điểm cuối này',
   'market_open_endpoint': 'Mở điểm cuối',
   'market_create_copy': 'Tạo bản sao',
+  'market_update_available': 'Có bản cập nhật',
+  'market_unavailable': 'Không còn trên chợ',
+  'market_modified': 'Đã sửa đổi',
+  'market_update': 'Cập nhật',
+  'market_update_to': 'Cập nhật lên v{{version}}',
+  'market_update_versions': 'Đã cài đặt v{{installed}} → Chợ v{{version}}',
+  'market_modified_overwrite_warning': 'Các thay đổi cục bộ của bạn sẽ bị ghi đè',
+  'market_export_current_definition': 'Xuất định nghĩa hiện tại trước',
+  'market_update_success': 'Đã cập nhật lên v{{version}}',
 } satisfies Record<keyof typeof enDashboard, string>;

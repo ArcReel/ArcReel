@@ -3,7 +3,6 @@ import { Copy, Download, Loader2, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
-import { downloadBlob } from "@/utils/download";
 import { useAppStore } from "@/stores/app-store";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
@@ -21,11 +20,12 @@ import type {
   EndpointReference,
   EndpointValidateResponse,
 } from "@/types";
-import { definitionFileName, isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
+import { isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
 import { EndpointDiagnostics } from "./EndpointDiagnostics";
 import { EndpointReferenceList, endpointReferences } from "./EndpointReferenceList";
 import { EndpointForm } from "./EndpointForm";
 import { EndpointTestSection } from "./EndpointTestSection";
+import { exportEndpointDefinition } from "./export-endpoint-definition";
 import { VariableInsertionProvider } from "./endpoint-form-primitives";
 
 const VALIDATE_DEBOUNCE_MS = 400;
@@ -206,9 +206,7 @@ export function EndpointDetail({
   }, [persistedId, onDeleted, pushToast, t]);
 
   const handleExport = useCallback(() => {
-    if (!draft) return;
-    const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" });
-    downloadBlob(blob, definitionFileName(draft));
+    if (draft) exportEndpointDefinition(draft);
   }, [draft]);
 
   const handleCopyAsMine = useCallback(async () => {

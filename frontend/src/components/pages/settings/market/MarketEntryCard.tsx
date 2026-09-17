@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { CARD_STYLE, posterGridStyle } from "@/components/ui/darkroom-tokens";
+import {
+  ACCENT_BTN_SM_CLS,
+  ACCENT_BUTTON_STYLE,
+  CARD_STYLE,
+  GHOST_BTN_CLS,
+  posterGridStyle,
+} from "@/components/ui/darkroom-tokens";
 import type { MarketEntry, MarketSourceKind } from "@/types";
+import { MarketInstallBadges } from "./MarketInstallBadges";
 
 const ICON_SIZE = 48;
 
@@ -75,7 +82,8 @@ export function SourceChip({ name, kind }: { name: string; kind: MarketSourceKin
 }
 
 /**
- * 市场条目卡片：2:1 图区（icon 或首字母占位）、名称、作者与版本、两行描述与源片。
+ * 市场条目卡片：2:1 图区（icon 或首字母占位 + 两轴徽标）、名称、作者与版本、两行描述、源片与主按钮。
+ * 主按钮：未安装「安装」、可更新「更新」均打开确认弹窗；已是最新「已安装」直接打开端点。
  * 当前应用版本不满足 `min_app_version` 时整卡降透明并标出版本要求。
  */
 export function MarketEntryCard({
@@ -96,6 +104,8 @@ export function MarketEntryCard({
 }) {
   const { t } = useTranslation("dashboard");
   const unmet = !entry.min_app_version_satisfied && entry.min_app_version !== null;
+  const { installation } = entry;
+  const current = installation?.state === "current";
 
   return (
     <article
@@ -118,6 +128,11 @@ export function MarketEntryCard({
       >
         <div aria-hidden className="absolute inset-0 opacity-[0.06]" style={posterGridStyle({ size: 20 })} />
         <EntryIcon entry={entry} />
+        {installation && (
+          <div className="absolute left-2 top-2">
+            <MarketInstallBadges state={installation.state} modified={installation.modified} />
+          </div>
+        )}
       </div>
       <div className="flex flex-1 flex-col p-3">
         <h3 className="truncate text-[13.5px] font-medium text-text">{entry.name}</h3>
@@ -133,10 +148,11 @@ export function MarketEntryCard({
         <button
           type="button"
           disabled={unmet}
-          onClick={entry.installation ? onInstalledOpen : onOpen}
-          className="relative z-20 mt-3 self-end rounded-[6px] border border-hairline px-3 py-1 text-[12px] text-text hover:bg-accent-dim disabled:opacity-50"
+          onClick={current ? onInstalledOpen : onOpen}
+          className={`relative z-20 mt-3 self-end ${current ? GHOST_BTN_CLS : ACCENT_BTN_SM_CLS}`}
+          style={current ? undefined : ACCENT_BUTTON_STYLE}
         >
-          {t(entry.installation ? "market_installed" : "market_install")}
+          {t(current ? "market_installed" : installation ? "market_update" : "market_install")}
         </button>
         {unmet && (
           <div className="mt-3 flex items-center">

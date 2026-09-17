@@ -373,11 +373,12 @@ async def list_entries(
     """所有启用源缓存快照里的条目：按源顺序、源内按名称排列，不分页、不发请求。"""
     sources = await MarketSourceRepository(session).list_ordered()
     app_version = _app_version(read_app_version)
-    installations = await entry_installations(session)
+    merged = merge_entries(sources, entry_type=entry_type)
+    installations = await entry_installations(session, merged)
     return MarketEntryListResponse(
         entries=[
             _entry_response(item, app_version, installations.get((item.source.canonical_key, item.entry.slug)))
-            for item in merge_entries(sources, entry_type=entry_type)
+            for item in merged
         ],
         app_version=app_version,
     )
@@ -396,12 +397,9 @@ async def get_entry(
     if entry is None:
         raise NotFoundError("market_entry_not_found")
     app_version = _app_version(read_app_version)
+    sourced = SourcedEntry(source=source, entry=entry)
     return MarketEntryDetailResponse(
-        entry=_entry_response(
-            SourcedEntry(source=source, entry=entry),
-            app_version,
-            await entry_installation(session, source.canonical_key, slug),
-        ),
+        entry=_entry_response(sourced, app_version, await entry_installation(session, sourced)),
         source=MarketEntrySourceSummary(
             id=source.id,
             kind=source.kind,
@@ -522,7 +520,7 @@ async def install_entry(
 
     invalidate_backend_cache()
     await session.refresh(endpoint)
-    installation = await entry_installation(session, source.canonical_key, slug)
+    installation = await entry_installation(session, SourcedEntry(source=source, entry=entry))
     if installation is None:
         raise NotFoundError("custom_endpoint_not_found")
     return InstallMarketEntryResponse(

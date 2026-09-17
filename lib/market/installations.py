@@ -1,9 +1,14 @@
-"""将校验通过的定义与安装记录原子写入，唯一约束守住并发安装。"""
+"""安装记录：将校验通过的定义与记录原子写入（唯一约束守住并发安装），并判定已安装端点的两轴状态。
+
+市场轴只比对安装记录版本与当前索引条目版本的字符串，不看本地 ``meta.version``；来源被禁用、被删除或
+条目已从索引移除一律为 ``unavailable``。本地修改轴只比对当前定义摘要与安装摘要。两轴互不影响。
+"""
 
 import hashlib
 import json
 from collections.abc import Mapping
-from typing import Any
+from enum import StrEnum
+from typing import Any, NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +18,22 @@ from lib.custom_provider.endpoint_resolution import derive_mirror_columns
 from lib.db.base import utc_now
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.market_installation import MarketInstallation
+from lib.db.models.market_source import MarketSource
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+
+from .entries import snapshot_entries
+from .index import MarketIndexEntry
+
+
+class InstallationState(StrEnum):
+    CURRENT = "current"
+    UPDATE_AVAILABLE = "update_available"
+    UNAVAILABLE = "unavailable"
+
+
+class InstallationStatus(NamedTuple):
+    state: InstallationState
+    modified: bool
 
 
 def definition_digest(definition: Mapping[str, Any]) -> str:
@@ -21,6 +41,26 @@ def definition_digest(definition: Mapping[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(definition, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
     ).hexdigest()
+
+
+def available_entries(source: MarketSource | None) -> dict[str, MarketIndexEntry]:
+    """按 slug 索引安装记录在市场中仍可用的条目：来源须存在、已启用，且快照里仍列出该 slug。"""
+    if source is None or not source.is_enabled:
+        return {}
+    return {entry.slug: entry for entry in snapshot_entries(source)}
+
+
+def installation_status(
+    *, installed_version: str, installed_digest: str, definition: Mapping[str, Any], entry: MarketIndexEntry | None
+) -> InstallationStatus:
+    """``entry`` 为 None 表示条目在市场中不可用；索引版本更旧同样算可更新。"""
+    if entry is None:
+        state = InstallationState.UNAVAILABLE
+    elif entry.version != installed_version:
+        state = InstallationState.UPDATE_AVAILABLE
+    else:
+        state = InstallationState.CURRENT
+    return InstallationStatus(state=state, modified=definition_digest(definition) != installed_digest)
 
 
 def _author_and_name(definition: Mapping[str, Any]) -> tuple[object, object]:

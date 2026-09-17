@@ -270,4 +270,78 @@ describe("MarketInstallDialog", () => {
     expect(API.deleteCustomEndpoint).toHaveBeenCalledWith(7);
     expect(onInstallationChange).toHaveBeenCalledWith(null);
   });
+
+  describe("update", () => {
+    const outdated: MarketEntryInstallation = {
+      ...installation,
+      installed_version: "0.9.0",
+      state: "update_available",
+      modified: true,
+    };
+    const localDefinition = { ...definition, meta: { ...definition.meta, name: "Demo (tuned)" } };
+
+    function showUpdate(selected: MarketEntryInstallation) {
+      vi.mocked(API.getMarketEntry).mockResolvedValue({ ...detail, entry: { ...entry, installation: selected } });
+      vi.mocked(API.listCustomEndpoints).mockResolvedValue({
+        endpoints: [{ ...endpoint, definition: localDefinition }],
+      });
+      return show({ ...entry, installation: selected });
+    }
+
+    it("shows both axes and the version jump, warns about local changes and exports them first", async () => {
+      const downloads: { name: string; blob: Blob }[] = [];
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: vi.fn((blob: Blob) => {
+          downloads.push({ name: "", blob });
+          return "blob:definition";
+        }),
+      });
+      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+        downloads[downloads.length - 1].name = this.download;
+      });
+      const { onInstallationChange } = showUpdate(outdated);
+
+      const confirm = await screen.findByRole("button", { name: "更新到 v1.0.0" });
+      expect(screen.getByText("Update endpoint")).toBeInTheDocument();
+      expect(screen.getByText("已安装 v0.9.0 → 市场 v1.0.0")).toBeInTheDocument();
+      expect(screen.getByText("可更新")).toBeInTheDocument();
+      expect(screen.getByText("已修改")).toBeInTheDocument();
+      expect(screen.getByText("你的本地修改会被覆盖")).toBeInTheDocument();
+      expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "先导出当前定义" }));
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].name).toBe("Demo-tuned.json");
+      expect(JSON.parse(await downloads[0].blob.text())).toEqual(localDefinition);
+
+      await waitFor(() => expect(confirm).toBeEnabled());
+      await userEvent.click(confirm);
+      expect(await screen.findByText("已更新到 v1.0.0")).toBeInTheDocument();
+      expect(API.installMarketEntry).toHaveBeenCalledWith(1, "demo", 7);
+      expect(onInstallationChange).toHaveBeenCalledWith(installation);
+      expect(screen.queryByText("你的本地修改会被覆盖")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /更新到/ })).not.toBeInTheDocument();
+    });
+
+    it("skips the overwrite warning when the installed definition is unchanged", async () => {
+      showUpdate({ ...outdated, modified: false });
+
+      expect(await screen.findByRole("button", { name: "更新到 v1.0.0" })).toBeInTheDocument();
+      expect(screen.queryByText("已修改")).not.toBeInTheDocument();
+      expect(screen.queryByText("你的本地修改会被覆盖")).not.toBeInTheDocument();
+    });
+
+    it("keeps the current installed entry in install mode with the endpoint shortcut", async () => {
+      showUpdate({ ...installation, modified: true });
+
+      expect(await screen.findByText("Install endpoint")).toBeInTheDocument();
+      expect(screen.getByText("v1.0.0")).toBeInTheDocument();
+      expect(screen.getByText("已修改")).toBeInTheDocument();
+      expect(screen.queryByText("你的本地修改会被覆盖")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /更新到/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "打开端点" })).toBeInTheDocument();
+    });
+  });
 });
