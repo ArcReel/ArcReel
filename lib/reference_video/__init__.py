@@ -39,7 +39,6 @@ from lib.reference_video.units import (
     find_reference_unit,
     reference_video_bucket,
 )
-from lib.reference_video.writing_syntax import writing_syntax_spec
 
 __all__ = [
     "DraftViolation",
@@ -71,5 +70,4 @@ __all__ = [
     "validate_source_text_anchor",
     "validate_unit_text",
     "violation_items",
-    "writing_syntax_spec",
 ]

@@ -1,0 +1,66 @@
+/** 市场源的刷新状态。 */
+export type MarketSourceStatus =
+  | "never_fetched"
+  | "ok"
+  | "unreachable"
+  | "invalid_index"
+  | "unsupported_schema";
+
+export type MarketSourceKind = "official" | "custom";
+
+/** 快照索引的顶层信息。 */
+export interface MarketIndexSummary {
+  name: string;
+  description: string | null;
+  homepage: string | null;
+}
+
+export interface MarketSourceInfo {
+  id: number;
+  kind: MarketSourceKind;
+  display_name: string;
+  address: string;
+  index_url: string;
+  canonical_key: string;
+  is_enabled: boolean;
+  position: number;
+  status: MarketSourceStatus;
+  last_error: string | null;
+  /** 最近一次成功刷新（含 304）的时间；从未成功时为 null。 */
+  fetched_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  entry_count: number;
+  /** 从未成功抓取时为 null。 */
+  index: MarketIndexSummary | null;
+}
+
+export interface MarketSourceListResponse {
+  sources: MarketSourceInfo[];
+}
+
+/** 合并条目列表里的一条：索引条目字段加所在源。 */
+export interface MarketEntry {
+  source_id: number;
+  source_display_name: string;
+  type: string;
+  slug: string;
+  path: string;
+  name: string;
+  author: string;
+  version: string;
+  media_type: string;
+  description: string | null;
+  homepage: string | null;
+  /** 索引里的 icon 相对路径；非 null 时经 icon 代理取图。 */
+  icon: string | null;
+  min_app_version: string | null;
+  /** 无版本要求或读不到应用版本时为 true。 */
+  min_app_version_satisfied: boolean;
+}
+
+export interface MarketEntryListResponse {
+  entries: MarketEntry[];
+  /** 当前应用版本；读不到时为 null。 */
+  app_version: string | null;
+}

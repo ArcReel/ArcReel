@@ -2,7 +2,6 @@ import pytest
 
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_script import (
-    _format_names,
     build_drama_prompt,
     build_narration_prompt,
     build_narration_split_prompt,
@@ -10,16 +9,10 @@ from lib.prompt_builders_script import (
     build_overview_prompt,
     render_drama_content_for_prompt_authoring,
 )
-from lib.prompt_rules.episode_pacing import render_pacing_section
 from lib.speech_rate import speech_rate_units_per_second
 
 
 class TestPromptBuildersScript:
-    def test_format_names_emits_bullet_lists(self):
-        assert _format_names({"A": {}, "B": {}}, "character") == "- A\n- B"
-        assert _format_names({"玉佩": {}, "祠堂": {}}, "prop") == "- 玉佩\n- 祠堂"
-        assert _format_names({}, "scene") == "（暂无）"
-
     def test_build_narration_prompt_renders_script_plan_segments_as_context(self):
         prompt = build_narration_prompt(
             project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
@@ -107,8 +100,13 @@ class TestPromptBuildersScript:
         assert "天台追逐" in prompt
         # prompt_authoring 不再产出口播：不含「口播序列（utterances）」写作章节
         assert "口播序列（utterances）" not in prompt
-        # 视觉专责角色：明确不改写口播 / 不改动内容
-        assert "不要改写或重述口播" in prompt
+        # 视觉层不复制口播；ID 对齐约束只在集约束中说明。
+        assert "不要复制进视觉字段" in prompt
+        assert "不要改写或重述口播" not in prompt
+        assert "**对齐约束**" not in prompt
+        assert "你的任务：基于下方" not in prompt
+        assert "**video_prompt.camera_motion**" not in prompt
+        assert "任务已排队、已计费" not in prompt
 
     @staticmethod
     def _content_scene_with_passthrough() -> dict:
@@ -200,7 +198,7 @@ class TestPromptBuildersScript:
         # 仍是视觉专责输出
         assert "image_prompt" in prompt
         assert "video_prompt" in prompt
-        assert "不要改写或重述口播" in prompt
+        assert "不要改动分镜内容" in prompt
 
 
 class TestScreenplaySourceKind:
@@ -254,7 +252,7 @@ class TestScreenplaySourceKind:
         assert "提取" in prompt
         assert "逐字" in prompt
         assert "画外音" in prompt
-        assert "剧本原文" in prompt
+        assert "<screenplay>\n【第1集】角色甲：「你好」\n</screenplay>" in prompt
         assert "utterances" in prompt
         assert "source_text" in prompt
         assert "改编" not in prompt
@@ -293,9 +291,139 @@ class TestScreenplaySourceKind:
         assert "她推开门" in prompt
         assert "她推开门" not in self._normalize_prompt("novel")
 
+    def test_normalize_source_block_has_one_heading_and_kind_tag(self):
+        for source_kind, other in (("novel", "screenplay"), ("screenplay", "novel")):
+            prompt = self._normalize_prompt(source_kind)
+            assert f"## 源文\n\n<{source_kind}>\n【第1集】角色甲：「你好」\n</{source_kind}>" in prompt
+            assert f"<{other}>" not in prompt
+            assert "## 小说原文" not in prompt
+            assert "## 剧本原文" not in prompt
+
+    def test_normalize_segment_break_rule_for_both_source_kinds(self):
+        novel = self._normalize_prompt("novel")
+        screenplay = self._normalize_prompt("screenplay")
+        assert "\n- **segment_break**：改编时自行判断：地点 / 时间跳转或场景切换后的第一个分镜标「是」" in novel
+        assert "\n- **segment_break**：沿用剧本自带的场次 / 场景切换" in screenplay
+        assert "不要重新切碎作者的场次" not in novel
+
+    def test_normalize_duration_rule_splits_into_three_sub_items(self):
+        prompt = self._normalize_prompt("novel", episode_target_duration=90)
+        section = prompt.split("- **duration_seconds**：\n", 1)[1].split("\n- **segment_break**", 1)[0]
+        lines = section.split("\n")
+        assert [line.split("：", 1)[0] for line in lines] == ["  - 档位", "  - 口播下界", "  - 单集目标"]
+        assert "默认 8 秒" in lines[0]
+        assert "不低于" in lines[1]
+        assert "本集成片目标时长约 90 秒" in lines[2]
+        assert "保存时会另有提示" not in prompt
+
+        without_target = self._normalize_prompt("novel")
+        assert "  - 单集目标：" not in without_target
+        assert "  - 口播下界：" in without_target
+
+    def test_normalize_output_language_keeps_main_clause_for_both_source_kinds(self):
+        for source_kind in ("novel", "screenplay"):
+            prompt = self._normalize_prompt(source_kind, target_language="English")
+            assert (
+                "**输出语言**：自然语言字符串值必须使用 English；JSON 键名 / 枚举值保持英文。例外（逐字保留" in prompt
+            )
+
+    def test_normalize_mentions_extras_exclusion_once(self):
+        for source_kind in ("novel", "screenplay"):
+            prompt = self._normalize_prompt(source_kind)
+            assert prompt.count("老人甲") == 1
+            assert "不登记为角色资产" not in prompt
+        assert "是否产出由你依语境创作判断" not in self._normalize_prompt("novel")
+
+    def test_normalize_lists_every_asset_type_when_multiple_are_empty(self):
+        prompt = self._normalize_prompt(
+            "novel",
+            characters={"姜月茴": {}},
+            scenes={},
+            props={},
+        )
+        assert "<characters>\n- 姜月茴\n</characters>" in prompt
+        assert "<scenes>\n（暂无）\n</scenes>" in prompt
+        assert "<props>\n（暂无）\n</props>" in prompt
+        assert "  - 候选 scenes：[（暂无）]" in prompt
+        assert "  - 候选 props：[（暂无）]" in prompt
+
+    def test_normalize_renders_null_overview_fields_as_blank(self):
+        prompt = self._normalize_prompt(
+            "novel",
+            project_overview={"synopsis": None, "genre": None, "theme": "真相", "world_setting": None},
+        )
+        assert "<overview>\n\n题材类型：\n核心主题：真相\n世界观设定：\n</overview>" in prompt
+
+    def test_narration_prompts_keep_every_empty_asset_block(self):
+        empty_assets = {"characters": {}, "scenes": {}, "props": {}}
+        overview = {"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"}
+        prompts = [
+            build_narration_prompt(
+                project_overview=overview,
+                style="古风",
+                style_description="",
+                script_plan_segments=[],
+                episode=1,
+                **empty_assets,
+            ),
+            build_narration_split_prompt(
+                novel_text="原文",
+                project_overview=overview,
+                default_duration=None,
+                supported_durations=[4],
+                episode=1,
+                **empty_assets,
+            ),
+        ]
+        for prompt in prompts:
+            for tag in ("characters", "scenes", "props"):
+                assert f"<{tag}>\n（暂无）\n</{tag}>" in prompt
+
+    def test_normalize_omits_blank_or_non_text_outline_fields(self):
+        prompt = self._normalize_prompt(
+            "novel",
+            episode_outline={"title": 42, "story_beats": ["  ", "踏进祖宅"], "hook": "  ", "next_episode_teaser": None},
+        )
+        assert (
+            "<episode_outline>\n本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：\n故事节点：\n- 踏进祖宅\n</episode_outline>"
+            in prompt
+        )
+        assert "末场（最后一个或几个分镜）" not in prompt
+        blank = {"title": " ", "story_beats": [""], "hook": " ", "next_episode_teaser": " "}
+        assert self._normalize_prompt("novel", episode_outline=blank) == self._normalize_prompt("novel")
+
+    def test_normalize_renders_both_outlines_with_their_beats(self):
+        prompt = self._normalize_prompt(
+            "novel",
+            episode_outline={"title": "归家", "story_beats": ["踏进祖宅"], "hook": "信纸落下"},
+            next_episode_outline={"title": "族谱", "story_beats": ["族谱缺页"]},
+        )
+        assert (
+            "<episode_outline>\n本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：\n本集标题：归家\n"
+            "故事节点：\n- 踏进祖宅\n集尾钩子：信纸落下\n</episode_outline>"
+        ) in prompt
+        assert "末场（最后一个或几个分镜）的画面与对白须实际呈现集尾钩子" in prompt
+        assert (
+            "<next_episode_outline>\n下集大纲（仅用于设计本集结尾的衔接，不要把下集情节提前写进本集）：\n"
+            "下集标题：族谱\n故事节点：\n- 族谱缺页\n</next_episode_outline>"
+        ) in prompt
+
+    def test_normalize_omits_hook_landing_without_hook_or_teaser(self):
+        prompt = self._normalize_prompt("novel", episode_outline={"title": "归家", "story_beats": ["踏进祖宅"]})
+        assert "<episode_outline>" in prompt
+        assert "末场（最后一个或几个分镜）" not in prompt
+
+    def test_normalize_appends_instructions_after_single_blank_line(self):
+        for source_kind in ("novel", "screenplay"):
+            prompt = self._normalize_prompt(source_kind, instructions="多用近景。\n少用旁白。")
+            assert prompt.endswith("画面切换。\n\n# 附加指令\n多用近景。\n少用旁白。")
+            plain = self._normalize_prompt(source_kind)
+            assert "# 附加指令" not in plain
+            assert plain == self._normalize_prompt(source_kind, instructions="")
+
     def test_normalize_injects_pacing(self):
-        # script_plan（normalize）与 prompt_authoring 一样无条件注入节奏建议，二者共享同一份 render_pacing_section("drama")
-        assert self._squash(render_pacing_section("drama")) in self._squash(self._normalize_prompt("novel"))
+        # script_plan 无条件提供开篇节奏建议。
+        assert "开篇~4秒承担钩子职能" in self._squash(self._normalize_prompt("novel"))
 
 
 class TestOverviewPrompt:
@@ -309,6 +437,20 @@ class TestOverviewPrompt:
     def test_screenplay_keeps_source_text(self):
         prompt = build_overview_prompt("剧本正文", source_kind="screenplay")
         assert "剧本正文" in prompt
+
+    def test_prompt_has_task_language_and_source_in_order(self):
+        prompt = build_overview_prompt("正文内容", source_kind="novel", target_language="English")
+        assert prompt == (
+            "请分析以下小说内容，提取关键信息：\n\n"
+            "**输出语言**：所有字符串值必须使用 English；JSON 键名 / 枚举值保持英文。\n\n"
+            "正文内容"
+        )
+
+    def test_screenplay_prefers_author_creative_plan(self):
+        prompt = build_overview_prompt("剧本正文", source_kind="screenplay")
+        assert prompt.startswith("请分析以下成品剧本，提炼项目概述")
+        assert "优先照用作者已写下的设定" in prompt
+        assert "请分析以下小说内容" not in prompt
 
     def test_screenplay_differs_from_novel(self):
         content = "同一段源文本"
@@ -437,7 +579,7 @@ class TestPromptAuthoringPromptGuards:
         """去除全部空白字符，用于跨缩进比较。"""
         return "".join(text.split())
 
-    def _narration_prompt(self) -> str:
+    def _narration_prompt(self, **overrides) -> str:
         return build_narration_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="动漫",
@@ -449,6 +591,7 @@ class TestPromptAuthoringPromptGuards:
                 {"segment_id": "E2S01", "novel_text": "原文", "duration_seconds": 4, "segment_break": False}
             ],
             episode=2,
+            **overrides,
         )
 
     def _drama_prompt(self) -> str:
@@ -460,11 +603,25 @@ class TestPromptAuthoringPromptGuards:
             episode=2,
         )
 
-    def test_drama_prompt_injects_pacing(self):
-        assert self._squash(render_pacing_section("drama")) in self._squash(self._drama_prompt())
+    def test_drama_prompt_injects_pacing(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
+        assert "开篇~4秒承担钩子职能" in self._squash(self._drama_prompt())
 
-    def test_narration_prompt_injects_pacing(self):
-        assert self._squash(render_pacing_section("narration")) in self._squash(self._narration_prompt())
+    @pytest.mark.parametrize("instructions", [None, "", "末镜保留雨声。"])
+    def test_narration_instructions_are_an_optional_section(self, instructions):
+        text = self._narration_prompt(instructions=instructions)
+        if instructions:
+            assert text.endswith("\n\n# 附加指令\n末镜保留雨声。")
+            assert text.count("# 附加指令") == 1
+        else:
+            assert "# 附加指令" not in text
+        assert "任务已排队、已计费" not in text
+        assert "**video_prompt.action**" in text
+        assert "None" not in text
+
+    def test_narration_prompt_injects_pacing(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
+        assert "首段画面（朗读前~4秒）服务于钩子" in self._squash(self._narration_prompt())
 
     def test_drama_no_enum_dump_in_prompt(self):
         """schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。"""
@@ -580,9 +737,10 @@ class TestBuildNarrationSplitPrompt:
         assert "4, 6, 8" in text
         assert "默认取 4 秒" in text
 
-    def test_mirrors_narration_pacing_rules(self):
+    def test_mirrors_narration_pacing_rules(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
         text = self._prompt()
-        assert render_pacing_section("narration")[:40] in text
+        assert "旁白/解说节奏建议：" in text
 
     def test_drifted_default_treated_as_null_not_raised(self):
         """default 漂移到 supported_durations 之外时按 null 处理、不 fail-loud（软偏好口径）。"""

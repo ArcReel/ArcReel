@@ -50,3 +50,31 @@ export function formatShortDateTime(value: string | null | undefined): string | 
   const pad = (n: number) => n.toString().padStart(2, "0");
   return `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["day", 86_400_000],
+  ["hour", 3_600_000],
+  ["minute", 60_000],
+];
+
+// 相对当前的粗粒度时间（「3 小时前」），按界面语言成文；不足一分钟算「现在」，解析失败返回 null
+export function formatRelativeTime(
+  value: string | null | undefined,
+  lang: string,
+  now: number = Date.now(),
+): string | null {
+  if (!value) return null;
+  const time = parseIsoTimestamp(value).getTime();
+  if (Number.isNaN(time)) return null;
+  const diff = time - now;
+  let fmt: Intl.RelativeTimeFormat;
+  try {
+    fmt = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
+  } catch {
+    fmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  }
+  for (const [unit, ms] of RELATIVE_UNITS) {
+    if (Math.abs(diff) >= ms) return fmt.format(Math.round(diff / ms), unit);
+  }
+  return fmt.format(0, "second");
+}

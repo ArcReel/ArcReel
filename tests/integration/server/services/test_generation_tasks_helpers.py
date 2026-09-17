@@ -5,7 +5,6 @@ import threading
 
 import pytest
 
-from lib.prompt_builders import append_image_negative_tail
 from lib.prompt_utils import image_prompt_to_yaml
 from server.services import generation_tasks
 
@@ -34,7 +33,7 @@ class TestGenerationTasks:
         assert mode_items[1] == "scene_id"
 
         prompt = generation_tasks._normalize_storyboard_prompt("text", "Anime", "cinematic")
-        assert prompt == append_image_negative_tail("Style: Anime\nVisual style: cinematic\n\ntext")
+        assert prompt == "Style: Anime\nVisual style: cinematic\n\ntext\n\nAvoid: 水印、多余文字、Logo"
         assert generation_tasks._normalize_storyboard_prompt(prompt, "Anime", "cinematic") == prompt
 
         structured_input = {
@@ -42,7 +41,8 @@ class TestGenerationTasks:
             "composition": {"shot_type": "Close-up", "lighting": "暖光", "ambiance": "薄雾"},
         }
         structured = generation_tasks._normalize_storyboard_prompt(structured_input, "Anime", "cinematic")
-        assert structured == f"Visual style: cinematic\n\n{image_prompt_to_yaml(structured_input, 'Anime').rstrip()}"
+        assert structured == image_prompt_to_yaml(structured_input, "Anime", style_description="cinematic").rstrip()
+        assert structured.startswith("Style: Anime\nVisual style: cinematic\nScene:")
         assert structured.endswith("\nAvoid: 水印、多余文字、Logo")
 
         with pytest.raises(ValueError, match=r"image_prompt\.scene must be a non-empty string"):

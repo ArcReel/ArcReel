@@ -345,4 +345,36 @@ MESSAGES = {
         "{path_expression} dùng ký tự đại diện: với đối tượng chỉ lấy thành viên đầu tiên, "
         "và thứ tự khóa có thể khác nhau giữa bản xem trước và phía máy chủ"
     ),
+    # ---- kiểm tra nguồn chợ ----
+    "val_market_index_unreadable": "Không đọc được tệp chỉ mục: {detail}",
+    "val_market_unsupported_schema_version": "Phiên bản định dạng chỉ mục {version} mới hơn phiên bản được hỗ trợ {supported}",
+    "val_market_missing_field": "Thiếu trường bắt buộc: {field}",
+    "val_market_invalid_type": "Sai kiểu; cần {expected}",
+    "val_market_invalid_value": "Giá trị vi phạm ràng buộc {keyword}: {constraint}",
+    "val_market_slug_invalid": (
+        'Slug "{value}" không hợp lệ: chỉ dùng chữ thường, chữ số và dấu gạch nối, '
+        "bắt đầu bằng chữ hoặc số, tối đa 64 ký tự"
+    ),
+    "val_market_slug_duplicate": 'Slug "{slug}" bị trùng trong nguồn chợ này',
+    "val_market_slug_directory_mismatch": 'Slug "{slug}" không khớp với tên thư mục định nghĩa "{directory}"',
+    "val_market_path_not_relative": (
+        '"{value}" phải là đường dẫn tương đối trong nguồn chợ: '
+        "không bắt đầu bằng / hoặc giao thức, không chứa .., không trỏ ra ngoài nguồn"
+    ),
+    "val_market_file_missing": "Tệp được tham chiếu không tồn tại: {value}",
+    "val_market_icon_format_invalid": "Biểu tượng phải là PNG, WebP hoặc SVG đọc được, với phần mở rộng khớp nội dung",
+    "val_market_icon_too_large": "Biểu tượng có {size} byte, vượt giới hạn {limit} byte",
+    "val_market_icon_not_square": "Biểu tượng phải là hình vuông; hiện là {width}×{height}",
+    "val_market_icon_ambiguous": "Mỗi thư mục mục chỉ được có một tệp biểu tượng; tìm thấy: {icons}",
+    "val_market_definition_unreadable": "Không đọc được định nghĩa: {detail}",
+    "val_market_definition_invalid": "Định nghĩa không qua kiểm tra ({code}): {detail}",
+    "val_market_projection_mismatch": (
+        'Trường chỉ mục {field} là "{index_value}", khác với "{definition_value}" trong meta của định nghĩa'
+    ),
+    "val_market_min_app_version_invalid": 'min_app_version "{value}" không phải semver (x.y.z)',
+    "val_market_detail_meta_not_object": "Định nghĩa không có đối tượng meta",
+    "val_market_cli_check_passed": "Kiểm tra nguồn chợ đạt: {directory}",
+    "val_market_cli_check_failed": "Kiểm tra nguồn chợ không đạt: {count} vấn đề",
+    "val_market_cli_generate_written": "Đã ghi {path} ({count} mục)",
+    "val_market_cli_generate_failed": "Không tạo được chỉ mục: {count} vấn đề",
 }

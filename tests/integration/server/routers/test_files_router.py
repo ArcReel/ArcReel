@@ -3,6 +3,7 @@ import json
 import shutil
 from io import BytesIO
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from fastapi import FastAPI
@@ -17,6 +18,7 @@ from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.prompt_templates.builtin import builtin_templates
 from lib.providers import CallPurpose
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -25,6 +27,8 @@ from tests.factories import wav_bytes
 
 
 class _FakeTextBackend:
+    requests: ClassVar[list] = []
+
     @property
     def name(self):
         return "fake"
@@ -40,6 +44,7 @@ class _FakeTextBackend:
     async def generate(self, request):
         from lib.text_backends.base import TextGenerationResult
 
+        _FakeTextBackend.requests.append(request)
         return TextGenerationResult(text="cinematic, high contrast", provider="fake", model="fake-model")
 
 
@@ -728,6 +733,7 @@ class TestFilesRouter:
             return await original_create(task_type, project_name, purpose=purpose)
 
         monkeypatch.setattr(TextGenerator, "create", capture_create)
+        monkeypatch.setattr(_FakeTextBackend, "requests", [])
 
         # 预置 style_template_id + 展开后的 style prompt，验证上传后被强制清掉（互斥）
         project = pm.load_project("demo")
@@ -743,6 +749,9 @@ class TestFilesRouter:
             assert upload_style.status_code == 200
             assert upload_style.json()["style_description"] == "cinematic, high contrast"
             assert captured["purpose"] is CallPurpose.STYLE_ANALYSIS
+            (request,) = _FakeTextBackend.requests
+            assert request.prompt == builtin_templates.render("text/style_analysis")
+            assert "Do NOT describe the subject matter" in request.prompt
             after = pm.load_project("demo")
             assert after.get("style_image", "").startswith("style_reference")
             assert "style_template_id" not in after

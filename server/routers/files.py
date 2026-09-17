@@ -1015,16 +1015,18 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         output_path, style_filename = await asyncio.to_thread(_sync_prepare)
 
         # 调用 TextGenerator 分析风格（自动追踪用量）
+        from lib.prompt_templates.builtin import builtin_templates
         from lib.providers import CallPurpose
         from lib.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
-        from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
         from lib.text_generator import TextGenerator
 
         generator = await TextGenerator.create(
             TextTaskType.STYLE_ANALYSIS, project_name, purpose=CallPurpose.STYLE_ANALYSIS
         )
         result = await generator.generate(
-            TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=output_path)]),
+            TextGenerationRequest(
+                prompt=builtin_templates.render("text/style_analysis"), images=[ImageInput(path=output_path)]
+            ),
             project_name=project_name,
         )
         style_description = result.text

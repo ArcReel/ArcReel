@@ -44,7 +44,7 @@ export type EndpointFormSection =
 export function newEndpointDefinition(author: string): EndpointDefinition {
   return {
     kind: "declarative",
-    schema_version: "1.0.0",
+    schema_version: "1.1.0",
     meta: { name: "", author, version: "1.0.0" },
     auth: { headers: { Authorization: "Bearer {{ api_key }}" } },
     inputs: { first_frame: { source: "start_image", encoding: "data_uri" } },

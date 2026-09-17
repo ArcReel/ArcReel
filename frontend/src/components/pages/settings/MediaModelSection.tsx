@@ -133,6 +133,8 @@ export function MediaModelSection() {
 
   const handleSave = useCallback(async () => {
     if (Object.keys(draft).length === 0) return;
+    const savedOnlyMarketProxy =
+      Object.keys(draft).length === 1 && "market_github_proxy_prefix" in draft;
     setSaving(true);
     try {
       await API.updateSystemConfig(draft);
@@ -142,7 +144,9 @@ export function MediaModelSection() {
       await fetchConfig();
       void reloadCandidates();
       void useConfigStatusStore.getState().refresh();
-      useAppStore.getState().pushToast(t("media_config_saved"), "success");
+      useAppStore
+        .getState()
+        .pushToast(t(savedOnlyMarketProxy ? "market_proxy_saved" : "media_config_saved"), "success");
     } catch (err) {
       useAppStore.getState().pushToast(t("save_failed", { message: errMsg(err) }), "error");
     } finally {
@@ -175,6 +179,8 @@ export function MediaModelSection() {
   const currentAudio = draft.video_generate_audio ?? settings.video_generate_audio ?? false;
   const currentPollTimeout =
     draft.video_poll_timeout_seconds ?? settings.video_poll_timeout_seconds;
+  const currentMarketProxyPrefix =
+    draft.market_github_proxy_prefix ?? settings.market_github_proxy_prefix ?? "";
 
   // 全局层是解析链的基准，细分项留空即回退全局默认模型；默认模型也留空时是自动推断，
   // 前端算不出具体模型，故不显示生效值（下拉里显示「自动选择」）。
@@ -528,6 +534,26 @@ export function MediaModelSection() {
             <p className="mt-1 text-[11px] text-text-4">{t("narration_speed_hint")}</p>
           </div>
         </div>
+      </SectionCard>
+
+      <SectionCard
+        kicker="Market Network"
+        title={t("market_proxy_label")}
+        description={t("market_proxy_hint")}
+      >
+        <label htmlFor="market-github-proxy-prefix" className="sr-only">
+          {t("market_proxy_label")}
+        </label>
+        <input
+          id="market-github-proxy-prefix"
+          type="url"
+          value={currentMarketProxyPrefix}
+          placeholder="https://proxy.example.com/"
+          onChange={(event) =>
+            setDraft((prev) => ({ ...prev, market_github_proxy_prefix: event.target.value }))
+          }
+          className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 font-mono text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        />
       </SectionCard>
 
       {/* Footer */}
