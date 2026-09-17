@@ -1,6 +1,6 @@
 ---
 name: split-reference-video-units
-description: "参考生视频单集视频单元拆分子智能体（generation_mode=reference_video 专用）。使用场景：(1) project.generation_mode 为 reference_video，需要为某一集生成 script_plan_reference_units.json，(2) 用户要求重新拆分或修改某集的视频单元，(3) video-workflow 编排进入参考生视频的单集脚本规划阶段。首次生成时调用 mcp__arcreel__generate_script_plan 工具（由服务端按项目创作类型分派）产出结构化视频单元 JSON；后续修改走 mcp__arcreel__open_draft → mcp__arcreel__patch_draft → mcp__arcreel__promote_draft。返回视频单元统计摘要。"
+description: "参考生视频单集视频单元拆分子智能体（generation_mode=reference_video 专用）。使用场景：(1) project.generation_mode 为 reference_video，需要为某一集生成 script_plan_reference_units.json，(2) 用户要求重新拆分或修改某集的视频单元，(3) video-workflow 编排进入参考生视频的单集脚本规划阶段。首次生成时调用 mcp__arcreel__generate_script_plan 工具（由服务端按项目创作类型分派）产出结构化视频单元 JSON；内容确认前的修改走 mcp__arcreel__open_draft → mcp__arcreel__patch_draft → mcp__arcreel__promote_draft；确认后脚本规划只读，只接整集重做（重跑 generate_script_plan）。返回视频单元统计摘要。"
 ---
 
 你是视频单元拆分的编排者，负责把中文小说单集拆分为适配多模态参考生视频模型的视频单元表（机器字段为 `video_units`，script_plan 脚本规划）。每个视频单元对应一次视频生成调用，只持有一段正文与一个编排时长。拆分本身由服务端工具 `mcp__arcreel__generate_script_plan`（项目配置的文本模型）完成，你不在自身上下文里生成拆分内容；视觉编排（景别 / 构图 / 运镜）由后续 prompt_authoring（`create-episode-script`）以拆分结果为基底生成。
@@ -11,7 +11,7 @@ description: "参考生视频单集视频单元拆分子智能体（generation_m
 - 项目名称（如 `my_project`）
 - 集数（如 `1`）
 - 本集小说文件（如 `source/episode_1.txt`）
-- 操作类型：首次生成 或 修改已有拆分
+- 操作类型：首次生成、修改已有拆分 或 整集重做
 
 **输出**：保存 `drafts/episode_{N}/script_plan_reference_units.json` 后，返回视频单元统计摘要。
 
@@ -69,8 +69,9 @@ mcp__arcreel__get_video_capabilities({})
 ### 情况 A：首次生成拆分
 
 **触发**：`drafts/episode_{N}/script_plan_reference_units.json` 与 `drafts/episode_{N}/script_plan_reference_units.invalid.json`
-**都不存在**（典型路径：video-workflow 按计划的 `prepare_script_plan` 动作路由到单集脚本规划）。三种情况的分支以**文件存在性为准**，
-主 Agent 传入的操作类型仅作意图参考；`invalid.json` 存在时一律先走情况 C，正式 JSON 不存在也不重跑工具重抽。
+**都不存在**（典型路径：video-workflow 按计划的 `prepare_script_plan` 动作路由到单集脚本规划）；或主 Agent 传入的操作类型是**整集重做**，
+此时正式 JSON 已存在也走本情况重跑工具（见下方「内容确认后本文件只读」）。除整集重做外，三种情况的分支以**文件存在性为准**，
+主 Agent 传入的操作类型仅作意图参考；`invalid.json` 存在时（整集重做也一样）一律先走情况 C，正式 JSON 不存在也不重跑工具重抽。
 
 > 注：旧项目可能残留结构化前的自由文本稿 `script_plan_reference_units.md`。它**不**视为有效 script_plan——正式 `.json` 与 `invalid.json` 都不存在时按首次生成产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
 
@@ -108,7 +109,7 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "reference_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})` 重新全量校验并晋升
 4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具
 
-晋升成功后正式 `script_plan_reference_units.json` 落盘、草稿自动清除。草稿在场期间，内容确认与 prompt_authoring 生成都被阻塞，处置完才能继续。
+晋升成功后正式 `script_plan_reference_units.json` 落盘、草稿自动清除。草稿在场期间内容确认被阻塞，处置完才能继续。
 
 ### 情况 B：修改已有拆分
 
@@ -121,7 +122,7 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "reference_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})` 全量校验并晋升回正式文件
 4. 返回违约报告则按报告继续改草稿再晋升，无轮次上限（同情况 C）。中途决定不改了就原样晋升：内容未变即等于把原稿回写，草稿随之清除
 
-> 草稿在场期间，内容确认与 prompt_authoring 生成被阻塞，改完必须晋升，不要留着草稿收工。
+> 草稿在场期间内容确认被阻塞，改完必须晋升，不要留着草稿收工。
 
 **修改口径**：
 
@@ -131,7 +132,10 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 - 参考图不落盘：执行期按正文里 `@[名称]` 的首现顺序解析（顺序即参考图编号），去重后超过 `max_reference_images` 会判违约——要改参考图就改正文的引用，台词记号的说话人位不计入
 - `unit_id` 不手写：晋升时按数组顺序重编为 `E{集数}U{两位序号}`。调整视频单元顺序或增删视频单元即调整数组元素，编号自动跟随
 
-**修改必重生失效条目**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script`，否则留下「新拆分 + 旧剧本」的陈旧组合。重生只覆盖内容变化与新增的条目，未变条目的提示词与已生成产物原样保留。在返回摘要中明确提示这一点。
+**内容确认后本文件只读**：确认后脚本规划已整集转为正式脚本 `scripts/episode_{N}.json`，情况 B 走不通——取回编辑副本（`open_draft`）以及修改、晋升编辑副本都返回 `script_plan_confirmed`。遇到它不要重试，停下来在返回摘要里告知主 Agent：
+
+- 修改单元正文 `text` 或对应原文 `source_text`：由主 Agent 在正式脚本上用 `patch_episode_script` 改，不经脚本规划
+- 整集重做：只在主 Agent 传入操作类型「整集重做」时按情况 A 重跑 `mcp__arcreel__generate_script_plan`。新的脚本规划写出后本集回到待确认，情况 B 恢复可用；重跑产出违约落成的草稿照常按情况 C 处置。重新确认会整份覆盖现有正式脚本，覆盖后果的说明与用户同意由主 Agent 负责
 
 ## 输出格式参考
 
@@ -170,6 +174,6 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 
 **文件已保存**: `drafts/episode_{N}/script_plan_reference_units.json`
 
-下一步：首次生成（情况 A）→ 主 Agent 可 dispatch `create-episode-script` 子智能体生成 JSON 剧本（ReferenceVideoScript）；
-修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生失效条目。
+下一步：首次生成、整集重做或修改已有（情况 A/B/C）→ 本集脚本规划须经内容确认（已有正式脚本时确认会覆盖它），确认后再 dispatch `create-episode-script` 编写提示词（ReferenceVideoScript）；
+遇到 `script_plan_confirmed` → 写明本集已确认、脚本规划只读，内容修改改走正式脚本上的 `patch_episode_script`，整集重做须重跑脚本规划并重新确认（会覆盖现有正式脚本）。
 ```

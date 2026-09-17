@@ -137,7 +137,11 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 拿到模型能力与用户偏好；主 Agent 不需要预先注入角色/场景/道具列表或
 `supported_durations` / `max_duration` / `max_reference_images` / `default_duration` / `episode_target_duration` 等数据。）
 
-**中间文件变更必重生失效条目**：`prepare_script_plan` 的中间文件被修改或重拆后（无论哪种生成模式、无论首次还是重做），即使 `scripts/episode_{N}.json` 已存在，也必须重新执行 `generate_script`——剧本 JSON 不会自动跟随中间文件更新，跳过会留下"新中间文件 + 旧 JSON"的陈旧组合。`generate_script` 默认只重写内容变化与新增的条目（工作流状态在 `artifacts.script.stale_entry_ids` 列出它们），未变条目的提示词、备注、尾帧与已生成产物原样保留；只重做指定几条传 `entry_ids`。
+**内容确认后的内容修改在正式脚本上做**：内容确认把脚本规划整集转为正式脚本 `scripts/episode_{N}.json`，此后正式脚本是该集内容的唯一真相源，脚本规划只读（Web 端保存，以及 Agent 取回、修改、晋升编辑副本，都返回 `script_plan_confirmed`）。
+
+- **修改内容**：用户要改分镜台词 `utterances` 与对应原文 `source_text`，或参考生视频单元正文 `text` 与对应原文 `source_text` 时，先 `mcp__arcreel__get_episode_script` 取正文与 revision，再用一次 `mcp__arcreel__patch_episode_script` 的 `update` 写回，不改脚本规划、不重跑编写。写入的非空对应原文须是本集源文 `source/episode_{N}.txt` 的逐字子串（空白归一后比对，可截取首尾、中间不得删改；本集源文缺失时比对项目源文），项目有源文时服务端校验，不符以 `source_text_not_verbatim` 拒绝；清空对应原文不校验。分镜改了台词后若要让提示词跟上，由用户决定是否用 `generate_episode_script` 带 `entry_ids` 显式重写这几条；参考生视频的编写会改写单元正文，对刚改过正文的单元传 `entry_ids` 会覆盖这次修改，须先向用户说明
+- **整集重做**：只有用户要推倒整集时，才重新 dispatch 脚本规划子智能体（操作类型写「整集重做」）重跑脚本规划。新的脚本规划写出后本集回到待确认，计划的 `next_action` 为 `confirm_script_plan`；确认前不要调 `generate_episode_script`——它只要求正式脚本存在，会去编写即将被覆盖的旧正式脚本。升级前生成过剧本、从未确认过的存量集重跑后计划可能不回到待确认，同样按下述流程直接调 `confirm_script_review`。该集已有正式脚本时确认就是覆盖：`confirm_script_review` 返回 `script_overwrite_required`，`params.script_overwrite` 列出将被移除的条目与产物。须先向用户说明——旧条目全部移除、其分镜图与视频不再显示、手改的提示词一并丢弃——取得明确同意后，才以 `overwrite_revision=params.script_overwrite.revision` 重新确认；覆盖后全部条目待编写
+- **提示词编写**：`generate_episode_script` 默认只补待编写条目，已有视觉层的条目（包括用户手写的）原样保留；只在用户明确要求重写某几条时传 `entry_ids`
 
 ---
 
@@ -148,7 +152,7 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 - `next_action.type == "confirm_script_plan"` → 先完成下述内容确认，刷新计划后再路由
 - `next_action.type == "generate_script"` → dispatch 剧本生成
 
-**script_plan→prompt_authoring 内容确认（阻塞）**：`prepare_script_plan` 的结构化 script_plan 中间态须经**显式确认**才放行剧本生成（三种结构化 script_plan 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `script_plan_reference_units.json` 同样须确认，不要跳过。ad 无 script_plan，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 script_plan 又被改）时 `generate_episode_script` 会被内容确认阻塞；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
+**script_plan→prompt_authoring 内容确认（阻塞）**：`prepare_script_plan` 产出的脚本规划须经**显式确认**才放行提示词编写（三种结构化 script_plan 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `script_plan_reference_units.json` 同样须确认，不要跳过。ad 无 script_plan，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认时计划停在 `confirm_script_plan`、不会路由到提示词编写；尚无正式脚本时 `generate_episode_script` 直接报「尚无正式脚本」。确认即把脚本规划整集转为正式脚本、全部条目待编写；该集已有正式脚本时确认会覆盖它，须按上方「整集重做」先取得用户同意。
 
 **dispatch `create-episode-script` 子智能体**：传入项目名称、项目路径、集数；可选附加指令（用户对本次生成的要求等任何需带给子智能体的临时上下文，原文透传）。
 

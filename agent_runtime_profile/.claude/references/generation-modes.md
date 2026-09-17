@@ -12,9 +12,9 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 | `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `script_plan_normalized_script.json` | DramaNormalizedScript（script_plan）→ DramaVisualScript（prompt_authoring）→ DramaEpisodeScript（合并） | 每个分镜一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
 | `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `script_plan_reference_units.json` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
 
-> drama 走两段式（见 ADR 0041）：script_plan（normalize-drama-script）产出**结构化内容** `script_plan_normalized_script.json`（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述）；prompt_authoring（create-episode-script）LLM 只出视觉层 `DramaVisualScript`（scene_id + image_prompt + video_prompt），后端按 scene_id 合并回 script_plan 内容得 `DramaEpisodeScript`、透传非视觉字段。
+> drama 走两段式（见 ADR 0041）：script_plan（normalize-drama-script）产出**结构化内容** `script_plan_normalized_script.json`（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述）；prompt_authoring（create-episode-script）LLM 只出视觉层 `DramaVisualScript`（scene_id + image_prompt + video_prompt），后端按 scene_id 写回正式脚本 `DramaEpisodeScript`。内容确认时脚本规划整集转为正式脚本，之后内容修改在正式脚本上经 `patch_episode_script` 进行。
 >
-> script_plan 中间文件统一位于 `drafts/episode_{N}/`。状态检测与剧本生成**只认当前项目 generation_mode 对应的那一个文件**：目录中出现其他模式的 `script_plan_*` 文件属历史残留，既不作为脚本规划已完成的依据，也不能当作剧本生成的代替输入。drama 旧项目残留的 `script_plan_normalized_script.md`（结构化前自由文本稿）不算有效 script_plan，须重跑 normalize 产出 `.json`。
+> script_plan 中间文件统一位于 `drafts/episode_{N}/`。状态检测与内容确认**只认当前项目 generation_mode 对应的那一个文件**：目录中出现其他模式的 `script_plan_*` 文件属历史残留，既不作为脚本规划已完成的依据，也不能当作内容确认的代替输入。drama 旧项目残留的 `script_plan_normalized_script.md`（结构化前自由文本稿）不算有效 script_plan，须重跑 normalize 产出 `.json`。
 
 ## 步骤适用性由计划表达
 

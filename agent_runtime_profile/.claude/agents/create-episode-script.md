@@ -1,6 +1,6 @@
 ---
 name: create-episode-script
-description: "单集 JSON 剧本生成子智能体。使用场景：(1) drafts/episode_N/ 中间文件已存在，需要生成最终 JSON 剧本，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和集数，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
+description: "单集 JSON 剧本生成子智能体。使用场景：(1) 内容确认后正式脚本 scripts/episode_N.json 已存在，需要为待编写条目编写提示词，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和集数，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
 skills:
   - generate-script
 ---
@@ -30,16 +30,11 @@ skills:
 - generation_mode 字段（项目顶层唯一决定，创建后不可更改，不存在集级覆盖）
 - characters、scenes、props 已有数据
 
-使用 Glob 工具确认中间文件存在，按项目 `generation_mode` × `content_mode` 检查：
-- generation_mode == reference_video（任一 content_mode）：`drafts/episode_{N}/script_plan_reference_units.json`（缺失时需先运行 `split-reference-video-units`）
-- generation_mode == storyboard 且 content_mode == narration：`drafts/episode_{N}/script_plan_segments.json`（缺失时需先运行 `split-narration-segments`）
-- generation_mode == storyboard 且 content_mode == drama：`drafts/episode_{N}/script_plan_normalized_script.json`（结构化内容；缺失时需先运行 `normalize-drama-script`。旧项目残留的 `script_plan_normalized_script.md` 是结构化前的自由文本稿，不算有效 script_plan，须重跑 normalize 产出 `.json`）
-
-只认当前组合对应的那一个文件；目录中其他模式的 `script_plan_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的脚本规划子智能体。
+使用 Glob 工具确认正式脚本 `scripts/episode_{N}.json` 存在。本步只读正式脚本、不读脚本规划：内容确认把脚本规划整集转为正式脚本，全部条目带待编写标记。正式脚本不存在说明本集尚未完成内容确认，按 Step 2 的「尚无正式脚本」回报主 Agent；脚本规划本身也缺失时，指明需要先运行的脚本规划子智能体（reference_video → `split-reference-video-units`；storyboard + narration → `split-narration-segments`；storyboard + drama → `normalize-drama-script`）。
 
 > 参考生视频同样走两段式：script_plan 已定稿的是内容契约（视频单元边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做提示词编写——视频单元数、视频单元时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
 >
-> drama 走两段式（见 ADR 0041）：script_plan 已定稿内容（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt）并按 scene_id 透传 script_plan 内容、不重新识别口播。
+> drama 走两段式（见 ADR 0041）：script_plan 已定稿内容（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt），输入是正式脚本里已定稿的内容字段、不重新识别口播。
 
 ### Step 2: 调用工具生成 JSON 剧本
 
@@ -51,7 +46,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 若错误为 **草稿待处置**，按错误报告的 `doc_type` 调 `open_draft`，取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告修复。修复后以同一 `episode` / `doc_type`，并将 `open_draft` 返回的 `revision` 作为 `base_revision` 调 `patch_draft`，再把 `patch_draft` 返回的新 `revision` 作为 `base_revision` 调用 `promote_draft`。返回违约报告则继续 open → patch → promote，无轮次上限。不要用 Read/Edit 直接操作草稿文件，也不要重跑生成工具重抽。
 
-若错误为 **内容确认阻塞**（drama / narration / reference_video 的 script_plan 结构化中间态尚未经显式确认，或确认后内容又被改；ad 无 script_plan，不会遇到本错误），这不是数据错误：不要反复重试、不要改写中间文件。确认须由用户驱动——回报主 Agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
+若错误为 **尚无正式脚本**（drama / narration / reference_video 的本集脚本规划尚未经内容确认，确认才生成正式脚本；ad 无脚本规划，不会遇到本错误），这不是数据错误：不要反复重试、不要改写脚本规划。确认须由用户驱动——回报主 Agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
 
 ### Step 3: 验证生成结果
 
