@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, Download, Loader2, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { API, ApiRequestError } from "@/api";
+import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
 import { downloadBlob } from "@/utils/download";
 import { useAppStore } from "@/stores/app-store";
@@ -23,6 +23,7 @@ import type {
 } from "@/types";
 import { definitionFileName, isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
 import { EndpointDiagnostics } from "./EndpointDiagnostics";
+import { EndpointReferenceList, endpointReferences } from "./EndpointReferenceList";
 import { EndpointForm } from "./EndpointForm";
 import { EndpointTestSection } from "./EndpointTestSection";
 import { VariableInsertionProvider } from "./endpoint-form-primitives";
@@ -46,24 +47,6 @@ interface EndpointDetailProps {
   onCopied: (record: CustomEndpointInfo) => void;
   onCreateProvider: (definition: EndpointDefinition, endpointKey: string) => void;
   onNavigateToModel: (reference: EndpointReference) => void;
-}
-
-function endpointReferences(error: unknown): EndpointReference[] | null {
-  if (!(error instanceof ApiRequestError) || error.status !== 409) return null;
-  const references =
-    typeof error.diagnostic === "object" && error.diagnostic !== null
-      ? (error.diagnostic as { references?: unknown }).references
-      : undefined;
-  if (!Array.isArray(references)) return null;
-  return references.filter(
-    (reference): reference is EndpointReference =>
-      typeof reference === "object" &&
-      reference !== null &&
-      typeof (reference as EndpointReference).provider_id === "number" &&
-      typeof (reference as EndpointReference).provider_display_name === "string" &&
-      typeof (reference as EndpointReference).model_id === "string" &&
-      typeof (reference as EndpointReference).model_display_name === "string",
-  );
 }
 
 function KindBadge({ selection }: { selection: EndpointSelection }) {
@@ -448,22 +431,7 @@ export function EndpointDetail({
         title={t("ce_delete_title")}
         description={
           deleteReferences ? (
-            <div>
-              <p>{t("ce_delete_blocked")}</p>
-              <ul className="mt-2 space-y-1">
-                {deleteReferences.map((reference) => (
-                  <li key={`${reference.provider_id}:${reference.model_id}`}>
-                    <button
-                      type="button"
-                      onClick={() => onNavigateToModel(reference)}
-                      className="text-left text-accent-2 underline decoration-accent/40 underline-offset-2 hover:text-accent"
-                    >
-                      {reference.provider_display_name} · {reference.model_display_name} — {t("ce_go_to_model")}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <EndpointReferenceList references={deleteReferences} onNavigateToModel={onNavigateToModel} />
           ) : (
             t("ce_delete_desc", { name: title })
           )

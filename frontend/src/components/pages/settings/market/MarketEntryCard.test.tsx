@@ -21,6 +21,7 @@ function makeEntry(overrides: Partial<MarketEntry> = {}): MarketEntry {
     icon: null,
     min_app_version: null,
     min_app_version_satisfied: true,
+    installation: null,
     ...overrides,
   };
 }

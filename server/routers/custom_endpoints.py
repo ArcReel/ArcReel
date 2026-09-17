@@ -3,7 +3,7 @@
 定义本体的 CRUD 与保存前确认。零封套：请求体与导出内容都是定义 JSON 原样，导入即
 ``POST``，导出即 ``GET`` 后由客户端存盘——没有独立的 import / export 接口，也没有外层信封。
 
-``POST /validate`` 是单段、服务端无状态的确认：与保存共用同一个校验器，额外回重复血统、提示
+``POST /validate`` 是单段、服务端无状态的确认：与保存共用同一个校验器，额外回同作者同名的既有端点、提示
 回显与版本档位，让客户端在创建之前就能决定新建副本、覆盖既有还是取消。
 """
 
@@ -36,6 +36,11 @@ from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository, EndpointReference
 from lib.i18n import Translator
 from server.routers import endpoint_tests
+from server.routers._market_installations import (
+    EndpointInstallationResponse,
+    endpoint_installation,
+    endpoint_installations,
+)
 from server.routers.system_config import get_app_version_reader
 
 logger = logging.getLogger(__name__)
@@ -68,6 +73,7 @@ class CustomEndpointResponse(BaseModel):
     definition: dict[str, Any]
     created_at: str | None = None
     updated_at: str | None = None
+    installation: EndpointInstallationResponse | None = None
 
 
 class CustomEndpointListResponse(BaseModel):
@@ -75,7 +81,7 @@ class CustomEndpointListResponse(BaseModel):
 
 
 class DuplicateDescriptor(BaseModel):
-    """与待导入定义同血统（``meta.author`` + ``meta.name``）的既有端点。"""
+    """与待导入定义同作者同名（``meta.author`` + ``meta.name``）的既有端点。"""
 
     id: int
     key: str
@@ -126,8 +132,11 @@ class EndpointReferenceDescriptor(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _to_response(row: CustomEndpoint) -> CustomEndpointResponse:
+def endpoint_response(
+    row: CustomEndpoint, installation: EndpointInstallationResponse | None = None
+) -> CustomEndpointResponse:
     return CustomEndpointResponse(
+        installation=installation,
         id=row.id,
         key=make_endpoint_key(row.id),
         display_name=row.display_name,
@@ -174,9 +183,9 @@ def _lineage(definition: object) -> tuple[str | None, str | None, str | None]:
 async def _duplicates_of(
     repo: CustomEndpointRepository, definition: object, exclude_id: int | None
 ) -> list[DuplicateDescriptor]:
-    """按 ``meta.author + meta.name`` 找同血统的既有端点。
+    """按 ``meta.author + meta.name`` 找同作者同名的既有端点。
 
-    血统只认这两项：键由系统分配、分享文件不带键，显示名也没有唯一约束，作者加名字是文件里
+    匹配只认这两项：键由系统分配、分享文件不带键，显示名也没有唯一约束，作者加名字是文件里
     仅有的、能跨实例指认「同一份定义」的信息。版本只用来说明新旧，不参与配对。
     """
     author, name, version = _lineage(definition)
@@ -272,14 +281,15 @@ async def create_endpoint(
     await session.commit()
     await _invalidate_backend_cache()
     await session.refresh(row)
-    return _to_response(row)
+    return endpoint_response(row, await endpoint_installation(session, row.id))
 
 
 @router.get("")
 async def list_endpoints(session: AsyncSession = Depends(get_async_session)) -> CustomEndpointListResponse:
     """列出全部自定义调用端点（含定义本体）。"""
     rows = await CustomEndpointRepository(session).list_all()
-    return CustomEndpointListResponse(endpoints=[_to_response(row) for row in rows])
+    installations = await endpoint_installations(session)
+    return CustomEndpointListResponse(endpoints=[endpoint_response(row, installations.get(row.id)) for row in rows])
 
 
 @router.post("/validate")
@@ -290,7 +300,7 @@ async def validate_endpoint_definition(
     exclude_id: int | None = None,
     session: AsyncSession = Depends(get_async_session),
 ) -> ValidateResponse:
-    """保存前的单段确认：校验诊断 + 重复血统 + 提示回显 + 版本档位 + 应用版本门槛。服务端不留任何状态。
+    """保存前的单段确认：校验诊断 + 同作者同名的既有端点 + 提示回显 + 版本档位 + 应用版本门槛。服务端不留任何状态。
 
     ``exclude_id`` 供编辑既有端点时排除自身，否则它总会把自己报成重复。
     """
@@ -320,7 +330,7 @@ async def get_endpoint(
     row = await CustomEndpointRepository(session).get(endpoint_id)
     if row is None:
         raise NotFoundError("custom_endpoint_not_found")
-    return _to_response(row)
+    return endpoint_response(row, await endpoint_installation(session, row.id))
 
 
 @router.put("/{endpoint_id}")
@@ -347,7 +357,7 @@ async def update_endpoint(
     await session.commit()
     await _invalidate_backend_cache()
     await session.refresh(row)
-    return _to_response(row)
+    return endpoint_response(row, await endpoint_installation(session, row.id))
 
 
 @router.delete("/{endpoint_id}", status_code=204)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw, Search, Settings2 } from "lucide-react";
+import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -14,6 +15,7 @@ import {
 import { PillSwitch } from "@/components/ui/PillSwitch";
 import type { MarketEntry, MarketSourceInfo } from "@/types";
 import { MarketEntryCard } from "./MarketEntryCard";
+import { MarketInstallDialog } from "./MarketInstallDialog";
 import { MARKET_CONTRIBUTING_URL } from "./market-links";
 import { KICKER_ACCENT_CLS, KICKER_CLS, SourceStatusDot } from "./market-source-status";
 import { MarketSourcesDialog } from "./MarketSourcesDialog";
@@ -86,6 +88,10 @@ export function MarketSection() {
   const [manageOpen, setManageOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hiddenSourceIds, setHiddenSourceIds] = useState<ReadonlySet<number>>(new Set());
+  const [onlyInstalled, setOnlyInstalled] = useState(false);
+  const [installationRevision, setInstallationRevision] = useState(0);
+  const [selected, setSelected] = useState<MarketEntry | null>(null);
+  const [location, navigate] = useLocation();
   const onlyInstalledId = useId();
   const mounted = useRef(true);
 
@@ -133,7 +139,7 @@ export function MarketSection() {
         }
       });
     return () => controller.abort();
-  }, [sourcesLoaded, sourcesKey, pushToast, t]);
+  }, [sourcesLoaded, sourcesKey, installationRevision, pushToast, t]);
 
   const refreshAll = useCallback(async () => {
     const targets = sources.filter((source) => source.is_enabled).map((source) => source.id);
@@ -193,7 +199,8 @@ export function MarketSection() {
     (entry) =>
       sourcesById.get(entry.source_id)?.is_enabled === true &&
       !hiddenSourceIds.has(entry.source_id) &&
-      matchesQuery(entry, trimmedQuery),
+      matchesQuery(entry, trimmedQuery) &&
+      (!onlyInstalled || !!entry.installation),
   );
 
   return (
@@ -326,7 +333,11 @@ export function MarketSection() {
           </div>
           <div className="ml-auto flex items-center gap-2 text-[12px] text-text-3">
             <span id={onlyInstalledId}>{t("market_only_installed")}</span>
-            <PillSwitch checked={false} onToggle={() => {}} labelledBy={onlyInstalledId} disabled />
+            <PillSwitch
+              checked={onlyInstalled}
+              onToggle={() => setOnlyInstalled((value) => !value)}
+              labelledBy={onlyInstalledId}
+            />
           </div>
         </div>
 
@@ -346,6 +357,12 @@ export function MarketSection() {
                     sourceName={source?.display_name ?? entry.source_display_name}
                     sourceKind={source?.kind ?? null}
                     appVersion={appVersion}
+                    onOpen={() => setSelected(entry)}
+                    onInstalledOpen={() => {
+                      if (!entry.installation) return;
+                      const params = new URLSearchParams({ section: "endpoints", endpoint: entry.installation.endpoint_key });
+                      navigate(`${location}?${params}`);
+                    }}
                   />
                 );
               })}
@@ -367,6 +384,22 @@ export function MarketSection() {
         </div>
       </div>
 
+      {selected && (
+        <MarketInstallDialog
+          key={`${selected.source_id}/${selected.slug}`}
+          entry={selected}
+          onClose={() => setSelected(null)}
+          onInstallationChange={(installation) => {
+            setInstallationRevision((revision) => revision + 1);
+            setEntries(
+              (current) =>
+                current?.map((item) =>
+                  item.source_id === selected.source_id && item.slug === selected.slug ? { ...item, installation } : item,
+                ) ?? null,
+            );
+          }}
+        />
+      )}
       <MarketSourcesDialog
         open={manageOpen}
         onClose={() => setManageOpen(false)}

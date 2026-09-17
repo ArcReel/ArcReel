@@ -491,4 +491,9 @@ MESSAGES = {
     "memory_invalid_filename": "Tên tệp ký ức '{filename}' không hợp lệ: chỉ cho phép tệp .md ở thư mục gốc",
     "memory_file_not_found": "Tệp ký ức '{filename}' không tồn tại",
     "memory_file_too_large": "Tệp ký ức '{filename}' vượt quá giới hạn kích thước (tối đa {limit_kib} KiB)",
+    "market_entry_definition_mismatch": "Chỉ mục và định nghĩa không khớp; không thể cài đặt",
+    "market_entry_requires_newer_app": "Mục này yêu cầu phiên bản ứng dụng ≥ {version}",
+    "market_entry_already_installed": "Mục này đã được cài đặt; chọn điểm cuối của nó để cập nhật",
+    "market_endpoint_already_installed": "Điểm cuối này có bản ghi cài đặt khác và không thể ghi đè",
+    "market_overwrite_target_not_duplicate": "Chỉ có thể ghi đè điểm cuối có cùng tác giả và tên với mục này",
 }

@@ -10,20 +10,22 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.api_errors import BadGatewayError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
-from lib.custom_provider.endpoint_definition import meets_min_app_version
+from lib.custom_provider.endpoint_definition import meets_min_app_version, validate_definition
 from lib.db import get_async_session
 from lib.db.models.market_source import MarketSource
 from lib.db.repositories.market_source_repo import OFFICIAL_KIND, MarketSourceRepository
 from lib.i18n import Translator
-from lib.market import ENDPOINT_ENTRY_TYPE
+from lib.market import ENDPOINT_ENTRY_TYPE, check_entry_definition
 from lib.market.address import SourceAddressError
 from lib.market.entries import (
     MarketAssetFetchError,
@@ -39,8 +41,17 @@ from lib.market.entries import (
 )
 from lib.market.fetch import MarketFetchError
 from lib.market.index import MarketIndexEntry
+from lib.market.installations import write_installation
+from lib.market.issues import MarketIssue, MarketIssueCode
 from lib.market.sources import DuplicateSourceError, MarketSourceService, get_market_source_service
+from server.routers._market_installations import (
+    EntryInstallationResponse,
+    endpoint_installation,
+    entry_installation,
+    entry_installations,
+)
 from server.routers._reorder import full_permutation_error
+from server.routers.custom_endpoints import CustomEndpointResponse, endpoint_response
 from server.routers.system_config import get_app_version_reader
 
 logger = logging.getLogger(__name__)
@@ -121,6 +132,7 @@ class MarketEntryResponse(BaseModel):
     min_app_version: str | None
     #: 当前应用版本满足 ``min_app_version``；无要求或读不到应用版本时为 true。
     min_app_version_satisfied: bool
+    installation: EntryInstallationResponse | None = None
 
 
 class MarketEntryListResponse(BaseModel):
@@ -149,6 +161,7 @@ class MarketEntryDetailResponse(BaseModel):
 class MarketEntryDefinitionResponse(BaseModel):
     #: 市场源里的定义文件按 JSON 解析后的原文，未经定义校验。
     definition: Any
+    entry_matches_definition: bool
 
 
 class AddMarketSourceRequest(BaseModel):
@@ -201,7 +214,9 @@ def _index_summary(source: MarketSource) -> MarketIndexSummary | None:
     )
 
 
-def _entry_response(sourced: SourcedEntry, app_version: str | None) -> MarketEntryResponse:
+def _entry_response(
+    sourced: SourcedEntry, app_version: str | None, installation: EntryInstallationResponse | None = None
+) -> MarketEntryResponse:
     entry: MarketIndexEntry = sourced.entry
     satisfied = (
         entry.min_app_version is None
@@ -209,6 +224,7 @@ def _entry_response(sourced: SourcedEntry, app_version: str | None) -> MarketEnt
         or meets_min_app_version(entry.min_app_version, app_version)
     )
     return MarketEntryResponse(
+        installation=installation,
         source_id=sourced.source.id,
         source_display_name=sourced.source.display_name,
         type=entry.type,
@@ -357,8 +373,12 @@ async def list_entries(
     """所有启用源缓存快照里的条目：按源顺序、源内按名称排列，不分页、不发请求。"""
     sources = await MarketSourceRepository(session).list_ordered()
     app_version = _app_version(read_app_version)
+    installations = await entry_installations(session)
     return MarketEntryListResponse(
-        entries=[_entry_response(item, app_version) for item in merge_entries(sources, entry_type=entry_type)],
+        entries=[
+            _entry_response(item, app_version, installations.get((item.source.canonical_key, item.entry.slug)))
+            for item in merge_entries(sources, entry_type=entry_type)
+        ],
         app_version=app_version,
     )
 
@@ -377,7 +397,11 @@ async def get_entry(
         raise NotFoundError("market_entry_not_found")
     app_version = _app_version(read_app_version)
     return MarketEntryDetailResponse(
-        entry=_entry_response(SourcedEntry(source=source, entry=entry), app_version),
+        entry=_entry_response(
+            SourcedEntry(source=source, entry=entry),
+            app_version,
+            await entry_installation(session, source.canonical_key, slug),
+        ),
         source=MarketEntrySourceSummary(
             id=source.id,
             kind=source.kind,
@@ -392,13 +416,44 @@ async def get_entry(
     )
 
 
-@router.get("/sources/{source_id}/entries/{slug}/definition", response_model=MarketEntryDefinitionResponse)
-async def get_entry_definition(source_id: int, slug: str, service: EntryService) -> MarketEntryDefinitionResponse:
+@dataclass(frozen=True)
+class _CheckedDefinition:
+    source: MarketSource
+    entry: MarketIndexEntry
+    definition: Any
+    issues: list[MarketIssue]
+
+    @property
+    def matches_entry(self) -> bool:
+        return not any(issue.code == MarketIssueCode.PROJECTION_MISMATCH for issue in self.issues)
+
+
+async def _checked_definition(
+    service: MarketEntryService, session: AsyncSession, source_id: int, slug: str
+) -> _CheckedDefinition:
+    """抓定义后再读当前快照做规则 ④⑤，网络等待期间的刷新不会绕过一致性校验。"""
     try:
         definition = await service.fetch_definition(source_id, slug)
     except (MarketEntryNotFoundError, MarketSourceDisabledError, MarketAssetFetchError, MarketAssetInvalidError) as exc:
         raise _entry_api_error(exc) from exc
-    return MarketEntryDefinitionResponse(definition=definition)
+    source = await _require_source(MarketSourceRepository(session), source_id)
+    entry = find_entry(source, slug)
+    if entry is None:
+        raise NotFoundError("market_entry_not_found")
+    return _CheckedDefinition(
+        source=source,
+        entry=entry,
+        definition=definition,
+        issues=check_entry_definition(entry, definition, definition_file=entry.path),
+    )
+
+
+@router.get("/sources/{source_id}/entries/{slug}/definition", response_model=MarketEntryDefinitionResponse)
+async def get_entry_definition(
+    source_id: int, slug: str, service: EntryService, session: AsyncSession = Depends(get_async_session)
+) -> MarketEntryDefinitionResponse:
+    checked = await _checked_definition(service, session, source_id, slug)
+    return MarketEntryDefinitionResponse(definition=checked.definition, entry_matches_definition=checked.matches_entry)
 
 
 @router.get("/sources/{source_id}/entries/{slug}/icon", response_class=Response)
@@ -415,4 +470,62 @@ async def get_entry_icon(source_id: int, slug: str, service: EntryService) -> Re
             "Content-Security-Policy": ICON_CONTENT_SECURITY_POLICY,
             "X-Content-Type-Options": "nosniff",
         },
+    )
+
+
+class InstallMarketEntryRequest(BaseModel):
+    overwrite_endpoint_id: int | None = Field(default=None, gt=0)
+
+
+class InstallMarketEntryResponse(BaseModel):
+    endpoint: CustomEndpointResponse
+    installation: EntryInstallationResponse
+
+
+@router.post("/sources/{source_id}/entries/{slug}/install", response_model=InstallMarketEntryResponse)
+async def install_entry(
+    source_id: int,
+    slug: str,
+    body: InstallMarketEntryRequest,
+    service: EntryService,
+    read_app_version: AppVersionReader,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> InstallMarketEntryResponse:
+    checked = await _checked_definition(service, session, source_id, slug)
+    source, entry, definition = checked.source, checked.entry, checked.definition
+    if not source.is_enabled:
+        raise ConflictError("market_source_disabled")
+    if not checked.matches_entry:
+        raise UnprocessableError("market_entry_definition_mismatch")
+    if entry.min_app_version is not None and not meets_min_app_version(
+        entry.min_app_version, _app_version(read_app_version) or ""
+    ):
+        raise UnprocessableError("market_entry_requires_newer_app", version=entry.min_app_version)
+    if checked.issues or not isinstance(definition, dict):
+        raise UnprocessableError("custom_endpoint_definition_invalid").with_diagnostic(
+            validate_definition(definition).to_payload(_t)
+        )
+    try:
+        endpoint = await write_installation(
+            session,
+            source_key=source.canonical_key,
+            slug=slug,
+            definition=definition,
+            overwrite_endpoint_id=body.overwrite_endpoint_id,
+        )
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise ConflictError("market_entry_already_installed") from exc
+    from server.services.generation_context import invalidate_backend_cache
+
+    invalidate_backend_cache()
+    await session.refresh(endpoint)
+    installation = await entry_installation(session, source.canonical_key, slug)
+    if installation is None:
+        raise NotFoundError("custom_endpoint_not_found")
+    return InstallMarketEntryResponse(
+        endpoint=endpoint_response(endpoint, await endpoint_installation(session, endpoint.id)),
+        installation=installation,
     )

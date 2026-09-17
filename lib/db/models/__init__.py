@@ -8,6 +8,7 @@ from lib.db.models.config import ProviderConfig, SystemSetting
 from lib.db.models.credential import ProviderCredential
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+from lib.db.models.market_installation import MarketInstallation
 from lib.db.models.market_source import MarketSource
 from lib.db.models.session import AgentSession
 from lib.db.models.session_event import AgentSessionEventLogEntry
@@ -29,6 +30,7 @@ __all__ = [
     "CustomProvider",
     "CustomProviderModel",
     "GenerationBatch",
+    "MarketInstallation",
     "MarketSource",
     "ProviderConfig",
     "ProviderCredential",

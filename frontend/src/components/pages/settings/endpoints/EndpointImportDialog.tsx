@@ -5,8 +5,9 @@ import { GlassModal } from "@/components/ui/GlassModal";
 import { ACCENT_BTN_SM_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import type { EndpointDefinition, EndpointValidateResponse } from "@/types";
 import { formatNameList } from "@/utils/list-format";
+import { EndpointDuplicateChoices } from "./EndpointDuplicateChoices";
 
-/** 导入确认：先看校验结果与重复血统，再决定新建副本、覆盖既有，还是取消。 */
+/** 导入确认：先看校验结果与同作者同名定义，再决定新建副本、覆盖既有，还是取消。 */
 export function EndpointImportDialog({
   open,
   fileName,
@@ -112,34 +113,12 @@ export function EndpointImportDialog({
           </p>
         )}
 
-        {validation && validation.duplicates.length > 0 && (
-          <div className="mt-4">
-            <p className="text-[12.5px] text-text-2">{t("ce_import_duplicates")}</p>
-            <div className="mt-2 space-y-2">
-              {validation.duplicates.map((dup) => (
-                <div
-                  key={dup.id}
-                  className="flex items-center gap-3 rounded-[8px] border border-hairline bg-bg-grad-a/40 px-3 py-2"
-                >
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-text-2">
-                    {dup.display_name}
-                    <span className="ml-2 text-text-3">v{dup.version}</span>
-                  </span>
-                  <span className="shrink-0 text-[11.5px] text-text-3">
-                    {t(`ce_import_relation_${dup.relation}`)}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={busy || hasErrors}
-                    onClick={() => onOverwrite(dup.id)}
-                    className={GHOST_BTN_CLS}
-                  >
-                    {t("ce_import_overwrite")}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+        {validation && (
+          <EndpointDuplicateChoices
+            duplicates={validation.duplicates}
+            disabled={busy || hasErrors}
+            onOverwrite={onOverwrite}
+          />
         )}
 
         <div className="mt-5 flex justify-end gap-2">

@@ -51,6 +51,8 @@ import type {
   EndpointDescriptor,
   CustomEndpointInfo,
   MarketEntryListResponse,
+  MarketEntryDetail,
+  MarketEntryInstallation,
   MarketSourceInfo,
   MarketSourceListResponse,
   EndpointDefinition,
@@ -3140,6 +3142,20 @@ class API {
   ): Promise<MarketEntryListResponse> {
     const query = new URLSearchParams({ type: options.type ?? "endpoint" });
     return this.request(`/market/entries?${query}`, { signal: options.signal });
+  }
+
+  static async getMarketEntry(sourceId: number, slug: string, options: { signal?: AbortSignal } = {}): Promise<MarketEntryDetail> {
+    return this.request(`/market/sources/${sourceId}/entries/${encodeURIComponent(slug)}`, options);
+  }
+
+  static async getMarketEntryDefinition(sourceId: number, slug: string, options: { signal?: AbortSignal } = {}): Promise<{ definition: unknown; entry_matches_definition: boolean }> {
+    return this.request(`/market/sources/${sourceId}/entries/${encodeURIComponent(slug)}/definition`, options);
+  }
+
+  static async installMarketEntry(sourceId: number, slug: string, overwriteEndpointId?: number): Promise<{ endpoint: CustomEndpointInfo; installation: MarketEntryInstallation }> {
+    return this.request(`/market/sources/${sourceId}/entries/${encodeURIComponent(slug)}/install`, {
+      method: "POST", body: JSON.stringify({ overwrite_endpoint_id: overwriteEndpointId }),
+    });
   }
 
   /**

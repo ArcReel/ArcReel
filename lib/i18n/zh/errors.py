@@ -435,4 +435,9 @@ MESSAGES = {
     "memory_invalid_filename": "记忆文件名 '{filename}' 非法：只允许目录顶层的 .md 文件",
     "memory_file_not_found": "记忆文件 '{filename}' 不存在",
     "memory_file_too_large": "记忆文件 '{filename}' 超出大小限制（最大 {limit_kib} KiB）",
+    "market_entry_definition_mismatch": "索引与定义不一致，无法安装",
+    "market_entry_requires_newer_app": "此条目需要应用版本 ≥ {version}",
+    "market_entry_already_installed": "此条目已安装，请选择已安装的端点进行更新",
+    "market_endpoint_already_installed": "该端点已有其他安装记录，无法覆盖",
+    "market_overwrite_target_not_duplicate": "只能覆盖与该条目同作者、同名的端点",
 }

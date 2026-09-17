@@ -38,6 +38,7 @@ function makeDefinition(overrides?: Partial<EndpointDefinition>): EndpointDefini
 }
 
 const MINE: CustomEndpointInfo = {
+  installation: null,
   id: 7,
   key: "ce-7",
   display_name: "Example Video API",

@@ -209,7 +209,7 @@ def test_definition_is_returned_verbatim(entries_client: TestClient, catalog: No
         response = entries_client.get("/api/v1/market/sources/2/entries/alpha/definition")
 
     assert response.status_code == 200
-    assert response.json() == {"definition": definition}
+    assert response.json()["definition"] == definition
 
 
 @pytest.mark.parametrize(

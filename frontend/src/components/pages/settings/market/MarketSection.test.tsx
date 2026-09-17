@@ -74,6 +74,7 @@ function makeEntry(overrides: Partial<MarketEntry> = {}): MarketEntry {
     icon: null,
     min_app_version: null,
     min_app_version_satisfied: true,
+    installation: null,
     ...overrides,
   };
 }
@@ -198,7 +199,7 @@ describe("MarketSection", () => {
     expect(cardNames()).toHaveLength(3);
   });
 
-  it("shows endpoint as the only available entry type and keeps the installed-only switch inert", async () => {
+  it("shows endpoint as the only available entry type and enables the installed-only switch", async () => {
     render(<MarketSection />);
     const types = within(await screen.findByRole("group", { name: "条目类型" })).getAllByRole("button");
 
@@ -206,7 +207,23 @@ describe("MarketSection", () => {
     expect(types[0]).toHaveAttribute("aria-pressed", "true");
     expect(types[1]).toBeDisabled();
     expect(types[2]).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "仅已安装" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "仅已安装" })).toBeEnabled();
+  });
+
+  it("filters by installation records and opens the install dialog from the card", async () => {
+    const installed = { endpoint_id: 7, endpoint_key: "ce-7", endpoint_display_name: "Alpha", installed_version: "1.2.0", state: "current" as const, modified: false };
+    vi.mocked(API.listMarketEntries).mockResolvedValue({ entries: [makeEntry({ installation: installed }), ENTRIES[1]], app_version: "0.30.0" });
+    vi.spyOn(API, "getMarketEntry").mockRejectedValue(new Error("Preview unavailable"));
+    vi.spyOn(API, "getMarketEntryDefinition").mockResolvedValue({ definition: {}, entry_matches_definition: false });
+    vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({ endpoints: [] });
+    render(<MarketSection />);
+    await screen.findAllByRole("article");
+    await userEvent.click(screen.getByRole("switch", { name: "仅已安装" }));
+    expect(cardNames()).toEqual(["Alpha Video"]);
+    expect(screen.getByRole("button", { name: "已安装" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Alpha Video" }));
+    expect(await screen.findByRole("dialog", { name: "Alpha Video" })).toBeInTheDocument();
+    expect(await screen.findByText("Preview unavailable")).toBeInTheDocument();
   });
 
   it("warns about each failing enabled source with its status, error and snapshot age", async () => {

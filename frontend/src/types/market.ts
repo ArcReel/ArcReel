@@ -57,10 +57,37 @@ export interface MarketEntry {
   min_app_version: string | null;
   /** 无版本要求或读不到应用版本时为 true。 */
   min_app_version_satisfied: boolean;
+  installation: MarketEntryInstallation | null;
 }
 
 export interface MarketEntryListResponse {
   entries: MarketEntry[];
   /** 当前应用版本；读不到时为 null。 */
+  app_version: string | null;
+}
+
+export interface MarketEntryInstallation {
+  endpoint_id: number;
+  endpoint_key: string;
+  endpoint_display_name: string;
+  installed_version: string;
+  state: "current";
+  modified: boolean;
+}
+
+export interface EndpointInstallation {
+  source_key: string;
+  source_id: number | null;
+  source_display_name: string | null;
+  slug: string;
+  installed_version: string;
+  installed_at: string;
+  state: "current";
+  modified: boolean;
+}
+
+export interface MarketEntryDetail {
+  entry: MarketEntry;
+  source: Pick<MarketSourceInfo, "id" | "kind" | "display_name" | "canonical_key" | "is_enabled" | "status" | "fetched_at" | "index">;
   app_version: string | null;
 }

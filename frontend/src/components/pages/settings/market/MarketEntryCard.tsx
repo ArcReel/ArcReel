@@ -34,7 +34,7 @@ function useEntryIconUrl(entry: MarketEntry): string | null {
   return url;
 }
 
-function EntryIcon({ entry }: { entry: MarketEntry }) {
+export function EntryIcon({ entry }: { entry: MarketEntry }) {
   const url = useEntryIconUrl(entry);
   if (url !== null) {
     return (
@@ -65,7 +65,7 @@ function EntryIcon({ entry }: { entry: MarketEntry }) {
 }
 
 /** 标识条目来源的源片；官方源带强调色圆点。 */
-function SourceChip({ name, kind }: { name: string; kind: MarketSourceKind | null }) {
+export function SourceChip({ name, kind }: { name: string; kind: MarketSourceKind | null }) {
   return (
     <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-hairline-soft bg-bg-grad-a/50 px-2 py-[1px] font-mono text-[10px] text-text-3">
       {kind === "official" && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-2" aria-hidden />}
@@ -83,12 +83,16 @@ export function MarketEntryCard({
   sourceName,
   sourceKind,
   appVersion,
+  onOpen,
+  onInstalledOpen,
 }: {
   entry: MarketEntry;
   /** 源的当前显示名；源列表里找不到时退回条目自带的显示名。 */
   sourceName: string;
   sourceKind: MarketSourceKind | null;
   appVersion: string | null;
+  onOpen?: () => void;
+  onInstalledOpen?: () => void;
 }) {
   const { t } = useTranslation("dashboard");
   const unmet = !entry.min_app_version_satisfied && entry.min_app_version !== null;
@@ -101,6 +105,13 @@ export function MarketEntryCard({
       }`}
       style={CARD_STYLE}
     >
+      <button
+        type="button"
+        aria-label={entry.name}
+        disabled={unmet}
+        onClick={onOpen}
+        className="absolute inset-0 z-10 rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      />
       <div
         className="relative flex aspect-[2/1] items-center justify-center border-b border-hairline-soft"
         style={{ background: "oklch(0.14 0.010 265 / 0.6)" }}
@@ -119,6 +130,14 @@ export function MarketEntryCard({
         <div className="mt-2">
           <SourceChip name={sourceName} kind={sourceKind} />
         </div>
+        <button
+          type="button"
+          disabled={unmet}
+          onClick={entry.installation ? onInstalledOpen : onOpen}
+          className="relative z-20 mt-3 self-end rounded-[6px] border border-hairline px-3 py-1 text-[12px] text-text hover:bg-accent-dim disabled:opacity-50"
+        >
+          {t(entry.installation ? "market_installed" : "market_install")}
+        </button>
         {unmet && (
           <div className="mt-3 flex items-center">
             <span

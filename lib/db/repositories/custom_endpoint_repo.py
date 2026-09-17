@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+from lib.db.models.market_installation import MarketInstallation
 from lib.db.repositories.base import BaseRepository
 
 
@@ -81,6 +82,14 @@ class CustomEndpointRepository(BaseRepository):
         return endpoint
 
     async def delete(self, endpoint_id: int) -> None:
+        """连同安装记录一起删除。
+
+        显式删除安装记录而非依赖 FK CASCADE：级联只在开启 foreign_keys pragma 的连接上生效，
+        残留记录会让同一市场条目再也装不上。
+        """
+        await self.session.execute(
+            delete(MarketInstallation).where(MarketInstallation.custom_endpoint_id == endpoint_id)
+        )
         await self.session.execute(delete(CustomEndpoint).where(CustomEndpoint.id == endpoint_id))
         await self.session.flush()
 

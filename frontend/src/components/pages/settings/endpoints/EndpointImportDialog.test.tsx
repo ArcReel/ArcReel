@@ -1,3 +1,5 @@
+import userEvent from "@testing-library/user-event";
+import { newEndpointDefinition } from "./endpoint-definition-draft";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { EndpointValidateResponse } from "@/types";
@@ -31,6 +33,19 @@ function renderDialog(result: EndpointValidateResponse) {
 }
 
 describe("EndpointImportDialog", () => {
+  it("preserves immediate overwrite, copy and cancel actions after sharing the choices", async () => {
+    const onOverwrite = vi.fn();
+    const onCreateCopy = vi.fn();
+    const onCancel = vi.fn();
+    render(<EndpointImportDialog open fileName="demo.json" definition={newEndpointDefinition("Demo")} validation={validation({ duplicates: [{ id: 7, key: "ce-7", display_name: "Demo", version: "1.0.0", relation: "same" }] })} busy={false} onOverwrite={onOverwrite} onCreateCopy={onCreateCopy} onCancel={onCancel} />);
+    await userEvent.click(screen.getByRole("button", { name: "覆盖" }));
+    expect(onOverwrite).toHaveBeenCalledWith(7);
+    await userEvent.click(screen.getByRole("button", { name: "导入为副本" }));
+    expect(onCreateCopy).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
   it("tells the user which ArcReel version the definition needs when the app is older", () => {
     renderDialog(validation({ min_app_version: { required: "0.31.0", current: "0.30.0", satisfied: false } }));
 

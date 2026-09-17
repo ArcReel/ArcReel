@@ -1,3 +1,4 @@
+import type { EndpointInstallation } from "./market";
 // 自定义调用端点（custom endpoint）——声明式协议定义的前端类型。
 // 定义 JSON 本身是唯一真相源，导入导出零封套：文件即 definition 原样 JSON。
 // 后端 schema 在 lib/custom_provider/endpoint_definition/schema.json，最终判定以
@@ -127,6 +128,7 @@ export interface EndpointDefinition {
 // ---------------------------------------------------------------------------
 
 export interface CustomEndpointInfo {
+  installation: EndpointInstallation | null;
   id: number;
   /** 系统分配的 `ce-<id>`；对用户无意义，界面不展示。 */
   key: string;
@@ -155,7 +157,7 @@ export interface EndpointDefinitionIssue {
   message: string;
 }
 
-/** 导入时按 meta.author + meta.name 判定的同血统既有定义。 */
+/** 导入时按 meta.author + meta.name 判定的同作者同名的既有定义。 */
 export interface EndpointDuplicateDescriptor {
   id: number;
   key: string;

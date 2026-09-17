@@ -490,4 +490,9 @@ MESSAGES = {
     "memory_invalid_filename": "Invalid memory file name '{filename}': only top-level .md files are allowed",
     "memory_file_not_found": "Memory file '{filename}' does not exist",
     "memory_file_too_large": "Memory file '{filename}' exceeds the size limit (max {limit_kib} KiB)",
+    "market_entry_definition_mismatch": "The index and definition do not match; installation is blocked",
+    "market_entry_requires_newer_app": "This entry requires app version ≥ {version}",
+    "market_entry_already_installed": "This entry is already installed; select its endpoint to update",
+    "market_endpoint_already_installed": "This endpoint has another installation record and cannot be overwritten",
+    "market_overwrite_target_not_duplicate": "Only an endpoint with the same author and name as this entry can be overwritten",
 }
