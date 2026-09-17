@@ -24,7 +24,7 @@ import enum
 import hashlib
 import json
 import logging
-from collections.abc import Callable, Generator, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,10 +43,12 @@ from lib.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
     SCRIPT_PLAN_FILENAMES,
     episode_drafts_dir,
+    episode_script_filename,
     episode_script_relpath,
 )
 from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
+from lib.path_safety import try_safe_join
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
@@ -482,13 +484,31 @@ class FormalScriptOverwrite:
         }
 
 
-def formal_script_overwrite(project_path: Path, episode: int) -> FormalScriptOverwrite | None:
+def formal_script_filename(project_path: Path, project: Mapping[str, Any], episode: int) -> str:
+    """该集正式脚本在 ``scripts/`` 下的文件名。
+
+    project.json 绑定的 ``script_file`` 指向盘上文件时取绑定；绑定缺失、越界或文件不存在时回落规范
+    文件名 ``episode_N.json``。内容确认读覆盖清单与写正式脚本都经这里，两者始终是同一份文件。
+    """
+    entry = find_episode(project, episode)
+    binding = entry.get("script_file") if isinstance(entry, dict) else None
+    if isinstance(binding, str) and binding:
+        filename = ProjectManager.normalize_script_filename(binding)
+        path = try_safe_join(project_path / "scripts", filename) if filename else None
+        if path is not None and path.is_file():
+            return filename
+    return episode_script_filename(episode)
+
+
+def formal_script_overwrite(
+    project_path: Path, project: Mapping[str, Any], episode: int
+) -> FormalScriptOverwrite | None:
     """读取内容确认将覆盖的正式脚本；该集尚无正式脚本时返回 None。
 
-    读的是确认转换写出的那份 ``scripts/episode_N.json``。文件存在但读不成剧本（非法 JSON、
-    条目数组损坏）时照样算已有正式脚本、条目列表为空：覆盖它仍需认可。
+    读的是 ``formal_script_filename`` 解析出的那份剧本，即确认转换将写入的文件。文件存在但读不成
+    剧本（非法 JSON、条目数组损坏）时照样算已有正式脚本、条目列表为空：覆盖它仍需认可。
     """
-    path = project_path / episode_script_relpath(episode)
+    path = project_path / "scripts" / formal_script_filename(project_path, project, episode)
     try:
         raw = path.read_bytes()
     except FileNotFoundError:

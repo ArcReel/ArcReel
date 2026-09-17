@@ -1266,6 +1266,16 @@ def test_blank_item_id_skips_past_the_highest_number_without_reusing_gaps(tmp_pa
     assert blank_item_after(_storyboard_script("narration", ["E1S01", "E1S04"]), "E1S01")["segment_id"] == "E1S05"
 
 
+def test_blank_item_inherits_an_integral_float_duration_from_the_anchor() -> None:
+    script = _storyboard_script("drama", ["E1S01"])
+    script["scenes"][0]["duration_seconds"] = 5.0
+
+    item = blank_item_after(script, "E1S01")
+
+    assert item["duration_seconds"] == 5
+    assert type(item["duration_seconds"]) is int
+
+
 def test_blank_item_rejects_unknown_anchor_and_reference_units(tmp_path: Path) -> None:
     pm, _service = _reference_project(tmp_path, sources={})
 

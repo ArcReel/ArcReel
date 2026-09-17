@@ -215,7 +215,14 @@ export function StudioCanvasRouter() {
   }, [currentProjectName, currentScripts, refreshProject]);
 
   // 时间线新增 / 移除分镜：服务端按当前剧本 revision 执行，这里不取快照。
-  // 返回值与 handleMoveShot 同一契约：本地 store 已刷新到新剧本才报告成功。
+  // 写入一经提交即报告成功：随后的本地刷新失败时只提示重新加载，不让调用方保持可重试，
+  // 否则重试会再新增一条分镜或对已移除的分镜再发一次移除。
+  const refreshAfterStructureEdit = useCallback(async () => {
+    if (!(await refreshProject())) {
+      useAppStore.getState().pushToast(tRef.current("shot_structure_refresh_failed"), "warning");
+    }
+  }, [refreshProject]);
+
   const handleInsertShot = useCallback(async (
     afterId: string,
     novelText: string | undefined,
@@ -226,12 +233,13 @@ export function StudioCanvasRouter() {
     if (!resolvedFile) return false;
     try {
       await API.insertScriptItemAfter(currentProjectName, afterId, resolvedFile, novelText);
-      return await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("shot_insert_failed", { message: errMsg(err) }), "error");
       return false;
     }
-  }, [currentProjectName, currentScripts, refreshProject]);
+    await refreshAfterStructureEdit();
+    return true;
+  }, [currentProjectName, currentScripts, refreshAfterStructureEdit]);
 
   const handleRemoveShot = useCallback(async (itemId: string, scriptFile?: string): Promise<boolean> => {
     if (!currentProjectName || !currentScripts) return false;
@@ -239,12 +247,13 @@ export function StudioCanvasRouter() {
     if (!resolvedFile) return false;
     try {
       await API.removeScriptItem(currentProjectName, itemId, resolvedFile);
-      return await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("shot_remove_failed", { message: errMsg(err) }), "error");
       return false;
     }
-  }, [currentProjectName, currentScripts, refreshProject]);
+    await refreshAfterStructureEdit();
+    return true;
+  }, [currentProjectName, currentScripts, refreshAfterStructureEdit]);
 
   const handleUpdateEpisodeTitle = useCallback(async (episode: number, title: string) => {
     if (!currentProjectName) return;

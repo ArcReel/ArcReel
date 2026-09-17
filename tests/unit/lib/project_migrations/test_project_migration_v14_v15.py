@@ -8,6 +8,9 @@ from typing import Any
 
 import pytest
 
+from lib import project_schema
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifact_provenance import build_episode_script_basis
 from lib.project_migrations.v14_to_v15_formal_script_truth import TARGET_SCHEMA_VERSION, migrate_v14_to_v15
 from lib.script_review import content_fingerprint
 from tests.legacy_project_shapes import ScriptPlanVariantName, write_legacy_script_plan_project
@@ -196,6 +199,24 @@ def test_ledger_stale_episode_gets_no_confirmation_baseline(tmp_path: Path) -> N
     assert "script_plan_review" not in _episode(project_dir, 3)
 
 
+def test_script_is_registered_when_a_later_schema_version_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """本步只把项目推进到 v15；链上还有后续版本时，剧本照常按 v3 依据登记。"""
+
+    project_dir = write_legacy_script_plan_project(tmp_path, variant="narration")
+    monkeypatch.setattr(project_schema, "CURRENT_PROJECT_SCHEMA_VERSION", TARGET_SCHEMA_VERSION + 1)
+
+    migrate_v14_to_v15(project_dir)
+
+    assert ProjectArtifactManifestAdapter(project_dir).get_entry(
+        ArtifactKey.episode_script(1)
+    ) == ArtifactManifestEntry(
+        artifact_path="scripts/episode_1.json",
+        basis_digest=build_episode_script_basis(project=_project(project_dir)).digest,
+    )
+
+
 def test_ad_project_only_bumps_the_schema_version(tmp_path: Path) -> None:
     project_dir = tmp_path / "ad"
     project = {
@@ -267,6 +288,46 @@ def test_rerun_rebinds_a_materialized_script_left_at_the_canonical_path(tmp_path
     assert (project_dir / "scripts" / "episode_2.json").read_bytes() == materialized
     ledger = _episode(project_dir, 2)
     assert (ledger["script_file"], ledger["title"]) == ("scripts/episode_2.json", "规划第2集")
+
+
+def test_unrelated_file_at_the_canonical_path_is_reported_instead_of_bound(tmp_path: Path) -> None:
+    """集原先绑在非规范路径且文件缺席，规范路径上却是一份与确认规划对不上的文件：不补绑定，进迁移报告。"""
+
+    project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
+    project = _project(project_dir)
+    project["episodes"][1]["script_file"] = "scripts/legacy_episode_2.json"
+    _write_json(project_dir / "project.json", project)
+    orphan = {"title": "旧文件", "scenes": [{"scene_id": "E2S09", "duration_seconds": 4}]}
+    _write_json(project_dir / "scripts" / "episode_2.json", orphan)
+
+    outcome = migrate_v14_to_v15(project_dir)
+
+    assert _read_json(project_dir / "scripts" / "episode_2.json") == orphan
+    assert _episode(project_dir, 2)["script_file"] == "scripts/legacy_episode_2.json"
+    assert outcome is not None
+    assert [(item.episode, item.artifact_path) for item in outcome.skipped if item.episode == 2] == [
+        (2, "scripts/episode_2.json")
+    ]
+
+
+def test_confirmed_episode_whose_canonical_path_is_bound_elsewhere_is_reported(tmp_path: Path) -> None:
+    """集原先绑在非规范路径且文件缺席，规范路径已绑给另一集：不转出，进迁移报告。"""
+
+    project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
+    project = _project(project_dir)
+    project["episodes"][1]["script_file"] = "scripts/legacy_episode_2.json"
+    project["episodes"][0]["script_file"] = "scripts/episode_2.json"
+    (project_dir / "scripts" / "episode_1.json").rename(project_dir / "scripts" / "episode_2.json")
+    _write_json(project_dir / "project.json", project)
+
+    outcome = migrate_v14_to_v15(project_dir)
+
+    assert _episode(project_dir, 2)["script_file"] == "scripts/legacy_episode_2.json"
+    assert outcome is not None
+    skipped = [item for item in outcome.skipped if item.episode == 2]
+    assert [(item.artifact_path, item.reason) for item in skipped] == [
+        ("scripts/episode_2.json", "canonical script path is bound to another episode")
+    ]
 
 
 def test_inputs_are_backed_up_before_they_are_rewritten(tmp_path: Path) -> None:

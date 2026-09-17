@@ -1385,7 +1385,13 @@ export function ShotDetail({
             contentMode={contentMode}
             disabled={navDisabled}
             disabledHint={navDisabledHint}
-            removeBlocked={!!generatingStoryboard || !!generatingVideo || !!generatingNarration}
+            removeBlockedHint={
+              generatingStoryboard || generatingVideo || generatingNarration
+                ? t("shot_remove_blocked_generating")
+                : totalCount <= 1
+                  ? t("shot_remove_blocked_last")
+                  : undefined
+            }
             onInsert={onInsertShot}
             onRemove={onRemoveShot}
           />

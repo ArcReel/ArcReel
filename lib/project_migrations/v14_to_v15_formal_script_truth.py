@@ -37,10 +37,9 @@ from lib.artifact_manifest import (
     ArtifactBasis,
     ArtifactKey,
     ArtifactManifestEntry,
-    ArtifactManifestError,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_planner import TargetStatePlanner
+from lib.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner
 from lib.artifact_provenance import SCRIPT_PLAN_BASIS_INPUT_KEY, project_episode_script_prompt_inputs
 from lib.episode_paths import episode_script_relpath
 from lib.formal_write import project_metadata_lock
@@ -239,35 +238,50 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         if stored_review(migrated, episode).get("fingerprint") != plan_fingerprint:
             continue
         canonical = episode_script_relpath(episode)
+        script, reason = _materialize(migrated, kind, plan_document, episode)
+        if script is None:
+            _skip_script(plan, episode, canonical, reason or "confirmed script_plan could not be materialized")
+            continue
         if canonical != binding and canonical in bound:
+            _skip_script(plan, episode, canonical, "canonical script path is bound to another episode")
             continue
         canonical_path = project_dir / canonical
         if canonical_path.is_file():
             # 上一次迁移已转出而未提交 project.json：补上绑定，剧本本身按已有正式脚本处理。
-            script = _load_object(canonical_path)
-            if script is None:
+            # 只认条目与按这份确认规划转出的结果一致的文件；来历不明的文件不冒充该集正式脚本。
+            existing = _load_object(canonical_path)
+            items_key = plan_variant(kind).skeleton_kind
+            if existing is None or existing.get(items_key) != script[items_key]:
+                _skip_script(
+                    plan,
+                    episode,
+                    canonical,
+                    "canonical script path holds a file not materialized from the confirmed script_plan",
+                )
                 continue
-            entry["title"] = script.get("title", entry.get("title", ""))
+            entry["title"] = existing.get("title", entry.get("title", ""))
             entry["script_file"] = canonical
             plan.registrations[episode] = (canonical, plan_document)
-            continue
-        script, reason = _materialize(migrated, kind, plan_document, episode)
-        if script is None:
-            plan.skipped.append(
-                MigrationSkippedArtifact(
-                    kind=ArtifactKey.episode_script(episode).kind.value,
-                    episode=episode,
-                    resource_id=str(episode),
-                    artifact_path=canonical,
-                    reason=reason or "confirmed script_plan could not be materialized",
-                )
-            )
             continue
         entry["title"] = script.get("title", "")
         entry["script_file"] = canonical
         plan.works.append(_EpisodeWork(episode=episode, script_rel=canonical, script=script, materialized=True))
         plan.registrations[episode] = (canonical, plan_document)
     return plan
+
+
+def _skip_script(plan: _Plan, episode: int, artifact_path: str, reason: str) -> None:
+    """已确认的集转不出正式脚本：记进迁移报告。"""
+
+    plan.skipped.append(
+        MigrationSkippedArtifact(
+            kind=ArtifactKey.episode_script(episode).kind.value,
+            episode=episode,
+            resource_id=str(episode),
+            artifact_path=artifact_path,
+            reason=reason,
+        )
+    )
 
 
 def _legacy_script_bases(project: Mapping[str, Any], episode: int, plan_document: object | None) -> list[str]:
@@ -300,52 +314,38 @@ def _legacy_script_bases(project: Mapping[str, Any], episode: int, plan_document
 def _rebase_script_entries(
     project_dir: Path,
     before_project: Mapping[str, Any],
-    after_project_bytes: bytes,
+    target: ArtifactTargetStatePlan,
     plan: _Plan,
-) -> tuple[list[MigrationSkippedArtifact], int]:
+) -> int:
     """把剧本登记改写为 v3：改写前时新或未登记的改写过去，本就过期的原样保留。
 
-    返回跳过项与改写条数。
+    目标登记取自整份目标态规划（不校验项目是否为当前 schema，链上后续版本存在时照常可用）。
+    返回改写条数。
     """
 
-    skipped: list[MigrationSkippedArtifact] = []
     adapter = ProjectArtifactManifestAdapter(project_dir)
     expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
     replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
-    for episode, (script_rel, plan_document) in sorted(plan.registrations.items()):
+    for episode, (_script_rel, plan_document) in sorted(plan.registrations.items()):
         key = ArtifactKey.episode_script(episode)
-        try:
-            target = TargetStatePlanner(
-                project_dir, project_bytes=after_project_bytes, episode_scope=episode
-            ).resolve_key(key)
-        except (ArtifactManifestError, ValueError) as exc:
-            skipped.append(
-                MigrationSkippedArtifact(
-                    kind=key.kind.value,
-                    episode=episode,
-                    resource_id=str(episode),
-                    artifact_path=script_rel,
-                    reason=f"episode script target could not be resolved: {exc}",
-                )
-            )
-            continue
-        if target is None:
+        entry = target.entries.get(key)
+        if entry is None:
             continue
         stored = adapter.get_entry(key)
-        if stored == target:
+        if stored == entry:
             continue
         if stored is not None and (
-            stored.artifact_path != target.artifact_path
+            stored.artifact_path != entry.artifact_path
             or stored.basis_digest not in _legacy_script_bases(before_project, episode, plan_document)
         ):
             continue
         expected[key] = stored
-        replacements[key] = target
+        replacements[key] = entry
     if replacements:
         ensure_versioned_backup(project_dir / MANIFEST_FILENAME, TARGET_SCHEMA_VERSION - 1)
         if not adapter.replace_entries_if_matches_atomically(expected=expected, replacements=replacements):
             raise RuntimeError("artifact manifest changed while rebasing episode script bases")
-    return skipped, len(replacements)
+    return len(replacements)
 
 
 def migrate_v14_to_v15(project_dir: Path) -> ArtifactBackfillOutcome | None:
@@ -379,28 +379,28 @@ def migrate_v14_to_v15(project_dir: Path) -> ArtifactBackfillOutcome | None:
 
     after_bytes = json.dumps(plan.project, ensure_ascii=False).encode("utf-8")
     if not plan.registrations or project.get("content_mode") == "ad":
-        outcome = _outcome(project_dir, after_bytes, plan.skipped) if plan.skipped else None
+        outcome = _outcome(project_dir, _target_plan(project_dir, after_bytes), plan.skipped) if plan.skipped else None
         atomic_write_json(project_file, plan.project)
         return outcome
     with project_metadata_lock(project_dir):
-        rebase_skipped, rebased = _rebase_script_entries(project_dir, project, after_bytes, plan)
-        outcome = (
-            _outcome(project_dir, after_bytes, plan.skipped, rebase_skipped)
-            if rebased or plan.skipped or rebase_skipped
-            else None
-        )
+        target = _target_plan(project_dir, after_bytes)
+        rebased = _rebase_script_entries(project_dir, project, target, plan)
+        outcome = _outcome(project_dir, target, plan.skipped) if rebased or plan.skipped else None
         atomic_write_json(project_file, plan.project)
     return outcome
 
 
+def _target_plan(project_dir: Path, after_bytes: bytes) -> ArtifactTargetStatePlan:
+    return TargetStatePlanner(project_dir, project_bytes=after_bytes).plan()
+
+
 def _outcome(
-    project_dir: Path, after_bytes: bytes, *skipped_groups: list[MigrationSkippedArtifact]
+    project_dir: Path, target: ArtifactTargetStatePlan, skipped: list[MigrationSkippedArtifact]
 ) -> ArtifactBackfillOutcome:
     """本步的迁移报告：runner 只留链上最后一份，所以并入整份目标态规划的跳过项。"""
 
-    target = TargetStatePlanner(project_dir, project_bytes=after_bytes).plan()
     return ArtifactBackfillOutcome.from_entries(
-        ProjectArtifactManifestAdapter(project_dir).snapshot_entries(), *skipped_groups, target.skipped
+        ProjectArtifactManifestAdapter(project_dir).snapshot_entries(), skipped, target.skipped
     )
 
 

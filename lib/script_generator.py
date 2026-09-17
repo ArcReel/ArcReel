@@ -117,6 +117,7 @@ from lib.script_review import (
     ScriptPlanWriteConflict,
     content_fingerprint,
     content_fingerprint_of_data,
+    formal_script_filename,
     formal_script_overwrite,
     formal_script_plan_lock,
     migrate_script_plan_draft_in_place,
@@ -625,14 +626,14 @@ class ScriptGenerator:
         loaded_revision = cast(str | None, self._script_plan_fingerprint)
         if loaded_revision != expected_plan_revision:
             raise ScriptPlanWriteConflict(expected=expected_plan_revision, actual=loaded_revision, current_content=None)
-        filename = episode_script_filename(episode)
+        filename = formal_script_filename(self.project_path, self.project_json, episode)
         script_data = build_materialized_script(
             self.project_json, episode, plan_kind=plan_kind, plan_entries=plan_entries, title=title
         )
         items_key = plan_variant(plan_kind).skeleton_kind
         id_field = entry_id_field(plan_kind)
         entry_ids = tuple(str(item[id_field]) for item in script_data[items_key])
-        previous = await asyncio.to_thread(formal_script_overwrite, self.project_path, episode)
+        previous = await asyncio.to_thread(formal_script_overwrite, self.project_path, self.project_json, episode)
         previous_ids = tuple(entry.entry_id for entry in previous.entries) if previous is not None else ()
         plan_path = script_plan_path(self.project_path, self.project_json, episode)
         if plan_path is None:

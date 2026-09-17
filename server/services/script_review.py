@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
@@ -299,7 +300,7 @@ class ScriptReviewService:
             # 对比；随 state 一起回传而非让前端另发一次项目请求，面板拿到的合计与目标出自同一次读取。
             "episode_target_duration": project_episode_target_duration(project),
             # 确认将覆盖的正式脚本（无则 None）：内容确认页据此把确认渲染为 danger 并列出后果。
-            "script_overwrite": _overwrite_dict(project_path, episode) if path is not None else None,
+            "script_overwrite": _overwrite_dict(project_path, project, episode) if path is not None else None,
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
@@ -507,7 +508,7 @@ class ScriptReviewService:
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         supported_durations = await self._resolve_supported_durations(project_name, project)
         project_path = self.pm.get_project_path(project_name)
-        overwrite = await asyncio.to_thread(script_review.formal_script_overwrite, project_path, episode)
+        overwrite = await asyncio.to_thread(script_review.formal_script_overwrite, project_path, project, episode)
         fingerprint = await asyncio.to_thread(self._confirm_sync, project_name, project, episode, supported_durations)
         if overwrite is not None and overwrite_revision != overwrite.fingerprint:
             raise ScriptReviewError("overwrite_required", overwrite=overwrite.to_dict())
@@ -621,8 +622,8 @@ class ScriptReviewService:
         return fingerprint
 
 
-def _overwrite_dict(project_path: Path, episode: int) -> dict[str, Any] | None:
-    overwrite = script_review.formal_script_overwrite(project_path, episode)
+def _overwrite_dict(project_path: Path, project: Mapping[str, Any], episode: int) -> dict[str, Any] | None:
+    overwrite = script_review.formal_script_overwrite(project_path, project, episode)
     return overwrite.to_dict() if overwrite is not None else None
 
 

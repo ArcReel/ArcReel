@@ -120,6 +120,13 @@ function draftKey(projectName: string, episode: number, unitId: string): string 
   return `${projectName}::${episode}::${unitId}`;
 }
 
+function withoutKey(record: Record<string, string>, key: string): Record<string, string> {
+  if (!(key in record)) return record;
+  const next = { ...record };
+  delete next[key];
+  return next;
+}
+
 function toastError(e: unknown, format?: (msg: string) => string): void {
   const msg = errMsg(e);
   useAppStore.getState().pushToast(format ? format(msg) : msg, "error");
@@ -342,20 +349,29 @@ export function ReferenceVideoCanvas({
     }
   }, [addUnit, projectName, episode]);
 
+  // 移除比其他写入多挡一类占用：在跑的配音任务同样指向该单元（与时间线分镜的移除守卫一致）。
+  const isUnitRemovalBlocked = useCallback(
+    (unitId: string) => isUnitLocked(unitId) || ttsBusyUnitIds.has(unitId),
+    [isUnitLocked, ttsBusyUnitIds],
+  );
   const [removeUnitId, setRemoveUnitId] = useState<string | null>(null);
   const [removingUnit, setRemovingUnit] = useState(false);
   const handleRemoveUnit = useCallback(async () => {
-    if (!removeUnitId || removingUnit) return;
+    if (!removeUnitId || removingUnit || isUnitRemovalBlocked(removeUnitId)) return;
     setRemovingUnit(true);
     try {
       await deleteUnit(projectName, episode, removeUnitId);
+      // 已移除单元的未保存草稿随之作废：否则离开页面告警常驻，新增单元取回同一 id 时还会显示旧草稿。
+      const key = draftKey(projectName, episode, removeUnitId);
+      setDrafts((current) => withoutKey(current, key));
+      setDurationDrafts((current) => withoutKey(current, key));
       setRemoveUnitId(null);
     } catch (e) {
       toastError(e);
     } finally {
       setRemovingUnit(false);
     }
-  }, [deleteUnit, projectName, episode, removeUnitId, removingUnit]);
+  }, [deleteUnit, projectName, episode, removeUnitId, removingUnit, isUnitRemovalBlocked]);
 
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
@@ -1122,7 +1138,7 @@ export function ReferenceVideoCanvas({
                     <button
                       type="button"
                       onClick={() => setRemoveUnitId(selected.unit_id)}
-                      disabled={isUnitLocked(selected.unit_id)}
+                      disabled={isUnitRemovalBlocked(selected.unit_id)}
                       aria-label={t("reference_unit_remove")}
                       title={t("reference_unit_remove")}
                       className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
@@ -1421,6 +1437,7 @@ export function ReferenceVideoCanvas({
         confirmLabel={t("reference_unit_remove_confirm")}
         tone="danger"
         loading={removingUnit}
+        confirmDisabled={removeUnitId !== null && isUnitRemovalBlocked(removeUnitId)}
         onConfirm={handleRemoveUnit}
         onCancel={() => setRemoveUnitId(null)}
       />

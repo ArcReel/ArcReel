@@ -640,6 +640,9 @@ def blank_item_after(script: dict[str, Any], after_id: str) -> dict[str, Any]:
     while (item_id := f"E{episode}S{number:02d}") in existing:
         number += 1
     duration = anchor.get("duration_seconds")
+    if isinstance(duration, float) and duration.is_integer():
+        # JSON 里的 5.0 与 5 是同一个整数时长，剧本结构校验同样接受。
+        duration = int(duration)
     return {
         id_field: item_id,
         "duration_seconds": duration if isinstance(duration, int) and not isinstance(duration, bool) else 8,

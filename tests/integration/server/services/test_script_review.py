@@ -27,7 +27,7 @@ from lib.draft_quarantine import (
     write_quarantine,
 )
 from lib.json_io import atomic_write_json
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, find_episode
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.draft_validation import DraftViolation
 from server.services.script_review import ScriptReviewError, ScriptReviewService
@@ -343,7 +343,7 @@ class TestDramaGateFlow:
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
         project = pm.load_project("demo")
-        assert script_review.review_status(project_path, project, 1) != "pending_review"
+        assert script_review.review_status(project_path, project, 1) == "confirmed"
 
     async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path):
         """drama 的草稿同样独立阻塞：草稿在场期间确认被拒、prompt_authoring 被阻塞，即使正式 script_plan
@@ -625,6 +625,36 @@ class TestConfirmMaterializesScript:
         assert not old_claims.keys() & snapshot.keys()
         assert ArtifactKey.episode_script(1) in snapshot
 
+    async def test_episode_bound_to_a_custom_script_file_lists_and_overwrites_that_file(self, tmp_path):
+        """集绑在非规范文件名上：覆盖清单读绑定的文件，认可后原地覆盖它，绑定不变、不另写规范文件。"""
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        pm.save_script(
+            "demo",
+            _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")),
+            "custom_episode_1.json",
+        )
+        project_path = pm.get_project_path("demo")
+        adapter = ProjectArtifactManifestAdapter(project_path)
+        removed_claims = _entry_claims("E1S09")
+        for key, entry in removed_claims.items():
+            adapter.put_entry(key, entry)
+        svc = _service(pm)
+
+        listing = (await svc.get_state("demo", 1))["script_overwrite"]
+        assert [entry["id"] for entry in listing["entries"]] == ["E1S01", "E1S09"]
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+        assert exc.value.code == "overwrite_required"
+
+        await svc.confirm("demo", 1, overwrite_revision=listing["revision"])
+
+        script = json.loads((project_path / "scripts" / "custom_episode_1.json").read_text(encoding="utf-8"))
+        assert [segment["segment_id"] for segment in script["segments"]] == ["E1S01"]
+        assert not (project_path / "scripts" / "episode_1.json").exists()
+        assert find_episode(pm.load_project("demo"), 1)["script_file"] == "scripts/custom_episode_1.json"
+        assert not removed_claims.keys() & adapter.snapshot_entries().keys()
+
     async def test_acknowledgement_of_an_outdated_script_is_refused_with_the_current_listing(self, tmp_path):
         """认可只对应被列出的那份正式脚本：列出之后正式脚本又有变化，带旧版本的确认按新清单再次拒绝。"""
         pm = _make_project(tmp_path, "narration")
@@ -688,10 +718,10 @@ class TestConfirmMaterializesScript:
         rewritten["segments"][0]["novel_text"] = "确认途中被改写的正文。"
         read_overwrite = script_generator_module.formal_script_overwrite
 
-        def rewrite_plan_then_read_overwrite(project_path: Path, episode: int):
+        def rewrite_plan_then_read_overwrite(project_path: Path, project: dict, episode: int):
             # 物化已加载并核对过规划、尚未落盘时，另一入口写入了新规划。
             atomic_write_json(plan_path, rewritten)
-            return read_overwrite(project_path, episode)
+            return read_overwrite(project_path, project, episode)
 
         monkeypatch.setattr(script_generator_module, "formal_script_overwrite", rewrite_plan_then_read_overwrite)
 
@@ -795,7 +825,7 @@ class TestReferenceVideoGateFlow:
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
-        assert script_review.review_status(project_path, pm.load_project("demo"), 1) != "pending_review"
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
 
     async def test_saving_confirmed_units_is_rejected_without_writing(self, tmp_path):
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -1722,7 +1752,7 @@ class TestPromptAuthoringEnforcement:
         result = await confirm_script_review_tool(ctx).handler({"episode": 1})
 
         assert result.get("is_error") is not True
-        assert script_review.review_status(project_path, pm.load_project("demo"), 1) != "pending_review"
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
 
     async def test_confirm_tool_requires_the_same_overwrite_acknowledgement(self, tmp_path):
         """Agent 确认走同一服务：已有正式脚本时不带认可返回与 web 相同的清单，带认可才覆盖。"""
@@ -1786,7 +1816,7 @@ class TestLegacyEnumeration:
         _write_prompt_authoring(pm)
         project_path = pm.get_project_path("demo")
         assert (await _service(pm).get_state("demo", 1))["status"] == "confirmed"
-        assert script_review.review_status(project_path, pm.load_project("demo"), 1) != "pending_review"
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
 
     async def test_script_plan_prompt_authoring_review_matching_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
@@ -1838,7 +1868,7 @@ class TestManualSplitSelfHeal:
         assert confirmed["status"] == "confirmed"
 
         project_path = pm.get_project_path("demo")
-        assert script_review.review_status(project_path, pm.load_project("demo"), 1) != "pending_review"
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
 
     async def test_self_heal_never_anchors_even_when_source_text_matches(self, tmp_path):
         """派生文件内容即使能在原文中精确匹配，自愈也只登记不锚定：位置记录只由规划工具写入。"""

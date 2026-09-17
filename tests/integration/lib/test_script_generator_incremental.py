@@ -755,11 +755,11 @@ class TestScriptPlanMaterialization:
         before = (project_dir / "scripts" / "episode_1.json").read_bytes()
         original = script_generator_module.formal_script_overwrite
 
-        def overwrite_then_concurrent_plan_edit(project_path: Path, episode: int) -> Any:
+        def overwrite_then_concurrent_plan_edit(project_path: Path, project: dict, episode: int) -> Any:
             document = json.loads(plan_path.read_text(encoding="utf-8"))
             document[_PLAN_ENTRIES_KEY[variant.name]][0][_plan_text_field(variant)] = "加载之后又改了一遍。"
             plan_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
-            return original(project_path, episode)
+            return original(project_path, project, episode)
 
         monkeypatch.setattr(script_generator_module, "formal_script_overwrite", overwrite_then_concurrent_plan_edit)
 

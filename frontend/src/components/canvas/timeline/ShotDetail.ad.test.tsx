@@ -363,4 +363,36 @@ describe("ShotDetail 广告/短片", () => {
     renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot, onRemoveShot, generatingVideo: true });
     expect(screen.getByRole("button", { name: "移除分镜" })).toBeDisabled();
   });
+
+  it("移除确认框打开后分镜开始生成：确认按钮随之禁用，不调用移除", () => {
+    const onRemoveShot = vi.fn().mockResolvedValue(true);
+    const shot = makeShot();
+    const detail = (generatingVideo: boolean) => (
+      <ShotDetail
+        segment={shot}
+        segmentId={shot.shot_id}
+        contentMode="ad"
+        aspectRatio="9:16"
+        projectName="demo"
+        scriptFile="episode_1.json"
+        selectedIndex={0}
+        totalCount={3}
+        onPrev={() => {}}
+        onNext={() => {}}
+        durationOptions={[4, 6, 8]}
+        onUpdatePrompt={vi.fn()}
+        onRemoveShot={onRemoveShot}
+        generatingVideo={generatingVideo}
+      />
+    );
+    const { rerender } = render(detail(false));
+    fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
+
+    rerender(detail(true));
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "移除分镜" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+
+    expect(onRemoveShot).not.toHaveBeenCalled();
+  });
 });

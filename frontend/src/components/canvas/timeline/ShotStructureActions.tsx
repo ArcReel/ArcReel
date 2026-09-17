@@ -10,8 +10,8 @@ interface ShotStructureActionsProps {
   /** 切镜同源的禁用条件（未保存草稿、保存中、重排或增删在途）。 */
   disabled: boolean;
   disabledHint?: string;
-  /** 该分镜有生成任务在跑：在跑的任务仍指向它，禁止移除。 */
-  removeBlocked?: boolean;
+  /** 禁止移除的原因（生成任务在跑、唯一分镜等），给出即禁用移除并以其作提示。 */
+  removeBlockedHint?: string;
   /** 在当前分镜之后新增分镜；旁白分镜带上正文。resolve 为是否成功。 */
   onInsert?: (afterId: string, novelText?: string) => Promise<boolean>;
   /** 移除当前分镜；resolve 为是否成功。 */
@@ -29,7 +29,7 @@ export function ShotStructureActions({
   contentMode,
   disabled,
   disabledHint,
-  removeBlocked = false,
+  removeBlockedHint,
   onInsert,
   onRemove,
 }: ShotStructureActionsProps) {
@@ -80,8 +80,8 @@ export function ShotStructureActions({
         <button
           type="button"
           onClick={() => setRemoveOpen(true)}
-          disabled={disabled || submitting || removeBlocked}
-          title={disabledHint ?? (removeBlocked ? t("shot_remove_blocked_generating") : t("shot_remove"))}
+          disabled={disabled || submitting || removeBlockedHint !== undefined}
+          title={disabledHint ?? removeBlockedHint ?? t("shot_remove")}
           className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
           aria-label={t("shot_remove")}
         >
@@ -116,7 +116,12 @@ export function ShotStructureActions({
           confirmLabel={t("shot_remove_confirm")}
           tone="danger"
           loading={submitting}
-          onConfirm={() => run(() => onRemove(segmentId), () => setRemoveOpen(false))}
+          confirmDisabled={removeBlockedHint !== undefined}
+          onConfirm={() => {
+            // 确认框打开后才出现的阻塞（如别处开始生成）同样拦下，不以打开时的状态为准。
+            if (removeBlockedHint !== undefined) return;
+            void run(() => onRemove(segmentId), () => setRemoveOpen(false));
+          }}
           onCancel={() => setRemoveOpen(false)}
         />
       )}

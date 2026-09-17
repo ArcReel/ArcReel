@@ -148,6 +148,53 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("does not remove a unit that became busy after the confirmation opened", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    const deleteSpy = vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValue(undefined);
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+
+    act(() => {
+      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+    });
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: /^(Remove unit|移除单元)$/ });
+    await waitFor(() => expect(confirm).toBeDisabled());
+    fireEvent.click(confirm);
+
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks removing a unit while its narration audio is being generated", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    useTasksStore.setState({ tasks: [{ ...runningTask("E1U1"), task_type: "tts" }] as never });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByTestId("unit-row-E1U1");
+    expect(screen.getByRole("button", { name: /^(Remove unit|移除单元)$/ })).toBeDisabled();
+  });
+
+  it("drops the removed unit's unsaved draft so it neither blocks unload nor resurfaces on a reused id", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "server text")] });
+    vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValue(undefined);
+    vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValue({ unit: mkUnit("E1U1", "fresh unit") });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    const textarea = (await screen.findByRole("combobox")) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "unsaved edit" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+    await waitFor(() => expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument());
+
+    await waitFor(() => {
+      const unload = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(false);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /New Unit|新建 Unit/ }));
+    await waitFor(() => expect((screen.getByRole("combobox") as HTMLTextAreaElement).value).toContain("fresh unit"));
+  });
+
   it("keeps request controls outside the tablist semantics", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
