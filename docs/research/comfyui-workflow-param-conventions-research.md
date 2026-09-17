@@ -46,10 +46,10 @@ output[node.id] = {
 
 | 项目 | 标记载体 | 输入如何标 | 输出如何标 | 多候选消歧 | 需装自定义节点 |
 |---|---|---|---|---|---|
-| ComfyUI-Deploy（BennyKok） | 专用节点类 | `class_type` 属于 `ComfyUIDeployExternal*` 白名单，参数名取该节点的 `inputs.input_id` | 专用输出节点 `ComfyDeployOutput*`，产物名取 `inputs.output_id` | 无消歧：`input_id` 重复会在生成 schema 时静默互相覆盖 | 是 |
+| ComfyUI-Deploy（BennyKok） | 专用节点类 | `class_type` 属于 `ComfyUIDeployExternal*` 白名单，参数名取该节点的 `inputs.input_id` | 专用输出节点 `ComfyDeployOutput*`，产物名取 `inputs.output_id` | 无消歧：schema 侧后者覆盖前者，运行侧则**广播**给全部同名节点 | 是 |
 | comfy-pack（bentoml） | 专用节点类 + 节点标题 | `class_type` 以 `CPackInput` 开头，**参数名取 `_meta.title`** | `class_type` 以 `CPackOutput` 开头，名同样取 `_meta.title` | 有：重名自动追加节点 ID，`name_{id}` | 是 |
 | ComfyUI-Serving-Toolkit | 专用节点类 + input 名 | `Serving Input*` 节点的 `argument` 字段值即参数名，调用方按 `--argument value` 传 | 专用 `ServingOutput` / `ServingTextOutput` / `ServingMultiImageOutput` 节点 | 无：`argument` 重名以 `serving_config` 字典后写覆盖 | 是 |
-| ViewComfy | **节点标题前缀 + class_type 白名单 + input 名启发式** | 标题以 `VC_BASIC` / `VC_ADV` 开头即被选为表单项；无前缀时按 `class_type` 白名单（`CLIPTextEncode` / `LoadImage` / `VHS_LoadVideo` …）归入基础项 | 不标记，按 `class_type` 硬编码（`SaveImage` / `VHS_VideoCombine` 改写 `filename_prefix`） | 靠 key 天然唯一：`<nodeId>-inputs-<field>` | **否**（纯前缀 + 白名单路径零安装） |
+| ViewComfy | **节点标题前缀 + class_type 白名单 + input 名启发式 + 外置 JSON** | 全量铺开所有标量字段为候选，用户在编辑器里挑，选择结果存进外置 `view_comfy.json`；标题以 `VC_BASIC` / `VC_ADV` 开头即被选为表单项；`class_type` 白名单（`CLIPTextEncode` / `LoadImage` / `VHS_LoadVideo` …）只决定归入基础区还是高级区、以及渲染成哪种控件 | 不标记，按 `class_type` 硬编码（`SaveImage` / `VHS_VideoCombine` 改写 `filename_prefix`） | 靠 key 天然唯一：`<nodeId>-inputs-<field>` | **否**（纯前缀 + 白名单路径零安装） |
 | RunComfy（serverless） | 无标记，外置寻址 | 调用时传 `overrides`，按 `<node_id>.inputs.<field>` 直接覆盖 | 不标记，平台收集产物 | 不需要：node_id 天然唯一 | 否 |
 | RunningHub | 无标记，外置寻址 | 调用时传 `nodeInfoList`，每项 `nodeId` + `fieldName` + `fieldValue` | 平台侧产物接口 | 不需要：nodeId 天然唯一 | 否 |
 | ComfyUI 官方 / Comfy Cloud | 无 | 未定义 | 未定义 | 不适用 | 不适用 |
@@ -60,7 +60,9 @@ output[node.id] = {
 
 **节点族全清单**（源：`comfy-nodes/*.py` 各文件的 `NODE_CLASS_MAPPINGS`）。输入侧：
 
-`ComfyUIDeployExternalText`、`ComfyUIDeployExternalTextAny`、`ComfyUIDeployExternalImage`、`ComfyUIDeployExternalImageAlpha`、`ComfyUIDeployExternalImageBatch`、`ComfyUIDeployExternalNumber`、`ComfyUIDeployExternalNumberInt`、`ComfyUIDeployExternalNumberSlider`、`ComfyUIDeployExternalSeed`、`ComfyUIDeployExternalBoolean`、`ComfyUIDeployExternalEnum`、`ComfyUIDeployExternalLora`、`ComfyUIDeployExternalCheckpoint`、`ComfyUIDeployExternalFaceModel`、`ComfyUIDeployExternalAudio`、`ComfyUIDeployExternalVideo`、`ComfyUIDeployExternalVid`、`ComfyUIDeployExternalFile`。
+`ComfyUIDeployExternalText`、`ComfyUIDeployExternalTextAny`、`ComfyUIDeployExternalImage`、`ComfyUIDeployExternalImageAlpha`、`ComfyUIDeployExternalImageBatch`、`ComfyUIDeployExternalNumber`、`ComfyUIDeployExternalNumberInt`、`ComfyUIDeployExternalNumberSlider`、`ComfyUIDeployExternalNumberSliderInt`、`ComfyUIDeployExternalSeed`、`ComfyUIDeployExternalBoolean`、`ComfyUIDeployExternalEnum`、`ComfyUIDeployExternalLora`、`ComfyUIDeployExternalCheckpoint`、`ComfyUIDeployExternalFaceModel`、`ComfyUIDeployExternalAudio`、`ComfyUIDeployExternalEXR`、`ComfyUIDeployExternalVideo`、`ComfyUIDeployExternalVid`、`ComfyUIDeployExternalFile`、`ComfyDeployWebscoketImageInput`。
+
+节点注册还有一层**自动发现**（`__init__.py`）：扫描 `comfy-nodes/` 后，除并入各模块自带的 `NODE_CLASS_MAPPINGS` 外，任何同时具备 `INPUT_TYPES` 和 `RETURN_TYPES` 的类都会**以 Python 类名**补登记。`ComfyUIDeployExternalEnum` 就是靠这条路进去的（其文件没写 mappings）。这意味着 `class_type` 前缀匹配比枚举白名单更可靠——上游的清单本身就不完整。
 
 输出侧：`ComfyDeployOutputImage`、`ComfyDeployOutputText`、`ComfyDeployOutputEXR`、`ComfyDeployWebscoketImageOutput`（原文拼写如此，`Webscoket` 是上游的拼写错误）。
 
@@ -79,20 +81,28 @@ return {
 }
 ```
 
-`input_id` 是参数名，`display_name` / `description` 是给表单 UI 用的展示元数据。对应的 API 格式片段（由上述字段结构推导，非原文）：
+`input_id` 是参数名，`display_name` / `description` 是给表单 UI 用的展示元数据。对应的 API 格式片段（原文，来自 `comfy-deploy/comfyui-api-comfydeploy` 的 `workflow_api.json`）：
 
 ```json
-{
-  "12": {
-    "inputs": {
-      "input_id": "positive_prompt",
-      "default_value": "a cat",
-      "display_name": "提示词",
-      "description": "主体描述"
-    },
-    "class_type": "ComfyUIDeployExternalText",
-    "_meta": { "title": "External Text (ComfyUI Deploy)" }
-  }
+"17": {
+  "_meta": { "title": "External Text (ComfyUI Deploy)" },
+  "inputs": {
+    "input_id": "filename_prefix",
+    "description": "",
+    "display_name": "",
+    "default_value": "MyVideo"
+  },
+  "class_type": "ComfyUIDeployExternalText"
+},
+"16": {
+  "_meta": { "title": "External Image (ComfyUI Deploy)" },
+  "inputs": {
+    "input_id": "input_image",
+    "description": "",
+    "display_name": "",
+    "default_value_url": "https://comfy-deploy-output.s3.us-east-2.amazonaws.com/assets/img_TnmbjHniCjjETWkh.png"
+  },
+  "class_type": "ComfyUIDeployExternalImage"
 }
 ```
 
@@ -133,7 +143,7 @@ export const customInputNodes: Record<string, string> = {
 两个值得记录的细节：
 
 - **白名单比实际节点族窄**。`getInputsFromWorkflow` 只认上面 8 个；`ExternalSeed`、`ExternalEnum`、`ExternalBoolean`、`ExternalVideo`、`ExternalAudio` 等虽然节点存在，却不出现在这份 web 侧 schema 里。生态里「节点先行、schema 后补」的漂移是常态。
-- **无消歧**。上面的 `.map()` 产出的是数组，不去重；两个节点写同一个 `input_id`，下游按名字取值时只会有一个生效，且没有任何警告。
+- **无消歧，且 schema 侧与运行侧语义不一致**。上面的 `.map()` 产出的是数组，转成键值对后同名的后者覆盖前者。但运行期的 `apply_inputs_to_workflow`（`custom_routes.py`）是**遍历全部节点**逐个匹配的（原文 `for key, value in workflow_api.items()` → `if "input_id" in value["inputs"] and value["inputs"]["input_id"] in inputs`），所以同名节点会**全部**被赋上同一个值。也就是说重名在这套约定里是「一个参数广播驱动多个节点」的隐式语义，既可当 feature 用，也会在用户无意重名时造成不可见的连带改写，两种情况都没有任何警告。
 
 输入取值方式也有值得警惕的一点：`external_image.py` 的 `run()` 把 `input_id` 本身当 URL 试着下载（`urls_to_try = [url for url in [input_id, default_value_url] if url]`），即运行期该字段被平台替换成实际值。这说明**这套约定的「参数名」和「参数值」共用同一个字段**，平台在提交前就地改写 JSON。
 
@@ -259,6 +269,27 @@ elif class_type == "CPackInputAny":
 
 这是生态里**唯一一个把结构化元数据塞进 `_meta` 自定义键**的实例（`_meta.options`），利用的正是「后端忽略 `_meta`」这一点。
 
+但要注意 `_meta.options` **不是官方导出物的一部分**，是 comfy-pack 自带的前端扩展劫持 `graphToPrompt` 注入的（原文，`web/dynamic.js`）：
+
+```js
+app.graphToPrompt = async function(graph = app.graph, clean = true) {
+  const { workflow, output } = await originalToPrompt(graph, clean);
+  Object.entries(output).forEach(([id, nodeData]) => {
+    if (!nodeData.class_type.startsWith("CPackInput")) return;
+    const node = graph.getNodeById(parseInt(id));
+    if (!nodeData["_meta"]) {
+      nodeData["_meta"] = { title: node.title };
+    }
+    if (node.widgets.length === 0) return;
+    const widget = node.widgets[0];
+    nodeData["_meta"] = { ...nodeData["_meta"], options: widget.options };
+  });
+  return { workflow, output };
+};
+```
+
+对 ArcReel 的含义：**不能指望用户导入的 workflow 带 `_meta.options`**，除非他们装了 comfy-pack 并用它导出。`_meta.title` 才是官方导出物里唯一稳定可依赖的自由字段。
+
 取值 / 写值一律取节点 `inputs` 的第一个键（`_get_node_value` / `_set_node_value` 用 `next(iter(node["inputs"].values()))`），所以输入节点被设计成只有一个有效字段。
 
 **必须装自定义节点**：`class_type` 前缀是准入条件。`_meta.title` 只在已经确认是 `CPackInput*` 之后才用来取名，不是独立的发现信号。
@@ -308,6 +339,22 @@ def out(self, serving_config, argument, default):
 结构上与 ComfyUI-Deploy 同类（专用节点 + 节点内一个字段当参数名），差别在于取值是**运行期**从 `serving_config` 字典查，而非提交前改写 JSON。`serving_config` 由 `DiscordServing` / `WebSocketServing` 这类「服务入口节点」注入，调用方在 Discord 消息里用 `--argname value` 形式传参。
 
 消歧：`serving_config` 是普通字典，两个节点写同一个 `argument` 会读到同一个值——严格说这不算冲突，而是「同名即同参」的隐式广播语义，但也意味着无法区分两个本该独立的同名槽位。
+
+参数从外部消息到 `serving_config` 的映射在 `nodes/utils.py` 的 `parse_command_string`（原文）：
+
+```python
+def parse_command_string(command_string, command_name):
+    textAndArgs = command_string[1 + len(command_name):].strip().split('--')
+    result = {}
+    result["prompt"] = textAndArgs[0].strip()
+    for arg in textAndArgs[1:]:
+        parts = arg.split()
+        if len(parts) > 1:
+            result[parts[0].strip()] = ' '.join(parts[1:]).strip()
+    return result
+```
+
+即 `!generate 4k portrait --negative drawing` 解析为 `{"prompt": "4k portrait", "negative": "drawing"}`。**自由文本固定落在 `prompt` 这个名字上**，这是生态里唯一一处把「提示词」硬编码为默认槽位的实现。切分极朴素：值不能含 `--`、全部按字符串处理、无引号转义。走 HTTP 入口时则直接拿 POST body 的 JSON 当 `serving_config`，key 即参数名。
 
 输出：`ServingOutput` 的 `out()` 调 `serving_config["serve_image_function"](image, frame_duration)`，即输出通过回调交给服务入口，没有输出命名概念。
 
@@ -362,6 +409,10 @@ if (basicViewComfyInputs.length > 0) {
 
 第二层，**`class_type` 白名单**（无标记时的回退）。`switch (value.class_type)` 分支覆盖 `CLIPTextEncode`（第一个 input 定为 `long-text`）、`LoadImage` / `LoadImageMask` / `loadImage_ViewComfy`（定为 `image`，值清空）、`VHS_LoadVideo` / `LoadVideo`（定为 `video`）、音频加载节点等，命中者进基础区，其余进高级区。
 
+这里要点明一个容易误读的地方：**白名单不是发现过滤器**。`workflowAPItoViewComfy` 先无条件把每个节点的每个标量字段都做成候选（`default` 分支照样把它们推进 `advancedInputs`），白名单只决定「进基础区还是高级区、渲染成哪种控件」。真正的筛选发生在 UI 上——用户在编辑器里挑，挑完的结果存进外置的 `view_comfy.json`（默认文件名见 `app/constants.ts` 的 `viewComfyFileName`）。所以 ViewComfy 的完整形态是「全量候选 + 人工挑选 + 外置落盘」，标题前缀和白名单是用来把好候选顶到前面、减少挑选成本的排序信号。
+
+这个分工对 ArcReel 很有参考价值：**推断的职责不是选对，而是排好序**。ArcReel 既然也有 UI 和「用户可改」的前提，就不必追求单一答案，可以照这个思路把所有合理候选按置信度呈现。
+
 第三层，**input 名启发式**（原文，`default` 分支）：
 
 ```ts
@@ -408,6 +459,34 @@ obj[path[path.length - 1]] = input.value;
 ```
 
 连线值被显式跳过（`if (Array.isArray(node.value)) return undefined;`），即只有字面量字段才是可参数化候选——这条规则 ArcReel 可以直接照搬。
+
+落盘后的 `view_comfy.json` 单项形如（原文，`.cursor/rules/view-comfy-json-rules.mdc`）：
+
+```json
+{
+  "title": "CLIP Text Encode (Prompt)",
+  "placeholder": "CLIP Text Encode (Prompt)",
+  "value": "photograph of victorian woman with wings, sky clouds, meadow grass\n",
+  "workflowPath": ["6", "inputs", "text"],
+  "helpText": "Helper Text",
+  "valueType": "long-text",
+  "validations": { "required": true },
+  "key": "6-inputs-text"
+}
+```
+
+ViewComfy 的托管 API 用同一套 key，但把整张图摊平成一层字典，并给每个节点插一条 `_` 开头的注释项（原文，`ViewComfy_API/Python/workflow_api_parameter_creator.py`）：
+
+```python
+for node_id, node in workflow.items():
+    class_type_info = node.get("_meta", {}).get("title") or node.get("class_type")
+    flattened[f"_{node_id}-node-class_type-info"] = class_type_info
+    if "inputs" in node:
+        for input_key, input_value in node["inputs"].items():
+            flattened[f"{node_id}-inputs-{input_key}"] = input_value
+```
+
+注意这里的 `_meta.title or class_type` 回退——**标题优先、类型兜底**，与 comfy-pack 的取名链同一思路，也正是本文建议 ArcReel 采用的优先级。
 
 **输出不标记**，硬编码在 `class_type` 上（原文，同文件）：
 
@@ -499,7 +578,8 @@ switch (node.class_type) {
 **零安装可用（只改标题 / 只靠字段名 / 只靠 class_type）：**
 
 - **ViewComfy 的 `VC_BASIC` / `VC_ADV` 标题前缀**——生态里唯一成熟的纯标题约定，用户只需在画布上双击节点改名。
-- **ViewComfy 的 `class_type` 白名单**——`CLIPTextEncode` → 提示词、`LoadImage` → 图像、`VHS_LoadVideo` → 视频。零配置，但覆盖面取决于白名单长度。
+- **ViewComfy 的 `class_type` 白名单**——`CLIPTextEncode` → 提示词、`LoadImage` → 图像、`VHS_LoadVideo` → 视频。零配置，但它在 ViewComfy 里只起排序与控件选型作用，不负责筛除候选。
+- **ViewComfy 的「全量候选 + 人工挑选 + 外置落盘」形态本身**——不依赖任何标记，把最终判断交给用户。这是覆盖率最高的零安装方案，代价是首次配置的人工成本。
 - **ViewComfy 的 input 名启发式**——`seed` / `noise_seed` / `rand_seed` 识别种子。
 - **comfy-pack 的 `_meta.title` 取名规则与 `dep_map` 连线回溯**——取名规则本身零安装（虽然它的准入判据不是），连线回溯「看下游 input 名」更是纯结构推断，不依赖任何标记。
 - **RunComfy / RunningHub 的按 ID 寻址**——完全零安装，但也零语义：它们把「哪个字段是提示词」这个问题推给了调用方或平台解析端，没有解决它。
@@ -571,9 +651,9 @@ ARCREEL:<slot>
 
 **多候选消歧**，三条规则，都有先例：
 
-1. **同槽位多候选时不自动选，全部呈现给用户挑**，并按上表的信号级别排序。ArcReel 有 UI，不必像 comfy-pack 那样必须在无人值守下选一个。
+1. **同槽位多候选时不自动选，全部呈现给用户挑**，并按上表的信号级别排序。ArcReel 有 UI，不必像 comfy-pack 那样必须在无人值守下选一个。ViewComfy 已经验证了这条路：它索性不做筛除，只做排序和控件选型，把判断留给用户。
 2. **必须选时按节点 ID 升序取第一个**，并在 UI 上标明「自动选择，有 N 个候选」。
-3. **参数名重复时追加节点 ID**，照抄 comfy-pack 的 `f"{name}_{id}"`。ComfyUI-Deploy 的静默覆盖是明确的反面教材。
+3. **参数名重复时追加节点 ID**，照抄 comfy-pack 的 `f"{name}_{id}"`。ComfyUI-Deploy 的「schema 侧覆盖、运行侧广播」是明确的反面教材：同一个重名在两个阶段有两种不同行为，用户无从预期。
 
 另外两条从源码里捡来的实现细节，建议直接采纳：
 
