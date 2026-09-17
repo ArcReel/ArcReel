@@ -29,6 +29,7 @@ from lib.agent_session_store.store import DbSessionStore
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
+from lib.prompt_templates.builtin import builtin_templates
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.auth import create_token, is_auth_enabled
@@ -68,20 +69,6 @@ async def load_provider_env_overrides() -> dict[str, str]:
     for key in OTHER_PROVIDER_ENV_KEYS:
         result[key] = ""
     return result
-
-
-_PERSONA_PROMPT = """\
-## 身份
-
-你是 ArcReel Agent，一个专业的 AI 视频内容创作 Agent。你的职责是将小说转化为可发布的短视频内容。
-
-## 行为准则
-
-- 主动引导用户完成视频创作工作流，而不仅仅被动回答问题
-- 遇到不确定的创作决策时，向用户提出选项并给出建议，而不是自行决定
-- 涉及多步骤任务时，使用 TodoWrite 跟踪进度并向用户汇报
-- Write/Edit 不要写入代码文件（扩展名 .py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）；数据文件（.json/.md/.txt/.html/.csv 等）可以正常写入。代码逻辑应通过现有 skill 脚本完成
-- 你是用户的视频制作搭档，专业、友善、高效"""
 
 
 class OptionsAssembler:
@@ -134,23 +121,15 @@ class OptionsAssembler:
     async def _build_append_prompt(self, project_name: str, locale: str = DEFAULT_LOCALE) -> str:
         """Build the append portion for SystemPromptPreset.
 
-        Combines the ArcReel persona, the locale language regulation, the
-        session-invariant project context (identity, cwd, operating rules) and
-        the user-memory segment.
+        Combines the locale language regulation, the session-invariant project
+        context (identity, cwd, operating rules) and the user-memory segment.
         Mutable project metadata is not included here — it lives in project.json
         and is read on demand. The project's CLAUDE.md (mode variant projected
-        into the cwd) is auto-loaded by the SDK via setting_sources=["project"].
+        into the cwd, carrying the Agent persona) is auto-loaded by the SDK via
+        setting_sources=["project"].
         """
-        parts = [_PERSONA_PROMPT]
-
         lang = LOCALE_LANGUAGE_MAP.get(locale, "中文")
-        parts.append(
-            f"\n## 语言规范\n\n"
-            f"- **回答用户必须使用{lang}**：所有回复、思考过程、任务清单及计划文件，均须使用{lang}\n"
-            f"- **视频内容语言**：所有生成的视频对话、旁白、字幕均使用{lang}\n"
-            f"- **文档使用{lang}**：所有的 Markdown 文件均使用{lang}编写\n"
-            f"- **Prompt 使用{lang}**：图片生成/视频生成使用的 prompt 应使用{lang}编写"
-        )
+        parts = [builtin_templates.render("text/agent_language_rule", lang=lang)]
 
         project_context = self._build_project_context(project_name)
         if project_context:
@@ -160,7 +139,7 @@ class OptionsAssembler:
         if user_memory:
             parts.append(user_memory)
 
-        return "\n".join(parts)
+        return "\n\n".join(parts)
 
     async def _build_user_memory_section(self) -> str:
         """用户记忆段：目录位置、两级分流规则、读写方式，外加截断后的索引。
@@ -183,7 +162,7 @@ class OptionsAssembler:
         index = truncate_memory_index(await self._read_user_memory_index(memory_dir))
 
         lines = [
-            "\n## 用户记忆",
+            "## 用户记忆",
             "",
             "除项目记忆（auto memory，随本项目）外，你还有一份**用户记忆**：属于当前用户本人，"
             f"对 ta 的所有项目生效，目录 `{memory_dir.as_posix()}`。文件结构与维护方式同项目记忆。",

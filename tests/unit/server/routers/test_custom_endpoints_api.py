@@ -18,7 +18,7 @@ from lib.db import get_async_session
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import custom_endpoints, custom_providers
+from server.routers import custom_endpoints, custom_providers, system_config
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import custom_endpoint_definition
 
@@ -39,6 +39,7 @@ def endpoints_app(db_engine) -> FastAPI:
 
     app.dependency_overrides[get_async_session] = _override_session
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
+    app.dependency_overrides[system_config.get_app_version_reader] = lambda: lambda: "0.30.0"
     app.include_router(custom_endpoints.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     app.include_router(custom_providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
@@ -97,7 +98,7 @@ class TestCreate:
         assert body["key"] == f"ce-{body['id']}"
         assert body["display_name"] == "示例端点"
         assert body["kind"] == "declarative"
-        assert body["schema_version"] == "1.0.0"
+        assert body["schema_version"] == "1.1.0"
         assert body["media_type"] == "video"
 
     def test_stores_definition_verbatim(self, endpoints_client: TestClient):
@@ -321,6 +322,39 @@ class TestValidate:
 
         assert body["schema_version"]["level"] == "confirm"
         assert body["errors"] == [], "版本档位只是提示，闸门始终是 schema 校验器"
+
+
+class TestValidateMinAppVersion:
+    def test_absent_requirement_reports_nothing(self, endpoints_client: TestClient):
+        body = endpoints_client.post("/api/v1/custom-endpoints/validate", json=custom_endpoint_definition()).json()
+
+        assert body["min_app_version"] is None
+
+    @pytest.mark.parametrize(("required", "satisfied"), [("0.30.0", True), ("0.31.0", False)])
+    def test_compares_requirement_with_the_app_version(
+        self, endpoints_client: TestClient, required: str, satisfied: bool
+    ):
+        definition = custom_endpoint_definition()
+        definition["meta"]["min_app_version"] = required
+
+        body = endpoints_client.post("/api/v1/custom-endpoints/validate", json=definition).json()
+
+        assert body["min_app_version"] == {"required": required, "current": "0.30.0", "satisfied": satisfied}
+        assert body["errors"] == [], "版本门槛只是提示，不拦导入"
+
+    def test_unreadable_app_version_skips_the_comparison(self, endpoints_app: FastAPI):
+        def _broken() -> str:
+            raise OSError("pyproject missing")
+
+        endpoints_app.dependency_overrides[system_config.get_app_version_reader] = lambda: _broken
+        definition = custom_endpoint_definition()
+        definition["meta"]["min_app_version"] = "0.31.0"
+
+        with TestClient(endpoints_app) as client:
+            resp = client.post("/api/v1/custom-endpoints/validate", json=definition)
+
+        assert resp.status_code == 200
+        assert resp.json()["min_app_version"] is None
 
 
 class TestValidateDuplicates:

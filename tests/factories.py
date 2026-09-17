@@ -181,7 +181,7 @@ def custom_endpoint_definition(**overrides: Any) -> dict[str, Any]:
     """
     definition: dict[str, Any] = {
         "kind": "declarative",
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "meta": {"name": "示例端点", "author": "ArcReel", "version": "0.1.0"},
         "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
         "inputs": {"first_frame": {"source": "start_image", "encoding": "data_uri"}},

@@ -43,6 +43,8 @@ export interface EndpointMeta {
   version: string;
   description?: string;
   homepage?: string;
+  /** 运行该定义所需的最低 ArcReel 版本（semver）。 */
+  min_app_version?: string;
   hints?: EndpointMetaHints;
 }
 
@@ -168,12 +170,21 @@ export interface EndpointSchemaVersionInfo {
   level: "direct" | "warning" | "confirm";
 }
 
+/** meta.min_app_version 与当前应用版本的比对；不满足只提示，不拦导入。 */
+export interface EndpointMinAppVersionInfo {
+  required: string;
+  current: string;
+  satisfied: boolean;
+}
+
 export interface EndpointValidateResponse {
   errors: EndpointDefinitionIssue[];
   warnings: EndpointDefinitionIssue[];
   duplicates: EndpointDuplicateDescriptor[];
   hints: EndpointMetaHints | null;
   schema_version: EndpointSchemaVersionInfo;
+  /** 定义未声明门槛或应用版本读不出时为 null。 */
+  min_app_version: EndpointMinAppVersionInfo | null;
 }
 
 // ---------------------------------------------------------------------------

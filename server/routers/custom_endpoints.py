@@ -9,7 +9,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import logging
+from collections.abc import Callable, Mapping
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends
@@ -22,6 +23,8 @@ from lib.custom_provider.endpoint_definition import (
     CURRENT_SCHEMA_VERSION,
     SchemaVersionLevel,
     VersionRelation,
+    meets_min_app_version,
+    parse_semver,
     schema_version_level,
     validate_definition,
     version_relation,
@@ -33,6 +36,9 @@ from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository, EndpointReference
 from lib.i18n import Translator
 from server.routers import endpoint_tests
+from server.routers.system_config import get_app_version_reader
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/custom-endpoints", tags=["Custom Endpoints"])
 
@@ -87,6 +93,14 @@ class SchemaVersionInfo(BaseModel):
     level: SchemaVersionLevel
 
 
+class MinAppVersionInfo(BaseModel):
+    """``meta.min_app_version`` 与当前应用版本的比对。不满足只是提示，不拦导入。"""
+
+    required: str
+    current: str
+    satisfied: bool
+
+
 class ValidateResponse(BaseModel):
     errors: list[dict[str, str]]
     warnings: list[dict[str, str]]
@@ -94,6 +108,8 @@ class ValidateResponse(BaseModel):
     # meta.hints 原样回显（base_url 与建议模型）；只展示，不复合创建供应商。
     hints: dict[str, Any] | None = None
     schema_version: SchemaVersionInfo
+    # 定义未声明（或声明值不是 semver）、或应用版本读不出时为 null。
+    min_app_version: MinAppVersionInfo | None = None
 
 
 class EndpointReferenceDescriptor(BaseModel):
@@ -202,6 +218,21 @@ def _schema_version_of(definition: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _min_app_version_of(definition: object, read_app_version: Callable[[], str]) -> MinAppVersionInfo | None:
+    if not isinstance(definition, Mapping):
+        return None
+    meta = definition.get("meta")
+    required = meta.get("min_app_version") if isinstance(meta, Mapping) else None
+    if not isinstance(required, str) or parse_semver(required) is None:
+        return None
+    try:
+        current = read_app_version()
+    except Exception:
+        logger.exception("Failed to read app version")
+        return None
+    return MinAppVersionInfo(required=required, current=current, satisfied=meets_min_app_version(required, current))
+
+
 def _reference_descriptors(references: list[EndpointReference]) -> list[dict[str, Any]]:
     return [EndpointReferenceDescriptor(**ref._asdict()).model_dump() for ref in references]
 
@@ -255,10 +286,11 @@ async def list_endpoints(session: AsyncSession = Depends(get_async_session)) -> 
 async def validate_endpoint_definition(
     body: DefinitionBody,
     _t: Translator,
+    read_app_version: Annotated[Callable[[], str], Depends(get_app_version_reader)],
     exclude_id: int | None = None,
     session: AsyncSession = Depends(get_async_session),
 ) -> ValidateResponse:
-    """保存前的单段确认：校验诊断 + 重复血统 + 提示回显 + 版本档位。服务端不留任何状态。
+    """保存前的单段确认：校验诊断 + 重复血统 + 提示回显 + 版本档位 + 应用版本门槛。服务端不留任何状态。
 
     ``exclude_id`` 供编辑既有端点时排除自身，否则它总会把自己报成重复。
     """
@@ -275,6 +307,7 @@ async def validate_endpoint_definition(
             current=CURRENT_SCHEMA_VERSION,
             level=schema_version_level(file_version, CURRENT_SCHEMA_VERSION),
         ),
+        min_app_version=_min_app_version_of(body, read_app_version),
     )
 
 
