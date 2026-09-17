@@ -1,0 +1,141 @@
+{
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 82628696717253,
+      "steps": 30,
+      "cfg": 6,
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "48",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "latent_image": [
+        "40",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "一只猫在雪地里奔跑",
+      "clip": [
+        "38",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "色调艳丽，过曝，静态",
+      "clip": [
+        "38",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    }
+  },
+  "37": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "wan2.1_t2v_1.3B_fp16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "38": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan"
+    }
+  },
+  "39": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    }
+  },
+  "40": {
+    "class_type": "EmptyHunyuanLatentVideo",
+    "inputs": {
+      "width": 832,
+      "height": 480,
+      "length": 33,
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "Empty HunyuanVideo 1.0 Latent"
+    }
+  },
+  "48": {
+    "class_type": "ModelSamplingSD3",
+    "inputs": {
+      "shift": 8,
+      "model": [
+        "37",
+        0
+      ]
+    }
+  },
+  "57": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 16,
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "58": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "video/ComfyUI",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "57",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Save Video"
+    }
+  }
+}

@@ -81,6 +81,7 @@ FIRST_IMPORT_MODULES = [
     "lib.custom_provider.backends",
     "lib.custom_provider.capabilities",
     "lib.custom_provider.comfyui.import_shapes",
+    "lib.custom_provider.comfyui.inference",
     "lib.custom_provider.comfyui.request_builder",
     "lib.custom_provider.comfyui.validator",
     "lib.custom_provider.discovery",

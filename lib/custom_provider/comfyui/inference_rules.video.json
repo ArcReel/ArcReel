@@ -1,0 +1,291 @@
+{
+  "media_type": "video",
+  "semantic_keys": {
+    "prompt": {
+      "input_names": ["text", "prompt", "positive_prompt"],
+      "class_types": [
+        "CLIPTextEncode",
+        "TextEncodeQwenImageEdit",
+        "TextEncodeQwenImageEditPlus",
+        "WanVideoTextEncode"
+      ],
+      "input_name_class_types": {
+        "prompt": ["TextEncodeQwenImageEdit", "TextEncodeQwenImageEditPlus"]
+      },
+      "title_keywords": ["positive"]
+    },
+    "negative_prompt": {
+      "input_names": ["text", "prompt", "negative_prompt"],
+      "class_types": [
+        "CLIPTextEncode",
+        "TextEncodeQwenImageEdit",
+        "TextEncodeQwenImageEditPlus",
+        "WanVideoTextEncode"
+      ],
+      "input_name_class_types": {
+        "prompt": ["TextEncodeQwenImageEdit", "TextEncodeQwenImageEditPlus"]
+      },
+      "title_keywords": ["negative"]
+    },
+    "width": {
+      "input_names": ["width"],
+      "class_types": [
+        "WanImageToVideo",
+        "WanFirstLastFrameToVideo",
+        "WanFunInpaintToVideo",
+        "WanVaceToVideo",
+        "Wan22ImageToVideoLatent",
+        "LTXVImgToVideo",
+        "HunyuanVideo15ImageToVideo",
+        "HunyuanVideo15LatentUpscaleWithModel",
+        "SVD_img2vid_Conditioning",
+        "WanVideoEmptyEmbeds",
+        "WanVideoImageToVideoEncode",
+        "EmptyLatentImage",
+        "EmptySD3LatentImage",
+        "EmptyHunyuanLatentVideo",
+        "EmptyLTXVLatentVideo",
+        "ImageScale"
+      ]
+    },
+    "height": {
+      "input_names": ["height"],
+      "class_types": [
+        "WanImageToVideo",
+        "WanFirstLastFrameToVideo",
+        "WanFunInpaintToVideo",
+        "WanVaceToVideo",
+        "Wan22ImageToVideoLatent",
+        "LTXVImgToVideo",
+        "HunyuanVideo15ImageToVideo",
+        "HunyuanVideo15LatentUpscaleWithModel",
+        "SVD_img2vid_Conditioning",
+        "WanVideoEmptyEmbeds",
+        "WanVideoImageToVideoEncode",
+        "EmptyLatentImage",
+        "EmptySD3LatentImage",
+        "EmptyHunyuanLatentVideo",
+        "EmptyLTXVLatentVideo",
+        "ImageScale"
+      ]
+    },
+    "frames": {
+      "input_names": ["length", "num_frames", "video_frames"],
+      "class_types": [
+        "EmptyHunyuanLatentVideo",
+        "EmptyLTXVLatentVideo",
+        "WanImageToVideo",
+        "WanFirstLastFrameToVideo",
+        "WanFunInpaintToVideo",
+        "WanVaceToVideo",
+        "Wan22ImageToVideoLatent",
+        "LTXVImgToVideo",
+        "HunyuanVideo15ImageToVideo",
+        "SVD_img2vid_Conditioning",
+        "WanVideoEmptyEmbeds",
+        "WanVideoImageToVideoEncode"
+      ]
+    },
+    "fps": {
+      "input_names": ["fps", "frame_rate"],
+      "class_types": ["CreateVideo", "VHS_VideoCombine"],
+      "input_name_class_types": {
+        "fps": ["CreateVideo"],
+        "frame_rate": ["VHS_VideoCombine"]
+      }
+    },
+    "seed": {
+      "input_names": ["seed", "noise_seed"],
+      "class_types": [
+        "KSampler",
+        "KSamplerAdvanced",
+        "SamplerCustom",
+        "SamplerCustomAdvanced",
+        "RandomNoise",
+        "WanVideoSampler"
+      ]
+    }
+  },
+  "image_loaders": [
+    { "class_type": "LoadImage", "input": "image" },
+    { "class_type": "LoadImageOutput", "input": "image" },
+    { "class_type": "ComfyUIDeployExternalImage", "input": "default_value" }
+  ],
+  "consumer_ports": {
+    "start_image": [
+      { "input": "start_image" },
+      { "input": "init_image" },
+      { "input": "image", "class_types": ["LTXVImgToVideo"] }
+    ],
+    "end_image": [{ "input": "end_image" }],
+    "reference_images": [
+      { "input": "reference_image" },
+      { "input": "image1" },
+      { "input": "image2" },
+      { "input": "image3" }
+    ]
+  },
+  "sampler_ports": {
+    "positive": "prompt",
+    "negative": "negative_prompt"
+  },
+  "conditioning_slots": {
+    "0": "prompt",
+    "1": "negative_prompt"
+  },
+  "conditioning_pass_through": [
+    "WanImageToVideo",
+    "WanFirstLastFrameToVideo",
+    "WanFunInpaintToVideo",
+    "WanVaceToVideo",
+    "LTXVImgToVideo",
+    "LTXVConditioning",
+    "HunyuanVideo15ImageToVideo",
+    "HunyuanVideo15SuperResolution",
+    "FluxGuidance",
+    "ReferenceLatent"
+  ],
+  "output_candidates": [
+    { "class_type": "SaveVideo" },
+    { "class_type": "VHS_VideoCombine", "requires_true": "save_output" },
+    { "class_type": "SaveImage" },
+    { "class_type": "SaveImageAdvanced" },
+    { "class_type": "SaveAnimatedWEBP" },
+    { "class_type": "SaveWEBM" }
+  ],
+  "excluded_output_class_types": ["PreviewImage", "PreviewAudio", "SaveImageWebsocket"],
+  "class_type_tiers": {
+    "width": [
+      [
+        "WanImageToVideo",
+        "WanFirstLastFrameToVideo",
+        "WanFunInpaintToVideo",
+        "WanVaceToVideo",
+        "Wan22ImageToVideoLatent",
+        "LTXVImgToVideo",
+        "HunyuanVideo15ImageToVideo",
+        "HunyuanVideo15LatentUpscaleWithModel",
+        "SVD_img2vid_Conditioning",
+        "WanVideoImageToVideoEncode"
+      ],
+      [
+        "EmptyLatentImage",
+        "EmptySD3LatentImage",
+        "EmptyHunyuanLatentVideo",
+        "EmptyLTXVLatentVideo",
+        "WanVideoEmptyEmbeds"
+      ],
+      ["ImageScale"]
+    ],
+    "height": [
+      [
+        "WanImageToVideo",
+        "WanFirstLastFrameToVideo",
+        "WanFunInpaintToVideo",
+        "WanVaceToVideo",
+        "Wan22ImageToVideoLatent",
+        "LTXVImgToVideo",
+        "HunyuanVideo15ImageToVideo",
+        "HunyuanVideo15LatentUpscaleWithModel",
+        "SVD_img2vid_Conditioning",
+        "WanVideoImageToVideoEncode"
+      ],
+      [
+        "EmptyLatentImage",
+        "EmptySD3LatentImage",
+        "EmptyHunyuanLatentVideo",
+        "EmptyLTXVLatentVideo",
+        "WanVideoEmptyEmbeds"
+      ],
+      ["ImageScale"]
+    ]
+  },
+  "steps": {
+    "width": {
+      "default": 16,
+      "by_class_type": {
+        "EmptyLatentImage": 8,
+        "SVD_img2vid_Conditioning": 8,
+        "EmptyLTXVLatentVideo": 32,
+        "LTXVImgToVideo": 32,
+        "Wan22ImageToVideoLatent": 32
+      }
+    },
+    "height": {
+      "default": 16,
+      "by_class_type": {
+        "EmptyLatentImage": 8,
+        "SVD_img2vid_Conditioning": 8,
+        "EmptyLTXVLatentVideo": 32,
+        "LTXVImgToVideo": 32,
+        "Wan22ImageToVideoLatent": 32
+      }
+    },
+    "frames": {
+      "default": 4,
+      "by_class_type": {
+        "EmptyLTXVLatentVideo": 8,
+        "LTXVImgToVideo": 8
+      }
+    }
+  },
+  "constant_nodes": {
+    "PrimitiveInt": "value",
+    "PrimitiveFloat": "value",
+    "PrimitiveString": "value",
+    "PrimitiveStringMultiline": "value"
+  },
+  "optional_inputs": [
+    { "class_type": "TextEncodeQwenImageEditPlus", "input": "image1" },
+    { "class_type": "TextEncodeQwenImageEditPlus", "input": "image2" },
+    { "class_type": "TextEncodeQwenImageEditPlus", "input": "image3" },
+    { "class_type": "ImageStitch", "input": "image2" },
+    { "class_type": "ReferenceLatent", "input": "latent" },
+    { "class_type": "WanFirstLastFrameToVideo", "input": "start_image" },
+    { "class_type": "WanFirstLastFrameToVideo", "input": "end_image" },
+    { "class_type": "WanFunInpaintToVideo", "input": "end_image" },
+    { "class_type": "WanImageToVideo", "input": "start_image" },
+    { "class_type": "WanCameraImageToVideo", "input": "start_image" },
+    { "class_type": "WanVaceToVideo", "input": "reference_image" },
+    { "class_type": "Wan22ImageToVideoLatent", "input": "start_image" }
+  ],
+  "merge_nodes": [{ "class_type": "ImageBatch", "inputs": ["image1", "image2"] }],
+  "external_families": [
+    {
+      "name": "ComfyUI-Deploy",
+      "prefix": "ComfyUIDeployExternal",
+      "parameter_from": { "input": "input_id" },
+      "ignored_inputs": ["input_id", "display_name", "description"]
+    },
+    {
+      "name": "comfy-pack",
+      "prefix": "CPackInput",
+      "parameter_from": { "title": true },
+      "ignored_inputs": ["name", "description"]
+    },
+    {
+      "name": "ComfyUI-Serving-Toolkit",
+      "prefix": "ServingInput",
+      "parameter_from": { "input": "argument" },
+      "ignored_inputs": ["argument", "description"]
+    }
+  ],
+  "audio_track_sources": [
+    {
+      "class_type": "SaveVideo",
+      "audio_input": "audio",
+      "through": { "input": "video", "class_types": ["CreateVideo"] }
+    },
+    { "class_type": "VHS_VideoCombine", "audio_input": "audio" }
+  ],
+  "seed_gates": [
+    { "class_type": "KSamplerAdvanced", "input": "add_noise", "enabled_value": "enable" }
+  ],
+  "manual_only_class_types": [
+    {
+      "class_type": "WanVaceToVideo",
+      "binding_keys": ["start_image", "end_image"],
+      "blocked_inputs": ["control_video", "control_masks"]
+    }
+  ]
+}

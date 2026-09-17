@@ -1,0 +1,141 @@
+{
+  "media_type": "image",
+  "semantic_keys": {
+    "prompt": {
+      "input_names": ["text", "prompt", "positive_prompt"],
+      "class_types": [
+        "CLIPTextEncode",
+        "TextEncodeQwenImageEdit",
+        "TextEncodeQwenImageEditPlus"
+      ],
+      "input_name_class_types": {
+        "prompt": ["TextEncodeQwenImageEdit", "TextEncodeQwenImageEditPlus"]
+      },
+      "title_keywords": ["positive"]
+    },
+    "negative_prompt": {
+      "input_names": ["text", "prompt", "negative_prompt"],
+      "class_types": [
+        "CLIPTextEncode",
+        "TextEncodeQwenImageEdit",
+        "TextEncodeQwenImageEditPlus"
+      ],
+      "input_name_class_types": {
+        "prompt": ["TextEncodeQwenImageEdit", "TextEncodeQwenImageEditPlus"]
+      },
+      "title_keywords": ["negative"]
+    },
+    "width": {
+      "input_names": ["width"],
+      "class_types": [
+        "EmptyLatentImage",
+        "EmptySD3LatentImage",
+        "ImageScale",
+        "ImageScaleBy"
+      ]
+    },
+    "height": {
+      "input_names": ["height"],
+      "class_types": [
+        "EmptyLatentImage",
+        "EmptySD3LatentImage",
+        "ImageScale",
+        "ImageScaleBy"
+      ]
+    },
+    "seed": {
+      "input_names": ["seed", "noise_seed"],
+      "class_types": [
+        "KSampler",
+        "KSamplerAdvanced",
+        "SamplerCustom",
+        "SamplerCustomAdvanced",
+        "RandomNoise"
+      ]
+    }
+  },
+  "image_loaders": [
+    { "class_type": "LoadImage", "input": "image" },
+    { "class_type": "LoadImageOutput", "input": "image" },
+    { "class_type": "ComfyUIDeployExternalImage", "input": "default_value" }
+  ],
+  "consumer_ports": {
+    "reference_images": [
+      { "input": "reference_image" },
+      { "input": "image1" },
+      { "input": "image2" },
+      { "input": "image3" },
+      { "input": "image", "class_types": ["FluxKontextImageScale", "ImageScaleToMaxDimension"] }
+    ]
+  },
+  "sampler_ports": {
+    "positive": "prompt",
+    "negative": "negative_prompt"
+  },
+  "conditioning_slots": {
+    "0": "prompt",
+    "1": "negative_prompt"
+  },
+  "conditioning_pass_through": ["FluxGuidance", "ReferenceLatent"],
+  "output_candidates": [
+    { "class_type": "SaveImage" },
+    { "class_type": "SaveImageAdvanced" },
+    { "class_type": "SaveAnimatedWEBP" }
+  ],
+  "excluded_output_class_types": ["PreviewImage", "SaveImageWebsocket"],
+  "class_type_tiers": {
+    "width": [["EmptyLatentImage", "EmptySD3LatentImage"], ["ImageScale", "ImageScaleBy"]],
+    "height": [["EmptyLatentImage", "EmptySD3LatentImage"], ["ImageScale", "ImageScaleBy"]]
+  },
+  "steps": {
+    "width": {
+      "default": 16,
+      "by_class_type": { "EmptyLatentImage": 8 }
+    },
+    "height": {
+      "default": 16,
+      "by_class_type": { "EmptyLatentImage": 8 }
+    }
+  },
+  "constant_nodes": {
+    "PrimitiveInt": "value",
+    "PrimitiveFloat": "value",
+    "PrimitiveString": "value",
+    "PrimitiveStringMultiline": "value"
+  },
+  "optional_inputs": [
+    { "class_type": "TextEncodeQwenImageEditPlus", "input": "image1" },
+    { "class_type": "TextEncodeQwenImageEditPlus", "input": "image2" },
+    { "class_type": "TextEncodeQwenImageEditPlus", "input": "image3" },
+    { "class_type": "ImageStitch", "input": "image2" },
+    { "class_type": "ReferenceLatent", "input": "latent" }
+  ],
+  "merge_nodes": [{ "class_type": "ImageBatch", "inputs": ["image1", "image2"] }],
+  "external_families": [
+    {
+      "name": "ComfyUI-Deploy",
+      "prefix": "ComfyUIDeployExternal",
+      "parameter_from": { "input": "input_id" },
+      "ignored_inputs": ["input_id", "display_name", "description"]
+    },
+    {
+      "name": "comfy-pack",
+      "prefix": "CPackInput",
+      "parameter_from": { "title": true },
+      "ignored_inputs": ["name", "description"]
+    },
+    {
+      "name": "ComfyUI-Serving-Toolkit",
+      "prefix": "ServingInput",
+      "parameter_from": { "input": "argument" },
+      "ignored_inputs": ["argument", "description"]
+    }
+  ],
+  "seed_gates": [
+    { "class_type": "KSamplerAdvanced", "input": "add_noise", "enabled_value": "enable" }
+  ],
+  "batch_size_inputs": [
+    { "class_type": "EmptyLatentImage", "input": "batch_size" },
+    { "class_type": "EmptySD3LatentImage", "input": "batch_size" }
+  ]
+}

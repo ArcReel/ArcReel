@@ -1,0 +1,213 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "a lighthouse on a cliff",
+      "clip": [
+        "4",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "text, watermark",
+      "clip": [
+        "4",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 576,
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 812045847300606,
+      "steps": 20,
+      "cfg": 8,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1,
+      "model": [
+        "4",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "latent_image": [
+        "5",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    }
+  },
+  "20": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "15": {
+    "class_type": "ImageOnlyCheckpointLoader",
+    "inputs": {
+      "ckpt_name": "svd_xt.safetensors"
+    }
+  },
+  "12": {
+    "class_type": "SVD_img2vid_Conditioning",
+    "inputs": {
+      "width": 1024,
+      "height": 576,
+      "video_frames": 25,
+      "motion_bucket_id": 127,
+      "fps": 6,
+      "augmentation_level": 0,
+      "clip_vision": [
+        "15",
+        1
+      ],
+      "vae": [
+        "15",
+        2
+      ],
+      "init_image": [
+        "8",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "SVD_img2vid_Conditioning"
+    }
+  },
+  "14": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 361182619196827,
+      "steps": 20,
+      "cfg": 2.5,
+      "sampler_name": "euler",
+      "scheduler": "karras",
+      "denoise": 1,
+      "model": [
+        "16",
+        0
+      ],
+      "positive": [
+        "12",
+        0
+      ],
+      "negative": [
+        "12",
+        1
+      ],
+      "latent_image": [
+        "12",
+        2
+      ]
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "16": {
+    "class_type": "VideoLinearCFGGuidance",
+    "inputs": {
+      "min_cfg": 1.0,
+      "model": [
+        "15",
+        0
+      ]
+    }
+  },
+  "17": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "14",
+        0
+      ],
+      "vae": [
+        "15",
+        2
+      ]
+    }
+  },
+  "57": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 10,
+      "images": [
+        "17",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "58": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "video/svd",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "57",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Save Video"
+    }
+  }
+}

@@ -363,6 +363,37 @@ MESSAGES = {
     "val_ce_comfyui_ui_format_workflow": (
         "Đây là workflow định dạng UI của ComfyUI và không thể gửi đi; hãy xuất bằng Export (API) trong ComfyUI"
     ),
+    # ---- Điểm cuối ComfyUI: tín hiệu suy luận liên kết node và gợi ý ----
+    "val_ce_infer_manual_binding": "Liên kết node đã lưu; giữ nguyên đích mà người dùng đã xác nhận",
+    "val_ce_infer_title_marker": "Tiêu đề node mang dấu ARCREEL:",
+    "val_ce_infer_external_node_family": "Node tham số của {family}, khai báo tham số {parameter}",
+    "val_ce_infer_sampler_port_trace": "Truy ngược từ cổng điều kiện {port} của node {node}",
+    "val_ce_infer_alias_with_class_type": "{class_type} thường mang ngữ nghĩa này",
+    "val_ce_infer_alias_only": "Tên đầu vào {input} là cách gọi phổ biến của ngữ nghĩa này",
+    "val_ce_infer_link_trace": "Đầu ra của nó nối vào đầu vào {input} của node {consumer}",
+    "val_ce_infer_class_type_tier": "{class_type} đáng tin hơn trong các ứng viên cùng loại",
+    "val_ce_infer_output_chain": "Nó nằm trên chuỗi tạo ra sản phẩm cuối",
+    "val_ce_infer_title_polarity": "Tiêu đề node “{title}” chỉ tới cực này",
+    "val_ce_infer_note_reference_consumer_unknown": (
+        "Ảnh tham chiếu nối vào đầu vào {input} của node {node} ({class_type}); đầu vào này không sửa được "
+        "khi số ảnh giảm, nên ảnh cuối sẽ được lặp lại để lấp đầy"
+    ),
+    "val_ce_infer_note_batch_size_above_one": (
+        "Đầu vào {input} của node {node} ({class_type}) là {value}, mỗi lần gửi sẽ ra nhiều ảnh; "
+        "ArcReel không thay đổi giá trị này"
+    ),
+    "val_ce_infer_note_manual_only_node": (
+        "Node {node} là {class_type}; không suy luận được {binding_keys} mà nó mang, hãy liên kết thủ công"
+    ),
+    "val_ce_infer_note_computed_source": (
+        "Ứng viên {binding_key} rơi vào đầu vào {input} của node {node}, nhưng giá trị do node tính toán "
+        "phía trên sinh ra và không ghi được; hãy chỉ định thủ công"
+    ),
+    "val_ce_infer_note_rematched": "Các mục {binding_key} đã được khớp lại sang node {nodes}",
+    "val_ce_infer_note_binding_lost": (
+        "Các mục {binding_key} không còn đích trong workflow mới (trước đây là node {nodes}); "
+        "đã chạy lại suy luận, hãy xác nhận"
+    ),
     "val_ce_poll_without_task_id": "Yêu cầu hỏi trạng thái không tham chiếu task_id; hãy xác nhận đây là chủ ý",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} dùng ký tự đại diện: với đối tượng chỉ lấy thành viên đầu tiên, "

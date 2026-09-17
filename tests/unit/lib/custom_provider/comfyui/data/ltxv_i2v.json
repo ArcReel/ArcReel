@@ -1,0 +1,209 @@
+{
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "海浪拍打礁石",
+      "clip": [
+        "44",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "low quality, worst quality",
+      "clip": [
+        "44",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "44": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "t5xxl_fp16.safetensors",
+      "type": "ltxv"
+    }
+  },
+  "45": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ltx-video-2b-v0.9.5.safetensors"
+    }
+  },
+  "78": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "shore.png",
+      "upload": "image"
+    },
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "79": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "upscale_method": "lanczos",
+      "width": 768,
+      "height": 512,
+      "crop": "disabled",
+      "image": [
+        "78",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Upscale Image"
+    }
+  },
+  "77": {
+    "class_type": "LTXVImgToVideo",
+    "inputs": {
+      "width": 768,
+      "height": 512,
+      "length": 97,
+      "batch_size": 1,
+      "strength": 0.15,
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "vae": [
+        "45",
+        2
+      ],
+      "image": [
+        "79",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "LTXVImgToVideo"
+    }
+  },
+  "69": {
+    "class_type": "LTXVConditioning",
+    "inputs": {
+      "frame_rate": 25.0,
+      "positive": [
+        "77",
+        0
+      ],
+      "negative": [
+        "77",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "LTXVConditioning"
+    }
+  },
+  "72": {
+    "class_type": "SamplerCustom",
+    "inputs": {
+      "add_noise": true,
+      "noise_seed": 42,
+      "cfg": 3.0,
+      "model": [
+        "45",
+        0
+      ],
+      "positive": [
+        "69",
+        0
+      ],
+      "negative": [
+        "69",
+        1
+      ],
+      "sampler": [
+        "73",
+        0
+      ],
+      "sigmas": [
+        "71",
+        0
+      ],
+      "latent_image": [
+        "77",
+        2
+      ]
+    },
+    "_meta": {
+      "title": "SamplerCustom"
+    }
+  },
+  "71": {
+    "class_type": "LTXVScheduler",
+    "inputs": {
+      "steps": 30,
+      "max_shift": 2.05,
+      "base_shift": 0.95,
+      "stretch": true,
+      "terminal": 0.1,
+      "latent": [
+        "77",
+        2
+      ]
+    }
+  },
+  "73": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "72",
+        0
+      ],
+      "vae": [
+        "45",
+        2
+      ]
+    }
+  },
+  "57": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 24,
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "58": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "video/ltxv",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "57",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Save Video"
+    }
+  }
+}

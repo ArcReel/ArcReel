@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arcreel.dev/schemas/comfyui-inference-rules/1.0.0.json",
+  "title": "ArcReel ComfyUI 节点绑定推断规则表",
+  "description": "推断一份 workflow 的节点绑定时用到的全部节点知识：input 名别名、原生 class_type 白名单与其条件规则、步长、可选入口、合并节点、外部约定节点族、产物候选顺序、音轨判定。按媒体类型各存一份，内容是数据不是代码——ComfyUI 生态的节点清单长期漂移，改一行 JSON 不该动一行 Python。",
+  "type": "object",
+  "required": ["media_type", "semantic_keys", "output_candidates", "steps", "constant_nodes"],
+  "additionalProperties": false,
+  "properties": {
+    "media_type": {
+      "description": "这份规则表服务的媒体类型，与端点定义的 media_type 同值。",
+      "enum": ["image", "video"]
+    },
+    "semantic_keys": {
+      "description": "语义键 → 认出它的字段级线索。键集是该媒体类型的语义键白名单的子集。",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/semanticKeyRules" }
+    },
+    "image_loaders": {
+      "description": "承载图像文件名的读图节点：图像类语义真正可写的落点只有这里，上游没有别的字面值字段。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/nodeInput" }
+    },
+    "consumer_ports": {
+      "description": "图像类语义键 → 读图节点的输出接到哪些下游入口才算这一项。`image` 这个名字按承载节点区分语义，故条目可带 class_types 限定。",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/consumerPort" }
+      }
+    },
+    "sampler_ports": {
+      "description": "采样器上具名条件端口 → 语义键。反溯从这里起步。",
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "conditioning_slots": {
+      "description": "模型条件节点的输出序号 → 语义键。0 号是 positive、1 号是 negative 是 ComfyUI 主仓的稳定约定。",
+      "type": "object",
+      "propertyNames": { "pattern": "^[0-9]+$" },
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "conditioning_pass_through": {
+      "description": "把正负条件原样透传的中间节点：反溯要能穿过它们才够得到文本节点。",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "output_candidates": {
+      "description": "产物节点候选，按数组顺序从高到低排优先级。",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/outputCandidate" }
+    },
+    "excluded_output_class_types": {
+      "description": "永不作为产物的节点：它们不落盘，只在 ComfyUI 界面上做预览。",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "class_type_tiers": {
+      "description": "语义键 → 承载节点的优先级分档，靠前的档位更可信。尺寸用它区分模型条件节点、空 latent 节点与缩放节点。",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "maxItems": 4,
+        "items": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "steps": {
+      "description": "步长预填：语义键 → (class_type → 步长)，另有该键的兜底值。不在提交时打 /object_info。",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/stepRules" }
+    },
+    "constant_nodes": {
+      "description": "常量节点 class_type → 它持有值的入口名。字段值是连线时沿上游找到这里就算有落点。",
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "optional_inputs": {
+      "description": "可选入口：参考图张数少于格子数时，摘掉这个键即可，不必改图。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/nodeInput" }
+    },
+    "merge_nodes": {
+      "description": "两两合并节点：少一张图时对该级做 bypass，把它的消费者重接到剩下的那个输入。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/mergeNode" }
+    },
+    "external_families": {
+      "description": "外部参数化约定的节点族。只按 class_type 前缀识别、按各家的载体读出参数名，不做完整兼容。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/externalFamily" }
+    },
+    "audio_track_sources": {
+      "description": "音轨判定：产物节点（或其上游的成片节点）的音频入口有连线即该 workflow 出带音轨的成片。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/audioTrackSource" }
+    },
+    "seed_gates": {
+      "description": "种子闸门：同一张图里多个采样器时，只有闸门字段取到 enabled_value 的那个真正吃种子。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/seedGate" }
+    },
+    "batch_size_inputs": {
+      "description": "批量字段：取值大于 1 时一次提交会出多张图，导入时提示、不改图。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/nodeInput" }
+    },
+    "manual_only_class_types": {
+      "description": "已知推断不出、只能手动绑的节点形态：出现即给一条提示。",
+      "type": "array",
+      "items": { "$ref": "#/$defs/manualOnlyNode" }
+    }
+  },
+  "$defs": {
+    "semanticKeyRules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input_names": {
+          "description": "该语义键的 input 名别名。命中即算一次线索，与白名单联合命中时线索更强。",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "class_types": {
+          "description": "承载该语义键的原生节点白名单。",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "input_name_class_types": {
+          "description": "条件规则：某个 input 名只在这些 class_type 上才算本键。一个名字在不同节点上意思不同时用它收窄。",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "title_keywords": {
+          "description": "标题里的次级线索，大小写不敏感的子串匹配。只打破同分并列，压不过任何一级信号。",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "nodeInput": {
+      "type": "object",
+      "required": ["class_type", "input"],
+      "additionalProperties": false,
+      "properties": {
+        "class_type": { "type": "string", "minLength": 1 },
+        "input": { "type": "string", "minLength": 1 }
+      }
+    },
+    "consumerPort": {
+      "type": "object",
+      "required": ["input"],
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "string", "minLength": 1 },
+        "class_types": {
+          "description": "限定这个入口名只在这些节点上算数；缺省即不限定。",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "outputCandidate": {
+      "type": "object",
+      "required": ["class_type"],
+      "additionalProperties": false,
+      "properties": {
+        "class_type": { "type": "string", "minLength": 1 },
+        "requires_true": {
+          "description": "该入口取 false 时此节点只预览不落盘，不进候选。",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "stepRules": {
+      "type": "object",
+      "required": ["default"],
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "description": "白名单外的承载节点用这个步长。",
+          "type": "integer",
+          "minimum": 1
+        },
+        "by_class_type": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "mergeNode": {
+      "type": "object",
+      "required": ["class_type", "inputs"],
+      "additionalProperties": false,
+      "properties": {
+        "class_type": { "type": "string", "minLength": 1 },
+        "inputs": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "externalFamily": {
+      "type": "object",
+      "required": ["name", "prefix", "parameter_from"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "节点族的来源名，进提示文案。",
+          "type": "string",
+          "minLength": 1
+        },
+        "prefix": {
+          "description": "class_type 前缀。各家自己的节点清单都不完整，按前缀认而不是枚举。",
+          "type": "string",
+          "minLength": 1
+        },
+        "parameter_from": {
+          "description": "参数名的载体：某个 input 的值，或节点标题。",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["input"],
+              "additionalProperties": false,
+              "properties": { "input": { "type": "string", "minLength": 1 } }
+            },
+            {
+              "type": "object",
+              "required": ["title"],
+              "additionalProperties": false,
+              "properties": { "title": { "const": true } }
+            }
+          ]
+        },
+        "ignored_inputs": {
+          "description": "承载参数名本身的字段，不作为可绑落点。",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "audioTrackSource": {
+      "type": "object",
+      "required": ["class_type", "audio_input"],
+      "additionalProperties": false,
+      "properties": {
+        "class_type": { "type": "string", "minLength": 1 },
+        "audio_input": { "type": "string", "minLength": 1 },
+        "through": {
+          "description": "音频入口不在产物节点自身上时，先沿这个入口走到上游的成片节点。",
+          "type": "object",
+          "required": ["input", "class_types"],
+          "additionalProperties": false,
+          "properties": {
+            "input": { "type": "string", "minLength": 1 },
+            "class_types": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "seedGate": {
+      "type": "object",
+      "required": ["class_type", "input", "enabled_value"],
+      "additionalProperties": false,
+      "properties": {
+        "class_type": { "type": "string", "minLength": 1 },
+        "input": { "type": "string", "minLength": 1 },
+        "enabled_value": { "type": "string", "minLength": 1 }
+      }
+    },
+    "manualOnlyNode": {
+      "type": "object",
+      "required": ["class_type", "binding_keys"],
+      "additionalProperties": false,
+      "properties": {
+        "class_type": { "type": "string", "minLength": 1 },
+        "binding_keys": {
+          "description": "这个节点形态下推断不出的语义键。",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "blocked_inputs": {
+          "description": "这个节点上收图、但收的不是参考图的入口：流向它的读图节点不进图像类候选。",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

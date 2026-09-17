@@ -40,7 +40,7 @@ from lib.db.base import dt_to_iso
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository, EndpointReference
 from lib.i18n import Translator
-from server.routers import endpoint_tests
+from server.routers import comfyui_inference, endpoint_tests
 from server.routers._market_installations import (
     EndpointInstallationResponse,
     endpoint_installation,
@@ -52,9 +52,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/custom-endpoints", tags=["Custom Endpoints"])
 
-# 端点测试的路由必须先于本模块的 ``/{endpoint_id}`` 注册：FastAPI 按注册序匹配，路径参数解析
-# 失败不会往后回退——``/custom-endpoints/trial-runs`` 撞上 ``endpoint_id: int`` 只会直接 422。
+# 端点测试与节点绑定推断的路由必须先于本模块的 ``/{endpoint_id}`` 注册：FastAPI 按注册序匹配，
+# 路径参数解析失败不会往后回退——``/custom-endpoints/trial-runs`` 撞上 ``endpoint_id: int`` 只会
+# 直接 422。
 router.include_router(endpoint_tests.router)
+router.include_router(comfyui_inference.router)
 
 #: 请求体即定义 JSON 原样。刻意不声明成 ``dict``：非对象的输入（数组、裸串）也要经共享校验器
 #: 产出定位到字段的诊断，而不是撞上 FastAPI 自己的一套 422 形状。

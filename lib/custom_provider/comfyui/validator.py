@@ -66,13 +66,23 @@ def validate_comfyui_definition(document: Mapping[str, Any]) -> DefinitionDiagno
     结构层有错时不再跑语义层：绑定与 workflow 的交叉检查都以两边形状成立为前提，在残缺结构上
     继续跑只会产出误导性的次生错误。
     """
-    structural = tuple(_structural_issues(document))
-    if structural:
-        return DefinitionDiagnostics(errors=structural)
+    structural = structural_diagnostics(document)
+    if structural.errors:
+        return structural
     return DefinitionDiagnostics(errors=tuple(_semantic_issues(document)))
 
 
-def _structural_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
+def structural_diagnostics(document: object) -> DefinitionDiagnostics:
+    """只跑结构层：字段集、目标四元组的形状、条目可选键落在哪个语义键上。
+
+    节点绑定推断要在「结构立得住、绑定还对不上」的定义上跑——重导入一份改过的 workflow 时，既有
+    条目指向的节点大半已不存在，那正是重匹配要处理的输入，不是拒绝它的理由。语义层在那种定义上
+    只会报一串注定为真的错误。
+    """
+    return DefinitionDiagnostics(errors=tuple(_structural_issues(document)))
+
+
+def _structural_issues(document: Any) -> Iterator[DefinitionIssue]:
     for error in _schema_validator().iter_errors(document):
         yield from translate_schema_error(most_specific(error), removed_fields=REMOVED_FIELD_REASONS)
 

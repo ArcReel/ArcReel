@@ -355,6 +355,37 @@ MESSAGES = {
     "val_ce_comfyui_ui_format_workflow": (
         "This is a ComfyUI UI-format workflow and cannot be submitted; export it with Export (API) in ComfyUI instead"
     ),
+    # ---- ComfyUI endpoint: node binding inference signals and hints ----
+    "val_ce_infer_manual_binding": "A saved node binding; the target the user already confirmed is kept",
+    "val_ce_infer_title_marker": "The node title carries an ARCREEL: marker",
+    "val_ce_infer_external_node_family": "A {family} parameter node declaring the parameter {parameter}",
+    "val_ce_infer_sampler_port_trace": "Traced back from the {port} conditioning port of node {node}",
+    "val_ce_infer_alias_with_class_type": "{class_type} commonly carries this semantic",
+    "val_ce_infer_alias_only": "The input name {input} is a common name for this semantic",
+    "val_ce_infer_link_trace": "Its output feeds input {input} of node {consumer}",
+    "val_ce_infer_class_type_tier": "{class_type} is the more reliable carrier among the candidates",
+    "val_ce_infer_output_chain": "It sits on the chain that produces the final output",
+    "val_ce_infer_title_polarity": "The node title \u201c{title}\u201d points at this polarity",
+    "val_ce_infer_note_reference_consumer_unknown": (
+        "Reference images feed input {input} of node {node} ({class_type}); that input cannot be rewired when "
+        "fewer images are supplied, so the last image is repeated to fill the remaining slots"
+    ),
+    "val_ce_infer_note_batch_size_above_one": (
+        "Input {input} of node {node} ({class_type}) is {value}, so one submission yields several images; "
+        "ArcReel does not change this value"
+    ),
+    "val_ce_infer_note_manual_only_node": (
+        "Node {node} is a {class_type}; the {binding_keys} it carries cannot be inferred, so bind them by hand"
+    ),
+    "val_ce_infer_note_computed_source": (
+        "The {binding_key} candidate lands on input {input} of node {node}, but its value is computed upstream "
+        "and cannot be written; specify it by hand"
+    ),
+    "val_ce_infer_note_rematched": "The {binding_key} entries were rematched to node {nodes}",
+    "val_ce_infer_note_binding_lost": (
+        "The {binding_key} entries have no target in the new workflow (previously node {nodes}); "
+        "inference was re-run, please confirm"
+    ),
     "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} uses a wildcard: an object wildcard takes the first member only, "

@@ -258,6 +258,32 @@ MESSAGES = {
     "val_ce_comfyui_input_not_found": "节点 {node} 没有名为 {input} 的输入",
     "val_ce_comfyui_input_is_link": "节点 {node} 的 {input} 接的是上游连线，填进去的值运行时会被上游覆盖：请绑到字面值字段",
     "val_ce_comfyui_ui_format_workflow": "这是 ComfyUI 的 UI 格式 workflow，提交不了：请在 ComfyUI 里改用「Export (API)」导出",
+    # ---- ComfyUI 端点 · 节点绑定推断的信号说明与提示 ----
+    "val_ce_infer_manual_binding": "已保存的节点绑定，沿用用户确认过的落点",
+    "val_ce_infer_title_marker": "节点标题带 ARCREEL: 标记，按标记认定",
+    "val_ce_infer_external_node_family": "{family} 的参数化节点，声明的参数名是 {parameter}",
+    "val_ce_infer_sampler_port_trace": "从节点 {node} 的 {port} 条件端口反溯到这里",
+    "val_ce_infer_alias_with_class_type": "{class_type} 是这项语义的常见承载节点",
+    "val_ce_infer_alias_only": "字段名 {input} 是这项语义的常见叫法",
+    "val_ce_infer_link_trace": "它的输出接到节点 {consumer} 的 {input} 入口",
+    "val_ce_infer_class_type_tier": "{class_type} 在同类候选里更可信",
+    "val_ce_infer_output_chain": "它在最终产物那条链路上",
+    "val_ce_infer_title_polarity": "节点标题「{title}」指向这一极",
+    "val_ce_infer_note_reference_consumer_unknown": (
+        "参考图接进节点 {node}（{class_type}）的 {input} 入口，这种入口在张数变少时改不动图："
+        "实际张数少于格子数时会重复填充最后一张"
+    ),
+    "val_ce_infer_note_batch_size_above_one": (
+        "节点 {node}（{class_type}）的 {input} 是 {value}，一次提交会出多张图；ArcReel 不改这个值"
+    ),
+    "val_ce_infer_note_manual_only_node": "节点 {node} 是 {class_type}，它承载的 {binding_keys} 推断不出来，请手动绑定",
+    "val_ce_infer_note_computed_source": (
+        "{binding_key} 的候选落在节点 {node} 的 {input} 上，但它的值由上游计算节点算出、写不进去，请手动指定"
+    ),
+    "val_ce_infer_note_rematched": "{binding_key} 的条目已重匹配到新节点 {nodes}",
+    "val_ce_infer_note_binding_lost": (
+        "{binding_key} 的条目在新 workflow 里找不到落点（原节点 {nodes}），已重跑推断，请确认"
+    ),
     "val_ce_poll_without_task_id": "轮询请求没有引用 task_id，请确认这是有意的",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} 含通配：对象通配只取首个，键序在前端预览与后端执行之间可能不同"
