@@ -27,6 +27,7 @@ import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
 import { UtteranceListEditor } from "./UtteranceListEditor";
+import { SourceTextReadonly } from "@/components/shared/SourceTextReadonly";
 import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
 import { EndFrameRow } from "./EndFrameRow";
@@ -127,6 +128,8 @@ interface DraftState {
   section?: string;
   /** 仅剧情演绎：分镜级有序发声序列草稿（台词 + 画外音） */
   utterances?: Utterance[];
+  /** 仅旁白/解说：旁白正文草稿 */
+  novel_text?: string;
 }
 
 // 字段集合稳定（ImagePrompt/VideoPrompt/string），JSON.stringify 即可作等值签名：
@@ -148,31 +151,40 @@ const canonicalUtterance = (u: Utterance): Utterance =>
 
 const utterancesSig = (list: Utterance[]): string => stableSig(list.map(canonicalUtterance));
 
+/** 草稿各字段的上游已保存值，连同决定草稿形状的内容类型。 */
+interface UpstreamContent {
+  ip: ImagePromptValue;
+  vp: VideoPromptValue;
+  isAd: boolean;
+  voiceover: string;
+  section: string;
+  isDrama: boolean;
+  utterances: Utterance[];
+  isNarration: boolean;
+  novelText: string;
+}
+
+type DraftShape = Pick<UpstreamContent, "isAd" | "isDrama" | "isNarration">;
+
 /** 由上游值构造干净草稿（useState 初始化 / 上游静默跟随 / 取消编辑三处共用）。 */
-function baselineDraft(
-  ip: ImagePromptValue,
-  vp: VideoPromptValue,
-  isAd: boolean,
-  voiceover: string,
-  section: string,
-  isDrama: boolean,
-  utterances: Utterance[],
-): DraftState {
+function baselineDraft(upstream: UpstreamContent): DraftState {
   return {
-    image_prompt: ip,
-    video_prompt: vp,
-    ...(isAd ? { voiceover_text: voiceover, section } : {}),
-    ...(isDrama ? { utterances } : {}),
+    image_prompt: upstream.ip,
+    video_prompt: upstream.vp,
+    ...(upstream.isAd ? { voiceover_text: upstream.voiceover, section: upstream.section } : {}),
+    ...(upstream.isDrama ? { utterances: upstream.utterances } : {}),
+    ...(upstream.isNarration ? { novel_text: upstream.novelText } : {}),
   };
 }
 
 /** 草稿等值签名：与上游基线签名同键形状（漂移会让"干净草稿静默跟随上游"失效）。 */
-function draftSig(d: DraftState, isAd: boolean, isDrama: boolean): string {
+function draftSig(d: DraftState, shape: DraftShape): string {
   return stableSig({
     ip: d.image_prompt,
     vp: d.video_prompt,
-    ...(isAd ? { voiceover_text: d.voiceover_text ?? "", section: d.section ?? "" } : {}),
-    ...(isDrama ? { utterances: (d.utterances ?? EMPTY_UTTERANCES).map(canonicalUtterance) } : {}),
+    ...(shape.isAd ? { voiceover_text: d.voiceover_text ?? "", section: d.section ?? "" } : {}),
+    ...(shape.isDrama ? { utterances: (d.utterances ?? EMPTY_UTTERANCES).map(canonicalUtterance) } : {}),
+    ...(shape.isNarration ? { novel_text: d.novel_text ?? "" } : {}),
   });
 }
 
@@ -477,13 +489,27 @@ export function ShotDetail({
   const dramaScene = isDrama ? (segment as DramaScene) : null;
   // drama 分镜级发声序列；缺省字段按无发声处理。
   const upstreamUtterances = dramaScene?.utterances ?? EMPTY_UTTERANCES;
+  const isNarration = contentMode === "narration";
+  const upstreamNovelText = isNarration ? (segment as NarrationSegment).novel_text ?? "" : "";
+  const upstreamContent = useMemo<UpstreamContent>(
+    () => ({
+      ip,
+      vp,
+      isAd,
+      voiceover: upstreamVoiceover,
+      section: upstreamSection,
+      isDrama,
+      utterances: upstreamUtterances,
+      isNarration,
+      novelText: upstreamNovelText,
+    }),
+    [ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances, isNarration, upstreamNovelText],
+  );
 
   // 草稿：本地编辑直到用户点击 Save。父级 ShotSplitView 通过 key={segmentId}
   // 在切分镜时硬重置整个组件，所以这里只需处理"上游同字段静默更新"的情况。
   // 备注不进入草稿，由 NotesDrawer 收起时直接落库。
-  const [draft, setDraft] = useState<DraftState>(() =>
-    baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances),
-  );
+  const [draft, setDraft] = useState<DraftState>(() => baselineDraft(upstreamContent));
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
   const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
@@ -557,15 +583,7 @@ export function ShotDetail({
     }
   };
 
-  const upstreamSig = useMemo(
-    () =>
-      draftSig(
-        baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances),
-        isAd,
-        isDrama,
-      ),
-    [isAd, ip, vp, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances],
-  );
+  const upstreamSig = useMemo(() => draftSig(baselineDraft(upstreamContent), upstreamContent), [upstreamContent]);
   // 上游发声序列签名单独记忆化：dirtyPatch 随每次 keystroke 重算，
   // 但上游极少变，避免逐键重复序列化整个 upstreamUtterances。
   const upstreamUtterancesSig = useMemo(() => utterancesSig(upstreamUtterances), [upstreamUtterances]);
@@ -574,8 +592,8 @@ export function ShotDetail({
   // 免去 useEffect 的额外渲染周期与依赖项管理。draft 直接读当前渲染值，无需 ref 镜像。
   const [syncedUpstreamSig, setSyncedUpstreamSig] = useState(upstreamSig);
   if (syncedUpstreamSig !== upstreamSig) {
-    if (draftSig(draft, isAd, isDrama) === syncedUpstreamSig) {
-      setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances));
+    if (draftSig(draft, upstreamContent) === syncedUpstreamSig) {
+      setDraft(baselineDraft(upstreamContent));
     }
     setSyncedUpstreamSig(upstreamSig);
   }
@@ -607,8 +625,21 @@ export function ShotDetail({
       if (draftUtterances !== upstreamUtterances && utterancesSig(draftUtterances) !== upstreamUtterancesSig)
         patch.utterances = draftUtterances;
     }
+    if (isNarration && (draft.novel_text ?? "") !== upstreamNovelText) patch.novel_text = draft.novel_text ?? "";
     return patch;
-  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances, upstreamUtterancesSig]);
+  }, [
+    draft,
+    ip,
+    vp,
+    isAd,
+    upstreamVoiceover,
+    upstreamSection,
+    isDrama,
+    upstreamUtterances,
+    upstreamUtterancesSig,
+    isNarration,
+    upstreamNovelText,
+  ]);
 
   const dirty = Object.keys(dirtyPatch).length > 0;
 
@@ -760,7 +791,7 @@ export function ShotDetail({
 
   const handleCancel = () => {
     if (saving) return;
-    setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances));
+    setDraft(baselineDraft(upstreamContent));
   };
 
   const sbEstimate = segCost?.estimate?.image;
@@ -936,7 +967,36 @@ export function ShotDetail({
         </div>
       )}
 
-      {(hasNarrationText || contentMode === "narration") && (
+      {isNarration && (
+        <div>
+          <div className="mb-2 flex items-center gap-1.5">
+            <label
+              htmlFor={`shot-narration-text-${segmentId}`}
+              className="text-[10.5px] font-bold uppercase"
+              style={sectionHeaderStyle}
+            >
+              {t("detail_section_narration_text")}
+            </label>
+            <span className="flex-1" />
+            <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+              {t("detail_field_chars_count", { count: (draft.novel_text ?? "").length })}
+            </span>
+          </div>
+          <textarea
+            id={`shot-narration-text-${segmentId}`}
+            className="prompt-ta display-serif"
+            value={draft.novel_text ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, novel_text: e.target.value }))}
+            readOnly={refsReadOnly}
+            placeholder={t("detail_narration_text_placeholder")}
+            style={{ minHeight: 120, lineHeight: 1.65 }}
+          />
+        </div>
+      )}
+
+      {isDrama && <SourceTextReadonly text={dramaScene?.source_text} />}
+
+      {isAd && hasNarrationText && (
         <div>
           <div
             className="mb-2 text-[10.5px] font-bold uppercase"
@@ -961,7 +1021,7 @@ export function ShotDetail({
               className="display-serif m-0 text-[13px]"
               style={{ lineHeight: 1.65, color: "var(--color-text)" }}
             >
-              {hasNarrationText ? narrationText.trim() : t("no_original_text")}
+              {narrationText.trim()}
             </p>
           </div>
         </div>

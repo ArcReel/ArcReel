@@ -1742,7 +1742,7 @@ class API {
 
   /**
    * 旁白/解说分镜 PATCH（剧情演绎分镜走 {@link API.updateScene}）。`updates` 必带
-   * `script_file`，其余为可选白名单字段：`duration_seconds`、`segment_break`、
+   * `script_file`，其余为可选白名单字段：`duration_seconds`、`segment_break`、`novel_text`、
    * `image_prompt`、`video_prompt`、`transition_to_next`、`note`、
    * `characters_in_segment`、`scenes`、`props`。字段清单以后端为准，
    * mirrors server/routers/projects.py UpdateSegmentRequest。

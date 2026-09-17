@@ -27,7 +27,9 @@ from lib.artifact_manifest import (
 )
 from lib.content_digest import prefixed
 from lib.data_validator import DataValidator
-from lib.episode_paths import episode_script_filename
+from lib.episode_ledger import discover_sources, normalize_source_text
+from lib.episode_paths import episode_script_filename, episode_source_relpath
+from lib.path_safety import try_safe_join
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -35,6 +37,7 @@ from lib.project_migration_failure import (
     ProjectMigrationError,
     load_migration_verdict,
 )
+from lib.reference_video.draft_validation import is_verbatim_source_anchor
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.script_models import PENDING_AUTHORING_FIELD
 from lib.script_review import content_fingerprint_of_data
@@ -396,6 +399,25 @@ class ScriptBatchEditor:
                     )
 
                 project_dir = self._pm.get_project_path(project_name)
+                source_text_problems = _source_text_problems(
+                    project_dir,
+                    episode_number,
+                    original,
+                    candidate,
+                    command.operations,
+                )
+                if source_text_problems:
+                    raise _AbortEdit(
+                        ScriptBatchEditResult(
+                            success=False,
+                            script=resolved_script,
+                            episode=episode_number,
+                            before_revision=before_revision,
+                            revision=before_revision,
+                            affected_ids=(),
+                            problems=source_text_problems,
+                        )
+                    )
                 reference_validation = DataValidator(self._pm.projects_root).validate_episode_payload(
                     project_dir,
                     project,
@@ -699,6 +721,76 @@ def _apply_operation(
     before = _admission_for(script, operation.id)
     removed_items[operation.id] = copy.deepcopy(items.pop(index))
     return operation.id, before, None
+
+
+def _source_text_problems(
+    project_dir: Path,
+    episode: int | None,
+    original: dict[str, Any],
+    candidate: dict[str, Any],
+    operations: list[ScriptBatchOperation],
+) -> tuple[ScriptBatchEditProblem, ...]:
+    """本次写入的对应原文须是本集源文的逐字子串，与参考生视频拆分工具同一判定口径。
+
+    只查新增或改动过的非空 ``source_text``：未动的条目即使源文后来变了也不拦无关编辑，清空
+    对应原文始终允许。比对源文见 :func:`_anchor_sources`；项目没有源文时不校验。
+    """
+    items, id_field, kind = resolve_items(candidate)
+    original_items, original_id_field, _original_kind = resolve_items(original)
+    previous = {
+        item.get(original_id_field): item.get("source_text")
+        for item in original_items
+        if isinstance(item, dict) and isinstance(item.get(original_id_field), str)
+    }
+    written: list[tuple[int, str, str]] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get(id_field)
+        source_text = item.get("source_text")
+        if not isinstance(item_id, str) or not isinstance(source_text, str) or not source_text.strip():
+            continue
+        if item_id in previous and previous[item_id] == source_text:
+            continue
+        written.append((index, item_id, source_text))
+    if not written:
+        return ()
+    sources = _anchor_sources(project_dir, episode)
+    problems: list[ScriptBatchEditProblem] = []
+    for index, item_id, source_text in written:
+        if not sources or any(is_verbatim_source_anchor(source_text, source) for source in sources):
+            continue
+        path: tuple[str | int, ...] = (kind, index, "source_text")
+        problems.append(
+            ScriptBatchEditProblem(
+                code="source_text_not_verbatim",
+                operation_index=_responsible_operation(item_id, path, operations),
+                unit_id=item_id,
+                locations=(ScriptBatchEditLocation(path=path),),
+                reason="source_text_not_verbatim",
+                next_action="fix_operation",
+            )
+        )
+    return tuple(problems)
+
+
+def _anchor_sources(project_dir: Path, episode: int | None) -> list[str]:
+    """对应原文的比对源文。
+
+    本集派生源文 ``source/episode_N.txt`` 可读且非空时只认它，与拆分工具生成对应原文时读的
+    是同一份；缺失或集号未知时回落到项目源文（命中任一份即可），项目也没有源文时返回空列表。
+    """
+    episode_source = (
+        None if episode is None else try_safe_join(project_dir, episode_source_relpath(episode), require_file=True)
+    )
+    if episode_source is not None:
+        try:
+            text = normalize_source_text(episode_source.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        if text.strip():
+            return [text]
+    return [doc.text for doc in discover_sources(project_dir)]
 
 
 def _admissions(script: dict[str, Any]) -> dict[str, SpeechAdmission]:

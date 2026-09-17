@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import type { DramaScene, Utterance } from "@/types";
@@ -149,5 +149,20 @@ describe("ShotDetail 剧情演绎", () => {
 
     expect(container.querySelector('audio[src*="audio/segment_E1S01.wav"]')).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /重新生成旁白配音|Regenerate narration audio/ })).toBeDisabled();
+  });
+
+  it("对应原文只读展示：可编辑模式下也没有编辑控件", () => {
+    render(detailElement(makeScene({ source_text: "三年后，阿离推门而入。" }), { onUpdatePrompt: vi.fn() }));
+
+    const region = screen.getByRole("region", { name: "对应原文" });
+    expect(within(region).getByText("三年后，阿离推门而入。")).toBeInTheDocument();
+    expect(within(region).queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("手动新增的分镜没有对应原文时显示空态", () => {
+    render(detailElement(makeScene({ source_text: undefined })));
+
+    const region = screen.getByRole("region", { name: "对应原文" });
+    expect(within(region).getByText("（无对应原文）")).toBeInTheDocument();
   });
 });

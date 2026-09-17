@@ -997,3 +997,152 @@ def test_structural_edit_preserves_existing_paid_media(
         "video_clip": "videos/E1S01.mp4",
         "status": "completed",
     }
+
+
+def _reference_project(tmp_path: Path, *, sources: dict[str, str]) -> tuple[ProjectManager, ScriptBatchEditor]:
+    pm = ProjectManager(str(tmp_path))
+    pm.create_project("demo", content_mode="narration")
+    pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    pm.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
+    pm.save_script(
+        "demo",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "video_units": [
+                {
+                    "unit_id": "E1U1",
+                    "text": "风吹过旷野。",
+                    "duration_seconds": 8,
+                    "source_text": "风吹过旷野。",
+                    "generated_assets": {},
+                }
+            ],
+        },
+        "episode_1.json",
+    )
+    source_dir = pm.get_project_path("demo") / "source"
+    for filename, text in sources.items():
+        source_dir.mkdir(parents=True, exist_ok=True)
+        (source_dir / filename).write_text(text, encoding="utf-8")
+    return pm, ScriptBatchEditor(pm)
+
+
+def test_source_text_that_is_a_verbatim_source_substring_is_saved(tmp_path: Path) -> None:
+    pm, service = _reference_project(
+        tmp_path, sources={"episode_1.txt": "第一章\n夜里，风吹过旷野。\n他停下脚步，\n回头看了一眼。"}
+    )
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"source_text": "他停下脚步， 回头看了一眼。"}}]),
+    )
+
+    assert result.success is True
+    saved = pm.load_script("demo", "episode_1.json")["video_units"][0]
+    assert saved["source_text"] == "他停下脚步， 回头看了一眼。"
+
+
+def test_source_text_not_in_source_is_rejected_with_its_location(tmp_path: Path) -> None:
+    pm, service = _reference_project(tmp_path, sources={"episode_1.txt": "夜里，风吹过旷野。"})
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    before = script_path.read_bytes()
+
+    result = service.execute(
+        "demo",
+        _command(
+            pm,
+            [
+                {"op": "update", "id": "E1U1", "fields": {"note": "备注"}},
+                {"op": "update", "id": "E1U1", "fields": {"source_text": "夜里，风轻轻吹过旷野。"}},
+            ],
+        ),
+    )
+
+    assert result.success is False
+    problem = result.problems[0]
+    assert problem.code == "source_text_not_verbatim"
+    assert problem.operation_index == 1
+    assert problem.unit_id == "E1U1"
+    assert problem.locations[0].path == ("video_units", 0, "source_text")
+    assert problem.next_action == "fix_operation"
+    assert script_path.read_bytes() == before
+
+
+def test_inserted_item_source_text_is_checked_against_the_source(tmp_path: Path) -> None:
+    pm, service = _reference_project(tmp_path, sources={"episode_1.txt": "夜里，风吹过旷野。"})
+    item = {"unit_id": "E1U2", "text": "旷野无人。", "duration_seconds": 8, "source_text": "杜撰的原文"}
+
+    result = service.execute("demo", _command(pm, [{"op": "insert_after", "after_id": "E1U1", "item": item}]))
+
+    assert result.success is False
+    assert result.problems[0].code == "source_text_not_verbatim"
+    assert result.problems[0].operation_index == 0
+    assert result.problems[0].locations[0].path == ("video_units", 1, "source_text")
+
+
+def test_source_text_is_not_checked_when_the_project_has_no_source(tmp_path: Path) -> None:
+    pm, service = _reference_project(tmp_path, sources={})
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"source_text": "任意改写的原文"}}]),
+    )
+
+    assert result.success is True
+    assert pm.load_script("demo", "episode_1.json")["video_units"][0]["source_text"] == "任意改写的原文"
+
+
+def test_unchanged_stale_source_text_does_not_block_other_edits(tmp_path: Path) -> None:
+    pm, service = _reference_project(tmp_path, sources={"episode_1.txt": "源文已被改写。"})
+
+    result = service.execute("demo", _command(pm, [{"op": "update", "id": "E1U1", "fields": {"note": "备注"}}]))
+
+    assert result.success is True
+    assert pm.load_script("demo", "episode_1.json")["video_units"][0]["source_text"] == "风吹过旷野。"
+
+
+def test_clearing_source_text_is_allowed(tmp_path: Path) -> None:
+    pm, service = _reference_project(tmp_path, sources={"episode_1.txt": "夜里，风吹过旷野。"})
+
+    result = service.execute("demo", _command(pm, [{"op": "update", "id": "E1U1", "fields": {"source_text": ""}}]))
+
+    assert result.success is True
+    assert pm.load_script("demo", "episode_1.json")["video_units"][0]["source_text"] == ""
+
+
+def test_source_text_from_another_episode_is_rejected(tmp_path: Path) -> None:
+    pm, service = _reference_project(
+        tmp_path,
+        sources={
+            "novel.txt": "夜里，风吹过旷野。天亮后，他进了城。",
+            "episode_1.txt": "夜里，风吹过旷野。",
+            "episode_2.txt": "天亮后，他进了城。",
+        },
+    )
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"source_text": "天亮后，他进了城。"}}]),
+    )
+
+    assert result.success is False
+    assert result.problems[0].code == "source_text_not_verbatim"
+
+
+def test_source_text_falls_back_to_project_sources_without_an_episode_source(tmp_path: Path) -> None:
+    pm, service = _reference_project(tmp_path, sources={"novel.txt": "夜里，风吹过旷野。天亮后，他进了城。"})
+
+    accepted = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"source_text": "天亮后，他进了城。"}}]),
+    )
+    rejected = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"source_text": "黄昏时，他出了城。"}}]),
+    )
+
+    assert accepted.success is True
+    assert rejected.success is False
+    assert rejected.problems[0].code == "source_text_not_verbatim"

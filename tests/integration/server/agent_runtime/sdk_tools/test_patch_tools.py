@@ -697,6 +697,60 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert _load(ad_ctx)["shots"][1]["voiceover_text"] == "新口播"
 
+    @pytest.mark.parametrize(
+        ("fixture", "items_key", "item_id", "fields"),
+        [
+            ("ctx", "segments", "E1S01", {"novel_text": "改后的旁白"}),
+            (
+                "drama_ctx",
+                "scenes",
+                "E1S01",
+                {"utterances": [{"kind": "dialogue", "speaker": "角色A", "text": "走吧。"}], "source_text": "原文锚"},
+            ),
+            ("ref_ctx", "video_units", "E1U1", {"text": "新正文", "source_text": "原文锚"}),
+        ],
+    )
+    async def test_content_fields_are_patchable(
+        self,
+        request: pytest.FixtureRequest,
+        fixture: str,
+        items_key: str,
+        item_id: str,
+        fields: dict[str, Any],
+    ) -> None:
+        """编写完成后的内容修改在正式脚本上做：旁白正文、台词、单元正文与对应原文都可改。"""
+        tool_ctx: ToolContext = request.getfixturevalue(fixture)
+
+        out = await _patch(tool_ctx, [{"op": "update", "id": item_id, "fields": fields}])
+
+        assert out.get("is_error") is not True
+        saved = _load(tool_ctx)[items_key][0]
+        assert {key: saved[key] for key in fields} == fields
+
+    async def test_source_text_must_be_a_verbatim_source_substring(self, drama_ctx: ToolContext) -> None:
+        source = drama_ctx.pm.get_project_path("demo") / "source" / "episode_1.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("夜里，风吹过旷野。\n他停下脚步。", encoding="utf-8")
+        before = _load(drama_ctx)
+
+        rejected = await _patch(
+            drama_ctx, [{"op": "update", "id": "E1S02", "fields": {"source_text": "他缓缓停下脚步。"}}]
+        )
+
+        assert rejected.get("is_error") is True
+        problem = rejected["script_edit"]["problems"][0]
+        assert problem["code"] == "source_text_not_verbatim"
+        assert (problem["operation_index"], problem["unit_id"]) == (0, "E1S02")
+        assert problem["locations"][0]["path"] == ["scenes", 1, "source_text"]
+        assert _load(drama_ctx) == before
+
+        accepted = await _patch(
+            drama_ctx, [{"op": "update", "id": "E1S02", "fields": {"source_text": "风吹过旷野。 他停下脚步。"}}]
+        )
+
+        assert accepted.get("is_error") is not True
+        assert _load(drama_ctx)["scenes"][1]["source_text"] == "风吹过旷野。 他停下脚步。"
+
 
 class TestPatchEpisodeScriptStructuralOperations:
     async def test_insert_adds_at_position(self, ctx: ToolContext) -> None:

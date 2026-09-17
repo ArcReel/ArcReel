@@ -1291,6 +1291,9 @@ class DataValidator:
             elif not text.strip() and needs_replan is not True:
                 errors.append(_m("val_field_must_be_nonempty_string", field=f"{prefix}: text"))
 
+            if "source_text" in unit and not isinstance(unit["source_text"], str):
+                errors.append(_m("val_field_must_be_string", field=f"{prefix}: source_text"))
+
             low, high = self.VALID_UNIT_DURATION_RANGE
             blank_shell = needs_replan is True and (not isinstance(text, str) or not text.strip())
             valid_duration = False

@@ -5,6 +5,7 @@ import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useUnitPromptHighlight, type Token } from "@/hooks/useUnitPromptHighlight";
 import { buildMentionLookup, characterReferenceForms, MENTION_RE } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
+import { SourceTextReadonly } from "@/components/shared/SourceTextReadonly";
 import {
   SHEET_FIELD,
   type AssetKind,
@@ -349,6 +350,8 @@ export function ReferenceVideoCard({
           />
         )}
       </div>
+
+      <SourceTextReadonly text={unit.source_text} className="mt-3 flex-shrink-0" />
 
       {unknownMentions.length > 0 && (
         <div

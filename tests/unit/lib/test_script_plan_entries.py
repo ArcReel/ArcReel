@@ -480,7 +480,12 @@ class TestPlanEntryContent:
     def test_reference_video_keeps_only_script_fields(self) -> None:
         entry = reference_plan_entry("E1U01", references=[{"name": "主角"}])
         content = plan_entry_content("reference_video", entry)
-        assert content == {"unit_id": "E1U01", "text": entry["text"], "duration_seconds": 4}
+        assert content == {
+            "unit_id": "E1U01",
+            "text": entry["text"],
+            "duration_seconds": 4,
+            "source_text": entry["source_text"],
+        }
 
     def test_unknown_plan_kind_fails_loud(self) -> None:
         with pytest.raises(ScriptPlanEntryError):

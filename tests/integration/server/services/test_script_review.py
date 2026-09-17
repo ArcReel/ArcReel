@@ -92,6 +92,7 @@ def _rv_script_plan() -> dict:
                 "unit_id": "E1U01",
                 "text": "@[阿离] 立于屋檐下，望向雨幕。\n@[裴与] 策马自远方而来。",
                 "duration_seconds": 8,
+                "source_text": "阿离立在檐下看雨，裴与骑马远远而来。",
             }
         ],
     }
@@ -673,6 +674,7 @@ class TestConfirmMaterializesScript:
         assert unit["unit_id"] == "E1U01"
         assert unit["text"] == planned["text"]
         assert unit["duration_seconds"] == planned["duration_seconds"]
+        assert unit["source_text"] == planned["source_text"]
         assert unit["pending_authoring"] is True
 
     async def test_existing_script_without_acknowledgement_is_refused_untouched(self, tmp_path):

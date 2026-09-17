@@ -133,7 +133,8 @@ def patch_episode_script_tool(ctx: ToolContext):
         "按 canonical revision 原子执行有序剧本 operations。支持 update / insert / remove / split；"
         "先在内存形成完整 candidate，再统一校验 schema、项目引用、Artifact Manifest 与 SpeechComposition。"
         "任一问题整批零写入，并返回稳定 code、operation_index、unit/field location 与 next_action。"
-        "不会删除或清空已有付费媒体；修改 prompt 后仍需显式重新生成。",
+        "不会删除或清空已有付费媒体；修改 prompt 后仍需显式重新生成。"
+        "写入对应原文 source_text 时，项目有源文则须是本集源文的逐字片段，否则以 source_text_not_verbatim 拒绝。",
         {
             "type": "object",
             "properties": {

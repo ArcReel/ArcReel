@@ -64,6 +64,12 @@ def _normalize_for_anchor(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
 
 
+def is_verbatim_source_anchor(source_text: str, novel_text: str) -> bool:
+    """``source_text`` 在空白归一后是否为源文的逐字子串（空锚不算命中）。"""
+    anchor = _normalize_for_anchor(source_text)
+    return bool(anchor) and anchor in _normalize_for_anchor(novel_text)
+
+
 def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -> None:
     """校验 ``source_text`` 是源文的逐字子串（空白归一后）。
 
@@ -78,7 +84,7 @@ def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -
             code="source_text_empty",
             label=label,
         )
-    if anchor not in _normalize_for_anchor(novel_text):
+    if not is_verbatim_source_anchor(source_text, novel_text):
         raise DraftViolation(
             f"{label} 的 source_text 不是小说原文的逐字片段（存在改写、翻译或杜撰）："
             f"{source_text.strip()[:40]!r}；请原样复制原文，不要转述",
@@ -353,6 +359,7 @@ __all__ = [
     "assert_dialogue_preserved",
     "collect_violations",
     "dialogue_speakers",
+    "is_verbatim_source_anchor",
     "normative_lines",
     "render_violation_report",
     "validate_dialogue_load",

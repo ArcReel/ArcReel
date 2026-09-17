@@ -1463,6 +1463,7 @@ class UpdateSegmentRequest(BaseModel):
     script_file: str
     duration_seconds: int | None = None
     segment_break: bool | None = None
+    novel_text: str | None = None
     image_prompt: dict | str | None = None
     video_prompt: dict | str | None = None
     transition_to_next: str | None = None
@@ -1516,6 +1517,7 @@ async def update_segment(
             for field in (
                 "duration_seconds",
                 "segment_break",
+                "novel_text",
                 "image_prompt",
                 "video_prompt",
                 "transition_to_next",

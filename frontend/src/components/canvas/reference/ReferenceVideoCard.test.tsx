@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReferenceVideoCard } from "./ReferenceVideoCard";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -81,6 +81,20 @@ describe("ReferenceVideoCard", () => {
     render(<ControlledCard unit={unit} />);
     const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
     expect(ta.value).toBe("line1\nline2");
+  });
+
+  it("shows the unit source text read-only beside the editor", () => {
+    render(<ControlledCard unit={mkUnit({ source_text: "张三推开了门。" })} />);
+
+    const region = screen.getByRole("region", { name: "对应原文" });
+    expect(within(region).getByText("张三推开了门。")).toBeInTheDocument();
+    expect(within(region).queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("shows an empty source text state for manually added units", () => {
+    render(<ControlledCard unit={mkUnit()} />);
+
+    expect(within(screen.getByRole("region", { name: "对应原文" })).getByText("（无对应原文）")).toBeInTheDocument();
   });
 
   it("highlights inline speech marks in the editor overlay", () => {

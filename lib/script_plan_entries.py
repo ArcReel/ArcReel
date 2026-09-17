@@ -132,7 +132,7 @@ PLAN_VARIANTS: dict[str, ScriptPlanVariant] = {
             "source_text",
         ),
         draft_model=ReferenceScriptPlanDraft,
-        script_fields=("unit_id", "text", "duration_seconds"),
+        script_fields=("unit_id", "text", "duration_seconds", "source_text"),
     ),
 }
 
@@ -163,7 +163,7 @@ def plan_entry_content(kind: ScriptPlanKind, entry: Mapping[str, object]) -> dic
     """脚本规划条目 → 剧本条目的内容层（不含视觉层）。
 
     三条路线的视觉合并与机械转换共用这一份投影：drama 剔除只属于规划的 ``scene_description``，
-    narration 整条透传，参考生视频只取 ``unit_id`` / ``text`` / ``duration_seconds``。返回新 dict，
+    narration 整条透传，参考生视频只取 ``unit_id`` / ``text`` / ``duration_seconds`` / ``source_text``。返回新 dict，
     不就地修改入参。
     """
 

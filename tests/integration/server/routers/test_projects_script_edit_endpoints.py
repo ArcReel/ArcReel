@@ -108,6 +108,44 @@ class TestProjectsRouter:
             assert seg2["scenes"] == ["Castle"]
             assert seg2["props"] == []
 
+    def test_update_segment_writes_novel_text(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [
+                {"segment_id": "E1S01", "duration_seconds": 4, "novel_text": "风吹过旷野。", "video_prompt": None}
+            ],
+        }
+        client = build_projects_client(monkeypatch, fake_pm)
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "narration.json", "novel_text": "风停了。"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["segment"]["novel_text"] == "风停了。"
+        assert fake_pm.scripts[("ready", "narration.json")]["segments"][0]["novel_text"] == "风停了。"
+
+    def test_update_scene_ignores_source_text(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [{"scene_id": "001", "duration_seconds": 8, "source_text": "原文。"}],
+        }
+        client = build_projects_client(monkeypatch, fake_pm)
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/script-scenes/001",
+                json={"script_file": "episode_1.json", "updates": {"source_text": "改写的原文", "note": "备注"}},
+            )
+
+        assert response.status_code == 200
+        scene = fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]
+        assert (scene["source_text"], scene["note"]) == ("原文。", "备注")
+
     def test_update_segment_allows_unchanged_legacy_mixed_speech(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         prompt = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
