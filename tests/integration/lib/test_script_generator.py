@@ -8,11 +8,10 @@ from typing import ClassVar, cast
 
 import pytest
 
-import lib.script_review as script_review
 from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
 from lib.project_migrations import CURRENT_SCHEMA_VERSION
-from lib.script_generator import ScriptGenerator, _units_use_references
+from lib.script_generator import PromptAuthoringTargets, ScriptGenerator
 from lib.script_structure_validator import ScriptStructureValidationError
 from lib.speech_composition import SpeechAdmissionError
 from tests.fakes import FakeConfigResolver
@@ -201,8 +200,8 @@ class _FakeTextGenerator:
 
 
 class TestScriptGenerator:
-    async def test_build_prompt_uses_script_plan_content(self, tmp_path):
-        """build_prompt 无需 client 即可使用（dry-run 模式）：narration 渲染结构化 script_plan。"""
+    async def test_build_prompt_renders_pending_formal_segments(self, tmp_path):
+        """build_prompt 无需 client 即可使用（dry-run 模式）：narration 渲染正式剧本里待编写分镜的内容字段。"""
         project_path = tmp_path / "demo"
         _write_project_json(
             project_path,
@@ -217,9 +216,9 @@ class TestScriptGenerator:
             },
         )
         _write_script_plan_json(project_path, 1, [_script_plan_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
+        await _convert_script_plan(project_path)
 
-        generator = ScriptGenerator(project_path)  # 无 client
-        generator._fetch_video_capabilities = _fixed_caps_468
+        generator = ScriptGenerator(project_path, config_resolver=_resolver())  # 无 client
         prompt = await generator.build_prompt(1)
 
         assert "E1S01" in prompt
@@ -241,9 +240,9 @@ class TestScriptGenerator:
             },
         )
         _write_script_plan_json(project_path, 1, [_script_plan_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
+        await _convert_script_plan(project_path)
 
-        generator = ScriptGenerator(project_path)
-        generator._fetch_video_capabilities = _fixed_caps_468
+        generator = ScriptGenerator(project_path, config_resolver=_resolver())
 
         plain = await generator.build_prompt(1)
         assert "# 附加指令" not in plain
@@ -267,9 +266,9 @@ class TestScriptGenerator:
             },
         )
         _write_script_plan_json(project_path, 1, [_script_plan_seg("E1S01", "verbatim source line.", duration=4)])
+        await _convert_script_plan(project_path)
 
-        generator = ScriptGenerator(project_path)
-        generator._fetch_video_capabilities = _fixed_caps_468
+        generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
         # 输出语言锁定为项目 source_language，不回落默认中文
@@ -467,8 +466,8 @@ class TestScriptGenerator:
             is None
         )
 
-    async def test_drama_prompt_authoring_build_prompt_renders_script_plan_content(self, tmp_path):
-        """drama prompt_authoring（视觉层）build_prompt 须把 script_plan 已定稿内容渲染入 prompt，仅求视觉字段。"""
+    async def test_drama_prompt_authoring_build_prompt_renders_formal_scene_content(self, tmp_path):
+        """drama prompt_authoring（视觉层）build_prompt 把正式剧本里待编写分镜的内容字段渲染入 prompt，仅求视觉字段。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,
@@ -476,16 +475,18 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
+        await _convert_script_plan(project_path)
 
-        generator = ScriptGenerator(project_path)
+        generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
-        # 已定稿内容透传进 prompt：scene_id + 视觉改编描述 + 口播（仅供理解）
+        # 正式剧本的内容字段透传进 prompt：scene_id + 对应原文 + 口播（仅供理解）
         assert "E1S01" in prompt
-        assert "姜月茴立于庭院" in prompt
+        assert "姜月茴缓步走进庭院" in prompt
+        assert "你来了。" in prompt
 
     async def test_drama_prompt_authoring_build_prompt_omits_outline(self, tmp_path):
-        """分集大纲随内容抽取前移到 script_plan（normalize）；prompt_authoring 视觉层 prompt 不再渲染大纲段。"""
+        """分集大纲驱动脚本规划的内容生成；prompt_authoring 视觉层 prompt 不渲染大纲段。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,
@@ -502,15 +503,15 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
+        await _convert_script_plan(project_path)
 
-        generator = ScriptGenerator(project_path)
+        generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
-        # 大纲 / 钩子内容不在 prompt_authoring prompt（它们驱动 script_plan 内容生成，不影响 prompt_authoring 视觉）
         assert "少年坠崖生死未卜" not in prompt
 
     async def test_drama_prompt_authoring_build_prompt_uses_project_source_language(self, tmp_path):
-        """prompt_authoring 视觉层 prompt 的输出语言须取项目 source_language（与 script_plan 同源），非中文项目不得回落中文。"""
+        """prompt_authoring 视觉层 prompt 的输出语言须取项目 source_language，非中文项目不得回落中文。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,
@@ -523,8 +524,9 @@ class TestScriptGenerator:
         payload["source_language"] = "English"
         _write_json(project_json_path, payload)
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
+        await _convert_script_plan(project_path)
 
-        generator = ScriptGenerator(project_path)
+        generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
         # 输出语言锁定为项目 source_language，不回落默认中文
@@ -549,6 +551,7 @@ class TestScriptGenerator:
         assert parsed == {"foo": "bar", "title": "第1集"}
 
     async def test_generate_writes_script_and_metadata(self, tmp_path):
+        """待编写分镜补上视觉层并清除标记：内容字段逐字保留，metadata 刷新 generator、保留 created_at。"""
         project_path = tmp_path / "demo"
         _write_project_json(
             project_path,
@@ -567,26 +570,22 @@ class TestScriptGenerator:
             1,
             [{**_script_plan_seg("E1S01", "原样保留的小说原文。", duration=4), "characters_in_segment": ["姜月茴"]}],
         )
+        converted = await _convert_script_plan(project_path)
 
         fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-        generator._fetch_video_capabilities = _fixed_caps_468
+        generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
         output = await generator.generate(1)
 
         payload = json.loads(output.read_text(encoding="utf-8"))
         assert output == project_path / "scripts" / "episode_1.json"
         assert payload["episode"] == 1
-        # 内容层（novel_text / 出场角色）由 script_plan 透传，视觉层由 prompt_authoring 合并
         seg = payload["segments"][0]
         assert seg["novel_text"] == "原样保留的小说原文。"
         assert seg["characters_in_segment"] == ["姜月茴"]
         assert seg["image_prompt"]["scene"] == "画面"
+        assert "pending_authoring" not in seg
         assert payload["metadata"]["generator"] == "fake-model"
-        script_plan_path = project_path / "drafts" / "episode_1" / "script_plan_segments.json"
-        assert payload["metadata"][script_review.SCRIPT_PLAN_REVISION_FIELD] == script_review.content_fingerprint(
-            script_plan_path
-        )
-        assert "created_at" in payload["metadata"]
+        assert payload["metadata"]["created_at"] == converted["metadata"]["created_at"]
 
     @pytest.mark.parametrize("content_mode", ["narration", "drama"])
     async def test_generate_reads_formal_baseline_without_blocking_event_loop(
@@ -614,6 +613,7 @@ class TestScriptGenerator:
             )
             _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
             response = _drama_visual_response()
+        await _convert_script_plan(project_path)
 
         loop_tick = threading.Event()
         provider_saw_tick: list[bool] = []
@@ -667,68 +667,8 @@ class TestScriptGenerator:
         assert baseline_thread != [loop_thread]
         assert provider_saw_tick == [True]
 
-    async def test_generate_registers_the_basis_frozen_before_the_provider_call(self, tmp_path):
-        from lib.artifact_activation import ArtifactCurrencyResolver
-        from lib.artifact_manifest import (
-            ArtifactBasis,
-            ArtifactKey,
-            ArtifactManifest,
-            ArtifactStatus,
-            ProjectArtifactManifestAdapter,
-        )
-        from lib.artifact_provenance import build_episode_script_basis
-
-        project_path = tmp_path / "demo"
-        project = {
-            "schema_version": CURRENT_SCHEMA_VERSION,
-            "title": "项目",
-            "content_mode": "narration",
-            "generation_mode": "storyboard",
-            "source_kind": "novel",
-            "source_language": "中文",
-            "overview": {},
-            "characters": {"姜月茴": {}},
-            "scenes": {},
-            "props": {},
-            "style": "古风",
-            "style_description": "cinematic",
-            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
-        }
-        _write_json(project_path / "project.json", project)
-        initial_segments = [_script_plan_seg("E1S01", "生成开始时的原文。", duration=4)]
-        _write_script_plan_json(project_path, 1, initial_segments)
-        initial_script_plan = json.loads(
-            (project_path / "drafts" / "episode_1" / "script_plan_segments.json").read_text(encoding="utf-8")
-        )
-        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
-            ArtifactKey.episode_script_plan(1),
-            artifact_path="drafts/episode_1/script_plan_segments.json",
-            basis=ArtifactBasis.build("test/script_plan", kind_version=1, inputs={}),
-        )
-
-        class _MutatingTextGenerator(_FakeTextGenerator):
-            async def generate(self, request, project_name=None):
-                _write_script_plan_json(
-                    project_path, 1, [_script_plan_seg("E1S01", "等待供应商期间被改过。", duration=4)], register=False
-                )
-                return await super().generate(request, project_name)
-
-        fake = _MutatingTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-        generator._fetch_video_capabilities = _fixed_caps_468
-
-        await generator.generate(1)
-
-        key = ArtifactKey.episode_script(1)
-        entry = ProjectArtifactManifestAdapter(project_path).get_entry(key)
-        assert entry is not None
-        assert entry.basis_digest == build_episode_script_basis(initial_script_plan, project=project).digest
-        assert (
-            ArtifactCurrencyResolver(project_path).compare(key, artifact_path="scripts/episode_1.json").status
-            is ArtifactStatus.STALE
-        )
-
-    async def test_generate_rejects_an_unregistered_formal_script_plan_before_provider(self, tmp_path):
+    async def test_conversion_rejects_an_unregistered_formal_script_plan(self, tmp_path):
+        """脚本规划未登记进产物清单：转换拒绝读取，不落正式剧本。"""
         project_path = tmp_path / "demo"
         _write_project_json(
             project_path,
@@ -751,97 +691,14 @@ class TestScriptGenerator:
         _write_script_plan_json(
             project_path, 1, [_script_plan_seg("E1S01", "未登记的正式原文。", duration=4)], register=False
         )
-        fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-        generator._fetch_video_capabilities = _fixed_caps_468
 
         with pytest.raises(ValueError, match=r"script_plan artifact is not registered"):
-            await generator.generate(1)
+            await ScriptGenerator(project_path, config_resolver=_resolver()).convert_script_plan(1)
 
-        assert fake.backend.last_request is None
-
-    async def test_generate_rechecks_script_plan_registration_while_awaiting_capabilities(
-        self,
-        tmp_path,
-    ):
-        """选中 script_plan 与付费调用之间清单条目被撤销 → 调用前的复核 fail loud，不发出请求。"""
-        from lib.artifact_manifest import ArtifactKey, ArtifactManifest, ProjectArtifactManifestAdapter
-
-        project_path = tmp_path / "demo"
-        _write_project_json(
-            project_path,
-            {
-                "title": "项目",
-                "content_mode": "drama",
-                "source_kind": "novel",
-                "source_language": "中文",
-                "overview": {},
-                "characters": {},
-                "scenes": {},
-                "props": {},
-                "style": "古风",
-                "style_description": "cinematic",
-            },
-        )
-        _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
-        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-
-        async def _forget_script_plan_claim():
-            ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).forget_entry_transactionally(
-                ArtifactKey.episode_script_plan(1)
-            )
-            return {"supported_durations": [4, 6, 8]}
-
-        generator._fetch_video_capabilities = _forget_script_plan_claim
-
-        with pytest.raises(ValueError, match=r"formal artifact input.*no longer registered"):
-            await generator.generate(1)
-
-        assert fake.backend.last_request is None
-
-    async def test_generate_rechecks_script_plan_content_while_awaiting_capabilities(self, tmp_path):
-        """选中 script_plan 与付费调用之间正式文件被并发改写 → 调用前的复核 fail loud，不落盘也不登记。"""
-        from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-
-        project_path = tmp_path / "demo"
-        _write_project_json(
-            project_path,
-            {
-                "title": "项目",
-                "content_mode": "drama",
-                "source_kind": "novel",
-                "source_language": "中文",
-                "overview": {},
-                "characters": {},
-                "scenes": {},
-                "props": {},
-                "style": "古风",
-                "style_description": "cinematic",
-            },
-        )
-        script_plan_path = project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json"
-        _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
-        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-
-        async def _replace_formal_script_plan():
-            changed = _drama_script_plan_content()
-            changed["title"] = "并发保存的新版本"
-            _write_json(script_plan_path, changed)
-            return {"supported_durations": [4, 6, 8]}
-
-        generator._fetch_video_capabilities = _replace_formal_script_plan
-
-        with pytest.raises(ValueError, match="formal artifact input changed since it was selected"):
-            await generator.generate(1)
-
-        assert fake.backend.last_request is None
         assert not (project_path / "scripts" / "episode_1.json").exists()
-        assert ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_script(1)) is None
 
-    async def test_generate_injects_hook_and_teaser_from_ledger(self, tmp_path):
-        """剧本 JSON 的集级 hook / next_episode_teaser 元数据来自分集账本（经写盘严格校验）。"""
+    async def test_conversion_injects_hook_and_teaser_from_ledger(self, tmp_path):
+        """正式剧本的集级 hook / next_episode_teaser 元数据来自分集账本（经写盘严格校验）。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,
@@ -862,22 +719,12 @@ class TestScriptGenerator:
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
 
-        # drama 两段式：prompt_authoring LLM 只出视觉层，后端按 scene_id 合并回 script_plan 内容
-        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-        generator._fetch_video_capabilities = _fixed_caps_468
-        output = await generator.generate(1)
+        payload = await _convert_script_plan(project_path)
 
-        payload = json.loads(output.read_text(encoding="utf-8"))
         assert payload["hook"] == "少年坠崖生死未卜"
         assert payload["next_episode_teaser"] == "崖底神秘人出手相救"
-        # script_plan 的逐字内容（utterances / source_text）经合并透传到最终剧本
-        scene = payload["scenes"][0]
-        assert scene["source_text"] == "姜月茴缓步走进庭院，抬眼望来。"
-        assert scene["utterances"][0]["text"] == "你来了。"
-        assert scene["image_prompt"]["scene"] == "场景"
 
-    async def test_generate_without_ledger_hook_leaves_fields_null(self, tmp_path):
+    async def test_conversion_without_ledger_hook_leaves_fields_null(self, tmp_path):
         """旧式条目（账本无钩子/预告）：字段为 null，写盘校验仍通过。"""
         project_path = tmp_path / "demo"
         _write_project_json(
@@ -896,19 +743,13 @@ class TestScriptGenerator:
         )
         _write_script_plan_json(project_path, 1, [_script_plan_seg("E1S01", "原文", duration=4)])
 
-        fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-        generator._fetch_video_capabilities = _fixed_caps_468
-        output = await generator.generate(1)
+        payload = await _convert_script_plan(project_path)
 
-        payload = json.loads(output.read_text(encoding="utf-8"))
         assert payload["hook"] is None
         assert payload["next_episode_teaser"] is None
 
-    async def test_generate_narration_stamps_cli_episode_and_rewrites_prefix(self, tmp_path):
-        """narration 两段式：CLI 集号是唯一真相（视觉 schema 无 episode 字段），且 _add_metadata
-        兜底改写 segment_id 前缀——script_plan 误写 E1S01、生成第 10 集时应改为 E10S01。
-        """
+    async def test_generate_keeps_formal_entry_ids_and_episode(self, tmp_path):
+        """正式剧本里的 segment_id 是写回的定位锚：编写第 10 集时条目 id 与集号原样保留。"""
         project_path = tmp_path / "demo"
         _write_project_json(
             project_path,
@@ -923,12 +764,13 @@ class TestScriptGenerator:
                 "episodes": [{"episode": 10, "title": "第十集", "script_file": "scripts/episode_10.json"}],
             },
         )
-        # script_plan 误写集号前缀 E1（应为 E10）
-        _write_script_plan_json(project_path, 10, [_script_plan_seg("E1S01", "原文", duration=4)])
+        _write_script_plan_json(project_path, 10, [_script_plan_seg("E10S01", "原文", duration=4)])
+        await _convert_script_plan(project_path, 10)
 
-        fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"], title="第十集"), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-        generator._fetch_video_capabilities = _fixed_caps_468
+        fake = _FakeTextGenerator(
+            json.dumps(_narration_visual_response(["E10S01"], title="第十集"), ensure_ascii=False)
+        )
+        generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
 
         output = await generator.generate(10)
 
@@ -936,6 +778,7 @@ class TestScriptGenerator:
         assert output == project_path / "scripts" / "episode_10.json"
         assert payload["episode"] == 10
         assert payload["segments"][0]["segment_id"] == "E10S01"
+        assert payload["segments"][0]["image_prompt"]["scene"] == "画面"
 
     async def test_generate_drama_prompt_authoring_passes_visual_schema(self, tmp_path):
         """drama prompt_authoring LLM 输出 schema 是 DramaVisualScript（仅 scene_id + 视觉字段，无非视觉字段）。"""
@@ -948,11 +791,11 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
+        await _convert_script_plan(project_path)
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-        generator._fetch_video_capabilities = _fixed_caps_468
-        await generator.generate(1)
+        generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
+        output = await generator.generate(1)
 
         schema = fake.backend.last_request.response_schema
         assert schema is DramaVisualScript
@@ -961,6 +804,10 @@ class TestScriptGenerator:
         assert "utterances" not in props
         assert "source_text" not in props
         assert "duration_seconds" not in props
+        scene = json.loads(output.read_text(encoding="utf-8"))["scenes"][0]
+        assert scene["source_text"] == "姜月茴缓步走进庭院，抬眼望来。"
+        assert scene["utterances"][0]["text"] == "你来了。"
+        assert scene["image_prompt"]["scene"] == "场景"
 
     async def test_generate_drama_prompt_authoring_appends_user_instructions(self, tmp_path):
         """generate 路径的 instructions 同样以中性「附加指令」分节追加到发给模型的 prompt 末尾。"""
@@ -971,41 +818,45 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
+        await _convert_script_plan(project_path)
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
-        generator._fetch_video_capabilities = _fixed_caps_468
+        generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
         await generator.generate(1, instructions="打斗场面多给全景")
 
         assert fake.backend.last_request.prompt.endswith("# 附加指令\n打斗场面多给全景")
 
-    async def test_generate_drama_prompt_authoring_rejects_marked_mixed_candidate_before_backend_call(self, tmp_path):
+    async def test_generate_drama_prompt_authoring_rejects_mixed_scene_before_backend_call(self, tmp_path):
+        """待编写分镜的台词混入旁白：发声准入在调用文本模型之前拒绝，正式剧本不动。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
             characters={"姜月茴": {}},
         )
-        content = _drama_script_plan_content()
-        content["scenes"][0]["utterances"].append({"kind": "voiceover", "speaker": None, "text": "庭院里只剩风声。"})
-        content["scenes"][0]["needs_replan"] = True
-        _write_drama_script_plan_json(project_path, 1, content)
+        _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
+        await _convert_script_plan(project_path)
+        script_path = project_path / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["scenes"][0]["utterances"].append({"kind": "voiceover", "speaker": None, "text": "庭院里只剩风声。"})
+        script["scenes"][0]["needs_replan"] = True
+        _write_json(script_path, script)
+        before = script_path.read_bytes()
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, generator=fake)
+        generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
 
         with pytest.raises(SpeechAdmissionError) as exc_info:
             await generator.generate(1)
 
         admission = exc_info.value.admission
         assert admission.unit_id == "E1S01"
-        assert admission.problems[0].code == "needs_replan"
-        assert admission.problems[0].locations[0].path == ("needs_replan",)
+        assert admission.problems
         assert fake.backend.last_request is None
+        assert script_path.read_bytes() == before
 
     async def test_generate_sets_script_max_output_tokens(self, tmp_path):
         """drama prompt_authoring generate 应在 TextGenerationRequest 上设置共享输出上限（DEFAULT_MAX_OUTPUT_TOKENS）。"""
-        from lib.script_models import DramaVisualMergeError
         from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS
 
         project_path = tmp_path / "demo"
@@ -1015,12 +866,12 @@ class TestScriptGenerator:
             characters={"姜月茴": {}},
         )
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
+        await _convert_script_plan(project_path)
 
-        # 空视觉响应 → 合并时 script_plan 场景缺视觉，fail-loud；但模型调用已发生，仍可断言请求参数
+        # 空视觉响应 → 视觉层结构校验 fail-loud；但模型调用已发生，仍可断言请求参数
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
-        generator = ScriptGenerator(project_path, generator=fake)
-        generator._fetch_video_capabilities = _fixed_caps_468
-        with pytest.raises(DramaVisualMergeError):
+        generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
+        with pytest.raises(ValueError, match="视觉层结构校验失败"):
             await generator.generate(1)
 
         assert fake.backend.last_request.max_output_tokens == DEFAULT_MAX_OUTPUT_TOKENS
@@ -1444,18 +1295,6 @@ def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tm
     assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=True) == [8]
 
 
-def test_units_use_references_distinguishes_none_from_no_refs():
-    """None（非参考生视频路径）与「确定不带引用」区分开，前者交由下游按模式近似判定。"""
-    assert _units_use_references(None) is None
-    assert _units_use_references([{"unit_id": "E1U01", "text": "空镜：海面翻涌。"}]) is False
-    assert (
-        _units_use_references(
-            [{"unit_id": "E1U01", "text": "空镜：海面翻涌。"}, {"unit_id": "E1U02", "text": "@[甲] 推门而入。"}]
-        )
-        is True
-    )
-
-
 def test_resolve_supported_durations_unconstrained_model_unchanged(tmp_path):
     """已登记但无联动约束声明的型号：收窄是恒等变换，两种 gen_mode 都与全集一致。"""
     caps = {"provider_id": "ark", "model": "doubao-seedance-1-5-pro-251215", "supported_durations": [4, 5, 6]}
@@ -1669,72 +1508,85 @@ async def _fixed_caps_468(_episode=None) -> dict:
     return {"supported_durations": [4, 6, 8]}
 
 
-class TestMergeNarrationVisual:
-    """prompt_authoring 视觉层按 segment_id 合并回 script_plan 结构：novel_text 逐字透传、不经 LLM 重出。"""
+def _resolver() -> ConfigResolver:
+    return cast(ConfigResolver, FakeConfigResolver(supported_durations=(4, 6, 8)))
 
-    def test_novel_text_passthrough_verbatim(self, tmp_path):
-        sg = _bare_generator(tmp_path)
-        script_plan = [
-            _script_plan_seg("E1S01", "原文甲。", duration=6, brk=True),
+
+async def _convert_script_plan(project_path: Path, episode: int = 1) -> dict:
+    """按生产口径把已登记的脚本规划机械转为正式剧本（条目带待编写标记），返回落盘的剧本。"""
+    await ScriptGenerator(project_path, config_resolver=_resolver()).convert_script_plan(episode)
+    return json.loads((project_path / "scripts" / f"episode_{episode}.json").read_text(encoding="utf-8"))
+
+
+def _segment_targets(segments: list[dict], target_ids: list[str]) -> PromptAuthoringTargets:
+    script = {"segments": segments}
+    wanted = set(target_ids)
+    return PromptAuthoringTargets(
+        kind="segments",
+        id_field="segment_id",
+        script=script,
+        entries=tuple(seg for seg in segments if seg["segment_id"] in wanted),
+    )
+
+
+class TestMergeVisualLayer:
+    """视觉层按条目 id 写回正式剧本条目：只覆盖 image_prompt / video_prompt，其余字段逐字保留。"""
+
+    def test_content_fields_pass_through_verbatim(self):
+        segments = [
+            {**_script_plan_seg("E1S01", "原文甲。", duration=6, brk=True), "note": "用户备注"},
             _script_plan_seg("E1S02", "原文乙！"),
         ]
-        visual = {"title": "第一集", "segments": [_visual_seg("E1S01"), _visual_seg("E1S02")]}
+        targets = _segment_targets(segments, ["E1S01", "E1S02"])
 
-        merged = sg._merge_narration_visual(script_plan, visual, episode=1)
+        merged = ScriptGenerator._merge_visual_layer(targets, [_visual_seg("E1S01"), _visual_seg("E1S02")], 1)
 
-        assert merged["title"] == "第一集"
-        assert [s["segment_id"] for s in merged["segments"]] == ["E1S01", "E1S02"]
-        # novel_text / 时长 / break 逐字取自 script_plan（LLM 不再重出）
-        assert merged["segments"][0]["novel_text"] == "原文甲。"
-        assert merged["segments"][0]["duration_seconds"] == 6
-        assert merged["segments"][0]["segment_break"] is True
-        assert merged["segments"][1]["novel_text"] == "原文乙！"
-        # 视觉层取自 LLM
-        assert merged["segments"][0]["image_prompt"]["scene"] == "画面"
-        assert merged["segments"][0]["video_prompt"]["action"] == "动作"
+        assert [s["segment_id"] for s in merged] == ["E1S01", "E1S02"]
+        assert merged[0]["novel_text"] == "原文甲。"
+        assert merged[0]["duration_seconds"] == 6
+        assert merged[0]["segment_break"] is True
+        assert merged[0]["note"] == "用户备注"
+        assert merged[1]["novel_text"] == "原文乙！"
+        assert merged[0]["image_prompt"]["scene"] == "画面"
+        assert merged[0]["video_prompt"]["action"] == "动作"
 
-    def test_merge_aligns_by_id_not_order(self, tmp_path):
-        """LLM 视觉层乱序也按 segment_id 对齐，合并顺序随 script_plan。"""
-        sg = _bare_generator(tmp_path)
-        script_plan = [_script_plan_seg("E1S01", "甲"), _script_plan_seg("E1S02", "乙")]
-        visual = {
-            "title": "t",
-            "segments": [_visual_seg("E1S02", scene="乙画面"), _visual_seg("E1S01", scene="甲画面")],
-        }
+    def test_merge_aligns_by_id_not_order(self):
+        """LLM 视觉层乱序也按 segment_id 对齐，顺序随正式剧本。"""
+        segments = [_script_plan_seg("E1S01", "甲"), _script_plan_seg("E1S02", "乙")]
+        targets = _segment_targets(segments, ["E1S01", "E1S02"])
+        visual = [_visual_seg("E1S02", scene="乙画面"), _visual_seg("E1S01", scene="甲画面")]
 
-        merged = sg._merge_narration_visual(script_plan, visual, episode=1)
+        merged = ScriptGenerator._merge_visual_layer(targets, visual, 1)
 
-        assert [s["segment_id"] for s in merged["segments"]] == ["E1S01", "E1S02"]
-        assert merged["segments"][0]["image_prompt"]["scene"] == "甲画面"
-        assert merged["segments"][1]["image_prompt"]["scene"] == "乙画面"
+        assert [s["segment_id"] for s in merged] == ["E1S01", "E1S02"]
+        assert merged[0]["image_prompt"]["scene"] == "甲画面"
+        assert merged[1]["image_prompt"]["scene"] == "乙画面"
 
-    def test_missing_visual_segment_raises(self, tmp_path):
-        sg = _bare_generator(tmp_path)
-        script_plan = [_script_plan_seg("E1S01", "甲"), _script_plan_seg("E1S02", "乙")]
-        visual = {"title": "t", "segments": [_visual_seg("E1S01")]}  # 缺 E1S02
+    def test_merge_returns_only_the_authored_entries(self):
+        segments = [_script_plan_seg("E1S01", "甲"), _script_plan_seg("E1S02", "乙")]
+        targets = _segment_targets(segments, ["E1S02"])
+
+        merged = ScriptGenerator._merge_visual_layer(targets, [_visual_seg("E1S02")], 1)
+
+        assert [s["segment_id"] for s in merged] == ["E1S02"]
+
+    def test_missing_visual_segment_raises(self):
+        segments = [_script_plan_seg("E1S01", "甲"), _script_plan_seg("E1S02", "乙")]
+        targets = _segment_targets(segments, ["E1S01", "E1S02"])
         with pytest.raises(ValueError, match="E1S02"):
-            sg._merge_narration_visual(script_plan, visual, episode=1)
+            ScriptGenerator._merge_visual_layer(targets, [_visual_seg("E1S01")], 1)
 
-    def test_extra_visual_segment_raises(self, tmp_path):
-        sg = _bare_generator(tmp_path)
-        script_plan = [_script_plan_seg("E1S01", "甲")]
-        visual = {"title": "t", "segments": [_visual_seg("E1S01"), _visual_seg("E1S09")]}  # 多 E1S09
-        with pytest.raises(ValueError, match="E1S09"):
-            sg._merge_narration_visual(script_plan, visual, episode=1)
+    def test_visual_segment_outside_the_targets_raises(self):
+        segments = [_script_plan_seg("E1S01", "甲"), _script_plan_seg("E1S02", "乙")]
+        targets = _segment_targets(segments, ["E1S01"])
+        with pytest.raises(ValueError, match="E1S02"):
+            ScriptGenerator._merge_visual_layer(targets, [_visual_seg("E1S01"), _visual_seg("E1S02")], 1)
 
-    def test_duplicate_visual_segment_raises(self, tmp_path):
-        sg = _bare_generator(tmp_path)
-        script_plan = [_script_plan_seg("E1S01", "甲")]
-        visual = {"title": "t", "segments": [_visual_seg("E1S01"), _visual_seg("E1S01")]}  # 重复
+    def test_duplicate_visual_segment_raises(self):
+        segments = [_script_plan_seg("E1S01", "甲")]
+        targets = _segment_targets(segments, ["E1S01"])
         with pytest.raises(ValueError, match="E1S01"):
-            sg._merge_narration_visual(script_plan, visual, episode=1)
-
-    def test_title_fallback_when_missing(self, tmp_path):
-        sg = _bare_generator(tmp_path)
-        script_plan = [_script_plan_seg("E1S01", "甲")]
-        visual = {"segments": [_visual_seg("E1S01")]}  # 无 title
-        merged = sg._merge_narration_visual(script_plan, visual, episode=3)
-        assert merged["title"] == "第3集"
+            ScriptGenerator._merge_visual_layer(targets, [_visual_seg("E1S01"), _visual_seg("E1S01")], 1)
 
 
 class TestLoadNarrationScriptPlan:

@@ -5,8 +5,7 @@
 逐字复制即算已编写）。已有正式剧本时只做集合同步（新增 / 移出 / 改序），失效条目连同内容、
 提示词与指纹原样保留；``entry_ids`` 点名的失效条目「采用新内容」。
 
-内容确认门禁与 ``generate_episode_script`` 共用同一道预检（``episode_generation_preflight``）：
-未确认、待修复草稿在场、脚本规划缺失时同样拒绝。REST 路由与 MCP 工具都经本模块，两个 host
+入口先过 ``episode_generation_preflight``：未确认、待修复草稿在场、脚本规划缺失时拒绝。REST 路由与 MCP 工具都经本模块，两个 host
 同一入口。
 """
 

@@ -51,6 +51,7 @@ from lib.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     SCRIPT_PLAN_LEGACY_FILENAMES,
     episode_drafts_dir,
+    episode_script_filename,
     episode_source_relpath,
 )
 from lib.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
@@ -79,13 +80,12 @@ from lib.reference_video.script_preview import (
 from lib.reference_video.text_parser import extract_mentions
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.schema_guards import is_int, is_str
-from lib.script_generator import ScriptGenerator
+from lib.script_generator import PromptAuthoringTargetError, ScriptGenerator
 from lib.script_models import (
     NarrationScriptPlanDraft,
     build_drama_normalized_script_model,
     build_reference_units_script_plan_model,
 )
-from lib.script_plan_entries import SCOPE_ALL, SCOPE_STALE, ScriptPlanEntryError
 from lib.speech_composition import admit_script_unit
 from lib.speech_rate import project_speech_rate_override
 from lib.storyboard_mentions import render_storyboard_mention_warnings, storyboard_mention_warnings
@@ -103,6 +103,12 @@ logger = logging.getLogger(__name__)
 
 MAX_INSTRUCTIONS_LEN = 4000
 
+#: 提示词编写工具收到已取消的 ``scope`` 参数时的拒绝说明，内嵌工具与远程 MCP 共用。
+SCOPE_REMOVED_MESSAGE = (
+    "scope 参数已取消：generate_episode_script 默认只编写正式脚本中全部待编写的条目；"
+    "要重写已有提示词的条目，请用 entry_ids 点名这些条目；要整集重做，请重跑脚本规划并重新完成内容确认。"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class TextGenerationRequest:
@@ -110,29 +116,18 @@ class TextGenerationRequest:
     source: str | None = None
     instructions: str | None = None
     dry_run: bool = False
-    #: 提示词编写的重写范围：``"stale"``（默认）只重写内容失配与新增的条目，``"all"`` 整集重写。
-    scope: str = SCOPE_STALE
-    #: 只重写这些条目；非空时即为本次范围，与 ``scope="all"`` 互斥（同时给出即请求自相矛盾）。
+    #: 提示词编写显式重写这些条目；为空时编写全部待编写条目。
     entry_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not is_int(self.episode, minimum=1):
             raise ValueError("episode must be a positive integer")
-        if self.scope not in {SCOPE_ALL, SCOPE_STALE}:
-            raise ValueError(f"scope must be {SCOPE_ALL!r} or {SCOPE_STALE!r}")
         # 队列 payload 经 JSON 往返后 entry_ids 是 list：在此归一为 tuple，让「从工具入口构造」
         # 与「从 payload 还原」两条路径得到同一个值，任务事实比对才不会因容器类型分叉。
         entry_ids = tuple(self.entry_ids)
         if any(not is_str(entry_id) or not entry_id for entry_id in entry_ids):
             raise ValueError("entry_ids must be non-empty strings")
-        if entry_ids and self.scope == SCOPE_ALL:
-            raise ValueError("entry_ids 与 scope='all' 互斥：要么整集重写，要么只重写指定条目")
         object.__setattr__(self, "entry_ids", entry_ids)
-
-    @property
-    def authoring_scope(self) -> str | tuple[str, ...]:
-        """传给 ``ScriptGenerator.generate`` 的重写范围。"""
-        return self.entry_ids or self.scope
 
     def to_payload(self) -> dict[str, object]:
         """队列任务 payload：只用 JSON 原生类型。
@@ -633,13 +628,15 @@ def _resolve_script_plan_path(
     return script_plan_json, "generate_script_plan tool"
 
 
-def episode_generation_preflight(project_path: Path, episode: int, *, enforce_review_gate: bool) -> None:
+def _read_project_data(project_path: Path) -> dict[str, Any]:
     try:
-        project_data = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+        return json.loads((project_path / "project.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        project_data = {}
+        return {}
 
-    for kind in _prompt_authoring_blocking_quarantine_kinds(project_data):
+
+def _refuse_pending_drafts(project_path: Path, episode: int, kinds: Sequence[str]) -> None:
+    for kind in kinds:
         if quarantine_exists(project_path, episode, kind):
             path = quarantine_path(project_path, episode, kind)
             draft = read_quarantine(project_path, episode, kind)
@@ -650,6 +647,29 @@ def episode_generation_preflight(project_path: Path, episode: int, *, enforce_re
             else:
                 action = f"这是可编辑草稿；请保留已有修改，再调用 {PROMOTE_TOOL_NAME} 校验晋升。"
             raise TextGenerationError(f"⏸️ 本集有草稿待处置（{path}），prompt_authoring 视觉生成已中止。{action}")
+
+
+def prompt_authoring_preflight(project_path: Path, episode: int) -> None:
+    """提示词编写的预检：编写自身的待修复草稿与正式剧本是否在场。
+
+    编写的输入只有正式剧本，不读脚本规划：脚本规划缺失、有草稿待处置或重跑后尚未确认，都不阻塞
+    编写。ad 尚无正式剧本时走整份生成，不要求剧本在场。
+    """
+    project_data = _read_project_data(project_path)
+    if _uses_reference_video_units(project_data):
+        _refuse_pending_drafts(project_path, episode, (QUARANTINE_KIND_PROMPT_AUTHORING,))
+    if project_data.get("content_mode", "narration") == "ad":
+        return
+    if not (project_path / "scripts" / episode_script_filename(episode)).exists():
+        raise TextGenerationError(
+            f"❌ 第 {episode} 集尚无正式脚本，无法编写提示词。"
+            "请先完成本集脚本规划，并在 Web 端完成内容确认（确认即生成正式脚本）。"
+        )
+
+
+def episode_generation_preflight(project_path: Path, episode: int, *, enforce_review_gate: bool) -> None:
+    project_data = _read_project_data(project_path)
+    _refuse_pending_drafts(project_path, episode, _prompt_authoring_blocking_quarantine_kinds(project_data))
 
     script_plan = _resolve_script_plan_path(project_path, episode, project_data)
     if script_plan is not None:
@@ -674,12 +694,7 @@ async def generate_episode_script(
     episode = request.episode
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
-    await asyncio.to_thread(
-        episode_generation_preflight,
-        project_path,
-        episode,
-        enforce_review_gate=not request.dry_run,
-    )
+    await asyncio.to_thread(prompt_authoring_preflight, project_path, episode)
 
     try:
         if request.dry_run:
@@ -688,7 +703,7 @@ async def generate_episode_script(
                 project_path,
                 config_resolver=config_resolver,
             )
-            prompt = await generator.build_prompt(episode, instructions=instructions, scope=request.authoring_scope)
+            prompt = await generator.build_prompt(episode, instructions=instructions, entry_ids=request.entry_ids)
             return TextGenerationResult(f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}")
 
         generator = await ScriptGenerator.create(
@@ -702,7 +717,7 @@ async def generate_episode_script(
             result_path = await generator.generate(
                 episode=episode,
                 instructions=instructions,
-                scope=request.authoring_scope,
+                entry_ids=request.entry_ids,
                 rewritten_entry_ids=rewritten,
                 cancellation_file_receipts=file_receipts,
                 cancellation_manifest_receipts=manifest_receipts,
@@ -717,14 +732,20 @@ async def generate_episode_script(
                 )
                 await run_noninterruptible_sync(receipt.compensate_cancelled)
             raise
-    except ScriptPlanEntryError as exc:
-        # 点名的条目不在当前脚本规划内是调用方的错：报「拒绝生成」而不是让它冒成 internal_error，
+    except PromptAuthoringTargetError as exc:
+        # 点名的条目不在正式剧本内是调用方的错：报「拒绝生成」而不是让它冒成 internal_error，
         # 后者会引导 Agent 原样重试同一份必然失败的参数。
-        raise TextGenerationError(f"❌ 重写范围无效: {exc}") from exc
+        raise TextGenerationError(f"❌ 编写范围无效: {exc}") from exc
     except FileNotFoundError as exc:
         raise TextGenerationError(f"❌ 文件错误: {exc}") from exc
-    rewritten_note = "、".join(rewritten) if rewritten else "无（其余条目原样保留）"
-    summary = f"✅ 剧本生成完成: {result_path}\n   本次重写条目: {rewritten_note}"
+    if not rewritten and not file_receipts:
+        redo = "要整份重做请先移除正式脚本" if generator.content_mode == "ad" else "要整集重做请重跑脚本规划并重新确认"
+        return TextGenerationResult(
+            f"✅ 第 {episode} 集没有待编写的条目，未调用文本模型，正式脚本未改动: {result_path}\n"
+            f"   要重写指定条目请传 entry_ids；{redo}。"
+        )
+    rewritten_note = "、".join(rewritten) if rewritten else "整份生成"
+    summary = f"✅ 剧本生成完成: {result_path}\n   本次编写条目: {rewritten_note}"
     warnings = await asyncio.to_thread(_rewritten_mention_warnings, projects, project_name, result_path, rewritten)
     summary += _unbound_mentions_note(warnings)
     if not file_receipts and not manifest_receipts:

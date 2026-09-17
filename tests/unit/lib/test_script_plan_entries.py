@@ -17,7 +17,6 @@ from lib.script_plan_entries import (
     plan_entry_content,
     plan_entry_revisions,
     plan_variant,
-    resolve_rewrite_ids,
     script_entries_by_id,
     splice_entries,
 )
@@ -356,38 +355,6 @@ class TestBackfillEntryRevisions:
             "drama", script=script, plan_revisions=revisions, whole_plan_revision="whole"
         ) == ("E1S01",)
         assert SCRIPT_PLAN_ENTRY_REVISION_FIELD not in script_entries_by_id("drama", script)["E1S09"]
-
-
-class TestResolveRewriteIds:
-    def _currency(self):
-        plan = [drama_plan_entry("E1S01"), drama_plan_entry("E1S02")]
-        revisions = plan_entry_revisions("drama", plan, episode=1)
-        script = {
-            "scenes": [
-                {"scene_id": "E1S01", SCRIPT_PLAN_ENTRY_REVISION_FIELD: revisions["E1S01"]},
-                {"scene_id": "E1S02", SCRIPT_PLAN_ENTRY_REVISION_FIELD: "sha256-v1:" + "0" * 64},
-            ]
-        }
-        return evaluate_entry_currency("drama", script=script, plan_revisions=revisions, legacy_entries_current=False)
-
-    def test_default_and_stale_select_outdated_entries(self) -> None:
-        currency = self._currency()
-        assert resolve_rewrite_ids(None, currency) == ("E1S02",)
-        assert resolve_rewrite_ids("stale", currency) == ("E1S02",)
-
-    def test_all_selects_every_plan_entry(self) -> None:
-        assert resolve_rewrite_ids("all", self._currency()) == ("E1S01", "E1S02")
-
-    def test_explicit_ids_keep_plan_order(self) -> None:
-        assert resolve_rewrite_ids(["E1S02", "E1S01"], self._currency()) == ("E1S01", "E1S02")
-
-    def test_unknown_explicit_id_fails_loud(self) -> None:
-        with pytest.raises(ScriptPlanEntryError, match="E9S99"):
-            resolve_rewrite_ids(["E9S99"], self._currency())
-
-    def test_unknown_scope_string_fails_loud(self) -> None:
-        with pytest.raises(ScriptPlanEntryError, match="scope"):
-            resolve_rewrite_ids("everything", self._currency())
 
 
 class TestSpliceEntries:

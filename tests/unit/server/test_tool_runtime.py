@@ -696,7 +696,7 @@ def test_text_generation_request_rejects_non_string_entry_ids(entry_ids: tuple[o
     """entry_ids 经队列 payload JSON 往返回来，元素类型必须真的校验。"""
 
     with pytest.raises(ValueError, match="entry_ids must be non-empty strings"):
-        shared_text_generation.TextGenerationRequest(episode=1, scope="stale", entry_ids=entry_ids)
+        shared_text_generation.TextGenerationRequest(episode=1, entry_ids=entry_ids)
 
 
 class TestConvertScriptPlanTool:

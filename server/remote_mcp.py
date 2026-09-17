@@ -21,6 +21,7 @@ from mcp.server.fastmcp.tools import Tool as FastMCPTool
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent
 from pydantic import AnyHttpUrl, Field
+from pydantic.json_schema import SkipJsonSchema
 from starlette.types import Receive, Scope, Send
 
 from lib.config.resolver import ConfigResolver
@@ -50,7 +51,7 @@ from server.media_tools.narration_audio import generate_narration_audio_tool
 from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
 from server.services import workflow_planner
-from server.text_generation import TextGenerationRequest
+from server.text_generation import SCOPE_REMOVED_MESSAGE, TextGenerationRequest
 from server.tool_runtime import (
     CallerContext,
     CompleteAssetInventoryRequest,
@@ -523,22 +524,26 @@ def build_remote_mcp_server(
         episode: PositiveEpisode,
         context: Context,
         instructions: str | None = None,
-        scope: Literal["stale", "all"] = "stale",
         entry_ids: list[str] | None = None,
         dry_run: bool = False,
+        # scope 不在工具 schema 中：传入即拒绝并给出迁移说明，FastMCP 对未声明的参数会静默忽略。
+        scope: SkipJsonSchema[object] = None,
     ) -> CallToolResult:
-        """Generate an episode script, or return its prompt when dry_run is true.
+        """Author prompts for an episode script, or return the prompt when dry_run is true.
 
-        Existing scripts are rewritten incrementally: only entries whose script_plan content
-        changed (``scope="stale"``, the default) or the entries named by ``entry_ids`` are
-        re-authored; every other entry keeps its prompts, note, end frame and generated assets.
+        By default only the entries marked pending authoring in the formal script are authored;
+        ``entry_ids`` explicitly re-authors the named entries. Content fields, note, end frame and
+        generated assets are kept. An ad project without a formal script generates the whole script.
         """
+        if scope is not None:
+            return _to_mcp_result(
+                "text_generation", ToolOutcome(problem=ToolProblem("invalid_request", SCOPE_REMOVED_MESSAGE))
+            )
         try:
             project_scope = _project_scope(project, projects)
             request = TextGenerationRequest(
                 episode=episode,
                 instructions=instructions,
-                scope=scope,
                 entry_ids=tuple(entry_ids or ()),
                 dry_run=dry_run,
             )

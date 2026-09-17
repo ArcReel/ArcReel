@@ -1,28 +1,22 @@
 ---
 name: generate-script
-description: 调用项目配置的文本模型生成 JSON 剧本（同时产出每个分镜的 image_prompt 与 video_prompt）。由 create-episode-script 子智能体调用。读取 script_plan 中间文件和 project.json，输出符合 Pydantic schema 的剧本。
+description: 提示词编写：调用项目配置的文本模型，为正式剧本中待编写的分镜 / 视频单元补出 image_prompt 与 video_prompt（参考生视频改写单元正文）；ad 项目尚无正式剧本时整份生成。由 create-episode-script 子智能体调用，输入是正式剧本自身的内容与 project.json。
 user-invocable: false
 ---
 
 # generate-script
 
 调用项目配置的文本生成模型（Gemini / Ark / OpenAI / 自定义供应商，由 project.json 决定），
-基于脚本规划中间文件产出最终的 JSON 剧本。剧本里的 `image_prompt` / `video_prompt`
+为正式剧本中待编写的条目补出视觉层。剧本里的 `image_prompt` / `video_prompt`
 是后续图像 / 视频生成的"种子"，**Prompt 质量基本决定了画面质量**——所以本 skill 是
 ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 ## 前置条件
 
 1. 项目目录下存在 `project.json`（含 style / overview / characters / scenes / props）
-2. 已完成脚本规划（按项目 `generation_mode` 选择一种中间文件）：
-   - narration（storyboard + 旁白/解说，含 grid_storyboard）：`drafts/episode_N/script_plan_segments.json`（结构化分镜：逐字 novel_text + 时长 + segment_break + 出场角色 / 场景 / 道具）
-   - drama（storyboard + 剧情演绎，含 grid_storyboard）：`drafts/episode_N/script_plan_normalized_script.json`（结构化内容；script_plan 已定稿口播 utterances / 原文锚 source_text / 视觉改编描述，prompt_authoring 透传 + 补视觉，见 ADR 0041）
-   - reference_video（参考生视频）：`drafts/episode_N/script_plan_reference_units.json`
-   - **ad（广告/短片）例外**：不需要任何 script_plan 中间文件——创作输入是 `project.json` 的
-     `brief` + `products`（含 selling_points）+ `target_duration`，prompt 由后端按审定的
-     带货八段框架配比表构建（`products` 为空自动分流通用短片 prompt）
-3. **有 script_plan 的骨架（drama / narration / reference_video）须先完成内容确认**：script_plan 结构化中间态在 Web 端审阅、可手动 / Agent 编辑，**显式确认后**本工具才生成 prompt_authoring 视觉层。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主 Agent调用 `mcp__arcreel__confirm_script_review({"episode": N})`。未确认（或确认后内容又被改）时本工具拒绝；存量项目（已生成过本集剧本）已 grandfather 放行。reference_video 同样需要内容确认（其 script_plan 是 `script_plan_reference_units.json`），只有 ad（无 script_plan）不适用。三条路线的正式 script_plan 一律 **Agent 不可用 Write/Edit 直改**（与 Web 端保存共享一把文件锁，Agent 的文件工具取不到）：用 `mcp__arcreel__open_draft` 取得完整 `content` 与 `revision`，修改后把它们交给 `mcp__arcreel__patch_draft`，最后用同一 `doc_type` 调 `mcp__arcreel__promote_draft`，详见对应子智能体。
-4. **约束失败产出保留为待修复草稿，不丢弃重抽**：script_plan 拆分或 prompt_authoring 提示词编写的产出违反内容约束时，正式文件不写，产出连同逐条违约报告落到同目录的 `*.invalid.json`。用 `open_draft` 读取草稿及 revision，按 `violations[]` 修复完整 `content`，再用 `patch_draft` 提交；随后以相同 `episode` / `doc_type` 调 `promote_draft`，仍违约则继续 open → patch → promote，无轮次上限。`doc_type` 为 `drama_script_plan`、`narration_script_plan`、`reference_script_plan` 或 `reference_prompt_authoring`。
+2. **正式剧本 `scripts/episode_N.json` 已存在**（drama / narration / reference_video）：内容确认即把脚本规划整集转为正式剧本，全部条目带待编写标记。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主 Agent 调用 `mcp__arcreel__confirm_script_review({"episode": N})`。本工具只读正式剧本、不读脚本规划：脚本规划缺失或重跑后尚未确认都不影响编写。
+   - **ad（广告/短片）**：尚无正式剧本时本工具按 `project.json` 的 `brief` + `products`（含 selling_points）+ `target_duration` 整份生成（后端按审定的带货八段框架配比表构建 prompt，`products` 为空自动分流通用短片）；已有正式剧本时与其他路线一样只编写待编写条目。
+3. **约束失败产出保留为待修复草稿，不丢弃重抽**：参考生视频提示词编写的产出违反内容约束时，正式文件不写，产出连同逐条违约报告落到 `*.invalid.json`。用 `open_draft` 读取草稿及 revision，按 `violations[]` 修复完整 `content`，再用 `patch_draft` 提交；随后以相同 `episode` 与 `doc_type: reference_prompt_authoring` 调 `promote_draft`，仍违约则继续 open → patch → promote，无轮次上限。
 
 ## 用法
 
@@ -39,20 +33,19 @@ mcp__arcreel__generate_episode_script({"episode": N, "dry_run": true})   # 仅�
 
 ### 补充提示词（`author_prompts`）
 
-内容确认后用户可能不经模型、把脚本规划**机械转为正式脚本**（Web 端「直接转换」或
-`mcp__arcreel__convert_script_plan({"episode": N})`）：条目内容层已落盘，drama / narration 的
-`image_prompt` / `video_prompt` 为 `null`（待生成）。此时工作流计划的 `next_action.type` 为
-`author_prompts`，`requested_ids` 列出提示词待生成的条目：
+正式剧本里带待编写标记的条目（内容确认转换出的全部条目、手动新增的分镜 / 单元）还没有视觉层。
+工作流计划的 `next_action.type` 为 `author_prompts` 时，`requested_ids` 就是这些待编写条目。
+不传 `entry_ids` 调用即编写全部待编写条目，写回后标记清除：
 
 ```text
-mcp__arcreel__generate_episode_script({"episode": N, "entry_ids": [<requested_ids>]})
+mcp__arcreel__generate_episode_script({"episode": N})
 ```
 
-- **只传 `entry_ids`**，让工具只给这些条目补视觉层；**不得传 `scope: "all"`**——整集重写会把用户
-  已手写的提示词一并覆盖。
-- 用户已在 Web 端手写过提示词的条目不在 `requested_ids` 里，不要主动把它们加进 `entry_ids`。
-- 脚本规划再次变更后，失效条目由 `generate_script`（默认 `scope: "stale"`）或用户在 Web 端
-  「采用新内容」处理；`convert_script_plan` 从不改写失效条目的内容与提示词。
+- 已有视觉层、无待编写标记的条目保持原样，其中包括用户手写的提示词。
+- **`entry_ids` 是显式重写**：它覆盖所列条目已有的视觉层（参考生视频改写单元正文），只在用户明确要求
+  重写这几条时传入；内容字段（台词、旁白正文、对应原文）与备注、已生成产物照常保留。
+- 没有待编写条目时工具不调用模型、不改剧本，回执会说明。整集重做走重跑脚本规划并重新确认；
+  ad 要整份重做须先移除正式剧本。
 
 **重要：生成剧本必须调用上述 MCP 工具。此 skill 不提供任何 Python/Shell 脚本，不得用 BASH 调 `python .../scripts/*.py`。**
 
@@ -61,15 +54,14 @@ mcp__arcreel__generate_episode_script({"episode": N, "entry_ids": [<requested_id
 MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 
 1. **加载 project.json** — 读取 content_mode、characters、scenes、props、overview、style
-2. **加载脚本规划中间文件** — 根据项目 generation_mode 选择对应文件
-3. **构建 Prompt** — 由 `lib.prompt_builders_script` 或 `lib.prompt_builders_reference` 生成
+2. **加载正式剧本** — 取本次要编写的条目（待编写条目，或 `entry_ids` 点名的条目）；ad 尚无正式剧本时整份生成
+3. **构建 Prompt** — 由 `lib.prompt_builders_script`、`lib.prompt_builders_reference` 或 `lib.prompt_builders_ad` 生成，输入是这些条目的内容字段
 4. **调用 TextBackend** — 由 `TextGenerator` 按项目配置选择文本模型，传入 Pydantic schema 作为 `response_schema` 强约束 JSON 结构
-5. **Pydantic 验证** — 按 content_mode / generation_mode 选 schema：
-   - ad → `AdEpisodeScript`（平铺 `shots[]`，骨架不随生成路径更换；storyboard 路径
-     duration 按 supported_durations 枚举硬约束，reference_video 路径为 1-15 秒自由整数）
-   - reference_video（narration/drama 下）→ `ReferenceVideoScript`（含 `video_units[]`）
-   - narration → prompt_authoring 走两段式：LLM 的 `response_schema` 是 `NarrationVisualEpisodeScript`（仅 `segment_id` + image_prompt + video_prompt），后端按 `segment_id` 把视觉层合并回 script_plan 的结构化分镜（novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具透传），得到完整 `NarrationEpisodeScript`。novel_text 不进 LLM 输出 → 不发生扩写漂移
-   - drama（storyboard，含 grid_storyboard）→ **两段式**：LLM 输出 `DramaVisualScript`（仅 `scene_id` + image_prompt + video_prompt），后端按 scene_id 把视觉层合并回 script_plan 已定稿内容（`script_plan_normalized_script.json` 的 utterances / source_text / 出场资产 / 时长 / 边界透传不变），合并结果即 `DramaEpisodeScript`。非视觉字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移（见 ADR 0041）
+5. **Pydantic 验证与写回** — LLM 只产出视觉层，后端按条目 id 写回正式剧本，内容字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移：
+   - narration → `NarrationVisualEpisodeScript`（`segment_id` + image_prompt + video_prompt）
+   - drama（storyboard，含 grid_storyboard）→ `DramaVisualScript`（`scene_id` + image_prompt + video_prompt）
+   - ad 分镜 → `AdVisualScript`（`shot_id` + image_prompt + video_prompt）；ad 整份生成 → `AdEpisodeScript`（storyboard）或 `AdReferenceFlatScript`（reference_video）
+   - reference_video → `ReferencePromptAuthoringFlatScript`：待编写单元按顺序各一段改写后的正文，台词逐字保留
 6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
    - 注：**任何骨架的剧本都不写入顶层 `generation_mode`**。生成模式是项目级事实（`project.json` 的 `generation_mode`，创建时锁定），剧本骨架种类本身即生成模式的体现；消费方一律读 `project.json` 分派，不得从剧本上找该字段。
 

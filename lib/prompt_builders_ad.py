@@ -7,9 +7,19 @@
 
 两条路线经内置整段模版渲染；本模块只产出槽位值：档位取整、单分镜时长约束、口播语速、
 商品信息块与候选名单。通用规则与四档配比表是 ``shared/ad_pacing`` 片段，按档位解析命名变体。
+
+已有正式剧本时，待编写的分镜 / 单元由提示词编写补写：输入是整份剧本（待编写条目带标记，
+其余条目作前后文），只产出待编写条目的视觉层或正文。
 """
 
-from lib.prompt_builders_script import _format_aspect_ratio_desc, _overview_slot, format_duration_constraint
+from collections.abc import Collection, Mapping
+
+from lib.prompt_builders_script import (
+    _format_aspect_ratio_desc,
+    _neutralize_tags,
+    _overview_slot,
+    format_duration_constraint,
+)
 from lib.prompt_rules.asset_appearance import asset_reference_names
 from lib.prompt_templates.builtin import builtin_templates
 from lib.schema_guards import is_int
@@ -182,4 +192,140 @@ def build_ad_reference_prompt(
     )
 
 
-__all__ = ["build_ad_prompt", "build_ad_reference_prompt", "nearest_ad_tier"]
+def _names(value: object) -> str:
+    names = [name for name in value if isinstance(name, str)] if isinstance(value, list) else []
+    return _neutralize_tags("、".join(names) or "无")
+
+
+def _prompt_summary(value: object, field: str) -> str:
+    """已有提示词的一句摘要：结构化取 ``field``，文本形态取原文；供前后文参照，不求完整。"""
+    if isinstance(value, Mapping):
+        return str(value.get(field) or "")
+    return value if isinstance(value, str) else ""
+
+
+_PENDING_MARK = "【待编写】"
+
+
+def render_ad_shots_for_prompt_authoring(shots: list[dict], target_ids: Collection[str]) -> str:
+    """按播放顺序渲染整份广告分镜：待编写分镜带标记，其余分镜附已有画面与动作摘要作前后文。"""
+    blocks: list[str] = []
+    for shot in shots:
+        shot_id = str(shot.get("shot_id") or "?")
+        pending = shot_id in target_ids
+        header = f"### {_neutralize_tags(shot_id)}{_PENDING_MARK if pending else ''}（时长 {shot.get('duration_seconds', '?')} 秒）"
+        lines = [
+            header,
+            f"段落：{_neutralize_tags(str(shot.get('section') or '无'))}",
+            f"出场：角色 [{_names(shot.get('characters_in_shot'))}]、场景 [{_names(shot.get('scenes'))}]、"
+            f"道具 [{_names(shot.get('props'))}]、商品 [{_names(shot.get('products_in_shot'))}]",
+        ]
+        voiceover = str(shot.get("voiceover_text") or "").strip()
+        lines.append(f"口播：{_neutralize_tags(voiceover) if voiceover else '（无）'}")
+        if not pending:
+            scene = _prompt_summary(shot.get("image_prompt"), "scene").strip()
+            action = _prompt_summary(shot.get("video_prompt"), "action").strip()
+            if scene:
+                lines.append(f"已有画面：{_neutralize_tags(scene)}")
+            if action:
+                lines.append(f"已有动作：{_neutralize_tags(action)}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks) or "（无分镜）"
+
+
+def render_ad_units_for_prompt_authoring(units: list[dict], target_ids: Collection[str]) -> str:
+    """按播放顺序渲染整份广告视频单元：待编写单元带标记，正文可能为空（手动新增）。"""
+    blocks: list[str] = []
+    for index, unit in enumerate(units, start=1):
+        pending = str(unit.get("unit_id") or "") in target_ids
+        body = str(unit.get("text") or "").strip()
+        header = (
+            f"#### unit {index}{_PENDING_MARK if pending else ''}（时长 {int(unit.get('duration_seconds') or 0)}s）"
+        )
+        blocks.append(f"{header}\n{body or '（正文为空）'}")
+    return "\n\n".join(blocks) or "（无单元）"
+
+
+def build_ad_shot_prompt_authoring_prompt(
+    *,
+    project_overview: dict,
+    style: str,
+    style_description: str,
+    characters: dict,
+    scenes: dict,
+    props: dict,
+    products: dict,
+    brief: str,
+    shots: list[dict],
+    target_ids: Collection[str],
+    episode: int = 1,
+    aspect_ratio: str = "9:16",
+    target_language: str = "中文",
+    instructions: str | None = None,
+) -> str:
+    """广告分镜的提示词编写 prompt：只为 ``target_ids`` 里的分镜产出 image_prompt / video_prompt。"""
+    return builtin_templates.render(
+        "text/ad_storyboard_prompt_authoring",
+        target_language=target_language,
+        project_overview=_overview_slot(project_overview),
+        style=style,
+        style_description=style_description,
+        aspect_ratio=aspect_ratio,
+        aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
+        brief=brief or None,
+        products=_format_products(products) if products else None,
+        character_names=asset_reference_names("character", characters),
+        scene_names=asset_reference_names("scene", scenes),
+        prop_names=asset_reference_names("prop", props),
+        shots_content=render_ad_shots_for_prompt_authoring(shots, target_ids),
+        episode=episode,
+        instructions=instructions or None,
+    )
+
+
+def build_ad_reference_prompt_authoring_prompt(
+    *,
+    project_overview: dict,
+    style: str,
+    style_description: str,
+    characters: dict,
+    scenes: dict,
+    props: dict,
+    products: dict,
+    brief: str,
+    units: list[dict],
+    target_ids: Collection[str],
+    episode: int = 1,
+    aspect_ratio: str = "9:16",
+    target_language: str = "中文",
+    instructions: str | None = None,
+) -> str:
+    """广告参考生视频的提示词编写 prompt：只为 ``target_ids`` 里的单元按播放顺序产出正文。"""
+    return builtin_templates.render(
+        "text/ad_reference_video_prompt_authoring",
+        target_language=target_language,
+        project_overview=_overview_slot(project_overview),
+        style=style,
+        style_description=style_description,
+        aspect_ratio=aspect_ratio,
+        aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
+        brief=brief or None,
+        products=_format_products(products) if products else None,
+        product_names=list(products),
+        character_names=asset_reference_names("character", characters),
+        scene_names=asset_reference_names("scene", scenes),
+        prop_names=asset_reference_names("prop", props),
+        units_content=render_ad_units_for_prompt_authoring(units, target_ids),
+        pending_count=sum(1 for unit in units if str(unit.get("unit_id") or "") in target_ids),
+        episode=episode,
+        instructions=instructions or None,
+    )
+
+
+__all__ = [
+    "build_ad_prompt",
+    "build_ad_reference_prompt",
+    "build_ad_reference_prompt_authoring_prompt",
+    "build_ad_shot_prompt_authoring_prompt",
+    "nearest_ad_tier",
+]

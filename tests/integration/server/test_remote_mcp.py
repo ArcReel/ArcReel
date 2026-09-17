@@ -913,6 +913,10 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
             {"project": "ad-demo", "episode": 1, "dry_run": True},
             progress_callback=record_progress,
         )
+        scoped = await session.call_tool(
+            "generate_episode_script",
+            {"project": "ad-demo", "episode": 1, "dry_run": True, "scope": "all"},
+        )
         patched = await session.call_tool(
             "patch_episode_script",
             {
@@ -938,6 +942,10 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert "prompt immediately without a generation_batch; do not poll" in tools["generate_episode_script"].description
     assert set(script.structuredContent) == {"text_generation"}
     assert "DRY RUN" in script.structuredContent["text_generation"]["message"]
+    assert "scope" not in tools["generate_episode_script"].inputSchema["properties"]
+    assert scoped.isError
+    assert scoped.structuredContent["problem"]["code"] == "invalid_request"
+    assert "entry_ids" in scoped.structuredContent["problem"]["detail"]
     assert progress_messages == ["Generating script_plan", "Generating episode script"]
     assert patched.isError
     assert patched.structuredContent["script_patch"]["problems"][0]["code"] == "revision_conflict"

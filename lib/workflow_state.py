@@ -287,14 +287,9 @@ def _project_revision(project: Mapping[str, Any]) -> str:
     return prefixed_canonical_json_digest(dict(project))
 
 
-#: 由待编写标记驱动补充提示词的骨架：三条走脚本规划的剧集路线。ad 的待编写分镜尚不能由提示词
-#: 编写按正式脚本补写，不在此列。
-_PROMPT_BEARING_KINDS = frozenset({"segments", "scenes", "video_units"})
-
-
 def _pending_authoring_entry_ids(items: list[dict[str, Any]], kind: str | None) -> list[str]:
-    """带待编写标记的条目 id，按剧本顺序。"""
-    if kind not in _PROMPT_BEARING_KINDS:
+    """带待编写标记的条目 id，按剧本顺序；四种骨架都由提示词编写按正式脚本补写。"""
+    if kind not in SKELETONS:
         return []
     id_field = SKELETONS[kind].id_field
     return [

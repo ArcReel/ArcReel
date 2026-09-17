@@ -1192,11 +1192,12 @@ class DataValidator:
                 asset_type="product",
             )
 
-            # 广告/短片分镜没有待生成态：两侧提示词缺失或为空即结构不完整。
-            if not shot.get("image_prompt"):
-                errors.append(_m("val_missing_field_at", prefix=prefix, field="image_prompt"))
-            if not shot.get("video_prompt"):
-                errors.append(_m("val_missing_field_at", prefix=prefix, field="video_prompt"))
+            # 广告/短片分镜只有待编写时提示词可以为空；其余分镜两侧提示词缺失或为空即结构不完整。
+            if shot.get("pending_authoring") is not True:
+                if not shot.get("image_prompt"):
+                    errors.append(_m("val_missing_field_at", prefix=prefix, field="image_prompt"))
+                if not shot.get("video_prompt"):
+                    errors.append(_m("val_missing_field_at", prefix=prefix, field="video_prompt"))
 
             if project_dir is not None:
                 self._validate_generated_assets(

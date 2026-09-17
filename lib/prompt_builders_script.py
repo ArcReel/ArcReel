@@ -159,7 +159,7 @@ def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
 
     口播 / 原文锚仅供 LLM 理解戏剧节奏——「不要复制进视觉字段」由 ``build_drama_prompt`` 在
     ``<shots>`` 块前一次性声明，分镜条目内不逐条重复；它们由后端按 scene_id 透传
-    （见 ``merge_drama_visual_into_scenes``），prompt_authoring 只产出 image_prompt / video_prompt。
+    （见 ``ScriptGenerator._merge_visual_layer``），prompt_authoring 只产出 image_prompt / video_prompt。
 
     渲染结果嵌入 prompt_authoring prompt 的 ``<shots>`` 块：资产名 / utterances 字段先判 ``isinstance(_, list)``——
     降级 / 手改 script_plan 可能写成非列表值（字符串会被逐字符迭代、数字会抛 TypeError），非列表按空处理；
@@ -187,8 +187,11 @@ def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
             f"出场资产：角色 [{_neutralize_tags(', '.join(chars) or '无')}]、"
             f"场景 [{_neutralize_tags(', '.join(scenes_ref) or '无')}]、道具 [{_neutralize_tags(', '.join(props_ref) or '无')}]"
         )
-        scene_desc = _neutralize_tags(str(scene.get("scene_description") or "（无）")).replace("\n", "\n  ")
-        lines.append(f"视觉改编：{scene_desc}")
+        # 视觉改编描述只在脚本规划里有；正式脚本的分镜不带它，缺席时不渲染这一行。
+        raw_scene_desc = scene.get("scene_description")
+        if raw_scene_desc:
+            scene_desc = _neutralize_tags(str(raw_scene_desc)).replace("\n", "\n  ")
+            lines.append(f"视觉改编：{scene_desc}")
         raw_utterances = scene.get("utterances")
         utterances = raw_utterances if isinstance(raw_utterances, list) else []
         if utterances:

@@ -342,8 +342,9 @@ export interface AdShot {
   props?: string[];
   /** 商品名称引用，非空即商品分镜。 */
   products_in_shot?: string[];
-  image_prompt: ImagePrompt | string;
-  video_prompt: VideoPrompt | string;
+  /** 待编写分镜（手动新增）为 null，由提示词编写补出。 */
+  image_prompt: ImagePrompt | string | null;
+  video_prompt: VideoPrompt | string | null;
   transition_to_next: TransitionType;
   note?: string;
   /**

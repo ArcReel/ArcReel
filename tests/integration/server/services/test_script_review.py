@@ -1425,8 +1425,9 @@ class TestReferenceVideoScriptPlanMigration:
 
 
 class TestReferenceVideoPromptAuthoringEnforcement:
-    async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):
-        """Agent 路径：rv 的 script_plan 未确认时 prompt_authoring 阻塞，confirm_script_review 工具确认后放行。"""
+    async def test_confirm_tool_materializes_the_script_authoring_reads(self, tmp_path):
+        """Agent 路径：rv 的 script_plan 未确认时尚无正式脚本，编写入口指向内容确认；confirm_script_review
+        工具确认即生成正式脚本，编写入口随之放行。"""
         from server.agent_runtime.sdk_tools.text_generation import (
             confirm_script_review_tool,
             generate_episode_script_tool,
@@ -1436,7 +1437,6 @@ class TestReferenceVideoPromptAuthoringEnforcement:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         _write_rv_script_plan(pm, _rv_script_plan())
         project_path = pm.get_project_path("demo")
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
 
         ctx = ToolContext(
             project_name="demo",
@@ -1444,13 +1444,17 @@ class TestReferenceVideoPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        blocked = await generate_episode_script_tool(ctx).handler({"episode": 1})
-        assert blocked.get("is_error") is True
-        assert "阻塞" in blocked["content"][0]["text"]
+        refused = await generate_episode_script_tool(ctx).handler({"episode": 1})
+        assert refused.get("is_error") is True
+        assert "尚无正式脚本" in refused["content"][0]["text"]
+        assert "内容确认" in refused["content"][0]["text"]
 
         result = await confirm_script_review_tool(ctx).handler({"episode": 1})
         assert result.get("is_error") is not True
-        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is False
+        assert (project_path / "scripts" / "episode_1.json").exists()
+
+        dry_run = await generate_episode_script_tool(ctx).handler({"episode": 1, "dry_run": True})
+        assert dry_run.get("is_error") is not True, dry_run
 
 
 # ---------------------------------------------------------------------------
@@ -1751,17 +1755,24 @@ class TestScriptPlanWriteStore:
 
 
 # ---------------------------------------------------------------------------
-# prompt_authoring 工具阻塞 enforcement：pending 时 generate_episode_script 拒绝
+# prompt_authoring 与内容确认：编写不受确认门禁阻塞，确认工具走同一服务
 # ---------------------------------------------------------------------------
 
 
 class TestPromptAuthoringEnforcement:
-    async def test_generate_blocked_when_pending(self, tmp_path):
+    async def test_pending_review_does_not_block_authoring_the_formal_script(self, tmp_path):
+        """编写只读正式剧本：script_plan 重跑后尚未确认时，编写入口照常放行。"""
         from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
         from server.media_tools.context import ToolContext
 
-        pm = _make_project(tmp_path, "drama")
-        _write_script_plan(pm, "drama", _drama_script_plan())
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
+        pm.update_project(
+            "demo", lambda p: script_review.apply_confirmation(p, 1, "sha256-v1:" + "0" * 64, "2026-01-01T00:00:00Z")
+        )
+        project_path = pm.get_project_path("demo")
+        assert script_review.gate_blocks_prompt_authoring(project_path, pm.load_project("demo"), 1) is True
 
         ctx = ToolContext(
             project_name="demo",
@@ -1769,13 +1780,10 @@ class TestPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        tool = generate_episode_script_tool(ctx)
-        result = await tool.handler({"episode": 1})
+        result = await generate_episode_script_tool(ctx).handler({"episode": 1, "dry_run": True})
 
-        assert result.get("is_error") is True
-        text = result["content"][0]["text"]
-        assert "script_plan" in text
-        assert "阻塞" in text
+        assert result.get("is_error") is not True, result
+        assert "没有待编写的条目" in result["content"][0]["text"]
 
     async def test_confirm_tool_unblocks_prompt_authoring(self, tmp_path):
         """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 script_plan→prompt_authoring 不被破坏）。"""

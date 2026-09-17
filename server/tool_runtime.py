@@ -122,7 +122,7 @@ from lib.script_editor import (
     split_segment,
 )
 from lib.script_generator import ScriptPlanConversionReceipt
-from lib.script_plan_entries import SCOPE_STALE, ScriptPlanEntryError
+from lib.script_plan_entries import ScriptPlanEntryError
 from lib.script_review import ScriptPlanRebuildCompletionError, complete_stale_script_plan_rebuild, script_plan_kind
 from lib.source_loader import (
     ConflictError,
@@ -155,10 +155,10 @@ from server.text_generation import (
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
-    episode_generation_preflight,
     generate_drama_script_plan,
     generate_narration_script_plan,
     generate_reference_script_plan,
+    prompt_authoring_preflight,
 )
 from server.text_generation import (
     confirm_script_review as confirm_script_review_handler,
@@ -555,10 +555,9 @@ async def generate_episode_script(
         )
     try:
         await asyncio.to_thread(
-            episode_generation_preflight,
+            prompt_authoring_preflight,
             services.projects.get_project_path(scope.project_name),
             request.value.episode,
-            enforce_review_gate=True,
         )
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
@@ -1965,7 +1964,6 @@ async def execute_queued_text_task(
             source=payload.get("source"),
             instructions=payload.get("instructions"),
             dry_run=bool(payload.get("dry_run")),
-            scope=payload.get("scope") or SCOPE_STALE,
             entry_ids=tuple(payload.get("entry_ids") or ()),
         )
         handlers = {

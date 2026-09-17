@@ -428,35 +428,6 @@ def backfill_entry_revisions(
     return tuple(backfilled)
 
 
-#: ``scope`` 的两个具名取值；其余取值按「条目 id 列表」解读。
-SCOPE_ALL = "all"
-SCOPE_STALE = "stale"
-
-
-def resolve_rewrite_ids(
-    scope: str | Iterable[str] | None,
-    currency: ScriptEntryCurrency,
-) -> tuple[str, ...]:
-    """把 ``scope`` 解析为本次要重写视觉层的条目 id，按脚本规划顺序。
-
-    ``None`` / ``"stale"`` → 失配与新增条目（默认）；``"all"`` → 全部条目；
-    条目 id 列表 → 该列表，其中任一 id 不在当前脚本规划内即 fail-loud（调用方据此在落盘前拒绝）。
-    """
-
-    if scope is None or scope == SCOPE_STALE:
-        return currency.outdated_ids
-    if scope == SCOPE_ALL:
-        return currency.plan_ids
-    if isinstance(scope, str):
-        raise ScriptPlanEntryError(f"未知的 scope: {scope!r}；取值为 {SCOPE_ALL!r} / {SCOPE_STALE!r} 或条目 id 列表")
-    requested = list(scope)
-    unknown = sorted({entry_id for entry_id in requested if entry_id not in currency.plan_ids})
-    if unknown:
-        raise ScriptPlanEntryError(f"scope 指定的条目 id 不在当前脚本规划内: {unknown}")
-    selected = set(requested)
-    return tuple(entry_id for entry_id in currency.plan_ids if entry_id in selected)
-
-
 def splice_entries(
     kind: ScriptPlanKind,
     *,
@@ -467,10 +438,10 @@ def splice_entries(
 ) -> list[dict[str, object]]:
     """按脚本规划顺序装配最终条目列表：本次重写的取新值，其余原样沿用旧条目。
 
-    ``rewritten`` 是本次提示词编写产出并已补完元数据的条目（只含被重写的那些）。重写一个
-    已存在条目时沿用其 ``PRESERVED_ON_REWRITE_FIELDS``；未被重写的条目整条沿用，因而其视觉层
+    ``rewritten`` 是本次机械转换产出并已补完元数据的条目（只含新取内容的那些）。重写一个
+    已存在条目时沿用其 ``PRESERVED_ON_REWRITE_FIELDS``；其余条目整条沿用，因而其视觉层
     与用户字段逐字节不变。规划里存在、既没被重写也不在旧剧本里的条目 fail-loud——那是
-    ``resolve_rewrite_ids`` 与本函数的调用契约被破坏，静默丢条目会让剧本悄悄少一段。
+    调用方的装配契约被破坏，静默丢条目会让剧本悄悄少一段。
     每个条目落盘前统一盖上其消费的条目内容指纹；``keep_revision_ids`` 里沿用的旧条目例外，
     它们连指纹一起原样保留（有则留旧值、无则仍缺），机械转换借此让失效条目继续报失效。
     """
@@ -516,8 +487,6 @@ __all__ = [
     "PLAN_VARIANTS",
     "PRESERVED_ON_REWRITE_FIELDS",
     "PRESERVED_ON_UNCHANGED_FIELDS",
-    "SCOPE_ALL",
-    "SCOPE_STALE",
     "SCRIPT_PLAN_ENTRY_REVISION_FIELD",
     "SCRIPT_PLAN_REVISION_FIELD",
     "ScriptEntryCurrency",
@@ -534,7 +503,6 @@ __all__ = [
     "plan_entry_content",
     "plan_entry_revisions",
     "plan_variant",
-    "resolve_rewrite_ids",
     "script_entries_by_id",
     "splice_entries",
 ]

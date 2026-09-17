@@ -4,9 +4,8 @@
 持久化（确认指纹落 project.json ``episodes[i].script_plan_review``）与结构化内容的 Pydantic 校验、落盘。
 
 确认即把脚本规划整份机械转为正式脚本（全部条目待编写），并与确认记录同一次写入落盘；该集已有
-正式脚本时确认就是覆盖，须调用方显式认可。提示词编写（剧本视觉生成）仍由 Agent 的
-``generate_episode_script`` 工具执行，该工具读时经 ``lib.script_review.gate_blocks_prompt_authoring``
-校验，未确认时拒绝、确认后放行。
+正式脚本时确认就是覆盖，须调用方显式认可。提示词编写（剧本视觉生成）由 Agent 的
+``generate_episode_script`` 工具执行，只读正式脚本，不经内容确认门禁。
 """
 
 from __future__ import annotations

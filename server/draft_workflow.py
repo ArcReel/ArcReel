@@ -1323,11 +1323,7 @@ class DraftWorkflow:
                         before_commit=before_commit,
                     )
                 else:
-                    project = await asyncio.to_thread(self.ctx.pm.load_project_readonly, self.ctx.project_name)
-                    if script_review.gate_blocks_prompt_authoring(self.ctx.project_path, project, episode):
-                        raise DraftWorkflowError(
-                            "review_required", "script_plan content must be confirmed before promoting prompt_authoring"
-                        )
+                    # 提示词编写只读正式剧本：脚本规划重跑后尚未确认不阻塞晋升，与编写入口同口径。
                     generator = await ScriptGenerator.create(
                         self.ctx.project_path,
                         config_resolver=self.ctx.config_resolver,

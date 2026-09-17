@@ -342,6 +342,21 @@ class TestAdScriptModels:
                 }
             )
 
+    def test_pending_ad_shot_may_omit_prompts(self):
+        """待编写分镜（手动新增）不带提示词字段也能校验通过；非待编写分镜仍须两侧齐备。"""
+        base = {"shot_id": "E1S02", "section": "demo", "duration_seconds": 4, "voiceover_text": "口播"}
+
+        pending = AdShot.model_validate({**base, "pending_authoring": True})
+
+        assert (pending.image_prompt, pending.video_prompt) == (None, None)
+        with pytest.raises(ValidationError):
+            AdShot.model_validate(base)
+
+    def test_ad_response_schema_still_requires_prompts(self):
+        required = AdEpisodeScript.model_json_schema()["$defs"]["AdShot"]["required"]
+
+        assert {"image_prompt", "video_prompt"} <= set(required)
+
     def test_ad_episode_script_builds_with_shots(self):
         script = AdEpisodeScript(
             title="新品速干杯",

@@ -573,7 +573,7 @@ class DramaEpisodeScript(BaseModel):
 # （逐字原文锚）、scene_description（视觉改编自由文本）一次定稿。prompt_authoring 只生成视觉层
 # （image_prompt / video_prompt），LLM 输出 schema 仅含 scene_id（对齐锚）+ 视觉字段——
 # 非视觉字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移，由后端按 scene_id
-# 合并回 script_plan 已定内容（merge_drama_visual_into_scenes）。
+# 写回正式脚本条目（ScriptGenerator._merge_visual_layer）。
 
 
 class DramaSceneContent(BaseModel):
@@ -644,71 +644,9 @@ class DramaVisualScript(BaseModel):
     scenes: list[DramaSceneVisual] = Field(description="各分镜视觉层（按 scene_id 对齐 script_plan 内容）")
 
 
-class DramaVisualMergeError(ValueError):
-    """prompt_authoring 视觉层与 script_plan 内容层按 scene_id 合并失败（缺覆盖 / 悬空 / 重复 scene_id）。"""
-
-
-#: 合并后从内容层剔除的、不属于最终 ``DramaScene`` 的 script_plan-only 字段。
-#: ``lib.script_plan_entries`` 的内容投影读同一份清单。
+#: 转为正式脚本时从内容层剔除的、不属于最终 ``DramaScene`` 的 script_plan-only 字段。
+#: ``lib.script_plan_entries`` 的内容投影读这份清单。
 DRAMA_CONTENT_ONLY_FIELDS = frozenset({"scene_description"})
-
-
-def merge_drama_visual_into_scenes(
-    content_scenes: list[dict[str, object]],
-    visual_scenes: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    """把 prompt_authoring 视觉层按 ``scene_id`` 合并回 script_plan 内容层，产出最终 ``DramaScene`` dict 列表。
-
-    工程透传（见 ADR 0041）：非视觉字段（utterances / source_text / characters_in_scene 等）一律取自
-    script_plan 内容、不受 prompt_authoring 影响；视觉字段（image_prompt / video_prompt）取自 prompt_authoring。按 ``scene_id``
-    对齐（非列表顺序），并校验 scene_id 两侧唯一与全覆盖——内容缺视觉、视觉悬空、内容或视觉重复
-    scene_id 均抛 ``DramaVisualMergeError``（内容侧重复会让两个分镜共用同一视觉、并在下游产物文件名
-    上撞键，故同样 fail-loud）。结果顺序沿用内容层。不就地修改入参。
-    """
-    visual_by_id: dict[str, dict[str, object]] = {}
-    for visual in visual_scenes:
-        # 类型注解为 dict，但 _parse_drama_visual 校验失败降级会返回含非 dict 条目的原始列表，
-        # 运行时未必成立——此守卫把脏条目转成 DramaVisualMergeError，而非后续 .get() 的 AttributeError。
-        if not isinstance(visual, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
-            raise DramaVisualMergeError(f"prompt_authoring 视觉层条目必须是对象: {visual!r}")
-        sid = visual.get("scene_id")
-        if not isinstance(sid, str) or not sid:
-            raise DramaVisualMergeError(f"prompt_authoring 视觉层条目缺少 scene_id: {visual!r}")
-        if sid in visual_by_id:
-            raise DramaVisualMergeError(f"prompt_authoring 视觉层 scene_id 重复: {sid}")
-        visual_by_id[sid] = visual
-
-    merged: list[dict[str, object]] = []
-    content_ids: set[str] = set()
-    for content in content_scenes:
-        # 同上：内容层条目运行时未必是 dict（坏 script_plan / 降级输入），守卫转 fail-loud。
-        if not isinstance(content, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
-            raise DramaVisualMergeError(f"script_plan 内容层条目必须是对象: {content!r}")
-        sid = content.get("scene_id")
-        if not isinstance(sid, str) or not sid:
-            raise DramaVisualMergeError(f"script_plan 内容层条目缺少 scene_id: {content!r}")
-        if sid in content_ids:
-            raise DramaVisualMergeError(f"script_plan 内容层 scene_id 重复: {sid}")
-        content_ids.add(sid)
-        visual = visual_by_id.get(sid)
-        if visual is None:
-            raise DramaVisualMergeError(f"script_plan 分镜 {sid} 缺少对应的 prompt_authoring 视觉层")
-        # _parse_drama_visual 校验失败降级会回原始 scenes，其中可能有只含 scene_id、缺视觉字段的半成品；
-        # 在合并阶段 fail-loud，避免写入 None 后绕过 DramaVisualMergeError、拖到 save_script 才以通用异常失败。
-        if "image_prompt" not in visual or "video_prompt" not in visual:
-            raise DramaVisualMergeError(f"prompt_authoring 视觉层分镜 {sid} 缺少必要的视觉字段")
-        scene = {k: v for k, v in content.items() if k not in DRAMA_CONTENT_ONLY_FIELDS}
-        scene["image_prompt"] = visual["image_prompt"]
-        scene["video_prompt"] = visual["video_prompt"]
-        merged.append(scene)
-
-    orphans = set(visual_by_id) - content_ids
-    if orphans:
-        raise DramaVisualMergeError(
-            f"prompt_authoring 视觉层存在 script_plan 内容中不存在的 scene_id: {sorted(orphans)}"
-        )
-
-    return merged
 
 
 # ============ 广告/短片（Ad） ============
@@ -725,6 +663,14 @@ class AdShot(BaseModel):
 
     model_config = _STRICT_CONFIG
 
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_pending_prompts(cls, data: object) -> object:
+        """待编写分镜可以不带提示词字段：补成 null，其余分镜仍须两侧齐备。"""
+        if isinstance(data, dict) and data.get("pending_authoring") is True:
+            data = {"image_prompt": None, "video_prompt": None, **data}
+        return data
+
     shot_id: str = Field(description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     section: str = Field(
         description="带货框架段落标签（如 hook/pain_point/product_reveal/selling_point/demo/trust/price_promo/cta）"
@@ -735,9 +681,10 @@ class AdShot(BaseModel):
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     products_in_shot: list[str] = Field(default_factory=list, description="出场商品名称列表，非空即商品分镜")
-    # ad 没有脚本规划、不经机械转换，提示词没有待生成态：字段保持必填，LLM 的 response_schema 不变。
-    image_prompt: ImagePrompt | PromptText = Field(description="分镜图生成提示词")
-    video_prompt: VideoPrompt | PromptText = Field(description="视频生成提示词")
+    # 整份生成的 response_schema 仍要求两侧提示词；只有待编写分镜（手动新增）可以缺省为 null，
+    # 由提示词编写补出（见 _fill_pending_prompts 与结构校验）。
+    image_prompt: ImagePrompt | PromptText | PendingPrompt = Field(description="分镜图生成提示词")
+    video_prompt: VideoPrompt | PromptText | PendingPrompt = Field(description="视频生成提示词")
     # 见 NarrationSegment.transition_to_next 说明
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
@@ -750,6 +697,25 @@ class AdShot(BaseModel):
     # 待编写：视觉层尚未由提示词编写补出。新增条目时置位、提示词编写写回该条目时清除；
     # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
+
+
+class AdShotVisual(BaseModel):
+    """提示词编写为已有广告分镜补出的视觉层：仅 shot_id（对齐锚）+ 视觉字段。
+
+    口播、时长、段落与出场资产已在正式剧本里，按 shot_id 原样保留，不进 LLM 输出。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    shot_id: str = Field(min_length=1, description="对齐锚：必须逐字等于待编写分镜的 shot_id")
+    image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
+    video_prompt: VideoPrompt = Field(description="视频生成提示词")
+
+
+class AdVisualScript(BaseModel):
+    """广告分镜提示词编写的 LLM ``response_schema``：各待编写分镜的视觉层。"""
+
+    shots: list[AdShotVisual] = Field(description="各待编写分镜的视觉层，按 shot_id 一一对齐")
 
 
 class AdEpisodeScript(BaseModel):

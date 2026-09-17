@@ -140,13 +140,17 @@ def test_text_generation_request_rejects_non_positive_or_non_integer_episode(bad
         TextGenerationRequest(episode=bad)
 
 
+def _write_formal_script(project_path: Path, episode: int = 1) -> None:
+    scripts = project_path / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    (scripts / f"episode_{episode}.json").write_text(json.dumps({"episode": episode, "segments": []}), encoding="utf-8")
+
+
 async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
-    drafts = project_path / "drafts" / "episode_1"
-    drafts.mkdir(parents=True)
-    (drafts / "script_plan_segments.json").write_text("script_plan content", encoding="utf-8")
+    _write_formal_script(project_path)
     (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
 
     class _FakeGenerator:
@@ -163,10 +167,13 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
     assert "fake prompt" in out["content"][0]["text"]
 
 
-async def test_generate_episode_script_missing_script_plan(fake_ctx: ToolContext) -> None:
-    tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 99})
+async def test_generate_episode_script_without_formal_script_is_refused(fake_ctx: ToolContext) -> None:
+    """非 ad 项目尚无正式脚本时拒绝编写，并指向内容确认。"""
+    (fake_ctx.project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
+    assert "尚无正式脚本" in out["content"][0]["text"]
+    assert "内容确认" in out["content"][0]["text"]
 
 
 async def test_generate_episode_script_writes_to_default_project_scripts(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -174,32 +181,21 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
-    drafts = project_path / "drafts" / "episode_1"
-    drafts.mkdir(parents=True)
-    script_plan = drafts / "script_plan_segments.json"
-    script_plan.write_text("script_plan", encoding="utf-8")
-    # script_plan→prompt_authoring 内容确认：须先确认才放行生成，否则 handler 早返阻塞而非调 ScriptGenerator。
-    # 把已存确认指纹对齐当前 script_plan 内容指纹，模拟「用户已在 Web 确认」。
-    fingerprint = script_review.content_fingerprint(script_plan)
-    (project_path / "project.json").write_text(
-        json.dumps(
-            {
-                "content_mode": "narration",
-                "episodes": [{"episode": 1, "script_plan_review": {"fingerprint": fingerprint, "confirmed_at": "t"}}],
-            }
-        ),
-        encoding="utf-8",
-    )
+    _write_formal_script(project_path)
+    (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
 
     captured: dict[str, dict[str, Any]] = {"calls": {}}
 
     class _FakeGenerator:
+        content_mode = "narration"
+
         @classmethod
         async def create(cls, _path, **_kwargs):
             return cls()
 
         async def generate(self, **kwargs) -> Path:
             captured["calls"] = kwargs
+            kwargs["rewritten_entry_ids"].append("E1S01")
             return project_path / "scripts" / "episode_1.json"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
@@ -212,7 +208,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
 
 
 async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolContext, monkeypatch) -> None:
-    """ad 一键生成不依赖 script_plan 中间文件：缺 drafts/ 也不报 script_plan 错误。"""
+    """ad 一键生成不依赖 script_plan 中间文件与正式脚本：两者都缺也不报错。"""
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
@@ -221,6 +217,8 @@ async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolContex
     )
 
     class _FakeGenerator:
+        content_mode = "ad"
+
         @classmethod
         async def create(cls, _path, **_kwargs):
             return cls()
@@ -234,8 +232,8 @@ async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolContex
     assert out.get("is_error") is not True
 
 
-async def test_generate_episode_script_scope_reaches_the_generator(fake_ctx: ToolContext, monkeypatch) -> None:
-    """scope / entry_ids 两个工具参数原样落到 ScriptGenerator.generate，回执列出被重写的条目。"""
+async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: ToolContext, monkeypatch) -> None:
+    """entry_ids 原样落到 ScriptGenerator.generate，回执列出本次编写的条目。"""
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
@@ -245,6 +243,8 @@ async def test_generate_episode_script_scope_reaches_the_generator(fake_ctx: Too
     captured: dict[str, Any] = {}
 
     class _FakeGenerator:
+        content_mode = "ad"
+
         @classmethod
         async def create(cls, _path, **_kwargs):
             return cls()
@@ -255,15 +255,47 @@ async def test_generate_episode_script_scope_reaches_the_generator(fake_ctx: Too
             return project_path / "scripts" / "episode_1.json"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    tool_obj = generate_episode_script_tool(fake_ctx)
 
-    out = await call(tool_obj, {"episode": 1, "entry_ids": ["E1S02"]})
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "entry_ids": ["E1S02"]})
     assert out.get("is_error") is not True
-    assert captured["scope"] == ("E1S02",)
+    assert captured["entry_ids"] == ("E1S02",)
     assert "E1S02" in out["content"][0]["text"]
 
-    await call(tool_obj, {"episode": 1, "scope": "all"})
-    assert captured["scope"] == "all"
+
+@pytest.mark.parametrize(
+    ("content_mode", "redo_hint"),
+    [("narration", "重跑脚本规划"), ("ad", "移除正式脚本")],
+)
+async def test_generate_episode_script_without_pending_entries_says_how_to_rewrite(
+    fake_ctx: ToolContext, monkeypatch, content_mode: str, redo_hint: str
+) -> None:
+    """没有待编写条目时回执说明未调用模型，并给出重写指定条目与整份重做的出路。"""
+    from server import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    _write_formal_script(project_path)
+    (project_path / "project.json").write_text(
+        json.dumps({"content_mode": content_mode, "target_duration": 30}), encoding="utf-8"
+    )
+
+    class _FakeGenerator:
+        @classmethod
+        async def create(cls, _path, **_kwargs):
+            generator = cls()
+            generator.content_mode = content_mode
+            return generator
+
+        async def generate(self, **_kwargs) -> Path:
+            return project_path / "scripts" / "episode_1.json"
+
+    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+
+    assert out.get("is_error") is not True
+    message = out["content"][0]["text"]
+    assert "没有待编写的条目" in message
+    assert "entry_ids" in message
+    assert redo_hint in message
 
 
 async def test_generate_episode_script_reports_unbound_scene_mentions(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -310,8 +342,8 @@ async def test_generate_episode_script_reports_unbound_scene_mentions(fake_ctx: 
 async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """点名了脚本规划里没有的条目：报「拒绝生成」，不冒成 internal_error 引导 Agent 原样重试。"""
-    from lib.script_plan_entries import ScriptPlanEntryError
+    """点名了正式脚本里没有的条目：报「拒绝生成」，不冒成 internal_error 引导 Agent 原样重试。"""
+    from lib.script_generator import PromptAuthoringTargetError
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
@@ -325,37 +357,63 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
             return cls()
 
         async def generate(self, **_kwargs) -> Path:
-            raise ScriptPlanEntryError("scope 指定的条目 id 不在当前脚本规划内: ['E9U99']")
+            raise PromptAuthoringTargetError("entry_ids 不在第 1 集正式脚本内: ['E9U99']")
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
     out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "entry_ids": ["E9U99"]})
 
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "重写范围无效" in text
+    assert "编写范围无效" in text
     assert "generate_episode_script 失败" not in text
 
 
-async def test_generate_episode_script_rejects_entry_ids_with_scope_all(fake_ctx: ToolContext) -> None:
-    """两种范围同时给出即请求自相矛盾，在入口拒绝而不是任选其一。"""
-    tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1, "scope": "all", "entry_ids": ["E1S01"]})
+@pytest.mark.parametrize("scope", ["all", "stale", None])
+async def test_generate_episode_script_rejects_removed_scope_with_migration_note(
+    fake_ctx: ToolContext, scope: str | None
+) -> None:
+    """scope 已取消：传入即拒绝（不论取值），说明改用默认范围或 entry_ids。"""
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "scope": scope})
     assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "scope 参数已取消" in text
+    assert "entry_ids" in text
 
 
-async def test_generate_episode_script_scope_does_not_bypass_the_review_gate(fake_ctx: ToolContext) -> None:
-    """内容确认未通过时，增量与整集两条范围一律被阻塞。"""
+async def test_generate_episode_script_does_not_wait_for_script_plan_review(fake_ctx: ToolContext, monkeypatch) -> None:
+    """编写只读正式脚本：脚本规划重跑后尚未确认（或缺失）都不阻塞编写。"""
+    from server import text_generation as mod
+
     project_path = fake_ctx.project_path
+    _write_formal_script(project_path)
     drafts = project_path / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "script_plan_segments.json").write_text("script_plan", encoding="utf-8")
-    (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
-    tool_obj = generate_episode_script_tool(fake_ctx)
+    (drafts / "script_plan_segments.json").write_text("rerun script_plan", encoding="utf-8")
+    project = {
+        "content_mode": "narration",
+        "episodes": [
+            {"episode": 1, "script_plan_review": {"fingerprint": "sha256-v1:" + "0" * 64, "confirmed_at": "t"}}
+        ],
+    }
+    (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+    assert script_review.review_status(project_path, project, 1) == "pending_review"
 
-    for args in ({"episode": 1}, {"episode": 1, "scope": "all"}, {"episode": 1, "entry_ids": ["E1S01"]}):
-        out = await call(tool_obj, args)
-        assert out.get("is_error") is True, args
-        assert "内容确认" in out["content"][0]["text"]
+    class _FakeGenerator:
+        content_mode = "narration"
+
+        @classmethod
+        async def create(cls, _path, **_kwargs):
+            return cls()
+
+        async def generate(self, **kwargs) -> Path:
+            kwargs["rewritten_entry_ids"].append("E1S01")
+            return project_path / "scripts" / "episode_1.json"
+
+    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+
+    assert out.get("is_error") is not True
+    assert "E1S01" in out["content"][0]["text"]
 
 
 def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
@@ -933,24 +991,14 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
-    drafts = project_path / "drafts" / "episode_1"
-    drafts.mkdir(parents=True)
-    script_plan = drafts / "script_plan_segments.json"
-    script_plan.write_text("script_plan", encoding="utf-8")
-    fingerprint = script_review.content_fingerprint(script_plan)
-    (project_path / "project.json").write_text(
-        json.dumps(
-            {
-                "content_mode": "narration",
-                "episodes": [{"episode": 1, "script_plan_review": {"fingerprint": fingerprint, "confirmed_at": "t"}}],
-            }
-        ),
-        encoding="utf-8",
-    )
+    _write_formal_script(project_path)
+    (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
 
     captured: dict[str, Any] = {}
 
     class _FakeGenerator:
+        content_mode = "narration"
+
         def __init__(self, _path, **_kwargs):
             pass
 
@@ -976,29 +1024,3 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
     out = await call(tool_obj, {"episode": 1, "instructions": "偏好特写镜头"})
     assert out.get("is_error") is not True, out
     assert captured["generate"] == "偏好特写镜头"
-
-
-async def test_generate_episode_script_reference_legacy_md_hints_resplit(fake_ctx: ToolContext) -> None:
-    """reference_video 集仅存旧 .md 拆分表时，generate_episode_script 给出重跑拆分提示。"""
-    project_path = fake_ctx.project_path
-    (project_path / "project.json").write_text(
-        json.dumps(
-            {
-                "content_mode": "narration",
-                "generation_mode": "reference_video",
-                "episodes": [{"episode": 1, "generation_mode": "reference_video"}],
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    drafts = project_path / "drafts" / "episode_1"
-    drafts.mkdir(parents=True)
-    (drafts / "script_plan_reference_units.md").write_text("| E1U1 |", encoding="utf-8")
-
-    tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1})
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
-    assert "调用 generate_script_plan" in text
-    assert "script_plan_reference_units.json" in text

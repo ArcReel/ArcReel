@@ -2462,6 +2462,28 @@ def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
     assert status.next_action.requested_ids == ["E1U01"]
 
 
+def test_pending_ad_shots_ask_to_author_prompts(tmp_path: Path) -> None:
+    """ad 手动新增的分镜带待编写标记：下一步同样是补提示词。"""
+    pm, project_path = _make_project(tmp_path, "ad")
+    _write_registered_script(
+        project_path,
+        {
+            "episode": 1,
+            "title": "广告",
+            "content_mode": "ad",
+            "shots": [
+                _valid_ad_shot(),
+                _valid_ad_shot(shot_id="E1S02", image_prompt=None, video_prompt=None, pending_authoring=True),
+            ],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.next_action.type == "author_prompts"
+    assert status.next_action.requested_ids == ["E1S02"]
+
+
 def test_author_prompts_lists_marked_entries_not_empty_prompts(tmp_path: Path) -> None:
     """补充提示词只读待编写标记：带标记的条目即使已有提示词也列入，无标记的空提示词条目不列入。"""
     plan = [_plan_segment("E1S01", "原文甲。"), _plan_segment("E1S02", "原文乙。")]
