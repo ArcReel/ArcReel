@@ -605,7 +605,7 @@ class TaskRepository(BaseRepository):
         派发所需的 ``provider_id`` 一并作为资格条件：状态一旦翻成 running，本方法就已提交，
         派发侧再拒绝就没有回滚点，任务会永久停在 running 上无人接手。
         """
-        result = await self.session.execute(select(Task).where(Task.task_id == task_id))
+        result = await self.session.execute(self._scope_query(select(Task).where(Task.task_id == task_id), Task))
         task = result.scalar_one_or_none()
         parsed = parse_failure(task.error_message or "") if task is not None else None
         if (

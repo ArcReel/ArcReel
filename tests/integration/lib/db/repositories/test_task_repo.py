@@ -851,10 +851,60 @@ class TestCancelCascadeAcrossCancelling:
 
 
 class ResourceScopedTaskRepository(TaskRepository):
-    """只看得到 resource_id 为 ``visible`` 的任务，用来验证取消路径的目标行查询经过 ``_scope_query``。"""
+    """只看得到 resource_id 为 ``visible`` 的任务，用来验证取消与下载重试路径的目标行查询经过 ``_scope_query``。"""
 
     def _scope_query(self, stmt, model):
         return stmt.where(Task.resource_id == "visible")
+
+
+class TestRetryDownloadRespectsScope:
+    async def _seed_download_failed(self, db_session, resource_id: str) -> tuple[str, int]:
+        """落一个满足全部重试资格的下载失败任务，返回任务 id 与其 failed 调用行 id。"""
+        repo = TaskRepository(db_session)
+        usage = UsageRepository(db_session)
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id=resource_id,
+            payload={},
+            provider_id="custom-1",
+        )
+        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", task_id=task["task_id"])
+        await usage.finish_call(
+            call_id,
+            status="failed",
+            settlement=SettlementInput(cost_amount=0),
+            error_message="download failed",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(task["task_id"], f"job-{resource_id}", endpoint="ce-1")
+        await repo.mark_failed(task["task_id"], encode_failure("artifact_download_failed", detail="403"))
+        return task["task_id"], call_id
+
+    async def test_out_of_scope_task_is_rejected_like_missing_one(self, db_session):
+        hidden, call_id = await self._seed_download_failed(db_session, "hidden")
+        scoped = ResourceScopedTaskRepository(db_session)
+
+        with pytest.raises(ValueError, match="task is not eligible for artifact download retry: no-such-task"):
+            await scoped.retry_artifact_download("no-such-task")
+        with pytest.raises(ValueError, match=f"task is not eligible for artifact download retry: {hidden}"):
+            await scoped.retry_artifact_download(hidden)
+
+        assert (await TaskRepository(db_session).get(hidden))["status"] == "failed"
+        call = (
+            await db_session.execute(select(ApiCall.status, ApiCall.error_message).where(ApiCall.id == call_id))
+        ).one()
+        assert tuple(call) == ("failed", "download failed")
+
+    async def test_in_scope_task_is_retried(self, db_session):
+        visible, call_id = await self._seed_download_failed(db_session, "visible")
+
+        retried = await ResourceScopedTaskRepository(db_session).retry_artifact_download(visible)
+
+        assert (retried["status"], retried["error_message"]) == ("running", None)
+        calls = await stored_calls(db_session)
+        assert [(row.id, row.status, row.error_message) for row in calls] == [(call_id, "pending", None)]
 
 
 class TestCancelRespectsScope:
