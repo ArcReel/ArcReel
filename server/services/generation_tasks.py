@@ -130,6 +130,7 @@ from lib.visual_artifact_provenance import (
     build_grid_composite_visual_basis,
     build_storyboard_image_visual_basis,
     build_storyboard_video_artifact_visual_basis,
+    project_basis_style_description,
 )
 from server.services.generation_context import (
     AudioLaneRequest,
@@ -3381,7 +3382,7 @@ async def execute_grid_task(
             rows=grid.rows,
             columns=grid.cols,
             style=str(project.get("style") or ""),
-            style_description=normalize_style_value(project.get("style_description")),
+            style_description=project_basis_style_description(project),
             grid_aspect_ratio=grid_aspect_ratio,
             references=frozen_references.visual_references,
         )

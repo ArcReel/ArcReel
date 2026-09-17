@@ -6,13 +6,14 @@
 归一落盘后运行时只读已归一的值，前缀剥离与短标签解析都不再存在。
 
 风格描述：自定义风格项目（上传过风格参考图）的 ``style`` 为空，``style_description`` 是唯一的
-风格信号。宫格联合图、切格分镜与参考视频的提示词都消费它，v13 的依据却只记 ``style``；当前依据
-在描述非空时记下描述，存量登记因此翻过期。
+风格信号。宫格联合图、切格分镜与参考视频的提示词都消费它，v14 起这三类依据在描述非空时记下描述；
+schema 更低的项目按 ``project_basis_style_description`` 沿用不记描述的口径，本步之前的激活因此
+不会把它们登记到新口径或当作过期丢掉。
 
-两件事都会改变产物依据的目标摘要。本步在改写前后各规划一次目标态（描述非空时另按删掉描述的项目
-规划一次，代表 v13 对三类依据的口径），把「改写前正是 current、且目标登记变了」的清单条目改写为
-改写后的登记：产物不因这次升级翻过期，而改写前就已过期的条目原样保留，不伪造时新性。播放器与
-版本恢复读的是版本记录冻结的依据，被改写登记的三类产物，其选中版本记录一并补记描述。
+两件事都会改变产物依据的目标摘要。本步按 v13 项目与 v14 项目各规划一次目标态，把「改写前正是
+current、且目标登记变了」的清单条目改写为改写后的登记：产物不因这次升级翻过期，而改写前就已过期
+的条目原样保留，不伪造时新性。播放器与版本恢复读的是版本记录冻结的依据，被改写登记的三类产物，
+其选中版本记录一并补记描述。
 
 提交顺序是版本记录、清单、``project.json``：清单改写落盘而 schema 尚未提升时崩溃，本步会整步
 重跑，届时改写前规划仍从未动过的 ``project.json`` 算出，已改写的条目不再匹配「改写前摘要」而被
@@ -104,9 +105,9 @@ class _Planned:
 def _plan(project_dir: Path, project: Mapping[str, Any], *, allow_stale: bool) -> _Planned:
     """按给定项目内容规划一次完整目标态，不必先落盘。
 
-    ``allow_stale`` 在描述非空时放行过期的正式目标：参考视频版本记录冻结的依据不含风格描述，激活
-    口径下补记描述后的规划会把它们当作「生成后内容已变」跳过，改写便无从谈起。时新与否由登记是否
-    等于改写前目标来裁决，放行过期目标不会让本就过期的条目混进来。
+    ``allow_stale`` 在描述非空时放行过期的正式目标：参考视频版本记录冻结的依据不含风格描述，v14
+    口径的规划会把它们当作「生成后内容已变」跳过，改写便无从谈起。时新与否由登记是否等于改写前
+    目标来裁决，放行过期目标不会让本就过期的条目混进来。
     """
     project_bytes = json.dumps(project, ensure_ascii=False).encode("utf-8")
     planner = TargetStatePlanner(project_dir, project_bytes=project_bytes, allow_stale_formal_targets=allow_stale)
@@ -128,23 +129,18 @@ def _description_bound(key: ArtifactKey, bases: Mapping[ArtifactKey, ArtifactBas
 def _rebase_entries(
     stored: Mapping[ArtifactKey, ArtifactManifestEntry],
     before: Mapping[ArtifactKey, ArtifactManifestEntry],
-    undescribed: Mapping[ArtifactKey, ArtifactManifestEntry] | None,
-    after: _Planned,
+    after: Mapping[ArtifactKey, ArtifactManifestEntry],
 ) -> dict[ArtifactKey, ArtifactManifestEntry]:
     """挑出改写前 current、改写后目标登记变了的条目，给出它们改写后的登记。
 
-    改写前时新有两种口径：登记等于按原项目规划的目标；或登记属于补记描述的三类依据，且等于删掉
-    描述后规划的目标。资产图与单张分镜图的依据一向记描述，删掉描述后与之吻合的条目恰是描述出现
-    之前生成、本就过期的产物，不按第二种口径改写。产物路径也必须一致：路径不同就不是同一件产物。
+    产物路径也必须一致：路径不同就不是同一件产物。
     """
     rebased: dict[ArtifactKey, ArtifactManifestEntry] = {}
     for key, current in stored.items():
-        target_after = after.plan.entries.get(key)
+        target_after = after.get(key)
         if target_after is None or current == target_after or target_after.artifact_path != current.artifact_path:
             continue
-        if current == before.get(key) or (
-            undescribed is not None and current == undescribed.get(key) and _description_bound(key, after.bases)
-        ):
+        if current == before.get(key):
             rebased[key] = target_after
     return rebased
 
@@ -305,24 +301,13 @@ def migrate_v13_to_v14(project_dir: Path) -> ArtifactBackfillOutcome | None:
     with project_metadata_lock(project_dir):
         allow_stale = bool(description)
         before = _plan(project_dir, data, allow_stale=allow_stale)
-        undescribed = (
-            _plan(
-                project_dir,
-                {key: value for key, value in data.items() if key != "style_description"},
-                allow_stale=allow_stale,
-            )
-            if description
-            else None
-        )
         after = _plan(project_dir, migrated, allow_stale=allow_stale)
-        plans = [before.plan, after.plan, *([undescribed.plan] if undescribed is not None else [])]
+        plans = [before.plan, after.plan]
         for plan in plans:
             assert_artifact_target_state_plan_unchanged(project_dir, plan, expected_project_bytes=project_bytes)
         adapter = ProjectArtifactManifestAdapter(project_dir)
         stored = adapter.snapshot_entries()
-        rebased = _rebase_entries(
-            stored, before.plan.entries, undescribed.plan.entries if undescribed is not None else None, after
-        )
+        rebased = _rebase_entries(stored, before.plan.entries, after.plan.entries)
         versions_path = project_dir / "versions" / "versions.json"
         versions_bytes = _read_bytes_or_none(versions_path)
         versions: dict[str, Any] = {}
@@ -348,7 +333,7 @@ def migrate_v13_to_v14(project_dir: Path) -> ArtifactBackfillOutcome | None:
         skipped = [*after.plan.skipped, *(_withdrawn_skip(key, stored[key]) for key in rewrite.withdrawn)]
         outcome = (
             ArtifactBackfillOutcome.from_entries(adapter.snapshot_entries(), skipped)
-            if rebased or rewrite.withdrawn or migrated.get("style") != data.get("style")
+            if rebased or skipped or migrated.get("style") != data.get("style")
             else None
         )
         atomic_write_json(pj, migrated)

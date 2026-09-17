@@ -517,13 +517,15 @@ def write_undescribed_style_bases_project(
     route: Literal["grid", "reference_video"],
     style: str = "写实电影感",
     style_description: str = "胶片颗粒，低饱和",
+    schema_version: Literal[12, 13] = 13,
 ) -> Path:
-    """停在 v13 的自定义风格项目：宫格、切格分镜或参考视频的依据不含风格描述。
+    """停在 v12 或 v13 的自定义风格项目：宫格、切格分镜或参考视频的依据不含风格描述。
 
-    v13 时期的依据构造不记 ``style_description``：项目以空描述走完迁移链登记全部产物，再写入描述，
-    得到的清单与版本记录正是那时留下的形态。资产图与单张分镜图的依据一向记描述，同法构造后
-    它们在迁移前就是过期的——描述出现在它们登记之后。``style`` 只对宫格项目生效，可传遗留风格值
-    与描述补记叠加。
+    0.27 起的版本记录冻结类型化依据，那时的依据构造不记 ``style_description``：项目以空描述走完
+    迁移链登记全部产物，再写入描述，得到的清单与版本记录正是那时留下的形态。停在 v12 的样本
+    代表 0.27–0.29 留下的项目，两者盘上形态相同，只差 ``schema_version``。资产图与单张分镜图的
+    依据一向记描述，同法构造后它们在迁移前就是过期的——描述出现在它们登记之后。``style`` 只对
+    宫格项目生效，可传遗留风格值与描述补记叠加。
     """
 
     if route == "grid":
@@ -534,6 +536,7 @@ def write_undescribed_style_bases_project(
     project_path = project_dir / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))
     project["style_description"] = style_description
+    project["schema_version"] = schema_version
     _write_json(project_path, project)
     return project_dir
 

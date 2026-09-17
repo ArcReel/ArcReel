@@ -16,6 +16,8 @@ from lib.artifact_manifest import ArtifactBasis
 from lib.asset_types import ASSET_TYPES, normalize_asset_name
 from lib.content_digest import sha256_file
 from lib.grid.prompt_builder import project_grid_image_prompt
+from lib.project_schema import parse_project_schema_version
+from lib.prompt_style import normalize_style_value
 from lib.prompt_utils import project_storyboard_image_prompt
 from lib.reference_video.request_projection import ResolvedReferenceAsset
 from lib.reference_video.text_parser import strip_speech_marks
@@ -399,6 +401,22 @@ def build_reference_video_artifact_visual_basis(
         kind_version=1,
         inputs=inputs,
     )
+
+
+#: 宫格联合图、切格分镜与参考视频的依据从这一 schema 起记风格描述。
+STYLE_DESCRIPTION_BASIS_SCHEMA_VERSION = 14
+
+
+def project_basis_style_description(project: Mapping[str, object]) -> str:
+    """宫格联合图、切格分镜与参考视频的依据所记的风格描述。
+
+    schema 低于 14 的项目只在迁移链中出现：v13→v14 之前各步的整份激活与来源补写沿用那时不记描述
+    的口径，描述由 v13→v14 连同选中版本记录一并补记。
+    """
+
+    if parse_project_schema_version(project) < STYLE_DESCRIPTION_BASIS_SCHEMA_VERSION:
+        return ""
+    return normalize_style_value(project.get("style_description"))
 
 
 def _add_style_description(inputs: dict[str, object], style_description: str) -> None:

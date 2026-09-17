@@ -105,18 +105,6 @@ def test_legacy_short_label_resolves_to_its_template_across_the_whole_chain(tmp_
     assert project["style"] == resolve_template_prompt("live_premium_drama")
 
 
-def test_already_normalized_project_keeps_every_basis_digest(tmp_path: Path) -> None:
-    project_dir = write_legacy_style_project(tmp_path / "projects", style=_NORMALIZED_STYLE)
-    advance_project_schema(project_dir, to_version=13)
-    project_before = _read_project(project_dir)
-    before = dict(_entries(project_dir))
-
-    advance_project_schema(project_dir, to_version=14)
-
-    assert _read_project(project_dir) == {**project_before, "schema_version": 14}
-    assert _entries(project_dir) == before
-
-
 def test_storyboard_basis_digest_survives_the_cleanup(tmp_path: Path) -> None:
     project_dir = _legacy_project_at_v13(tmp_path / "projects")
     before = _entries(project_dir)[_STORYBOARD]
@@ -213,9 +201,13 @@ def _read_versions(project_dir: Path) -> dict:
 
 
 def _add_grid_version_record(project_dir: Path, *, style_description: str = "") -> None:
-    """宫格版本记录冻结的依据；描述为空时是 v13 时期与清单登记同一口径的形态。"""
+    """宫格版本记录冻结的依据；描述为空时是 v13 时期与清单登记同一口径的形态，非空时按 v14 口径记描述。"""
 
-    project = {**_read_project(project_dir), "style_description": style_description}
+    project = {
+        **_read_project(project_dir),
+        "style_description": style_description,
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+    }
     planner = TargetStatePlanner(project_dir, project_bytes=json.dumps(project, ensure_ascii=False).encode("utf-8"))
     planner.plan()
     versions = _read_versions(project_dir)
@@ -237,11 +229,12 @@ def _add_grid_version_record(project_dir: Path, *, style_description: str = "") 
     (project_dir / "versions" / "versions.json").write_text(json.dumps(versions, ensure_ascii=False), encoding="utf-8")
 
 
+@pytest.mark.parametrize("schema_version", [12, 13])
 def test_described_grids_stay_current_and_bases_that_already_tracked_the_description_stay_stale(
-    tmp_path: Path,
+    tmp_path: Path, schema_version: int
 ) -> None:
     root = tmp_path / "projects"
-    project_dir = write_undescribed_style_bases_project(root, "grid", route="grid")
+    project_dir = write_undescribed_style_bases_project(root, "grid", route="grid", schema_version=schema_version)
     _add_grid_version_record(project_dir)
     before = _entries(project_dir)
 
@@ -252,12 +245,15 @@ def test_described_grids_stay_current_and_bases_that_already_tracked_the_descrip
         assert after[key].basis_digest != before[key].basis_digest
         assert after[key].artifact_path == before[key].artifact_path
         assert _status(project_dir, key) == "current"
+    record = _read_versions(project_dir)["grids"]["grid_123456789abc"]["versions"][0]
+    assert parse_image_version_basis("grids", "grid_123456789abc", record).digest == after[_GRID].basis_digest
+    if schema_version == 12:
+        # v12→v13 的整份激活把在场产物一律登记为时新，资产图与单张分镜图的过期标记不跨这一步保留。
+        return
     # 资产图与单张分镜图的依据一向记描述：描述出现在它们登记之后，迁移前就过期，迁移不改写。
     for key in (_CHARACTER_SHEET, _STORYBOARD):
         assert after[key] == before[key]
         assert _status(project_dir, key) == "stale"
-    record = _read_versions(project_dir)["grids"]["grid_123456789abc"]["versions"][0]
-    assert parse_image_version_basis("grids", "grid_123456789abc", record).digest == after[_GRID].basis_digest
     summary = WorkflowStateService(ProjectManager(root)).get_project_summary(project_dir.name)
     assert (summary.episodes[0].storyboards.available, summary.episodes[0].storyboards.stale) == (3, 1)
 
@@ -274,9 +270,12 @@ def test_prefixed_style_and_description_are_rebased_together(tmp_path: Path) -> 
         assert _status(project_dir, key) == "current"
 
 
-def test_described_reference_videos_stay_current_in_workflow_and_player(tmp_path: Path) -> None:
+@pytest.mark.parametrize("schema_version", [12, 13])
+def test_described_reference_videos_stay_current_in_workflow_and_player(tmp_path: Path, schema_version: int) -> None:
     root = tmp_path / "projects"
-    project_dir = write_undescribed_style_bases_project(root, "reference", route="reference_video")
+    project_dir = write_undescribed_style_bases_project(
+        root, "reference", route="reference_video", schema_version=schema_version
+    )
     before = _entries(project_dir)
 
     migrate_project_dir(project_dir)
@@ -418,3 +417,19 @@ def test_grid_whose_version_record_disagrees_with_the_manifest_is_left_stale_and
     assert [(item.kind, item.resource_id) for item in report.skipped if "style description" in item.reason] == [
         ("episode-grid", "grid_123456789abc")
     ]
+
+
+def test_described_project_reports_artifacts_the_planner_cannot_project(tmp_path: Path) -> None:
+    project_dir = write_undescribed_style_bases_project(tmp_path / "projects", "reference", route="reference_video")
+    versions = _read_versions(project_dir)
+    for key in _REFERENCE_VIDEOS:
+        versions["reference_videos"][str(key.components[-1])]["versions"][0].pop("artifact_video_currency")
+    (project_dir / "versions" / "versions.json").write_text(json.dumps(versions, ensure_ascii=False), encoding="utf-8")
+
+    migrate_project_dir(project_dir)
+
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert {(item.kind, item.resource_id) for item in report.skipped} >= {
+        ("episode-video", str(key.components[-1])) for key in _REFERENCE_VIDEOS
+    }

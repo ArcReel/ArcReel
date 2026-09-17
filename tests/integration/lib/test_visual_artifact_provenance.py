@@ -27,6 +27,7 @@ from lib.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
     build_storyboard_image_visual_basis,
     build_storyboard_video_artifact_visual_basis,
+    project_basis_style_description,
 )
 
 
@@ -507,6 +508,22 @@ def test_grid_and_reference_video_bases_track_style_description(tmp_path: Path) 
     for before, after, empty in zip(soft, hard, _EMPTY_DESCRIPTION_STYLE_BOUND_DIGESTS, strict=True):
         assert after != before
         assert before != empty
+
+
+@pytest.mark.parametrize(
+    ("project", "expected"),
+    [
+        ({"schema_version": 14, "style_description": "  柔光水彩\n"}, "柔光水彩"),
+        ({"schema_version": 14, "style_description": 7}, ""),
+        ({"schema_version": 13, "style_description": "柔光水彩"}, ""),
+        ({"style_description": "柔光水彩"}, ""),
+    ],
+)
+def test_project_basis_style_description_keeps_pre_v14_projects_on_the_undescribed_basis(
+    project: dict[str, object], expected: str
+) -> None:
+    """v13→v14 之前的迁移步沿用不记描述的口径，描述由 v13→v14 统一补记。"""
+    assert project_basis_style_description(project) == expected
 
 
 def test_storyboard_video_visual_basis_excludes_sound_execution_and_duration(tmp_path: Path) -> None:
