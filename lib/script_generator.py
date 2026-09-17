@@ -60,7 +60,6 @@ from lib.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     SCRIPT_PLAN_LEGACY_FILENAMES,
     episode_drafts_dir,
-    episode_script_filename,
 )
 from lib.formal_write import FormalWriteReceipt
 from lib.project_manager import ProjectManager, ScriptWriteConflict
@@ -375,7 +374,7 @@ class ScriptGenerator:
         self._artifact_basis = None
         self._script_plan_input_claim = None
         gen_mode = self.generation_mode
-        filename = output_filename or episode_script_filename(episode)
+        filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
 
         # 基线先于读入正式剧本：编写用的快照与 expected_fingerprint 出自同一时刻之前，两者之间
         # 落下的并发保存在写入时按冲突拒绝，而不是被本次写回覆盖。
@@ -745,7 +744,7 @@ class ScriptGenerator:
     ) -> Path:
         """ad 整份生成的尾段：调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存。"""
         assert self.generator is not None  # generate() 入口已检查
-        filename = output_filename or episode_script_filename(episode)
+        filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
         formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
         logger.info("正在生成第 %d 集剧本...", episode)
         result = await self._generate_text(
@@ -828,9 +827,11 @@ class ScriptGenerator:
         与 `generate()` 同一套对象选择：ad 尚无正式剧本时渲染整份生成 prompt，否则只渲染本次
         要编写的条目（``entry_ids`` 或全部待编写条目）；没有要编写的条目时回答那句事实，而不是
         渲染一份不会被发出的空 prompt。``instructions`` 的注入口径与 `generate()` 一致。
-        dry-run 恒以默认文件名为正式剧本：它不落盘，也就没有 ``output_filename`` 可言。
+        dry-run 恒以该集绑定的正式剧本为准：它不落盘，也就没有 ``output_filename`` 可言。
         """
-        targets = self._load_prompt_authoring_targets(episode, episode_script_filename(episode), entry_ids)
+        targets = self._load_prompt_authoring_targets(
+            episode, formal_script_filename(self.project_path, self.project_json, episode), entry_ids
+        )
         if targets is None:
             if self.content_mode != "ad":
                 raise PromptAuthoringTargetError(
@@ -1649,7 +1650,9 @@ class ScriptGenerator:
         彼处抛出会让 traceback 指向本函数而非合并逻辑。
         """
         draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        formal_path = self.project_path / "scripts" / episode_script_filename(episode)
+        formal_path = (
+            self.project_path / "scripts" / formal_script_filename(self.project_path, self.project_json, episode)
+        )
         pm = ProjectManager(str(self.project_path.parent))
         with pm.file_lock(draft_path), pm.file_lock(formal_path):
             current = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
@@ -1749,7 +1752,7 @@ class ScriptGenerator:
                 f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)} 缺失或内容不是合法信封）"
             )
 
-        filename = output_filename or episode_script_filename(episode)
+        filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
         raw_unit_ids = draft.meta.get("unit_ids")
         unit_ids = (
             [unit_id for unit_id in raw_unit_ids if isinstance(unit_id, str)]

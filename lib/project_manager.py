@@ -1122,19 +1122,28 @@ class ProjectManager:
             )
 
     @staticmethod
-    def require_filename_episode_consistency(script: dict, script_filename: str) -> None:
-        """校验脚本内 `episode` 字段与文件名隐含的集号一致；不一致则 raise ValueError。
-
-        filename 缺集号模式或脚本内无 `episode` int 时静默放行（兼容旧数据）。
-        """
+    def filename_episode(script_filename: str) -> int | None:
+        """文件名隐含的集号（`episode[-_\\s]*N`，忽略大小写）；文件名不含集号时返回 None。"""
         base_name = ProjectManager.normalize_script_filename(script_filename)
         filename_match = re.search(r"episode[-_\s]*(\d+)", base_name, re.IGNORECASE)
-        if filename_match is None:
-            return
+        return int(filename_match.group(1)) if filename_match else None
+
+    @staticmethod
+    def require_filename_episode_consistency(script: dict, script_filename: str) -> None:
+        """校验文件名带集号，且脚本内 `episode` 字段与文件名隐含的集号一致；否则 raise ValueError。
+
+        文件名不含集号的剧本认不出归属哪一集，一律拒绝，不按脚本内 `episode` 写盘或登记为集绑定。
+        脚本内无 `episode` int 时只要求文件名带集号。
+        """
+        base_name = ProjectManager.normalize_script_filename(script_filename)
+        filename_episode = ProjectManager.filename_episode(base_name)
+        if filename_episode is None:
+            raise ValueError(
+                f"脚本 {base_name} 的文件名不含集号（应为 episode_N.json），拒绝操作以避免污染 project.json"
+            )
         script_episode = script.get("episode")
         if not isinstance(script_episode, int):
             return
-        filename_episode = int(filename_match.group(1))
         if script_episode != filename_episode:
             raise ValueError(
                 f"脚本 {base_name} 内部 episode={script_episode} 与文件名隐含的 "
@@ -1240,11 +1249,7 @@ class ProjectManager:
         self.require_filename_episode_consistency(script, base_name)
 
         script_episode = script.get("episode")
-        if isinstance(script_episode, int):
-            episode_num = script_episode
-        else:
-            filename_match = re.search(r"episode[-_\s]*(\d+)", base_name, re.IGNORECASE)
-            episode_num = int(filename_match.group(1)) if filename_match else 1
+        episode_num = script_episode if isinstance(script_episode, int) else self.filename_episode(base_name)
         episode_title = script.get("title", "")
         script_file = f"scripts/{base_name}"
 
@@ -1327,6 +1332,10 @@ class ProjectManager:
         project_dir = self.get_project_path(project_name)
         scripts_dir = project_dir / "scripts"
         return [f.name for f in scripts_dir.glob("*.json")]
+
+    def _list_episode_scripts(self, project_name: str) -> list[str]:
+        """按文件名排序列出集剧本；文件名不含集号的 JSON 不是集剧本（写盘一致性校验会拒绝它）。"""
+        return sorted(name for name in self.list_scripts(project_name) if self.filename_episode(name) is not None)
 
     # ==================== 角色管理 ====================
 
@@ -1612,7 +1621,16 @@ class ProjectManager:
         restoring blanket snapshots over a concurrent script edit.
         """
 
-        normalized = tuple(sorted({self.normalize_script_filename(name) for name in script_filenames}))
+        # 文件名不含集号的 JSON 不是集剧本（写盘一致性校验会拒绝它），不随恢复一起改写。
+        normalized = tuple(
+            sorted(
+                {
+                    name
+                    for name in map(self.normalize_script_filename, script_filenames)
+                    if self.filename_episode(name) is not None
+                }
+            )
+        )
         project_path = self.get_project_path(project_name)
         scripts_dir = project_path / "scripts"
         script_paths = [Path(self._safe_subpath(scripts_dir, name)) for name in normalized]
@@ -1647,7 +1665,11 @@ class ProjectManager:
                         before=before,
                         emit_change=False,
                     )
-                    if isinstance(script.get("episode"), int):
+                    # 只同步该集当前绑定的剧本：同集的其他副本随恢复改写，但不借此改绑。
+                    script_episode = script.get("episode")
+                    if isinstance(script_episode, int) and resolve_episode_script_binding(
+                        project, script_episode, name, require_indexed=True
+                    ):
                         self._apply_episode_sync(project, script, name)
                     changed.append(name)
 
@@ -2840,7 +2862,7 @@ class ProjectManager:
             raise FileNotFoundError(f"项目不存在: {project_name}")
         project_dir = self.get_project_path(project_name)
 
-        script_files = sorted(self.list_scripts(project_name))
+        script_files = self._list_episode_scripts(project_name)
         drafts_root = project_dir / "drafts"
         draft_files = (
             sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
@@ -3056,7 +3078,7 @@ class ProjectManager:
             raise FileNotFoundError(f"项目不存在: {project_name}")
         project_dir = self.get_project_path(project_name)
 
-        script_files = sorted(self.list_scripts(project_name))
+        script_files = self._list_episode_scripts(project_name)
         drafts_root = project_dir / "drafts"
         draft_files = (
             sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)

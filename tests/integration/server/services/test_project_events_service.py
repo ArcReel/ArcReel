@@ -289,27 +289,25 @@ class TestProjectEventService:
 
         await service.shutdown()
 
-    def test_script_index_sync_reconciles_only_the_authoritative_duplicate(self, tmp_path):
+    def test_script_index_sync_ignores_non_canonical_copies_of_a_bound_episode(self, tmp_path):
+        """带 episode 整数但文件名非规范的 JSON 不登记为集绑定，已有绑定与其资源登记不被改写。"""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
 
-        def _script(resource_id: str) -> dict:
+        def _script(resource_id: str, title: str = "Episode 1") -> dict:
             return {
                 "episode": 1,
-                "title": "Episode 1",
+                "title": title,
                 "content_mode": "narration",
                 "segments": [{"segment_id": resource_id, "duration_seconds": 4}],
             }
 
-        current_path = project_dir / "scripts" / "z-current.json"
-        pm.save_script("demo", _script("E1S02"), current_path.name, validate=False)
-        (project_dir / "scripts" / "a-old.json").write_text(
-            json.dumps(_script("E1S01")),
-            encoding="utf-8",
-        )
+        pm.save_script("demo", _script("E1S01"), "episode_1.json", validate=False)
+        for name in ("z-copy.json", "episode_1_backup.json", "episode_01.json"):
+            (project_dir / "scripts" / name).write_text(json.dumps(_script("E1S02", title=name)), encoding="utf-8")
         adapter = ProjectArtifactManifestAdapter(project_dir)
-        current_keys = ArtifactKey.episode_resource_artifacts(1, "E1S02")
+        current_keys = ArtifactKey.episode_resource_artifacts(1, "E1S01")
         for index, key in enumerate(current_keys):
             adapter.put_entry(
                 key,
@@ -318,11 +316,35 @@ class TestProjectEventService:
                     basis_digest=f"sha256-v1:{index:064x}",
                 ),
             )
+        project_before = (project_dir / "project.json").read_bytes()
 
         ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
 
-        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/z-current.json"
+        assert (project_dir / "project.json").read_bytes() == project_before
         assert all(adapter.get_entry(key) is not None for key in current_keys)
+
+    def test_script_index_sync_does_not_bind_an_episode_from_a_non_canonical_file(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        script = {
+            "episode": 2,
+            "title": "Episode 2",
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E2S01", "duration_seconds": 4}],
+        }
+        (project_dir / "scripts" / "custom.json").write_text(json.dumps(script), encoding="utf-8")
+        project_before = (project_dir / "project.json").read_bytes()
+
+        ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
+
+        assert (project_dir / "project.json").read_bytes() == project_before
+
+        (project_dir / "scripts" / "episode_2.json").write_text(json.dumps(script), encoding="utf-8")
+        ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
+
+        episodes = pm.load_project("demo")["episodes"]
+        assert [(ep["episode"], ep["script_file"]) for ep in episodes] == [(2, "scripts/episode_2.json")]
 
     def test_script_index_sync_revalidates_a_candidate_before_skipping_it(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")

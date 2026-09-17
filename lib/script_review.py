@@ -44,7 +44,6 @@ from lib.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     episode_drafts_dir,
     episode_script_filename,
-    episode_script_relpath,
 )
 from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
@@ -542,12 +541,9 @@ def formal_script_overwrite(
 def prompt_authoring_generated(project_path: Path, project: dict[str, Any], episode: int) -> bool:
     """该集 prompt_authoring 产物（生成的剧本 JSON）是否已存在——存量 grandfather 判据。
 
-    取自 episode 条目的 ``script_file``（缺省回退约定路径 ``scripts/episode_N.json``，与
-    ScriptGenerator 固定写出口径一致）。
+    按 ``formal_script_filename`` 解析，与内容确认、ScriptGenerator 读写的是同一份剧本。
     """
-    ep = find_episode(project, episode) or {}
-    script_file = ep.get("script_file") or episode_script_relpath(episode)
-    return (project_path / script_file).exists()
+    return (project_path / "scripts" / formal_script_filename(project_path, project, episode)).exists()
 
 
 def review_status(project_path: Path, project: dict[str, Any], episode: int) -> ReviewStatus:

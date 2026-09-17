@@ -257,6 +257,31 @@ def test_cleanup_retains_v7_recovery_backups_until_schema_promotion_succeeds(tmp
     assert all(backup.exists() for backup in backups)
 
 
+def test_cleanup_reclaims_expired_grid_and_presentation_record_backups(tmp_projects: Path) -> None:
+    """v14→v15 规范化剧本绑定时备份的宫格记录与持久化呈现，与其他迁移输入的备份一同回收。"""
+    import os
+
+    project_dir = _write_project(tmp_projects, "p1", {"schema_version": CURRENT_SCHEMA_VERSION, "episodes": []})
+    sources = [
+        project_dir / "grids" / "grid_0123456789ab.json",
+        project_dir / "presentations" / "episode_1" / "RTFTMDE.post_production.json",
+    ]
+    expired = time.time() - 8 * 86400
+    backups = []
+    for source in sources:
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("{}", encoding="utf-8")
+        backup = source.with_name(f"{source.name}.bak.v14-100000000")
+        backup.write_text("{}", encoding="utf-8")
+        os.utime(backup, (expired, expired))
+        backups.append(backup)
+
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert not any(backup.exists() for backup in backups)
+    assert all(source.exists() for source in sources)
+
+
 def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
     """v0→v1 迁移前应硬链接备份 clues/ 到 clues.bak.v0-<ts>/。"""
     p = _write_project(tmp_projects, "p1", {"name": "p1"})  # v0

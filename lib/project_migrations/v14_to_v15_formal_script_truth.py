@@ -2,6 +2,12 @@
 
 存量项目在这一步收编成新机制的形态：
 
+- **集绑定**：``script_file`` 不是规范路径 ``scripts/episode_N.json`` 的改到规范路径。绑定文件在盘上
+  时改名过去；规范路径上已有内容不同的文件时，绑定文件（界面、生成与清单一直在用的那份）占规范
+  路径，原文件另存为 ``episode_N.json.displaced-v14``。清单里登记在旧路径下的条目、宫格记录与持久化
+  呈现里的剧本文件名、版本记录的 ``execution_script_file`` 随之改到规范路径。规范路径已绑给另一集、
+  同一文件绑给多集、绑定越出 ``scripts/``、绑定文件缺席而规范路径上是别集的文件时绑定原样保留，
+  进迁移报告。
 - **指纹字段**：剧本条目的 ``script_plan_entry_revision`` 与剧本 metadata 的 ``script_plan_revision``
   删除。
 - **已确认、尚无正式脚本的集**：按确认过的脚本规划整份转为正式脚本（全部条目待编写），与内容
@@ -17,8 +23,10 @@
   算出的摘要，或无计划依据的摘要）改写为 v3 登记，本就过期的登记原样保留；新转出与此前未登记
   的在场剧本按 v3 登记。
 
-ad 项目没有脚本规划，本步只提升版本号。提交顺序是剧本 → 清单 → ``project.json``：中途崩溃时
-整步重跑，已写的剧本与清单都按「已是目标形态」跳过，``project.json`` 的版本号最后落盘。
+ad 项目没有脚本规划，本步只规范化集绑定并提升版本号。提交顺序是被顶掉文件的另存 → 改名 → 剧本 →
+引用剧本文件名的记录 → 清单 → ``project.json``：中途崩溃时整步重跑，绑定文件已改名走的集按「绑定
+文件缺席、规范路径上是本集剧本」补上绑定，已写的剧本、记录与清单都按「已是目标形态」跳过，
+``project.json`` 的版本号最后落盘。
 """
 
 from __future__ import annotations
@@ -26,6 +34,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -43,9 +52,14 @@ from lib.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner
 from lib.artifact_provenance import SCRIPT_PLAN_BASIS_INPUT_KEY, project_episode_script_prompt_inputs
 from lib.episode_paths import episode_script_relpath
 from lib.formal_write import project_metadata_lock
-from lib.json_io import atomic_write_json
+from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.path_safety import try_safe_join
-from lib.project_migration_report import ArtifactBackfillOutcome, MigrationSkippedArtifact
+from lib.project_manager import ProjectManager
+from lib.project_migration_report import (
+    ArtifactBackfillOutcome,
+    MigrationNormalizedBinding,
+    MigrationSkippedArtifact,
+)
 from lib.project_migrations.backups import ensure_versioned_backup
 from lib.project_schema import parse_project_schema_version
 from lib.script_document import build_materialized_script
@@ -75,6 +89,10 @@ _VISUAL_FIELDS = ("image_prompt", "video_prompt")
 _LEGACY_SCRIPT_BASIS_KIND = "structured-content/episode-script"
 _LEGACY_PLANLESS_SCRIPT_BASIS_KIND = "structured-content/episode-script-without-plan"
 
+#: 规范路径上被顶掉的文件另存名的后缀：不以 ``.json`` 结尾，按 ``scripts/*.json`` 扫描的入口不把它当
+#: 剧本，迁移备份的回收也不认它。
+_DISPLACED_SUFFIX = f".displaced-v{TARGET_SCHEMA_VERSION - 1}"
+
 
 @dataclass
 class _EpisodeWork:
@@ -88,12 +106,29 @@ class _EpisodeWork:
 
 
 @dataclass
+class _BindingMove:
+    """绑定文件改名到规范路径。"""
+
+    source: Path
+    target_rel: str
+    #: 规范路径上原有、内容不同的文件另存到的项目内相对路径与它的内容。
+    displaced_rel: str | None = None
+    displaced_bytes: bytes | None = None
+
+
+@dataclass
 class _Plan:
     project: dict[str, Any]
     works: list[_EpisodeWork] = field(default_factory=list)
     #: 集号 → 该集参与清单改写的剧本路径与改写前的脚本规划内容（无规划为 None）。
     registrations: dict[int, tuple[str, object | None]] = field(default_factory=dict)
     skipped: list[MigrationSkippedArtifact] = field(default_factory=list)
+    moves: list[_BindingMove] = field(default_factory=list)
+    #: 规范化前的剧本路径 → 规范路径，都是项目内相对路径 ``scripts/<name>``。
+    path_renames: dict[str, str] = field(default_factory=dict)
+    normalized: list[MigrationNormalizedBinding] = field(default_factory=list)
+    #: 按文件名引用剧本的记录（宫格、持久化呈现、版本记录）→ 改写后的整份 JSON。
+    reference_rewrites: dict[Path, dict[str, Any]] = field(default_factory=dict)
 
 
 def _visual_empty(value: object) -> bool:
@@ -188,6 +223,135 @@ def _materialize(
     return script, None
 
 
+def _same_json(left: Path, right: Path) -> bool:
+    left_bytes, right_bytes = left.read_bytes(), right.read_bytes()
+    if left_bytes == right_bytes:
+        return True
+    try:
+        return json.loads(left_bytes) == json.loads(right_bytes)
+    except ValueError:
+        return False
+
+
+def _displaced_slot(project_dir: Path, canonical: str) -> tuple[str, bytes]:
+    """规范路径上被顶掉的文件另存到哪里：同内容的另存已在盘上（重跑）时复用，否则取第一个空位。"""
+
+    content = (project_dir / canonical).read_bytes()
+    base = f"{canonical}{_DISPLACED_SUFFIX}"
+    candidate, index = base, 1
+    while (project_dir / candidate).exists():
+        existing = project_dir / candidate
+        if existing.is_file() and not existing.is_symlink() and existing.read_bytes() == content:
+            break
+        index += 1
+        candidate = f"{base}-{index}"
+    return candidate, content
+
+
+def _normalize_binding(
+    project_dir: Path,
+    plan: _Plan,
+    entry: dict[str, Any],
+    episode: int,
+    raw_binding: str,
+    bound: Mapping[str, object],
+) -> tuple[str, str]:
+    """把该集绑定改到规范路径；返回 (改后的绑定, 预检读剧本用的项目内相对路径)。
+
+    绑定文件在盘上时预检仍从它读，落盘时才改名；改不过去时绑定原样保留并进迁移报告。
+    """
+
+    canonical = episode_script_relpath(episode)
+    if raw_binding == canonical:
+        return raw_binding, raw_binding
+    source_rel = f"scripts/{ProjectManager.normalize_script_filename(raw_binding)}"
+    if bound.get(source_rel) != episode:
+        # 同一文件绑给多集时改名只能跟到其中一集：绑定原样保留，由目标态规划按绑定不唯一拒绝项目。
+        _skip_script(plan, episode, raw_binding, "script binding is shared by several episodes")
+        return raw_binding, raw_binding
+    if source_rel == canonical:
+        # 同一文件的别名写法（``episode_1.json``、``./scripts/episode_1.json``）：只改绑定字面。
+        entry["script_file"] = canonical
+        plan.normalized.append(MigrationNormalizedBinding(episode=episode, from_path=raw_binding, to_path=canonical))
+        return canonical, canonical
+    if bound.get(canonical, episode) != episode:
+        _skip_script(plan, episode, canonical, "canonical script path is bound to another episode")
+        return raw_binding, raw_binding
+    source = try_safe_join(project_dir / "scripts", ProjectManager.normalize_script_filename(raw_binding))
+    if source is None:
+        _skip_script(plan, episode, raw_binding, "script binding points outside the scripts directory")
+        return raw_binding, raw_binding
+    canonical_path = project_dir / canonical
+    move: _BindingMove | None = None
+    if source.is_file():
+        move = _BindingMove(source=source, target_rel=canonical)
+        if canonical_path.is_file() and not _same_json(canonical_path, source):
+            move.displaced_rel, move.displaced_bytes = _displaced_slot(project_dir, canonical)
+        script = _load_object(source)
+        read_rel = source_rel
+    else:
+        # 绑定文件缺席：规范路径上是本集剧本时（含上一次迁移已改名而未提交 project.json）补绑定。
+        script = _load_object(canonical_path) if canonical_path.is_file() else None
+        if canonical_path.is_file() and (script is None or script.get("episode") != episode):
+            _skip_script(plan, episode, canonical, "canonical script path holds a file of another episode")
+            return raw_binding, raw_binding
+        read_rel = canonical
+    entry["script_file"] = canonical
+    if script is not None and isinstance(script.get("title"), str):
+        entry["title"] = script["title"]
+    plan.path_renames[source_rel] = canonical
+    if move is not None:
+        plan.moves.append(move)
+    plan.normalized.append(
+        MigrationNormalizedBinding(
+            episode=episode,
+            from_path=raw_binding,
+            to_path=canonical,
+            displaced_path=move.displaced_rel if move is not None else None,
+        )
+    )
+    return canonical, read_rel
+
+
+def _renamed_reference(value: object, renames: Mapping[str, str]) -> str | None:
+    """按文件名引用剧本的字段值改到规范路径，保留原值带不带 ``scripts/`` 前缀；与改名无关时返回 None。"""
+
+    if not isinstance(value, str) or not value:
+        return None
+    target = renames.get(f"scripts/{ProjectManager.normalize_script_filename(value)}")
+    if target is None:
+        return None
+    return target if "/" in value else target.removeprefix("scripts/")
+
+
+def _plan_reference_rewrites(project_dir: Path, plan: _Plan) -> None:
+    """宫格记录、持久化呈现与版本记录里按文件名引用改名剧本的字段：只是定位，不进任何依据摘要。"""
+
+    for path in [*sorted(project_dir.glob("grids/*.json")), *sorted(project_dir.glob("presentations/*/*.json"))]:
+        record = _load_object(path)
+        renamed = _renamed_reference(record.get("script_file"), plan.path_renames) if record is not None else None
+        if record is not None and renamed is not None:
+            record["script_file"] = renamed
+            plan.reference_rewrites[path] = record
+    versions_path = project_dir / "versions" / "versions.json"
+    versions = _load_object(versions_path)
+    changed = False
+    for bucket in versions.values() if versions is not None else []:
+        for resource in bucket.values() if isinstance(bucket, dict) else []:
+            records = resource.get("versions") if isinstance(resource, dict) else None
+            for record in records if isinstance(records, list) else []:
+                renamed = (
+                    _renamed_reference(record.get("execution_script_file"), plan.path_renames)
+                    if isinstance(record, dict)
+                    else None
+                )
+                if isinstance(record, dict) and renamed is not None:
+                    record["execution_script_file"] = renamed
+                    changed = True
+    if versions is not None and changed:
+        plan.reference_rewrites[versions_path] = versions
+
+
 def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
     """只读：算出全部剧本改写、转换与 project.json 改写，不落盘。"""
 
@@ -196,7 +360,12 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
     kind = script_plan_kind(migrated)
     raw_episodes = migrated.get("episodes")
     episodes: list[Any] = raw_episodes if isinstance(raw_episodes, list) else []
-    bound = {entry.get("script_file") for entry in episodes if isinstance(entry, dict)}
+    #: 规范化前各绑定（归一到 ``scripts/<name>``）→ 绑定它的集号；多集绑同一文件时为 None。
+    bound: dict[str, object] = {}
+    for entry in episodes:
+        if isinstance(entry, dict) and isinstance(entry.get("script_file"), str) and entry["script_file"]:
+            bound_rel = f"scripts/{ProjectManager.normalize_script_filename(entry['script_file'])}"
+            bound[bound_rel] = None if bound_rel in bound else entry.get("episode")
     confirmed_at = datetime.now(UTC).isoformat()
     for entry in episodes:
         if not isinstance(entry, dict):
@@ -205,8 +374,11 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         if type(episode) is not int or episode < 1:
             continue
         raw_binding = entry.get("script_file")
-        binding = raw_binding if isinstance(raw_binding, str) and raw_binding else episode_script_relpath(episode)
-        binding_path = try_safe_join(project_dir, binding)
+        if isinstance(raw_binding, str) and raw_binding:
+            binding, read_rel = _normalize_binding(project_dir, plan, entry, episode, raw_binding, bound)
+        else:
+            binding = read_rel = episode_script_relpath(episode)
+        binding_path = try_safe_join(project_dir, read_rel)
         plan_path = script_plan_path(project_dir, migrated, episode) if kind is not None else None
         plan_document = _load_object(plan_path) if plan_path is not None else None
         # 读不成对象的规划文件没有可转换或回填的条目，也不据它记确认基线。
@@ -242,7 +414,7 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         if script is None:
             _skip_script(plan, episode, canonical, reason or "confirmed script_plan could not be materialized")
             continue
-        if canonical != binding and canonical in bound:
+        if canonical != binding and bound.get(canonical, episode) != episode:
             _skip_script(plan, episode, canonical, "canonical script path is bound to another episode")
             continue
         canonical_path = project_dir / canonical
@@ -267,6 +439,8 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         entry["script_file"] = canonical
         plan.works.append(_EpisodeWork(episode=episode, script_rel=canonical, script=script, materialized=True))
         plan.registrations[episode] = (canonical, plan_document)
+    if plan.path_renames:
+        _plan_reference_rewrites(project_dir, plan)
     return plan
 
 
@@ -311,32 +485,40 @@ def _legacy_script_bases(project: Mapping[str, Any], episode: int, plan_document
     return digests
 
 
-def _rebase_script_entries(
+def _rewrite_manifest_entries(
     project_dir: Path,
     before_project: Mapping[str, Any],
     target: ArtifactTargetStatePlan,
     plan: _Plan,
 ) -> int:
-    """把剧本登记改写为 v3：改写前时新或未登记的改写过去，本就过期的原样保留。
+    """登记在改名前剧本路径下的条目跟到规范路径；剧本登记改写为 v3。
 
-    目标登记取自整份目标态规划（不校验项目是否为当前 schema，链上后续版本存在时照常可用）。
-    返回改写条数。
+    剧本登记里改写前时新或未登记的改写过去，本就过期的原样保留（只随改名换路径）。目标登记取自
+    整份目标态规划（不校验项目是否为当前 schema，链上后续版本存在时照常可用）。返回改写条数。
     """
 
     adapter = ProjectArtifactManifestAdapter(project_dir)
+    snapshot = adapter.snapshot_entries()
     expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
     replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
-    for episode, (_script_rel, plan_document) in sorted(plan.registrations.items()):
+    for key, stored in snapshot.items():
+        renamed = plan.path_renames.get(stored.artifact_path)
+        if renamed is not None:
+            expected[key] = stored
+            replacements[key] = ArtifactManifestEntry(artifact_path=renamed, basis_digest=stored.basis_digest)
+    rebase_scripts = before_project.get("content_mode") != "ad"
+    for episode, (_script_rel, plan_document) in sorted(plan.registrations.items()) if rebase_scripts else []:
         key = ArtifactKey.episode_script(episode)
         entry = target.entries.get(key)
         if entry is None:
             continue
-        stored = adapter.get_entry(key)
-        if stored == entry:
+        stored = snapshot.get(key)
+        current = replacements.get(key, stored)
+        if current == entry:
             continue
-        if stored is not None and (
-            stored.artifact_path != entry.artifact_path
-            or stored.basis_digest not in _legacy_script_bases(before_project, episode, plan_document)
+        if current is not None and (
+            current.artifact_path != entry.artifact_path
+            or current.basis_digest not in _legacy_script_bases(before_project, episode, plan_document)
         ):
             continue
         expected[key] = stored
@@ -344,7 +526,7 @@ def _rebase_script_entries(
     if replacements:
         ensure_versioned_backup(project_dir / MANIFEST_FILENAME, TARGET_SCHEMA_VERSION - 1)
         if not adapter.replace_entries_if_matches_atomically(expected=expected, replacements=replacements):
-            raise RuntimeError("artifact manifest changed while rebasing episode script bases")
+            raise RuntimeError("artifact manifest changed while rewriting episode script entries")
     return len(replacements)
 
 
@@ -366,6 +548,10 @@ def migrate_v14_to_v15(project_dir: Path) -> ArtifactBackfillOutcome | None:
     plan.project["schema_version"] = TARGET_SCHEMA_VERSION
 
     ensure_versioned_backup(project_file, TARGET_SCHEMA_VERSION - 1)
+    for move in plan.moves:
+        if move.displaced_rel is not None and move.displaced_bytes is not None:
+            atomic_write_bytes(project_dir / move.displaced_rel, move.displaced_bytes)
+        os.replace(move.source, project_dir / move.target_rel)
     for work in plan.works:
         if work.script is not None and not work.materialized:
             ensure_versioned_backup(project_dir / work.script_rel, TARGET_SCHEMA_VERSION - 1)
@@ -376,16 +562,21 @@ def migrate_v14_to_v15(project_dir: Path) -> ArtifactBackfillOutcome | None:
                 raise ValueError(f"第 {work.episode} 集剧本路径越界: {work.script_rel}")
             path.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_json(path, work.script)
+    for path in plan.reference_rewrites:
+        ensure_versioned_backup(path, TARGET_SCHEMA_VERSION - 1)
+    for path, payload in plan.reference_rewrites.items():
+        atomic_write_json(path, payload)
 
     after_bytes = json.dumps(plan.project, ensure_ascii=False).encode("utf-8")
-    if not plan.registrations or project.get("content_mode") == "ad":
-        outcome = _outcome(project_dir, _target_plan(project_dir, after_bytes), plan.skipped) if plan.skipped else None
+    reported = bool(plan.skipped or plan.normalized)
+    if not plan.path_renames and (not plan.registrations or project.get("content_mode") == "ad"):
+        outcome = _outcome(project_dir, _target_plan(project_dir, after_bytes), plan) if reported else None
         atomic_write_json(project_file, plan.project)
         return outcome
     with project_metadata_lock(project_dir):
         target = _target_plan(project_dir, after_bytes)
-        rebased = _rebase_script_entries(project_dir, project, target, plan)
-        outcome = _outcome(project_dir, target, plan.skipped) if rebased or plan.skipped else None
+        rewritten = _rewrite_manifest_entries(project_dir, project, target, plan)
+        outcome = _outcome(project_dir, target, plan) if rewritten or reported else None
         atomic_write_json(project_file, plan.project)
     return outcome
 
@@ -394,13 +585,14 @@ def _target_plan(project_dir: Path, after_bytes: bytes) -> ArtifactTargetStatePl
     return TargetStatePlanner(project_dir, project_bytes=after_bytes).plan()
 
 
-def _outcome(
-    project_dir: Path, target: ArtifactTargetStatePlan, skipped: list[MigrationSkippedArtifact]
-) -> ArtifactBackfillOutcome:
-    """本步的迁移报告：runner 只留链上最后一份，所以并入整份目标态规划的跳过项。"""
+def _outcome(project_dir: Path, target: ArtifactTargetStatePlan, plan: _Plan) -> ArtifactBackfillOutcome:
+    """本步的迁移报告：runner 只留链上最后一份清单全貌，所以并入整份目标态规划的跳过项。"""
 
     return ArtifactBackfillOutcome.from_entries(
-        ProjectArtifactManifestAdapter(project_dir).snapshot_entries(), skipped, target.skipped
+        ProjectArtifactManifestAdapter(project_dir).snapshot_entries(),
+        plan.skipped,
+        target.skipped,
+        normalized_bindings=plan.normalized,
     )
 
 

@@ -18,6 +18,7 @@ from typing import Any
 
 from lib import PROJECT_ROOT
 from lib.content_digest import canonical_json_bytes
+from lib.episode_paths import episode_script_filename
 from lib.project_change_hints import (
     ProjectChangeBatch,
     ProjectChangeSource,
@@ -614,15 +615,17 @@ class ProjectEventService:
                 return None
             return episode, title
 
+        # 只有文件名正是该集规范名（episode_N.json）的剧本登记为集绑定；其他 JSON（副本、自定义名）
+        # 不读也不登记，已有绑定不被它们改写。
         candidates: dict[int, Path] = {}
-        for script_path in sorted(scripts_dir.glob("*.json")):
+        for script_path in sorted(scripts_dir.glob("episode_*.json")):
+            filename_episode = ProjectManager.filename_episode(script_path.name)
+            if filename_episode is None or script_path.name != episode_script_filename(filename_episode):
+                continue
             candidate = _load_candidate(script_path)
             if candidate is None:
                 continue
-            episode, _title = candidate
-            # sorted() + overwrite preserves the watcher's established final
-            # winner while ensuring each episode is reconciled at most once.
-            candidates[episode] = script_path
+            candidates[candidate[0]] = script_path
 
         for episode, script_path in sorted(candidates.items()):
             boundary_candidate = _load_candidate(script_path)

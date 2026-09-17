@@ -294,7 +294,8 @@ def test_unmigrated_project_refuses_a_script_that_prepares_no_manifest_commit(
     pm, service, project_dir = editor
     script = _script()
     script["episode"] = 0
-    pm.save_script("demo", script, "custom.json")
+    # 文件名不含集号的剧本写盘入口会拒绝，直接落盘模拟外部写入的文件。
+    (project_dir / "scripts" / "custom.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
     pm.update_project("demo", lambda project: project.update({"schema_version": 7}))
     (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
     before = (project_dir / "scripts" / "custom.json").read_bytes()

@@ -11,6 +11,7 @@ import pytest
 from lib import project_schema
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.artifact_provenance import build_episode_script_basis
+from lib.project_migration_failure import ProjectMigrationError
 from lib.project_migrations.v14_to_v15_formal_script_truth import TARGET_SCHEMA_VERSION, migrate_v14_to_v15
 from lib.script_review import content_fingerprint
 from tests.legacy_project_shapes import ScriptPlanVariantName, write_legacy_script_plan_project
@@ -234,6 +235,89 @@ def test_ad_project_only_bumps_the_schema_version(tmp_path: Path) -> None:
 
     assert _project(project_dir) == {**project, "schema_version": TARGET_SCHEMA_VERSION}
     assert _read_json(project_dir / "scripts" / "episode_1.json") == script
+
+
+def test_ad_project_binding_is_normalized_and_its_registration_follows(tmp_path: Path) -> None:
+    project_dir = tmp_path / "ad"
+    project = {
+        "schema_version": 14,
+        "title": "广告",
+        "content_mode": "ad",
+        "generation_mode": "reference_video",
+        "episodes": [{"episode": 1, "title": "第1集", "script_file": "scripts/ad-cut.json"}],
+    }
+    script = {"episode": 1, "title": "第1集", "content_mode": "ad", "video_units": [{"unit_id": "E1U01", "text": ""}]}
+    _write_json(project_dir / "project.json", project)
+    _write_json(project_dir / "scripts" / "ad-cut.json", script)
+    ProjectArtifactManifestAdapter(project_dir).put_entry(
+        ArtifactKey.episode_script(1),
+        ArtifactManifestEntry(artifact_path="scripts/ad-cut.json", basis_digest=f"sha256-v1:{'a' * 64}"),
+    )
+
+    outcome = migrate_v14_to_v15(project_dir)
+
+    assert _episode(project_dir, 1)["script_file"] == "scripts/episode_1.json"
+    assert not (project_dir / "scripts" / "ad-cut.json").exists()
+    assert _read_json(project_dir / "scripts" / "episode_1.json") == script
+    assert ProjectArtifactManifestAdapter(project_dir).get_entry(
+        ArtifactKey.episode_script(1)
+    ) == ArtifactManifestEntry(artifact_path="scripts/episode_1.json", basis_digest=f"sha256-v1:{'a' * 64}")
+    assert outcome is not None
+    assert [(item.from_path, item.to_path) for item in outcome.normalized_bindings] == [
+        ("scripts/ad-cut.json", "scripts/episode_1.json")
+    ]
+
+
+def test_binding_alias_of_the_canonical_path_only_changes_the_binding_text(tmp_path: Path) -> None:
+    project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
+    project = _project(project_dir)
+    project["episodes"][2]["script_file"] = "episode_3.json"
+    _write_json(project_dir / "project.json", project)
+
+    outcome = migrate_v14_to_v15(project_dir)
+
+    assert _episode(project_dir, 3)["script_file"] == "scripts/episode_3.json"
+    assert outcome is not None
+    assert [(item.from_path, item.displaced_path) for item in outcome.normalized_bindings] == [("episode_3.json", None)]
+
+
+def test_binding_outside_the_scripts_directory_is_not_moved(tmp_path: Path) -> None:
+    """越出 ``scripts/`` 的绑定不改名也不改绑；目标态规划照旧拒绝这个项目。"""
+
+    project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
+    project = _project(project_dir)
+    project["episodes"][2]["script_file"] = "../outside/episode_3.json"
+    _write_json(project_dir / "project.json", project)
+
+    with pytest.raises(ProjectMigrationError, match="invalid episode script binding"):
+        migrate_v14_to_v15(project_dir)
+
+    assert _episode(project_dir, 3)["script_file"] == "../outside/episode_3.json"
+    assert _project(project_dir)["schema_version"] == 14
+    assert (project_dir / "scripts" / "episode_3.json").is_file()
+
+
+def test_script_file_bound_to_several_episodes_is_not_moved(tmp_path: Path) -> None:
+    """同一文件绑给多集：不改名、不改绑，目标态规划照旧按绑定不唯一拒绝这个项目。"""
+
+    project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
+    scripts_dir = project_dir / "scripts"
+    (scripts_dir / "episode_1.json").rename(scripts_dir / "custom.json")
+    project = _project(project_dir)
+    project["episodes"][0]["script_file"] = "scripts/custom.json"
+    project["episodes"][2]["script_file"] = "custom.json"
+    _write_json(project_dir / "project.json", project)
+
+    with pytest.raises(ProjectMigrationError, match="bindings must be unique"):
+        migrate_v14_to_v15(project_dir)
+
+    assert _read_json(scripts_dir / "custom.json")["episode"] == 1
+    assert not (scripts_dir / "episode_1.json").exists()
+    assert [entry["script_file"] for entry in _project(project_dir)["episodes"]] == [
+        "scripts/custom.json",
+        project["episodes"][1]["script_file"],
+        "custom.json",
+    ]
 
 
 def test_project_without_episodes_only_bumps_the_schema_version(tmp_path: Path) -> None:

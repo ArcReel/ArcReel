@@ -41,6 +41,18 @@ class MigrationSkippedArtifact(BaseModel):
     reason: str
 
 
+class MigrationNormalizedBinding(BaseModel):
+    """One episode whose ``script_file`` binding the migration moved to its canonical path."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: int
+    from_path: str
+    to_path: str
+    displaced_path: str | None = None
+    """Where the file previously at ``to_path`` was kept when it differed from the bound script."""
+
+
 class MigrationReport(BaseModel):
     """What the last finished migration chain registered and skipped."""
 
@@ -53,6 +65,7 @@ class MigrationReport(BaseModel):
     registered: dict[str, int] = Field(default_factory=dict)
     """Registered manifest entries counted per artifact kind."""
     skipped: list[MigrationSkippedArtifact] = Field(default_factory=list)
+    normalized_bindings: list[MigrationNormalizedBinding] = Field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,17 +78,23 @@ class ArtifactBackfillOutcome:
 
     registered: Mapping[str, int]
     skipped: tuple[MigrationSkippedArtifact, ...]
+    normalized_bindings: tuple[MigrationNormalizedBinding, ...] = ()
 
     @classmethod
     def from_entries(
         cls,
         entries: Mapping[ArtifactKey, object],
         *skipped_groups: Sequence[MigrationSkippedArtifact],
+        normalized_bindings: Sequence[MigrationNormalizedBinding] = (),
     ) -> ArtifactBackfillOutcome:
         """Count registered entries per kind; skip groups merge with the first reason winning."""
 
         registered = Counter(key.kind.value for key in entries)
-        return cls(registered=dict(registered), skipped=merge_skipped(*skipped_groups))
+        return cls(
+            registered=dict(registered),
+            skipped=merge_skipped(*skipped_groups),
+            normalized_bindings=tuple(normalized_bindings),
+        )
 
 
 def merge_skipped(
@@ -106,6 +125,7 @@ def build_migration_report(
         to_schema_version=to_schema_version,
         registered=dict(sorted(outcome.registered.items())),
         skipped=list(outcome.skipped),
+        normalized_bindings=list(outcome.normalized_bindings),
     )
 
 
@@ -141,6 +161,7 @@ def load_migration_report(project_dir: Path) -> MigrationReport | None:
 __all__ = [
     "MIGRATION_REPORT_FILENAME",
     "ArtifactBackfillOutcome",
+    "MigrationNormalizedBinding",
     "MigrationReport",
     "MigrationSkippedArtifact",
     "build_migration_report",

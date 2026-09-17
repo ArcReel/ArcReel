@@ -9,7 +9,7 @@ import shutil
 import time
 import traceback
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lib.episode_ledger import parse_positive_episode_num
@@ -21,7 +21,12 @@ from lib.project_migration_failure import (
     clear_migration_failure,
     record_migration_failure,
 )
-from lib.project_migration_report import ArtifactBackfillOutcome, build_migration_report, write_migration_report
+from lib.project_migration_report import (
+    ArtifactBackfillOutcome,
+    MigrationNormalizedBinding,
+    build_migration_report,
+    write_migration_report,
+)
 from lib.project_migrations.backups import (
     ensure_versioned_backup,
     versioned_backup_candidates,
@@ -161,6 +166,7 @@ def migrate_project_dir(project_dir: Path) -> bool:
         return False
     start_version = version
     outcome: ArtifactBackfillOutcome | None = None
+    normalized_bindings: list[MigrationNormalizedBinding] = []
     while version < CURRENT_SCHEMA_VERSION:
         # Activation migrations must finish their complete read-only preflight
         # before creating any backup.  Their commit boundary owns the backup so
@@ -178,13 +184,15 @@ def migrate_project_dir(project_dir: Path) -> bool:
         step_outcome = migrator(project_dir)
         if step_outcome is not None:
             outcome = step_outcome
+            normalized_bindings.extend(step_outcome.normalized_bindings)
         version += 1
     if outcome is not None:
-        # 链上最后一次清单改写描述的是迁移完成时清单的全貌，报告只留这一份。
+        # 链上最后一次清单改写描述的是迁移完成时清单的全貌，报告只留这一份；绑定规范化不随
+        # 后续步骤的清单全貌重述，逐步累积。
         write_migration_report(
             project_dir,
             build_migration_report(
-                outcome,
+                replace(outcome, normalized_bindings=tuple(normalized_bindings)),
                 from_schema_version=start_version,
                 to_schema_version=CURRENT_SCHEMA_VERSION,
             ),
@@ -302,6 +310,9 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
             # v13→v14 改写受风格值归一与风格描述补记影响的条目，v14→v15 改写剧本登记。
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
+            # v14→v15 规范化剧本绑定时改写宫格记录与持久化呈现里的剧本文件名。
+            *((source, project_backup_versions) for source in sorted(project_dir.glob("grids/*.json"))),
+            *((source, project_backup_versions) for source in sorted(project_dir.glob("presentations/*/*.json"))),
         )
         for source, versions in sources:
             for bak in versioned_backup_candidates(source, versions):

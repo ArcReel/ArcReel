@@ -2,24 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
 from lib.artifact_currency import ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactBasis, ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.artifact_provenance import build_episode_script_basis, project_episode_script_prompt_inputs
+from lib.grid.models import GridGeneration
+from lib.grid_manager import GridManager
+from lib.narration_delivery import POST_PRODUCTION
 from lib.project_manager import ProjectManager
-from lib.project_migration_report import load_migration_report
+from lib.project_migration_report import MigrationNormalizedBinding, load_migration_report
 from lib.project_migrations.runner import migrate_project_dir
+from lib.project_migrations.v14_to_v15_formal_script_truth import migrate_v14_to_v15
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.script_review import content_fingerprint, review_status
+from lib.script_generator import PromptAuthoringTargetError, ScriptGenerator
+from lib.script_review import content_fingerprint, formal_script_filename, prompt_authoring_generated, review_status
+from lib.speech_presentation import presentation_artifact_paths
 from lib.workflow_state import WorkflowStateService
 from tests.legacy_project_shapes import (
     ScriptPlanVariantName,
     advance_project_schema,
+    bind_episode_script_to_filename,
     write_legacy_script_plan_project,
 )
 
@@ -181,3 +189,174 @@ def test_unmaterializable_confirmed_episode_appears_in_the_migration_report(tmp_
     assert report is not None
     assert [(item.kind, item.episode) for item in report.skipped if item.episode == 2] == [("episode-script", 2)]
     assert not (project_dir / "scripts" / "episode_2.json").exists()
+
+
+_CanonicalPath = Literal["free", "occupied"]
+
+
+def _bind_episode_1_to_custom(project_dir: Path, canonical_path: _CanonicalPath) -> tuple[bytes, bytes | None]:
+    """第 1 集绑到 ``scripts/custom.json``；``occupied`` 时规范路径上另有一份内容不同的剧本。
+
+    返回绑定文件与规范路径上原文件的字节。
+    """
+
+    bind_episode_script_to_filename(project_dir, 1, "custom.json")
+    custom = project_dir / "scripts" / "custom.json"
+    occupant: bytes | None = None
+    if canonical_path == "occupied":
+        script = _read_json(custom)
+        script["title"] = "规范路径上的另一份"
+        _write_json(project_dir / "scripts" / "episode_1.json", script)
+        occupant = (project_dir / "scripts" / "episode_1.json").read_bytes()
+    return custom.read_bytes(), occupant
+
+
+def _script_file_references(project_dir: Path) -> tuple[str, str, str]:
+    """第 1 集宫格记录、持久化呈现与版本记录里写下的剧本文件名。"""
+
+    [grid] = GridManager(project_dir).list_all()
+    _subtitle, presentation = presentation_artifact_paths(1, "E1S01", POST_PRODUCTION)
+    versions = _read_json(project_dir / "versions" / "versions.json")
+    return (
+        grid.script_file,
+        _read_json(project_dir / presentation)["script_file"],
+        versions["videos"]["E1S01"]["versions"][0]["execution_script_file"],
+    )
+
+
+def _reference_the_bound_script(project_dir: Path) -> None:
+    GridManager(project_dir).save(
+        GridGeneration.create(
+            episode=1,
+            script_file="custom.json",
+            scene_ids=["E1S01", "E1S02"],
+            rows=1,
+            cols=2,
+            grid_size="2K",
+            provider="fake",
+            model="fake-model",
+            video_aspect_ratio="9:16",
+        )
+    )
+    _subtitle, presentation = presentation_artifact_paths(1, "E1S01", POST_PRODUCTION)
+    (project_dir / presentation).parent.mkdir(parents=True)
+    _write_json(project_dir / presentation, {"episode": 1, "script_file": "custom.json", "persisted": True})
+    versions_path = project_dir / "versions" / "versions.json"
+    versions = _read_json(versions_path)
+    versions["videos"]["E1S01"] = {
+        "current_version": 1,
+        "versions": [
+            {"version": 1, "file": "versions/videos/E1S01_v1.mp4", "execution_script_file": "scripts/custom.json"}
+        ],
+    }
+    _write_json(versions_path, versions)
+
+
+@pytest.mark.parametrize("canonical_path", ["free", "occupied"])
+def test_non_canonical_binding_moves_to_the_canonical_path_with_its_registrations(
+    tmp_path: Path, canonical_path: _CanonicalPath
+) -> None:
+    project_dir = _project_at_v14(tmp_path / "projects")
+    custom_bytes, occupant = _bind_episode_1_to_custom(project_dir, canonical_path)
+    _reference_the_bound_script(project_dir)
+    title = _read_json(project_dir / "scripts" / "custom.json")["title"]
+
+    assert migrate_project_dir(project_dir) is True
+
+    scripts_dir = project_dir / "scripts"
+    assert not (scripts_dir / "custom.json").exists()
+    assert _read_json(scripts_dir / "episode_1.json")["title"] == title
+    [backup] = scripts_dir.glob("episode_1.json.bak.v14-*")
+    assert backup.read_bytes() == custom_bytes
+    ledger = _read_json(project_dir / "project.json")["episodes"][0]
+    assert ledger["script_file"] == "scripts/episode_1.json"
+    entry = ProjectArtifactManifestAdapter(project_dir).get_entry(_SCRIPT)
+    assert entry is not None
+    assert entry.artifact_path == "scripts/episode_1.json"
+    assert _script_status(project_dir, _SCRIPT) == "current"
+    status = WorkflowStateService(ProjectManager(project_dir.parent)).get_status(project_dir.name, 1)
+    assert status.artifacts["script"]["state"] == "current"
+    assert _script_file_references(project_dir) == ("episode_1.json", "episode_1.json", "scripts/episode_1.json")
+    report = load_migration_report(project_dir)
+    assert report is not None
+    displaced = None if occupant is None else "scripts/episode_1.json.displaced-v14"
+    assert report.normalized_bindings == [
+        MigrationNormalizedBinding(
+            episode=1, from_path="scripts/custom.json", to_path="scripts/episode_1.json", displaced_path=displaced
+        )
+    ]
+    if occupant is not None:
+        assert (project_dir / "scripts" / "episode_1.json.displaced-v14").read_bytes() == occupant
+
+
+@pytest.mark.parametrize("canonical_path", ["free", "occupied"])
+def test_rerun_after_a_crash_before_project_json_finishes_the_same_normalization(
+    tmp_path: Path, canonical_path: _CanonicalPath
+) -> None:
+    """改名与记录改写已落盘而 ``project.json`` 仍停在 v14：重跑补上绑定，不再改名、不另存第二份。"""
+
+    project_dir = _project_at_v14(tmp_path / "projects")
+    _bind_episode_1_to_custom(project_dir, canonical_path)
+    _reference_the_bound_script(project_dir)
+    project_before = (project_dir / "project.json").read_bytes()
+    migrate_v14_to_v15(project_dir)
+
+    def _state() -> dict[str, bytes]:
+        return {
+            path.relative_to(project_dir).as_posix(): path.read_bytes()
+            for path in project_dir.rglob("*")
+            if path.is_file() and ".bak.v" not in path.name and path.name != "project.json"
+        }
+
+    state = _state()
+    migrated_ledger = _read_json(project_dir / "project.json")["episodes"][0]
+    (project_dir / "project.json").write_bytes(project_before)
+
+    migrate_v14_to_v15(project_dir)
+
+    assert _state() == state
+    ledger = _read_json(project_dir / "project.json")["episodes"][0]
+    assert (ledger["script_file"], ledger["title"]) == (migrated_ledger["script_file"], migrated_ledger["title"])
+    assert _read_json(project_dir / "project.json")["schema_version"] == 15
+
+
+def test_canonical_bindings_are_left_verbatim(tmp_path: Path) -> None:
+    project_dir = _project_at_v14(tmp_path / "projects")
+    before = [entry["script_file"] for entry in _read_json(project_dir / "project.json")["episodes"]]
+    scripts_before = sorted(path.name for path in (project_dir / "scripts").glob("*.json"))
+
+    migrate_project_dir(project_dir)
+
+    assert [entry["script_file"] for entry in _read_json(project_dir / "project.json")["episodes"]] == before
+    # 第 2 集是确认后转出的正式脚本，其余剧本原地改写，不改名。
+    assert sorted(path.name for path in (project_dir / "scripts").glob("*.json")) == sorted(
+        [*scripts_before, "episode_2.json"]
+    )
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert report.normalized_bindings == []
+    assert not list((project_dir / "scripts").glob("*.displaced-*"))
+
+
+@pytest.mark.parametrize("canonical_path", ["free", "occupied"])
+def test_every_reader_resolves_the_same_script_after_normalization(
+    tmp_path: Path, canonical_path: _CanonicalPath
+) -> None:
+    """内容确认、提示词编写与 prompt_authoring 已产出判定读的是同一份剧本。"""
+
+    project_dir = _project_at_v14(tmp_path / "projects")
+    _bind_episode_1_to_custom(project_dir, canonical_path)
+    migrate_project_dir(project_dir)
+    project = _read_json(project_dir / "project.json")
+    confirmed = formal_script_filename(project_dir, project, 1)
+    assert project["episodes"][0]["script_file"] == f"scripts/{confirmed}"
+    assert prompt_authoring_generated(project_dir, project, 1) is True
+
+    # 从内容确认解析出的那份剧本里拿掉一个条目，提示词编写随之认不出它。
+    asyncio.run(ScriptGenerator(project_dir).build_prompt(1, entry_ids=["E1S02"]))
+    script_path = project_dir / "scripts" / confirmed
+    script = _read_json(script_path)
+    script["segments"] = [item for item in script["segments"] if item["segment_id"] != "E1S02"]
+    _write_json(script_path, script)
+    with pytest.raises(PromptAuthoringTargetError, match="E1S02"):
+        asyncio.run(ScriptGenerator(project_dir).build_prompt(1, entry_ids=["E1S02"]))

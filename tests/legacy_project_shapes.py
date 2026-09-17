@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.grid.models import GridGeneration, build_frame_chain
 from lib.project_migrations.runner import MIGRATORS
 from lib.script_review import content_fingerprint
@@ -542,6 +543,28 @@ def write_undescribed_style_bases_project(
     return project_dir
 
 
+def bind_episode_script_to_filename(project_dir: Path, episode: int, filename: str) -> None:
+    """SSE 索引同步曾把带 ``episode`` 整数的任意 ``scripts/*.json`` 登记为集绑定（schema ≤ 14）。
+
+    把该集剧本改名为 ``scripts/<filename>`` 并改绑；清单里该集剧本的登记随之指向新文件名。
+    """
+
+    script_file = f"scripts/{filename}"
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    ledger = next(entry for entry in project["episodes"] if entry["episode"] == episode)
+    source = project_dir / ledger["script_file"]
+    if source.is_file():
+        source.rename(project_dir / script_file)
+    ledger["script_file"] = script_file
+    _write_json(project_path, project)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    key = ArtifactKey.episode_script(episode)
+    entry = adapter.get_entry(key)
+    if entry is not None:
+        adapter.put_entry(key, ArtifactManifestEntry(artifact_path=script_file, basis_digest=entry.basis_digest))
+
+
 def advance_project_schema(project_dir: Path, *, to_version: int) -> None:
     """按迁移链把项目从当前 ``schema_version`` 逐级推进到 ``to_version``。"""
 
@@ -557,6 +580,7 @@ def advance_project_schema(project_dir: Path, *, to_version: int) -> None:
 __all__ = [
     "ScriptPlanVariantName",
     "advance_project_schema",
+    "bind_episode_script_to_filename",
     "write_legacy_reference_video_project",
     "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",

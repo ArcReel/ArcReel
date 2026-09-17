@@ -21,6 +21,7 @@
 | 风格值以「画风：」开头（当时的风格模版带该前缀） | 0.9 – 0.15 | 已剥前缀的风格值 | v13→v14 就地剥离 |
 | 风格值是 `Photographic` / `Anime` / `3D Animation` 短标签 | ≤ 0.8 | `style_template_id` + 展开后的模版快照 | v13→v14 解析并展开；已有 `style_template_id` 时不动 |
 | 宫格联合图、切格分镜与参考视频的依据（清单登记与选中版本记录冻结的依据）不含风格描述 | ≤ 0.30（schema ≤ 13） | 描述非空时依据含 `style_description` | schema < 14 的项目按不记描述的口径规划（`project_basis_style_description`），v13→v14 之前的激活与来源补写不受影响；v13→v14 只改写改写前时新的登记及其选中版本记录 |
+| 集绑定 `script_file` 指向非规范文件名（SSE 索引同步登记了带 `episode` 整数的任意 `scripts/*.json`） | schema ≤ 14 | `scripts/episode_N.json` | v14→v15 改名并改绑，清单路径、宫格/呈现/版本记录里的文件名随之改；规范路径上内容不同的原文件另存 `.displaced-v14`；改不过去的进迁移报告 |
 | 剧本条目带 `script_plan_entry_revision`，剧本 `metadata` 带 `script_plan_revision` | schema ≤ 14 | 无指纹字段 | v14→v15 删除 |
 | 脚本规划已确认，绑定的正式脚本不在盘上 | schema ≤ 14 | 确认即转出正式脚本 | v14→v15 整份转出、全部待编写；转不出的进迁移报告 |
 | 正式脚本分镜视觉层两侧皆空，没有待编写标记 | schema ≤ 14 | `pending_authoring: true` | v14→v15 盖标记（参考生视频单元不按此判） |

@@ -911,7 +911,8 @@ class TestReferenceVideoRejection:
         c, pm = _client_with_project(
             tmp_path, monkeypatch, content_mode="narration", script=script, project_generation_mode="reference_video"
         )
-        pm.save_script("demo", script, "custom.json", validate=False)
+        # 文件名不含集号的剧本写盘入口会拒绝，直接落盘模拟外部写入的文件。
+        (pm.get_project_path("demo") / "scripts" / "custom.json").write_text(json.dumps(script), encoding="utf-8")
 
         resp = c.post(
             "/api/v1/projects/demo/shots/E1S01/end-frame/upload?script_file=custom.json",
