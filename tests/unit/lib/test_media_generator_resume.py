@@ -23,20 +23,30 @@ from tests.fakes import FakeConfigResolver, select_formal_video
 
 
 class _FakeVideoResult:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        seed: int | None = None,
+        provenance: dict[str, Any] | None = None,
+        warnings: tuple[dict[str, Any], ...] = (),
+    ) -> None:
         self.video_uri = "video-uri-resume"
         self.usage_tokens = 0
         self.generate_audio = True
         self.duration_seconds = 8
+        self.seed = seed
+        self.provenance = provenance
+        self.warnings = warnings
 
 
 class _FakeVideoBackend:
     name = "fake-video"
     model = "video-model"
 
-    def __init__(self, *, raises: Exception | None = None) -> None:
+    def __init__(self, *, raises: Exception | None = None, result: _FakeVideoResult | None = None) -> None:
         self.calls: list[Any] = []
         self.raises = raises
+        self._result = result
 
     async def generate(self, request):
         raise AssertionError("generate 不应被 resume 路径调用")
@@ -47,7 +57,7 @@ class _FakeVideoBackend:
             raise self.raises
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         request.output_path.write_bytes(b"fake-resume-video")
-        return _FakeVideoResult()
+        return self._result if self._result is not None else _FakeVideoResult()
 
 
 class _FakeVersions:
@@ -416,6 +426,9 @@ async def test_resume_passes_usage_tokens_to_finalize(tmp_path):
             self.usage_tokens = 12345  # 模拟 Ark 返回的 completion_tokens
             self.generate_audio = True
             self.duration_seconds = 8
+            self.seed = None
+            self.provenance = None
+            self.warnings = ()
 
     class _ArkLikeBackend:
         name = "ark"
@@ -637,6 +650,9 @@ async def test_resume_passes_generate_audio_to_finalize(tmp_path):
             self.usage_tokens = 1234
             self.generate_audio = False  # provider 实际降级到无音频
             self.duration_seconds = 8
+            self.seed = None
+            self.provenance = None
+            self.warnings = ()
 
     class _AudioDowngradeBackend:
         name = "fake"
@@ -681,6 +697,9 @@ async def test_resume_passes_billed_duration_to_finalize(tmp_path):
             self.usage_tokens = 0
             self.generate_audio = True
             self.duration_seconds = 15  # 请求 8 秒，provider 按 15 秒计费
+            self.seed = None
+            self.provenance = None
+            self.warnings = ()
 
     class _BilledDurationBackend:
         name = "dashscope"
@@ -734,3 +753,45 @@ async def test_resume_forwards_submitted_base_url_to_request(tmp_path):
     _, request = backend.calls[0]
     assert request.submitted_base_url == "https://maas-a.example.com/ws-1/api/v1"
     assert all("submitted_base_url" not in kwargs for kwargs in gen.versions.add_calls)
+
+
+@pytest.mark.asyncio
+async def test_resume_records_the_actual_seed_and_provenance_like_a_first_run(tmp_path):
+    """同一笔任务在重启前后落下的版本元数据必须是同一份。
+
+    元数据的其余部分在提交之前就已定稿，而实发种子与实发 workflow 的指纹要到 backend 跑完才
+    存在——只在首跑那条路上并一次，「这一版用的哪个种子」就会取决于进程什么时候重启过。
+    """
+    gen = _build_generator(tmp_path)
+    gen._video_backend = _FakeVideoBackend(result=_FakeVideoResult(seed=4242, provenance={"workflow_sha256": "abc123"}))
+
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="videos",
+        resource_id="E1S01",
+        task_id="T-1",
+        seed=7,
+    )
+
+    recorded = gen.versions.add_calls[-1]
+    assert recorded["seed"] == 4242
+    assert recorded["workflow_sha256"] == "abc123"
+
+
+@pytest.mark.asyncio
+async def test_resume_hands_backend_warnings_to_the_caller(tmp_path):
+    """续跑期产生的提示与首跑走同一条通道，否则同一件事只有首跑的用户看得到。"""
+    warning = {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final.mp4"}}
+    gen = _build_generator(tmp_path)
+    gen._video_backend = _FakeVideoBackend(result=_FakeVideoResult(warnings=(warning,)))
+    collected: list[dict[str, Any]] = []
+
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="videos",
+        resource_id="E1S01",
+        task_id="T-1",
+        warnings=collected,
+    )
+
+    assert collected == [warning]

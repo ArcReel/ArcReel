@@ -18,6 +18,17 @@ UPLOAD_FAILED = "comfyui_upload_failed"
 #: ComfyUI 拒收这份 workflow（400，或 200 带非空 ``node_errors``）：缺模型、参数越界、节点不存在。
 NODE_ERRORS = "comfyui_node_errors"
 
+#: 提交成功过，但 history 里没有记录、``/queue`` 的 running 与 pending 也都不含这个 id。
+#: 服务端重启会把队列连同未落 history 的执行一起丢掉，这是它在客户端唯一看得见的形状。
+JOB_LOST = "comfyui_job_lost"
+
+#: 执行过程中某个节点抛了异常（``status.messages`` 末尾是 ``execution_error``）。
+EXECUTION_ERROR = "comfyui_execution_error"
+
+#: 执行被打断（``status.messages`` 末尾是 ``execution_interrupted``）：有人在 ComfyUI 上按了
+#: 取消、或另一个客户端发了 ``/interrupt``。
+INTERRUPTED = "comfyui_interrupted"
+
 #: 执行到了终态，但 ``output`` 绑定的节点没有产出任何 ``type == "output"`` 的文件。
 OUTPUT_MISSING = "comfyui_output_missing"
 

@@ -167,6 +167,8 @@ async def execute_resume_video_task(
             prompt=prompt_text,
         )
 
+        #: 续跑期 backend 产生的非阻断提示，与首跑同一条通道落进任务 result。
+        warnings: list[dict[str, Any]] = []
         with project_change_source("worker"):
             output_path, version, _, video_uri = await generator.resume_video_async(
                 job_id=job_id,
@@ -183,6 +185,7 @@ async def execute_resume_video_task(
                 poll_timeout_seconds=poll_timeout_seconds,
                 before_formal_commit=artifact_committer.prepare_selection,
                 commit_formal_output=artifact_committer,
+                warnings=warnings,
                 **optional_kwargs,
             )
 
@@ -205,6 +208,7 @@ async def execute_resume_video_task(
                         version=version,
                         video_uri=video_uri,
                         versions=generator.versions,
+                        warnings=warnings,
                     )
                 else:
                     selected_result = await _finalize_video_task(
@@ -215,6 +219,7 @@ async def execute_resume_video_task(
                         version=version,
                         video_uri=video_uri,
                         generator=generator,
+                        warnings=warnings,
                     )
                 return selected_result
 
@@ -226,6 +231,7 @@ async def execute_resume_video_task(
                 version=version,
                 video_uri=video_uri,
                 finalize=_finalize,
+                warnings=warnings,
                 on_completed=_emit_success,
             )
     finally:

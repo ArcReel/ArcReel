@@ -760,6 +760,7 @@ async def execute_reference_video_task(
             visual_basis_digest=visual_basis_digest,
             generate_audio=video.requested_generate_audio,
             poll_timeout_seconds=poll_timeout_seconds,
+            warnings=warnings,
         )
 
         async def _finalize() -> dict[str, Any]:

@@ -2786,6 +2786,8 @@ async def execute_video_task(
         if task_id is not None
         else None
     )
+    #: backend 执行期产生的非阻断提示（如 ComfyUI 一次产出多个文件），随结果落进任务 result。
+    warnings: list[dict[str, Any]] = []
     try:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
         _output_path, version, _, video_uri = await generator.generate_video_async(
@@ -2807,6 +2809,7 @@ async def execute_video_task(
             visual_basis_digest=visual_basis_digest,
             generate_audio=ctx.video.requested_generate_audio,
             poll_timeout_seconds=poll_timeout_seconds,
+            warnings=warnings,
         )
 
         async def _finalize() -> dict[str, Any]:
@@ -2818,6 +2821,7 @@ async def execute_video_task(
                 version=version,
                 video_uri=video_uri,
                 generator=generator,
+                warnings=warnings,
             )
 
         return await complete_video_artifact_commit(
@@ -2828,6 +2832,7 @@ async def execute_video_task(
             version=version,
             video_uri=video_uri,
             finalize=_finalize,
+            warnings=warnings,
         )
     finally:
         if artifact_committer is not None:
@@ -2845,8 +2850,13 @@ async def _finalize_video_task(
     version: int,
     video_uri: str | None,
     generator: Any,
+    warnings: Sequence[dict[str, Any]] = (),
 ) -> dict[str, Any]:
-    """Normal + resume 共用的 finalize 逻辑：写 scene asset + 抽缩略图 + 返回 result dict。"""
+    """Normal + resume 共用的 finalize 逻辑：写 scene asset + 抽缩略图 + 返回 result dict。
+
+    ``warnings`` 为空时结果不带该键：分镜视频此前从来没有过 warning，恒写一个空列表会让读侧
+    多出一个它不曾见过的形状。
+    """
 
     def _update_video_metadata():
         get_project_manager().update_scene_asset(
@@ -2885,7 +2895,7 @@ async def _finalize_video_task(
         lambda: generator.versions.get_versions("videos", resource_id)["versions"][-1]["created_at"]
     )
 
-    return {
+    result: dict[str, Any] = {
         "version": version,
         "file_path": f"videos/scene_{resource_id}.mp4",
         "created_at": created_at,
@@ -2893,6 +2903,9 @@ async def _finalize_video_task(
         "resource_id": resource_id,
         "video_uri": video_uri,
     }
+    if warnings:
+        result["warnings"] = list(warnings)
+    return result
 
 
 async def execute_character_task(

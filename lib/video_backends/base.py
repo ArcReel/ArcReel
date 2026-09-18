@@ -1224,6 +1224,11 @@ class VideoGenerationResult:
     # 键名由各 backend 自己定，内容必须可 JSON 序列化——它会原样落进版本记录。
     provenance: Mapping[str, Any] | None = None
 
+    # 执行期产生的非阻断提示，形状与任务 ``result.warnings`` 同为 ``{"key", "params"}``：这一次
+    # 生成是成功的，但有一件事该让用户知道（如 ComfyUI 一次产出多个文件、只取了第一个）。调用方
+    # 把它并进任务结果，由读接口按当前语言渲染；``key`` 须在 ``lib/i18n`` 的各语言表里都有一条。
+    warnings: tuple[Mapping[str, Any], ...] = ()
+
 
 async def notify_provider_response(request: VideoGenerationRequest, stage: ProviderResponseStage, body: object) -> None:
     """把 HTTP 式调用通道的供应商响应及其阶段送到可选诊断回调。

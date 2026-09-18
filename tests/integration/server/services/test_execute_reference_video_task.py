@@ -741,6 +741,48 @@ async def test_execute_reference_video_task_omits_audio_field_for_soft_tier(
 
 
 @pytest.mark.asyncio
+async def test_execute_reference_video_task_surfaces_backend_warnings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """backend 执行期的提示与渲染期的走同一条 result.warnings 通道。"""
+    proj_dir = write_project(tmp_path)
+    project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    script_path = proj_dir / "scripts" / "episode_1.json"
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = project
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda _n, _f: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    warning = {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final.mp4"}}
+
+    async def _fake_generate_video_async(**kwargs):
+        kwargs["warnings"].append(warning)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    result = await rvt.execute_reference_video_task(
+        "demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1"
+    )
+
+    assert warning in result["warnings"]
+
+
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_surfaces_render_warnings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """渲染期降级 warning 与既有 result.warnings 通道贯通（超上限截断降级）。"""
     proj_dir = write_project(tmp_path)

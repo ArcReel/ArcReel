@@ -319,6 +319,25 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
 
 
 @pytest.mark.asyncio
+async def test_execute_resume_carries_backend_warnings_into_the_result(monkeypatch, fake_pm, video_task):
+    """续跑期 backend 产生的提示要落到任务 result 上；分镜视频此前从没有过 warning 这一键。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    warning = {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final.mp4"}}
+
+    class _WarningGenerator(_FakeGenerator):
+        async def resume_video_async(self, **kwargs: Any) -> tuple[Path, int, Any, str | None]:
+            kwargs["warnings"].append(warning)
+            return await super().resume_video_async(**kwargs)
+
+    _patch_resume_executor_deps(monkeypatch, fake_pm, _WarningGenerator())
+
+    result = await execute_resume_video_task(video_task, job_id="openai-job-1")
+
+    assert result["warnings"] == [warning]
+
+
+@pytest.mark.asyncio
 async def test_execute_resume_skips_storyboard_check(monkeypatch, fake_pm, video_task):
     """resume 路径不读 storyboard 本地文件——即使 storyboard 不存在也能成功。"""
     from server.services.resume_executor import execute_resume_video_task

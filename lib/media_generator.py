@@ -197,6 +197,17 @@ def _merge_result_provenance(version_metadata: dict[str, Any], result: "VideoGen
     version_metadata.update(result.provenance or {})
 
 
+def _collect_result_warnings(warnings: list[dict[str, Any]] | None, result: "VideoGenerationResult") -> None:
+    """把 backend 执行期产生的提示并进调用方的收集器，交由它落到任务 ``result.warnings``。
+
+    收集器由调用方传入而不是从这里返回：视频两条路的返回值都是定死的四元组，再加一位会波及每一个
+    调用点与一批用例，而调用方本就各自持有一张要落进结果的 warning 列表。
+    """
+    if warnings is None or not result.warnings:
+        return
+    warnings.extend(dict(warning) for warning in result.warnings)
+
+
 class MediaGenerator:
     """
     媒体生成器中间层
@@ -907,6 +918,7 @@ class MediaGenerator:
         formal_output: bool = False,
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
+        warnings: list[dict[str, Any]] | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """
@@ -929,6 +941,8 @@ class MediaGenerator:
             before_submit: 首次 provider 提交紧前执行一次的异步持久化钩子；
                 返回值并入当次版本元数据
             formal_output: 将 provider 产物先写入同目录临时文件，成功后再与版本历史一起提交
+            warnings: 调用方持有的 warning 收集器；backend 执行期产生的提示就地追加进去，
+                随后由调用方落进任务 ``result.warnings``
             **version_metadata: 额外元数据
 
         Returns:
@@ -1148,6 +1162,7 @@ class MediaGenerator:
                 raise
             video_uri = result.video_uri
             _merge_result_provenance(version_metadata, result)
+            _collect_result_warnings(warnings, result)
             call.success(result)
 
         await self._prepare_formal_video_commit(
@@ -1191,6 +1206,7 @@ class MediaGenerator:
         formal_output: bool = False,
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
+        warnings: list[dict[str, Any]] | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """接续 provider 上已发起的 video job：调 backend.resume_video 而非 generate。
@@ -1288,6 +1304,10 @@ class MediaGenerator:
 
         video_ref = None
         video_uri = result.video_uri
+        # 与首跑同一处置：同一笔任务在重启前后落下的版本元数据必须是同一份，否则「这一版用的
+        # 哪个种子」会因为进程什么时候重启过而不一样。
+        _merge_result_provenance(version_metadata, result)
+        _collect_result_warnings(warnings, result)
 
         # Resume 成功：精准翻 pending → success。ledger.resume_success 收 backend 结果对象，
         # 与视频通道成功分支同源做 union 分发（usage_tokens / generate_audio / 实际计费时长），

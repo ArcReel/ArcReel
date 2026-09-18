@@ -225,6 +225,90 @@ class ComfyuiClient:
         entry = wrapped if isinstance(wrapped, Mapping) else body
         return entry or None
 
+    async def queue_snapshot(self, http: httpx.AsyncClient) -> tuple[list[str], list[str]] | None:
+        """``GET /queue`` 的两张单子，各取其中的 ``prompt_id``（running 在前、pending 在后）。
+
+        条目是数组 ``[序号, prompt_id, prompt, 待执行节点, 额外数据]``，id 在下标 1；一并认
+        ``{"prompt_id": ...}`` 形态的条目，反向代理改写这张表时给的是后者。
+
+        读不出这张表时给 ``None`` 而不是两张空单子：调用方据「不在队列里」判任务丢失，把一份
+        看不懂的响应算成空队列会因为代理回了一页 HTML 就把仍在跑的执行判死。``None`` 只管响应体
+        读不懂这一种；HTTP 失败照常抛出，由调用方按自己那一格该不该据此判死来处置。
+        """
+        response = await request_with_scoped_credentials(
+            http,
+            "GET",
+            self._authed_url("/queue"),
+            headers=self._headers,
+            json=None,
+            auth_query=self._query,
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise redacted_status_error(exc) from None
+        try:
+            body = response.json()
+        except ValueError:
+            return None
+        if not isinstance(body, Mapping):
+            return None
+        return _queue_ids(body.get("queue_running")), _queue_ids(body.get("queue_pending"))
+
+    async def server_version(self, http: httpx.AsyncClient) -> str | None:
+        """``GET /system_stats`` 回的 ``system.comfyui_version``；读不到给 ``None``。
+
+        与连通性检查读的是同一个字段。老版本与部分代理不回这一字段，故「读不到」不是错误，
+        由调用方按低版本路径处置。
+        """
+        response = await request_with_scoped_credentials(
+            http,
+            "GET",
+            self._authed_url("/system_stats"),
+            headers=self._headers,
+            json=None,
+            auth_query=self._query,
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # 地址带着按 query 传的凭证，裸 HTTPStatusError 的消息会把它原样写进日志。
+            raise redacted_status_error(exc) from None
+        body = response.json()
+        system = body.get("system") if isinstance(body, Mapping) else None
+        version = system.get("comfyui_version") if isinstance(system, Mapping) else None
+        # 非字符串一律当读不到：调用方据此走低版本路径，那条路在新版本上同样有效。
+        return version.strip() or None if isinstance(version, str) else None
+
+    async def cancel_job(self, http: httpx.AsyncClient, prompt_id: str) -> None:
+        """``POST /api/jobs/{id}/cancel``：新版本上一个动作同时覆盖排队中与执行中。"""
+        await self._post_and_raise(http, f"/api/jobs/{prompt_id}/cancel", body=None)
+
+    async def drop_from_queue(self, http: httpx.AsyncClient, prompt_id: str) -> None:
+        """``POST /queue {"delete": [id]}``：低版本上取消一个还在排队的执行。"""
+        await self._post_and_raise(http, "/queue", body={"delete": [prompt_id]})
+
+    async def interrupt(self, http: httpx.AsyncClient) -> None:
+        """``POST /interrupt``：低版本上打断**当前正在执行**的那一个，不认 id。
+
+        因此调用方必须先确认 running 里就是自己这一笔，否则打断的是别人的活。
+        """
+        await self._post_and_raise(http, "/interrupt", body=None)
+
+    async def _post_and_raise(self, http: httpx.AsyncClient, path: str, *, body: object | None) -> None:
+        response = await request_with_scoped_credentials(
+            http,
+            "POST",
+            self._authed_url(path),
+            headers=self._headers,
+            json=body,
+            auth_query=self._query,
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise redacted_status_error(exc) from None
+
     async def download_output(
         self,
         http: httpx.AsyncClient,
@@ -258,6 +342,22 @@ class ComfyuiClient:
             )
 
         await with_artifact_retry(once, label="comfyui artifact download", max_wait=max_wait)
+
+
+def _queue_ids(entries: object) -> list[str]:
+    if not isinstance(entries, list):
+        return []
+    found: list[str] = []
+    for entry in entries:
+        if isinstance(entry, Mapping):
+            candidate = entry.get("prompt_id")
+        elif isinstance(entry, list) and len(entry) > 1:
+            candidate = entry[1]
+        else:
+            continue
+        if isinstance(candidate, str) and candidate:
+            found.append(candidate)
+    return found
 
 
 def _body_or_text(response: httpx.Response) -> object:

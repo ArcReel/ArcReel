@@ -109,9 +109,40 @@ async def test_shared_video_completion_returns_nonselected_paid_history_without_
 
     assert result["selected_current"] is False
     assert (project_path / str(result["file_path"])).read_bytes() == b"paid"
+    # 分镜视频此前从没有过 warning；没有提示时结果不带这一键。
+    assert "warnings" not in result
     finalize.assert_not_awaited()
     completed.assert_called_once_with()
     committer.release_admission_guard.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_a_storyboard_video_kept_only_in_history_still_carries_its_warnings(tmp_path: Path) -> None:
+    """这一格是「付费成片进了历史但没被选中」，提示照样要跟着走，否则只有被选中的那一次说得出。"""
+    project_path = tmp_path / "demo"
+    paid = project_path / "paid.mp4"
+    paid.parent.mkdir(parents=True)
+    paid.write_bytes(b"paid")
+    versions = VersionManager(project_path)
+    version = versions.add_version("videos", "E1S01", "p", source_file=paid)
+    committer = MagicMock()
+    committer.outcome = PaidVersionCommit(version=version, selected=False)
+    committer.selection_error = None
+    committer.release_admission_guard = AsyncMock()
+    warning = {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final.mp4"}}
+
+    result = await complete_video_artifact_commit(
+        committer=committer,
+        versions=versions,
+        resource_type="videos",
+        resource_id="E1S01",
+        version=version,
+        video_uri="provider://paid",
+        finalize=AsyncMock(),
+        warnings=[warning],
+    )
+
+    assert result["warnings"] == [warning]
 
 
 @pytest.mark.asyncio

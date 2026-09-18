@@ -534,7 +534,9 @@ def paid_video_history_result(
         "video_uri": video_uri,
         "selected_current": False,
     }
-    if resource_type == "reference_videos":
+    # 参考视频的读侧契约里这一键恒在（即便为空）；其余资源类型此前从不带它，故只在真有提示时
+    # 才出现，与 ``_finalize_video_task`` 和分镜规划那条的口径一致。
+    if resource_type == "reference_videos" or warnings:
         result["warnings"] = list(warnings)
     return result
 

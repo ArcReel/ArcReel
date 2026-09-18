@@ -71,6 +71,31 @@ class TestGenerationTasks:
         assert "video_thumbnail" in asset_types
         assert thumbnail_path.exists()
 
+    async def test_execute_video_task_carries_backend_warnings_into_the_result(self, monkeypatch, tmp_path):
+        """backend 执行期的提示要落到任务 result 上，用户才看得到——日志只有运维读得到。"""
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        seed_current_storyboard(fake_pm)
+        warning = {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final.mp4"}}
+
+        class _WarningGenerator(FakeGenerator):
+            async def generate_video_async(self, **kwargs):
+                kwargs["warnings"].append(warning)
+                return await super().generate_video_async(**kwargs)
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_WarningGenerator()))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", AsyncMock(return_value=False))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert result["warnings"] == [warning]
+
     async def test_storyboard_worker_materializes_current_request_and_checkpoints_staged_frames(
         self,
         monkeypatch,

@@ -304,6 +304,52 @@ class TestMediaGenerator:
         assert gen.versions.add_calls[-1]["workflow_sha256"] == workflow_sha256(sent)
         assert gen.versions.add_calls[-1]["seed"] == sent["3"]["inputs"]["seed"]
 
+    async def test_comfyui_execution_warnings_reach_the_caller(self, tmp_path):
+        """backend 执行期的提示要一路走到任务 result.warnings，日志只有运维看得到。"""
+        from lib.custom_provider.backends import CustomVideoBackend
+        from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
+        from lib.video_backends.base import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+        gen._video_provider_id = "custom-1"
+        delegate = ComfyuiVideoBackend(
+            provider_id="custom-1",
+            model="wan-t2v",
+            base_url="https://comfy.test",
+            api_key="",
+            definition=comfyui_endpoint_definition(),
+        )
+        gen._video_backend = CustomVideoBackend(
+            provider_id="custom-1", delegate=delegate, model="wan-t2v"
+        ).with_video_capabilities(VideoCapabilities(text_to_video=True), overrides={"text_to_video": True})
+        history = {
+            "status": {"completed": True},
+            "outputs": {
+                "9": {
+                    "gifs": [
+                        {"filename": "final_00001.mp4", "subfolder": "video", "type": "output"},
+                        {"filename": "final_00002.mp4", "subfolder": "video", "type": "output"},
+                    ]
+                }
+            },
+        }
+        collected: list[dict] = []
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://comfy.test/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json=history))
+            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=b"video"))
+
+            await gen.generate_video_async(
+                prompt="一只猫走过屋顶",
+                resource_type="videos",
+                resource_id="E1S01",
+                duration_seconds=5,
+                warnings=collected,
+            )
+
+        assert collected == [{"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final_00001.mp4"}}]
+
     async def test_cancelled_formal_image_generation_never_replaces_the_canonical_file(self, tmp_path):
         gen = _build_generator(tmp_path)
         backend_written = asyncio.Event()
