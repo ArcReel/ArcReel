@@ -8,6 +8,10 @@ import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type {
+  ComfyuiBindingTarget,
+  ComfyuiEndpointDefinition,
+  ComfyuiInferResponse,
+  ComfyuiMatchOrigin,
   CustomEndpointInfo,
   EndpointDefinition,
   EndpointDescriptor,
@@ -140,6 +144,22 @@ function renderSection(search = "section=endpoints") {
   };
 }
 
+/** 在导入弹窗里选一份文件。隐藏的 file input 在 jsdom 里只能这样驱动。 */
+async function pickFile(file: File) {
+  await userEvent.click(screen.getByRole("button", { name: "导入" }));
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (picker === null) throw new Error("no file input");
+  fireEvent.change(picker, { target: { files: [file] } });
+}
+
+/** 在导入弹窗里粘贴一份载荷，与上传走同一条分流。 */
+async function pasteSource(text: string) {
+  await userEvent.click(screen.getByRole("button", { name: "导入" }));
+  await userEvent.click(screen.getByLabelText("粘贴端点定义或 workflow"));
+  await userEvent.paste(text);
+  await userEvent.click(screen.getByRole("button", { name: "识别" }));
+}
+
 function captureDownloads() {
   const downloads: { name: string; blob: Blob }[] = [];
   Object.defineProperty(URL, "createObjectURL", {
@@ -192,10 +212,7 @@ describe("EndpointsSection", () => {
     renderSection();
     await screen.findByRole("navigation");
 
-    const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!;
-    fireEvent.change(picker, {
-      target: { files: [new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" })] },
-    });
+    await pickFile(new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" }));
 
     // 原始 workflow 没有 kind，送去校验的是它本身；回来的包装结果接手成为待保存的定义。
     expect(await screen.findByText(/已包装成 ComfyUI 端点定义/)).toBeInTheDocument();
@@ -329,6 +346,39 @@ describe("EndpointsSection", () => {
     );
   });
 
+  it("leaves the dialog standing when the pasted text is not JSON, so it can be fixed in place", async () => {
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    const validate = vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(validation());
+    renderSection();
+    await screen.findByRole("navigation");
+
+    await pasteSource("{ 这不是 JSON");
+
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith(
+        "内容不是有效的 JSON 定义。请选择从端点导出的定义文件，或粘贴一份完整的 JSON。",
+        "error",
+      ),
+    );
+    expect(validate).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("imports a declarative definition pasted into the dialog, not just an uploaded file", async () => {
+    const definition = makeDefinition({ meta: { name: "Pasted API", author: "me", version: "1.0.0" } });
+    const validate = vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(validation());
+    const create = vi.spyOn(API, "createCustomEndpoint").mockResolvedValue(MINE);
+    renderSection();
+    await screen.findByRole("navigation");
+
+    await pasteSource(JSON.stringify(definition));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "导入" }));
+
+    expect(validate.mock.calls[0][0]).toEqual(definition);
+    await waitFor(() => expect(create).toHaveBeenCalledWith(definition));
+  });
+
   it("offers a copy of a built-in declarative endpoint instead of editing it", async () => {
     vi.spyOn(API, "getBuiltinEndpointDefinition").mockResolvedValue(
       makeDefinition({ meta: { name: "NewAPI Video", author: "ArcReel", version: "1.0.0" } }),
@@ -400,24 +450,74 @@ describe("EndpointsSection", () => {
   });
 
   describe("ComfyUI endpoints", () => {
+    const PROMPT_TARGET = { node: "6", input: "text", class_type: "CLIPTextEncode" };
+    const OUTPUT_TARGET = { node: "9", class_type: "SaveVideo" };
+
+    function keyInference(target: ComfyuiBindingTarget, origin: ComfyuiMatchOrigin = "inferred") {
+      return {
+        state: "auto_selected" as const,
+        candidates: [{ target, score: 200, signals: [], selected: true, origin, depth: null }],
+        notes: [],
+      };
+    }
+
+    function inference(overrides?: Partial<ComfyuiInferResponse>): ComfyuiInferResponse {
+      return {
+        media_type: "video",
+        savable: true,
+        bindings: { prompt: keyInference(PROMPT_TARGET), output: keyInference(OUTPUT_TARGET) },
+        notes: [],
+        import_shape: "comfyui_api_workflow",
+        wrapped_definition: null,
+        ...overrides,
+      };
+    }
+
+    const IMAGE_MINE: CustomEndpointInfo = {
+      ...COMFYUI_MINE,
+      id: 9,
+      key: "ce-9",
+      media_type: "image",
+      display_name: "我的画图 workflow",
+    };
+
     beforeEach(() => {
       useEndpointCatalogStore.setState({
-        endpoints: [...CATALOG, descriptor({ key: "ce-8", kind: "comfyui", display_name: "我的 ComfyUI" })],
+        endpoints: [
+          ...CATALOG,
+          descriptor({ key: "ce-8", kind: "comfyui", display_name: "我的 ComfyUI" }),
+          descriptor({ key: "ce-9", kind: "comfyui", media_type: "image", display_name: "我的画图 workflow" }),
+        ],
         loading: false,
         initialized: true,
       });
-      vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({ endpoints: [MINE, COMFYUI_MINE] });
+      vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({ endpoints: [MINE, COMFYUI_MINE, IMAGE_MINE] });
+      vi.spyOn(API, "inferComfyuiBindings").mockResolvedValue(inference());
     });
 
-    it("shows a read-only notice instead of the declarative form", async () => {
-      // 声明式表单直接解引用 submit / poll，ComfyUI 定义上没有这两节，走到那里就是一次白屏。
+    it("gives workflow endpoints a group of their own and mixes both media types into it", async () => {
+      renderSection();
+      const list = await screen.findByRole("navigation");
+
+      expect(within(list).getByText("ComfyUI workflow")).toBeInTheDocument();
+      const video = within(list).getByRole("button", { name: /我的 ComfyUI/ });
+      const image = within(list).getByRole("button", { name: /我的画图 workflow/ });
+      expect(within(video).getByText("视频")).toBeInTheDocument();
+      expect(within(image).getByText("图片")).toBeInTheDocument();
+      // 声明式端点留在「我的端点」里，不跟着 workflow 走。
+      expect(within(list).getByRole("button", { name: /Example Video API/ })).toBeInTheDocument();
+    });
+
+    it("opens a saved workflow endpoint in the binding editor", async () => {
+      const infer = vi.spyOn(API, "inferComfyuiBindings").mockResolvedValue(inference());
       renderSection("section=endpoints&endpoint=ce-8");
 
-      expect(await screen.findByText(/这是一个 ComfyUI 端点/)).toBeInTheDocument();
-      expect(screen.getByRole("heading", { name: "我的 ComfyUI" })).toBeInTheDocument();
+      expect(await screen.findByLabelText("端点名称")).toHaveValue("我的 ComfyUI");
+      // 服务端不留状态：进详情拿当前这份定义重跑一次，它已确认的节点绑定即重匹配的输入。
+      await waitFor(() => expect(infer).toHaveBeenCalledOnce());
+      expect(infer.mock.calls[0][0]).toEqual(COMFYUI_MINE.definition);
+      expect(await screen.findByText("1 个节点")).toBeInTheDocument();
       expect(screen.queryByText("提交生成任务")).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "保存更改" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
 
     it("keeps the delete action so an imported endpoint can still be removed", async () => {
@@ -430,41 +530,140 @@ describe("EndpointsSection", () => {
       await waitFor(() => expect(remove).toHaveBeenCalledWith(8));
     });
 
-    it("lists an imported image endpoint under mine and opens it", async () => {
-      // 一份 ComfyUI workflow 产图还是产视频由定义自己声明；本节按 video 过滤时，导进来的
-      // 图像端点在设置页里既看不到也删不掉，而别处没有自定义端点的管理面。
-      useEndpointCatalogStore.setState({
-        endpoints: [...CATALOG, descriptor({ key: "ce-9", kind: "comfyui", media_type: "image", display_name: "我的画图 workflow" })],
-        loading: false,
-        initialized: true,
-      });
-      vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({
-        endpoints: [{ ...COMFYUI_MINE, id: 9, key: "ce-9", media_type: "image", display_name: "我的画图 workflow" }],
-      });
-      renderSection("section=endpoints&endpoint=ce-9");
-
-      expect(await screen.findByRole("button", { name: /我的画图 workflow/ })).toBeInTheDocument();
-      expect(screen.getByRole("heading", { name: "我的画图 workflow" })).toBeInTheDocument();
-    });
-
     it("keeps the export action so a saved definition can still be backed up", async () => {
-      // 端点定义不含凭证，导出即备份与分享的那一步；ComfyUI 端点没有草稿，导出的必须是已保存的
-      // 那份定义本身——绑定与 workflow 一并在内，否则导出来的备份还原不回这个端点。
+      // 端点定义不含凭证，导出即备份与分享的那一步。导出的是编辑器里这一刻的定义：workflow
+      // 与当前的节点绑定一并在内，包括还没保存的那几条。
       const downloads = captureDownloads();
       renderSection("section=endpoints&endpoint=ce-8");
+      await screen.findByLabelText("端点名称");
 
-      await userEvent.click(await screen.findByRole("button", { name: "导出" }));
+      await userEvent.click(screen.getByRole("button", { name: "导出定义" }));
 
       expect(downloads).toHaveLength(1);
       expect(downloads[0].name).toBe("comfyui.json");
-      expect(await downloads[0].blob.text()).toBe(JSON.stringify(COMFYUI_MINE.definition, null, 2));
+      expect(JSON.parse(await downloads[0].blob.text())).toEqual({
+        ...COMFYUI_MINE.definition,
+        bindings: { prompt: [PROMPT_TARGET], output: [OUTPUT_TARGET] },
+      });
+    });
+
+    it("takes a raw workflow from the import dialog into the binding editor instead of saving it", async () => {
+      const workflow = { "9": { class_type: "SaveVideo", inputs: { fps: 16 } } };
+      const wrapped: ComfyuiEndpointDefinition = {
+        kind: "comfyui",
+        schema_version: "1.0.0",
+        meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" },
+        media_type: "video",
+        workflow,
+        bindings: {},
+      };
+      vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
+        validation({ import_shape: "comfyui_api_workflow", wrapped_definition: wrapped }),
+      );
+      const infer = vi.spyOn(API, "inferComfyuiBindings").mockResolvedValue(inference());
+      const create = vi.spyOn(API, "createCustomEndpoint");
+      renderSection();
+      await screen.findByRole("navigation");
+
+      await pickFile(new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" }));
+      await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
+
+      expect(infer).toHaveBeenCalledWith(wrapped, { mediaType: "video" });
+      expect(await screen.findByLabelText("端点名称")).toHaveValue("ComfyUI workflow");
+      expect(screen.queryByRole("button", { name: "去绑定节点" })).not.toBeInTheDocument();
+      expect(create).not.toHaveBeenCalled();
+      // 占位名要先改掉：同作者同名的两份 workflow 会被判成同一份。
+      expect(screen.getByRole("button", { name: "保存端点" })).toBeDisabled();
+      expect(screen.getByText(/先给这份 workflow 起个名字/)).toBeInTheDocument();
+    });
+
+    it("takes a workflow pasted into the dialog down the same path as an uploaded one", async () => {
+      const workflow = { "9": { class_type: "SaveVideo", inputs: { fps: 16 } } };
+      const wrapped: ComfyuiEndpointDefinition = {
+        kind: "comfyui",
+        schema_version: "1.0.0",
+        meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" },
+        media_type: "video",
+        workflow,
+        bindings: {},
+      };
+      const validate = vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
+        validation({ import_shape: "comfyui_api_workflow", wrapped_definition: wrapped }),
+      );
+      const infer = vi.spyOn(API, "inferComfyuiBindings").mockResolvedValue(inference());
+      renderSection();
+      await screen.findByRole("navigation");
+
+      await pasteSource(JSON.stringify(workflow));
+      await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
+
+      expect(validate.mock.calls[0][0]).toEqual(workflow);
+      expect(infer).toHaveBeenCalledWith(wrapped, { mediaType: "video" });
+      expect(await screen.findByLabelText("端点名称")).toHaveValue("ComfyUI workflow");
+      // 粘贴进来的没有文件名，头部的「来源文件」因此不显示。
+      expect(screen.queryByText(/^来自 /)).not.toBeInTheDocument();
+    });
+
+    it("asks a raw workflow what it produces and re-wraps it under the answer", async () => {
+      const workflow = { "9": { class_type: "SaveImage", inputs: {} } };
+      const validate = vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
+        validation({ import_shape: "comfyui_api_workflow", wrapped_definition: null }),
+      );
+      renderSection();
+      await screen.findByRole("navigation");
+
+      await pickFile(new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" }));
+      await userEvent.click(await screen.findByRole("button", { name: "image" }));
+
+      await waitFor(() => expect(validate).toHaveBeenCalledTimes(2));
+      expect(validate.mock.calls[0][1]).toMatchObject({ mediaType: "video" });
+      expect(validate.mock.calls[1][1]).toMatchObject({ mediaType: "image" });
+      expect(validate.mock.calls[1][0]).toEqual(workflow);
+    });
+
+    it("lands a re-imported workflow on the endpoint it was started from, identity and bindings intact", async () => {
+      const workflow = { "12": { class_type: "SaveVideo", inputs: {} } };
+      const validate = vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
+        validation({
+          import_shape: "comfyui_api_workflow",
+          wrapped_definition: {
+            kind: "comfyui",
+            schema_version: "1.0.0",
+            meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" },
+            media_type: "video",
+            workflow,
+            bindings: {},
+          },
+        }),
+      );
+      const infer = vi
+        .spyOn(API, "inferComfyuiBindings")
+        .mockResolvedValue(inference({ bindings: { prompt: keyInference(PROMPT_TARGET, "kept") } }));
+      renderSection("section=endpoints&endpoint=ce-8");
+      await screen.findByLabelText("端点名称");
+
+      await userEvent.click(screen.getByRole("button", { name: "重新导入" }));
+      const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+      if (picker === null) throw new Error("no file input");
+      fireEvent.change(picker, {
+        target: { files: [new File([JSON.stringify(workflow)], "v2_api.json", { type: "application/json" })] },
+      });
+      await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
+
+      // 重匹配的输入是「新 workflow 加它原来那份节点绑定」，身份与媒体类型一并沿用。
+      await waitFor(() => expect(infer).toHaveBeenCalledTimes(2));
+      expect(infer.mock.calls[1][0]).toEqual({ ...COMFYUI_MINE.definition, workflow });
+      // 判重时要把这个端点自己排除掉，不然它跟自己同名。
+      expect(validate.mock.calls[0][1]).toMatchObject({ excludeId: 8 });
+      expect(await screen.findByText("来自 v2_api.json")).toBeInTheDocument();
+      expect(screen.getByLabelText("端点名称")).toHaveValue("我的 ComfyUI");
     });
 
     it("still shows the declarative form for my declarative endpoint", async () => {
       renderSection("section=endpoints&endpoint=ce-7");
 
       expect(await screen.findByDisplayValue("Example Video API")).toBeEnabled();
-      expect(screen.queryByText(/这是一个 ComfyUI 端点/)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("端点名称")).not.toBeInTheDocument();
     });
   });
 

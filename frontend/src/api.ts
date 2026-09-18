@@ -49,6 +49,8 @@ import type {
   CustomProviderModelInput,
   DiscoverModelsResponse,
   EndpointDescriptor,
+  ComfyuiInferResponse,
+  ComfyuiMediaType,
   CustomEndpointInfo,
   MarketEntryListResponse,
   MarketEntryDetail,
@@ -3217,12 +3219,34 @@ class API {
    */
   static async validateCustomEndpoint(
     definition: unknown,
-    options: { excludeId?: number; signal?: AbortSignal } = {},
+    options: { excludeId?: number; mediaType?: ComfyuiMediaType; signal?: AbortSignal } = {},
   ): Promise<EndpointValidateResponse> {
-    const query = options.excludeId === undefined ? "" : `?exclude_id=${options.excludeId}`;
+    const params = new URLSearchParams();
+    if (options.excludeId !== undefined) params.set("exclude_id", String(options.excludeId));
+    if (options.mediaType !== undefined) params.set("media_type", options.mediaType);
+    const query = params.size === 0 ? "" : `?${params.toString()}`;
     return this.request(`/custom-endpoints/validate${query}`, {
       method: "POST",
       body: JSON.stringify(definition),
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * 推断一份 workflow 的节点绑定候选；载荷带既有节点绑定时同时做重导入重匹配。
+   *
+   * 服务端不留状态：结果只用来渲染绑定编辑器，用户确认后才经创建或整份替换接口落盘
+   * （`docs/adr/0082`）。`mediaType` 只在载荷是原始 API workflow 时生效——端点定义
+   * 自己带着这一项。
+   */
+  static async inferComfyuiBindings(
+    payload: unknown,
+    options: { mediaType?: ComfyuiMediaType; signal?: AbortSignal } = {},
+  ): Promise<ComfyuiInferResponse> {
+    const query = options.mediaType === undefined ? "" : `?media_type=${options.mediaType}`;
+    return this.request(`/custom-endpoints/comfyui/infer${query}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
       signal: options.signal,
     });
   }

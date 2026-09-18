@@ -9,6 +9,9 @@ import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import type {
   AnyEndpointDefinition,
+  ComfyuiEndpointDefinition,
+  ComfyuiMediaType,
+  MediaType,
   CustomEndpointInfo,
   CustomProviderInfo,
   EndpointDefinition,
@@ -20,6 +23,7 @@ import type {
 } from "@/types";
 import { MarketInstallDialog } from "../market/MarketInstallDialog";
 import { isDeclarativeDefinition, newEndpointDefinition } from "./endpoint-definition-draft";
+import { isComfyuiDefinition, reimportedDefinition, type ComfyuiImportDraft } from "./comfyui-import";
 import { EndpointDetail, type EndpointSelection } from "./EndpointDetail";
 import { EndpointImportDialog } from "./EndpointImportDialog";
 
@@ -34,8 +38,13 @@ interface ListEntry {
   key: string;
   label: string;
   python: boolean;
+  /** 自定义端点才带媒体类型徽标：内置那两组这里只列视频，标了也说不出新东西。 */
+  mediaType: MediaType | null;
   referenceCount: number;
 }
+
+/** 刚导入、还没保存的 ComfyUI 端点在 URL 里的占位键。 */
+const COMFYUI_DRAFT_KEY = "comfyui-new";
 
 interface MarketUpdateTarget {
   entry: MarketEntry;
@@ -62,12 +71,21 @@ export function EndpointsSection() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [importFileName, setImportFileName] = useState("");
   const [importDefinition, setImportDefinition] = useState<AnyEndpointDefinition | null>(null);
   const [importValidation, setImportValidation] = useState<EndpointValidateResponse | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [importPending, setImportPending] = useState(false);
+  // 粘进来的原始载荷：换媒体类型时要拿它重跑一次校验，包装结果随之更新。
+  const [importPayload, setImportPayload] = useState<unknown>(null);
+  const [importMediaType, setImportMediaType] = useState<ComfyuiMediaType>("video");
+  // 重新导入的落点：新 workflow 接到这份定义上，身份与已确认的节点绑定沿用它。
+  const [reimportBase, setReimportBase] = useState<{
+    record: CustomEndpointInfo | null;
+    definition: ComfyuiEndpointDefinition;
+  } | null>(null);
+  const [comfyuiDraft, setComfyuiDraft] = useState<ComfyuiImportDraft | null>(null);
 
   const [marketUpdateTarget, setMarketUpdateTarget] = useState<MarketUpdateTarget | null>(null);
   const [marketUpdatePending, setMarketUpdatePending] = useState(false);
@@ -138,12 +156,17 @@ export function EndpointsSection() {
       key: descriptor.key,
       label: descriptor.display_name ?? t(descriptor.display_name_key),
       python: descriptor.kind === "python",
+      mediaType: descriptor.source === "custom" ? descriptor.media_type : null,
       referenceCount: referenceCounts[descriptor.key] ?? 0,
     });
     return [
       {
         labelKey: "ce_group_mine",
-        entries: sectionCatalog.filter((e) => e.source === "custom").map(toEntry),
+        entries: sectionCatalog.filter((e) => e.source === "custom" && e.kind !== "comfyui").map(toEntry),
+      },
+      {
+        labelKey: "ce_group_comfyui",
+        entries: sectionCatalog.filter((e) => e.kind === "comfyui").map(toEntry),
       },
       {
         labelKey: "ce_group_builtin",
@@ -159,6 +182,10 @@ export function EndpointsSection() {
   }, [sectionCatalog, referenceCounts, t]);
 
   const selection = useMemo((): EndpointSelection | null => {
+    // 刚导入还没保存的那份压过同一个键上的已保存定义——不然重新导入一回来就看不见了。
+    if (comfyuiDraft && (comfyuiDraft.record?.key ?? COMFYUI_DRAFT_KEY) === selectedKey) {
+      return { mode: "comfyui-draft", draft: comfyuiDraft };
+    }
     if (selectedKey === "new") {
       return { mode: "new", definition: newEndpointDefinition("") };
     }
@@ -167,14 +194,14 @@ export function EndpointsSection() {
       // 详情表单只吃声明式定义；ComfyUI 端点走它自己那一路，否则表单会解引用它没有的 submit / poll。
       return isDeclarativeDefinition(record.definition)
         ? { mode: "custom", record, definition: record.definition }
-        : { mode: "comfyui", record };
+        : { mode: "comfyui", record, definition: record.definition };
     }
     const descriptor = sectionCatalog.find((e) => e.key === selectedKey);
     if (!descriptor) return null;
     return descriptor.kind === "python"
       ? { mode: "python", descriptor }
       : { mode: "builtin", descriptor };
-  }, [selectedKey, customEndpoints, sectionCatalog]);
+  }, [selectedKey, customEndpoints, sectionCatalog, comfyuiDraft]);
 
   // --- 导入 ---
 
@@ -182,30 +209,80 @@ export function EndpointsSection() {
   // 第一个文件的校验结果。
   const importRunRef = useRef(0);
 
-  const handleFilePicked = useCallback(
-    async (file: File) => {
-      const run = ++importRunRef.current;
-      setImportFileName(file.name);
-      setImportValidation(null);
-      setImportDefinition(null);
-      setImportOpen(true);
+  /** 校验一份载荷并接手结果；换媒体类型时拿同一份载荷再跑一次。 */
+  const validatePayload = useCallback(
+    async (payload: unknown, mediaType: ComfyuiMediaType, run: number) => {
+      // 不带 kind 的载荷此刻还没有定义身份：服务端按 workflow 收下时，包装结果随校验结果回来。
+      const picked = hasKind(payload) ? payload : null;
+      setImportDefinition(picked);
+      setImportPending(true);
       try {
-        const parsed: unknown = JSON.parse(await file.text());
-        if (importRunRef.current !== run) return;
-        // 不带 kind 的载荷此刻还没有定义身份：服务端按 workflow 收下时，包装结果随校验结果回来。
-        const picked = hasKind(parsed) ? parsed : null;
-        setImportDefinition(picked);
-        const result = await API.validateCustomEndpoint(parsed);
+        const result = await API.validateCustomEndpoint(payload, {
+          mediaType,
+          excludeId: reimportBase?.record?.id,
+        });
         if (importRunRef.current !== run) return;
         setImportDefinition(result.wrapped_definition ?? picked);
         setImportValidation(result);
+      } finally {
+        if (importRunRef.current === run) setImportPending(false);
+      }
+    },
+    [reimportBase],
+  );
+
+  /** 清掉上一次交出去的载荷与它的结果；弹窗开着时用户可以接着再交一份。 */
+  const resetImportSource = useCallback(() => {
+    importRunRef.current += 1;
+    setImportFileName("");
+    setImportDefinition(null);
+    setImportValidation(null);
+    setImportPayload(null);
+    setImportPending(false);
+  }, []);
+
+  /** 接下弹窗交出来的一份载荷：上传的文件与粘贴的文本走同一条分流。 */
+  const takeImportSource = useCallback(
+    async (text: string, fileName: string) => {
+      const run = ++importRunRef.current;
+      setImportFileName(fileName);
+      setImportValidation(null);
+      setImportDefinition(null);
+      setImportPayload(null);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        // `JSON.parse` 抛的是英文语法错误，对着它用户也不知道要改什么；弹窗留在原处让他改完再交一次。
+        setImportPending(false);
+        pushToast(t("ce_import_read_failed"), "error");
+        return;
+      }
+      setImportPayload(parsed);
+      try {
+        await validatePayload(parsed, importMediaType, run);
       } catch (e) {
         if (importRunRef.current !== run) return;
-        setImportOpen(false);
         pushToast(errMsg(e, t("ce_import_read_failed")), "error");
       }
     },
-    [pushToast, t],
+    [importMediaType, validatePayload, pushToast, t],
+  );
+
+  /** 换媒体类型：原始 workflow 按哪一种包装由它决定，包装结果与诊断都要重来一遍。 */
+  const handleImportMediaTypeChange = useCallback(
+    (mediaType: ComfyuiMediaType) => {
+      setImportMediaType(mediaType);
+      if (importPayload === null) return;
+      const run = ++importRunRef.current;
+      setImportValidation(null);
+      voidCall(
+        validatePayload(importPayload, mediaType, run).catch((e) => {
+          if (importRunRef.current === run) pushToast(errMsg(e), "error");
+        }),
+      );
+    },
+    [importPayload, validatePayload, pushToast],
   );
 
   const finishImport = useCallback(
@@ -215,6 +292,53 @@ export function EndpointsSection() {
       select(saved.key);
     },
     [reload, select],
+  );
+
+  /**
+   * ComfyUI 的两种形状都不在弹窗里直接落盘，而是先进绑定编辑器：包装出来的定义节点绑定是空的，
+   * 带 `kind` 的定义也要让用户把沿用 / 已重匹配 / 需确认再过一遍（`docs/adr/0082`）。
+   */
+  const handleImportBindings = useCallback(async () => {
+    if (!importDefinition || !isComfyuiDefinition(importDefinition) || !importValidation) return;
+    setImportBusy(true);
+    try {
+      const base = reimportBase
+        ? reimportedDefinition(
+            reimportBase.definition,
+            importDefinition,
+            importValidation.import_shape === "endpoint_definition",
+          )
+        : importDefinition;
+      const inference = await API.inferComfyuiBindings(base, { mediaType: base.media_type });
+      const record = reimportBase?.record ?? null;
+      setComfyuiDraft({ record, definition: base, fileName: importFileName, inference });
+      setImportOpen(false);
+      select(record ? record.key : COMFYUI_DRAFT_KEY);
+    } catch (e) {
+      pushToast(errMsg(e, t("ce_import_failed")), "error");
+    } finally {
+      setImportBusy(false);
+    }
+  }, [importDefinition, importValidation, importFileName, reimportBase, select, pushToast, t]);
+
+  const openImport = useCallback(() => {
+    setReimportBase(null);
+    setImportMediaType("video");
+    resetImportSource();
+    setImportOpen(true);
+  }, [resetImportSource]);
+
+  /** 为当前这个 ComfyUI 端点换一份 workflow：身份与已确认的节点绑定沿用手上这一份。 */
+  const startComfyuiReimport = useCallback(
+    (current: ComfyuiEndpointDefinition) => {
+      const record =
+        comfyuiDraft?.record ?? customEndpoints.find((endpoint) => endpoint.key === selectedKey) ?? null;
+      setReimportBase({ record, definition: current });
+      setImportMediaType(current.media_type);
+      resetImportSource();
+      setImportOpen(true);
+    },
+    [comfyuiDraft, customEndpoints, selectedKey, resetImportSource],
   );
 
   const handleImportCreate = useCallback(async () => {
@@ -365,24 +489,13 @@ export function EndpointsSection() {
           </button>
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={openImport}
             title={t("ce_import_hint")}
             className={`${GHOST_BTN_CLS} flex-1 justify-center`}
           >
             <Upload className="h-3.5 w-3.5" aria-hidden />
             {t("ce_import")}
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void handleFilePicked(file);
-            }}
-          />
         </div>
         <button
           type="button"
@@ -394,11 +507,11 @@ export function EndpointsSection() {
           {t("ce_get_from_market")}
         </button>
 
-        {selectedKey === "new" && (
+        {(selectedKey === "new" || selectedKey === COMFYUI_DRAFT_KEY) && (
           <div className="mb-4">
             <div className={`${KICKER_CLS} mb-1.5 px-3`}>{t("ce_group_draft")}</div>
             <span className="mb-0.5 flex w-full items-center gap-2 rounded-[8px] border border-accent/35 bg-accent-dim px-3 py-2 text-[12.5px] text-text">
-              {t("ce_new_endpoint")}
+              {selectedKey === "new" ? t("ce_new_endpoint") : (comfyuiDraft?.definition.meta.name ?? t("ce_cf_draft_entry"))}
             </span>
           </div>
         )}
@@ -438,6 +551,11 @@ export function EndpointsSection() {
                       <FileJson2 className="h-3 w-3 shrink-0 text-text-3" aria-hidden />
                     )}
                     <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                    {entry.mediaType !== null && (
+                      <span className="shrink-0 rounded-[4px] border border-hairline-soft px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-text-4">
+                        {t(entry.mediaType === "image" ? "endpoint_image_group" : "endpoint_video_group")}
+                      </span>
+                    )}
                     {entry.referenceCount > 0 && (
                       <span className="shrink-0 text-[10px] text-text-3">
                         {entry.referenceCount}
@@ -460,9 +578,12 @@ export function EndpointsSection() {
             providers={providers}
             referenceCount={selectedKey ? (referenceCounts[selectedKey] ?? 0) : 0}
             onSaved={(record) => {
+              // 草稿已经落盘，让位给列表里那一条，否则同一个键上两份定义谁也说不清。
+              setComfyuiDraft(null);
               voidCall(reload().then(() => select(record.key)));
             }}
             onDeleted={() => {
+              setComfyuiDraft(null);
               voidCall(reload().then(() => select(null)));
             }}
             onCopied={(record) => {
@@ -474,6 +595,7 @@ export function EndpointsSection() {
               void handleUpdateFromMarket(installation, currentDefinition, hasUnsavedChanges)
             }
             marketUpdatePending={marketUpdatePending}
+            onReimportComfyui={startComfyuiReimport}
           />
         ) : (
           <p className="p-6 text-[12.5px] text-text-3">{t("ce_select_endpoint")}</p>
@@ -486,8 +608,13 @@ export function EndpointsSection() {
         definition={importDefinition}
         validation={importValidation}
         busy={importBusy}
+        pending={importPending}
+        mediaType={importMediaType}
+        onSource={(text, name) => void takeImportSource(text, name)}
+        onMediaTypeChange={handleImportMediaTypeChange}
         onCreateCopy={() => void handleImportCreate()}
         onOverwrite={(id) => void handleImportOverwrite(id)}
+        onBindNodes={() => void handleImportBindings()}
         onCancel={() => setImportOpen(false)}
       />
 

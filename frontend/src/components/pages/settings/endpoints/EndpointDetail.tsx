@@ -29,16 +29,22 @@ import { EndpointReferenceList, endpointReferences } from "./EndpointReferenceLi
 import { EndpointForm } from "./EndpointForm";
 import { EndpointTestSection } from "./EndpointTestSection";
 import { exportEndpointDefinition } from "./export-endpoint-definition";
-import type { AnyEndpointDefinition } from "@/types";
+import type { AnyEndpointDefinition, ComfyuiEndpointDefinition } from "@/types";
 import { VariableInsertionProvider } from "./endpoint-form-primitives";
+import { ComfyuiEndpointDetail } from "./ComfyuiEndpointDetail";
+import type { ComfyuiImportDraft } from "./comfyui-import";
 
 const VALIDATE_DEBOUNCE_MS = 400;
 
-/** 选中项：新建草稿、我的声明式端点、我的 ComfyUI 端点、内置声明式、内置 Python 五态。 */
+/**
+ * 选中项：新建草稿、我的声明式端点、我的 ComfyUI 端点、刚导入还没保存的 ComfyUI 草稿、
+ * 内置声明式、内置 Python 六态。
+ */
 export type EndpointSelection =
   | { mode: "new"; definition: EndpointDefinition }
   | { mode: "custom"; record: CustomEndpointInfo; definition: EndpointDefinition }
-  | { mode: "comfyui"; record: CustomEndpointInfo }
+  | { mode: "comfyui"; record: CustomEndpointInfo; definition: ComfyuiEndpointDefinition }
+  | { mode: "comfyui-draft"; draft: ComfyuiImportDraft }
   | { mode: "builtin"; descriptor: EndpointDescriptor }
   | { mode: "python"; descriptor: EndpointDescriptor };
 
@@ -65,6 +71,8 @@ interface EndpointDetailProps {
   ) => void;
   /** 更新弹窗所需的条目详情正在加载。 */
   marketUpdatePending: boolean;
+  /** 为当前这个 ComfyUI 端点重新导入一份 workflow：新 workflow 接到传出去的这份定义上，回来走重匹配。 */
+  onReimportComfyui: (current: ComfyuiEndpointDefinition) => void;
 }
 
 /** 安装记录的来源描述：来源被删除时只剩规范键原文，禁用或删除都注明。 */
@@ -111,6 +119,7 @@ export function EndpointDetail({
   onNavigateToModel,
   onUpdateFromMarket,
   marketUpdatePending,
+  onReimportComfyui,
 }: EndpointDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -238,10 +247,9 @@ export function EndpointDetail({
     }
   }, [persistedId, onDeleted, pushToast, t]);
 
-  // 导出的是「当前看到的这份定义」：可编辑时是草稿，ComfyUI 端点没有草稿、导它已保存的那份。
-  // 端点定义不含凭证，导出即备份与分享的那一步，两种 kind 共用同一条生命周期。
-  const exportable: AnyEndpointDefinition | null =
-    draft ?? (selection.mode === "comfyui" ? selection.record.definition : null);
+  // 导出的是「当前看到的这份定义」：端点定义不含凭证，导出即备份与分享的那一步。
+  // ComfyUI 端点的导出在它自己的详情里，导的是带着当前节点绑定的那份草稿。
+  const exportable: AnyEndpointDefinition | null = draft;
 
   const handleExport = useCallback(() => {
     if (exportable) exportEndpointDefinition(exportable, installation?.slug);
@@ -291,11 +299,9 @@ export function EndpointDetail({
       ? selection.descriptor.key
       : null;
 
-  // 声明式表单直接解引用 submit / poll，ComfyUI 定义上没有这两节；它的绑定编辑器另有其形，
-  // 在此只给一条只读说明，删除入口照常保留，否则导进来的端点从界面上再也摘不掉。
-  const definitionless = selection.mode === "python" || selection.mode === "comfyui";
+  // Python 内置端点没有可展示的定义：它由代码实现，只列接口信息。
+  const definitionless = selection.mode === "python";
 
-  // 我的端点都删得掉，包括详情还只读的 ComfyUI——不然导进来的端点从界面上再也摘不掉。
   const exportButton = exportable !== null && (
     <button type="button" onClick={handleExport} className={GHOST_BTN_CLS}>
       <Download className="h-3.5 w-3.5" aria-hidden />
@@ -316,6 +322,49 @@ export function EndpointDetail({
       {t("common:delete")}
     </button>
   );
+
+  const confirmDeleteDialog = (
+    <ConfirmDialog
+      open={confirmDelete}
+      title={t("ce_delete_title")}
+      description={
+        deleteReferences ? (
+          <EndpointReferenceList references={deleteReferences} onNavigateToModel={onNavigateToModel} />
+        ) : (
+          t("ce_delete_desc", { name: title })
+        )
+      }
+      confirmLabel={t("common:delete")}
+      tone="danger"
+      loading={deleting}
+      onConfirm={() => void handleDelete()}
+      onCancel={() => {
+        setConfirmDelete(false);
+        setDeleteReferences(null);
+      }}
+    />
+  );
+
+  // ComfyUI 端点的定义是 workflow 加节点绑定，没有声明式表单的 submit / poll 两节，
+  // 详情与绑定编辑器另有其形；删除入口仍由本组件提供，两种 kind 共用同一条生命周期。
+  if (selection.mode === "comfyui" || selection.mode === "comfyui-draft") {
+    const draftRecord = selection.mode === "comfyui" ? selection.record : selection.draft.record;
+    return (
+      <>
+        <ComfyuiEndpointDetail
+          record={draftRecord}
+          definition={selection.mode === "comfyui" ? selection.definition : selection.draft.definition}
+          sourceFileName={selection.mode === "comfyui" ? null : selection.draft.fileName}
+          initialInference={selection.mode === "comfyui" ? null : selection.draft.inference}
+          referenceCount={referenceCount}
+          onSaved={onSaved}
+          onReimport={onReimportComfyui}
+          deleteButton={deleteButton}
+        />
+        {confirmDeleteDialog}
+      </>
+    );
+  }
 
   return (
     <div className="px-6 py-6">
@@ -406,11 +455,7 @@ export function EndpointDetail({
 
       {!editable && (
         <div className="mb-5 rounded-[10px] border border-hairline bg-bg-grad-a/40 px-4 py-3 text-[12.5px] leading-[1.55] text-text-2">
-          {selection.mode === "builtin"
-            ? t("ce_builtin_readonly")
-            : selection.mode === "comfyui"
-              ? t("ce_comfyui_readonly")
-              : t("ce_python_readonly")}
+          {selection.mode === "builtin" ? t("ce_builtin_readonly") : t("ce_python_readonly")}
         </div>
       )}
 
@@ -508,25 +553,7 @@ export function EndpointDetail({
         </>
       )}
 
-      <ConfirmDialog
-        open={confirmDelete}
-        title={t("ce_delete_title")}
-        description={
-          deleteReferences ? (
-            <EndpointReferenceList references={deleteReferences} onNavigateToModel={onNavigateToModel} />
-          ) : (
-            t("ce_delete_desc", { name: title })
-          )
-        }
-        confirmLabel={t("common:delete")}
-        tone="danger"
-        loading={deleting}
-        onConfirm={() => void handleDelete()}
-        onCancel={() => {
-          setConfirmDelete(false);
-          setDeleteReferences(null);
-        }}
-      />
+      {confirmDeleteDialog}
     </div>
   );
 }
