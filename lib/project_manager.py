@@ -715,7 +715,8 @@ class ProjectManager:
         Args:
             project_name: 项目名称
             script: 剧本字典
-            filename: 剧本文件名；文件名不含集号、又不是任何一集当前绑定时写盘一致性校验会拒绝
+            filename: 剧本文件名；只接受规范名 `episode_N.json`（可带 `scripts/` 前缀），
+                其余文件名在写盘一致性校验处拒绝
             validate: 是否做「不更坏」结构校验（默认 True，fail-safe）。直连保存不持有
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
             artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
@@ -1232,9 +1233,9 @@ class ProjectManager:
             更新后的 project 字典
 
         Raises:
-            ValueError: 当文件名隐含的集号与脚本内 `episode` 字段不一致时抛出，
-                避免错误的脚本数据覆盖真实集号条目（例如 episode_10.json 内部
-                错写为 episode=1，会覆盖第 1 集）。
+            ValueError: 当文件名不是规范名 `episode_N.json`，或文件名的集号与脚本内
+                `episode` 字段不一致时抛出，避免错误的脚本数据覆盖真实集号条目
+                （例如 episode_10.json 内部错写为 episode=1，会覆盖第 1 集）。
         """
         # 走 unlocked 变体：本方法被写盘统一入口在持有 `_script_lock` 时调用，
         # `load_script` 的迁移回写会二次取同一把锁而自死锁。
