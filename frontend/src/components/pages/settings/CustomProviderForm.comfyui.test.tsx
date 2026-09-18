@@ -27,6 +27,7 @@ const CHAT_ENDPOINT: EndpointDescriptor = {
   end_image_capable: false,
   size_fixed: false,
   duration_fixed: false,
+  duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
 };
@@ -45,6 +46,7 @@ const DECLARATIVE_VIDEO_ENDPOINT: EndpointDescriptor = {
   end_image_capable: true,
   size_fixed: false,
   duration_fixed: false,
+  duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
 };
@@ -63,6 +65,7 @@ const COMFYUI_VIDEO_ENDPOINT: EndpointDescriptor = {
   end_image_capable: false,
   size_fixed: false,
   duration_fixed: false,
+  duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
 };
@@ -400,7 +403,15 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({
       // frames 绑了、读不到帧率来源：档位同样是空集，但这是一份可修的定义，不能说成「时长天生固定」。
-      endpoints: [CHAT_ENDPOINT, { ...COMFYUI_VIDEO_ENDPOINT, duration_fixed: false, duration_tier_empty: true }],
+      endpoints: [
+        CHAT_ENDPOINT,
+        {
+          ...COMFYUI_VIDEO_ENDPOINT,
+          duration_fixed: false,
+          duration_frame_rate_missing: true,
+          duration_tier_empty: true,
+        },
+      ],
     });
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
@@ -412,6 +423,34 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     expect(durations).toHaveAttribute("placeholder", "此 workflow 未提供帧率，时长固定");
     expect(screen.getByText(/帧数已绑定，但这份定义里没有帧率来源/)).toBeInTheDocument();
     expect(screen.queryByText(/帧数没有绑定到节点/)).not.toBeInTheDocument();
+  });
+
+  it("shows the duration tier read-only when frames and frame rate convert to no whole second", async () => {
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({
+      // 帧数已绑定、帧率也读得到，只是换算不出一档能原样写回的整秒时长：档位同样是空集，
+      // 但既不是「天生固定」，也没有一处帧率可补。
+      endpoints: [
+        CHAT_ENDPOINT,
+        {
+          ...COMFYUI_VIDEO_ENDPOINT,
+          duration_fixed: false,
+          duration_frame_rate_missing: false,
+          duration_tier_empty: true,
+        },
+      ],
+    });
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+
+    const durations = screen.getByLabelText("支持秒数");
+    expect(durations).toBeDisabled();
+    expect(durations).toHaveAttribute("placeholder", "此 workflow 换算不出整秒时长");
+    expect(screen.getByText(/帧数已绑定、帧率也读得到，但换算不出一档/)).toBeInTheDocument();
+    expect(screen.queryByText(/帧数没有绑定到节点/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/没有帧率来源/)).not.toBeInTheDocument();
   });
 
   it("keeps the duration tier editable when frames are bound", async () => {

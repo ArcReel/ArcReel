@@ -344,9 +344,11 @@ class EndpointDescriptor(BaseModel):
     # 档位时这份 workflow 实际会出的那一档，用作分辨率选择器的空值占位。
     size_fixed: bool = False
     duration_fixed: bool = False
-    # 档位根本给不出来（frames 未绑定，或绑了却没有帧率来源）：时长这一维不由 ArcReel 驱动，
-    # 模型行的档位编辑区只读、项目页的时长控件不渲染。duration_fixed 是它的子集，只决定文案说
-    # 「天生固定」还是「缺帧率来源、补一处即可」。
+    # 档位为空的第二种成因：frames 绑了却读不到帧率来源。与 duration_fixed 同为「只挑文案」的一位。
+    duration_frame_rate_missing: bool = False
+    # 档位根本给不出来（frames 未绑定、绑了却没有帧率来源，或帧率有但换算不出整秒档位）：时长
+    # 这一维不由 ArcReel 驱动，模型行的档位编辑区只读、项目页的时长控件不渲染。上面两位都是它的
+    # 子集，只决定文案说「天生固定」「缺帧率来源、补一处」还是「换算不出整秒时长」。
     duration_tier_empty: bool = False
     native_resolution: str | None = None
 

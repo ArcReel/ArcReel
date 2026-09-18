@@ -39,6 +39,7 @@ from lib.custom_provider.builtin_definitions import (
 from lib.custom_provider.comfyui.capabilities import (
     default_supported_durations,
     duration_is_fixed,
+    frame_rate_is_missing,
     native_short_edge,
     size_is_fixed,
     takes_reference_images,
@@ -159,6 +160,16 @@ class EndpointSpec:
         )
 
     @property
+    def duration_frame_rate_missing(self) -> bool:
+        """档位为空的成因是不是「读不到帧率来源」：``frames`` 绑了却既无 ``fps`` 绑定也没手填帧率。
+
+        与 :attr:`duration_fixed` 一样只挑文案，不参与只读 / 禁用判据（那一律取
+        :attr:`duration_tier_empty`）。两位都为假而档位仍为空，说的是第三支：帧数已绑定、帧率也
+        读得到，只是换算不出一档能原样写回的整秒时长——那一支既不是「天生固定」也补不出帧率来。
+        """
+        return self.definition is not None and self.kind == COMFYUI_KIND and frame_rate_is_missing(self.definition)
+
+    @property
     def endpoint_durations(self) -> list[int] | None:
         """端点自己那一份时长档位；档位不由端点说了算时为 ``None``。
 
@@ -176,10 +187,11 @@ class EndpointSpec:
     def duration_tier_empty(self) -> bool:
         """时长这一维根本给不出档位：ComfyUI 端点上原生时长推不出来即为真。
 
-        两支都落在这里——``frames`` 未绑定（读不到字面帧数），以及绑了 ``frames`` 却没有帧率来源
-        （既无 ``fps`` 只读绑定、也无条目手填 fps）。界面的只读与禁用判据是本属性而不是
-        :attr:`duration_fixed`：用户编不动的是「档位为空」这件事，而 :attr:`duration_fixed` 只决定
-        说给用户听的是哪一句——「这份 workflow 时长天生固定」还是「它没提供帧率，补一处就能恢复」。
+        三支都落在这里——``frames`` 未绑定（读不到字面帧数）、绑了 ``frames`` 却没有帧率来源
+        （既无 ``fps`` 只读绑定、也无条目手填 fps），以及帧率读得到但换算不出整秒档位。界面的
+        只读与禁用判据是本属性而不是 :attr:`duration_fixed`：用户编不动的是「档位为空」这件事，
+        说给用户听的是哪一句则由 :attr:`duration_fixed` 与 :attr:`duration_frame_rate_missing`
+        挑——「时长天生固定」、「没提供帧率」，两位都为假时是「帧数与帧率都在、换算不出整秒档位」。
         """
         return self.endpoint_durations == []
 
@@ -786,6 +798,7 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     # 参数约束的投影：界面据此禁用分辨率 / 时长控件并写出空值占位，判据与执行层同源。
     data["size_fixed"] = spec.size_fixed
     data["duration_fixed"] = spec.duration_fixed
+    data["duration_frame_rate_missing"] = spec.duration_frame_rate_missing
     data["duration_tier_empty"] = spec.duration_tier_empty
     data["native_resolution"] = spec.native_resolution
     if spec.image_capabilities is not None:

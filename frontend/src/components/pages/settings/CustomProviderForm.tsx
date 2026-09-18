@@ -247,18 +247,37 @@ const DURATION_ERROR_KEY: Record<DurationParseErrorCode, string> = {
   unparseable: "supported_durations_err_unparseable",
 };
 
+// 档位为空的三支各说一句：三支互斥，两个文案位都为假即「帧率读得到、只是换算不出整秒时长」。
+const EMPTY_TIER_COPY = {
+  fixed: {
+    placeholder: "supported_durations_fixed_placeholder",
+    hint: "supported_durations_fixed_hint",
+  },
+  frameRateMissing: {
+    placeholder: "supported_durations_no_fps_placeholder",
+    hint: "supported_durations_no_fps_hint",
+  },
+  notDerivable: {
+    placeholder: "supported_durations_not_derivable_placeholder",
+    hint: "supported_durations_not_derivable_hint",
+  },
+} as const;
+
 function DurationsInputRow({
   value,
   onChange,
   tierEmpty = false,
   fixed = false,
+  frameRateMissing = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   /** 这份 workflow 给不出任何档位：输入框只读，改了也无处生效。 */
   tierEmpty?: boolean;
-  /** 只读的原因是「时长天生固定」（frames 未绑定）而非「缺帧率来源」：决定说哪一句。 */
+  /** 档位为空的成因是「时长天生固定」（frames 未绑定）：决定说哪一句。 */
   fixed?: boolean;
+  /** 档位为空的成因是「读不到帧率来源」：同上，只挑文案。 */
+  frameRateMissing?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -281,6 +300,8 @@ function DurationsInputRow({
     }
   };
 
+  const emptyCopy = EMPTY_TIER_COPY[fixed ? "fixed" : frameRateMissing ? "frameRateMissing" : "notDerivable"];
+
   return (
     <div className="mt-2 flex flex-col gap-1 pl-6">
       <div className="flex items-center gap-2">
@@ -291,24 +312,16 @@ function DurationsInputRow({
           type="text"
           value={value}
           onChange={(e) => handleChange(e.target.value)}
-          placeholder={t(
-            tierEmpty
-              ? fixed
-                ? "supported_durations_fixed_placeholder"
-                : "supported_durations_no_fps_placeholder"
-              : "supported_durations_placeholder",
-          )}
+          placeholder={t(tierEmpty ? emptyCopy.placeholder : "supported_durations_placeholder")}
           aria-label={t("supported_durations_label")}
           disabled={tierEmpty}
           className={`${COMPACT_INPUT_CLS} flex-1 disabled:cursor-not-allowed disabled:opacity-45`}
         />
       </div>
       {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。缺帧率来源那一支是可修的定义，
-          文案指向怎么修，不说成「这份 workflow 时长天生固定」。 */}
+          文案指向补哪里；换算不出整秒时长那一支补不出帧率来，不说成「补一处就能恢复」。 */}
       {tierEmpty ? (
-        <p className="text-[11px] text-text-4">
-          {t(fixed ? "supported_durations_fixed_hint" : "supported_durations_no_fps_hint")}
-        </p>
+        <p className="text-[11px] text-text-4">{t(emptyCopy.hint)}</p>
       ) : errorMsg ? (
         <p className="text-[11px] text-warm-bright">
           {t("supported_durations_invalid", { message: errorMsg })}
@@ -1093,6 +1106,7 @@ export function CustomProviderForm({
                         onChange={(v) => updateModel(m.key, { supported_durations_text: v })}
                         tierEmpty={constraints?.durationTierEmpty ?? false}
                         fixed={constraints?.durationFixed ?? false}
+                        frameRateMissing={constraints?.durationFrameRateMissing ?? false}
                       />
                     )}
 

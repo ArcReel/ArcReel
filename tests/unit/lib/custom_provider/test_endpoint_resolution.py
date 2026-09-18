@@ -181,13 +181,17 @@ class TestKindDispatch:
         assert spec.duration_fixed is False
         assert spec.duration_tier_optional is True
 
-    def test_both_ways_of_having_no_tier_report_the_same_empty_bit(self):
-        """界面的只读 / 禁用判据是「档位为空」，两支都要为真；``duration_fixed`` 只挑文案。"""
+    def test_all_three_ways_of_having_no_tier_report_the_same_empty_bit(self):
+        """界面的只读 / 禁用判据是「档位为空」，三支都要为真；另两位只挑文案说哪一句。"""
         unbound = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
         no_fps = comfyui_endpoint_definition()
         no_fps["workflow"]["5"]["inputs"]["length"] = 81
         no_fps["bindings"].pop("fps")
         no_fps["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+        # 50 帧 @ 16fps：帧率读得到，但折成 3 秒再写回是 49 帧，这一档报不出来。
+        no_whole_second = comfyui_endpoint_definition()
+        no_whole_second["workflow"]["5"]["inputs"]["length"] = 50
+        no_whole_second["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
         derivable = comfyui_endpoint_definition()
         derivable["workflow"]["5"]["inputs"]["length"] = 81
         derivable["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
@@ -195,13 +199,16 @@ class TestKindDispatch:
         def spec_of(definition: dict):
             return endpoint_spec_from_row(cast("CustomEndpoint", SimpleNamespace(id=7, definition=definition)))
 
-        assert (spec_of(unbound.definition).duration_tier_empty, spec_of(unbound.definition).duration_fixed) == (
-            True,
-            True,
-        )
-        assert (spec_of(no_fps).duration_tier_empty, spec_of(no_fps).duration_fixed) == (True, False)
-        assert (spec_of(derivable).duration_tier_empty, spec_of(derivable).duration_fixed) == (False, False)
+        def bits_of(definition: dict) -> tuple[bool, bool, bool]:
+            spec = spec_of(definition)
+            return (spec.duration_tier_empty, spec.duration_fixed, spec.duration_frame_rate_missing)
+
+        assert bits_of(unbound.definition) == (True, True, False)
+        assert bits_of(no_fps) == (True, False, True)
+        assert bits_of(no_whole_second) == (True, False, False)
+        assert bits_of(derivable) == (False, False, False)
         assert get_endpoint_spec("openai-video").duration_tier_empty is False
+        assert get_endpoint_spec("openai-video").duration_frame_rate_missing is False
 
     def test_a_native_duration_that_cannot_round_trip_is_no_tier_at_all(self):
         """81 帧 @ 24fps 折成 3 秒，而选中 3 秒会让构造层把帧数改写成 73。

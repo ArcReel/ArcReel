@@ -11,6 +11,8 @@ from lib.custom_provider.comfyui.capabilities import (
     derive_video_capabilities,
     duration_is_fixed,
     fps_literals,
+    frame_rate_is_missing,
+    keeps_its_own_frame_count,
     native_duration,
     native_short_edge,
     size_is_fixed,
@@ -216,6 +218,36 @@ class TestNativeDurationAndTheDefaultTier:
         assert duration_is_fixed(definition["bindings"]) is False
         assert native_duration(definition) is None
         assert default_supported_durations(definition) == []
+        assert frame_rate_is_missing(definition) is True
+
+    def test_frames_unbound_is_not_a_missing_frame_rate(self):
+        """三支互斥：连帧数入口都没有时缺的不是帧率，说「补一个 fps 绑定」无处可补。"""
+        definition = comfyui_endpoint_definition()
+
+        assert duration_is_fixed(definition["bindings"]) is True
+        assert frame_rate_is_missing(definition) is False
+
+    def test_a_frame_rate_that_converts_to_no_whole_second_is_not_a_missing_frame_rate(self):
+        """帧率读得到、只是换算回不到原帧数：档位同样为空，但它既不固定也补不出帧率来。
+
+        50 帧 @ 16fps 折成 3 秒，而提交 3 秒会把帧数写成 49——报这一档就是改图。
+        """
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"]["length"] = 50
+        definition["bindings"]["frames"] = [_frames_target()]
+
+        assert duration_is_fixed(definition["bindings"]) is False
+        assert frame_rate_is_missing(definition) is False
+        assert native_duration(definition) is None
+        assert default_supported_durations(definition) == []
+
+    def test_one_frames_target_without_a_typed_frame_rate_is_enough_to_miss_one(self):
+        """帧率来源要对每个帧数入口都在：缺一个就换算不出这一档，提示仍指向补帧率。"""
+        definition = comfyui_endpoint_definition()
+        definition["bindings"].pop("fps")
+        definition["bindings"]["frames"] = [_frames_target(fps=24), _frames_target(node="12")]
+
+        assert frame_rate_is_missing(definition) is True
 
     def test_a_frames_target_whose_literal_is_missing_yields_no_native_duration(self):
         definition = comfyui_endpoint_definition()
@@ -224,7 +256,11 @@ class TestNativeDurationAndTheDefaultTier:
         assert native_duration(definition) is None
 
     def test_one_unreadable_target_among_several_voids_the_tier_too(self):
-        """接了链接的那一格照样会被填值层写，它回写成什么无从判断，这一档因此不成立。"""
+        """接了链接的那一格照样会被填值层写，它回写成什么无从判断，这一档因此不成立。
+
+        这一形态与「换算不出整秒」同落第三支（两个文案位都为假），但帧数并不保留：填值层照常
+        按请求的秒数改写它，故第三支的文案只说档位给不出来，不说成片长度以 workflow 自身为准。
+        """
         definition = comfyui_endpoint_definition()
         definition["workflow"]["5"]["inputs"]["length"] = 81
         definition["workflow"]["12"] = {"class_type": "WanVideoLength", "inputs": {"num_frames": ["5", 0]}}
@@ -234,6 +270,9 @@ class TestNativeDurationAndTheDefaultTier:
         ]
 
         assert native_duration(definition) is None
+        assert duration_is_fixed(definition["bindings"]) is False
+        assert frame_rate_is_missing(definition) is False
+        assert keeps_its_own_frame_count(definition) is False
 
     def test_a_second_frames_input_that_the_tier_would_rewrite_leaves_no_native_tier(self):
         """两个帧数入口字面值不一致：选中 5 秒会把 65 那个也写成 81，这一档不算原生。"""

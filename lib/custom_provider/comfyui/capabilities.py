@@ -172,6 +172,21 @@ def duration_is_fixed(bindings: Mapping[str, Any]) -> bool:
     return not targets_of(bindings.get("frames"))
 
 
+def frame_rate_is_missing(definition: Mapping[str, Any]) -> bool:
+    """``frames`` 绑了，却读不到帧率来源：既无 ``fps`` 只读绑定，也有帧数入口没手填帧率。
+
+    与 :func:`duration_is_fixed` 互斥（那一支连 ``frames`` 都没绑），也与「帧率读得到、只是换算不出
+    一档能原样写回的整秒时长」互斥。三支都让 :func:`default_supported_durations` 出空集，但说给用户
+    听的话不同：只有这一支缺的是帧率来源本身，界面据此指向补哪里，而不是说这份 workflow 时长天生固定。
+    """
+    bindings: Mapping[str, Any] = definition["bindings"]
+    workflow: Mapping[str, Any] = definition["workflow"]
+    targets = targets_of(bindings.get("frames"))
+    if not targets or bound_fps(workflow, bindings) is not None:
+        return False
+    return any(positive_number(target.get("fps")) is None for target in targets)
+
+
 def native_duration(definition: Mapping[str, Any]) -> int | None:
     """这份 workflow 自己那一档时长（秒），取整。
 

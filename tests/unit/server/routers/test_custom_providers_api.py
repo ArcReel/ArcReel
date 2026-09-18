@@ -229,6 +229,7 @@ class TestEndpointCatalog:
                 "end_image_capable",
                 "size_fixed",
                 "duration_fixed",
+                "duration_frame_rate_missing",
                 "duration_tier_empty",
                 "native_resolution",
             }

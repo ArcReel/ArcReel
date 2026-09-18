@@ -32,7 +32,9 @@ export interface EndpointDescriptor {
   size_fixed: boolean;
   /** 时长由端点固定（ComfyUI 端点上 frames 未绑定节点）：决定只读态的文案说哪一句。 */
   duration_fixed: boolean;
-  /** 档位根本给不出来（frames 未绑定，或绑了却没有帧率来源）：档位不可编辑，成片长度以 workflow 为准。 */
+  /** 档位为空的成因是读不到帧率来源（frames 绑了却既无 fps 绑定也没手填帧率）：同样只决定文案。 */
+  duration_frame_rate_missing: boolean;
+  /** 档位根本给不出来（frames 未绑定、没有帧率来源，或帧率有但换算不出整秒档位）：档位不可编辑，时长这一维不由 ArcReel 驱动。 */
   duration_tier_empty: boolean;
   /** 不选分辨率档位时这份 workflow 实际会出的那一档；非 ComfyUI 端点或读不出字面尺寸时为 null。 */
   native_resolution: string | null;
