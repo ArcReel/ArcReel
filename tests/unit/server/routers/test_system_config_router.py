@@ -159,6 +159,9 @@ class TestGetSystemConfig:
             "narration_voice",
             "narration_speed",
             "market_github_proxy_prefix",
+            "upload_post_api_key",
+            "upload_post_profile",
+            "upload_post_base_url",
         }
         assert set(settings.keys()) == expected_keys
 
@@ -502,6 +505,52 @@ class TestPatchSystemConfig:
                 assert res.status_code == 422, raw
             res = client.get("/api/v1/system/config")
         assert res.json()["settings"]["market_github_proxy_prefix"] == "https://proxy.example.net/"
+
+    def test_get_masks_the_upload_post_api_key(self):
+        mock_svc = _make_mock_svc(
+            settings={
+                "upload_post_api_key": "up-1234567890abcdef",
+                "upload_post_profile": "studio",
+            }
+        )
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        settings = res.json()["settings"]
+        assert settings["upload_post_api_key"]["is_set"] is True
+        assert "1234567890" not in settings["upload_post_api_key"]["masked"]
+        assert settings["upload_post_profile"] == "studio"
+
+    def test_patch_sets_and_clears_upload_post_credentials(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"upload_post_api_key": "  up-secret  ", "upload_post_profile": "  studio  "},
+            )
+            assert res.status_code == 200
+            assert res.json()["settings"]["upload_post_profile"] == "studio"
+            assert res.json()["settings"]["upload_post_api_key"]["is_set"] is True
+
+            res = client.patch("/api/v1/system/config", json={"upload_post_api_key": ""})
+            assert res.status_code == 200
+            assert res.json()["settings"]["upload_post_api_key"]["is_set"] is False
+
+    def test_patch_rejects_an_upload_post_base_url_that_could_leak_credentials(self):
+        mock_svc = _make_mock_svc(settings={"upload_post_base_url": "https://upload.example/api"})
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            for raw in (
+                "http://upload.example/api",
+                "upload.example/api",
+                "https://",
+                "https://user:secret@upload.example/api",
+                "https://upload.example/api?token=abc",
+                "https://upload.example/api#frag",
+                "https://upload.example/a b/api",
+            ):
+                res = client.patch("/api/v1/system/config", json={"upload_post_base_url": raw})
+                assert res.status_code == 422, raw
+            res = client.get("/api/v1/system/config")
+        assert res.json()["settings"]["upload_post_base_url"] == "https://upload.example/api"
 
     def test_patch_rejects_non_positive_narration_speed(self):
         mock_svc = _make_mock_svc()

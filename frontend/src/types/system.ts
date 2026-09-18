@@ -24,6 +24,12 @@ export interface SystemConfigSettings {
   agent_max_concurrent_sessions: number;
   /** 市场源 GitHub raw 代理前缀；空串即直连。 */
   market_github_proxy_prefix?: string;
+  /** 社交分发凭证；与 anthropic_api_key 同口径，只回是否已配置与掩码。 */
+  upload_post_api_key?: { is_set: boolean; masked: string | null };
+  /** Upload-Post 的档案名，投递时定位一组已连接账号。 */
+  upload_post_profile?: string;
+  /** Upload-Post 服务地址；空串即官方地址。 */
+  upload_post_base_url?: string;
 }
 
 export interface SystemConfigOptions {
@@ -106,4 +112,7 @@ export interface SystemConfigPatch {
   agent_session_cleanup_delay_seconds?: number;
   agent_max_concurrent_sessions?: number;
   market_github_proxy_prefix?: string;
+  upload_post_api_key?: string;
+  upload_post_profile?: string;
+  upload_post_base_url?: string;
 }

@@ -10,14 +10,10 @@ import zipfile
 from pathlib import Path
 from typing import Protocol
 
-from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager
 from lib.speech_artifact_provenance import RenditionVariant
-from server.services.presentation_read_model import (
-    MaterializedPresentation,
-    PresentationReadModelService,
-    PresentationUnavailableError,
-)
+from server.services.presentation_media import selected_media_path
+from server.services.presentation_read_model import MaterializedPresentation, PresentationReadModelService
 
 
 class UnitPresentationReader(Protocol):
@@ -70,9 +66,9 @@ class PresentationBundleService:
     @staticmethod
     def _write_bundle(*, project_path: Path, result: MaterializedPresentation) -> Path:
         presentation = result.presentation
-        video = _selected_path(project_path, presentation.video.media.artifact_path)
+        video = selected_media_path(project_path, presentation.video.media.artifact_path)
         narration = (
-            _selected_path(project_path, presentation.narration_audio.media.artifact_path)
+            selected_media_path(project_path, presentation.narration_audio.media.artifact_path)
             if presentation.narration_audio is not None
             else None
         )
@@ -105,13 +101,6 @@ class PresentationBundleService:
         except BaseException:
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise
-
-
-def _selected_path(project_path: Path, relative_path: str) -> Path:
-    try:
-        return safe_join(project_path, relative_path, require_file=True)
-    except (PathTraversalError, FileNotFoundError) as exc:
-        raise PresentationUnavailableError("selected presentation media is unavailable") from exc
 
 
 __all__ = ["PresentationBundleService", "UnitPresentationReader"]

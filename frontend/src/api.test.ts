@@ -1244,6 +1244,41 @@ describe("API", () => {
         expect(API.getJianyingDraftDownloadUrl("demo", 1, "/drafts", "token", "6", "use_tts"))
           .toContain("narration_delivery=use_tts");
       });
+
+      it("publishes a presentation pinned to the previewed versions", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(
+          mockResponse({ jsonData: { request_id: "arcreel-1", total_platforms: 1 } }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+
+        await API.publishPresentation("demo", "videos", "E1S01", {
+          platforms: ["tiktok"],
+          title: "第一章",
+          variant: "use_tts",
+          video_version: 3,
+        });
+
+        expect(fetchMock.mock.calls[0][0]).toBe(
+          "/api/v1/projects/demo/presentations/videos/E1S01/publish",
+        );
+        const init = fetchMock.mock.calls[0][1] as RequestInit;
+        expect(init.method).toBe("POST");
+        expect(JSON.parse(init.body as string)).toEqual({
+          platforms: ["tiktok"],
+          title: "第一章",
+          variant: "use_tts",
+          video_version: 3,
+        });
+      });
+
+      it("polls a publish request by its request id", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(mockResponse({ jsonData: { status: "completed" } }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await API.getSocialPublishStatus("arcreel-1");
+
+        expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/social/publish/status?request_id=arcreel-1");
+      });
     });
   });
 
