@@ -276,6 +276,8 @@ MESSAGES = {
     "endpoint_test_too_many_assets": "Số lượng tệp tài nguyên vượt quá giới hạn {limit}",
     "endpoint_test_credentials_ambiguous": "Chỉ được cung cấp một nguồn thông tin xác thực: chọn nhà cung cấp, hoặc điền trực tiếp địa chỉ API và API Key",
     "endpoint_test_mode_unsupported_for_kind": "Loại endpoint này ({kind}) không hỗ trợ kiểm tra endpoint đó",
+    "endpoint_test_trial_run_image_unsupported": "Kiểm tra kết nối chưa khả dụng cho endpoint ảnh; hãy dùng xem trước yêu cầu để đối chiếu nội dung sẽ gửi",
+    "endpoint_test_preview_failed": "Không thể kết xuất yêu cầu từ định nghĩa này và bộ tham số này: {detail}",
     "endpoint_test_model_unavailable": "Mô hình này đã bị tắt hoặc không phải mô hình video, không thể chạy kiểm tra kết nối",
     "endpoint_test_provider_base_url_required": "Điểm cuối của mô hình này cần địa chỉ API; hãy điền base_url cho nhà cung cấp trước",
     "model_not_found": "Không tìm thấy mô hình",

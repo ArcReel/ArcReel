@@ -9,6 +9,7 @@ HTTP 接口，两侧不会各自长出一套语义。定义的判定始终委托
 """
 
 from .check import STAGES, FieldExtraction, PathAttempt, StageReport, check_response, parse_response_body
+from .comfyui import ComfyuiConversions, comfyui_target, preview_comfyui_request
 from .errors import EndpointTestDefinitionError
 from .inputs import (
     ASSET_SOURCES,
@@ -16,10 +17,18 @@ from .inputs import (
     EndpointTestCredentials,
     EndpointTestParameters,
 )
-from .modes import EndpointTestMode, supports_test_mode
+from .kinds import (
+    SUPPORTED_KINDS,
+    TRIAL_RUN_IMAGE_UNSUPPORTED,
+    KindTestSupport,
+    support_for_kind,
+    trial_run_refusal,
+)
+from .modes import TESTABLE_KINDS, EndpointTestMode, supports_test_mode
 from .preview import PreviewedRequest, RequestPreview, preview_request
 from .trial_run import (
     MAX_POLL_RESPONSES,
+    TRIAL_RUN_STAGES,
     TRIAL_RUN_TTL_SECONDS,
     TrialRun,
     TrialRunBusyError,
@@ -38,13 +47,19 @@ __all__ = [
     "ASSET_SOURCES",
     "MAX_POLL_RESPONSES",
     "STAGES",
+    "SUPPORTED_KINDS",
+    "TESTABLE_KINDS",
+    "TRIAL_RUN_IMAGE_UNSUPPORTED",
+    "TRIAL_RUN_STAGES",
     "TRIAL_RUN_TTL_SECONDS",
+    "ComfyuiConversions",
     "EndpointTestAssets",
     "EndpointTestCredentials",
     "EndpointTestDefinitionError",
     "EndpointTestMode",
     "EndpointTestParameters",
     "FieldExtraction",
+    "KindTestSupport",
     "PathAttempt",
     "PreviewedRequest",
     "RequestPreview",
@@ -55,13 +70,17 @@ __all__ = [
     "TrialRunStatus",
     "TrialRunTarget",
     "check_response",
+    "comfyui_target",
     "declarative_target",
     "model_ref_target",
     "parse_response_body",
+    "preview_comfyui_request",
     "preview_request",
     "provider_from_base_url",
     "shutdown_trial_runs",
     "stage_report_payload",
+    "support_for_kind",
     "supports_test_mode",
     "trial_run_manager",
+    "trial_run_refusal",
 ]

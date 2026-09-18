@@ -45,6 +45,9 @@ logger = logging.getLogger(__name__)
 #: 上传素材统一落在服务端 ``input`` 区的这个子目录下，不与用户自己传的图混在一起。
 UPLOAD_SUBFOLDER = "arcreel"
 
+#: 提交时带上的客户端标识前缀，便于在 ComfyUI 的队列界面上认出是谁发的。
+CLIENT_ID_PREFIX = "arcreel-"
+
 #: ComfyUI 的 ``type`` 维度：``input`` 是可被读图节点引用的输入区。
 _INPUT_TYPE = "input"
 
@@ -406,3 +409,12 @@ def _rejection_summary(body: object) -> str:
     if isinstance(error, Mapping):
         return str(error.get("message") or error.get("type") or "").strip() or "prompt was refused"
     return "prompt was refused"
+
+
+def client_id_for(job_label: str) -> str:
+    """一次提交带上的客户端标识：``arcreel-<任务标识>``。
+
+    ComfyUI 的队列界面按 ``client_id`` 分组显示，带上前缀才能让用户在自己手动跑的队列里认出
+    哪几笔是 ArcReel 发的。提交与端点测试的预览请求共用这一份——预览给出的必须是真发的那个形状。
+    """
+    return f"{CLIENT_ID_PREFIX}{job_label}"

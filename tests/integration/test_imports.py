@@ -88,6 +88,7 @@ FIRST_IMPORT_MODULES = [
     "lib.custom_provider.comfyui_client",
     "lib.custom_provider.discovery",
     "lib.custom_provider.endpoint_definition",
+    "lib.custom_provider.endpoint_test",
     "lib.custom_provider.endpoints",
     "lib.custom_provider.factory",
     "lib.custom_provider.loader",

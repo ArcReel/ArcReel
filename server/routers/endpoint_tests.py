@@ -38,6 +38,7 @@ from lib.backend_assembly.specs import builtin_declarative_video_diagnostics
 from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta, model_info_for
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider, parse_provider_id
+from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.endpoint_definition import AssetData, DefinitionDiagnostics, validate_definition
 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
 from lib.custom_provider.endpoint_test import (
@@ -47,26 +48,26 @@ from lib.custom_provider.endpoint_test import (
     EndpointTestDefinitionError,
     EndpointTestMode,
     EndpointTestParameters,
+    KindTestSupport,
     TrialRun,
     TrialRunBusyError,
     TrialRunManager,
     TrialRunTarget,
     check_response,
-    declarative_target,
     model_ref_target,
     parse_response_body,
-    preview_request,
     stage_report_payload,
+    support_for_kind,
     supports_test_mode,
     trial_run_manager,
+    trial_run_refusal,
 )
-from lib.custom_provider.endpoints import declarative_requires_api_key, declarative_requires_base_url
 from lib.db import async_session_factory, get_async_session
 from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
-from lib.task_failure import render_failure
+from lib.task_failure import encode_failure, render_failure
 
 logger = logging.getLogger(__name__)
 
@@ -158,9 +159,16 @@ class PreviewedRequestResponse(BaseModel):
 
 
 class PreviewResponse(BaseModel):
+    """渲染后的各节请求，外加「这份请求是怎么算出来的」。
+
+    ``conversions`` 的形状由定义的 ``kind`` 决定：声明式端点的请求全部来自模板直填、没有可说明
+    的换算，为 null；ComfyUI 端点给出尺寸 / 帧数 / 种子的换算与这次改图删掉的节点。
+    """
+
     submit: PreviewedRequestResponse
     poll: PreviewedRequestResponse
     result: PreviewedRequestResponse | None = None
+    conversions: dict[str, Any] | None = None
 
 
 class TrialRunResponse(BaseModel):
@@ -171,6 +179,8 @@ class TrialRunResponse(BaseModel):
     created_at: float
     finished_at: float | None = None
     api_call_id: int | None = None
+    provider_job_id: str | None = None
+    stages: dict[str, str] = {}
     request: dict[str, Any] | None = None
     submit_response: Any = None
     poll_responses: list[Any] = []
@@ -258,6 +268,11 @@ def _accepted_definition(definition: object, _t: Translator, *, mode: EndpointTe
     return definition
 
 
+def _support(definition: Mapping[str, Any]) -> KindTestSupport:
+    """这份定义所属 kind 的端点测试实现。定义已过 :func:`_accepted_definition` 的模式闸。"""
+    return support_for_kind(str(definition["kind"]))
+
+
 def _invalid(diagnostics: DefinitionDiagnostics, _t: Translator) -> UnprocessableError:
     return UnprocessableError("custom_endpoint_definition_invalid").with_diagnostic(diagnostics.to_payload(_t))
 
@@ -337,23 +352,29 @@ async def preview_endpoint_request(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> PreviewResponse:
-    """渲染将要发出的请求，不外发。凭证打码、素材换成体积摘要、``task_id`` 保持占位符。"""
+    """渲染将要发出的请求，不外发。凭证打码、素材换成体积摘要、提交后才有的 id 保持占位符。"""
     body, assets = await _parse_body(request, PreviewRequestInput)
     definition = _accepted_definition(body.definition, _t, mode=EndpointTestMode.PREVIEW_REQUEST)
+    support = _support(definition)
+    require_base_url, require_api_key = support.credential_needs(definition)
     credentials = await _resolve_credentials(
-        body.credentials,
-        session,
-        require_base_url=declarative_requires_base_url(definition),
-        require_api_key=declarative_requires_api_key(definition),
+        body.credentials, session, require_base_url=require_base_url, require_api_key=require_api_key
     )
     try:
-        preview = preview_request(definition, body.parameters.to_parameters(), credentials=credentials, assets=assets)
+        preview = support.preview(definition, body.parameters.to_parameters(), credentials=credentials, assets=assets)
     except EndpointTestDefinitionError as exc:
         raise _invalid(exc.diagnostics, _t) from exc
+    except ComfyuiError as exc:
+        # 构造期的 ComfyUI 失败（如参考图少于格子数、改图的级联触到产物节点）不是定义有错，而是
+        # 这份定义配上这组参数渲染不出请求。用失败码本身的三语文案说明，不另写一套措辞。
+        raise BadRequestError(
+            "endpoint_test_preview_failed", detail=render_failure(encode_failure(exc.code, **exc.params), _t)
+        ) from exc
     return PreviewResponse(
         submit=_previewed(preview.submit),
         poll=_previewed(preview.poll),
         result=_previewed(preview.result) if preview.result else None,
+        conversions=dict(preview.conversions) if preview.conversions is not None else None,
     )
 
 
@@ -401,13 +422,13 @@ async def start_trial_run(
         parameters = replace(parameters, model=body.model_ref.model_id)
     elif body.definition is not None:
         definition = _accepted_definition(body.definition, _t, mode=EndpointTestMode.TRIAL_RUN)
+        _refuse_unsupported_trial_run(definition)
+        support = _support(definition)
+        require_base_url, require_api_key = support.credential_needs(definition)
         credentials = await _required_credentials(
-            body.credentials,
-            session,
-            require_base_url=declarative_requires_base_url(definition),
-            require_api_key=declarative_requires_api_key(definition),
+            body.credentials, session, require_base_url=require_base_url, require_api_key=require_api_key
         )
-        target = declarative_target(definition, credentials, parameters)
+        target = support.trial_target(definition, credentials, parameters)
     else:
         raise BadRequestError("endpoint_test_definition_or_model_ref_required")
 
@@ -449,7 +470,7 @@ async def cancel_trial_run(
     run_id: str,
     manager: TrialRunManager = Depends(get_trial_run_manager),
 ) -> Response:
-    """停本地轮询。不通知供应商，记账按失败结算——远端任务照跑，钱可能已经花了。"""
+    """停本地轮询，记账按失败结算。远端由 backend 的取消路径自己叫停，停不下来时照跑、钱照花。"""
     if not await manager.cancel(run_id):
         raise NotFoundError("trial_run_not_found")
     return Response(status_code=204)
@@ -540,9 +561,13 @@ async def _model_ref_target(
     # 不可翻译的中文，且落在脱离请求的后台任务里、原样进结果体的 error 字段；缺 api_key 时
     # 请求会带着空鉴权头发出去，付费打一个注定被拒的调用。
     if endpoint_spec.definition is not None:
-        if declarative_requires_base_url(endpoint_spec.definition) and not provider.base_url:
+        _refuse_unsupported_trial_run(endpoint_spec.definition)
+        require_base_url, require_api_key = _support(endpoint_spec.definition).credential_needs(
+            endpoint_spec.definition
+        )
+        if require_base_url and not provider.base_url:
             raise BadRequestError("endpoint_test_provider_base_url_required")
-        if declarative_requires_api_key(endpoint_spec.definition) and not provider.api_key:
+        if require_api_key and not provider.api_key:
             raise BadRequestError("missing_credentials")
     definition = None
     if endpoint_spec.definition is not None:
@@ -552,6 +577,13 @@ async def _model_ref_target(
     credentials = EndpointTestCredentials(base_url=provider.base_url, api_key=provider.api_key)
     target = model_ref_target(model_ref.provider_id, model_ref.model_id, resolver=resolver, definition=definition)
     return target, credentials, definition
+
+
+def _refuse_unsupported_trial_run(definition: Mapping[str, Any]) -> None:
+    """这份定义本身跑不了测试连接时按 400 拒掉（如 ComfyUI 图像端点）。"""
+    refusal = trial_run_refusal(definition)
+    if refusal is not None:
+        raise BadRequestError(refusal)
 
 
 def _preview_payload(
@@ -565,12 +597,15 @@ def _preview_payload(
 
     顺带充当提交前的渲染闸：模板在真发之前就渲一次，占位符缺值这类错误当场回 422，而不是等
     后台任务跑起来才失败——那时用户已经在等一个注定失败的 run。没有定义可渲（Python 实现的
-    端点）时留空。
+    端点）、或这种 kind 不给这一段（ComfyUI，见 ``KindTestSupport``）时留空。
     """
     if definition is None or credentials is None:
         return None
+    support = _support(definition)
+    if not support.trial_run_request_preview:
+        return None
     try:
-        preview = preview_request(
+        preview = support.preview(
             definition, parameters, credentials=credentials, assets=assets, placeholder_missing_assets=False
         )
     except EndpointTestDefinitionError as exc:

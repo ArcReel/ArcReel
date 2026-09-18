@@ -6,8 +6,8 @@
 才等价于「这个模型行真的能用」，而不是等价于「另一条只在测试里存在的路径能用」。
 
 状态只在内存里活到终态，终态一到写盘（``app_data_dir()/trial_runs/{id}/``）并从内存移除，读接口
-一律读盘；24 小时后整目录清掉。取消不通知供应商，只停本地轮询，记账按失败结算——钱可能已经花了，
-账本不能因为用户点了取消就假装没发生。
+一律读盘；24 小时后整目录清掉。取消停的是本地轮询，记账按失败结算——远端叫不叫得停由 backend 自己在
+它的取消路径上决定，与结算无关：钱可能已经花了，账本不能因为用户点了取消就假装没发生。
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from urllib.parse import urlsplit
 
 from lib.app_data_dir import app_data_dir
 from lib.config.resolver import ConfigResolver
+from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import bound_provider_response
@@ -41,6 +42,7 @@ from lib.video_frame_slots import resolve_first_frame_aspect_ratio
 
 from .check import STAGES, check_response, stage_report_payload
 from .inputs import EndpointTestCredentials, EndpointTestParameters
+from .modes import EndpointTestMode, supports_test_mode
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,9 @@ TRIAL_RUN_TTL_SECONDS = 24 * 3600
 
 #: 结果体里保留的轮询响应条数。
 MAX_POLL_RESPONSES = 20
+
+#: 结果体给出的四段状态点：前三段是运行时留痕的三个阶段，第四段是产物落盘。
+TRIAL_RUN_STAGES = ("submit", "poll", "result", "artifact")
 
 _RESULT_FILE = "result.json"
 _ARTIFACT_FILE = "artifact.mp4"
@@ -82,6 +87,10 @@ class TrialRunTarget:
     model: str
     build_backend: Callable[[], Awaitable[Any]]
     definition: Mapping[str, Any] | None = None
+    #: 提交前跑不跑生产那道能力闸。付费通道一律跑（声明的违约在付费前拒绝）；ComfyUI 端点费用
+    #: 固定 0，且能力由节点绑定推导而内联定义这条入口拿不到推导结果，跑闸只会把「绑定漏了首帧」
+    #: 说成一条能力拒绝——而用户点测试连接正是为了看 ComfyUI 自己怎么说。
+    gate_capabilities: bool = True
 
 
 def _as_float(value: object) -> float | None:
@@ -118,7 +127,9 @@ class TrialRun:
     created_at: float
     finished_at: float | None = None
     api_call_id: int | None = None
-    #: 渲染并脱敏后的提交请求；无定义可渲（Python 实现的端点）为 None。
+    #: 供应商给这笔调用的 id（ComfyUI 的 ``prompt_id``、声明式端点的 ``task_id``）。
+    provider_job_id: str | None = None
+    #: 渲染并脱敏后的提交请求；无定义可渲（Python 实现的端点、ComfyUI 端点）为 None。
     request: dict[str, Any] | None = None
     submit_response: object | None = None
     poll_responses: list[object] = field(default_factory=list)
@@ -139,6 +150,8 @@ class TrialRun:
             "created_at": self.created_at,
             "finished_at": self.finished_at,
             "api_call_id": self.api_call_id,
+            "provider_job_id": self.provider_job_id,
+            "stages": self.stage_states(),
             "request": self.request,
             "submit_response": self.submit_response,
             "poll_responses": self.poll_responses,
@@ -148,6 +161,26 @@ class TrialRun:
             "duration_seconds": self.duration_seconds,
             "error": self.error,
             "has_artifact": self.has_artifact,
+        }
+
+    def stage_states(self) -> dict[str, str]:
+        """四段状态点：到达过的段 ``done``，没到达的段终态上是 ``skipped``、运行中是 ``pending``。
+
+        不猜「失败落在哪一段」。提交被拒时留痕里已经有一条提交响应，按「第一个没到达的段」标红
+        会把错指到轮询上；哪一段失败由 ``error`` 的失败码自己说。
+
+        由 ``to_payload`` 现算而不是存字段：四段的依据全在同一个结果体上，存一份只会多出一处
+        可能与它不一致的副本，读盘回来的老结果也能照当前口径重算。
+        """
+        reached = {
+            "submit": self.submit_response is not None,
+            "poll": bool(self.poll_responses),
+            "result": self.result_response is not None,
+            "artifact": self.has_artifact,
+        }
+        settled = self.status in (TrialRunStatus.SUCCEEDED, TrialRunStatus.FAILED)
+        return {
+            stage: "done" if reached[stage] else ("skipped" if settled else "pending") for stage in TRIAL_RUN_STAGES
         }
 
     @classmethod
@@ -160,6 +193,7 @@ class TrialRun:
             created_at=_as_float(payload.get("created_at")) or 0.0,
             finished_at=_as_float(payload.get("finished_at")),
             api_call_id=_as_int(payload.get("api_call_id")),
+            provider_job_id=_as_str(payload.get("provider_job_id")),
             request=payload.get("request"),
             submit_response=payload.get("submit_response"),
             poll_responses=list(payload.get("poll_responses") or []),
@@ -324,7 +358,11 @@ class TrialRunManager:
         return path if path.is_file() else None
 
     async def cancel(self, run_id: str) -> bool:
-        """停本地轮询并按取消结算。不通知供应商——远端任务照跑，钱照花。"""
+        """停本地轮询并按取消结算。
+
+        远端叫不叫得停不在这一层：backend 的生成路径自己接住这次取消（ComfyUI 据 ``prompt_id``
+        叫停一次），而停不下来的通道远端任务照跑、钱照花，故结算一律按取消走。
+        """
         task = self._tasks.get(run_id)
         run = self._runs.get(run_id)
         if task is None or run is None:
@@ -365,8 +403,9 @@ class TrialRunManager:
             # 记一笔 pending 再翻成 failed 会让账本上多一条根本没打过的调用。
             backend = await target.build_backend()
             # 生产路径在记账括号前跑同一道能力闸（声明的违约在付费前拒绝，不发给供应商）；
-            # 测试连接跑的是生产那条路，闸也一致。
-            await _gate_trial_request(backend, target, parameters, assets)
+            # 测试连接跑的是生产那条路，闸也一致。免闸的目标见 ``TrialRunTarget.gate_capabilities``。
+            if target.gate_capabilities:
+                await _gate_trial_request(backend, target, parameters, assets)
             # 声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上只接受 adaptive；
             # 下发值与记账值分离，账本记的仍是用户填的比例意图（与生产同一分工）。
             request_aspect_ratio = resolve_first_frame_aspect_ratio(
@@ -399,6 +438,7 @@ class TrialRunManager:
                     )
                 )
                 call.success(result)
+                run.provider_job_id = getattr(result, "task_id", None)
                 run.video_url = getattr(result, "video_uri", None)
                 run.duration_seconds = getattr(result, "duration_seconds", None)
                 run.has_artifact = self._artifact_file(run.id).is_file()
@@ -406,7 +446,10 @@ class TrialRunManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            run.error = encode_failure(exc.code, **exc.params) if isinstance(exc, DeclarativeRuntimeError) else str(exc)
+            # 两种运行时的失败载体同形（稳定 code + 可序列化 params），编码成失败码后读侧按
+            # 同一条路径本地化；其余异常没有稳定码可编，原样留字符串。
+            structured = isinstance(exc, DeclarativeRuntimeError | ComfyuiError)
+            run.error = encode_failure(exc.code, **exc.params) if structured else str(exc)
             self._finish(run, target, capture, TrialRunStatus.FAILED)
 
     def _request(
@@ -422,6 +465,9 @@ class TrialRunManager:
     ) -> VideoGenerationRequest:
         async def on_provider_response(stage: ProviderResponseStage, body: object) -> None:
             capture.add(stage, body)
+            # 边收边并进结果体：四段状态点读的是这三个字段，只在终态并一次的话，运行中的 GET
+            # 看到的永远是四个空点。
+            _merge_capture(run, capture)
             # 用户随时可能取消，而取消可能正落在这次写入中间。诊断留痕的写入被拦腰截断会留下
             # 一个半开的事务，随后的失败结算就得在一条坏掉的连接上做——shield 让这次写入自己跑完，
             # 取消照常传给调用它的那一层。写入任务登记在 run 名下：shield 只保护协程不被取消，
@@ -465,9 +511,9 @@ class TrialRunManager:
     ) -> None:
         run.status = status
         run.finished_at = time.time()
-        run.submit_response = capture.submit
-        run.poll_responses = list(capture.polls)
-        run.result_response = capture.result
+        _merge_capture(run, capture)
+        if run.provider_job_id is None:
+            run.provider_job_id = _submitted_prompt_id(capture.submit)
         run.extractions = _stage_reports(target.definition, capture)
         try:
             self._result_file(run.id).write_text(
@@ -609,9 +655,32 @@ def _single(value: Path | list[Path] | None) -> Path | None:
     return value if isinstance(value, Path) else None
 
 
+def _merge_capture(run: TrialRun, capture: _ResponseCapture) -> None:
+    """把这一刻收到的供应商响应并进结果体。"""
+    run.submit_response = capture.submit
+    run.poll_responses = list(capture.polls)
+    run.result_response = capture.result
+
+
+def _submitted_prompt_id(submit: object) -> str | None:
+    """失败在提交之后时，从提交响应里捡回供应商的 id。
+
+    只认 ``prompt_id`` 这一个键（ComfyUI 的提交响应只有它）：声明式端点的 id 键随定义而变，
+    那一侧由 ``result.task_id`` 给出，在这里猜键名只会把某个同名的无关字段当成 job id。
+    """
+    if isinstance(submit, Mapping):
+        prompt_id = str(submit.get("prompt_id") or "").strip()
+        return prompt_id or None
+    return None
+
+
 def _stage_reports(definition: Mapping[str, Any] | None, capture: _ResponseCapture) -> dict[str, Any]:
-    """按运行时阶段生成逐节提取报告。没有定义可读（Python 实现的端点）返回空。"""
-    if definition is None:
+    """按运行时阶段生成逐节提取报告。没有可读的取值路径时返回空。
+
+    闸门与「验证响应」同一条：逐阶段提取就是那个模式的机器，这种 kind 答不上「响应这样回我时
+    我读成了什么」，这里也就没有可报的——ComfyUI 端点的产物提取是固定代码，不是可配路径。
+    """
+    if definition is None or not supports_test_mode(str(definition.get("kind", "")), EndpointTestMode.CHECK_RESPONSE):
         return {}
     polls = list(capture.polls)
     bodies: dict[str, object] = {}

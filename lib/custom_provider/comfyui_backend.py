@@ -38,7 +38,7 @@ from lib.custom_provider.comfyui.failures import (
     ComfyuiError,
 )
 from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInputs, build_workflow
-from lib.custom_provider.comfyui_client import ComfyuiClient, upload_filename
+from lib.custom_provider.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
@@ -60,9 +60,6 @@ VIDEO_SUFFIXES = frozenset({".mp4", ".webm", ".mov"})
 
 #: history 条目里可能挂产物的三个键。只读这三个，且只读 ``output`` 绑定的那个节点。
 _ARTIFACT_KEYS = ("images", "gifs", "audio")
-
-#: 提交时带上的客户端标识前缀，便于在 ComfyUI 的队列界面上认出是谁发的。
-_CLIENT_ID_PREFIX = "arcreel-"
 
 #: 叫停远端用的超时。比生成路径的短得多：这几个请求发在任务已被取消之后，一台不响应的
 #: ComfyUI 不该把 worker 的关停拖上几分钟。
@@ -132,7 +129,7 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
             prompt_id = await self._client.submit_prompt(
                 http,
                 built.workflow,
-                client_id=f"{_CLIENT_ID_PREFIX}{job_label}",
+                client_id=client_id_for(job_label),
                 record=lambda stage, body: notify_provider_response(request, stage, body),
             )
             await self._persist_provider_job_id(

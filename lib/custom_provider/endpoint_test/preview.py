@@ -52,11 +52,17 @@ class PreviewedRequest:
 
 @dataclass(frozen=True)
 class RequestPreview:
-    """一次预览的全部产出：提交、轮询，以及定义声明了二次取件节时的取件请求。"""
+    """一次预览的全部产出：提交、轮询，以及定义声明了二次取件节时的取件请求。
+
+    ``conversions`` 是「这份请求是怎么算出来的」的说明，形状由 kind 决定、原样进响应体：声明式
+    端点的请求全部来自模板直填，没有可说明的换算，故为 ``None``；ComfyUI 端点的尺寸、帧数、种子
+    与改图都是算出来的，键见 :class:`~.comfyui.ComfyuiConversions`。
+    """
 
     submit: PreviewedRequest
     poll: PreviewedRequest
     result: PreviewedRequest | None
+    conversions: Mapping[str, Any] | None = None
 
 
 def preview_request(
@@ -73,7 +79,7 @@ def preview_request(
     好让用户对照文档核字段。测试连接的结果体传 False——记录的必须是真发出去的形状，运行时对
     缺席素材是整个字段删除。
     """
-    api_key = _masked_api_key(credentials.api_key) if credentials else UNRESOLVED_API_KEY
+    api_key = masked_api_key(credentials.api_key) if credentials else UNRESOLVED_API_KEY
     base_url = _preview_base_url(definition, credentials)
     inputs = asset_summaries(definition.get("inputs") or {}, assets, placeholder_missing=placeholder_missing_assets)
     # 渲染出的请求要与真发的一致：声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上
@@ -144,11 +150,19 @@ def asset_summaries(
     return summaries
 
 
-def _masked_api_key(api_key: str) -> str:
+def masked_api_key(api_key: str) -> str:
     """凭证的打码形：``****`` 加尾 4 位。空串原样返回——空凭证没有可打码的内容。"""
     if not api_key:
         return api_key
     return f"{_MASK}{api_key[-_MASK_TAIL:]}" if len(api_key) > _MASK_TAIL else _MASK
+
+
+def restore_mask_in_url(url: str) -> str:
+    """把 URL 里百分号编码过的打码记号还原成 ``****``。
+
+    只替换编码形，不对凭证本身做任何子串替换——``****`` 的编码形不会出现在一个真实的地址里。
+    """
+    return url.replace(_ENCODED_MASK, _MASK)
 
 
 def _preview_base_url(definition: Mapping[str, Any], credentials: EndpointTestCredentials | None) -> str:
