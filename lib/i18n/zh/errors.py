@@ -481,4 +481,18 @@ MESSAGES = {
     "market_entry_already_installed": "此条目已安装，请选择已安装的端点进行更新",
     "market_endpoint_already_installed": "该端点已有其他安装记录，无法覆盖",
     "market_overwrite_target_not_duplicate": "只能覆盖与该条目同作者、同名的端点",
+    # —— 社交分发（Upload-Post）——
+    "social_publish_not_configured": "尚未配置社交分发：请在「系统设置」里填写 Upload-Post 的 API Key 与档案名",
+    "social_publish_credentials_rejected": "Upload-Post 拒绝了这份凭证，请检查 API Key 是否有效或已过期",
+    "social_publish_quota_exceeded": "本月的发布额度已用尽，请升级套餐或等待额度重置",
+    "social_publish_rejected": "Upload-Post 拒绝了这次投递，请按提示调整后重试",
+    "social_publish_upstream_unreachable": "连不上 Upload-Post，请检查网络后重试",
+    "social_publish_upstream_failed": "Upload-Post 暂时不可用，请稍后重试",
+    "social_publish_upstream_malformed": "Upload-Post 返回了无法解析的内容，请稍后重试",
+    "social_publish_platform_required": "请至少选择一个发布平台",
+    "social_publish_platform_unsupported": "平台 '{platform}' 不支持视频投递",
+    "social_publish_request_id_invalid": "投递标识格式无效",
+    "social_publish_title_required": "发布标题不能为空",
+    "social_publish_title_too_long": "发布标题不能超过 {limit} 个字符",
+    "upload_post_base_url_invalid": "Upload-Post 地址必须是不含账号口令与查询串的 https 地址",
 }

@@ -543,4 +543,18 @@ MESSAGES = {
     "market_entry_already_installed": "Mục này đã được cài đặt; chọn điểm cuối của nó để cập nhật",
     "market_endpoint_already_installed": "Điểm cuối này có bản ghi cài đặt khác và không thể ghi đè",
     "market_overwrite_target_not_duplicate": "Chỉ có thể ghi đè điểm cuối có cùng tác giả và tên với mục này",
+    # —— Phân phối mạng xã hội (Upload-Post) ——
+    "social_publish_not_configured": "Chưa cấu hình phân phối mạng xã hội: hãy điền API Key và tên hồ sơ Upload-Post trong Cài đặt hệ thống",
+    "social_publish_credentials_rejected": "Upload-Post đã từ chối thông tin xác thực này; hãy kiểm tra API Key còn hiệu lực hay đã hết hạn",
+    "social_publish_quota_exceeded": "Hạn mức đăng bài trong tháng đã dùng hết; hãy nâng cấp gói hoặc chờ hạn mức được đặt lại",
+    "social_publish_rejected": "Upload-Post đã từ chối lần gửi này; hãy điều chỉnh theo hướng dẫn rồi thử lại",
+    "social_publish_upstream_unreachable": "Không kết nối được tới Upload-Post; hãy kiểm tra mạng rồi thử lại",
+    "social_publish_upstream_failed": "Upload-Post tạm thời không khả dụng; vui lòng thử lại sau",
+    "social_publish_upstream_malformed": "Upload-Post trả về nội dung không thể phân tích; vui lòng thử lại sau",
+    "social_publish_platform_required": "Hãy chọn ít nhất một nền tảng để đăng",
+    "social_publish_platform_unsupported": "Nền tảng '{platform}' không nhận video",
+    "social_publish_request_id_invalid": "Định danh lần gửi có định dạng không hợp lệ",
+    "social_publish_title_required": "Tiêu đề bài đăng không được để trống",
+    "social_publish_title_too_long": "Tiêu đề bài đăng không được vượt quá {limit} ký tự",
+    "upload_post_base_url_invalid": "Địa chỉ Upload-Post phải là URL https không chứa thông tin đăng nhập hay chuỗi truy vấn",
 }

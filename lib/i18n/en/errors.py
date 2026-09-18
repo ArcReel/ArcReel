@@ -543,4 +543,18 @@ MESSAGES = {
     "market_entry_already_installed": "This entry is already installed; select its endpoint to update",
     "market_endpoint_already_installed": "This endpoint has another installation record and cannot be overwritten",
     "market_overwrite_target_not_duplicate": "Only an endpoint with the same author and name as this entry can be overwritten",
+    # —— Social distribution (Upload-Post) ——
+    "social_publish_not_configured": "Social distribution is not configured: set the Upload-Post API key and profile name in System Settings",
+    "social_publish_credentials_rejected": "Upload-Post rejected these credentials; check whether the API key is valid or has expired",
+    "social_publish_quota_exceeded": "This month's publishing quota is used up; upgrade the plan or wait for the quota to reset",
+    "social_publish_rejected": "Upload-Post rejected this submission; adjust it as indicated and try again",
+    "social_publish_upstream_unreachable": "Upload-Post could not be reached; check the network and try again",
+    "social_publish_upstream_failed": "Upload-Post is temporarily unavailable; try again later",
+    "social_publish_upstream_malformed": "Upload-Post returned content that could not be parsed; try again later",
+    "social_publish_platform_required": "Select at least one platform to publish to",
+    "social_publish_platform_unsupported": "Platform '{platform}' does not accept video submissions",
+    "social_publish_request_id_invalid": "The submission identifier has an invalid format",
+    "social_publish_title_required": "The publish title cannot be empty",
+    "social_publish_title_too_long": "The publish title cannot exceed {limit} characters",
+    "upload_post_base_url_invalid": "The Upload-Post address must be an https URL without credentials or a query string",
 }

@@ -98,6 +98,12 @@ import type {
   PresentationRequestOptions,
   PresentationResourceType,
 } from "@/types/presentation";
+import type {
+  SocialPublishProfilesResponse,
+  SocialPublishProgress,
+  SocialPublishRequest,
+  SocialPublishSubmission,
+} from "@/types/social-publish";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { WorkflowPlan, WorkflowPlanRequest } from "@/types/workflow";
@@ -1244,6 +1250,34 @@ class API {
     const disposition = response.headers.get("Content-Disposition") ?? "";
     const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] ?? `${resourceId}_presentation.zip`;
     return { blob: await response.blob(), filename };
+  }
+
+  /** 可投递的档案与已连接账号；未配置凭证时后端回 422。 */
+  static async getSocialPublishProfiles(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<SocialPublishProfilesResponse> {
+    return this.request("/social/publish/profiles", { signal: options.signal });
+  }
+
+  /** 把选中的成片投递到社交平台；回执带 request_id，进度另行轮询。 */
+  static async publishPresentation(
+    projectName: string,
+    resourceType: PresentationResourceType,
+    resourceId: string,
+    body: SocialPublishRequest,
+  ): Promise<SocialPublishSubmission> {
+    const endpoint =
+      `/projects/${encodeURIComponent(projectName)}/presentations/` +
+      `${resourceType}/${encodeURIComponent(resourceId)}/publish`;
+    return this.request(endpoint, { method: "POST", body: JSON.stringify(body) });
+  }
+
+  static async getSocialPublishStatus(
+    requestId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<SocialPublishProgress> {
+    const query = new URLSearchParams({ request_id: requestId });
+    return this.request(`/social/publish/status?${query.toString()}`, { signal: options.signal });
   }
 
   static async importProject(
