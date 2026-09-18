@@ -459,8 +459,9 @@ def test_a_field_two_keys_want_equally_is_left_to_neither():
 
 def test_a_saved_binding_keeps_its_field_and_inference_yields_it_instead():
     """用户确认过的落点不由推断让出：已保存绑定的权重高于任何推断信号，标记也压不过它。"""
-    workflow = marked(sample_workflow("wan21_t2v"), "7", "ARCREEL:prompt")
-    saved = {"negative_prompt": [{"node": "7", "input": "text", "class_type": "CLIPTextEncode", "title": "负向"}]}
+    marker = "ARCREEL:prompt"
+    workflow = marked(sample_workflow("wan21_t2v"), "7", marker)
+    saved = {"negative_prompt": [{"node": "7", "input": "text", "class_type": "CLIPTextEncode", "title": marker}]}
 
     result = infer_sample("wan21_t2v", workflow=workflow, bindings=saved)
 

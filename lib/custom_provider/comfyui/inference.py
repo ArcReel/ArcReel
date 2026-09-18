@@ -374,7 +374,7 @@ def _yield_landing(
 def _rematch(key: str, saved: Sequence[Any], workflow: Mapping[str, Any], engine: _Engine) -> KeyInference:
     """已保存的节点绑定对上新 workflow：逐条沿用、迁移或判丢。
 
-    三级按可靠度递减：节点 id 与类型都没变即原样沿用；类型加标题在全图唯一时迁移到新 id 并标
+    三级按可靠度递减：节点 id、类型与标题都没变即原样沿用；类型加标题在全图唯一时迁移到新 id 并标
     「已重匹配」；再不成该条目就丢了。丢了条目的语义键整键重跑推断并标「需确认」——重导入不静默
     保存，用户要看见哪些沿用、哪些重新识别。
     """
@@ -424,7 +424,12 @@ def _relocate(entry: Mapping[str, Any], workflow: Mapping[str, Any]) -> tuple[st
     class_type = str(entry.get("class_type", ""))
     input_name = entry.get("input")
     node = workflow.get(str(entry.get("node")))
-    if isinstance(node, Mapping) and class_type_of(node) == class_type and _writable(node, input_name):
+    if (
+        isinstance(node, Mapping)
+        and class_type_of(node) == class_type
+        and _same_title(entry, node)
+        and _writable(node, input_name)
+    ):
         return str(entry["node"]), MatchOrigin.KEPT
     title = str(entry.get("title", ""))
     matches = [
@@ -435,6 +440,19 @@ def _relocate(entry: Mapping[str, Any], workflow: Mapping[str, Any]) -> tuple[st
         and _writable(candidate, input_name)
     ]
     return (matches[0], MatchOrigin.REMATCHED) if len(matches) == 1 else None
+
+
+def _same_title(entry: Mapping[str, Any], node: Mapping[str, Any]) -> bool:
+    """条目记下的标题与新图里同 id 那个节点的标题一致。
+
+    同类同入口的两个节点（正负 ``CLIPTextEncode`` 是最常见的一对）在重新导出时互换编号，只比类型
+    与字段可写的话旧 id 仍然匹配得上，一侧的值就会悄悄写进另一侧。两边都没有标题时（导出物里
+    ``_meta`` 可能整节缺失）这一条核对不出任何东西，按一致处置；条目没记 ``title`` 也一样——它在
+    定义 schema 上是可选字段，没记不等于当时没有标题。
+    """
+    if "title" not in entry:
+        return True
+    return str(entry["title"]) == node_title(node)
 
 
 def _refresh_consumer(target: dict[str, Any], key: str, node_id: str, engine: _Engine) -> None:
